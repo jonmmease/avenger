@@ -24,16 +24,16 @@ use crate::{
     theme::Theme,
 };
 
+use avenger_layout::FrameAxisSizing;
+
 use super::{
-    ComponentType, MIN_GUIDE_OVERFLOW_SIZE,
-    grid::{FrameTrackSize, GridBuilder, GridLayout},
+    grid::{FrameChrome, GridBuilder, MIN_COMPONENT_SIZE},
     info::LegendLayoutInfo,
     sizing::{EvaluatedLayoutSpec, EvaluatedSizeMode},
 };
 
 const DEFAULT_CANVAS_WIDTH: f32 = 400.0;
 const DEFAULT_CANVAS_HEIGHT: f32 = 300.0;
-const MIN_COMPONENT_SIZE: f32 = 50.0;
 
 /// Input required to solve a chart frame layout.
 pub(crate) struct FrameLayoutInput<'a> {
@@ -101,9 +101,18 @@ impl AvengerFrameLayoutSolver {
             TitleSpan::default()
         };
 
-        let grid = builder
-            .build_with_overflow(
+        let normalized_spec = normalize_layout_spec(input.layout_spec);
+        let chrome = builder
+            .build_frame_chrome(
                 input.overflow,
+                frame_axis_sizing(
+                    definite_width(&normalized_spec.canvas),
+                    definite_width(&normalized_spec.plot_area),
+                ),
+                frame_axis_sizing(
+                    definite_height(&normalized_spec.canvas),
+                    definite_height(&normalized_spec.plot_area),
+                ),
                 input.title,
                 input.subtitle,
                 input.theme,
@@ -116,9 +125,7 @@ impl AvengerFrameLayoutSolver {
             .await?;
 
         solve_native_frame_layout(
-            input.overflow,
-            input.layout_spec,
-            &grid,
+            &chrome,
             &builder.legends_by_position,
             input.legend_measurements,
             title_span,
@@ -127,73 +134,43 @@ impl AvengerFrameLayoutSolver {
     }
 }
 
-async fn evaluate_title_span(
-    span_field: &Maybe<Option<protobuf::LogicalExprNode>>,
-    theme_context: &crate::theme::ThemeContext,
-    theme: &Theme,
-    ctx: &SessionContext,
-    params: &IndexMap<String, ScalarValue>,
-) -> Result<TitleSpan, AvengerChartError> {
-    match span_field {
-        Maybe::Set(Some(node)) => {
-            let expr = node.to_expr(ctx)?;
-            let span_str = evaluate_string_expr(&expr, ctx, params).await?;
-            Ok(match span_str.as_str() {
-                "canvas" => TitleSpan::Canvas,
-                "plot_area" | "plot-area" => TitleSpan::PlotArea,
-                _ => TitleSpan::default(),
-            })
+/// Map one axis of the normalized layout spec onto a frame sizing mode.
+///
+/// - canvas and plot both definite: the margins absorb the slack,
+/// - canvas definite, plot auto: the plot content takes the remainder,
+/// - plot definite, canvas auto: the canvas wraps the content,
+/// - neither: the plot content collapses to its minimum.
+fn frame_axis_sizing(canvas: Option<f32>, plot: Option<f32>) -> FrameAxisSizing {
+    match (canvas, plot) {
+        (Some(extent), Some(content)) => {
+            FrameAxisSizing::EnvelopeAndContentFixed { extent, content }
         }
-        _ => Ok(theme
-            .query(theme_context, "width")
-            .and_then(|value| value.as_string().map(|s| s.to_string()))
-            .and_then(|s| match s.as_str() {
-                "canvas" => Some(TitleSpan::Canvas),
-                "plot-area" | "plot_area" => Some(TitleSpan::PlotArea),
-                _ => None,
-            })
-            .unwrap_or_default()),
+        (Some(extent), None) => FrameAxisSizing::EnvelopeFixed { extent },
+        (None, Some(content)) => FrameAxisSizing::ContentFixed { content },
+        (None, None) => FrameAxisSizing::ContentFixed {
+            content: MIN_COMPONENT_SIZE,
+        },
     }
 }
 
 fn solve_native_frame_layout(
-    overflow: &OverflowSpaceRequirement,
-    layout_spec: &EvaluatedLayoutSpec,
-    grid: &GridLayout,
+    chrome: &FrameChrome,
     legends_by_position: &IndexMap<LegendPosition, Vec<String>>,
     legend_measurements: &LegendMeasurements,
     title_span: TitleSpan,
     subtitle_span: TitleSpan,
 ) -> Result<LayoutSolution, AvengerChartError> {
-    let normalized_spec = normalize_layout_spec(layout_spec);
-    let plot_position = grid
-        .find_component_position(&ComponentType::PlotArea)
-        .ok_or_else(|| AvengerChartError::LayoutError("Frame grid is missing plot area".into()))?;
-
-    let col_sizes = solve_tracks(
-        &grid.cols,
-        definite_width(&normalized_spec.canvas),
-        Some(plot_position.1),
-    );
-    let row_sizes = solve_tracks(
-        &grid.rows,
-        definite_height(&normalized_spec.canvas),
-        Some(plot_position.0),
-    );
-    let col_starts = track_starts(&col_sizes);
-    let row_starts = track_starts(&row_sizes);
+    let solution = chrome.frame.solve();
+    let h = &solution.horizontal;
+    let v = &solution.vertical;
 
     let mut frame_layout = FrameLayout {
-        plot_area: rounded_plot_bounds(bounds_for_cell(
-            &row_starts,
-            &row_sizes,
-            &col_starts,
-            &col_sizes,
-            plot_position.0,
-            plot_position.1,
-            1,
-            1,
-        )),
+        plot_area: rounded_plot_bounds(LayoutBounds {
+            x: h.content.start,
+            y: v.content.start,
+            width: h.content.size,
+            height: v.content.size,
+        }),
         guide_overflows: HashMap::new(),
         legends: IndexMap::new(),
         legends_by_position: legends_by_position.clone(),
@@ -208,89 +185,117 @@ fn solve_native_frame_layout(
         "Outer plot-area"
     );
 
-    for (side, component) in [
+    let guide_layers = [
         (
             AxisPosition::Top,
-            ComponentType::GuideOverflow(avenger_chart_core::OverflowSide::Top),
+            chrome.guide_overflow.top,
+            LayoutBounds {
+                x: h.content.start,
+                y: v.leading.inner.start,
+                width: h.content.size,
+                height: v.leading.inner.size,
+            },
         ),
         (
             AxisPosition::Right,
-            ComponentType::GuideOverflow(avenger_chart_core::OverflowSide::Right),
+            chrome.guide_overflow.right,
+            LayoutBounds {
+                x: h.trailing.inner.start,
+                y: v.content.start,
+                width: h.trailing.inner.size,
+                height: v.content.size,
+            },
         ),
         (
             AxisPosition::Bottom,
-            ComponentType::GuideOverflow(avenger_chart_core::OverflowSide::Bottom),
+            chrome.guide_overflow.bottom,
+            LayoutBounds {
+                x: h.content.start,
+                y: v.trailing.inner.start,
+                width: h.content.size,
+                height: v.trailing.inner.size,
+            },
         ),
         (
             AxisPosition::Left,
-            ComponentType::GuideOverflow(avenger_chart_core::OverflowSide::Left),
+            chrome.guide_overflow.left,
+            LayoutBounds {
+                x: h.leading.inner.start,
+                y: v.content.start,
+                width: h.leading.inner.size,
+                height: v.content.size,
+            },
         ),
-    ] {
-        if overflow_side_value(overflow, side) > MIN_GUIDE_OVERFLOW_SIZE
-            && let Some((row, col)) = grid.find_component_position(&component)
-        {
-            frame_layout.guide_overflows.insert(
-                side,
-                rounded_guide_bounds(bounds_for_cell(
-                    &row_starts,
-                    &row_sizes,
-                    &col_starts,
-                    &col_sizes,
-                    row,
-                    col,
-                    1,
-                    1,
-                )),
-            );
-            if let Some(bounds) = frame_layout.guide_overflows.get(&side) {
-                debug!(
-                    position = ?side,
-                    x = bounds.x,
-                    y = bounds.y,
-                    width = bounds.width,
-                    height = bounds.height,
-                    rel_x = bounds.x - frame_layout.plot_area.x,
-                    rel_y = bounds.y - frame_layout.plot_area.y,
-                    "Outer guide overflow bounds"
-                );
-            }
+    ];
+    for (side, present, bounds) in guide_layers {
+        if !present {
+            continue;
         }
+        let bounds = rounded_guide_bounds(bounds);
+        debug!(
+            position = ?side,
+            x = bounds.x,
+            y = bounds.y,
+            width = bounds.width,
+            height = bounds.height,
+            rel_x = bounds.x - frame_layout.plot_area.x,
+            rel_y = bounds.y - frame_layout.plot_area.y,
+            "Outer guide overflow bounds"
+        );
+        frame_layout.guide_overflows.insert(side, bounds);
     }
 
-    frame_layout.title = title_or_subtitle_bounds(
-        grid,
-        ComponentType::Title,
-        title_span,
-        &row_starts,
-        &row_sizes,
-        &col_starts,
-        &col_sizes,
-    );
-    frame_layout.subtitle = title_or_subtitle_bounds(
-        grid,
-        ComponentType::Subtitle,
-        subtitle_span,
-        &row_starts,
-        &row_sizes,
-        &col_starts,
-        &col_sizes,
-    );
+    let has_right_legend = legends_by_position.contains_key(&LegendPosition::Right);
+    let mut band_index = 0;
+    if chrome.has_title_band {
+        frame_layout.title = Some(title_band_bounds(
+            &solution,
+            band_index,
+            title_span,
+            chrome.guide_overflow.left,
+            chrome.guide_overflow.right,
+            has_right_legend,
+        ));
+        band_index += 1;
+    }
+    if chrome.has_subtitle_band {
+        frame_layout.subtitle = Some(title_band_bounds(
+            &solution,
+            band_index,
+            subtitle_span,
+            chrome.guide_overflow.left,
+            chrome.guide_overflow.right,
+            has_right_legend,
+        ));
+    }
 
     for (position, legend_keys) in legends_by_position {
-        let component = ComponentType::LegendContainer(*position);
-        let Some((row, col)) = grid.find_component_position(&component) else {
-            continue;
+        let container = match position {
+            LegendPosition::Left => LayoutBounds {
+                x: h.leading.outer.start,
+                y: v.content.start,
+                width: h.leading.outer.size,
+                height: v.content.size,
+            },
+            LegendPosition::Right => LayoutBounds {
+                x: h.trailing.outer.start,
+                y: v.content.start,
+                width: h.trailing.outer.size,
+                height: v.content.size,
+            },
+            LegendPosition::Top => LayoutBounds {
+                x: h.content.start,
+                y: v.leading.outer.start,
+                width: h.content.size,
+                height: v.leading.outer.size,
+            },
+            LegendPosition::Bottom => LayoutBounds {
+                x: h.content.start,
+                y: v.trailing.outer.start,
+                width: h.content.size,
+                height: v.trailing.outer.size,
+            },
         };
-        let container = bounds_for_cell(
-            &row_starts,
-            &row_sizes,
-            &col_starts,
-            &col_sizes,
-            row,
-            col,
-            1,
-            1,
-        );
         for (key, bounds) in
             layout_legend_group(*position, container, legend_keys, legend_measurements)
         {
@@ -346,14 +351,87 @@ fn solve_native_frame_layout(
 
     Ok(LayoutSolution {
         frame_layout,
-        canvas_size: (
-            rounded_track_total(&col_sizes),
-            rounded_track_total(&row_sizes),
-        ),
+        canvas_size: (h.extent.round().max(0.0), v.extent.round().max(0.0)),
         overflow: guide_overflow.clone(),
         total_overflow: guide_overflow,
         legend_info,
     })
+}
+
+/// Compute the rect of one title/subtitle band from the solved frame.
+///
+/// The band's vertical strip is `vertical.leading.bands[band_index]`. The
+/// horizontal span follows the span policy: the plot content alone, or the
+/// content plus the existing guide-overflow layers and a right legend
+/// container (the canvas span runs from the left overflow layer through the
+/// rightmost chrome component, as the legacy grid spanned columns).
+fn title_band_bounds(
+    solution: &avenger_layout::FrameSolution,
+    band_index: usize,
+    span: TitleSpan,
+    has_left_overflow: bool,
+    has_right_overflow: bool,
+    has_right_legend: bool,
+) -> LayoutBounds {
+    let h = &solution.horizontal;
+    let band = solution.vertical.leading.bands[band_index];
+    let (x, width) = match span {
+        TitleSpan::PlotArea => (h.content.start, h.content.size),
+        TitleSpan::Canvas => {
+            let x = if has_left_overflow {
+                h.leading.inner.start
+            } else {
+                h.content.start
+            };
+            let mut width = 0.0f32;
+            if has_left_overflow {
+                width += h.leading.inner.size;
+            }
+            width += h.content.size;
+            if has_right_overflow {
+                width += h.trailing.inner.size;
+            }
+            if has_right_legend {
+                width += h.trailing.outer.size;
+            }
+            (x, width)
+        }
+    };
+    rounded_bounds(LayoutBounds {
+        x,
+        y: band.start,
+        width,
+        height: band.size,
+    })
+}
+
+async fn evaluate_title_span(
+    span_field: &Maybe<Option<protobuf::LogicalExprNode>>,
+    theme_context: &crate::theme::ThemeContext,
+    theme: &Theme,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<TitleSpan, AvengerChartError> {
+    match span_field {
+        Maybe::Set(Some(node)) => {
+            let expr = node.to_expr(ctx)?;
+            let span_str = evaluate_string_expr(&expr, ctx, params).await?;
+            Ok(match span_str.as_str() {
+                "canvas" => TitleSpan::Canvas,
+                "plot_area" | "plot-area" => TitleSpan::PlotArea,
+                _ => TitleSpan::default(),
+            })
+        }
+        _ => Ok(theme
+            .query(theme_context, "width")
+            .and_then(|value| value.as_string().map(|s| s.to_string()))
+            .and_then(|s| match s.as_str() {
+                "canvas" => Some(TitleSpan::Canvas),
+                "plot-area" | "plot_area" => Some(TitleSpan::PlotArea),
+                _ => None,
+            })
+            .unwrap_or_default()),
+    }
 }
 
 fn normalize_layout_spec(layout_spec: &EvaluatedLayoutSpec) -> EvaluatedLayoutSpec {
@@ -386,92 +464,6 @@ fn definite_height(mode: &EvaluatedSizeMode) -> Option<f32> {
     }
 }
 
-fn solve_tracks(
-    tracks: &[FrameTrackSize],
-    definite_available: Option<f32>,
-    plot_track: Option<usize>,
-) -> Vec<f32> {
-    let mut sizes = vec![0.0f32; tracks.len()];
-    let mut fixed_total = 0.0f32;
-    let mut fr_weight_total = 0.0f32;
-    let mut fr_min_total = 0.0f32;
-    let mut fr_tracks = Vec::new();
-
-    for (index, track) in tracks.iter().copied().enumerate() {
-        match track {
-            FrameTrackSize::Fixed(value) => {
-                sizes[index] = value.max(0.0);
-                fixed_total += sizes[index];
-            }
-            FrameTrackSize::Fr(weight) => {
-                let weight = weight.max(0.0);
-                let min = if Some(index) == plot_track {
-                    MIN_COMPONENT_SIZE
-                } else {
-                    0.0
-                };
-                fr_weight_total += weight;
-                fr_min_total += min;
-                fr_tracks.push((index, weight, min));
-            }
-        }
-    }
-
-    if fr_tracks.is_empty() {
-        return sizes;
-    }
-
-    let fr_available = definite_available
-        .map(|available| (available - fixed_total).max(fr_min_total))
-        .unwrap_or(fr_min_total);
-    let extra = (fr_available - fr_min_total).max(0.0);
-    for (index, weight, min) in fr_tracks {
-        let share = if fr_weight_total > 0.0 {
-            extra * weight / fr_weight_total
-        } else {
-            0.0
-        };
-        sizes[index] = min + share;
-    }
-
-    sizes
-}
-
-fn track_starts(sizes: &[f32]) -> Vec<f32> {
-    let mut cursor = 0.0f32;
-    sizes
-        .iter()
-        .map(|size| {
-            let start = cursor;
-            cursor += *size;
-            start
-        })
-        .collect()
-}
-
-fn rounded_track_total(sizes: &[f32]) -> f32 {
-    sizes.iter().sum::<f32>().round().max(0.0)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn bounds_for_cell(
-    row_starts: &[f32],
-    row_sizes: &[f32],
-    col_starts: &[f32],
-    col_sizes: &[f32],
-    row: usize,
-    col: usize,
-    row_span: usize,
-    col_span: usize,
-) -> LayoutBounds {
-    LayoutBounds {
-        x: col_starts[col],
-        y: row_starts[row],
-        width: col_sizes[col..col + col_span].iter().sum(),
-        height: row_sizes[row..row + row_span].iter().sum(),
-    }
-}
-
 fn rounded_plot_bounds(bounds: LayoutBounds) -> LayoutBounds {
     rounded_track_bounds(bounds)
 }
@@ -500,37 +492,6 @@ fn rounded_bounds(bounds: LayoutBounds) -> LayoutBounds {
         width: bounds.width.round(),
         height: bounds.height.round(),
     }
-}
-
-fn title_or_subtitle_bounds(
-    grid: &GridLayout,
-    component: ComponentType,
-    span: TitleSpan,
-    row_starts: &[f32],
-    row_sizes: &[f32],
-    col_starts: &[f32],
-    col_sizes: &[f32],
-) -> Option<LayoutBounds> {
-    let (row, col) = grid.find_component_position(&component)?;
-    let plot_col = grid
-        .find_component_position(&ComponentType::PlotArea)
-        .map(|(_, col)| col)
-        .unwrap_or(col);
-    let (start_col, col_span) = match span {
-        TitleSpan::PlotArea => (plot_col, 1),
-        TitleSpan::Canvas => {
-            let end_col = grid
-                .component_cells
-                .keys()
-                .map(|(_, col)| *col)
-                .max()
-                .unwrap_or(col);
-            (col, end_col.saturating_sub(col) + 1)
-        }
-    };
-    Some(rounded_bounds(bounds_for_cell(
-        row_starts, row_sizes, col_starts, col_sizes, row, start_col, 1, col_span,
-    )))
 }
 
 fn layout_legend_group(
@@ -807,82 +768,69 @@ fn guide_overflow_bounds(plot_area: LayoutBounds, side: AxisPosition, guide: f32
 
 #[cfg(test)]
 mod tests {
-    use avenger_chart_core::{LayoutBounds, LegendPosition, OverflowSide, Size2D, TitleSpan};
+    use avenger_chart_core::{LayoutBounds, LegendPosition, Size2D, TitleSpan};
     use avenger_chart_legend::{LegendMeasurement, LegendMeasurements};
+    use avenger_layout::{Edges as LayoutEdges, Frame, FrameAxis, FrameAxisSizing, FrameSide};
     use indexmap::IndexMap;
 
-    use crate::{
-        guide::OverflowSpaceRequirement,
-        layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
-    };
-
     use super::{
-        ComponentType, FrameTrackSize, GridLayout, LegendMainAxis, MIN_COMPONENT_SIZE,
-        layout_legend_group, retarget_flexible_legend_group_main_axis, rounded_guide_bounds,
-        rounded_plot_bounds, rounded_track_total, solve_native_frame_layout, solve_tracks,
-        title_or_subtitle_bounds,
+        FrameChrome, LegendMainAxis, MIN_COMPONENT_SIZE, layout_legend_group,
+        retarget_flexible_legend_group_main_axis, rounded_guide_bounds, rounded_plot_bounds,
+        solve_native_frame_layout, title_band_bounds,
     };
 
-    #[test]
-    fn track_solver_distributes_remaining_space_to_fr_tracks() {
-        let sizes = solve_tracks(
-            &[
-                FrameTrackSize::fixed(10.0),
-                FrameTrackSize::fr(1.0),
-                FrameTrackSize::fr(2.0),
-                FrameTrackSize::fixed(20.0),
-            ],
-            Some(330.0),
-            Some(1),
-        );
-
-        assert_eq!(sizes[0], 10.0);
-        assert_eq!(sizes[3], 20.0);
-        assert!((sizes[1] - 133.33334).abs() < 0.001);
-        assert!((sizes[2] - 166.66667).abs() < 0.001);
+    fn frame_side(margin: f32, bands: &[f32], outer: f32, inner: f32) -> FrameSide {
+        FrameSide {
+            margin,
+            bands: bands.to_vec(),
+            outer,
+            inner,
+        }
     }
 
     #[test]
-    fn track_solver_uses_plot_minimum_for_min_content_axis() {
-        let sizes = solve_tracks(
-            &[
-                FrameTrackSize::fixed(10.0),
-                FrameTrackSize::fr(1.0),
-                FrameTrackSize::fr(1.0),
-            ],
-            None,
-            Some(1),
+    fn title_band_spans_plot_content_or_full_canvas_chrome() {
+        // Mirrors the legacy column structure
+        // [margin 10][overflow-left 35][plot 338][overflow-right 7][legend 57][margin 10]
+        // with a 21px title band after a 10px top margin.
+        let solution = Frame {
+            horizontal: FrameAxis {
+                sizing: FrameAxisSizing::ContentFixed { content: 338.0 },
+                leading: frame_side(10.0, &[], 0.0, 35.0),
+                trailing: frame_side(10.0, &[], 57.0, 7.0),
+                content_min: MIN_COMPONENT_SIZE,
+            },
+            vertical: FrameAxis {
+                sizing: FrameAxisSizing::ContentFixed { content: 203.0 },
+                leading: frame_side(10.0, &[21.0], 0.0, 16.0),
+                trailing: frame_side(10.0, &[], 0.0, 0.0),
+                content_min: MIN_COMPONENT_SIZE,
+            },
+        }
+        .solve();
+
+        let plot_area_title =
+            title_band_bounds(&solution, 0, TitleSpan::PlotArea, true, true, true);
+        assert_eq!(
+            plot_area_title,
+            LayoutBounds {
+                x: 45.0,
+                y: 10.0,
+                width: 338.0,
+                height: 21.0,
+            }
         );
 
-        assert_eq!(sizes[0], 10.0);
-        assert_eq!(sizes[1], MIN_COMPONENT_SIZE);
-        assert_eq!(sizes[2], 0.0);
-    }
-
-    #[test]
-    fn track_solver_distributes_fixed_canvas_extra_to_expandable_margins() {
-        let sizes = solve_tracks(
-            &[
-                FrameTrackSize::fr(1.0),
-                FrameTrackSize::fixed(300.0),
-                FrameTrackSize::fr(1.0),
-            ],
-            Some(500.0),
-            None,
+        let canvas_title = title_band_bounds(&solution, 0, TitleSpan::Canvas, true, true, true);
+        assert_eq!(
+            canvas_title,
+            LayoutBounds {
+                x: 10.0,
+                y: 10.0,
+                width: 437.0,
+                height: 21.0,
+            }
         );
-
-        assert_eq!(sizes, vec![100.0, 300.0, 100.0]);
-    }
-
-    #[test]
-    fn track_solver_preserves_plot_minimum_when_fixed_tracks_overflow() {
-        let sizes = solve_tracks(
-            &[FrameTrackSize::fixed(120.0), FrameTrackSize::fr(1.0)],
-            Some(100.0),
-            Some(1),
-        );
-
-        assert_eq!(sizes, vec![120.0, MIN_COMPONENT_SIZE]);
     }
 
     #[test]
@@ -916,69 +864,6 @@ mod tests {
                 y: 202.0,
                 width: 278.0,
                 height: 6.0,
-            }
-        );
-    }
-
-    #[test]
-    fn rounded_track_total_pixel_aligns_auto_canvas_extent() {
-        assert_eq!(rounded_track_total(&[5.5, 278.33334]), 284.0);
-        assert_eq!(rounded_track_total(&[10.0, 880.0, 10.0]), 900.0);
-    }
-
-    #[test]
-    fn title_plot_area_span_uses_only_plot_track_with_overflow_and_legend() {
-        let mut grid = GridLayout::new();
-        grid.add_component(ComponentType::Title, 1, 1);
-        grid.add_component(ComponentType::PlotArea, 3, 2);
-        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Left), 3, 1);
-        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Right), 3, 3);
-        grid.add_component(ComponentType::LegendContainer(LegendPosition::Right), 3, 4);
-
-        let row_starts = vec![0.0, 10.0, 31.0, 47.0];
-        let row_sizes = vec![10.0, 21.0, 16.0, 203.0];
-        let col_starts = vec![0.0, 10.0, 45.0, 383.0, 390.0, 447.0];
-        let col_sizes = vec![10.0, 35.0, 338.0, 7.0, 57.0, 10.0];
-
-        let plot_area_title = title_or_subtitle_bounds(
-            &grid,
-            ComponentType::Title,
-            TitleSpan::PlotArea,
-            &row_starts,
-            &row_sizes,
-            &col_starts,
-            &col_sizes,
-        )
-        .expect("plot-area title bounds");
-
-        assert_eq!(
-            plot_area_title,
-            LayoutBounds {
-                x: 45.0,
-                y: 10.0,
-                width: 338.0,
-                height: 21.0,
-            }
-        );
-
-        let canvas_title = title_or_subtitle_bounds(
-            &grid,
-            ComponentType::Title,
-            TitleSpan::Canvas,
-            &row_starts,
-            &row_sizes,
-            &col_starts,
-            &col_sizes,
-        )
-        .expect("canvas title bounds");
-
-        assert_eq!(
-            canvas_title,
-            LayoutBounds {
-                x: 10.0,
-                y: 10.0,
-                width: 437.0,
-                height: 21.0,
             }
         );
     }
@@ -1079,48 +964,48 @@ mod tests {
 
     #[test]
     fn layout_solution_reports_guide_only_total_overflow_from_solver() {
-        let mut grid = GridLayout::new();
-        grid.cols = vec![
-            FrameTrackSize::fixed(10.0),
-            FrameTrackSize::fixed(5.0),
-            FrameTrackSize::fr(1.0),
-            FrameTrackSize::fixed(7.0),
-            FrameTrackSize::fixed(10.0),
-        ];
-        grid.rows = vec![
-            FrameTrackSize::fixed(10.0),
-            FrameTrackSize::fixed(6.0),
-            FrameTrackSize::fr(1.0),
-            FrameTrackSize::fixed(8.0),
-            FrameTrackSize::fixed(10.0),
-        ];
-        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Top), 1, 2);
-        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Left), 2, 1);
-        grid.add_component(ComponentType::PlotArea, 2, 2);
-        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Right), 2, 3);
-        grid.add_component(ComponentType::GuideOverflow(OverflowSide::Bottom), 3, 2);
+        let chrome = FrameChrome {
+            frame: Frame {
+                horizontal: FrameAxis {
+                    sizing: FrameAxisSizing::EnvelopeFixed { extent: 400.0 },
+                    leading: FrameSide {
+                        margin: 10.0,
+                        bands: Vec::new(),
+                        outer: 0.0,
+                        inner: 5.0,
+                    },
+                    trailing: FrameSide {
+                        margin: 10.0,
+                        bands: Vec::new(),
+                        outer: 0.0,
+                        inner: 7.0,
+                    },
+                    content_min: MIN_COMPONENT_SIZE,
+                },
+                vertical: FrameAxis {
+                    sizing: FrameAxisSizing::EnvelopeFixed { extent: 300.0 },
+                    leading: FrameSide {
+                        margin: 10.0,
+                        bands: Vec::new(),
+                        outer: 0.0,
+                        inner: 6.0,
+                    },
+                    trailing: FrameSide {
+                        margin: 10.0,
+                        bands: Vec::new(),
+                        outer: 0.0,
+                        inner: 8.0,
+                    },
+                    content_min: MIN_COMPONENT_SIZE,
+                },
+            },
+            has_title_band: false,
+            has_subtitle_band: false,
+            guide_overflow: LayoutEdges::new(true, true, true, true),
+        };
 
         let solution = solve_native_frame_layout(
-            &OverflowSpaceRequirement {
-                top: 6.0,
-                right: 7.0,
-                bottom: 8.0,
-                left: 5.0,
-            },
-            &EvaluatedLayoutSpec {
-                canvas: EvaluatedSizeMode::Fixed {
-                    width: 400.0,
-                    height: 300.0,
-                },
-                plot_area: EvaluatedSizeMode::Auto,
-                margins: EvaluatedMargins {
-                    top: 10.0,
-                    right: 10.0,
-                    bottom: 10.0,
-                    left: 10.0,
-                },
-            },
-            &grid,
+            &chrome,
             &IndexMap::new(),
             &LegendMeasurements::new(),
             TitleSpan::PlotArea,

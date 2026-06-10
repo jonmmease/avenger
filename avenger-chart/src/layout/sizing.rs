@@ -418,34 +418,6 @@ pub(crate) struct EvaluatedLayoutSpec {
     pub margins: EvaluatedMargins,
 }
 
-impl EvaluatedLayoutSpec {
-    /// Determine if horizontal margins should be expandable
-    pub(crate) fn should_expand_margins_horizontal(&self) -> bool {
-        let canvas_width_fixed = matches!(
-            self.canvas,
-            EvaluatedSizeMode::Fixed { .. } | EvaluatedSizeMode::Width(_)
-        );
-        let plot_width_constrained = matches!(
-            self.plot_area,
-            EvaluatedSizeMode::Fixed { .. } | EvaluatedSizeMode::Width(_)
-        );
-        canvas_width_fixed && plot_width_constrained
-    }
-
-    /// Determine if vertical margins should be expandable
-    pub(crate) fn should_expand_margins_vertical(&self) -> bool {
-        let canvas_height_fixed = matches!(
-            self.canvas,
-            EvaluatedSizeMode::Fixed { .. } | EvaluatedSizeMode::Height(_)
-        );
-        let plot_height_constrained = matches!(
-            self.plot_area,
-            EvaluatedSizeMode::Fixed { .. } | EvaluatedSizeMode::Height(_)
-        );
-        canvas_height_fixed && plot_height_constrained
-    }
-}
-
 impl Default for LayoutSpec {
     fn default() -> Self {
         Self {
