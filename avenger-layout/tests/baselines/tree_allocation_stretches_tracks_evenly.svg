@@ -11,9 +11,9 @@
   <rect x="-12" y="80" width="112" height="78" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
   <rect x="-12" y="80" width="112" height="78" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
   <rect x="0" y="84" width="94" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="3" y="96" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">10 d1</text>
+  <text x="3" y="108" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">10 d1</text>
   <rect x="100" y="80" width="124" height="78" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
   <rect x="100" y="80" width="106" height="78" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
   <rect x="106" y="84" width="94" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
-  <text x="109" y="96" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">11 d1</text>
+  <text x="109" y="108" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">11 d1</text>
 </svg>

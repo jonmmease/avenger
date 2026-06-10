@@ -2,22 +2,22 @@
   <rect x="0" y="0" width="400" height="300" fill="none" stroke="#111111" stroke-width="1"/>
   <rect x="0" y="0" width="400" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
   <text x="47" y="8.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">t margin</text>
-  <rect x="0" y="10" width="400" height="22" fill="#fde68a" fill-opacity="0.6" stroke="#d97706"/>
+  <rect x="44" y="10" width="288" height="22" fill="#fde68a" fill-opacity="0.6" stroke="#d97706"/>
   <text x="47" y="24.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">t band 0</text>
-  <rect x="0" y="32" width="400" height="16" fill="#fde68a" fill-opacity="0.6" stroke="#d97706"/>
+  <rect x="44" y="32" width="288" height="16" fill="#fde68a" fill-opacity="0.6" stroke="#d97706"/>
   <text x="47" y="43.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">t band 1</text>
-  <rect x="0" y="48" width="400" height="4" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
+  <rect x="44" y="48" width="288" height="4" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
   <rect x="0" y="290" width="400" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
   <text x="47" y="298.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b margin</text>
-  <rect x="0" y="272" width="400" height="18" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
+  <rect x="44" y="272" width="288" height="18" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
   <text x="47" y="284.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b inner</text>
   <rect x="0" y="0" width="10" height="300" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
-  <rect x="10" y="0" width="34" height="300" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
+  <rect x="10" y="52" width="34" height="220" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
   <text x="30.5" y="55" transform="rotate(90 30.5 55)" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">l inner</text>
   <rect x="390" y="0" width="10" height="300" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
-  <rect x="338" y="0" width="52" height="300" fill="#bbf7d0" fill-opacity="0.6" stroke="#16a34a"/>
+  <rect x="338" y="52" width="52" height="220" fill="#bbf7d0" fill-opacity="0.6" stroke="#16a34a"/>
   <text x="367.5" y="55" transform="rotate(90 367.5 55)" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">r outer</text>
-  <rect x="332" y="0" width="6" height="300" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
+  <rect x="332" y="52" width="6" height="220" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
   <rect x="44" y="52" width="288" height="220" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="47" y="64" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
   <rect x="0" y="310" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>

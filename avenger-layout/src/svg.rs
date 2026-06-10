@@ -17,14 +17,13 @@
 //! Frame scenes ([`DebugScene::from_frame`]) additionally tile the chrome
 //! layers as translucent strips, one per solved slab: gray margins, amber
 //! bands, green outer (legend-like) layers, and red inner (guide-like)
-//! layers. The two axes are solved independently, so horizontal and
-//! vertical strips overlap at the corners by design. Strip labels anchor
-//! inside the content span (the segment clear of perpendicular strips),
-//! strips too thin to hold a label go unlabeled, and a color key row below
-//! the scene identifies the layer kinds. All label text carries a white
-//! halo so overlapping labels stay legible. Placement scenes
-//! ([`DebugScene::from_placements`]) draw each child origin as a labeled
-//! cross marker.
+//! layers. Bands, outer, and inner strips span the content on their cross
+//! axis (as realized chart chrome does); margins span the full envelope.
+//! Strip labels anchor inside the content span, strips too thin to hold a
+//! label go unlabeled, and a color key row below the scene identifies the
+//! layer kinds. All label text carries a white halo so overlapping labels
+//! stay legible. Placement scenes ([`DebugScene::from_placements`]) draw
+//! each child origin as a labeled cross marker.
 
 use std::fmt::Display;
 use std::fmt::Write as _;
@@ -217,7 +216,13 @@ impl DebugScene {
                             region.edge_targets.total.left,
                         ],
                     )),
-                    label_anchor: None,
+                    // Nested regions share corners with their ancestors;
+                    // stepping the label down one line per depth keeps
+                    // every label readable.
+                    label_anchor: Some([
+                        content.x + 3.0,
+                        content.y + 12.0 + 12.0 * region.depth as f32,
+                    ]),
                     label_rotated: false,
                 }
             })
@@ -230,9 +235,13 @@ impl DebugScene {
     }
 
     /// Capture a solved frame: the content rectangle plus one strip per
-    /// non-empty chrome slab. Vertical-axis slabs span the envelope width
-    /// and horizontal-axis slabs span the envelope height; because the two
-    /// axes solve independently, the strips overlap at the corners.
+    /// non-empty chrome slab.
+    ///
+    /// A frame solves each axis independently, so a slab has no cross
+    /// extent of its own; this renders bands, outer, and inner strips
+    /// spanning the content on the cross axis — matching how chart chrome
+    /// (guide and legend rects) is realized — while margins span the full
+    /// envelope, since they genuinely wrap everything.
     pub fn from_frame(solution: &FrameSolution) -> Self {
         /// Strips thinner than this get no in-strip label; the color key
         /// identifies the layer instead. Rotated labels need more strip
@@ -244,8 +253,10 @@ impl DebugScene {
         // Strip labels anchor inside the content span on the strip's long
         // axis: that segment is guaranteed clear of the perpendicular
         // strips, so labels never pile up in the double-covered corners.
-        let content_x = solution.horizontal.content.start;
-        let content_y = solution.vertical.content.start;
+        let h_content = solution.horizontal.content;
+        let v_content = solution.vertical.content;
+        let content_x = h_content.start;
+        let content_y = v_content.start;
         let mut regions = Vec::new();
 
         let mut push_axis = |axis: &FrameAxisSolution, vertical: bool| {
@@ -265,14 +276,28 @@ impl DebugScene {
                     // the strip; 3.5 is half the cap height of the 10px
                     // monospace face.
                     let centered = slab.start + slab.size / 2.0 + 3.5;
+                    // Margins wrap the whole envelope; every other layer
+                    // spans the content on its cross axis, as realized
+                    // chart chrome does.
+                    let full_bleed = kind == DebugRegionKind::Margin;
                     let (content, label_anchor) = if vertical {
+                        let (x, width) = if full_bleed {
+                            (0.0, extent.width)
+                        } else {
+                            (h_content.start, h_content.size)
+                        };
                         (
-                            Rect::new(0.0, slab.start, extent.width, slab.size),
+                            Rect::new(x, slab.start, width, slab.size),
                             [content_x + 3.0, centered],
                         )
                     } else {
+                        let (y, height) = if full_bleed {
+                            (0.0, extent.height)
+                        } else {
+                            (v_content.start, v_content.size)
+                        };
                         (
-                            Rect::new(slab.start, 0.0, slab.size, extent.height),
+                            Rect::new(slab.start, y, slab.size, height),
                             [centered, content_y + 3.0],
                         )
                     };
@@ -774,9 +799,9 @@ mod tests {
   <rect x=\"60\" y=\"0\" width=\"86\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"63\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1 d0</text>
   <rect x=\"60\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
-  <text x=\"63\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">10 d1</text>
+  <text x=\"63\" y=\"24\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">10 d1</text>
   <rect x=\"106\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
-  <text x=\"109\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">11 d1</text>
+  <text x=\"109\" y=\"24\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">11 d1</text>
 </svg>
 ";
         assert_eq!(svg, expected);
