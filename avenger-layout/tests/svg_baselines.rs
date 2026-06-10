@@ -640,17 +640,29 @@ fn tree_allocation_stretches_tracks_evenly() {
 
 // --- alignment --------------------------------------------------------
 
-/// Stack scenes vertically into one gallery image (test-side composition;
-/// the crate's scenes stay single-arrangement).
-fn stack_scenes(scenes: Vec<DebugScene>) -> DebugScene {
-    const GAP: f32 = 24.0;
+/// Stack captioned scenes vertically into one gallery image (test-side
+/// composition; the crate's scenes stay single-arrangement).
+fn stack_scenes(scenes: Vec<(&str, DebugScene)>) -> DebugScene {
+    const CAPTION: f32 = 16.0;
+    const GAP: f32 = 20.0;
     let mut combined = DebugScene {
         content_size: Size::new(0.0, 0.0),
         regions: Vec::new(),
         markers: Vec::new(),
     };
     let mut y_offset = 0.0;
-    for scene in scenes {
+    for (caption, scene) in scenes {
+        // A zero-size region carries the caption above the panel.
+        combined.regions.push(avenger_layout::DebugRegion {
+            label: caption.to_string(),
+            kind: avenger_layout::DebugRegionKind::Content,
+            content: avenger_layout::Rect::new(0.0, y_offset, 0.0, 0.0),
+            requested: None,
+            target: None,
+            label_anchor: Some([0.0, y_offset + 10.0]),
+            label_rotated: false,
+        });
+        y_offset += CAPTION;
         for mut region in scene.regions {
             // Demands are content-relative, so only the rect moves.
             region.content.y += y_offset;
@@ -733,10 +745,22 @@ fn alignment_merges_grids_across_instances() {
     assert_eq!(merged.column_left[0].total, 26.0);
 
     let scenes = vec![
-        DebugScene::from_grid(&requirements_a.solve(&items_a), &items_a),
-        DebugScene::from_grid(&requirements_b.solve(&items_b), &items_b),
-        DebugScene::from_grid(&merged.solve(&items_a), &items_a),
-        DebugScene::from_grid(&merged.solve(&items_b), &items_b),
+        (
+            "a — own requirements",
+            DebugScene::from_grid(&requirements_a.solve(&items_a), &items_a),
+        ),
+        (
+            "b — own requirements",
+            DebugScene::from_grid(&requirements_b.solve(&items_b), &items_b),
+        ),
+        (
+            "a — merged (already the max)",
+            DebugScene::from_grid(&merged.solve(&items_a), &items_a),
+        ),
+        (
+            "b — merged (granted a's chrome)",
+            DebugScene::from_grid(&merged.solve(&items_b), &items_b),
+        ),
     ];
     assert_svg_baseline(
         "alignment_merges_grids_across_instances",
