@@ -2,8 +2,8 @@
   <rect x="-36" y="-10" width="276" height="393" fill="#ffffff"/>
   <rect x="0" y="0" width="0" height="0" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="0" y="10" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a — own requirements</text>
-  <rect x="-26" y="16" width="26" height="60" fill="#fecaca" fill-opacity="0.6"/>
-  <rect x="-26" y="16" width="26" height="60" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="-26" y="16" width="26" height="60" fill="#fecaca"/>
+  <rect x="-26" y="16" width="26" height="60" fill="#e05252"/>
   <rect x="0" y="16" width="80" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="3" y="28" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 r0c0</text>
   <rect x="80" y="16" width="120" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
@@ -11,8 +11,8 @@
   <rect x="0" y="16" width="200" height="60" fill="none" stroke="#111111" stroke-width="1"/>
   <rect x="0" y="96" width="0" height="0" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="0" y="106" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b — own requirements</text>
-  <rect x="-9" y="112" width="9" height="45" fill="#fecaca" fill-opacity="0.6"/>
-  <rect x="-9" y="112" width="9" height="45" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="-9" y="112" width="9" height="45" fill="#fecaca"/>
+  <rect x="-9" y="112" width="9" height="45" fill="#e05252"/>
   <rect x="0" y="112" width="110" height="45" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="3" y="124" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 r0c0</text>
   <rect x="110" y="112" width="70" height="45" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
@@ -20,8 +20,8 @@
   <rect x="0" y="112" width="180" height="45" fill="none" stroke="#111111" stroke-width="1"/>
   <rect x="0" y="177" width="0" height="0" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="0" y="187" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">a — merged (already the max)</text>
-  <rect x="-26" y="193" width="26" height="60" fill="#fecaca" fill-opacity="0.6"/>
-  <rect x="-26" y="193" width="26" height="60" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="-26" y="193" width="26" height="60" fill="#fecaca"/>
+  <rect x="-26" y="193" width="26" height="60" fill="#e05252"/>
   <rect x="0" y="193" width="110" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="3" y="205" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 r0c0</text>
   <rect x="110" y="193" width="120" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
@@ -29,8 +29,8 @@
   <rect x="0" y="193" width="230" height="60" fill="none" stroke="#111111" stroke-width="1"/>
   <rect x="0" y="273" width="0" height="0" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="0" y="283" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">b — merged (granted a's chrome)</text>
-  <rect x="-26" y="289" width="26" height="60" fill="#fecaca" fill-opacity="0.6"/>
-  <rect x="-9" y="289" width="9" height="60" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="-26" y="289" width="26" height="60" fill="#fecaca"/>
+  <rect x="-9" y="289" width="9" height="60" fill="#e05252"/>
   <rect x="0" y="289" width="110" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="3" y="301" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 r0c0</text>
   <rect x="110" y="289" width="120" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
@@ -38,8 +38,8 @@
   <rect x="0" y="289" width="230" height="60" fill="none" stroke="#111111" stroke-width="1"/>
   <rect x="0" y="359" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="13" y="368" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
-  <rect x="69" y="359" width="5" height="10" fill="#dc2626" fill-opacity="0.75"/>
-  <rect x="74" y="359" width="5" height="10" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="69" y="359" width="5" height="10" fill="#e05252"/>
+  <rect x="74" y="359" width="5" height="10" fill="#fecaca"/>
   <text x="82" y="368" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">inner</text>
   <line x1="-36" y1="86" x2="240" y2="86" stroke="#111111" stroke-width="0.5"/>
   <line x1="-36" y1="167" x2="240" y2="167" stroke="#111111" stroke-width="0.5"/>
