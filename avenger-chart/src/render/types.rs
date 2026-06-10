@@ -768,6 +768,9 @@ impl FacetLayoutMetrics {
 pub struct LayoutSolution {
     /// Complete layout with all component positions
     pub frame_layout: FrameLayout,
+    /// Declared chrome the frame was solved from. Retained so coordination
+    /// retargets re-solve and re-project instead of mutating rects.
+    pub(crate) chrome: crate::layout::FrameChrome,
     /// Computed canvas size (may differ from requested when using plot_size)
     pub canvas_size: (f32, f32),
     /// Guide-only overflow (axes, tick labels, axis titles).

@@ -1574,7 +1574,13 @@ fn apply_measurement_side_slab(
     guide: f32,
     total: f32,
 ) {
-    apply_frame_side_slab(&mut measurement.layout, side, guide, total);
+    apply_frame_side_slab(
+        &mut measurement.layout,
+        side,
+        guide,
+        total,
+        &measurement.legend_plan.measurements,
+    );
     measurement.sync_canvas_size_from_layout();
 }
 
@@ -4838,6 +4844,64 @@ mod tests {
         legends: IndexMap<String, LayoutBounds>,
         legends_by_position: IndexMap<LegendPosition, Vec<String>>,
     ) -> crate::render::LayoutSolution {
+        use avenger_layout::{Edges as LayoutEdges, Frame, FrameAxis, FrameAxisSizing, FrameSide};
+
+        // Chrome consistent with the synthetic realized layout: a 80x157
+        // plot at (10, 20) (margins), with legend containers sized to the
+        // provided legend rects.
+        let container_extent = |position: LegendPosition, width: bool| -> f32 {
+            legends_by_position
+                .get(&position)
+                .map(|keys| {
+                    keys.iter()
+                        .filter_map(|key| legends.get(key))
+                        .map(|bounds| if width { bounds.width } else { bounds.height })
+                        .fold(0.0, f32::max)
+                })
+                .unwrap_or(0.0)
+        };
+        let chrome = crate::layout::FrameChrome {
+            frame: Frame {
+                horizontal: FrameAxis {
+                    sizing: FrameAxisSizing::ContentFixed { content: 80.0 },
+                    leading: FrameSide {
+                        margin: 10.0,
+                        bands: Vec::new(),
+                        outer: container_extent(LegendPosition::Left, true),
+                        inner: 0.0,
+                    },
+                    trailing: FrameSide {
+                        margin: 0.0,
+                        bands: Vec::new(),
+                        outer: container_extent(LegendPosition::Right, true),
+                        inner: 0.0,
+                    },
+                    content_min: 50.0,
+                },
+                vertical: FrameAxis {
+                    sizing: FrameAxisSizing::ContentFixed { content: 157.0 },
+                    leading: FrameSide {
+                        margin: 20.0,
+                        bands: Vec::new(),
+                        outer: container_extent(LegendPosition::Top, false),
+                        inner: 0.0,
+                    },
+                    trailing: FrameSide {
+                        margin: 0.0,
+                        bands: Vec::new(),
+                        outer: container_extent(LegendPosition::Bottom, false),
+                        inner: 0.0,
+                    },
+                    content_min: 50.0,
+                },
+            },
+            has_title_band: false,
+            has_subtitle_band: false,
+            guide_overflow: LayoutEdges::new(false, false, false, false),
+            title_span: avenger_chart_core::TitleSpan::PlotArea,
+            subtitle_span: avenger_chart_core::TitleSpan::PlotArea,
+        };
+
         crate::render::LayoutSolution {
             frame_layout: crate::layout::FrameLayout {
                 plot_area: LayoutBounds {
@@ -4852,6 +4916,7 @@ mod tests {
                 title: None,
                 subtitle: None,
             },
+            chrome,
             canvas_size: (200.0, 240.0),
             overflow: OverflowSpaceRequirement::default(),
             total_overflow: OverflowSpaceRequirement::default(),
@@ -4875,7 +4940,26 @@ mod tests {
         legends_by_position.insert(LegendPosition::Right, vec!["fill".to_string()]);
         let mut layout = sample_layout_solution(legends, legends_by_position);
 
-        apply_frame_side_slab(&mut layout, AxisPosition::Right, 5.0, 66.0);
+        let mut legend_measurements = LegendMeasurements::new();
+        legend_measurements.insert(
+            "fill".to_string(),
+            LegendMeasurement {
+                size: Size2D {
+                    width: 61.0,
+                    height: 157.0,
+                },
+                flexible: false,
+                position: LegendPosition::Right,
+            },
+        );
+
+        apply_frame_side_slab(
+            &mut layout,
+            AxisPosition::Right,
+            5.0,
+            66.0,
+            &legend_measurements,
+        );
 
         assert_close(layout.overflow.right, 5.0);
         assert_close(layout.total_overflow.right, 66.0);
@@ -4919,7 +5003,26 @@ mod tests {
         layout.overflow.bottom = 34.0;
         layout.total_overflow.bottom = 82.0;
 
-        apply_frame_side_slab(&mut layout, AxisPosition::Bottom, 0.0, 48.0);
+        let mut legend_measurements = LegendMeasurements::new();
+        legend_measurements.insert(
+            "color".to_string(),
+            LegendMeasurement {
+                size: Size2D {
+                    width: 80.0,
+                    height: 48.0,
+                },
+                flexible: false,
+                position: LegendPosition::Bottom,
+            },
+        );
+
+        apply_frame_side_slab(
+            &mut layout,
+            AxisPosition::Bottom,
+            0.0,
+            48.0,
+            &legend_measurements,
+        );
 
         assert_close(layout.overflow.bottom, 34.0);
         assert_close(layout.total_overflow.bottom, 82.0);

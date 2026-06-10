@@ -12,7 +12,7 @@ use indexmap::IndexMap;
 use tracing::debug;
 
 use avenger_chart_core::{
-    LegendPosition, Size2D, evaluate_f32_expr, evaluate_string_expr, maybe::Maybe,
+    LegendPosition, Size2D, TitleSpan, evaluate_f32_expr, evaluate_string_expr, maybe::Maybe,
 };
 use avenger_layout::{Edges as LayoutEdges, Frame, FrameAxis, FrameAxisSizing, FrameSide};
 
@@ -50,6 +50,10 @@ pub(crate) struct FrameChrome {
     /// Guide overflow layers large enough to exist
     /// (> [`MIN_GUIDE_OVERFLOW_SIZE`]).
     pub guide_overflow: LayoutEdges<bool>,
+    /// Horizontal span policy for the title band.
+    pub title_span: TitleSpan,
+    /// Horizontal span policy for the subtitle band.
+    pub subtitle_span: TitleSpan,
 }
 
 /// Spacing multipliers for title and subtitle rows
@@ -360,6 +364,8 @@ impl GridBuilder {
         overflow: &OverflowSpaceRequirement,
         sizing_horizontal: FrameAxisSizing,
         sizing_vertical: FrameAxisSizing,
+        title_span: TitleSpan,
+        subtitle_span: TitleSpan,
         title: Option<&PlotTitle>,
         subtitle: Option<&PlotSubtitle>,
         theme: &Theme,
@@ -452,6 +458,8 @@ impl GridBuilder {
             has_title_band: title_height.is_some(),
             has_subtitle_band: subtitle_height.is_some(),
             guide_overflow,
+            title_span,
+            subtitle_span,
         })
     }
 }
@@ -461,6 +469,7 @@ mod tests {
     use datafusion::prelude::SessionContext;
     use indexmap::IndexMap;
 
+    use avenger_chart_core::TitleSpan;
     use avenger_layout::FrameAxisSizing;
 
     use crate::{
@@ -503,6 +512,8 @@ mod tests {
                 },
                 sizing_horizontal,
                 sizing_vertical,
+                TitleSpan::PlotArea,
+                TitleSpan::PlotArea,
                 None,
                 None,
                 &theme,
@@ -532,6 +543,8 @@ mod tests {
                 },
                 sizing_horizontal,
                 sizing_vertical,
+                TitleSpan::PlotArea,
+                TitleSpan::PlotArea,
                 None,
                 None,
                 &theme,

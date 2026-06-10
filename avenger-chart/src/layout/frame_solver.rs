@@ -113,6 +113,8 @@ impl AvengerFrameLayoutSolver {
                     definite_height(&normalized_spec.canvas),
                     definite_height(&normalized_spec.plot_area),
                 ),
+                title_span,
+                subtitle_span,
                 input.title,
                 input.subtitle,
                 input.theme,
@@ -125,11 +127,9 @@ impl AvengerFrameLayoutSolver {
             .await?;
 
         solve_native_frame_layout(
-            &chrome,
+            chrome,
             &builder.legends_by_position,
             input.legend_measurements,
-            title_span,
-            subtitle_span,
         )
     }
 }
@@ -154,12 +154,48 @@ fn frame_axis_sizing(canvas: Option<f32>, plot: Option<f32>) -> FrameAxisSizing 
 }
 
 fn solve_native_frame_layout(
+    chrome: FrameChrome,
+    legends_by_position: &IndexMap<LegendPosition, Vec<String>>,
+    legend_measurements: &LegendMeasurements,
+) -> Result<LayoutSolution, AvengerChartError> {
+    let (frame_layout, legend_info, solution) =
+        project_layout_rects(&chrome, legends_by_position, legend_measurements);
+
+    let mut guide_overflow = OverflowSpaceRequirement::default();
+    for (side, bounds) in &frame_layout.guide_overflows {
+        match side {
+            AxisPosition::Left => guide_overflow.left = guide_overflow.left.max(bounds.width),
+            AxisPosition::Right => guide_overflow.right = guide_overflow.right.max(bounds.width),
+            AxisPosition::Top => guide_overflow.top = guide_overflow.top.max(bounds.height),
+            AxisPosition::Bottom => {
+                guide_overflow.bottom = guide_overflow.bottom.max(bounds.height)
+            }
+        }
+    }
+
+    Ok(LayoutSolution {
+        frame_layout,
+        chrome,
+        canvas_size: (
+            solution.horizontal.extent.round().max(0.0),
+            solution.vertical.extent.round().max(0.0),
+        ),
+        overflow: guide_overflow.clone(),
+        total_overflow: guide_overflow,
+        legend_info,
+    })
+}
+
+/// Project every frame component rect from the declared chrome: solve the
+/// frame, then derive the plot area, guide overflow, title band, and legend
+/// rects with the standard rounding policies. Used by the initial solve and
+/// by coordination retargets (which re-solve with updated chrome instead of
+/// mutating realized rects).
+fn project_layout_rects(
     chrome: &FrameChrome,
     legends_by_position: &IndexMap<LegendPosition, Vec<String>>,
     legend_measurements: &LegendMeasurements,
-    title_span: TitleSpan,
-    subtitle_span: TitleSpan,
-) -> Result<LayoutSolution, AvengerChartError> {
+) -> (FrameLayout, LegendLayoutInfo, avenger_layout::FrameSolution) {
     let solution = chrome.frame.solve();
     let h = &solution.horizontal;
     let v = &solution.vertical;
@@ -251,7 +287,7 @@ fn solve_native_frame_layout(
         frame_layout.title = Some(title_band_bounds(
             &solution,
             band_index,
-            title_span,
+            chrome.title_span,
             chrome.guide_overflow.left,
             chrome.guide_overflow.right,
             has_right_legend,
@@ -262,7 +298,7 @@ fn solve_native_frame_layout(
         frame_layout.subtitle = Some(title_band_bounds(
             &solution,
             band_index,
-            subtitle_span,
+            chrome.subtitle_span,
             chrome.guide_overflow.left,
             chrome.guide_overflow.right,
             has_right_legend,
@@ -312,18 +348,6 @@ fn solve_native_frame_layout(
         }
     }
 
-    let mut guide_overflow = OverflowSpaceRequirement::default();
-    for (side, bounds) in &frame_layout.guide_overflows {
-        match side {
-            AxisPosition::Left => guide_overflow.left = guide_overflow.left.max(bounds.width),
-            AxisPosition::Right => guide_overflow.right = guide_overflow.right.max(bounds.width),
-            AxisPosition::Top => guide_overflow.top = guide_overflow.top.max(bounds.height),
-            AxisPosition::Bottom => {
-                guide_overflow.bottom = guide_overflow.bottom.max(bounds.height)
-            }
-        }
-    }
-
     let mut legend_info = LegendLayoutInfo::default();
     for (channel, bounds) in &frame_layout.legends {
         for (position, legend_keys) in legends_by_position {
@@ -349,13 +373,19 @@ fn solve_native_frame_layout(
         }
     }
 
-    Ok(LayoutSolution {
-        frame_layout,
-        canvas_size: (h.extent.round().max(0.0), v.extent.round().max(0.0)),
-        overflow: guide_overflow.clone(),
-        total_overflow: guide_overflow,
-        legend_info,
-    })
+    (frame_layout, legend_info, solution)
+}
+
+/// Re-project all frame component rects of a realized layout from its
+/// retained chrome, leaving the slab state (`overflow`, `total_overflow`)
+/// and `canvas_size` untouched — those are owned by the caller's slab
+/// algebra and sizing policy.
+fn reproject_layout_rects(layout: &mut LayoutSolution, legend_measurements: &LegendMeasurements) {
+    let legends_by_position = layout.frame_layout.legends_by_position.clone();
+    let (frame_layout, legend_info, _) =
+        project_layout_rects(&layout.chrome, &legends_by_position, legend_measurements);
+    layout.frame_layout = frame_layout;
+    layout.legend_info = legend_info;
 }
 
 /// Compute the rect of one title/subtitle band from the solved frame.
@@ -586,83 +616,6 @@ fn flexible_legend_span(container_main: f32, fixed_total: f32, flexible_count: u
     }
 }
 
-fn set_legend_main_axis_bounds(
-    bounds: &mut LayoutBounds,
-    axis: LegendMainAxis,
-    start: f32,
-    span: f32,
-) {
-    match axis {
-        LegendMainAxis::Horizontal => {
-            bounds.x = start;
-            bounds.width = span;
-        }
-        LegendMainAxis::Vertical => {
-            bounds.y = start;
-            bounds.height = span;
-        }
-    }
-}
-
-fn retarget_flexible_legend_group_main_axis(
-    legends: &mut indexmap::IndexMap<String, LayoutBounds>,
-    legend_measurements: &LegendMeasurements,
-    legend_keys: &[String],
-    axis: LegendMainAxis,
-    origin: f32,
-    new_span: f32,
-) {
-    let mut flexible_count = 0usize;
-    let mut old_flexible_total = 0.0f32;
-    let mut fixed_total = 0.0f32;
-
-    for key in legend_keys {
-        let Some(bounds) = legends.get(key) else {
-            continue;
-        };
-        let span = legend_main_axis_span(bounds, axis).max(0.0);
-        let is_flexible = legend_measurements
-            .get(key)
-            .map(|measurement| measurement.flexible)
-            .unwrap_or(false);
-        if is_flexible {
-            flexible_count += 1;
-            old_flexible_total += span;
-        } else {
-            fixed_total += span;
-        }
-    }
-
-    if flexible_count == 0 {
-        return;
-    }
-
-    let flexible_available = (new_span - fixed_total).max(0.0);
-    let flexible_min = MIN_COMPONENT_SIZE;
-    let mut cursor = origin;
-    for key in legend_keys {
-        let Some(bounds) = legends.get_mut(key) else {
-            continue;
-        };
-        let old_span = legend_main_axis_span(bounds, axis).max(0.0);
-        let is_flexible = legend_measurements
-            .get(key)
-            .map(|measurement| measurement.flexible)
-            .unwrap_or(false);
-        let span = if is_flexible {
-            if old_flexible_total > 0.01 {
-                (flexible_available * old_span / old_flexible_total).max(flexible_min)
-            } else {
-                (flexible_available / flexible_count as f32).max(flexible_min)
-            }
-        } else {
-            old_span
-        };
-        set_legend_main_axis_bounds(bounds, axis, cursor, span);
-        cursor += span;
-    }
-}
-
 pub(crate) fn overflow_side_value(overflow: &OverflowSpaceRequirement, side: AxisPosition) -> f32 {
     match side {
         AxisPosition::Top => overflow.top,
@@ -686,17 +639,13 @@ fn set_overflow_side_value(
     }
 }
 
-fn legend_position_for_axis_side(side: AxisPosition) -> LegendPosition {
-    match side {
+fn legend_cross_axis_extent(layout: &FrameLayout, side: AxisPosition) -> f32 {
+    let position = match side {
         AxisPosition::Top => LegendPosition::Top,
         AxisPosition::Right => LegendPosition::Right,
         AxisPosition::Bottom => LegendPosition::Bottom,
         AxisPosition::Left => LegendPosition::Left,
-    }
-}
-
-fn legend_cross_axis_extent(layout: &FrameLayout, side: AxisPosition) -> f32 {
-    let position = legend_position_for_axis_side(side);
+    };
     let Some(keys) = layout.legends_by_position.get(&position) else {
         return 0.0;
     };
@@ -710,62 +659,6 @@ fn legend_cross_axis_extent(layout: &FrameLayout, side: AxisPosition) -> f32 {
         .fold(0.0, f32::max)
 }
 
-fn translate_frame_layout(layout: &mut FrameLayout, dx: f32, dy: f32) {
-    if dx.abs() <= 0.01 && dy.abs() <= 0.01 {
-        return;
-    }
-
-    layout.plot_area.x += dx;
-    layout.plot_area.y += dy;
-
-    for bounds in layout.guide_overflows.values_mut() {
-        bounds.x += dx;
-        bounds.y += dy;
-    }
-    for bounds in layout.legends.values_mut() {
-        bounds.x += dx;
-        bounds.y += dy;
-    }
-    if let Some(bounds) = &mut layout.title {
-        bounds.x += dx;
-        bounds.y += dy;
-    }
-    if let Some(bounds) = &mut layout.subtitle {
-        bounds.x += dx;
-        bounds.y += dy;
-    }
-}
-
-fn guide_overflow_bounds(plot_area: LayoutBounds, side: AxisPosition, guide: f32) -> LayoutBounds {
-    let guide = guide.max(0.0);
-    match side {
-        AxisPosition::Top => LayoutBounds {
-            x: plot_area.x,
-            y: plot_area.y - guide,
-            width: plot_area.width,
-            height: guide,
-        },
-        AxisPosition::Right => LayoutBounds {
-            x: plot_area.x + plot_area.width,
-            y: plot_area.y,
-            width: guide,
-            height: plot_area.height,
-        },
-        AxisPosition::Bottom => LayoutBounds {
-            x: plot_area.x,
-            y: plot_area.y + plot_area.height,
-            width: plot_area.width,
-            height: guide,
-        },
-        AxisPosition::Left => LayoutBounds {
-            x: plot_area.x - guide,
-            y: plot_area.y,
-            width: guide,
-            height: plot_area.height,
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use avenger_chart_core::{LayoutBounds, LegendPosition, Size2D, TitleSpan};
@@ -774,9 +667,8 @@ mod tests {
     use indexmap::IndexMap;
 
     use super::{
-        FrameChrome, LegendMainAxis, MIN_COMPONENT_SIZE, layout_legend_group,
-        retarget_flexible_legend_group_main_axis, rounded_guide_bounds, rounded_plot_bounds,
-        solve_native_frame_layout, title_band_bounds,
+        FrameChrome, MIN_COMPONENT_SIZE, layout_legend_group, rounded_guide_bounds,
+        rounded_plot_bounds, solve_native_frame_layout, title_band_bounds,
     };
 
     fn frame_side(margin: f32, bands: &[f32], outer: f32, inner: f32) -> FrameSide {
@@ -922,47 +814,6 @@ mod tests {
     }
 
     #[test]
-    fn flexible_legend_retarget_keeps_first_layout_minimum_span() {
-        let legend_keys = vec![
-            "shape".to_string(),
-            "fill".to_string(),
-            "opacity".to_string(),
-        ];
-        let measurements = legend_measurements(&[
-            ("shape", Size2D::new(42.0, 20.0), false),
-            ("fill", Size2D::new(14.0, 30.0), true),
-            ("opacity", Size2D::new(14.0, 30.0), true),
-        ]);
-        let mut bounds = layout_legend_group(
-            LegendPosition::Right,
-            LayoutBounds {
-                x: 410.0,
-                y: 12.0,
-                width: 80.0,
-                height: 170.0,
-            },
-            &legend_keys,
-            &measurements,
-        );
-
-        retarget_flexible_legend_group_main_axis(
-            &mut bounds,
-            &measurements,
-            &legend_keys,
-            LegendMainAxis::Vertical,
-            25.0,
-            80.0,
-        );
-
-        assert_eq!(bounds["shape"].y, 25.0);
-        assert_eq!(bounds["shape"].height, 20.0);
-        assert_eq!(bounds["fill"].y, 45.0);
-        assert_eq!(bounds["fill"].height, MIN_COMPONENT_SIZE);
-        assert_eq!(bounds["opacity"].y, 95.0);
-        assert_eq!(bounds["opacity"].height, MIN_COMPONENT_SIZE);
-    }
-
-    #[test]
     fn layout_solution_reports_guide_only_total_overflow_from_solver() {
         let chrome = FrameChrome {
             frame: Frame {
@@ -1002,16 +853,13 @@ mod tests {
             has_title_band: false,
             has_subtitle_band: false,
             guide_overflow: LayoutEdges::new(true, true, true, true),
+            title_span: TitleSpan::PlotArea,
+            subtitle_span: TitleSpan::PlotArea,
         };
 
-        let solution = solve_native_frame_layout(
-            &chrome,
-            &IndexMap::new(),
-            &LegendMeasurements::new(),
-            TitleSpan::PlotArea,
-            TitleSpan::PlotArea,
-        )
-        .expect("solve native frame layout");
+        let solution =
+            solve_native_frame_layout(chrome, &IndexMap::new(), &LegendMeasurements::new())
+                .expect("solve native frame layout");
 
         assert_eq!(solution.overflow.left, 5.0);
         assert_eq!(solution.overflow.right, 7.0);
@@ -1040,50 +888,23 @@ mod tests {
     }
 }
 
-fn set_guide_overflow_geometry(layout: &mut FrameLayout, side: AxisPosition, guide: f32) {
-    if guide <= 0.01 {
-        layout.guide_overflows.remove(&side);
-        return;
-    }
-
-    layout
-        .guide_overflows
-        .insert(side, guide_overflow_bounds(layout.plot_area, side, guide));
-}
-
-fn anchor_legends_for_side(layout: &mut FrameLayout, side: AxisPosition, guide: f32) {
-    let position = legend_position_for_axis_side(side);
-    let Some(keys) = layout.legends_by_position.get(&position).cloned() else {
-        return;
-    };
-
-    for key in keys {
-        let Some(bounds) = layout.legends.get_mut(&key) else {
-            continue;
-        };
-        match side {
-            AxisPosition::Top => {
-                bounds.y = layout.plot_area.y - guide.max(0.0) - bounds.height;
-            }
-            AxisPosition::Right => {
-                bounds.x = layout.plot_area.x + layout.plot_area.width + guide.max(0.0);
-            }
-            AxisPosition::Bottom => {
-                bounds.y = layout.plot_area.y + layout.plot_area.height + guide.max(0.0);
-            }
-            AxisPosition::Left => {
-                bounds.x = layout.plot_area.x - guide.max(0.0) - bounds.width;
-            }
-        }
-    }
-}
-
 /// Apply a known side slab to a realized frame without remeasuring guides or legends.
+/// Apply a coordinated side slab to a realized frame.
+///
+/// The slab algebra is unchanged from the mutation-based implementation:
+/// the guide layer never shrinks below its measured value, the total covers
+/// the guide plus the realized legend extent, and the canvas grows by the
+/// total's delta (the caller owns canvas policy beyond that). The component
+/// rects then come from one re-projection of the retained chrome instead of
+/// per-side translate/anchor choreography: the slab's inner layer becomes
+/// the guide, the remainder becomes the outer (legend) layer, and the plot
+/// content stays frozen at its realized size.
 pub(crate) fn apply_frame_side_slab(
     layout: &mut LayoutSolution,
     side: AxisPosition,
     guide: f32,
     total: f32,
+    legend_measurements: &LegendMeasurements,
 ) {
     let guide = guide
         .max(overflow_side_value(&layout.overflow, side))
@@ -1096,71 +917,74 @@ pub(crate) fn apply_frame_side_slab(
     let delta = total - old_total;
 
     match side {
-        AxisPosition::Left => {
-            translate_frame_layout(&mut layout.frame_layout, delta, 0.0);
+        AxisPosition::Left | AxisPosition::Right => {
             layout.canvas_size.0 = (layout.canvas_size.0 + delta).max(1.0);
         }
-        AxisPosition::Top => {
-            translate_frame_layout(&mut layout.frame_layout, 0.0, delta);
-            layout.canvas_size.1 = (layout.canvas_size.1 + delta).max(1.0);
-        }
-        AxisPosition::Right => {
-            layout.canvas_size.0 = (layout.canvas_size.0 + delta).max(1.0);
-        }
-        AxisPosition::Bottom => {
+        AxisPosition::Top | AxisPosition::Bottom => {
             layout.canvas_size.1 = (layout.canvas_size.1 + delta).max(1.0);
         }
     }
 
     set_overflow_side_value(&mut layout.overflow, side, guide);
     set_overflow_side_value(&mut layout.total_overflow, side, total);
-    set_guide_overflow_geometry(&mut layout.frame_layout, side, guide);
-    anchor_legends_for_side(&mut layout.frame_layout, side, guide);
+
+    freeze_chrome_content_at_plot_size(layout);
+    let frame_side = chrome_frame_side_mut(&mut layout.chrome.frame, side);
+    frame_side.inner = guide;
+    frame_side.outer = (total - guide).max(0.0);
+    // The realized-layout threshold for an existing guide layer (the
+    // initial measurement gate is MIN_GUIDE_OVERFLOW_SIZE).
+    let guide_exists = guide > 0.01;
+    match side {
+        AxisPosition::Top => layout.chrome.guide_overflow.top = guide_exists,
+        AxisPosition::Right => layout.chrome.guide_overflow.right = guide_exists,
+        AxisPosition::Bottom => layout.chrome.guide_overflow.bottom = guide_exists,
+        AxisPosition::Left => layout.chrome.guide_overflow.left = guide_exists,
+    }
+
+    reproject_layout_rects(layout, legend_measurements);
 }
 
-/// Retarget a realized frame to a new plot-area size without remeasuring.
+/// Retarget a realized frame to a new plot-area size without remeasuring:
+/// freeze the chrome's content at the new size and re-project. Flexible
+/// legends reflow under the same law as the initial solve. `canvas_size`
+/// is left untouched — the callers own it (facet sizing policy can keep a
+/// canvas-constrained root fixed while the plot resizes).
 pub(crate) fn retarget_frame_layout_for_plot_area(
     layout: &mut LayoutSolution,
     legend_measurements: &LegendMeasurements,
     new_plot_area_width: f32,
     new_plot_area_height: f32,
 ) {
-    layout.frame_layout.plot_area.width = new_plot_area_width;
-    layout.frame_layout.plot_area.height = new_plot_area_height;
+    layout.chrome.frame.horizontal.sizing = FrameAxisSizing::ContentFixed {
+        content: new_plot_area_width,
+    };
+    layout.chrome.frame.vertical.sizing = FrameAxisSizing::ContentFixed {
+        content: new_plot_area_height,
+    };
+    reproject_layout_rects(layout, legend_measurements);
+}
 
-    for (position, legend_keys) in layout.frame_layout.legends_by_position.clone() {
-        match position {
-            LegendPosition::Left | LegendPosition::Right => {
-                retarget_flexible_legend_group_main_axis(
-                    &mut layout.frame_layout.legends,
-                    legend_measurements,
-                    &legend_keys,
-                    LegendMainAxis::Vertical,
-                    layout.frame_layout.plot_area.y,
-                    new_plot_area_height,
-                );
-            }
-            LegendPosition::Top | LegendPosition::Bottom => {
-                retarget_flexible_legend_group_main_axis(
-                    &mut layout.frame_layout.legends,
-                    legend_measurements,
-                    &legend_keys,
-                    LegendMainAxis::Horizontal,
-                    layout.frame_layout.plot_area.x,
-                    new_plot_area_width,
-                );
-            }
-        }
-    }
+/// Freeze both chrome axes at the realized plot-area size, so re-solving
+/// derives the envelope from the plot instead of resizing the plot.
+fn freeze_chrome_content_at_plot_size(layout: &mut LayoutSolution) {
+    layout.chrome.frame.horizontal.sizing = FrameAxisSizing::ContentFixed {
+        content: layout.frame_layout.plot_area.width,
+    };
+    layout.chrome.frame.vertical.sizing = FrameAxisSizing::ContentFixed {
+        content: layout.frame_layout.plot_area.height,
+    };
+}
 
-    for side in [
-        AxisPosition::Top,
-        AxisPosition::Right,
-        AxisPosition::Bottom,
-        AxisPosition::Left,
-    ] {
-        let guide = overflow_side_value(&layout.overflow, side);
-        set_guide_overflow_geometry(&mut layout.frame_layout, side, guide);
-        anchor_legends_for_side(&mut layout.frame_layout, side, guide);
+/// The chrome side a frame-side slab addresses.
+fn chrome_frame_side_mut(
+    frame: &mut avenger_layout::Frame,
+    side: AxisPosition,
+) -> &mut avenger_layout::FrameSide {
+    match side {
+        AxisPosition::Top => &mut frame.vertical.leading,
+        AxisPosition::Right => &mut frame.horizontal.trailing,
+        AxisPosition::Bottom => &mut frame.vertical.trailing,
+        AxisPosition::Left => &mut frame.horizontal.leading,
     }
 }

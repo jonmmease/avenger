@@ -46,6 +46,7 @@ pub(crate) use frame_solver::{
     AvengerFrameLayoutSolver, FrameLayoutInput, apply_frame_side_slab, overflow_side_value,
     retarget_frame_layout_for_plot_area,
 };
+pub(crate) use grid::FrameChrome;
 pub use info::LegendLayoutInfo;
 pub use sizing::{
     CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, LayoutSpec, Margins, PlotConstraint,
