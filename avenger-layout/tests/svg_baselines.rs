@@ -591,6 +591,66 @@ fn nested_tree() -> LayoutNode<usize> {
     }
 }
 
+/// Wrap a tree in a margins-only frame and compose one scene: the tree's
+/// layered envelope becomes the frame's inner/outer reservations, and the
+/// frame's content (the tree's natural extent plus `extra`, if any)
+/// allocates the tree. Framed scenes are easier to reason about than bare
+/// trees, whose boundary chrome floats outside their own bounds.
+fn frame_around_tree(tree: &LayoutNode<usize>, extra: Option<Size>) -> DebugScene {
+    let envelope = tree
+        .envelope(TreeEnvelopeKind::Layered)
+        .expect("envelope solves");
+    let extra = extra.unwrap_or_default();
+    let chrome_side = |outer: f32, inner: f32| FrameSide {
+        margin: 12.0,
+        bands: vec![],
+        outer,
+        inner,
+    };
+    let frame = Frame {
+        horizontal: FrameAxis {
+            sizing: FrameAxisSizing::ContentFixed {
+                content: envelope.content_size.width + extra.width,
+            },
+            leading: chrome_side(envelope.outer_edges.left, envelope.inner_edges.left),
+            trailing: chrome_side(envelope.outer_edges.right, envelope.inner_edges.right),
+            content_min: 50.0,
+        },
+        vertical: FrameAxis {
+            sizing: FrameAxisSizing::ContentFixed {
+                content: envelope.content_size.height + extra.height,
+            },
+            leading: chrome_side(envelope.outer_edges.top, envelope.inner_edges.top),
+            trailing: chrome_side(envelope.outer_edges.bottom, envelope.inner_edges.bottom),
+            content_min: 50.0,
+        },
+    };
+    let frame_solution = frame.solve();
+    let content = frame_solution.content_rect();
+    let solved = tree
+        .solve(Some(Size::new(content.width, content.height)))
+        .expect("tree solves in the frame's content");
+
+    let mut scene = DebugScene::from_frame(&frame_solution);
+    scene.regions.extend(
+        DebugScene::from_tree(&solved)
+            .regions
+            .into_iter()
+            .map(|mut region| {
+                region.content.x += content.x;
+                region.content.y += content.y;
+                if let Some(anchor) = &mut region.label_anchor {
+                    anchor[0] += content.x;
+                    // One extra line down so depth-0 labels clear the
+                    // frame's own "content" label.
+                    anchor[1] += content.y + 12.0;
+                }
+                region
+            }),
+    );
+    scene
+}
+
 /// A nested tree solved at its natural extent: a column of one leaf over a
 /// two-child band whose stacked chrome (labels above, a band legend right)
 /// extends the band's envelope.
@@ -613,10 +673,9 @@ fn tree_nested_with_stacked_chrome() {
     assert_eq!(layered.total_edges.right, 44.0);
     assert_eq!(geometric.total_edges.right, 32.0);
 
-    let solved = root.solve(None).expect("tree solves");
     assert_svg_baseline(
         "tree_nested_with_stacked_chrome",
-        &DebugScene::from_tree(&solved).to_svg(),
+        &frame_around_tree(&root, None).to_svg(),
     );
 }
 
@@ -629,12 +688,11 @@ fn tree_allocation_stretches_tracks_evenly() {
     let solved = root
         .solve(Some(Size::new(natural.width + 60.0, natural.height + 40.0)))
         .expect("tree solves with allocation");
-
     assert_eq!(solved.content_size.width, natural.width + 60.0);
 
     assert_svg_baseline(
         "tree_allocation_stretches_tracks_evenly",
-        &DebugScene::from_tree(&solved).to_svg(),
+        &frame_around_tree(&root, Some(Size::new(60.0, 40.0))).to_svg(),
     );
 }
 
