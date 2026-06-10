@@ -652,9 +652,15 @@ fn stack_scenes(scenes: Vec<(&str, DebugScene)>) -> DebugScene {
         draw_bounds: false,
         regions: Vec::new(),
         markers: Vec::new(),
+        dividers: Vec::new(),
     };
     let mut y_offset = 0.0;
+    let mut divider_ys = Vec::new();
     for (caption, scene) in scenes {
+        if y_offset > 0.0 {
+            // Divider midway through the gap above this panel's caption.
+            divider_ys.push(y_offset - GAP / 2.0);
+        }
         // A zero-size region carries the caption above the panel.
         combined.regions.push(avenger_layout::DebugRegion {
             label: caption.to_string(),
@@ -691,6 +697,9 @@ fn stack_scenes(scenes: Vec<(&str, DebugScene)>) -> DebugScene {
         y_offset += scene.content_size.height + GAP;
         combined.content_size.height = y_offset - GAP;
     }
+    // Thin separators between the independent panels, drawn edge to edge
+    // by the renderer.
+    combined.dividers = divider_ys;
     combined
 }
 

@@ -99,6 +99,9 @@ pub struct DebugScene {
     pub draw_bounds: bool,
     pub regions: Vec<DebugRegion>,
     pub markers: Vec<DebugMarker>,
+    /// Horizontal separator lines spanning the full image width at these y
+    /// positions (for composed galleries of independent scenes).
+    pub dividers: Vec<f32>,
 }
 
 impl DebugScene {
@@ -135,6 +138,7 @@ impl DebugScene {
             draw_bounds: true,
             regions,
             markers: Vec::new(),
+            dividers: Vec::new(),
         }
     }
 
@@ -198,6 +202,7 @@ impl DebugScene {
             draw_bounds: true,
             regions,
             markers: Vec::new(),
+            dividers: Vec::new(),
         }
     }
 
@@ -231,6 +236,7 @@ impl DebugScene {
             draw_bounds: true,
             regions,
             markers: Vec::new(),
+            dividers: Vec::new(),
         }
     }
 
@@ -353,6 +359,7 @@ impl DebugScene {
             draw_bounds: true,
             regions,
             markers: Vec::new(),
+            dividers: Vec::new(),
         }
     }
 
@@ -378,6 +385,7 @@ impl DebugScene {
             draw_bounds: true,
             regions,
             markers: Vec::new(),
+            dividers: Vec::new(),
         }
     }
 
@@ -397,6 +405,7 @@ impl DebugScene {
             draw_bounds: true,
             regions: Vec::new(),
             markers,
+            dividers: Vec::new(),
         }
     }
 
@@ -703,6 +712,20 @@ impl DebugScene {
                     cursor += 13.0 + label.len() as f32 * 6.0 + 14.0;
                 }
             }
+        }
+
+        for y in &self.dividers {
+            let _ = write!(
+                svg,
+                concat!(
+                    "  <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" ",
+                    "stroke=\"#111111\" stroke-width=\"0.5\"/>\n"
+                ),
+                bounds.x - PADDING,
+                y,
+                bounds.x + bounds.width + PADDING,
+                y,
+            );
         }
 
         svg.push_str("</svg>\n");

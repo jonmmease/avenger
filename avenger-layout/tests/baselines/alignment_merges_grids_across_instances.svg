@@ -41,4 +41,7 @@
   <rect x="69" y="359" width="5" height="10" fill="#dc2626" fill-opacity="0.75"/>
   <rect x="74" y="359" width="5" height="10" fill="#fecaca" fill-opacity="0.6"/>
   <text x="82" y="368" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">inner</text>
+  <line x1="-36" y1="86" x2="240" y2="86" stroke="#111111" stroke-width="0.5"/>
+  <line x1="-36" y1="167" x2="240" y2="167" stroke="#111111" stroke-width="0.5"/>
+  <line x1="-36" y1="263" x2="240" y2="263" stroke="#111111" stroke-width="0.5"/>
 </svg>
