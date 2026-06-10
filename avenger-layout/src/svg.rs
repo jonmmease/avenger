@@ -555,8 +555,10 @@ impl DebugScene {
         );
         if has_demands {
             // Hatch patterns for coordinated strips, one per (layer, depth)
-            // shade. Each pattern has an opaque white base so overlapping
-            // strips of nested regions never composite.
+            // shade. Transparent between the lines so whatever sits behind
+            // (a frame's reservation strips in composed scenes) shows
+            // through; requested strips stay opaque solids, which keeps
+            // nested overlaps from compositing.
             svg.push_str("  <defs>\n");
             let mut emit_pattern = |layer: char, depth: usize, shade: &str| {
                 let _ = write!(
@@ -564,7 +566,6 @@ impl DebugScene {
                     concat!(
                         "    <pattern id=\"hatch-{}{}\" patternUnits=\"userSpaceOnUse\" ",
                         "width=\"4\" height=\"4\" patternTransform=\"rotate(45)\">",
-                        "<rect width=\"4\" height=\"4\" fill=\"#ffffff\"/>",
                         "<line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"{}\" ",
                         "stroke-width=\"1.6\"/></pattern>\n"
                     ),
@@ -1078,8 +1079,8 @@ mod tests {
         let expected = "\
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 249 104\" font-family=\"monospace\" font-size=\"10\">
   <defs>
-    <pattern id=\"hatch-i0\" patternUnits=\"userSpaceOnUse\" width=\"4\" height=\"4\" patternTransform=\"rotate(45)\"><rect width=\"4\" height=\"4\" fill=\"#ffffff\"/><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"#f8b4b4\" stroke-width=\"1.6\"/></pattern>
-    <pattern id=\"hatch-o0\" patternUnits=\"userSpaceOnUse\" width=\"4\" height=\"4\" patternTransform=\"rotate(45)\"><rect width=\"4\" height=\"4\" fill=\"#ffffff\"/><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"#a3e4bf\" stroke-width=\"1.6\"/></pattern>
+    <pattern id=\"hatch-i0\" patternUnits=\"userSpaceOnUse\" width=\"4\" height=\"4\" patternTransform=\"rotate(45)\"><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"#f8b4b4\" stroke-width=\"1.6\"/></pattern>
+    <pattern id=\"hatch-o0\" patternUnits=\"userSpaceOnUse\" width=\"4\" height=\"4\" patternTransform=\"rotate(45)\"><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"#a3e4bf\" stroke-width=\"1.6\"/></pattern>
   </defs>
   <rect x=\"-10\" y=\"-10\" width=\"249\" height=\"104\" fill=\"#ffffff\"/>
   <rect x=\"0\" y=\"0\" width=\"229\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>

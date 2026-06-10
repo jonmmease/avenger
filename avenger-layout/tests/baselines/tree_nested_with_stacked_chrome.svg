@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-22 -10 387 162" font-family="monospace" font-size="10">
   <defs>
-    <pattern id="hatch-i0" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><rect width="4" height="4" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="4" stroke="#f8b4b4" stroke-width="1.6"/></pattern>
-    <pattern id="hatch-i1" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><rect width="4" height="4" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="4" stroke="#ec6e6e" stroke-width="1.6"/></pattern>
-    <pattern id="hatch-o0" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><rect width="4" height="4" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="4" stroke="#a3e4bf" stroke-width="1.6"/></pattern>
-    <pattern id="hatch-o1" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><rect width="4" height="4" fill="#ffffff"/><line x1="0" y1="0" x2="0" y2="4" stroke="#4cbd7d" stroke-width="1.6"/></pattern>
+    <pattern id="hatch-i0" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#f8b4b4" stroke-width="1.6"/></pattern>
+    <pattern id="hatch-i1" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#ec6e6e" stroke-width="1.6"/></pattern>
+    <pattern id="hatch-o0" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#a3e4bf" stroke-width="1.6"/></pattern>
+    <pattern id="hatch-o1" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#4cbd7d" stroke-width="1.6"/></pattern>
   </defs>
   <rect x="-22" y="-10" width="387" height="162" fill="#ffffff"/>
   <rect x="0" y="0" width="140" height="114" fill="none" stroke="#111111" stroke-width="1"/>
