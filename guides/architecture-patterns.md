@@ -65,7 +65,7 @@ impl SceneGraphBuilder<MyState> for MyBuilder {
 - Immutable design for predictable behavior
 
 ### Layout System (avenger-chart)
-- Uses an Avenger-native frame grid solver for chart chrome layout
+- Frame chrome (margins, titles, legends, guide overflow) solves via the neutral `avenger_layout::Frame` model
 - Debug visualization available via AVENGER_CHART_DEBUG_LAYOUT
 - Handles plot areas, guides, legends, titles
 

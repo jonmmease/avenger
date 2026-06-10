@@ -1,4 +1,10 @@
-//! Grid layout building logic
+//! Frame chrome measurement and construction.
+//!
+//! Collects the chrome components of one chart frame (title/subtitle bands,
+//! legend containers, guide overflow), measures them (text measurement via
+//! DataFusion expressions and themes, legend container extents, overflow
+//! gating), and assembles the declared [`FrameChrome`] that
+//! `avenger_layout::Frame` solves.
 
 use std::collections::HashMap;
 
@@ -29,7 +35,7 @@ use crate::{
 use super::sizing::EvaluatedLayoutSpec;
 
 /// Minimum size in pixels for creating guide overflow regions.
-/// Overflow regions smaller than this are ignored to avoid unnecessary grid complexity.
+/// Overflow regions smaller than this are ignored entirely.
 pub(crate) const MIN_GUIDE_OVERFLOW_SIZE: f32 = 2.0;
 
 /// Minimum extent of the plot content when an axis is solved from a fixed
@@ -67,88 +73,25 @@ const DEFAULT_SUBTITLE_FONT_SIZE: f32 = 14.0;
 /// Default font family when not specified in theme or expression
 const DEFAULT_FONT_FAMILY: &str = "sans-serif";
 
-/// Dynamic grid builder for chart layouts
+/// Collects frame chrome components and measures them into a [`FrameChrome`].
 ///
-/// `GridBuilder` constructs Avenger frame grids for charts by dynamically
-/// positioning components based on their semantic roles and spatial
-/// requirements. The builder is order-independent - components can be added in
-/// any order and will be positioned deterministically based on their types and
-/// the overflow measurements.
+/// Components are registered by role (title, subtitle, legends by position)
+/// in any order; `build_frame_chrome` measures them and lays each side out
+/// outside-in as:
 ///
-/// ## Component Positioning
-///
-/// Components are positioned in layers moving outward from the plot area:
-/// - **Innermost**: Plot area (where data marks are rendered)
-/// - **Next layer**: Guide overflows (directly adjacent to plot area, in overflow regions)
-/// - **Outer layers**: Legends (farther from plot, after guide overflows)
-/// - **Outermost**: Titles/subtitles (top only, before any guide overflows/legends)
-///
-/// ## Grid Structure
-///
-/// The builder creates a grid with the following structure:
 /// ```text
-///   ↓ margin column
-/// ┌────┬───────────────────────────────────────────────┬────┐
-/// │    │                                               │    │ ← margin row
-/// ├────┼───────────────────────────────────────────────┼────┤
-/// │    │              Title (optional)                 │    │
-/// │    ├───────────────────────────────────────────────┤    │
-/// │    │            Subtitle (optional)                │    │
-/// │    ├────────────┬─────────────────┬────────┬───────┤    │
-/// │    │            │ Overflow-top    │        │       │    │
-/// │    │            │ (guide)         │        │       │    │
-/// │    ├────────────┼─────────────────┼────────┼───────┤    │
-/// │    │ Overflow-  │                 │Overflow│Right  │    │
-/// │    │ left       │   Plot Area     │-right  │Legend │    │
-/// │    │(guide)     │                 │(guide) │       │    │
-/// │    ├────────────┼─────────────────┼────────┼───────┤    │
-/// │    │            │ Overflow-bottom │        │       │    │
-/// │    │            │ (guide)         │        │       │    │
-/// ├────├────────────┴─────────────────┴────────┴───────┼────┤
-/// │    │                                               │    │ ← margin row
-/// └────┴───────────────────────────────────────────────┴────┘
-///    ↑ margin column                                     ↑ margin column
+/// margin → bands (title, subtitle; top side only) → outer (legend
+/// container) → inner (guide overflow) → plot content
 /// ```
 ///
-/// ## Dynamic Columns and Rows
-///
-/// The builder dynamically adds columns and rows based on:
-/// - **Overflow requirements**: Space needed for guide elements beyond plot area
-/// - **Legend containers**: Each legend position gets its own column/row
-/// - **Titles**: Title and subtitle each get their own row
-///
-/// Only overflow regions larger than `MIN_GUIDE_OVERFLOW_SIZE` are created to avoid
-/// unnecessary grid complexity for minimal overflows.
-///
-/// ## Component Positioning Rules
-///
-/// Components are positioned deterministically based on their types:
-/// - **Margins**: Always outermost rows/columns
-/// - **Title/Subtitle**: Top rows, before any guide overflows
-/// - **Guide overflows**: Adjacent to plot area, created based on overflow measurements
-/// - **Plot area**: Center, flexible sizing
-/// - **Legend containers**: Outside guide overflows, preserving insertion order within each position
-///
-/// ## Legend Containers
-///
-/// Legends are grouped by position into containers:
-/// - Multiple legends at the same position share a container
-/// - The container manages internal spacing and alignment
-/// - Container width is determined by the widest legend it contains
-/// - Only channel names are stored, preserving insertion order per position
-/// - Containers are created automatically during build phase
-///
-/// ## Build Process
-///
-/// The `build_with_overflow()` method:
-/// 1. Creates margin columns/rows from `layout_spec.margins`
-/// 2. Adds title/subtitle rows with measured heights
-/// 3. Adds guide overflow columns/rows based on measured requirements
-/// 4. Places the plot area in the center (flexible sizing with `fr(1.0)`)
-/// 5. Adds legend container columns with measured widths
-/// 6. Returns a `GridLayout` with track sizing functions and component positions
-///    mapping components to their grid positions
-pub(crate) struct GridBuilder {
+/// Measurement policy lives here, geometry does not:
+/// - title/subtitle band heights are measured text line heights times a row
+///   multiplier,
+/// - a legend container's extent is the max measured size of the legends
+///   stacked in it (insertion order is preserved per position),
+/// - guide overflow layers exist only above [`MIN_GUIDE_OVERFLOW_SIZE`] and
+///   are pixel-aligned by ceiling.
+pub(crate) struct FrameChromeBuilder {
     // Simple flags for component presence
     pub has_title: bool,
     pub has_subtitle: bool,
@@ -240,9 +183,9 @@ async fn measure_text_bounds(
     Ok(bounds)
 }
 
-impl GridBuilder {
+impl FrameChromeBuilder {
     pub fn new() -> Self {
-        GridBuilder {
+        FrameChromeBuilder {
             has_title: false,
             has_subtitle: false,
             legends_by_position: IndexMap::new(),
@@ -405,8 +348,7 @@ impl GridBuilder {
             overflow.bottom > MIN_GUIDE_OVERFLOW_SIZE,
             overflow.left > MIN_GUIDE_OVERFLOW_SIZE,
         );
-        // Existing overflow layers are pixel-aligned by ceiling, as the
-        // legacy grid did when creating overflow tracks.
+        // Existing overflow layers are pixel-aligned by ceiling.
         let inner = |present: bool, value: f32| if present { value.ceil() } else { 0.0 };
 
         let mut top_bands = Vec::new();
@@ -478,11 +420,11 @@ mod tests {
         theme::Theme,
     };
 
-    use super::GridBuilder;
+    use super::FrameChromeBuilder;
 
     #[tokio::test]
     async fn build_frame_chrome_respects_minimum_guide_threshold() {
-        let builder = GridBuilder::new();
+        let builder = FrameChromeBuilder::new();
         let ctx = SessionContext::new();
         let params = IndexMap::new();
         let theme = Theme::light();

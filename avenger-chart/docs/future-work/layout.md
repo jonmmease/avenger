@@ -40,7 +40,7 @@ Define a top-level composition type rather than overloading plot coordinates:
 ```rust
 pub enum ChartNode {
     Plot(CompiledPlot),
-    Grid(GridLayout),
+    Grid(GridComposition),
     Flex(FlexLayout),
 }
 ```

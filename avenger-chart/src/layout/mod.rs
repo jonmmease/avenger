@@ -7,9 +7,9 @@
 //! `avenger-layout` geometry.
 
 mod band_position;
+mod chrome;
 mod content_solver;
 mod frame_solver;
-mod grid;
 mod info;
 mod sizing;
 
@@ -37,6 +37,7 @@ pub struct ChartRegionMeta {
 pub type PlacementSolution = avenger_layout::PlacementSolution<usize, ChartRegionMeta>;
 pub type PlacedRegion = avenger_layout::PlacedRegion<usize, ChartRegionMeta>;
 pub use band_position::BandPositionIterator;
+pub(crate) use chrome::FrameChrome;
 pub use content_solver::{
     ChildFrameContentMeasurement, ChildFrameContentPlan, ChildFrameContentSolver,
     ContentAllocation, ContentDemand, ContentLayout, ContentLayoutSolver,
@@ -46,7 +47,6 @@ pub(crate) use frame_solver::{
     AvengerFrameLayoutSolver, FrameLayoutInput, apply_frame_side_slab, overflow_side_value,
     retarget_frame_layout_for_plot_area,
 };
-pub(crate) use grid::FrameChrome;
 pub use info::LegendLayoutInfo;
 pub use sizing::{
     CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, LayoutSpec, Margins, PlotConstraint,

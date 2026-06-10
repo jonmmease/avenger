@@ -27,7 +27,7 @@ use crate::{
 use avenger_layout::FrameAxisSizing;
 
 use super::{
-    grid::{FrameChrome, GridBuilder, MIN_COMPONENT_SIZE},
+    chrome::{FrameChrome, FrameChromeBuilder, MIN_COMPONENT_SIZE},
     info::LegendLayoutInfo,
     sizing::EvaluatedLayoutSpec,
 };
@@ -52,7 +52,7 @@ impl AvengerFrameLayoutSolver {
     pub(crate) async fn solve(
         input: FrameLayoutInput<'_>,
     ) -> Result<LayoutSolution, AvengerChartError> {
-        let mut builder = GridBuilder::new();
+        let mut builder = FrameChromeBuilder::new();
         if input.title.is_some() {
             builder.add_title();
         }
@@ -366,7 +366,7 @@ fn reproject_layout_rects(layout: &mut LayoutSolution, legend_measurements: &Leg
 /// horizontal span follows the span policy: the plot content alone, or the
 /// content plus the existing guide-overflow layers and a right legend
 /// container (the canvas span runs from the left overflow layer through the
-/// rightmost chrome component, as the legacy grid spanned columns).
+/// rightmost chrome component).
 fn title_band_bounds(
     solution: &avenger_layout::FrameSolution,
     band_index: usize,

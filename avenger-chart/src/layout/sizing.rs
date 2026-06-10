@@ -466,7 +466,7 @@ fn frame_axis_sizing(canvas: Option<f32>, plot: Option<f32>) -> FrameAxisSizing 
         (Some(extent), None) => FrameAxisSizing::EnvelopeFixed { extent },
         (None, Some(content)) => FrameAxisSizing::ContentFixed { content },
         (None, None) => FrameAxisSizing::ContentFixed {
-            content: super::grid::MIN_COMPONENT_SIZE,
+            content: super::chrome::MIN_COMPONENT_SIZE,
         },
     }
 }
