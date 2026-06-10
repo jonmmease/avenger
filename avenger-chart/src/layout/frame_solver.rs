@@ -29,11 +29,8 @@ use avenger_layout::FrameAxisSizing;
 use super::{
     grid::{FrameChrome, GridBuilder, MIN_COMPONENT_SIZE},
     info::LegendLayoutInfo,
-    sizing::{EvaluatedLayoutSpec, EvaluatedSizeMode},
+    sizing::EvaluatedLayoutSpec,
 };
-
-const DEFAULT_CANVAS_WIDTH: f32 = 400.0;
-const DEFAULT_CANVAS_HEIGHT: f32 = 300.0;
 
 /// Input required to solve a chart frame layout.
 pub(crate) struct FrameLayoutInput<'a> {
@@ -101,18 +98,12 @@ impl AvengerFrameLayoutSolver {
             TitleSpan::default()
         };
 
-        let normalized_spec = normalize_layout_spec(input.layout_spec);
+        let (sizing_horizontal, sizing_vertical) = input.layout_spec.frame_axis_sizings();
         let chrome = builder
             .build_frame_chrome(
                 input.overflow,
-                frame_axis_sizing(
-                    definite_width(&normalized_spec.canvas),
-                    definite_width(&normalized_spec.plot_area),
-                ),
-                frame_axis_sizing(
-                    definite_height(&normalized_spec.canvas),
-                    definite_height(&normalized_spec.plot_area),
-                ),
+                sizing_horizontal,
+                sizing_vertical,
                 title_span,
                 subtitle_span,
                 input.title,
@@ -131,25 +122,6 @@ impl AvengerFrameLayoutSolver {
             &builder.legends_by_position,
             input.legend_measurements,
         )
-    }
-}
-
-/// Map one axis of the normalized layout spec onto a frame sizing mode.
-///
-/// - canvas and plot both definite: the margins absorb the slack,
-/// - canvas definite, plot auto: the plot content takes the remainder,
-/// - plot definite, canvas auto: the canvas wraps the content,
-/// - neither: the plot content collapses to its minimum.
-fn frame_axis_sizing(canvas: Option<f32>, plot: Option<f32>) -> FrameAxisSizing {
-    match (canvas, plot) {
-        (Some(extent), Some(content)) => {
-            FrameAxisSizing::EnvelopeAndContentFixed { extent, content }
-        }
-        (Some(extent), None) => FrameAxisSizing::EnvelopeFixed { extent },
-        (None, Some(content)) => FrameAxisSizing::ContentFixed { content },
-        (None, None) => FrameAxisSizing::ContentFixed {
-            content: MIN_COMPONENT_SIZE,
-        },
     }
 }
 
@@ -461,36 +433,6 @@ async fn evaluate_title_span(
                 _ => None,
             })
             .unwrap_or_default()),
-    }
-}
-
-fn normalize_layout_spec(layout_spec: &EvaluatedLayoutSpec) -> EvaluatedLayoutSpec {
-    match (&layout_spec.canvas, &layout_spec.plot_area) {
-        (EvaluatedSizeMode::Auto, EvaluatedSizeMode::Auto) => {
-            let mut spec = layout_spec.clone();
-            spec.canvas = EvaluatedSizeMode::Fixed {
-                width: DEFAULT_CANVAS_WIDTH,
-                height: DEFAULT_CANVAS_HEIGHT,
-            };
-            spec
-        }
-        _ => layout_spec.clone(),
-    }
-}
-
-fn definite_width(mode: &EvaluatedSizeMode) -> Option<f32> {
-    match mode {
-        EvaluatedSizeMode::Fixed { width, .. } | EvaluatedSizeMode::Width(width) => Some(*width),
-        EvaluatedSizeMode::Height(_) | EvaluatedSizeMode::Auto => None,
-    }
-}
-
-fn definite_height(mode: &EvaluatedSizeMode) -> Option<f32> {
-    match mode {
-        EvaluatedSizeMode::Fixed { height, .. } | EvaluatedSizeMode::Height(height) => {
-            Some(*height)
-        }
-        EvaluatedSizeMode::Width(_) | EvaluatedSizeMode::Auto => None,
     }
 }
 

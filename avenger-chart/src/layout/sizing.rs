@@ -57,6 +57,7 @@ use avenger_chart_core::{
     maybe::{Maybe, MaybeOptionalExpr},
 };
 use avenger_chart_scales::serialization::LogicalExprNodeExt;
+use avenger_layout::FrameAxisSizing;
 
 use crate::serialization::serializable_expr_from_expr;
 
@@ -416,6 +417,78 @@ pub(crate) struct EvaluatedLayoutSpec {
 
     /// Fixed margins around entire chart
     pub margins: EvaluatedMargins,
+}
+
+/// Default canvas dimensions when neither the canvas nor the plot area is
+/// constrained on any axis.
+const DEFAULT_CANVAS_WIDTH: f32 = 400.0;
+const DEFAULT_CANVAS_HEIGHT: f32 = 300.0;
+
+impl EvaluatedLayoutSpec {
+    /// The one seam from sizing specs to frame sizing modes, used by every
+    /// frame solve: top-level charts and container child frames (which
+    /// declare a fixed plot area) both map through here.
+    ///
+    /// Per axis:
+    /// - canvas and plot both definite: the margins absorb the slack,
+    /// - canvas definite, plot auto: the plot content takes the remainder,
+    /// - plot definite, canvas auto: the canvas wraps the content,
+    /// - neither: the plot content collapses to its minimum.
+    ///
+    /// A fully unconstrained spec (both modes `Auto`) normalizes to the
+    /// default fixed canvas first.
+    pub(crate) fn frame_axis_sizings(&self) -> (FrameAxisSizing, FrameAxisSizing) {
+        let normalized_canvas = match (&self.canvas, &self.plot_area) {
+            (EvaluatedSizeMode::Auto, EvaluatedSizeMode::Auto) => &EvaluatedSizeMode::Fixed {
+                width: DEFAULT_CANVAS_WIDTH,
+                height: DEFAULT_CANVAS_HEIGHT,
+            },
+            _ => &self.canvas,
+        };
+        (
+            frame_axis_sizing(
+                normalized_canvas.definite_width(),
+                self.plot_area.definite_width(),
+            ),
+            frame_axis_sizing(
+                normalized_canvas.definite_height(),
+                self.plot_area.definite_height(),
+            ),
+        )
+    }
+}
+
+fn frame_axis_sizing(canvas: Option<f32>, plot: Option<f32>) -> FrameAxisSizing {
+    match (canvas, plot) {
+        (Some(extent), Some(content)) => {
+            FrameAxisSizing::EnvelopeAndContentFixed { extent, content }
+        }
+        (Some(extent), None) => FrameAxisSizing::EnvelopeFixed { extent },
+        (None, Some(content)) => FrameAxisSizing::ContentFixed { content },
+        (None, None) => FrameAxisSizing::ContentFixed {
+            content: super::grid::MIN_COMPONENT_SIZE,
+        },
+    }
+}
+
+impl EvaluatedSizeMode {
+    fn definite_width(&self) -> Option<f32> {
+        match self {
+            EvaluatedSizeMode::Fixed { width, .. } | EvaluatedSizeMode::Width(width) => {
+                Some(*width)
+            }
+            EvaluatedSizeMode::Height(_) | EvaluatedSizeMode::Auto => None,
+        }
+    }
+
+    fn definite_height(&self) -> Option<f32> {
+        match self {
+            EvaluatedSizeMode::Fixed { height, .. } | EvaluatedSizeMode::Height(height) => {
+                Some(*height)
+            }
+            EvaluatedSizeMode::Width(_) | EvaluatedSizeMode::Auto => None,
+        }
+    }
 }
 
 impl Default for LayoutSpec {
