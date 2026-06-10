@@ -881,6 +881,9 @@ dependencies = [
 [[package]]
 name = "avenger-layout"
 version = "0.1.0"
+dependencies = [
+ "resvg",
+]
 
 [[package]]
 name = "avenger-sample-data"

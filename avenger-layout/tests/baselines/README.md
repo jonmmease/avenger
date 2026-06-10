@@ -20,14 +20,11 @@ review the diffs:
 AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --features svg --test svg_baselines
 ```
 
-To render the gallery to PNGs (e.g. for sharing), `rsvg-convert` from
-librsvg (`brew install librsvg`) is the simplest route:
-
-```sh
-for f in avenger-layout/tests/baselines/*.svg; do
-  rsvg-convert -z 2 "$f" -o "${f%.svg}.png"
-done
-```
+Blessing also writes a PNG next to each SVG (rendered with `resvg`, 2x
+scale, white background) so the gallery is viewable anywhere SVGs are
+inconvenient. The PNGs are a viewing convenience only: rasterization
+goes through system fonts, so they are not byte-stable across machines
+and the tests never compare them — the SVG string is the snapshot.
 
 ## Reading the SVGs
 

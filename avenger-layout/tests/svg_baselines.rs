@@ -29,11 +29,38 @@ fn baseline_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/baselines")
 }
 
+/// Render the SVG to a PNG next to it (2x scale, white background).
+///
+/// PNGs are a viewing convenience only: rasterization goes through system
+/// fonts, so they are not byte-stable across machines and are never
+/// compared — the SVG string is the snapshot.
+fn write_png(svg: &str, png_path: &std::path::Path) {
+    use resvg::{tiny_skia, usvg};
+
+    let mut options = usvg::Options::default();
+    options.fontdb_mut().load_system_fonts();
+    let tree = usvg::Tree::from_str(svg, &options).expect("baseline SVG parses");
+    let size = tree
+        .size()
+        .to_int_size()
+        .scale_by(2.0)
+        .expect("scaled pixmap size");
+    let mut pixmap = tiny_skia::Pixmap::new(size.width(), size.height()).expect("allocate pixmap");
+    pixmap.fill(tiny_skia::Color::WHITE);
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(2.0, 2.0),
+        &mut pixmap.as_mut(),
+    );
+    pixmap.save_png(png_path).expect("write png");
+}
+
 fn assert_svg_baseline(name: &str, svg: &str) {
     let path = baseline_dir().join(format!("{name}.svg"));
     if std::env::var_os("AVENGER_LAYOUT_BLESS").is_some() {
         fs::create_dir_all(path.parent().unwrap()).expect("create baselines dir");
         fs::write(&path, svg).expect("write blessed baseline");
+        write_png(svg, &path.with_extension("png"));
         return;
     }
     let expected = fs::read_to_string(&path).unwrap_or_else(|_| {
@@ -47,10 +74,11 @@ fn assert_svg_baseline(name: &str, svg: &str) {
         fs::create_dir_all(&failures).expect("create failures dir");
         let actual_path = failures.join(format!("{name}.svg"));
         fs::write(&actual_path, svg).expect("write failure svg");
+        write_png(svg, &actual_path.with_extension("png"));
         panic!(
             "SVG for '{name}' differs from baseline {path:?}; \
-             actual written to {actual_path:?}. If the change is intentional, \
-             re-bless with AVENGER_LAYOUT_BLESS=1."
+             actual (svg + png) written to {actual_path:?}. If the change is \
+             intentional, re-bless with AVENGER_LAYOUT_BLESS=1."
         );
     }
 }

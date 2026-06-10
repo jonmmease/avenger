@@ -13,3 +13,6 @@ svg = []
 [[test]]
 name = "svg_baselines"
 required-features = ["svg"]
+
+[dev-dependencies]
+resvg.workspace = true
