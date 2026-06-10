@@ -58,21 +58,49 @@ pub use subplot::{CompiledConcatSubplot, compiled_subplot};
 
 /// Horizontal concatenation of `Subplot` marks.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct HConcat;
+pub struct HConcat {
+    #[serde(default)]
+    spacing: Option<f32>,
+}
 
 impl HConcat {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// Minimum gap in pixels between adjacent children. Children may still
+    /// sit further apart when their rendered edge chrome demands it.
+    pub fn spacing(mut self, px: f32) -> Self {
+        self.spacing = Some(px);
+        self
+    }
+
+    pub(crate) fn spacing_px(&self) -> f32 {
+        self.spacing.unwrap_or(0.0)
     }
 }
 
 /// Vertical concatenation of `Subplot` marks.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct VConcat;
+pub struct VConcat {
+    #[serde(default)]
+    spacing: Option<f32>,
+}
 
 impl VConcat {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// Minimum gap in pixels between adjacent children. Children may still
+    /// sit further apart when their rendered edge chrome demands it.
+    pub fn spacing(mut self, px: f32) -> Self {
+        self.spacing = Some(px);
+        self
+    }
+
+    pub(crate) fn spacing_px(&self) -> f32 {
+        self.spacing.unwrap_or(0.0)
     }
 }
 
@@ -82,6 +110,8 @@ pub struct GridConcat {
     rows: Option<usize>,
     columns: Option<usize>,
     #[serde(default)]
+    spacing: Option<f32>,
+    #[serde(default)]
     axis_guide_visibility: AxisGuideVisibilityConfig,
 }
 
@@ -90,6 +120,8 @@ pub struct GridConcat {
 pub struct WrapConcat {
     column_mode: FacetWrapColumnMode,
     #[serde(default)]
+    spacing: Option<f32>,
+    #[serde(default)]
     axis_guide_visibility: AxisGuideVisibilityConfig,
 }
 
@@ -97,6 +129,7 @@ impl Default for WrapConcat {
     fn default() -> Self {
         Self {
             column_mode: FacetWrapColumnMode::Auto,
+            spacing: None,
             axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
         }
     }
@@ -105,6 +138,17 @@ impl Default for WrapConcat {
 impl WrapConcat {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Minimum gap in pixels between adjacent tracks. Children may still
+    /// sit further apart when their rendered edge chrome demands it.
+    pub fn spacing(mut self, px: f32) -> Self {
+        self.spacing = Some(px);
+        self
+    }
+
+    pub(crate) fn spacing_px(&self) -> f32 {
+        self.spacing.unwrap_or(0.0)
     }
 
     pub fn columns(mut self, expr: impl IntoExpr) -> Self {
@@ -145,6 +189,17 @@ impl WrapConcat {
 impl GridConcat {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Minimum gap in pixels between adjacent tracks. Children may still
+    /// sit further apart when their rendered edge chrome demands it.
+    pub fn spacing(mut self, px: f32) -> Self {
+        self.spacing = Some(px);
+        self
+    }
+
+    pub(crate) fn spacing_px(&self) -> f32 {
+        self.spacing.unwrap_or(0.0)
     }
 
     pub fn rows(mut self, rows: usize) -> Self {
@@ -540,6 +595,8 @@ pub struct ConcatCoordMeasurement {
     pub(crate) children: Vec<ConcatChildMeasurement>,
     pub(crate) placement: ConcatChildPlacement,
     pub(crate) fallback_content_size: Size,
+    /// Configured minimum gap between adjacent children (0 when unset).
+    pub(crate) min_gap: f32,
 }
 
 impl ConcatCoordMeasurement {
@@ -587,6 +644,7 @@ impl ConcatCoordMeasurement {
             shape,
             base_child_content_size,
             retarget_plot_area_size,
+            self.min_gap,
         )?;
         self.placement = ConcatChildPlacement::Grid {
             placement,
@@ -663,8 +721,11 @@ impl ConcatCoordMeasurement {
             self.fallback_content_size.height / shape.rows.max(1) as f32,
         );
         let demands = self.layout_coordination_grid_items()?;
-        grid_requirements(shape, base_child_content_size, &demands)
-            .map_err(|err| AvengerChartError::InvalidArgument(err.to_string()))
+        let mut requirements = grid_requirements(shape, base_child_content_size, &demands)
+            .map_err(|err| AvengerChartError::InvalidArgument(err.to_string()))?;
+        requirements.column_spacing.min_gap = self.min_gap;
+        requirements.row_spacing.min_gap = self.min_gap;
+        Ok(requirements)
     }
 
     pub(crate) fn apply_grid_requirements(
@@ -1249,6 +1310,7 @@ async fn measure_prepared_concat_child(
 
 pub(crate) async fn measure_concat_coord_system(
     direction: Orientation,
+    spacing: f32,
     plot_width: f32,
     plot_height: f32,
     eval_ctx: &EvaluationContext,
@@ -1303,7 +1365,10 @@ pub(crate) async fn measure_concat_coord_system(
     let child_band_layout = BandSolution::from_sized_children(
         direction,
         &inputs,
-        TrackSpacing::default(),
+        TrackSpacing {
+            min_gap: spacing,
+            ..Default::default()
+        },
         CrossAlign::default(),
     );
 
@@ -1311,6 +1376,7 @@ pub(crate) async fn measure_concat_coord_system(
         children,
         placement: ConcatChildPlacement::Band(child_band_layout),
         fallback_content_size: Size::new(plot_width, plot_height),
+        min_gap: spacing,
     }))
 }
 
@@ -1409,8 +1475,13 @@ pub(crate) async fn measure_grid_concat_coord_system(
         );
     }
 
-    let placement =
-        grid_child_frame_placement(&children, grid_shape, base_child_content_size, true)?;
+    let placement = grid_child_frame_placement(
+        &children,
+        grid_shape,
+        base_child_content_size,
+        true,
+        grid.spacing_px(),
+    )?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
         placement: ConcatChildPlacement::Grid {
@@ -1419,6 +1490,7 @@ pub(crate) async fn measure_grid_concat_coord_system(
             retarget_plot_area_size: true,
         },
         fallback_content_size: Size::new(plot_width, plot_height),
+        min_gap: grid.spacing_px(),
     }))
 }
 
@@ -1532,7 +1604,13 @@ pub(crate) async fn measure_wrap_concat_coord_system(
         children.push(child);
     }
 
-    let placement = grid_child_frame_placement(&children, grid_shape, child_plot_area, false)?;
+    let placement = grid_child_frame_placement(
+        &children,
+        grid_shape,
+        child_plot_area,
+        false,
+        wrap.spacing_px(),
+    )?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
         placement: ConcatChildPlacement::Grid {
@@ -1541,6 +1619,7 @@ pub(crate) async fn measure_wrap_concat_coord_system(
             retarget_plot_area_size: false,
         },
         fallback_content_size: Size::new(plot_width, plot_height),
+        min_gap: wrap.spacing_px(),
     }))
 }
 
@@ -1928,10 +2007,13 @@ fn grid_child_frame_placement(
     shape: GridShape,
     base_cell_size: Size,
     retarget_plot_area_size: bool,
+    min_gap: f32,
 ) -> Result<PlacementSolution, AvengerChartError> {
     let demands = grid_child_items(children)?;
-    let requirements = grid_requirements(shape, base_cell_size, &demands)
+    let mut requirements = grid_requirements(shape, base_cell_size, &demands)
         .map_err(|err| AvengerChartError::InvalidArgument(err.to_string()))?;
+    requirements.column_spacing.min_gap = min_gap;
+    requirements.row_spacing.min_gap = min_gap;
     let solution = solve_grid_requirements(&requirements, &demands);
 
     let placements = children
@@ -2501,6 +2583,62 @@ mod tests {
             })?;
             collect_child_frame_placement_snapshots(child, snapshots)?;
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn hconcat_spacing_floors_child_gaps() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::with_coord(HConcat::new().spacing(25.0))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 200.0, 100.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("HConcat should measure as ConcatCoordMeasurement");
+        assert_eq!(concat.min_gap, 25.0);
+        let placement = concat.child_frame_placement();
+        let first = placement.child(0).expect("first child placed");
+        let second = placement.child(1).expect("second child placed");
+        let first_right = first.origin[0] + concat.children[0].measurement.plot_area_width;
+        assert!(
+            second.origin[0] - first_right >= 25.0 - 0.01,
+            "configured spacing should floor the inter-child gap: gap = {}",
+            second.origin[0] - first_right
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn grid_concat_spacing_floors_track_gaps() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::with_coord(GridConcat::new().rows(1).columns(2).spacing(30.0))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).grid_cell(0, 0))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).grid_cell(0, 1))
+            .compile(&ctx)
+            .await?;
+
+        let measurement = measurement_for_plot(&compiled, 240.0, 100.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<ConcatCoordMeasurement>()
+            .expect("GridConcat should measure as ConcatCoordMeasurement");
+        assert_eq!(concat.min_gap, 30.0);
+        let placement = concat.child_frame_placement();
+        let first = placement.child(0).expect("first child placed");
+        let second = placement.child(1).expect("second child placed");
+        let first_right = first.origin[0] + concat.children[0].measurement.plot_area_width;
+        assert!(
+            second.origin[0] - first_right >= 30.0 - 0.01,
+            "configured spacing should floor the inter-track gap: gap = {}",
+            second.origin[0] - first_right
+        );
         Ok(())
     }
 

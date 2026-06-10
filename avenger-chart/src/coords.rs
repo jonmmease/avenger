@@ -176,9 +176,10 @@ pub(crate) async fn measure_coordinate_system_transform(
 
     let any = transform.as_any();
 
-    if any.is::<crate::concat::HConcat>() {
+    if let Some(hconcat) = any.downcast_ref::<crate::concat::HConcat>() {
         return Box::pin(crate::concat::measure_concat_coord_system(
             crate::layout::Orientation::Horizontal,
+            hconcat.spacing_px(),
             request.plot_width(),
             request.plot_height(),
             request.eval_ctx(),
@@ -189,9 +190,10 @@ pub(crate) async fn measure_coordinate_system_transform(
         .await;
     }
 
-    if any.is::<crate::concat::VConcat>() {
+    if let Some(vconcat) = any.downcast_ref::<crate::concat::VConcat>() {
         return Box::pin(crate::concat::measure_concat_coord_system(
             crate::layout::Orientation::Vertical,
+            vconcat.spacing_px(),
             request.plot_width(),
             request.plot_height(),
             request.eval_ctx(),
