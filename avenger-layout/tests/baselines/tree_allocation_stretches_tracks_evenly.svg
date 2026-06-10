@@ -12,7 +12,7 @@
   <rect x="0" y="60" width="200" height="6" fill="#cf4444" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="-12" y="0" width="12" height="60" fill="url(#hatch-i0)" stroke="#cf4444" stroke-width="1"/>
   <rect x="0" y="0" width="200" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
-  <text x="3" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 d0</text>
+  <text x="3" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">c0</text>
   <rect x="0" y="66" width="200" height="18" fill="url(#hatch-i0)" stroke="#cf4444" stroke-width="1"/>
   <rect x="0" y="66" width="200" height="18" fill="#cf4444" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="200" y="84" width="6" height="70" fill="url(#hatch-i0)" stroke="#cf4444" stroke-width="1"/>
@@ -24,7 +24,7 @@
   <rect x="-12" y="84" width="12" height="70" fill="url(#hatch-i0)" stroke="#cf4444" stroke-width="1"/>
   <rect x="-12" y="84" width="12" height="70" fill="#cf4444" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="0" y="84" width="200" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
-  <text x="3" y="96" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">1 d0</text>
+  <text x="3" y="96" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">c1</text>
   <rect x="0" y="80" width="94" height="4" fill="url(#hatch-i1)" stroke="#e98080" stroke-width="1"/>
   <rect x="0" y="80" width="94" height="4" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="94" y="84" width="6" height="70" fill="url(#hatch-i1)" stroke="#e98080" stroke-width="1"/>
@@ -34,7 +34,7 @@
   <rect x="-12" y="84" width="12" height="70" fill="url(#hatch-i1)" stroke="#e98080" stroke-width="1"/>
   <rect x="-12" y="84" width="12" height="70" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="0" y="84" width="94" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
-  <text x="3" y="108" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">10 d1</text>
+  <text x="3" y="108" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">c10</text>
   <rect x="106" y="80" width="94" height="4" fill="url(#hatch-i1)" stroke="#e98080" stroke-width="1"/>
   <rect x="106" y="80" width="94" height="4" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="200" y="84" width="6" height="70" fill="url(#hatch-i1)" stroke="#e98080" stroke-width="1"/>
@@ -46,7 +46,7 @@
   <rect x="100" y="84" width="6" height="70" fill="url(#hatch-i1)" stroke="#e98080" stroke-width="1"/>
   <rect x="100" y="84" width="6" height="70" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="106" y="84" width="94" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
-  <text x="109" y="108" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">11 d1</text>
+  <text x="109" y="108" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">c11</text>
   <rect x="0" y="168" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="13" y="177" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
   <rect x="69" y="168" width="5" height="10" fill="#cf4444" stroke="#cf4444" stroke-width="1"/>

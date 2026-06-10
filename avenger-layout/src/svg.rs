@@ -218,15 +218,17 @@ impl DebugScene {
     }
 
     /// Capture a solved layout tree: one region per solved node or leaf,
-    /// labeled with its ID and depth, in root coordinates.
+    /// labeled with its structural index path (`c0`, `c12` = second item's
+    /// third child, …), in root coordinates.
     pub fn from_tree<Id: Display>(tree: &TreeSolution<Id>) -> Self {
         let regions = tree
             .regions
             .iter()
             .map(|region| {
                 let content = region.content_rect;
+                let path_label = region.path.iter().map(usize::to_string).collect::<String>();
                 DebugRegion {
-                    label: format!("{} d{}", region.id, region.depth),
+                    label: format!("c{path_label}"),
                     kind: DebugRegionKind::Content,
                     content,
                     requested: Some(region.requested),
@@ -1057,13 +1059,13 @@ mod tests {
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 166 80\" font-family=\"monospace\" font-size=\"10\">
   <rect x=\"-10\" y=\"-10\" width=\"166\" height=\"80\" fill=\"#ffffff\"/>
   <rect x=\"0\" y=\"0\" width=\"50\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#9ca3af\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0 d0</text>
+  <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">c0</text>
   <rect x=\"60\" y=\"0\" width=\"86\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#9ca3af\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <text x=\"63\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1 d0</text>
+  <text x=\"63\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">c1</text>
   <rect x=\"60\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#9ca3af\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <text x=\"63\" y=\"24\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">10 d1</text>
+  <text x=\"63\" y=\"24\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">c10</text>
   <rect x=\"106\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#9ca3af\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <text x=\"109\" y=\"24\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">11 d1</text>
+  <text x=\"109\" y=\"24\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">c11</text>
   <rect x=\"0\" y=\"0\" width=\"146\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
 </svg>
 ";

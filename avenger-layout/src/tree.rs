@@ -79,6 +79,10 @@ pub struct TreeEnvelope {
 pub struct SolvedRegion<Id = usize> {
     pub id: Id,
     pub depth: usize,
+    /// Index route from the root: the position of each ancestor item (and
+    /// finally this item) within its parent's `items`. Length is
+    /// `depth + 1`; structural, independent of caller ids.
+    pub path: Vec<usize>,
     pub content_rect: Rect,
     /// The overflow this region asked for: a leaf's own (lifted) edge
     /// demand, or a subtree's envelope — exactly what the parent solve
@@ -225,8 +229,15 @@ impl<Id: Clone> LayoutNode<Id> {
     pub fn solve(&self, allocation: Option<Size>) -> Result<TreeSolution<Id>, GridError> {
         let collected = collect_node(self)?;
         let mut regions = Vec::new();
-        let content_size =
-            solve_node_into(self, &collected, allocation, [0.0, 0.0], 0, &mut regions);
+        let content_size = solve_node_into(
+            self,
+            &collected,
+            allocation,
+            [0.0, 0.0],
+            0,
+            &[],
+            &mut regions,
+        );
         Ok(TreeSolution {
             content_size,
             regions,
@@ -350,6 +361,7 @@ fn solve_node_into<Id: Clone>(
     allocation: Option<Size>,
     origin: [f32; 2],
     depth: usize,
+    path: &[usize],
     regions: &mut Vec<SolvedRegion<Id>>,
 ) -> Size {
     let solution = match allocation {
@@ -366,9 +378,12 @@ fn solve_node_into<Id: Clone>(
         let slot_origin = solution.content_origin_for_slot(item.slot);
         let slot_size = solution.content_size_for_slot(item.slot);
         let region_origin = [origin[0] + slot_origin[0], origin[1] + slot_origin[1]];
+        let mut item_path = path.to_vec();
+        item_path.push(index);
         regions.push(SolvedRegion {
             id: item.id.clone(),
             depth,
+            path: item_path.clone(),
             content_rect: Rect::new(
                 region_origin[0],
                 region_origin[1],
@@ -388,6 +403,7 @@ fn solve_node_into<Id: Clone>(
                 Some(slot_size),
                 region_origin,
                 depth + 1,
+                &item_path,
                 regions,
             );
         }

@@ -45,6 +45,8 @@ and the tests never compare them — the SVG string is the snapshot.
   content on their cross axis (as realized chart chrome does); margins
   span the full envelope. A color key row below the scene identifies the
   kinds; strips too thin to hold a label rely on it
+- tree regions are labeled with their structural index path (`c0`,
+  `c12` = second item's third child, …); the prefix shows ancestry
 - crosses: placement origins
 
 ## Gallery
