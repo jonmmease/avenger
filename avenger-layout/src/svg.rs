@@ -52,6 +52,10 @@ pub enum DebugRegionKind {
     Outer,
     /// A frame inner (guide-like) strip (red).
     Inner,
+    /// An arrangement boundary (black frame, no fill) — used when several
+    /// independent scenes are composed into one image and each needs its
+    /// own bounds.
+    Bounds,
 }
 
 /// One labeled region in a solved layout.
@@ -89,6 +93,10 @@ pub struct DebugMarker {
 pub struct DebugScene {
     /// The arrangement's solved content size.
     pub content_size: Size,
+    /// Draw the black bounds frame around `content_size`. Disable when
+    /// composing several independent scenes into one image and giving each
+    /// its own [`DebugRegionKind::Bounds`] region instead.
+    pub draw_bounds: bool,
     pub regions: Vec<DebugRegion>,
     pub markers: Vec<DebugMarker>,
 }
@@ -124,6 +132,7 @@ impl DebugScene {
 
         Self {
             content_size: solution.content_size,
+            draw_bounds: true,
             regions,
             markers: Vec::new(),
         }
@@ -186,6 +195,7 @@ impl DebugScene {
 
         Self {
             content_size,
+            draw_bounds: true,
             regions,
             markers: Vec::new(),
         }
@@ -218,6 +228,7 @@ impl DebugScene {
             .collect();
         Self {
             content_size: tree.content_size,
+            draw_bounds: true,
             regions,
             markers: Vec::new(),
         }
@@ -339,6 +350,7 @@ impl DebugScene {
 
         Self {
             content_size: extent,
+            draw_bounds: true,
             regions,
             markers: Vec::new(),
         }
@@ -363,6 +375,7 @@ impl DebugScene {
             .collect();
         Self {
             content_size: Size::new(solution.extent, cross_extent),
+            draw_bounds: true,
             regions,
             markers: Vec::new(),
         }
@@ -381,6 +394,7 @@ impl DebugScene {
             .collect();
         Self {
             content_size: solution.content_size,
+            draw_bounds: true,
             regions: Vec::new(),
             markers,
         }
@@ -434,10 +448,9 @@ impl DebugScene {
 
         // A color key row is shown whenever chrome strips are present
         // (frame scenes); content-only scenes stay minimal.
-        let has_chrome_kinds = self
-            .regions
-            .iter()
-            .any(|region| region.kind != DebugRegionKind::Content);
+        let has_chrome_kinds = self.regions.iter().any(|region| {
+            region.kind != DebugRegionKind::Content && region.kind != DebugRegionKind::Bounds
+        });
         let any_side = |edges: Edges<f32>| {
             edges.top > 0.0 || edges.right > 0.0 || edges.bottom > 0.0 || edges.left > 0.0
         };
@@ -506,14 +519,16 @@ impl DebugScene {
                 "fill=\"#ffffff\""
             )
         );
-        let _ = write!(
-            svg,
-            "  {}\n",
-            rect_element(
-                bounds_rect,
-                "fill=\"none\" stroke=\"#111111\" stroke-width=\"1\""
-            )
-        );
+        if self.draw_bounds {
+            let _ = write!(
+                svg,
+                "  {}\n",
+                rect_element(
+                    bounds_rect,
+                    "fill=\"none\" stroke=\"#111111\" stroke-width=\"1\""
+                )
+            );
+        }
 
         for region in &self.regions {
             // Coordinated (lighter) bands first, then the requested
@@ -754,6 +769,7 @@ fn kind_style(kind: DebugRegionKind) -> &'static str {
         DebugRegionKind::Band => "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#d97706\"",
         DebugRegionKind::Outer => "fill=\"#bbf7d0\" fill-opacity=\"0.6\" stroke=\"#16a34a\"",
         DebugRegionKind::Inner => "fill=\"#fecaca\" fill-opacity=\"0.6\" stroke=\"#dc2626\"",
+        DebugRegionKind::Bounds => "fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"",
     }
 }
 

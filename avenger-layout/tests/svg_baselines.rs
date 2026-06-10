@@ -647,6 +647,9 @@ fn stack_scenes(scenes: Vec<(&str, DebugScene)>) -> DebugScene {
     const GAP: f32 = 20.0;
     let mut combined = DebugScene {
         content_size: Size::new(0.0, 0.0),
+        // The panels are independent arrangements: no shared bounds frame;
+        // each panel gets its own Bounds region instead.
+        draw_bounds: false,
         regions: Vec::new(),
         markers: Vec::new(),
     };
@@ -668,6 +671,22 @@ fn stack_scenes(scenes: Vec<(&str, DebugScene)>) -> DebugScene {
             region.content.y += y_offset;
             combined.regions.push(region);
         }
+        // Drawn after the panel's regions so the boundary stays visible
+        // where content edges coincide with it.
+        combined.regions.push(avenger_layout::DebugRegion {
+            label: String::new(),
+            kind: avenger_layout::DebugRegionKind::Bounds,
+            content: avenger_layout::Rect::new(
+                0.0,
+                y_offset,
+                scene.content_size.width,
+                scene.content_size.height,
+            ),
+            requested: None,
+            target: None,
+            label_anchor: None,
+            label_rotated: false,
+        });
         combined.content_size.width = combined.content_size.width.max(scene.content_size.width);
         y_offset += scene.content_size.height + GAP;
         combined.content_size.height = y_offset - GAP;
