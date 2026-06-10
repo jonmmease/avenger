@@ -102,6 +102,39 @@ impl UniformTracks {
             spacing: self.spacing.merge_max(other.spacing),
         }
     }
+
+    /// Solve the uniform arrangement for a given per-track size: starts form
+    /// an arithmetic progression with the spacing's `min_gap` between
+    /// tracks, offset by `outer_start`, and the extent includes both outers.
+    pub fn solve(&self, track_size: f32) -> UniformTrackSolution {
+        let track_size = track_size.max(0.0);
+        let gap = self.spacing.min_gap.max(0.0);
+        let outer_start = self.spacing.outer_start.max(0.0);
+        let starts = (0..self.count)
+            .map(|index| outer_start + index as f32 * (track_size + gap))
+            .collect::<Vec<_>>();
+        let extent = if self.count == 0 {
+            outer_start + self.spacing.outer_end.max(0.0)
+        } else {
+            outer_start
+                + self.count as f32 * track_size
+                + (self.count - 1) as f32 * gap
+                + self.spacing.outer_end.max(0.0)
+        };
+        UniformTrackSolution {
+            starts,
+            track_size,
+            extent,
+        }
+    }
+}
+
+/// Solved positions for a uniform arrangement.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UniformTrackSolution {
+    pub starts: Vec<f32>,
+    pub track_size: f32,
+    pub extent: f32,
 }
 
 /// Track sizes and edge requirements needed to align one measured grid.
@@ -457,6 +490,50 @@ impl GridSolution {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uniform_tracks_solve_matches_uniform_grid_solve() {
+        let tracks = UniformTracks {
+            count: 3,
+            spacing: TrackSpacing {
+                outer_start: 5.0,
+                outer_end: 7.0,
+                min_gap: 10.0,
+            },
+        };
+        let solved = tracks.solve(40.0);
+
+        let items = (0..3)
+            .map(|index| GridItem {
+                id: index,
+                slot: GridSlot {
+                    row: 0,
+                    column: index,
+                    row_span: 1,
+                    column_span: 1,
+                },
+                content_size: Size::new(40.0, 20.0),
+                inner_edges: Edges::default(),
+                outer_edges: Edges::default(),
+                total_edges: Edges::default(),
+            })
+            .collect::<Vec<_>>();
+        let mut requirements = grid_requirements(
+            GridShape {
+                rows: 1,
+                columns: 3,
+            },
+            Size::default(),
+            &items,
+        )
+        .expect("uniform items fit the shape");
+        requirements.column_spacing = tracks.spacing;
+        let grid = solve_grid_requirements(&requirements, &items);
+
+        assert_eq!(solved.starts, grid.column_starts);
+        assert_eq!(solved.extent, grid.content_size.width);
+        assert_eq!(solved.track_size, 40.0);
+    }
 
     #[test]
     fn uniform_tracks_merge_coordinates_policy() {

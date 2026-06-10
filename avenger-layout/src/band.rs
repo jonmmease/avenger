@@ -84,37 +84,6 @@ pub struct BandSolution<Id = usize> {
     pub cross_extent: Option<f32>,
 }
 
-impl<Id> BandSolution<Id> {
-    /// Build from child positions that have already been resolved by another
-    /// system, such as a configured band scale.
-    pub fn from_positioned_children(
-        direction: Orientation,
-        children: Vec<PlacedBandItem<Id>>,
-        main_extent: f32,
-        cross_extent: Option<f32>,
-    ) -> Self {
-        let cross_extent = cross_extent.or_else(|| {
-            if children.is_empty() {
-                None
-            } else {
-                Some(
-                    children
-                        .iter()
-                        .map(|child| child.cross_start + child.cross_size)
-                        .fold(0.0f32, f32::max),
-                )
-            }
-        });
-
-        Self {
-            direction,
-            children,
-            main_extent,
-            cross_extent,
-        }
-    }
-}
-
 impl<Id: Clone> BandSolution<Id> {
     /// Build from child sizes, sibling boundary demands, and spacing policy.
     ///
@@ -446,15 +415,15 @@ mod tests {
 
     #[test]
     fn positioned_children_preserve_explicit_starts_and_sizes() {
-        let placement = BandSolution::from_positioned_children(
-            Orientation::Horizontal,
-            vec![
+        let placement = BandSolution {
+            direction: Orientation::Horizontal,
+            children: vec![
                 PlacedBandItem::with_cross_axis(3, 20.0, 40.0, 5.0, 45.0),
                 PlacedBandItem::with_cross_axis(1, 80.0, 30.0, 12.0, 20.0),
             ],
-            120.0,
-            None,
-        );
+            main_extent: 120.0,
+            cross_extent: Some(50.0),
+        };
 
         assert_eq!(placement.children[0].id, 3);
         assert_eq!(placement.children[0].main_start, 20.0);
@@ -466,12 +435,12 @@ mod tests {
 
     #[test]
     fn horizontal_conversion_maps_main_axis_to_x_origin() {
-        let placement = BandSolution::from_positioned_children(
-            Orientation::Horizontal,
-            vec![PlacedBandItem::new(2, 30.0, 40.0)],
-            100.0,
-            Some(80.0),
-        );
+        let placement = BandSolution {
+            direction: Orientation::Horizontal,
+            children: vec![PlacedBandItem::new(2, 30.0, 40.0)],
+            main_extent: 100.0,
+            cross_extent: Some(80.0),
+        };
 
         let result = placement.to_placement_solution([5.0, 7.0], Size::new(1.0, 2.0));
 
@@ -481,12 +450,12 @@ mod tests {
 
     #[test]
     fn vertical_conversion_maps_main_axis_to_y_origin() {
-        let placement = BandSolution::from_positioned_children(
-            Orientation::Vertical,
-            vec![PlacedBandItem::new(2, 30.0, 40.0)],
-            100.0,
-            Some(80.0),
-        );
+        let placement = BandSolution {
+            direction: Orientation::Vertical,
+            children: vec![PlacedBandItem::new(2, 30.0, 40.0)],
+            main_extent: 100.0,
+            cross_extent: Some(80.0),
+        };
 
         let result = placement.to_placement_solution([5.0, 7.0], Size::new(1.0, 2.0));
 

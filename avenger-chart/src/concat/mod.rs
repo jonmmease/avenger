@@ -819,12 +819,12 @@ impl ConcatCoordMeasurement {
                         (solution.content_size.height, solution.content_size.width)
                     }
                 };
-                ConcatChildPlacement::Band(BandSolution::from_positioned_children(
+                ConcatChildPlacement::Band(BandSolution {
                     direction,
                     children,
                     main_extent,
-                    Some(cross_extent),
-                ))
+                    cross_extent: Some(cross_extent),
+                })
             }
         };
         let placement_result = placement.child_frame_placement(self.fallback_content_size);

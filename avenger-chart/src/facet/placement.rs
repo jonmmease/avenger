@@ -20,11 +20,39 @@ use crate::{
     },
     layout::{
         BandItem, BandPosition, BandPositionIterator, BandSolution, BoundaryDemand, CrossAlign,
-        Orientation, PlacedBandItem, PlacementSolution, Size, TrackSpacing,
+        Orientation, PlacedBandItem, PlacementSolution, Size, TrackSpacing, UniformTracks,
     },
     plot::compiled::ComponentsMeasurement,
     scales::ConfiguredScaleWithSpec,
 };
+
+/// Assemble a band placement from already-positioned children, deriving the
+/// cross extent from the children when the caller does not know it.
+fn band_solution_from_children(
+    direction: Orientation,
+    children: Vec<PlacedBandItem>,
+    main_extent: f32,
+    cross_extent: Option<f32>,
+) -> BandSolution {
+    let cross_extent = cross_extent.or_else(|| {
+        if children.is_empty() {
+            None
+        } else {
+            Some(
+                children
+                    .iter()
+                    .map(|child| child.cross_start + child.cross_size)
+                    .fold(0.0f32, f32::max),
+            )
+        }
+    });
+    BandSolution {
+        direction,
+        children,
+        main_extent,
+        cross_extent,
+    }
+}
 
 /// Resolved placement for a facet band, regardless of sizing mode.
 #[derive(Debug, Clone)]
@@ -115,7 +143,7 @@ impl FacetBandPlacement {
                 )
             })
             .collect();
-        let band = BandSolution::from_positioned_children(
+        let band = band_solution_from_children(
             band_direction(axis),
             children,
             explicit.main_size,
@@ -243,17 +271,50 @@ pub(crate) fn resolve_scale_backed_facet_band_placement(
             (end - start).abs()
         });
 
-    let children = bands
-        .into_iter()
+    // Item 1 of the chart-layout consistency plan: positions come from the
+    // neutral uniform-tracks solve. Facet-written band scales are uniform by
+    // construction (range + band_n + padding_inner_px over default band
+    // options), so each scale-read band position is shadow-asserted against
+    // the solved arithmetic progression in debug builds.
+    let track_size = bands.first().map(|band| band.bandwidth).unwrap_or(0.0);
+    let outer_start = bands.first().map(BandPosition::start).unwrap_or(0.0);
+    let min_gap = if bands.len() >= 2 {
+        (bands[1].start() - bands[0].end()).max(0.0)
+    } else {
+        0.0
+    };
+    let outer_end = bands
+        .last()
+        .map(|band| (main_extent - band.end()).max(0.0))
+        .unwrap_or(0.0);
+    let tracks = UniformTracks {
+        count: bands.len(),
+        spacing: TrackSpacing {
+            outer_start,
+            outer_end,
+            min_gap,
+        },
+    };
+    let solved = tracks.solve(track_size);
+    let children = solved
+        .starts
+        .iter()
         .enumerate()
-        .map(|(child_index, band)| PlacedBandItem::new(child_index, band.start(), band.bandwidth))
+        .map(|(id, &main_start)| {
+            debug_assert!(
+                (main_start - bands[id].start()).abs() <= 0.01
+                    && (solved.track_size - bands[id].bandwidth).abs() <= 0.01,
+                "facet band scale positions diverged from the uniform-tracks solve: \
+                 solved=({main_start}, {}), scale=({}, {})",
+                solved.track_size,
+                bands[id].start(),
+                bands[id].bandwidth,
+            );
+            PlacedBandItem::new(id, main_start, solved.track_size)
+        })
         .collect();
-    let band = BandSolution::from_positioned_children(
-        band_direction(axis),
-        children,
-        main_extent,
-        cross_extent,
-    );
+    let band =
+        band_solution_from_children(band_direction(axis), children, main_extent, cross_extent);
 
     Ok(FacetBandPlacement::from_child_frame_band(axis, band))
 }
@@ -340,7 +401,7 @@ pub(crate) fn facet_child_frame_placement_from_band(
             Ok(cell_placement.to_placed_child())
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
-    let band = BandSolution::from_positioned_children(
+    let band = band_solution_from_children(
         band_direction(placement.axis),
         children,
         placement.main_extent,
