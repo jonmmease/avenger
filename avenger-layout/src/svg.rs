@@ -11,11 +11,14 @@
 //! - filled blue: content rectangles,
 //! - black frame: the arrangement's content bounds (for a frame scene, the
 //!   solved envelope extent),
-//! - overflow strips beside each content rectangle: red for the inner
-//!   (guide-like) layer, green for the remainder up to the total. The
-//!   lighter shade is the coordinated target the solve produced; the darker
-//!   shade overlaid on it is what the region itself requested — where they
-//!   differ, coordination grew the region's allocation.
+//! - overflow strips beside each content rectangle encode three things:
+//!   **hue** is the layer (red = inner/guide-like, green = remainder up to
+//!   the total), **shade** is the region's nesting depth (deeper is
+//!   lighter), and **solid vs hatched** is requested vs coordinated — a
+//!   solid strip is demand the region itself carried, a hatched strip
+//!   (bordered in its shade) is the target the solve produced. Where a
+//!   hatched band extends past the solid strip inside it, coordination
+//!   grew that region's allocation.
 //!
 //! Frame scenes ([`DebugScene::from_frame`]) additionally tile the chrome
 //! layers as translucent strips, one per solved slab: gray margins, amber
@@ -79,6 +82,10 @@ pub struct DebugRegion {
     /// Draw the label rotated 90 degrees (reads downward), for labels that
     /// run along a tall narrow strip.
     pub label_rotated: bool,
+    /// Nesting depth of the region (0 = top level). Selects the shade of
+    /// its demand strips so layers of nested arrangements are tellable
+    /// apart.
+    pub depth: usize,
 }
 
 /// One labeled point marker (e.g. a placement origin).
@@ -129,6 +136,7 @@ impl DebugScene {
                     target: Some(targets),
                     label_anchor: None,
                     label_rotated: false,
+                    depth: 0,
                 }
             })
             .collect();
@@ -193,6 +201,7 @@ impl DebugScene {
                     target: Some(demand(boundary.target)),
                     label_anchor: None,
                     label_rotated: false,
+                    depth: 0,
                 }
             })
             .collect();
@@ -228,6 +237,7 @@ impl DebugScene {
                         content.y + 12.0 + 12.0 * region.depth as f32,
                     ]),
                     label_rotated: false,
+                    depth: region.depth,
                 }
             })
             .collect();
@@ -315,6 +325,7 @@ impl DebugScene {
                         target: None,
                         label_anchor: Some(label_anchor),
                         label_rotated: !vertical,
+                        depth: 0,
                     });
                 };
                 push(
@@ -352,6 +363,7 @@ impl DebugScene {
             target: None,
             label_anchor: None,
             label_rotated: false,
+            depth: 0,
         });
 
         Self {
@@ -378,6 +390,7 @@ impl DebugScene {
                 target: None,
                 label_anchor: None,
                 label_rotated: false,
+                depth: 0,
             })
             .collect();
         Self {
@@ -423,19 +436,24 @@ impl DebugScene {
             (DebugRegionKind::Inner, "inner"),
         ];
         const KEY_HEIGHT: f32 = 24.0;
-        // Opaque: nested regions draw overlapping strips (a node's envelope
-        // contains its children's chrome), and translucency would invent
-        // in-between shades where they stack. Children draw after parents
-        // and dark after light, so overlap resolves to nearest-wins.
-        const DEMAND_INNER_LIGHT: &str =
-            "fill=\"#fecaca\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"";
-        const DEMAND_INNER_DARK: &str =
-            "fill=\"#e05252\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"";
-        const DEMAND_OUTER_LIGHT: &str =
-            "fill=\"#bbf7d0\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"";
-        const DEMAND_OUTER_DARK: &str =
-            "fill=\"#3da75f\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"";
-        const DEMAND_KEY_LABELS: [&str; 2] = ["inner", "outer"];
+        // Demand strips encode three things: hue = layer (red inner, green
+        // outer), shade = nesting depth (deeper is lighter, clamped), and
+        // solid vs hatched = requested vs coordinated. Fills are opaque:
+        // nested regions draw overlapping strips, and translucency would
+        // invent in-between shades where they stack.
+        const STRIP_BORDER: &str = "stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"";
+        const INNER_SHADES: [&str; 3] = ["#c52f2f", "#ec6e6e", "#f8b4b4"];
+        const OUTER_SHADES: [&str; 3] = ["#1e8a4c", "#4cbd7d", "#a3e4bf"];
+        let inner_shade = |depth: usize| INNER_SHADES[depth.min(INNER_SHADES.len() - 1)];
+        let outer_shade = |depth: usize| OUTER_SHADES[depth.min(OUTER_SHADES.len() - 1)];
+        let solid_fill = |shade: &str| format!("fill=\"{shade}\" {STRIP_BORDER}");
+        let hatch_fill = |layer: char, depth: usize| {
+            let shade = match layer {
+                'i' => inner_shade(depth),
+                _ => outer_shade(depth),
+            };
+            format!("fill=\"url(#hatch-{layer}{depth})\" stroke=\"{shade}\" stroke-width=\"1\"")
+        };
 
         let bounds_rect = Rect::new(0.0, 0.0, self.content_size.width, self.content_size.height);
         let mut bounds = bounds_rect;
@@ -471,22 +489,50 @@ impl DebugScene {
         let any_side = |edges: Edges<f32>| {
             edges.top > 0.0 || edges.right > 0.0 || edges.bottom > 0.0 || edges.left > 0.0
         };
-        let demand_layers = self.regions.iter().fold((false, false), |layers, region| {
-            let Some(target) = region.target else {
-                return layers;
-            };
-            let inner = layers.0 || any_side(target.inner);
-            // The outer strip is the remainder up to the total.
-            let outer = layers.1
-                || any_side(Edges::new(
-                    target.total.top - target.inner.top,
-                    target.total.right - target.inner.right,
-                    target.total.bottom - target.inner.bottom,
-                    target.total.left - target.inner.left,
-                ));
-            (inner, outer)
-        });
-        let has_demands = demand_layers.0 || demand_layers.1;
+        let outer_remainder = |targets: EdgeTargets| {
+            Edges::new(
+                targets.total.top - targets.inner.top,
+                targets.total.right - targets.inner.right,
+                targets.total.bottom - targets.inner.bottom,
+                targets.total.left - targets.inner.left,
+            )
+        };
+        // Which (layer, depth) demand combinations the scene contains; each
+        // gets a shade, a hatch pattern, and a key entry.
+        let mut inner_depths = std::collections::BTreeSet::new();
+        let mut outer_depths = std::collections::BTreeSet::new();
+        for region in &self.regions {
+            for targets in [region.target, region.requested].into_iter().flatten() {
+                if any_side(targets.inner) {
+                    inner_depths.insert(region.depth);
+                }
+                if any_side(outer_remainder(targets)) {
+                    outer_depths.insert(region.depth);
+                }
+            }
+        }
+        let has_demands = !inner_depths.is_empty() || !outer_depths.is_empty();
+        let multi_depth = inner_depths
+            .iter()
+            .chain(outer_depths.iter())
+            .any(|&depth| depth > 0);
+        let key_entries: Vec<(char, usize, String)> = inner_depths
+            .iter()
+            .map(|&depth| ('i', depth, String::from("inner")))
+            .chain(
+                outer_depths
+                    .iter()
+                    .map(|&depth| ('o', depth, String::from("outer"))),
+            )
+            .map(|(layer, depth, label)| {
+                let label = if multi_depth {
+                    format!("{label} d{depth}")
+                } else {
+                    label
+                };
+                (layer, depth, label)
+            })
+            .collect();
         let show_key = has_chrome_kinds || has_demands;
         let key_y = bounds.y + bounds.height + 10.0;
         if show_key {
@@ -497,13 +543,8 @@ impl DebugScene {
                 .filter(|(kind, _)| self.regions.iter().any(|region| region.kind == *kind))
                 .map(|(_, label)| 13.0 + label.len() as f32 * 6.0 + 14.0)
                 .sum();
-            for (present, label) in [
-                (demand_layers.0, DEMAND_KEY_LABELS[0]),
-                (demand_layers.1, DEMAND_KEY_LABELS[1]),
-            ] {
-                if present {
-                    key_width += 13.0 + label.len() as f32 * 6.0 + 14.0;
-                }
+            for (_, _, label) in &key_entries {
+                key_width += 13.0 + label.len() as f32 * 6.0 + 14.0;
             }
             key_width -= 14.0;
             bounds.width = bounds.width.max(bounds.x.max(0.0) - bounds.x + key_width);
@@ -521,6 +562,32 @@ impl DebugScene {
             bounds.width + 2.0 * PADDING,
             bounds.height + 2.0 * PADDING,
         );
+        if has_demands {
+            // Hatch patterns for coordinated strips, one per (layer, depth)
+            // shade. Each pattern has an opaque white base so overlapping
+            // strips of nested regions never composite.
+            svg.push_str("  <defs>\n");
+            let mut emit_pattern = |layer: char, depth: usize, shade: &str| {
+                let _ = write!(
+                    svg,
+                    concat!(
+                        "    <pattern id=\"hatch-{}{}\" patternUnits=\"userSpaceOnUse\" ",
+                        "width=\"4\" height=\"4\" patternTransform=\"rotate(45)\">",
+                        "<rect width=\"4\" height=\"4\" fill=\"#ffffff\"/>",
+                        "<line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"{}\" ",
+                        "stroke-width=\"1.6\"/></pattern>\n"
+                    ),
+                    layer, depth, shade,
+                );
+            };
+            for &depth in &inner_depths {
+                emit_pattern('i', depth, inner_shade(depth));
+            }
+            for &depth in &outer_depths {
+                emit_pattern('o', depth, outer_shade(depth));
+            }
+            svg.push_str("  </defs>\n");
+        }
         // White background covering the viewBox: the scenes are unreadable
         // over transparent-background viewers (e.g. dark-mode browsers).
         let _ = write!(
@@ -581,22 +648,22 @@ impl DebugScene {
                         edge_strip(region.content, side, offset, thickness)
                     };
                     for (rect, fill) in [
-                        (strip(0.0, target_inner), DEMAND_INNER_LIGHT),
+                        (strip(0.0, target_inner), hatch_fill('i', region.depth)),
                         (
                             strip(target_inner, (target_total - target_inner).max(0.0)),
-                            DEMAND_OUTER_LIGHT,
+                            hatch_fill('o', region.depth),
                         ),
                         (
                             strip(0.0, requested_inner.min(target_inner)),
-                            DEMAND_INNER_DARK,
+                            solid_fill(inner_shade(region.depth)),
                         ),
                         (
                             strip(target_inner, (requested_total - requested_inner).max(0.0)),
-                            DEMAND_OUTER_DARK,
+                            solid_fill(outer_shade(region.depth)),
                         ),
                     ] {
                         if rect.width > 0.0 && rect.height > 0.0 {
-                            let _ = write!(svg, "  {}\n", rect_element(rect, fill));
+                            let _ = write!(svg, "  {}\n", rect_element(rect, &fill));
                         }
                     }
                 }
@@ -686,39 +753,28 @@ impl DebugScene {
                 entry_text(&mut svg, cursor, label);
                 cursor += 13.0 + label.len() as f32 * 6.0 + 14.0;
             }
-            if has_demands {
-                // Split swatches: darker half = requested, lighter half =
-                // coordinated.
-                for (present, label, dark, light) in [
-                    (
-                        demand_layers.0,
-                        "inner",
-                        DEMAND_INNER_DARK,
-                        DEMAND_INNER_LIGHT,
-                    ),
-                    (
-                        demand_layers.1,
-                        "outer",
-                        DEMAND_OUTER_DARK,
-                        DEMAND_OUTER_LIGHT,
-                    ),
-                ] {
-                    if !present {
-                        continue;
-                    }
-                    let _ = write!(
-                        svg,
-                        "  {}\n",
-                        rect_element(Rect::new(cursor, key_y, 5.0, 10.0), dark)
-                    );
-                    let _ = write!(
-                        svg,
-                        "  {}\n",
-                        rect_element(Rect::new(cursor + 5.0, key_y, 5.0, 10.0), light)
-                    );
-                    entry_text(&mut svg, cursor, label);
-                    cursor += 13.0 + label.len() as f32 * 6.0 + 14.0;
-                }
+            // Split swatches: solid half = requested, hatched half =
+            // coordinated; shade encodes nesting depth.
+            for (layer, depth, label) in &key_entries {
+                let shade = match layer {
+                    'i' => inner_shade(*depth),
+                    _ => outer_shade(*depth),
+                };
+                let _ = write!(
+                    svg,
+                    "  {}\n",
+                    rect_element(Rect::new(cursor, key_y, 5.0, 10.0), &solid_fill(shade))
+                );
+                let _ = write!(
+                    svg,
+                    "  {}\n",
+                    rect_element(
+                        Rect::new(cursor + 5.0, key_y, 5.0, 10.0),
+                        &hatch_fill(*layer, *depth)
+                    )
+                );
+                entry_text(&mut svg, cursor, label);
+                cursor += 13.0 + label.len() as f32 * 6.0 + 14.0;
             }
         }
 
@@ -1025,25 +1081,29 @@ mod tests {
 
         let expected = "\
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 249 104\" font-family=\"monospace\" font-size=\"10\">
+  <defs>
+    <pattern id=\"hatch-i0\" patternUnits=\"userSpaceOnUse\" width=\"4\" height=\"4\" patternTransform=\"rotate(45)\"><rect width=\"4\" height=\"4\" fill=\"#ffffff\"/><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"#c52f2f\" stroke-width=\"1.6\"/></pattern>
+    <pattern id=\"hatch-o0\" patternUnits=\"userSpaceOnUse\" width=\"4\" height=\"4\" patternTransform=\"rotate(45)\"><rect width=\"4\" height=\"4\" fill=\"#ffffff\"/><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"#1e8a4c\" stroke-width=\"1.6\"/></pattern>
+  </defs>
   <rect x=\"-10\" y=\"-10\" width=\"249\" height=\"104\" fill=\"#ffffff\"/>
   <rect x=\"0\" y=\"0\" width=\"229\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
-  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#fecaca\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#bbf7d0\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#e05252\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#3da75f\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"url(#hatch-i0)\" stroke=\"#c52f2f\" stroke-width=\"1\"/>
+  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"url(#hatch-o0)\" stroke=\"#1e8a4c\" stroke-width=\"1\"/>
+  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#c52f2f\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#1e8a4c\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <rect x=\"0\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0 r0c0</text>
-  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#bbf7d0\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#3da75f\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"url(#hatch-o0)\" stroke=\"#1e8a4c\" stroke-width=\"1\"/>
+  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#1e8a4c\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <rect x=\"129\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"132\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1 r0c1</text>
   <rect x=\"0\" y=\"70\" width=\"10\" height=\"10\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"13\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">content</text>
-  <rect x=\"69\" y=\"70\" width=\"5\" height=\"10\" fill=\"#e05252\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <rect x=\"74\" y=\"70\" width=\"5\" height=\"10\" fill=\"#fecaca\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"69\" y=\"70\" width=\"5\" height=\"10\" fill=\"#c52f2f\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"74\" y=\"70\" width=\"5\" height=\"10\" fill=\"url(#hatch-i0)\" stroke=\"#c52f2f\" stroke-width=\"1\"/>
   <text x=\"82\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">inner</text>
-  <rect x=\"126\" y=\"70\" width=\"5\" height=\"10\" fill=\"#3da75f\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <rect x=\"131\" y=\"70\" width=\"5\" height=\"10\" fill=\"#bbf7d0\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"126\" y=\"70\" width=\"5\" height=\"10\" fill=\"#1e8a4c\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"131\" y=\"70\" width=\"5\" height=\"10\" fill=\"url(#hatch-o0)\" stroke=\"#1e8a4c\" stroke-width=\"1\"/>
   <text x=\"139\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">outer</text>
 </svg>
 ";

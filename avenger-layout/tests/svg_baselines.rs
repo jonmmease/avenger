@@ -670,6 +670,7 @@ fn stack_scenes(scenes: Vec<(&str, DebugScene)>) -> DebugScene {
             target: None,
             label_anchor: Some([0.0, y_offset + 10.0]),
             label_rotated: false,
+            depth: 0,
         });
         y_offset += CAPTION;
         for mut region in scene.regions {
@@ -692,6 +693,7 @@ fn stack_scenes(scenes: Vec<(&str, DebugScene)>) -> DebugScene {
             target: None,
             label_anchor: None,
             label_rotated: false,
+            depth: 0,
         });
         combined.content_size.width = combined.content_size.width.max(scene.content_size.width);
         y_offset += scene.content_size.height + GAP;

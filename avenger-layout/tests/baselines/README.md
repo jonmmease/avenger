@@ -31,11 +31,13 @@ and the tests never compare them — the SVG string is the snapshot.
 - black frame: the arrangement's content bounds (for frames, the solved
   envelope extent)
 - filled blue: content rectangles
-- overflow strips beside content rects: red = inner (guide-like) layer,
-  green = remainder up to the total; **lighter = coordinated target the
-  solver produced, darker = what the region requested** (the split
-  swatches in the key show dark/light side by side). Where light extends
-  past dark, coordination grew the allocation
+- overflow strips beside content rects encode three things: **hue** =
+  layer (red = inner/guide-like, green = remainder up to the total),
+  **shade** = nesting depth (deeper is lighter; key labels gain `d0`/`d1`
+  when a scene has multiple depths), **solid vs hatched** = requested vs
+  coordinated (the key swatches show solid|hatched side by side). Where a
+  hatched band extends past the solid strip inside it, coordination grew
+  that region's allocation
 - frame chrome strips: gray margins, amber bands (titles), green outer
   (legend-like), red inner (guide-like). Bands/outer/inner span the
   content on their cross axis (as realized chart chrome does); margins
