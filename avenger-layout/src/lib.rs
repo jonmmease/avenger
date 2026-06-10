@@ -39,6 +39,19 @@
 //! Item identity is generic (`Id`, defaulting to `usize`) and opaque to this
 //! crate: callers own what an ID means and how equivalent regions are
 //! grouped.
+//!
+//! # Choosing a solver
+//!
+//! - Uniform policy, no per-track content: [`UniformTracks`] (merge and
+//!   solve).
+//! - Measured per-track content, spans, or holes: [`grid`]
+//!   ([`GridRequirements`] and its solve).
+//! - One axis with cross-axis alignment: [`band`] (an orientation adapter
+//!   over the grid).
+//! - Nesting, envelopes, or allocation propagation: [`tree`].
+//! - Coordinating equivalent instances measured independently:
+//!   [`alignment`] ([`align`] / [`align_by`], with [`ConvergenceTrace`]
+//!   for multi-round drivers).
 
 pub mod alignment;
 pub mod band;

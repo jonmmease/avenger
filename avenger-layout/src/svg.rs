@@ -19,6 +19,7 @@ use std::fmt::Write as _;
 use crate::band::BandSolution;
 use crate::geometry::{Orientation, Rect, Size};
 use crate::grid::{GridItem, GridSolution};
+use crate::tree::SolvedTree;
 
 /// One labeled region in a solved layout.
 #[derive(Clone, Debug, PartialEq)]
@@ -126,6 +127,44 @@ impl DebugScene {
 
         Self {
             content_size,
+            regions,
+        }
+    }
+
+    /// Capture a solved layout tree: one region per solved node or leaf,
+    /// labeled with its ID and depth, in root coordinates.
+    pub fn from_solved_tree<Id: Display>(tree: &SolvedTree<Id>) -> Self {
+        let regions = tree
+            .regions
+            .iter()
+            .map(|region| {
+                let content = region.content_rect;
+                DebugRegion {
+                    label: format!("{} d{}", region.id, region.depth),
+                    content,
+                    inner_envelope: Some(expand(
+                        content,
+                        [
+                            region.edge_targets.inner.top,
+                            region.edge_targets.inner.right,
+                            region.edge_targets.inner.bottom,
+                            region.edge_targets.inner.left,
+                        ],
+                    )),
+                    total_envelope: Some(expand(
+                        content,
+                        [
+                            region.edge_targets.total.top,
+                            region.edge_targets.total.right,
+                            region.edge_targets.total.bottom,
+                            region.edge_targets.total.left,
+                        ],
+                    )),
+                }
+            })
+            .collect();
+        Self {
+            content_size: tree.content_size,
             regions,
         }
     }
@@ -348,6 +387,82 @@ mod tests {
             Some(Rect::new(126.0, 0.0, 103.0, 60.0))
         );
         assert_eq!(scene.content_size, Size::new(229.0, 60.0));
+    }
+
+    #[test]
+    fn solved_tree_svg_snapshot() {
+        use crate::grid::{GridShape, GridSlot, TrackSpacing};
+        use crate::tree::{LayoutItem, LayoutNode, LayoutSlotContent, solve_tree};
+
+        fn leaf(id: usize, column: usize, width: f32) -> LayoutItem<usize> {
+            LayoutItem {
+                id,
+                slot: GridSlot {
+                    row: 0,
+                    column,
+                    row_span: 1,
+                    column_span: 1,
+                },
+                content: LayoutSlotContent::Leaf {
+                    content_size: Size::new(width, 60.0),
+                    inner_edges: Edges::default(),
+                    outer_edges: Edges::default(),
+                    total_edges: Edges::default(),
+                },
+            }
+        }
+        fn band(items: Vec<LayoutItem<usize>>, min_gap: f32) -> LayoutNode<usize> {
+            LayoutNode {
+                shape: GridShape {
+                    rows: 1,
+                    columns: items.len(),
+                },
+                column_spacing: TrackSpacing {
+                    min_gap,
+                    ..Default::default()
+                },
+                row_spacing: TrackSpacing::default(),
+                base_cell_size: Size::default(),
+                stacked_inner_edges: Edges::default(),
+                stacked_outer_edges: Edges::default(),
+                items,
+            }
+        }
+
+        let inner = band(vec![leaf(10, 0, 40.0), leaf(11, 1, 40.0)], 6.0);
+        let root = band(
+            vec![
+                leaf(0, 0, 50.0),
+                LayoutItem {
+                    id: 1,
+                    slot: GridSlot {
+                        row: 0,
+                        column: 1,
+                        row_span: 1,
+                        column_span: 1,
+                    },
+                    content: LayoutSlotContent::Node(inner),
+                },
+            ],
+            10.0,
+        );
+        let solved = solve_tree(&root, None).expect("tree should solve");
+
+        let svg = DebugScene::from_solved_tree(&solved).to_svg();
+        let expected = "\
+<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 166 80\" font-family=\"monospace\" font-size=\"10\">
+  <rect x=\"0\" y=\"0\" width=\"146\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
+  <rect x=\"0\" y=\"0\" width=\"50\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <text x=\"3\" y=\"12\">0 d0</text>
+  <rect x=\"60\" y=\"0\" width=\"86\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <text x=\"63\" y=\"12\">1 d0</text>
+  <rect x=\"60\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <text x=\"63\" y=\"12\">10 d1</text>
+  <rect x=\"106\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <text x=\"109\" y=\"12\">11 d1</text>
+</svg>
+";
+        assert_eq!(svg, expected);
     }
 
     #[test]

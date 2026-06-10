@@ -6,8 +6,15 @@ use crate::geometry::{Edges, Rect, Size};
 ///
 /// `inner` is interior chrome between the content rectangle and any outer
 /// content; `outer` is content that stacks beyond the inner edge; `total` is
-/// the full rendered envelope. The constructor maintains the invariant
-/// `total >= max(inner + outer, 0)` by clamping.
+/// the full rendered envelope.
+///
+/// `new` LIFTS the total to `max(total, inner + outer, 0)`. This is an
+/// intentional law, not input validation: when layered demands merge by
+/// component-wise max, the lift makes a merged side's total equal
+/// `max(inner) + max(outer)` — the space a region occupies once each layer
+/// has been coordinated independently. Callers that need raw, unlifted
+/// totals should compute envelopes with the geometric tree-envelope kind
+/// instead of layering.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct EdgeDemand {
     pub inner: f32,
@@ -158,6 +165,20 @@ pub fn project_rect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edge_demand_new_lifts_total_to_layer_sum() {
+        // total 2.0 < inner 4.0 + outer 11.0: the constructor lifts it so
+        // independently coordinated layers stay representable.
+        assert_eq!(
+            EdgeDemand::new(4.0, 11.0, 2.0),
+            EdgeDemand {
+                inner: 4.0,
+                outer: 11.0,
+                total: 15.0
+            }
+        );
+    }
 
     #[test]
     fn edge_demand_merges_structured_components() {
