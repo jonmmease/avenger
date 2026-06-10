@@ -15,6 +15,10 @@ use crate::{
         },
         coordination_policy::{FacetBandMut, FacetBandRef, FacetCoordinationPolicy},
     },
+    layout::{
+        Edges, GridShape, GridSlot, LayoutItem, LayoutNode, LayoutSlotContent, Size as LayoutSize,
+        TrackSpacing, solve_tree,
+    },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
 };
@@ -347,9 +351,15 @@ fn build_final_propagation_plan_recursive(
 
         let base = facet_band.base();
         let parent_cross_size_target = base.coordinated_subplot_cross_size();
+        let solved_targets = solved_final_propagation_targets(
+            base.axis,
+            parent_cross_size_target,
+            base.child_measurements_iter(),
+        );
         let child_plans = build_final_propagation_child_plans(
             base.axis,
             parent_cross_size_target,
+            solved_targets.as_deref(),
             base.child_measurements_iter(),
             eval_ctx,
         );
@@ -369,9 +379,88 @@ fn build_final_propagation_plan_recursive(
     }
 }
 
+/// Derive each cell's uniform plot-area target by solving the band as a
+/// layout tree: every leaf takes the coordinated uniform size on the band
+/// axis, and each child's target is its solved slot extent. Today the band
+/// model is uniform single-span tracks, so the solved extents equal the
+/// coordinated size (debug-asserted at the consumer); routing them through
+/// `solve_tree` makes the targets allocation geometry rather than copied
+/// policy, so spans or ragged slots would be handled by the solver.
+fn solved_final_propagation_targets<'a, I>(
+    axis: FacetAxis,
+    parent_cross_size_target: Option<f32>,
+    child_measurements: I,
+) -> Option<Vec<f32>>
+where
+    I: Iterator<Item = &'a ComponentsMeasurement>,
+{
+    let target = parent_cross_size_target?;
+    let items = child_measurements
+        .enumerate()
+        .map(|(idx, child)| {
+            let (row, column) = match axis {
+                FacetAxis::Column => (0, idx),
+                FacetAxis::Row => (idx, 0),
+            };
+            let content_size = match axis {
+                FacetAxis::Column => LayoutSize::new(target, child.plot_area_height),
+                FacetAxis::Row => LayoutSize::new(child.plot_area_width, target),
+            };
+            LayoutItem {
+                child_index: idx,
+                slot: GridSlot {
+                    row,
+                    column,
+                    row_span: 1,
+                    column_span: 1,
+                },
+                content: LayoutSlotContent::Leaf {
+                    content_size,
+                    inner_edges: Edges::default(),
+                    outer_edges: Edges::default(),
+                    total_edges: Edges::default(),
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        return None;
+    }
+    let shape = match axis {
+        FacetAxis::Column => GridShape {
+            rows: 1,
+            columns: items.len(),
+        },
+        FacetAxis::Row => GridShape {
+            rows: items.len(),
+            columns: 1,
+        },
+    };
+    let node = LayoutNode {
+        shape,
+        column_spacing: TrackSpacing::default(),
+        row_spacing: TrackSpacing::default(),
+        base_cell_size: LayoutSize::default(),
+        stacked_edges: Edges::default(),
+        items,
+    };
+    let solved = solve_tree(&node, None).ok()?;
+    Some(
+        solved
+            .regions
+            .iter()
+            .map(|region| match axis {
+                FacetAxis::Column => region.content_rect.width,
+                FacetAxis::Row => region.content_rect.height,
+            })
+            .collect(),
+    )
+}
+
 fn build_final_propagation_child_plans<'a, I>(
     axis: FacetAxis,
     parent_cross_size_target: Option<f32>,
+    solved_targets: Option<&[f32]>,
     child_measurements: I,
     eval_ctx: Option<&EvaluationContext>,
 ) -> Vec<FinalPropagationChildPlan>
@@ -381,7 +470,15 @@ where
     child_measurements
         .enumerate()
         .map(|(idx, child)| {
-            build_final_propagation_child_plan(idx, axis, parent_cross_size_target, child, eval_ctx)
+            let solved_target = solved_targets.and_then(|targets| targets.get(idx).copied());
+            build_final_propagation_child_plan(
+                idx,
+                axis,
+                parent_cross_size_target,
+                solved_target,
+                child,
+                eval_ctx,
+            )
         })
         .collect()
 }
@@ -390,9 +487,19 @@ fn build_final_propagation_child_plan(
     child_index: usize,
     axis: FacetAxis,
     parent_cross_size_target: Option<f32>,
+    solved_target: Option<f32>,
     child: &ComponentsMeasurement,
     eval_ctx: Option<&EvaluationContext>,
 ) -> FinalPropagationChildPlan {
+    // The tree-solved slot extent is the target; with today's uniform
+    // single-span band model it must equal the coordinated size verbatim.
+    if let (Some(solved), Some(direct)) = (solved_target, parent_cross_size_target) {
+        debug_assert!(
+            (solved - direct).abs() <= 0.01,
+            "tree-solved final propagation target diverged: solved={solved}, direct={direct}"
+        );
+    }
+    let parent_cross_size_target = solved_target.or(parent_cross_size_target);
     let policy = if let Some(eval_ctx) = eval_ctx {
         FacetCoordinationPolicy::final_child_resize_policy_for_eval(
             axis,
