@@ -1972,7 +1972,7 @@ fn derive_padding_inner_px_from_probe_overflows(
         .filter(|renderable| **renderable)
         .count();
     let parent_padding = if renderable_count > 1 {
-        required_parent_padding.max(padding_policy::MIN_SUBPLOT_MAIN_GAP)
+        padding_policy::main_axis_gap(required_parent_padding)
     } else {
         required_parent_padding
     };

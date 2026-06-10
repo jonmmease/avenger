@@ -54,7 +54,7 @@ pub use alignment::{
     SingletonPolicy, SkippedGroup, SkippedGroupReason, align, align_by, grid_content_delta,
     grid_edge_delta, merge_grid_requirements,
 };
-pub use band::{BandItem, BandSolution, BandSpacing, BoundaryDemand, CrossAlign, PlacedBandItem};
+pub use band::{BandItem, BandSolution, BoundaryDemand, CrossAlign, PlacedBandItem};
 pub use geometry::{Edges, Orientation, Rect, Side, Size};
 pub use grid::{
     GridError, GridItem, GridRequirements, GridShape, GridSlot, GridSolution, TrackSpacing,

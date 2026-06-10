@@ -9,6 +9,7 @@ use crate::geometry::{Edges, Orientation, Size};
 use crate::grid::{
     GridItem, GridShape, GridSlot, TrackSpacing, grid_requirements, solve_grid_requirements,
 };
+
 use crate::region::{PlacedRegion, PlacementSolution};
 
 /// Cross-axis alignment for children inside a one-dimensional band.
@@ -34,15 +35,6 @@ pub struct BandItem<Id = usize> {
     pub main_size: f32,
     pub cross_size: f32,
     pub boundary: BoundaryDemand,
-}
-
-/// Spacing policy for a band of children.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct BandSpacing {
-    pub outer_start: f32,
-    pub outer_end: f32,
-    pub min_inner_gap: f32,
-    pub cross_align: CrossAlign,
 }
 
 /// Positioned child in main/cross-axis coordinates.
@@ -126,13 +118,15 @@ impl<Id> BandSolution<Id> {
 impl<Id: Clone> BandSolution<Id> {
     /// Build from child sizes, sibling boundary demands, and spacing policy.
     ///
-    /// Solved as a 1xN (or Nx1) grid: gaps follow the grid rule
-    /// `max(min_inner_gap, after + before)`, and outer offsets map to the
-    /// main-axis [`TrackSpacing`].
+    /// Solved as a 1xN (or Nx1) grid: `spacing` is the main-axis
+    /// [`TrackSpacing`] (gaps follow the grid rule
+    /// `max(min_gap, after + before)`); `cross_align` positions children
+    /// within the band's cross extent.
     pub fn from_sized_children(
         direction: Orientation,
         children: &[BandItem<Id>],
-        spacing: BandSpacing,
+        spacing: TrackSpacing,
+        cross_align: CrossAlign,
     ) -> Self {
         let shape = match direction {
             Orientation::Horizontal => GridShape {
@@ -183,14 +177,9 @@ impl<Id: Clone> BandSolution<Id> {
 
         let mut requirements = grid_requirements(shape, Size::default(), &items)
             .expect("band slots are single-span and indexed within the band grid shape");
-        let main_spacing = TrackSpacing {
-            outer_start: spacing.outer_start,
-            outer_end: spacing.outer_end,
-            min_gap: spacing.min_inner_gap,
-        };
         match direction {
-            Orientation::Horizontal => requirements.column_spacing = main_spacing,
-            Orientation::Vertical => requirements.row_spacing = main_spacing,
+            Orientation::Horizontal => requirements.column_spacing = spacing,
+            Orientation::Vertical => requirements.row_spacing = spacing,
         }
         let solution = solve_grid_requirements(&requirements, &items);
 
@@ -218,7 +207,7 @@ impl<Id: Clone> BandSolution<Id> {
                     child.id.clone(),
                     main_starts[slot_index],
                     main_sizes[slot_index],
-                    spacing.cross_align.offset(cross_extent, child_cross_size),
+                    cross_align.offset(cross_extent, child_cross_size),
                     child_cross_size,
                 )
             })
@@ -304,12 +293,12 @@ mod tests {
                 input(0, 30.0, 80.0, 0.0, 0.0),
                 input(1, 40.0, 90.0, 0.0, 0.0),
             ],
-            BandSpacing {
+            TrackSpacing {
                 outer_start: 5.0,
                 outer_end: 7.0,
-                min_inner_gap: 10.0,
-                ..Default::default()
+                min_gap: 10.0,
             },
+            CrossAlign::default(),
         );
 
         assert_eq!(placement.children[0].main_start, 5.0);
@@ -326,12 +315,12 @@ mod tests {
                 input(0, 12.0, 44.0, 0.0, 0.0),
                 input(1, 18.0, 30.0, 0.0, 0.0),
             ],
-            BandSpacing {
+            TrackSpacing {
                 outer_start: 3.0,
                 outer_end: 4.0,
-                min_inner_gap: 6.0,
-                ..Default::default()
+                min_gap: 6.0,
             },
+            CrossAlign::default(),
         );
 
         assert_eq!(placement.children[0].main_start, 3.0);
@@ -348,11 +337,11 @@ mod tests {
                 input(0, 30.0, 40.0, 0.0, 0.0),
                 input(1, 30.0, 80.0, 0.0, 0.0),
             ],
-            BandSpacing {
-                min_inner_gap: 5.0,
-                cross_align: CrossAlign::Center,
+            TrackSpacing {
+                min_gap: 5.0,
                 ..Default::default()
             },
+            CrossAlign::Center,
         );
 
         assert_eq!(placement.cross_extent, Some(80.0));
@@ -372,11 +361,11 @@ mod tests {
                 input(0, 20.0, 25.0, 0.0, 0.0),
                 input(1, 20.0, 75.0, 0.0, 0.0),
             ],
-            BandSpacing {
-                min_inner_gap: 5.0,
-                cross_align: CrossAlign::End,
+            TrackSpacing {
+                min_gap: 5.0,
                 ..Default::default()
             },
+            CrossAlign::End,
         );
 
         assert_eq!(placement.cross_extent, Some(75.0));
@@ -396,10 +385,11 @@ mod tests {
                 input(0, 20.0, 10.0, 0.0, 2.0),
                 input(1, 20.0, 10.0, 3.0, 0.0),
             ],
-            BandSpacing {
-                min_inner_gap: 12.0,
+            TrackSpacing {
+                min_gap: 12.0,
                 ..Default::default()
             },
+            CrossAlign::default(),
         );
 
         assert_eq!(placement.children[1].main_start, 32.0);
@@ -414,10 +404,11 @@ mod tests {
                 input(0, 20.0, 10.0, 0.0, 8.0),
                 input(1, 20.0, 10.0, 7.0, 0.0),
             ],
-            BandSpacing {
-                min_inner_gap: 4.0,
+            TrackSpacing {
+                min_gap: 4.0,
                 ..Default::default()
             },
+            CrossAlign::default(),
         );
 
         assert_eq!(placement.children[1].main_start, 35.0);
@@ -426,14 +417,15 @@ mod tests {
 
     #[test]
     fn padded_placeholder_slots_preserve_ragged_band_extent() {
-        let spacing = BandSpacing {
-            min_inner_gap: 10.0,
+        let spacing = TrackSpacing {
+            min_gap: 10.0,
             ..Default::default()
         };
         let single = BandSolution::from_sized_children(
             Orientation::Horizontal,
             &[input(0, 100.0, 50.0, 0.0, 0.0)],
             spacing,
+            CrossAlign::default(),
         );
         let padded = BandSolution::from_sized_children(
             Orientation::Horizontal,
@@ -443,6 +435,7 @@ mod tests {
                 input(2, 100.0, 50.0, 0.0, 0.0),
             ],
             spacing,
+            CrossAlign::default(),
         );
 
         assert_eq!(single.children[0].main_start, 0.0);

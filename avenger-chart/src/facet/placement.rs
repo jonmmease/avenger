@@ -19,8 +19,8 @@ use crate::{
         padding_policy,
     },
     layout::{
-        BandItem, BandPosition, BandPositionIterator, BandSolution, BandSpacing, BoundaryDemand,
-        Orientation, PlacedBandItem, PlacementSolution, Size,
+        BandItem, BandPosition, BandPositionIterator, BandSolution, BoundaryDemand, CrossAlign,
+        Orientation, PlacedBandItem, PlacementSolution, Size, TrackSpacing,
     },
     plot::compiled::ComponentsMeasurement,
     scales::ConfiguredScaleWithSpec,
@@ -380,9 +380,7 @@ pub(crate) fn compute_explicit_facet_band_placement(
         return FacetBandExplicitPlacement::default();
     }
 
-    let gap = layout
-        .padding_inner_px
-        .max(padding_policy::MIN_SUBPLOT_MAIN_GAP);
+    let gap = padding_policy::main_axis_gap(layout.padding_inner_px);
 
     let inputs = cells
         .iter()
@@ -445,12 +443,12 @@ pub(crate) fn compute_explicit_facet_band_placement(
     let band = BandSolution::from_sized_children(
         band_direction(axis),
         &band_inputs,
-        BandSpacing {
+        TrackSpacing {
             outer_start: layout.outer_start,
             outer_end: layout.outer_end,
-            min_inner_gap: gap,
-            ..Default::default()
+            min_gap: gap,
         },
+        CrossAlign::default(),
     );
     let main_axis_positions = band
         .children

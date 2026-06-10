@@ -245,8 +245,9 @@ fn escape_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::band::{BandItem, BandSpacing, BoundaryDemand};
+    use crate::band::{BandItem, BoundaryDemand, CrossAlign};
     use crate::geometry::Edges;
+    use crate::grid::TrackSpacing;
     use crate::grid::{GridShape, GridSlot, grid_requirements, solve_grid_requirements};
 
     fn band_scene() -> DebugScene {
@@ -266,12 +267,12 @@ mod tests {
                     boundary: BoundaryDemand::default(),
                 },
             ],
-            BandSpacing {
+            TrackSpacing {
                 outer_start: 5.0,
                 outer_end: 7.0,
-                min_inner_gap: 10.0,
-                ..Default::default()
+                min_gap: 10.0,
             },
+            CrossAlign::default(),
         );
         DebugScene::from_band(&band)
     }

@@ -6,6 +6,12 @@ pub(crate) const MAX_CHILD_PADDING_PROPAGATION_DELTA: f32 = 16.0;
 /// Minimum main-axis gap between adjacent renderable facet subplots.
 pub(crate) const MIN_SUBPLOT_MAIN_GAP: f32 = 12.0;
 
+/// The effective main-axis gap for a requested inner padding: facet policy
+/// floors every inter-subplot gap at [`MIN_SUBPLOT_MAIN_GAP`].
+pub(crate) fn main_axis_gap(padding_inner_px: f32) -> f32 {
+    padding_inner_px.max(MIN_SUBPLOT_MAIN_GAP)
+}
+
 /// Derive parent padding from parent-local and child-observed padding values.
 ///
 /// Preserves nested-grid alignment for moderate child deltas while preventing

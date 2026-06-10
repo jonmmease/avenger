@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     container::{
-        BandItem, BandSolution, BandSpacing, BoundaryDemand, ChildFrameKey, ChildFrameScopeKey,
-        ChildFrameSharingLevel, ContainerPathSegment, PlacedRegion, PlacementSolution,
+        BandItem, BandSolution, BoundaryDemand, ChildFrameKey, ChildFrameScopeKey,
+        ChildFrameSharingLevel, ContainerPathSegment, CrossAlign, PlacedRegion, PlacementSolution,
     },
     coords::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
@@ -31,7 +31,7 @@ use crate::{
     },
     layout::{
         GridItem, GridRequirements, GridShape, GridSlot, LayoutBounds, Orientation, PlacedBandItem,
-        Size, grid_requirements, layout_edges, solve_grid_requirements,
+        Size, TrackSpacing, grid_requirements, layout_edges, solve_grid_requirements,
     },
     marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
@@ -1300,8 +1300,12 @@ pub(crate) async fn measure_concat_coord_system(
         .iter()
         .map(|child| band_input_for_child(direction, child))
         .collect::<Vec<_>>();
-    let child_band_layout =
-        BandSolution::from_sized_children(direction, &inputs, BandSpacing::default());
+    let child_band_layout = BandSolution::from_sized_children(
+        direction,
+        &inputs,
+        TrackSpacing::default(),
+        CrossAlign::default(),
+    );
 
     Ok(Box::new(ConcatCoordMeasurement {
         children,

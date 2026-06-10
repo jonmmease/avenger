@@ -21,7 +21,7 @@ pub use avenger_chart_core::{
 #[cfg(test)]
 pub(crate) use avenger_layout::tree_envelope;
 pub(crate) use avenger_layout::{
-    AlignmentNode, BandItem, BandSolution, BandSpacing, BoundaryDemand, ConvergenceTrace,
+    AlignmentNode, BandItem, BandSolution, BoundaryDemand, ConvergenceTrace, CrossAlign,
     EdgeDemand, EdgeTargets, Edges, GridItem, GridRequirements, GridShape, GridSlot, LayoutItem,
     LayoutNode, LayoutSlotContent, Orientation, PlacedBandItem, PlacedRegion, PlacementSolution,
     RoundDeltas, SingletonPolicy, Size, SkippedGroupReason, TrackSpacing, TreeEnvelopeKind,
