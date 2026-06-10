@@ -849,8 +849,12 @@ fn union(a: Rect, b: Rect) -> Rect {
 fn kind_style(kind: DebugRegionKind) -> &'static str {
     match kind {
         DebugRegionKind::Content => "fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"",
-        DebugRegionKind::Margin => "fill=\"#e5e7eb\" fill-opacity=\"0.6\" stroke=\"#6b7280\"",
-        DebugRegionKind::Band => "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#d97706\"",
+        DebugRegionKind::Margin => {
+            "fill=\"#e5e7eb\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
+        }
+        DebugRegionKind::Band => {
+            "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
+        }
         DebugRegionKind::Outer => {
             "fill=\"#bbf7d0\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
         }
