@@ -33,11 +33,13 @@ and the tests never compare them — the SVG string is the snapshot.
 - filled blue: content rectangles
 - overflow strips beside content rects encode three things: **hue** =
   layer (red = inner/guide-like, green = remainder up to the total),
-  **shade** = nesting depth (deeper is lighter; key labels gain `d0`/`d1`
-  when a scene has multiple depths), **solid vs hatched** = requested vs
-  coordinated (the key swatches show solid|hatched side by side). Where a
-  hatched band extends past the solid strip inside it, coordination grew
-  that region's allocation
+  **shade** = nesting depth (deeper is darker; a frame's own chrome
+  strips sit at the light end of the same ramps; key labels gain
+  `d0`/`d1` when a scene has multiple depths), **solid vs hatched** =
+  requested vs coordinated (the key swatches show solid|hatched side by
+  side). Where a hatched band extends past the solid strip inside it,
+  coordination grew that region's allocation. Frame margin/outer/inner
+  strips are unlabeled — the key identifies them
 - frame chrome strips: gray margins, amber bands (titles), green outer
   (legend-like), red inner (guide-like). Bands/outer/inner span the
   content on their cross axis (as realized chart chrome does); margins
