@@ -652,13 +652,8 @@ fn stack_scenes(scenes: Vec<DebugScene>) -> DebugScene {
     let mut y_offset = 0.0;
     for scene in scenes {
         for mut region in scene.regions {
+            // Demands are content-relative, so only the rect moves.
             region.content.y += y_offset;
-            if let Some(rect) = &mut region.inner_envelope {
-                rect.y += y_offset;
-            }
-            if let Some(rect) = &mut region.total_envelope {
-                rect.y += y_offset;
-            }
             combined.regions.push(region);
         }
         combined.content_size.width = combined.content_size.width.max(scene.content_size.width);

@@ -1,20 +1,53 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-22 -10 276 178" font-family="monospace" font-size="10">
-  <rect x="-22" y="-10" width="276" height="178" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-22 -10 276 202" font-family="monospace" font-size="10">
+  <rect x="-22" y="-10" width="276" height="202" fill="#ffffff"/>
   <rect x="0" y="0" width="200" height="154" fill="none" stroke="#111111" stroke-width="1"/>
-  <rect x="-12" y="0" width="256" height="66" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
-  <rect x="-12" y="0" width="218" height="66" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
+  <rect x="200" y="0" width="6" height="60" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="206" y="0" width="38" height="60" fill="#bbf7d0" fill-opacity="0.6"/>
+  <rect x="0" y="60" width="200" height="6" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="0" y="60" width="200" height="6" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="-12" y="0" width="12" height="60" fill="#fecaca" fill-opacity="0.6"/>
   <rect x="0" y="0" width="200" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="3" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 d0</text>
-  <rect x="-12" y="66" width="256" height="92" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
-  <rect x="-12" y="66" width="218" height="92" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
+  <rect x="0" y="66" width="200" height="18" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="0" y="66" width="200" height="18" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="200" y="84" width="6" height="70" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="206" y="84" width="38" height="70" fill="#bbf7d0" fill-opacity="0.6"/>
+  <rect x="200" y="84" width="6" height="70" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="206" y="84" width="38" height="70" fill="#16a34a" fill-opacity="0.75"/>
+  <rect x="0" y="154" width="200" height="4" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="0" y="154" width="200" height="4" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="-12" y="84" width="12" height="70" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="-12" y="84" width="12" height="70" fill="#dc2626" fill-opacity="0.75"/>
   <rect x="0" y="84" width="200" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="3" y="96" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">1 d0</text>
-  <rect x="-12" y="80" width="112" height="78" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
-  <rect x="-12" y="80" width="112" height="78" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
+  <rect x="0" y="80" width="94" height="4" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="0" y="80" width="94" height="4" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="94" y="84" width="6" height="70" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="94" y="84" width="6" height="70" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="0" y="154" width="94" height="4" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="0" y="154" width="94" height="4" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="-12" y="84" width="12" height="70" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="-12" y="84" width="12" height="70" fill="#dc2626" fill-opacity="0.75"/>
   <rect x="0" y="84" width="94" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="3" y="108" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">10 d1</text>
-  <rect x="100" y="80" width="124" height="78" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
-  <rect x="100" y="80" width="106" height="78" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
+  <rect x="106" y="80" width="94" height="4" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="106" y="80" width="94" height="4" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="200" y="84" width="6" height="70" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="206" y="84" width="18" height="70" fill="#bbf7d0" fill-opacity="0.6"/>
+  <rect x="200" y="84" width="6" height="70" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="206" y="84" width="18" height="70" fill="#16a34a" fill-opacity="0.75"/>
+  <rect x="106" y="154" width="94" height="4" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="106" y="154" width="94" height="4" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="100" y="84" width="6" height="70" fill="#fecaca" fill-opacity="0.6"/>
+  <rect x="100" y="84" width="6" height="70" fill="#dc2626" fill-opacity="0.75"/>
   <rect x="106" y="84" width="94" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="109" y="108" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">11 d1</text>
+  <rect x="0" y="168" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="13" y="177" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
+  <rect x="69" y="168" width="5" height="10" fill="#dc2626" fill-opacity="0.75"/>
+  <rect x="74" y="168" width="5" height="10" fill="#fecaca" fill-opacity="0.6"/>
+  <text x="82" y="177" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">inner</text>
+  <rect x="126" y="168" width="5" height="10" fill="#16a34a" fill-opacity="0.75"/>
+  <rect x="131" y="168" width="5" height="10" fill="#bbf7d0" fill-opacity="0.6"/>
+  <text x="139" y="177" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">outer</text>
 </svg>

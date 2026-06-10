@@ -822,6 +822,7 @@ impl ConcatCoordMeasurement {
                     }
                 };
                 ConcatChildPlacement::Band(BandSolution {
+                    boundaries: Vec::new(),
                     orientation: direction,
                     items: children,
                     main_extent,

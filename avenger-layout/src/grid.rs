@@ -215,6 +215,41 @@ fn grid_edge_demand<Id>(demand: &GridItem<Id>, side: crate::geometry::Side) -> E
     }
 }
 
+impl<Id> GridItem<Id> {
+    /// The overflow this item carries into a solve, as inner/total edge
+    /// targets (totals lifted to `max(total, inner + outer)`, matching the
+    /// merge laws).
+    pub fn requested_targets(&self) -> EdgeTargets {
+        let lifted =
+            |inner: f32, outer: f32, total: f32| EdgeDemand::new(inner, outer, total).total;
+        EdgeTargets {
+            inner: self.inner_edges,
+            total: Edges::new(
+                lifted(
+                    self.inner_edges.top,
+                    self.outer_edges.top,
+                    self.total_edges.top,
+                ),
+                lifted(
+                    self.inner_edges.right,
+                    self.outer_edges.right,
+                    self.total_edges.right,
+                ),
+                lifted(
+                    self.inner_edges.bottom,
+                    self.outer_edges.bottom,
+                    self.total_edges.bottom,
+                ),
+                lifted(
+                    self.inner_edges.left,
+                    self.outer_edges.left,
+                    self.total_edges.left,
+                ),
+            ),
+        }
+    }
+}
+
 impl GridRequirements {
     /// Derive per-track sizes and edge demands from measured grid items.
     pub fn from_items<Id>(

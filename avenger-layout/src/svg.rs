@@ -6,13 +6,16 @@
 //! background, labeled regions). It is deliberately independent of any scenegraph; output is
 //! deterministic so SVG strings can be snapshot-tested.
 //!
-//! Legend of the rendered layers, outermost first:
+//! Legend of the rendered layers:
 //!
-//! - dashed purple: total edge envelope (`EdgeTargets::total`),
-//! - dotted blue: inner edge envelope (`EdgeTargets::inner`),
-//! - filled blue: content rectangle,
+//! - filled blue: content rectangles,
 //! - black frame: the arrangement's content bounds (for a frame scene, the
-//!   solved envelope extent).
+//!   solved envelope extent),
+//! - overflow strips beside each content rectangle: red for the inner
+//!   (guide-like) layer, green for the remainder up to the total. The
+//!   lighter shade is the coordinated target the solve produced; the darker
+//!   shade overlaid on it is what the region itself requested — where they
+//!   differ, coordination grew the region's allocation.
 //!
 //! Frame scenes ([`DebugScene::from_frame`]) additionally tile the chrome
 //! layers as translucent strips, one per solved slab: gray margins, amber
@@ -28,11 +31,11 @@
 use std::fmt::Display;
 use std::fmt::Write as _;
 
-use crate::band::BandSolution;
+use crate::band::{BandSolution, BoundaryDemand};
 use crate::frame::{FrameAxisSolution, FrameSolution, SolvedSlab};
-use crate::geometry::{Orientation, Rect, Size};
+use crate::geometry::{Edges, Orientation, Rect, Side, Size};
 use crate::grid::{GridItem, GridSolution, UniformTrackSolution};
-use crate::region::PlacementSolution;
+use crate::region::{EdgeTargets, PlacementSolution};
 use crate::tree::TreeSolution;
 
 /// What a region represents, which selects its rendered style.
@@ -58,10 +61,13 @@ pub struct DebugRegion {
     pub label: String,
     pub kind: DebugRegionKind,
     pub content: Rect,
-    /// Content expanded by the coordinated inner edges, when known.
-    pub inner_envelope: Option<Rect>,
-    /// Content expanded by the coordinated total edges, when known.
-    pub total_envelope: Option<Rect>,
+    /// The overflow this region asked for (its own measured demand), when
+    /// known. Drawn as darker strips inside the coordinated bands.
+    pub requested: Option<EdgeTargets>,
+    /// The coordinated overflow the solve produced for this region, when
+    /// known. Drawn as lighter strips: red for the inner layer, green for
+    /// the remainder up to the total.
+    pub target: Option<EdgeTargets>,
     /// Where to draw the label. Defaults to just inside the content
     /// rectangle's top-left corner; frame scenes anchor strip labels inside
     /// the content span so they stay clear of the perpendicular strips.
@@ -108,24 +114,8 @@ impl DebugScene {
                     label: format!("{} r{}c{}{}", item.id, slot.row, slot.column, span_label),
                     kind: DebugRegionKind::Content,
                     content,
-                    inner_envelope: Some(expand(
-                        content,
-                        [
-                            targets.inner.top,
-                            targets.inner.right,
-                            targets.inner.bottom,
-                            targets.inner.left,
-                        ],
-                    )),
-                    total_envelope: Some(expand(
-                        content,
-                        [
-                            targets.total.top,
-                            targets.total.right,
-                            targets.total.bottom,
-                            targets.total.left,
-                        ],
-                    )),
+                    requested: Some(item.requested_targets()),
+                    target: Some(targets),
                     label_anchor: None,
                     label_rotated: false,
                 }
@@ -139,10 +129,9 @@ impl DebugScene {
         }
     }
 
-    /// Capture a solved band: one region per placed child.
-    ///
-    /// Band placement consumes boundary demands into gaps, so per-child edge
-    /// envelopes are not retained and the envelope layers are omitted.
+    /// Capture a solved band: one region per placed child, with requested
+    /// and coordinated main-axis boundary overflow from
+    /// [`BandSolution::boundaries`].
     pub fn from_band<Id: Display>(band: &BandSolution<Id>) -> Self {
         let cross_extent = band.cross_extent.unwrap_or(0.0);
         let content_size = match band.orientation {
@@ -152,7 +141,23 @@ impl DebugScene {
         let regions = band
             .items
             .iter()
-            .map(|child| {
+            .zip(
+                band.boundaries
+                    .iter()
+                    .copied()
+                    .chain(std::iter::repeat(crate::band::BandBoundary::default())),
+            )
+            .map(|(child, boundary)| {
+                // Boundary demands are main-axis totals; map them onto the
+                // band's main-axis sides (no inner/outer split).
+                let main_axis_edges = |before: f32, after: f32| match band.orientation {
+                    Orientation::Horizontal => Edges::new(0.0, after, 0.0, before),
+                    Orientation::Vertical => Edges::new(before, 0.0, after, 0.0),
+                };
+                let demand = |boundary: BoundaryDemand| EdgeTargets {
+                    inner: Edges::default(),
+                    total: main_axis_edges(boundary.before.max(0.0), boundary.after.max(0.0)),
+                };
                 let content = match band.orientation {
                     Orientation::Horizontal => Rect::new(
                         child.main_start,
@@ -171,8 +176,8 @@ impl DebugScene {
                     label: format!("{}", child.id),
                     kind: DebugRegionKind::Content,
                     content,
-                    inner_envelope: None,
-                    total_envelope: None,
+                    requested: Some(demand(boundary.requested)),
+                    target: Some(demand(boundary.target)),
                     label_anchor: None,
                     label_rotated: false,
                 }
@@ -198,24 +203,8 @@ impl DebugScene {
                     label: format!("{} d{}", region.id, region.depth),
                     kind: DebugRegionKind::Content,
                     content,
-                    inner_envelope: Some(expand(
-                        content,
-                        [
-                            region.edge_targets.inner.top,
-                            region.edge_targets.inner.right,
-                            region.edge_targets.inner.bottom,
-                            region.edge_targets.inner.left,
-                        ],
-                    )),
-                    total_envelope: Some(expand(
-                        content,
-                        [
-                            region.edge_targets.total.top,
-                            region.edge_targets.total.right,
-                            region.edge_targets.total.bottom,
-                            region.edge_targets.total.left,
-                        ],
-                    )),
+                    requested: Some(region.requested),
+                    target: Some(region.edge_targets),
                     // Nested regions share corners with their ancestors;
                     // stepping the label down one line per depth keeps
                     // every label readable.
@@ -305,8 +294,8 @@ impl DebugScene {
                         label: if labeled { label } else { String::new() },
                         kind,
                         content,
-                        inner_envelope: None,
-                        total_envelope: None,
+                        requested: None,
+                        target: None,
                         label_anchor: Some(label_anchor),
                         label_rotated: !vertical,
                     });
@@ -342,8 +331,8 @@ impl DebugScene {
             label: "content".to_string(),
             kind: DebugRegionKind::Content,
             content: solution.content_rect(),
-            inner_envelope: None,
-            total_envelope: None,
+            requested: None,
+            target: None,
             label_anchor: None,
             label_rotated: false,
         });
@@ -366,8 +355,8 @@ impl DebugScene {
                 label: format!("track {index}"),
                 kind: DebugRegionKind::Content,
                 content: Rect::new(*start, 0.0, solution.track_size, cross_extent),
-                inner_envelope: None,
-                total_envelope: None,
+                requested: None,
+                target: None,
                 label_anchor: None,
                 label_rotated: false,
             })
@@ -411,16 +400,29 @@ impl DebugScene {
             (DebugRegionKind::Inner, "inner"),
         ];
         const KEY_HEIGHT: f32 = 24.0;
+        const DEMAND_INNER_LIGHT: &str = "fill=\"#fecaca\" fill-opacity=\"0.6\"";
+        const DEMAND_INNER_DARK: &str = "fill=\"#dc2626\" fill-opacity=\"0.75\"";
+        const DEMAND_OUTER_LIGHT: &str = "fill=\"#bbf7d0\" fill-opacity=\"0.6\"";
+        const DEMAND_OUTER_DARK: &str = "fill=\"#16a34a\" fill-opacity=\"0.75\"";
+        const DEMAND_KEY_LABELS: [&str; 2] = ["inner", "outer"];
 
         let bounds_rect = Rect::new(0.0, 0.0, self.content_size.width, self.content_size.height);
         let mut bounds = bounds_rect;
         for region in &self.regions {
             bounds = union(bounds, region.content);
-            if let Some(rect) = region.inner_envelope {
-                bounds = union(bounds, rect);
-            }
-            if let Some(rect) = region.total_envelope {
-                bounds = union(bounds, rect);
+            for targets in [region.requested, region.target].into_iter().flatten() {
+                bounds = union(
+                    bounds,
+                    expand(
+                        region.content,
+                        [
+                            targets.total.top,
+                            targets.total.right,
+                            targets.total.bottom,
+                            targets.total.left,
+                        ],
+                    ),
+                );
             }
         }
         for marker in &self.markers {
@@ -432,20 +434,48 @@ impl DebugScene {
 
         // A color key row is shown whenever chrome strips are present
         // (frame scenes); content-only scenes stay minimal.
-        let show_key = self
+        let has_chrome_kinds = self
             .regions
             .iter()
             .any(|region| region.kind != DebugRegionKind::Content);
+        let any_side = |edges: Edges<f32>| {
+            edges.top > 0.0 || edges.right > 0.0 || edges.bottom > 0.0 || edges.left > 0.0
+        };
+        let demand_layers = self.regions.iter().fold((false, false), |layers, region| {
+            let Some(target) = region.target else {
+                return layers;
+            };
+            let inner = layers.0 || any_side(target.inner);
+            // The outer strip is the remainder up to the total.
+            let outer = layers.1
+                || any_side(Edges::new(
+                    target.total.top - target.inner.top,
+                    target.total.right - target.inner.right,
+                    target.total.bottom - target.inner.bottom,
+                    target.total.left - target.inner.left,
+                ));
+            (inner, outer)
+        });
+        let has_demands = demand_layers.0 || demand_layers.1;
+        let show_key = has_chrome_kinds || has_demands;
         let key_y = bounds.y + bounds.height + 10.0;
         if show_key {
             bounds.height += KEY_HEIGHT;
             // The key row must also fit horizontally in narrow scenes.
-            let key_width: f32 = KEY_KINDS
+            let mut key_width: f32 = KEY_KINDS
                 .iter()
                 .filter(|(kind, _)| self.regions.iter().any(|region| region.kind == *kind))
                 .map(|(_, label)| 13.0 + label.len() as f32 * 6.0 + 14.0)
-                .sum::<f32>()
-                - 14.0;
+                .sum();
+            for (present, label) in [
+                (demand_layers.0, DEMAND_KEY_LABELS[0]),
+                (demand_layers.1, DEMAND_KEY_LABELS[1]),
+            ] {
+                if present {
+                    key_width += 13.0 + label.len() as f32 * 6.0 + 14.0;
+                }
+            }
+            key_width -= 14.0;
             bounds.width = bounds.width.max(bounds.x.max(0.0) - bounds.x + key_width);
         }
 
@@ -486,25 +516,58 @@ impl DebugScene {
         );
 
         for region in &self.regions {
-            if let Some(rect) = region.total_envelope.filter(|rect| *rect != region.content) {
-                let _ = write!(
-                    svg,
-                    "  {}\n",
-                    rect_element(
-                        rect,
-                        "fill=\"none\" stroke=\"#9333ea\" stroke-dasharray=\"4 2\""
-                    )
-                );
-            }
-            if let Some(rect) = region.inner_envelope.filter(|rect| *rect != region.content) {
-                let _ = write!(
-                    svg,
-                    "  {}\n",
-                    rect_element(
-                        rect,
-                        "fill=\"none\" stroke=\"#2563eb\" stroke-dasharray=\"2 2\""
-                    )
-                );
+            // Coordinated (lighter) bands first, then the requested
+            // (darker) demand inside them: red for the inner layer, green
+            // for the remainder up to the total.
+            if let Some(target) = region.target {
+                let requested = region.requested.unwrap_or_default();
+                for (side_target, side_requested, side) in [
+                    (
+                        (target.inner.top, target.total.top),
+                        (requested.inner.top, requested.total.top),
+                        Side::Top,
+                    ),
+                    (
+                        (target.inner.right, target.total.right),
+                        (requested.inner.right, requested.total.right),
+                        Side::Right,
+                    ),
+                    (
+                        (target.inner.bottom, target.total.bottom),
+                        (requested.inner.bottom, requested.total.bottom),
+                        Side::Bottom,
+                    ),
+                    (
+                        (target.inner.left, target.total.left),
+                        (requested.inner.left, requested.total.left),
+                        Side::Left,
+                    ),
+                ] {
+                    let (target_inner, target_total) = side_target;
+                    let (requested_inner, requested_total) = side_requested;
+                    let strip = |offset: f32, thickness: f32| {
+                        edge_strip(region.content, side, offset, thickness)
+                    };
+                    for (rect, fill) in [
+                        (strip(0.0, target_inner), DEMAND_INNER_LIGHT),
+                        (
+                            strip(target_inner, (target_total - target_inner).max(0.0)),
+                            DEMAND_OUTER_LIGHT,
+                        ),
+                        (
+                            strip(0.0, requested_inner.min(target_inner)),
+                            DEMAND_INNER_DARK,
+                        ),
+                        (
+                            strip(target_inner, (requested_total - requested_inner).max(0.0)),
+                            DEMAND_OUTER_DARK,
+                        ),
+                    ] {
+                        if rect.width > 0.0 && rect.height > 0.0 {
+                            let _ = write!(svg, "  {}\n", rect_element(rect, fill));
+                        }
+                    }
+                }
             }
             let _ = write!(
                 svg,
@@ -569,6 +632,16 @@ impl DebugScene {
 
         if show_key {
             let mut cursor = bounds.x.max(0.0);
+            let entry_text = |svg: &mut String, cursor: f32, label: &str| {
+                let _ = write!(
+                    svg,
+                    "  <text x=\"{}\" y=\"{}\" {}>{}</text>\n",
+                    cursor + 13.0,
+                    key_y + 9.0,
+                    TEXT_STYLE,
+                    label,
+                );
+            };
             for (kind, label) in KEY_KINDS {
                 if !self.regions.iter().any(|region| region.kind == kind) {
                     continue;
@@ -578,20 +651,79 @@ impl DebugScene {
                     "  {}\n",
                     rect_element(Rect::new(cursor, key_y, 10.0, 10.0), kind_style(kind))
                 );
-                let _ = write!(
-                    svg,
-                    "  <text x=\"{}\" y=\"{}\" {}>{}</text>\n",
-                    cursor + 13.0,
-                    key_y + 9.0,
-                    TEXT_STYLE,
-                    label,
-                );
+                entry_text(&mut svg, cursor, label);
                 cursor += 13.0 + label.len() as f32 * 6.0 + 14.0;
+            }
+            if has_demands {
+                // Split swatches: darker half = requested, lighter half =
+                // coordinated.
+                for (present, label, dark, light) in [
+                    (
+                        demand_layers.0,
+                        "inner",
+                        DEMAND_INNER_DARK,
+                        DEMAND_INNER_LIGHT,
+                    ),
+                    (
+                        demand_layers.1,
+                        "outer",
+                        DEMAND_OUTER_DARK,
+                        DEMAND_OUTER_LIGHT,
+                    ),
+                ] {
+                    if !present {
+                        continue;
+                    }
+                    let _ = write!(
+                        svg,
+                        "  {}\n",
+                        rect_element(Rect::new(cursor, key_y, 5.0, 10.0), dark)
+                    );
+                    let _ = write!(
+                        svg,
+                        "  {}\n",
+                        rect_element(Rect::new(cursor + 5.0, key_y, 5.0, 10.0), light)
+                    );
+                    entry_text(&mut svg, cursor, label);
+                    cursor += 13.0 + label.len() as f32 * 6.0 + 14.0;
+                }
             }
         }
 
         svg.push_str("</svg>\n");
         svg
+    }
+}
+
+/// One overflow strip adjacent to a content rectangle: `offset` is the
+/// distance from the content edge where the strip starts, `thickness` its
+/// extent outward; the strip spans the content on the cross axis.
+fn edge_strip(content: Rect, side: Side, offset: f32, thickness: f32) -> Rect {
+    match side {
+        Side::Top => Rect::new(
+            content.x,
+            content.y - offset - thickness,
+            content.width,
+            thickness,
+        ),
+        Side::Right => Rect::new(
+            content.x + content.width + offset,
+            content.y,
+            thickness,
+            content.height,
+        ),
+        Side::Bottom => Rect::new(
+            content.x,
+            content.y + content.height + offset,
+            content.width,
+            thickness,
+        ),
+        Side::Left => Rect::new(
+            content.x - offset - thickness,
+            content.y,
+            thickness,
+            content.height,
+        ),
     }
 }
 
@@ -720,29 +852,29 @@ mod tests {
         assert_eq!(scene.regions.len(), 2);
         assert_eq!(scene.regions[0].content, Rect::new(5.0, 0.0, 30.0, 80.0));
         assert_eq!(scene.regions[1].content, Rect::new(45.0, 0.0, 40.0, 90.0));
-        assert_eq!(scene.regions[0].total_envelope, None);
+        // Boundary demands default to zero in this scene.
+        let target = scene.regions[0].target.expect("band regions carry targets");
+        assert_eq!(target.total, Edges::default());
     }
 
     #[test]
-    fn grid_scene_captures_content_and_envelopes() {
+    fn grid_scene_captures_content_and_demands() {
         let scene = grid_scene();
 
         // Gap between tracks: item 0 right total (max(12, 6+20) = 26) plus
         // item 1 left total (3) = 29.
         assert_eq!(scene.regions[0].content, Rect::new(0.0, 0.0, 100.0, 60.0));
         assert_eq!(scene.regions[1].content, Rect::new(129.0, 0.0, 100.0, 60.0));
-        assert_eq!(
-            scene.regions[0].inner_envelope,
-            Some(Rect::new(0.0, 0.0, 106.0, 60.0))
-        );
-        assert_eq!(
-            scene.regions[0].total_envelope,
-            Some(Rect::new(0.0, 0.0, 126.0, 60.0))
-        );
-        assert_eq!(
-            scene.regions[1].total_envelope,
-            Some(Rect::new(126.0, 0.0, 103.0, 60.0))
-        );
+        let requested = scene.regions[0]
+            .requested
+            .expect("grid regions carry requested demand");
+        let target = scene.regions[0].target.expect("grid regions carry targets");
+        assert_eq!(requested.inner.right, 6.0);
+        assert_eq!(requested.total.right, 26.0); // lifted: max(12, 6 + 20)
+        assert_eq!(target.inner.right, 6.0);
+        assert_eq!(target.total.right, 26.0);
+        let target_1 = scene.regions[1].target.expect("grid regions carry targets");
+        assert_eq!(target_1.total.left, 3.0);
         assert_eq!(scene.content_size, Size::new(229.0, 60.0));
     }
 
@@ -845,16 +977,27 @@ mod tests {
         let svg = grid_scene().to_svg();
 
         let expected = "\
-<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 249 80\" font-family=\"monospace\" font-size=\"10\">
-  <rect x=\"-10\" y=\"-10\" width=\"249\" height=\"80\" fill=\"#ffffff\"/>
+<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 249 104\" font-family=\"monospace\" font-size=\"10\">
+  <rect x=\"-10\" y=\"-10\" width=\"249\" height=\"104\" fill=\"#ffffff\"/>
   <rect x=\"0\" y=\"0\" width=\"229\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
-  <rect x=\"0\" y=\"0\" width=\"126\" height=\"60\" fill=\"none\" stroke=\"#9333ea\" stroke-dasharray=\"4 2\"/>
-  <rect x=\"0\" y=\"0\" width=\"106\" height=\"60\" fill=\"none\" stroke=\"#2563eb\" stroke-dasharray=\"2 2\"/>
+  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#fecaca\" fill-opacity=\"0.6\"/>
+  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#bbf7d0\" fill-opacity=\"0.6\"/>
+  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#dc2626\" fill-opacity=\"0.75\"/>
+  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#16a34a\" fill-opacity=\"0.75\"/>
   <rect x=\"0\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0 r0c0</text>
-  <rect x=\"126\" y=\"0\" width=\"103\" height=\"60\" fill=\"none\" stroke=\"#9333ea\" stroke-dasharray=\"4 2\"/>
+  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#bbf7d0\" fill-opacity=\"0.6\"/>
+  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#16a34a\" fill-opacity=\"0.75\"/>
   <rect x=\"129\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"132\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1 r0c1</text>
+  <rect x=\"0\" y=\"70\" width=\"10\" height=\"10\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <text x=\"13\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">content</text>
+  <rect x=\"69\" y=\"70\" width=\"5\" height=\"10\" fill=\"#dc2626\" fill-opacity=\"0.75\"/>
+  <rect x=\"74\" y=\"70\" width=\"5\" height=\"10\" fill=\"#fecaca\" fill-opacity=\"0.6\"/>
+  <text x=\"82\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">inner</text>
+  <rect x=\"126\" y=\"70\" width=\"5\" height=\"10\" fill=\"#16a34a\" fill-opacity=\"0.75\"/>
+  <rect x=\"131\" y=\"70\" width=\"5\" height=\"10\" fill=\"#bbf7d0\" fill-opacity=\"0.6\"/>
+  <text x=\"139\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">outer</text>
 </svg>
 ";
         assert_eq!(svg, expected);

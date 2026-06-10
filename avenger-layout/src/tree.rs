@@ -80,6 +80,12 @@ pub struct SolvedRegion<Id = usize> {
     pub id: Id,
     pub depth: usize,
     pub content_rect: Rect,
+    /// The overflow this region asked for: a leaf's own (lifted) edge
+    /// demand, or a subtree's envelope — exactly what the parent solve
+    /// consumed.
+    pub requested: EdgeTargets,
+    /// The coordinated overflow the solve produced for this region's slot
+    /// (per-track merged edge demand).
     pub edge_targets: EdgeTargets,
 }
 
@@ -369,6 +375,7 @@ fn solve_node_into<Id: Clone>(
                 slot_size.width,
                 slot_size.height,
             ),
+            requested: collected.grid_items[index].requested_targets(),
             edge_targets: solution.edge_targets_for_slot(item.slot),
         });
 

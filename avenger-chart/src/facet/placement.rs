@@ -48,6 +48,7 @@ fn band_solution_from_children(
         }
     });
     BandSolution {
+        boundaries: Vec::new(),
         orientation: direction,
         items: children,
         main_extent,

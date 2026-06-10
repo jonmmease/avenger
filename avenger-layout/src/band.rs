@@ -78,11 +78,25 @@ impl<Id> PlacedBandItem<Id> {
     }
 }
 
+/// One child's main-axis overflow through a band solve: the boundary
+/// demand it asked for, and the coordinated target the solver produced
+/// (the per-track edge demand after the grid's merge laws).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BandBoundary {
+    pub requested: BoundaryDemand,
+    pub target: BoundaryDemand,
+}
+
 /// Placement result for a one-dimensional band of items.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BandSolution<Id = usize> {
     pub orientation: Orientation,
     pub items: Vec<PlacedBandItem<Id>>,
+    /// Per-item main-axis overflow, aligned with `items`. The first item's
+    /// `before` and the last item's `after` are the band's own outward
+    /// overflow (excluded from `main_extent`); interior boundaries are
+    /// consumed by the gaps.
+    pub boundaries: Vec<BandBoundary>,
     pub main_extent: f32,
     pub cross_extent: Option<f32>,
 }
@@ -189,9 +203,26 @@ impl<Id: Clone> BandSolution<Id> {
             })
             .collect();
 
+        let (leading_totals, trailing_totals) = match orientation {
+            Orientation::Horizontal => (&solution.column_left, &solution.column_right),
+            Orientation::Vertical => (&solution.row_top, &solution.row_bottom),
+        };
+        let boundaries = items
+            .iter()
+            .enumerate()
+            .map(|(slot_index, child)| BandBoundary {
+                requested: child.boundary,
+                target: BoundaryDemand {
+                    before: leading_totals[slot_index].total,
+                    after: trailing_totals[slot_index].total,
+                },
+            })
+            .collect();
+
         Self {
             orientation,
             items: placed_items,
+            boundaries,
             main_extent,
             cross_extent: Some(cross_extent),
         }
@@ -423,6 +454,7 @@ mod tests {
     #[test]
     fn positioned_children_preserve_explicit_starts_and_sizes() {
         let placement = BandSolution {
+            boundaries: Vec::new(),
             orientation: Orientation::Horizontal,
             items: vec![
                 PlacedBandItem::with_cross_axis(3, 20.0, 40.0, 5.0, 45.0),
@@ -443,6 +475,7 @@ mod tests {
     #[test]
     fn horizontal_conversion_maps_main_axis_to_x_origin() {
         let placement = BandSolution {
+            boundaries: Vec::new(),
             orientation: Orientation::Horizontal,
             items: vec![PlacedBandItem::new(2, 30.0, 40.0)],
             main_extent: 100.0,
@@ -458,6 +491,7 @@ mod tests {
     #[test]
     fn vertical_conversion_maps_main_axis_to_y_origin() {
         let placement = BandSolution {
+            boundaries: Vec::new(),
             orientation: Orientation::Vertical,
             items: vec![PlacedBandItem::new(2, 30.0, 40.0)],
             main_extent: 100.0,
