@@ -427,10 +427,10 @@ impl DebugScene {
         // contains its children's chrome), and translucency would invent
         // in-between shades where they stack. Children draw after parents
         // and dark after light, so overlap resolves to nearest-wins.
-        const DEMAND_INNER_LIGHT: &str = "fill=\"#fecaca\"";
-        const DEMAND_INNER_DARK: &str = "fill=\"#e05252\"";
-        const DEMAND_OUTER_LIGHT: &str = "fill=\"#bbf7d0\"";
-        const DEMAND_OUTER_DARK: &str = "fill=\"#3da75f\"";
+        const DEMAND_INNER_LIGHT: &str = "fill=\"#fecaca\" stroke=\"#ffffff\" stroke-width=\"1\"";
+        const DEMAND_INNER_DARK: &str = "fill=\"#e05252\" stroke=\"#ffffff\" stroke-width=\"1\"";
+        const DEMAND_OUTER_LIGHT: &str = "fill=\"#bbf7d0\" stroke=\"#ffffff\" stroke-width=\"1\"";
+        const DEMAND_OUTER_DARK: &str = "fill=\"#3da75f\" stroke=\"#ffffff\" stroke-width=\"1\"";
         const DEMAND_KEY_LABELS: [&str; 2] = ["inner", "outer"];
 
         let bounds_rect = Rect::new(0.0, 0.0, self.content_size.width, self.content_size.height);
@@ -1023,23 +1023,23 @@ mod tests {
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 249 104\" font-family=\"monospace\" font-size=\"10\">
   <rect x=\"-10\" y=\"-10\" width=\"249\" height=\"104\" fill=\"#ffffff\"/>
   <rect x=\"0\" y=\"0\" width=\"229\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
-  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#fecaca\"/>
-  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#bbf7d0\"/>
-  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#e05252\"/>
-  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#3da75f\"/>
+  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#fecaca\" stroke=\"#ffffff\" stroke-width=\"1\"/>
+  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#bbf7d0\" stroke=\"#ffffff\" stroke-width=\"1\"/>
+  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#e05252\" stroke=\"#ffffff\" stroke-width=\"1\"/>
+  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#3da75f\" stroke=\"#ffffff\" stroke-width=\"1\"/>
   <rect x=\"0\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0 r0c0</text>
-  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#bbf7d0\"/>
-  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#3da75f\"/>
+  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#bbf7d0\" stroke=\"#ffffff\" stroke-width=\"1\"/>
+  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#3da75f\" stroke=\"#ffffff\" stroke-width=\"1\"/>
   <rect x=\"129\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"132\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1 r0c1</text>
   <rect x=\"0\" y=\"70\" width=\"10\" height=\"10\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"13\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">content</text>
-  <rect x=\"69\" y=\"70\" width=\"5\" height=\"10\" fill=\"#e05252\"/>
-  <rect x=\"74\" y=\"70\" width=\"5\" height=\"10\" fill=\"#fecaca\"/>
+  <rect x=\"69\" y=\"70\" width=\"5\" height=\"10\" fill=\"#e05252\" stroke=\"#ffffff\" stroke-width=\"1\"/>
+  <rect x=\"74\" y=\"70\" width=\"5\" height=\"10\" fill=\"#fecaca\" stroke=\"#ffffff\" stroke-width=\"1\"/>
   <text x=\"82\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">inner</text>
-  <rect x=\"126\" y=\"70\" width=\"5\" height=\"10\" fill=\"#3da75f\"/>
-  <rect x=\"131\" y=\"70\" width=\"5\" height=\"10\" fill=\"#bbf7d0\"/>
+  <rect x=\"126\" y=\"70\" width=\"5\" height=\"10\" fill=\"#3da75f\" stroke=\"#ffffff\" stroke-width=\"1\"/>
+  <rect x=\"131\" y=\"70\" width=\"5\" height=\"10\" fill=\"#bbf7d0\" stroke=\"#ffffff\" stroke-width=\"1\"/>
   <text x=\"139\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">outer</text>
 </svg>
 ";

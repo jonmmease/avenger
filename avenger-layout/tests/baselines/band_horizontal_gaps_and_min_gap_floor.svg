@@ -1,25 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 265 124" font-family="monospace" font-size="10">
   <rect x="-10" y="-10" width="265" height="124" fill="#ffffff"/>
   <rect x="0" y="0" width="245" height="80" fill="none" stroke="#111111" stroke-width="1"/>
-  <rect x="66" y="0" width="8" height="80" fill="#bbf7d0"/>
-  <rect x="66" y="0" width="8" height="80" fill="#3da75f"/>
-  <rect x="1" y="0" width="5" height="80" fill="#bbf7d0"/>
-  <rect x="1" y="0" width="5" height="80" fill="#3da75f"/>
+  <rect x="66" y="0" width="8" height="80" fill="#bbf7d0" stroke="#ffffff" stroke-width="1"/>
+  <rect x="66" y="0" width="8" height="80" fill="#3da75f" stroke="#ffffff" stroke-width="1"/>
+  <rect x="1" y="0" width="5" height="80" fill="#bbf7d0" stroke="#ffffff" stroke-width="1"/>
+  <rect x="1" y="0" width="5" height="80" fill="#3da75f" stroke="#ffffff" stroke-width="1"/>
   <rect x="6" y="0" width="60" height="80" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="9" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0</text>
-  <rect x="178" y="0" width="2" height="80" fill="#bbf7d0"/>
-  <rect x="178" y="0" width="2" height="80" fill="#3da75f"/>
-  <rect x="74" y="0" width="14" height="80" fill="#bbf7d0"/>
-  <rect x="74" y="0" width="14" height="80" fill="#3da75f"/>
+  <rect x="178" y="0" width="2" height="80" fill="#bbf7d0" stroke="#ffffff" stroke-width="1"/>
+  <rect x="178" y="0" width="2" height="80" fill="#3da75f" stroke="#ffffff" stroke-width="1"/>
+  <rect x="74" y="0" width="14" height="80" fill="#bbf7d0" stroke="#ffffff" stroke-width="1"/>
+  <rect x="74" y="0" width="14" height="80" fill="#3da75f" stroke="#ffffff" stroke-width="1"/>
   <rect x="88" y="0" width="90" height="80" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="91" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">1</text>
-  <rect x="189" y="0" width="1" height="80" fill="#bbf7d0"/>
-  <rect x="189" y="0" width="1" height="80" fill="#3da75f"/>
+  <rect x="189" y="0" width="1" height="80" fill="#bbf7d0" stroke="#ffffff" stroke-width="1"/>
+  <rect x="189" y="0" width="1" height="80" fill="#3da75f" stroke="#ffffff" stroke-width="1"/>
   <rect x="190" y="0" width="45" height="80" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="193" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">2</text>
   <rect x="0" y="90" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
   <text x="13" y="99" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
-  <rect x="69" y="90" width="5" height="10" fill="#3da75f"/>
-  <rect x="74" y="90" width="5" height="10" fill="#bbf7d0"/>
+  <rect x="69" y="90" width="5" height="10" fill="#3da75f" stroke="#ffffff" stroke-width="1"/>
+  <rect x="74" y="90" width="5" height="10" fill="#bbf7d0" stroke="#ffffff" stroke-width="1"/>
   <text x="82" y="99" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">outer</text>
 </svg>
