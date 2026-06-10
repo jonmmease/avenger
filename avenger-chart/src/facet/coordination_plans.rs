@@ -18,7 +18,11 @@ use avenger_chart_core::{
 
 use crate::{
     facet::overflow_projection::{FacetOverflowProjection, project_facet_overflow},
-    layout::{AlignmentNode, EdgeDemand, Edges, RoundDeltas, SingletonPolicy, align_by},
+    facet::overflow_projection::{overflow_edge_demands, overflow_from_edge_demands},
+    layout::{
+        AlignmentNode, EdgeDemand, Edges, RoundDeltas, SingletonPolicy, TrackSpacing,
+        UniformTracks, align_by,
+    },
     plot::compiled::{CoordinationKind, CoordinationScopeKey},
 };
 
@@ -711,35 +715,6 @@ fn align_overflow_groups(
     (merged_by_key, deltas)
 }
 
-/// Per-side layered demand view of a coordinated overflow: guide chrome is
-/// `inner`, legend chrome is `outer`.
-fn overflow_edge_demands(overflow: &CoordinatedOverflow) -> Edges<EdgeDemand> {
-    let side = |guide: f32, total: f32| EdgeDemand::new(guide, (total - guide).max(0.0), total);
-    Edges::new(
-        side(overflow.guide.top, overflow.total.top),
-        side(overflow.guide.right, overflow.total.right),
-        side(overflow.guide.bottom, overflow.total.bottom),
-        side(overflow.guide.left, overflow.total.left),
-    )
-}
-
-fn overflow_from_edge_demands(demands: Edges<EdgeDemand>) -> CoordinatedOverflow {
-    CoordinatedOverflow {
-        guide: OverflowSpaceRequirement {
-            top: demands.top.inner,
-            right: demands.right.inner,
-            bottom: demands.bottom.inner,
-            left: demands.left.inner,
-        },
-        total: OverflowSpaceRequirement {
-            top: demands.top.total,
-            right: demands.right.total,
-            bottom: demands.bottom.total,
-            left: demands.left.total,
-        },
-    }
-}
-
 /// Overflow is all chrome: deltas land on the edge channel.
 fn coordinated_overflow_delta(
     local: &CoordinatedOverflow,
@@ -782,11 +757,15 @@ fn align_layout_groups(
         &layout_nodes,
         SingletonPolicy::Merge,
         |members| {
-            let mut merged = CoordinatedLayout::default();
+            // The layout policy merge is the neutral uniform-tracks law;
+            // guide_slot_gap_px is the chart side-car folded alongside.
+            let mut tracks = UniformTracks::default();
+            let mut guide_slot_gap_px = 0.0f32;
             for member in members {
-                merged.merge(member);
+                tracks = tracks.merge_max(uniform_tracks_from_layout(member));
+                guide_slot_gap_px = guide_slot_gap_px.max(member.guide_slot_gap_px);
             }
-            Some(merged)
+            Some(layout_from_uniform_tracks(tracks, guide_slot_gap_px))
         },
         coordinated_layout_delta,
     );
@@ -801,6 +780,33 @@ fn align_layout_groups(
         .map(|group| (group.key, group.merged))
         .collect();
     (layout_by_key, deltas)
+}
+
+/// The neutral uniform-tracks view of a coordinated layout: `n` slots with
+/// shared spacing, padding as the min gap. `guide_slot_gap_px` is the chart
+/// side-car and travels separately.
+pub(crate) fn uniform_tracks_from_layout(layout: &CoordinatedLayout) -> UniformTracks {
+    UniformTracks {
+        count: layout.n,
+        spacing: TrackSpacing {
+            outer_start: layout.outer_start,
+            outer_end: layout.outer_end,
+            min_gap: layout.padding_inner_px,
+        },
+    }
+}
+
+pub(crate) fn layout_from_uniform_tracks(
+    tracks: UniformTracks,
+    guide_slot_gap_px: f32,
+) -> CoordinatedLayout {
+    CoordinatedLayout {
+        padding_inner_px: tracks.spacing.min_gap,
+        guide_slot_gap_px,
+        outer_start: tracks.spacing.outer_start,
+        outer_end: tracks.spacing.outer_end,
+        n: tracks.count,
+    }
 }
 
 /// Two-channel delta for coordinated layout policy: slot-count difference is

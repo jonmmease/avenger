@@ -58,8 +58,8 @@ pub use band::{BandItem, BandSolution, BandSpacing, BoundaryDemand, CrossAlign, 
 pub use geometry::{Edges, Orientation, Point, Rect, Side, Size};
 pub use grid::{
     GridError, GridItem, GridRequirements, GridShape, GridSlot, GridSolution, TrackSpacing,
-    edge_demand_totals, grid_requirements, solve_grid_requirements, span_axis_extent,
-    total_edge_demands, zero_edge_demands,
+    UniformTracks, edge_demand_totals, grid_requirements, solve_grid_requirements,
+    span_axis_extent, total_edge_demands, zero_edge_demands,
 };
 pub use region::{EdgeDemand, EdgeTargets, PlacedRegion, PlacementSolution, project_rect};
 #[cfg(feature = "svg")]

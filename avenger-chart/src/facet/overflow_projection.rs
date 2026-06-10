@@ -39,7 +39,7 @@ use crate::{
     },
     facet::layout_plan::effective_edge_indices,
     layout::{
-        EdgeSlabs, Edges, FrameDemand, GridShape, GridSlot, LayoutItem, LayoutNode,
+        EdgeDemand, EdgeSlabs, Edges, FrameDemand, GridShape, GridSlot, LayoutItem, LayoutNode,
         LayoutSlotContent, OwnedEdgeSlabs, Size as LayoutSize, TrackSpacing, TreeEnvelopeKind,
         tree_envelope_with,
     },
@@ -585,6 +585,35 @@ pub(crate) fn aggregate_facet_band_overflow_with_policy(
             left: envelope.total_edges.left,
         },
     })
+}
+
+/// Per-side layered demand view of a coordinated overflow: guide chrome is
+/// `inner`, legend chrome is `outer`.
+pub(crate) fn overflow_edge_demands(overflow: &CoordinatedOverflow) -> Edges<EdgeDemand> {
+    let side = |guide: f32, total: f32| EdgeDemand::new(guide, (total - guide).max(0.0), total);
+    Edges::new(
+        side(overflow.guide.top, overflow.total.top),
+        side(overflow.guide.right, overflow.total.right),
+        side(overflow.guide.bottom, overflow.total.bottom),
+        side(overflow.guide.left, overflow.total.left),
+    )
+}
+
+pub(crate) fn overflow_from_edge_demands(demands: Edges<EdgeDemand>) -> CoordinatedOverflow {
+    CoordinatedOverflow {
+        guide: OverflowSpaceRequirement {
+            top: demands.top.inner,
+            right: demands.right.inner,
+            bottom: demands.bottom.inner,
+            left: demands.left.inner,
+        },
+        total: OverflowSpaceRequirement {
+            top: demands.top.total,
+            right: demands.right.total,
+            bottom: demands.bottom.total,
+            left: demands.left.total,
+        },
+    }
 }
 
 pub(crate) fn rendered_subtree_overflow_from_coord_measurement(

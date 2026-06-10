@@ -5354,31 +5354,6 @@ mod tests {
     }
 
     #[test]
-    fn coordinated_layout_merge_uses_shared_outer_edges() {
-        let mut merged = CoordinatedLayout {
-            padding_inner_px: 6.0,
-            guide_slot_gap_px: 7.0,
-            outer_start: 11.0,
-            outer_end: 12.0,
-            n: 2,
-        };
-        let coordinated = CoordinatedLayout {
-            padding_inner_px: 18.0,
-            guide_slot_gap_px: 27.0,
-            outer_start: 91.0,
-            outer_end: 92.0,
-            n: 4,
-        };
-
-        merged.merge(&coordinated);
-        assert_eq!(merged.padding_inner_px, coordinated.padding_inner_px);
-        assert_eq!(merged.guide_slot_gap_px, coordinated.guide_slot_gap_px);
-        assert_eq!(merged.n, coordinated.n);
-        assert_eq!(merged.outer_start, coordinated.outer_start);
-        assert_eq!(merged.outer_end, coordinated.outer_end);
-    }
-
-    #[test]
     fn apply_facet_band_scale_layout_zero_padding_override_is_optional() {
         let base = make_band_scale((0.0, 200.0));
         let layout = CoordinatedLayout {

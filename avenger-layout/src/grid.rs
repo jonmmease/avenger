@@ -82,6 +82,28 @@ fn track_gap(trailing_total: f32, leading_total: f32, min_gap: f32) -> f32 {
     (trailing_total + leading_total).max(min_gap.max(0.0))
 }
 
+/// Uniform single-span tracks: the policy-level requirement for `count`
+/// equally sized slots sharing one [`TrackSpacing`].
+///
+/// This is the neutral form of band/facet layout policy, where per-track
+/// geometry is uniform by construction and merging coordinates the policy
+/// (max count, max spacing) rather than per-track values. Unlike
+/// [`GridRequirements`], merging across different counts is well-defined.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct UniformTracks {
+    pub count: usize,
+    pub spacing: TrackSpacing,
+}
+
+impl UniformTracks {
+    pub fn merge_max(self, other: Self) -> Self {
+        Self {
+            count: self.count.max(other.count),
+            spacing: self.spacing.merge_max(other.spacing),
+        }
+    }
+}
+
 /// Track sizes and edge requirements needed to align one measured grid.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GridRequirements {
@@ -433,6 +455,42 @@ impl GridSolution {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uniform_tracks_merge_coordinates_policy() {
+        let first = UniformTracks {
+            count: 2,
+            spacing: TrackSpacing {
+                outer_start: 11.0,
+                outer_end: 12.0,
+                min_gap: 24.0,
+            },
+        };
+        let second = UniformTracks {
+            count: 4,
+            spacing: TrackSpacing {
+                outer_start: 91.0,
+                outer_end: 2.0,
+                min_gap: 18.0,
+            },
+        };
+
+        let merged = first.merge_max(second);
+        assert_eq!(merged.count, 4);
+        assert_eq!(
+            merged.spacing,
+            TrackSpacing {
+                outer_start: 91.0,
+                outer_end: 12.0,
+                min_gap: 24.0,
+            }
+        );
+        assert_eq!(
+            UniformTracks::default().merge_max(first),
+            first,
+            "merging from the default seed is the identity"
+        );
+    }
 
     fn grid_item(
         child_index: usize,
