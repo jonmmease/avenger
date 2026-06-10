@@ -21,8 +21,8 @@ use std::path::PathBuf;
 use avenger_layout::{
     AlignmentNode, BandItem, BandSolution, BoundaryDemand, CrossAlign, DebugScene, EdgeDemand,
     Edges, Frame, FrameAxis, FrameAxisSizing, FrameSide, GridItem, GridRequirements, GridShape,
-    GridSlot, LayoutItem, LayoutNode, LayoutSlotContent, Orientation, SingletonPolicy, Size,
-    TrackSpacing, TreeEnvelopeKind, UniformTracks, align, align_by,
+    GridSlot, GridSolution, LayoutItem, LayoutNode, LayoutSlotContent, Orientation,
+    SingletonPolicy, Size, TrackSpacing, TreeEnvelopeKind, UniformTracks, align, align_by,
 };
 
 fn baseline_dir() -> PathBuf {
@@ -930,6 +930,162 @@ fn alignment_merges_grids_across_instances() {
     assert_svg_baseline(
         "alignment_merges_grids_across_instances",
         &stack_scenes(scenes).to_svg(),
+    );
+}
+
+/// What a nested row/col facet does, framed: each column is a grid of
+/// subplot cells measured independently (different axis-label overflows,
+/// heights, widths). The columns are cousins: one alignment round merges
+/// their requirements, each re-solves from the merged result, a root band
+/// places the columns (the inter-column gap absorbing the coordinated
+/// boundary chrome, like shared y-axis labels), and a frame wraps it all.
+/// Before coordination the columns are ragged; after, every row edge
+/// lines up and the low-chrome column shows hatched granted reservations.
+#[test]
+fn nested_facet_columns_coordinated() {
+    let shape = GridShape {
+        rows: 2,
+        columns: 1,
+    };
+    // (id, size, left axis chrome, bottom tick chrome)
+    let cell = |id: &'static str, row: usize, size: Size, left: f32, bottom: f32| GridItem {
+        id,
+        slot: slot(row, 0),
+        content_size: size,
+        inner_edges: Edges::new(0.0, 0.0, bottom, left),
+        outer_edges: Edges::default(),
+        total_edges: Edges::new(0.0, 0.0, bottom, left),
+    };
+    let column_a = vec![
+        cell("a0", 0, Size::new(110.0, 50.0), 26.0, 18.0),
+        cell("a1", 1, Size::new(110.0, 70.0), 26.0, 0.0),
+    ];
+    let column_b = vec![
+        cell("b0", 0, Size::new(150.0, 64.0), 9.0, 5.0),
+        cell("b1", 1, Size::new(150.0, 40.0), 9.0, 0.0),
+    ];
+    let requirements_a =
+        GridRequirements::from_items(shape, Size::default(), &column_a).expect("a fits");
+    let requirements_b =
+        GridRequirements::from_items(shape, Size::default(), &column_b).expect("b fits");
+
+    // The columns are cousins: align their requirements.
+    let plan = align(&[
+        AlignmentNode {
+            id: "a",
+            group_key: "columns",
+            requirements: requirements_a.clone(),
+        },
+        AlignmentNode {
+            id: "b",
+            group_key: "columns",
+            requirements: requirements_b.clone(),
+        },
+    ]);
+    let merged = &plan.groups[0].merged;
+    assert_eq!(merged.column_widths, vec![150.0]);
+    assert_eq!(merged.row_heights, vec![64.0, 70.0]);
+    assert_eq!(merged.row_bottom[0].total, 18.0); // inter-row chrome
+    assert_eq!(merged.column_left[0].total, 26.0); // shared axis labels
+
+    // Compose one framed chart from per-column requirements: solve each
+    // column, place the columns as a band (gaps absorb boundary chrome),
+    // wrap in a frame whose reservations are the outer boundaries.
+    let framed = |column_requirements: [&GridRequirements; 2]| {
+        let solutions = [
+            column_requirements[0].solve(&column_a),
+            column_requirements[1].solve(&column_b),
+        ];
+        let band_items: Vec<BandItem> = solutions
+            .iter()
+            .enumerate()
+            .map(|(index, solution)| BandItem {
+                id: index,
+                main_size: solution.content_size.width,
+                cross_size: solution.content_size.height,
+                boundary: BoundaryDemand {
+                    before: solution.column_left[0].total,
+                    after: solution.column_right[0].total,
+                },
+            })
+            .collect();
+        let band = BandSolution::solve(
+            Orientation::Horizontal,
+            &band_items,
+            TrackSpacing {
+                min_gap: 14.0,
+                ..Default::default()
+            },
+            CrossAlign::Start,
+        );
+
+        let max_edge = |pick: fn(&GridSolution) -> avenger_layout::EdgeDemand| {
+            solutions
+                .iter()
+                .map(pick)
+                .fold(avenger_layout::EdgeDemand::default(), |merged, edge| {
+                    merged.max_components(edge)
+                })
+        };
+        let top = max_edge(|solution| solution.row_top[0]);
+        let bottom = max_edge(|solution| *solution.row_bottom.last().unwrap());
+        let left = solutions[0].column_left[0];
+        let right = solutions[1].column_right[0];
+        let chrome_side = |edge: avenger_layout::EdgeDemand| FrameSide {
+            margin: 12.0,
+            bands: vec![],
+            outer: (edge.total - edge.inner).max(0.0),
+            inner: edge.inner,
+        };
+        let frame = Frame {
+            horizontal: FrameAxis {
+                sizing: FrameAxisSizing::ContentFixed {
+                    content: band.main_extent,
+                },
+                leading: chrome_side(left),
+                trailing: chrome_side(right),
+                content_min: 50.0,
+            },
+            vertical: FrameAxis {
+                sizing: FrameAxisSizing::ContentFixed {
+                    content: band.cross_extent.unwrap_or(0.0),
+                },
+                leading: chrome_side(top),
+                trailing: chrome_side(bottom),
+                content_min: 50.0,
+            },
+        };
+        let frame_solution = frame.solve();
+        let content = frame_solution.content_rect();
+
+        let mut scene = DebugScene::from_frame(&frame_solution);
+        for ((solution, items), placed) in solutions
+            .iter()
+            .zip([&column_a, &column_b])
+            .zip(band.items.iter())
+        {
+            let mut column_scene = DebugScene::from_grid(solution, items);
+            for region in &mut column_scene.regions {
+                // Below the frame's own "content" label.
+                region.label_anchor = Some([region.content.x + 3.0, region.content.y + 24.0]);
+            }
+            scene.embed(
+                column_scene,
+                [
+                    content.x + placed.main_start,
+                    content.y + placed.cross_start,
+                ],
+            );
+        }
+        scene
+    };
+
+    let before = framed([&requirements_a, &requirements_b]);
+    let after = framed([merged, merged]);
+
+    assert_svg_baseline(
+        "nested_facet_columns_coordinated",
+        &stack_scenes(vec![("measured", before), ("coordinated", after)]).to_svg(),
     );
 }
 

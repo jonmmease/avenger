@@ -66,5 +66,6 @@ and the tests never compare them — the SVG string is the snapshot.
 | `tree_nested_with_stacked_chrome` | nested band with stacked inner/outer chrome, framed with margins; layered vs geometric envelopes asserted in the test |
 | `tree_allocation_stretches_tracks_evenly` | the same framed tree given a larger allocation: every track stretches |
 | `alignment_merges_grids_across_instances` | two instances before alignment, then both re-solved on the merged grid |
+| `nested_facet_columns_coordinated` | two framed facet columns with different overflows: measured side-by-side ragged, then aligned to shared widths/heights with granted chrome hatched |
 | `alignment_coordinates_framed_charts` | the full loop on whole charts: measure → align across instances → re-solve; canvases end up identical, granted chrome shows hatched |
 | `frame_wrapping_facet_tree` | a faceted chart in miniature: the tree's envelope becomes the frame's reservations, the frame's content allocates the tree |
