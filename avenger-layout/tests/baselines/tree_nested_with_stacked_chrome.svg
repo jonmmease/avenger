@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-22 -10 216 138" font-family="monospace" font-size="10">
+  <rect x="-22" y="-10" width="216" height="138" fill="#ffffff"/>
   <rect x="0" y="0" width="140" height="114" fill="none" stroke="#111111" stroke-width="1"/>
   <rect x="-12" y="0" width="196" height="46" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
   <rect x="-12" y="0" width="158" height="46" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>

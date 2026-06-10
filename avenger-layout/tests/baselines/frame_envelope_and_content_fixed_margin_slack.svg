@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 480 364" font-family="monospace" font-size="10">
+  <rect x="-10" y="-10" width="480" height="364" fill="#ffffff"/>
   <rect x="0" y="0" width="460" height="320" fill="none" stroke="#111111" stroke-width="1"/>
   <rect x="0" y="0" width="460" height="50" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
   <text x="101" y="28.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">t margin</text>

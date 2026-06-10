@@ -2,8 +2,8 @@
 //!
 //! This module makes solver results inspectable without any renderer: a
 //! [`DebugScene`] captures the solved content rectangles and edge envelopes,
-//! and [`DebugScene::to_svg`] writes a small self-contained SVG with labeled
-//! regions. It is deliberately independent of any scenegraph; output is
+//! and [`DebugScene::to_svg`] writes a small self-contained SVG (white
+//! background, labeled regions). It is deliberately independent of any scenegraph; output is
 //! deterministic so SVG strings can be snapshot-tested.
 //!
 //! Legend of the rendered layers, outermost first:
@@ -461,6 +461,21 @@ impl DebugScene {
             bounds.width + 2.0 * PADDING,
             bounds.height + 2.0 * PADDING,
         );
+        // White background covering the viewBox: the scenes are unreadable
+        // over transparent-background viewers (e.g. dark-mode browsers).
+        let _ = write!(
+            svg,
+            "  {}\n",
+            rect_element(
+                Rect::new(
+                    bounds.x - PADDING,
+                    bounds.y - PADDING,
+                    bounds.width + 2.0 * PADDING,
+                    bounds.height + 2.0 * PADDING,
+                ),
+                "fill=\"#ffffff\""
+            )
+        );
         let _ = write!(
             svg,
             "  {}\n",
@@ -793,6 +808,7 @@ mod tests {
         let svg = DebugScene::from_tree(&solved).to_svg();
         let expected = "\
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 166 80\" font-family=\"monospace\" font-size=\"10\">
+  <rect x=\"-10\" y=\"-10\" width=\"166\" height=\"80\" fill=\"#ffffff\"/>
   <rect x=\"0\" y=\"0\" width=\"146\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
   <rect x=\"0\" y=\"0\" width=\"50\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0 d0</text>
@@ -813,6 +829,7 @@ mod tests {
 
         let expected = "\
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 112 110\" font-family=\"monospace\" font-size=\"10\">
+  <rect x=\"-10\" y=\"-10\" width=\"112\" height=\"110\" fill=\"#ffffff\"/>
   <rect x=\"0\" y=\"0\" width=\"92\" height=\"90\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
   <rect x=\"5\" y=\"0\" width=\"30\" height=\"80\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"8\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0</text>
@@ -829,6 +846,7 @@ mod tests {
 
         let expected = "\
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 249 80\" font-family=\"monospace\" font-size=\"10\">
+  <rect x=\"-10\" y=\"-10\" width=\"249\" height=\"80\" fill=\"#ffffff\"/>
   <rect x=\"0\" y=\"0\" width=\"229\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
   <rect x=\"0\" y=\"0\" width=\"126\" height=\"60\" fill=\"none\" stroke=\"#9333ea\" stroke-dasharray=\"4 2\"/>
   <rect x=\"0\" y=\"0\" width=\"106\" height=\"60\" fill=\"none\" stroke=\"#2563eb\" stroke-dasharray=\"2 2\"/>
