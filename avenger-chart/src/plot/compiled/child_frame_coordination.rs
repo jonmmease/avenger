@@ -16,8 +16,9 @@ use crate::{
         placement::{FacetBandPlacement, resolve_facet_band_placement},
     },
     layout::{
-        AlignmentNode, EdgeDemand, GridRequirements, GridShape, GridSlot, SkippedGroupReason,
-        TrackSpacing, align,
+        AlignmentNode, EdgeDemand, GridRequirements, GridShape, GridSlot, SingletonPolicy,
+        SkippedGroupReason, TrackSpacing, align_by, grid_content_delta, grid_edge_delta,
+        merge_grid_requirements,
     },
     plot::compiled::{ChildFrameKey, ComponentsMeasurement, ContainerPathSegment},
     positioned_subplot::PositionedCoordMeasurement,
@@ -745,12 +746,36 @@ pub(crate) fn build_child_frame_layout_alignment_diagnostics(
             AlignmentNode {
                 id: index,
                 group_key: node.alignment_key(),
-                requirements: chart_grid.grid.clone(),
+                requirements: chart_grid.clone(),
             }
         })
         .collect::<Vec<_>>();
 
-    let plan = align(&alignment_nodes);
+    // The payload is the chart requirement (grid plus guide-gap side-car);
+    // the merge and delta closures own the side-car laws so no per-group
+    // member fold is needed afterwards.
+    let plan = align_by(
+        &alignment_nodes,
+        SingletonPolicy::Skip,
+        |members: &[&ChartGridRequirements]| {
+            let grid = merge_grid_requirements(members.iter().map(|member| &member.grid))?;
+            let guide_slot_gap_px = members
+                .iter()
+                .map(|member| member.guide_slot_gap_px)
+                .fold(0.0f32, f32::max);
+            Some(ChartGridRequirements {
+                grid,
+                guide_slot_gap_px,
+            })
+        },
+        |local, merged| {
+            (
+                grid_content_delta(&local.grid, &merged.grid),
+                grid_edge_delta(&local.grid, &merged.grid)
+                    + (merged.guide_slot_gap_px - local.guide_slot_gap_px).abs(),
+            )
+        },
+    );
     let exported_node_count = plan.node_count;
     let alignment_group_count = plan.group_count();
 
@@ -758,35 +783,20 @@ pub(crate) fn build_child_frame_layout_alignment_diagnostics(
         .groups
         .iter()
         .map(|group| {
-            // Fold the chart-only side-car over the group's member IDs; the
-            // neutral engine merges grids only.
-            let node_gap = |id: usize| {
-                let ChildFrameLayoutRequirements::Grid(chart_grid) = &nodes[id].requirements;
-                chart_grid.guide_slot_gap_px
-            };
-            let guide_slot_gap_px = group
-                .deltas
-                .iter()
-                .map(|delta| node_gap(delta.id))
-                .fold(0.0f32, f32::max);
-
             let node_deltas = group
                 .deltas
                 .iter()
                 .map(|delta| ChildFrameLayoutRequirementDelta {
                     instance_key: nodes[delta.id].instance_key.clone(),
                     track_delta: delta.content_delta,
-                    slab_delta: delta.edge_delta + (guide_slot_gap_px - node_gap(delta.id)).abs(),
+                    slab_delta: delta.edge_delta,
                 })
                 .collect();
 
             LayoutAlignmentGroupDiagnostics {
                 key: group.key.clone(),
                 node_count: group.deltas.len(),
-                merged_requirements: ChildFrameLayoutRequirements::Grid(ChartGridRequirements {
-                    grid: group.merged.clone(),
-                    guide_slot_gap_px,
-                }),
+                merged_requirements: ChildFrameLayoutRequirements::Grid(group.merged.clone()),
                 node_deltas,
             }
         })
