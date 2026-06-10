@@ -850,7 +850,9 @@ fn union(a: Rect, b: Rect) -> Rect {
 /// Rendered style per region kind.
 fn kind_style(kind: DebugRegionKind) -> &'static str {
     match kind {
-        DebugRegionKind::Content => "fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"",
+        DebugRegionKind::Content => {
+            "fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
+        }
         DebugRegionKind::Margin => {
             "fill=\"#e5e7eb\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
         }
@@ -1051,13 +1053,13 @@ mod tests {
         let expected = "\
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 166 80\" font-family=\"monospace\" font-size=\"10\">
   <rect x=\"-10\" y=\"-10\" width=\"166\" height=\"80\" fill=\"#ffffff\"/>
-  <rect x=\"0\" y=\"0\" width=\"50\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <rect x=\"0\" y=\"0\" width=\"50\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0 d0</text>
-  <rect x=\"60\" y=\"0\" width=\"86\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <rect x=\"60\" y=\"0\" width=\"86\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"63\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1 d0</text>
-  <rect x=\"60\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <rect x=\"60\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"63\" y=\"24\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">10 d1</text>
-  <rect x=\"106\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <rect x=\"106\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"109\" y=\"24\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">11 d1</text>
   <rect x=\"0\" y=\"0\" width=\"146\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
 </svg>
@@ -1072,9 +1074,9 @@ mod tests {
         let expected = "\
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 112 110\" font-family=\"monospace\" font-size=\"10\">
   <rect x=\"-10\" y=\"-10\" width=\"112\" height=\"110\" fill=\"#ffffff\"/>
-  <rect x=\"5\" y=\"0\" width=\"30\" height=\"80\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <rect x=\"5\" y=\"0\" width=\"30\" height=\"80\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"8\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0</text>
-  <rect x=\"45\" y=\"0\" width=\"40\" height=\"90\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <rect x=\"45\" y=\"0\" width=\"40\" height=\"90\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"48\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1</text>
   <rect x=\"0\" y=\"0\" width=\"92\" height=\"90\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
 </svg>
@@ -1097,13 +1099,13 @@ mod tests {
   <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"url(#hatch-o0)\" stroke=\"#a3e4bf\" stroke-width=\"1\"/>
   <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#f8b4b4\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#a3e4bf\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <rect x=\"0\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <rect x=\"0\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0 r0c0</text>
   <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"url(#hatch-o0)\" stroke=\"#a3e4bf\" stroke-width=\"1\"/>
   <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#a3e4bf\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <rect x=\"129\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <rect x=\"129\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"132\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1 r0c1</text>
-  <rect x=\"0\" y=\"70\" width=\"10\" height=\"10\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
+  <rect x=\"0\" y=\"70\" width=\"10\" height=\"10\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"13\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">content</text>
   <rect x=\"69\" y=\"70\" width=\"5\" height=\"10\" fill=\"#f8b4b4\" stroke=\"#f8b4b4\" stroke-width=\"1\"/>
   <rect x=\"74\" y=\"70\" width=\"5\" height=\"10\" fill=\"url(#hatch-i0)\" stroke=\"#f8b4b4\" stroke-width=\"1\"/>

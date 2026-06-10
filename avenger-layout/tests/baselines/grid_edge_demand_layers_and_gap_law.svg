@@ -14,7 +14,7 @@
   <rect x="0" y="70" width="110" height="8" fill="#f8b4b4" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="-24" y="0" width="24" height="70" fill="url(#hatch-i0)" stroke="#f8b4b4" stroke-width="1"/>
   <rect x="-24" y="0" width="24" height="70" fill="#f8b4b4" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
-  <rect x="0" y="0" width="110" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <rect x="0" y="0" width="110" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="3" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">0 r0c0</text>
   <rect x="147" y="-8" width="110" height="8" fill="url(#hatch-i0)" stroke="#f8b4b4" stroke-width="1"/>
   <rect x="147" y="-8" width="110" height="8" fill="#f8b4b4" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
@@ -24,9 +24,9 @@
   <rect x="147" y="70" width="110" height="8" fill="#f8b4b4" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="138" y="0" width="9" height="70" fill="url(#hatch-i0)" stroke="#f8b4b4" stroke-width="1"/>
   <rect x="138" y="0" width="9" height="70" fill="#f8b4b4" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
-  <rect x="147" y="0" width="110" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <rect x="147" y="0" width="110" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="150" y="12" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">1 r0c1</text>
-  <rect x="0" y="88" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <rect x="0" y="88" width="10" height="10" fill="#dbeafe" fill-opacity="0.6" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="13" y="97" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">content</text>
   <rect x="69" y="88" width="5" height="10" fill="#f8b4b4" stroke="#f8b4b4" stroke-width="1"/>
   <rect x="74" y="88" width="5" height="10" fill="url(#hatch-i0)" stroke="#f8b4b4" stroke-width="1"/>
