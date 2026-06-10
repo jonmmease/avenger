@@ -595,17 +595,6 @@ impl DebugScene {
                 "fill=\"#ffffff\""
             )
         );
-        if self.draw_bounds {
-            let _ = write!(
-                svg,
-                "  {}\n",
-                rect_element(
-                    bounds_rect,
-                    "fill=\"none\" stroke=\"#111111\" stroke-width=\"1\""
-                )
-            );
-        }
-
         for region in &self.regions {
             // Coordinated (lighter) bands first, then the requested
             // (darker) demand inside them: red for the inner layer, green
@@ -786,6 +775,19 @@ impl DebugScene {
                 y,
                 bounds.x + bounds.width + PADDING,
                 y,
+            );
+        }
+
+        // The canvas outline draws last so chrome strips never paint over
+        // it.
+        if self.draw_bounds {
+            let _ = write!(
+                svg,
+                "  {}\n",
+                rect_element(
+                    bounds_rect,
+                    "fill=\"none\" stroke=\"#111111\" stroke-width=\"1\""
+                )
             );
         }
 
@@ -1049,7 +1051,6 @@ mod tests {
         let expected = "\
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 166 80\" font-family=\"monospace\" font-size=\"10\">
   <rect x=\"-10\" y=\"-10\" width=\"166\" height=\"80\" fill=\"#ffffff\"/>
-  <rect x=\"0\" y=\"0\" width=\"146\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
   <rect x=\"0\" y=\"0\" width=\"50\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0 d0</text>
   <rect x=\"60\" y=\"0\" width=\"86\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
@@ -1058,6 +1059,7 @@ mod tests {
   <text x=\"63\" y=\"24\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">10 d1</text>
   <rect x=\"106\" y=\"0\" width=\"40\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"109\" y=\"24\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">11 d1</text>
+  <rect x=\"0\" y=\"0\" width=\"146\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
 </svg>
 ";
         assert_eq!(svg, expected);
@@ -1070,11 +1072,11 @@ mod tests {
         let expected = "\
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 112 110\" font-family=\"monospace\" font-size=\"10\">
   <rect x=\"-10\" y=\"-10\" width=\"112\" height=\"110\" fill=\"#ffffff\"/>
-  <rect x=\"0\" y=\"0\" width=\"92\" height=\"90\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
   <rect x=\"5\" y=\"0\" width=\"30\" height=\"80\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"8\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0</text>
   <rect x=\"45\" y=\"0\" width=\"40\" height=\"90\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\"/>
   <text x=\"48\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1</text>
+  <rect x=\"0\" y=\"0\" width=\"92\" height=\"90\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
 </svg>
 ";
         assert_eq!(svg, expected);
@@ -1091,7 +1093,6 @@ mod tests {
     <pattern id=\"hatch-o0\" patternUnits=\"userSpaceOnUse\" width=\"4\" height=\"4\" patternTransform=\"rotate(45)\"><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"#a3e4bf\" stroke-width=\"1.6\"/></pattern>
   </defs>
   <rect x=\"-10\" y=\"-10\" width=\"249\" height=\"104\" fill=\"#ffffff\"/>
-  <rect x=\"0\" y=\"0\" width=\"229\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
   <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"url(#hatch-i0)\" stroke=\"#f8b4b4\" stroke-width=\"1\"/>
   <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"url(#hatch-o0)\" stroke=\"#a3e4bf\" stroke-width=\"1\"/>
   <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#f8b4b4\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
@@ -1110,6 +1111,7 @@ mod tests {
   <rect x=\"126\" y=\"70\" width=\"5\" height=\"10\" fill=\"#a3e4bf\" stroke=\"#a3e4bf\" stroke-width=\"1\"/>
   <rect x=\"131\" y=\"70\" width=\"5\" height=\"10\" fill=\"url(#hatch-o0)\" stroke=\"#a3e4bf\" stroke-width=\"1\"/>
   <text x=\"139\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">outer</text>
+  <rect x=\"0\" y=\"0\" width=\"229\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
 </svg>
 ";
         assert_eq!(svg, expected);

@@ -1,6 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 372 284" font-family="monospace" font-size="10">
   <rect x="-10" y="-10" width="372" height="284" fill="#ffffff"/>
-  <rect x="0" y="0" width="352" height="240" fill="none" stroke="#111111" stroke-width="1"/>
   <rect x="0" y="0" width="352" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="44" y="10" width="240" height="22" fill="#fde68a" fill-opacity="0.6" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="47" y="24.5" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">t band 0</text>
@@ -26,4 +25,5 @@
   <text x="196" y="259" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">outer</text>
   <rect x="240" y="250" width="10" height="10" fill="#fecaca" fill-opacity="0.6" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="253" y="259" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">inner</text>
+  <rect x="0" y="0" width="352" height="240" fill="none" stroke="#111111" stroke-width="1"/>
 </svg>

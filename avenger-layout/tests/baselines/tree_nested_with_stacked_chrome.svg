@@ -6,7 +6,6 @@
     <pattern id="hatch-o1" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#4cbd7d" stroke-width="1.6"/></pattern>
   </defs>
   <rect x="-22" y="-10" width="387" height="162" fill="#ffffff"/>
-  <rect x="0" y="0" width="140" height="114" fill="none" stroke="#111111" stroke-width="1"/>
   <rect x="140" y="0" width="6" height="40" fill="url(#hatch-i0)" stroke="#f8b4b4" stroke-width="1"/>
   <rect x="146" y="0" width="38" height="40" fill="url(#hatch-o0)" stroke="#a3e4bf" stroke-width="1"/>
   <rect x="0" y="40" width="140" height="6" fill="url(#hatch-i0)" stroke="#f8b4b4" stroke-width="1"/>
@@ -62,4 +61,5 @@
   <rect x="294" y="128" width="5" height="10" fill="#4cbd7d" stroke="#4cbd7d" stroke-width="1"/>
   <rect x="299" y="128" width="5" height="10" fill="url(#hatch-o1)" stroke="#4cbd7d" stroke-width="1"/>
   <text x="307" y="137" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">outer d1</text>
+  <rect x="0" y="0" width="140" height="114" fill="none" stroke="#111111" stroke-width="1"/>
 </svg>
