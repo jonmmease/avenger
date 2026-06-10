@@ -71,16 +71,16 @@ pub struct EdgeTargets {
 /// Placement for one child region relative to its parent content rectangle.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlacedRegion<Id = usize> {
-    pub child_index: Id,
+    pub id: Id,
     pub origin: [f32; 2],
     pub content_size_override: Option<Size>,
     pub edge_targets: Option<EdgeTargets>,
 }
 
 impl<Id> PlacedRegion<Id> {
-    pub fn new(child_index: Id, origin: [f32; 2]) -> Self {
+    pub fn new(id: Id, origin: [f32; 2]) -> Self {
         Self {
-            child_index,
+            id,
             origin,
             content_size_override: None,
             edge_targets: None,
@@ -88,12 +88,12 @@ impl<Id> PlacedRegion<Id> {
     }
 
     pub fn with_content_size_override(
-        child_index: Id,
+        id: Id,
         origin: [f32; 2],
         content_size_override: Size,
     ) -> Self {
         Self {
-            child_index,
+            id,
             origin,
             content_size_override: Some(content_size_override),
             edge_targets: None,
@@ -131,10 +131,8 @@ impl<Id> PlacementSolution<Id> {
 }
 
 impl<Id: PartialEq> PlacementSolution<Id> {
-    pub fn child(&self, child_index: Id) -> Option<&PlacedRegion<Id>> {
-        self.placements
-            .iter()
-            .find(|placement| placement.child_index == child_index)
+    pub fn child(&self, id: Id) -> Option<&PlacedRegion<Id>> {
+        self.placements.iter().find(|placement| placement.id == id)
     }
 }
 
@@ -215,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn placement_solution_finds_child_by_index() {
+    fn placement_solution_finds_child_by_id() {
         let result = PlacementSolution::new(
             Size::new(200.0, 120.0),
             vec![

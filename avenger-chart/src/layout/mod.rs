@@ -24,10 +24,10 @@ pub(crate) use avenger_layout::{
     LayoutNode, LayoutSlotContent, Orientation, PlacedBandItem, PlacedRegion, PlacementSolution,
     RoundDeltas, SingletonPolicy, Size, SkippedGroupReason, TrackSpacing, TreeEnvelopeKind,
     UniformTracks, align, align_by, grid_requirements, solve_grid_requirements, solve_tree,
-    tree_envelope_with, zero_edge_demands,
+    tree_envelope_with,
 };
 #[cfg(test)]
-pub(crate) use avenger_layout::{merge_grid_requirements, total_edge_demands, tree_envelope};
+pub(crate) use avenger_layout::{merge_grid_requirements, tree_envelope};
 pub use band_position::BandPositionIterator;
 pub use content_solver::{
     ChildFrameContentMeasurement, ChildFrameContentPlan, ChildFrameContentSolver,

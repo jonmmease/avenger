@@ -519,7 +519,7 @@ pub(crate) fn aggregate_facet_band_overflow_with_policy(
                 FacetAxis::Row => (slot_index, 0),
             };
             LayoutItem {
-                child_index: slot_index,
+                id: slot_index,
                 slot: GridSlot {
                     row,
                     column,
@@ -1212,7 +1212,7 @@ mod tests {
                         FacetAxis::Row => (index, 0),
                     };
                     LayoutItem {
-                        child_index: index,
+                        id: index,
                         slot: GridSlot {
                             row,
                             column,

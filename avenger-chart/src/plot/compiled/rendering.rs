@@ -888,11 +888,11 @@ fn projected_child_frame_container_plot_area_envelope(
 
     for child_render_placement in container.placement().placements() {
         let child_measurement = container
-            .child_measurement(child_render_placement.child_index)
+            .child_measurement(child_render_placement.id)
             .ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Missing child-frame container child for index {}",
-                    child_render_placement.child_index
+                    child_render_placement.id
                 ))
             })?;
         let child_plot_bounds = *child_measurement.layout.plot_area_bounds();
@@ -931,11 +931,11 @@ fn child_frame_container_component_debug_side_extents(
 
     for child_render_placement in container.placement().placements() {
         let child_measurement = container
-            .child_measurement(child_render_placement.child_index)
+            .child_measurement(child_render_placement.id)
             .ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Missing child-frame container child for index {}",
-                    child_render_placement.child_index
+                    child_render_placement.id
                 ))
             })?;
         let child_plot_bounds = child_measurement.layout.plot_area_bounds();
@@ -3995,11 +3995,11 @@ impl CompiledPlot {
         let mut rects = Vec::with_capacity(container.placement().placements().len());
         for child_render_placement in container.placement().placements() {
             let child_measurement = container
-                .child_measurement(child_render_placement.child_index)
+                .child_measurement(child_render_placement.id)
                 .ok_or_else(|| {
                     AvengerChartError::InternalError(format!(
                         "Missing debug child frame for child index {}",
-                        child_render_placement.child_index
+                        child_render_placement.id
                     ))
                 })?;
             let child_rect = child_measurement.frame_allocation.rect;
@@ -8492,11 +8492,11 @@ mod tests {
         );
         for child_render_placement in container.placement().placements() {
             let child_measurement = container
-                .child_measurement(child_render_placement.child_index)
+                .child_measurement(child_render_placement.id)
                 .expect("render placement should resolve to a child measurement");
             assert_eq!(
                 child_measurement.frame_allocation,
-                facet_band.cells[child_render_placement.child_index]
+                facet_band.cells[child_render_placement.id]
                     .measurement
                     .frame_allocation
             );

@@ -55,11 +55,10 @@ pub use alignment::{
     grid_edge_delta, merge_grid_requirements,
 };
 pub use band::{BandItem, BandSolution, BandSpacing, BoundaryDemand, CrossAlign, PlacedBandItem};
-pub use geometry::{Edges, Orientation, Point, Rect, Side, Size};
+pub use geometry::{Edges, Orientation, Rect, Side, Size};
 pub use grid::{
     GridError, GridItem, GridRequirements, GridShape, GridSlot, GridSolution, TrackSpacing,
-    UniformTracks, edge_demand_totals, grid_requirements, solve_grid_requirements,
-    span_axis_extent, total_edge_demands, zero_edge_demands,
+    UniformTracks, grid_requirements, solve_grid_requirements,
 };
 pub use region::{EdgeDemand, EdgeTargets, PlacedRegion, PlacementSolution, project_rect};
 #[cfg(feature = "svg")]

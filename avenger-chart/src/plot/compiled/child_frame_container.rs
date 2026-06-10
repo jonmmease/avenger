@@ -303,7 +303,7 @@ pub(crate) fn child_frame_container_overflow_from_placements<'a>(
     let mut max_y = placement.content_size.height.max(plot_height);
 
     for render_placement in placement.placements() {
-        let child_measurement = child_measurement(render_placement.child_index)?;
+        let child_measurement = child_measurement(render_placement.id)?;
         let child_plot_bounds = *child_measurement.layout.plot_area_bounds();
         let frame_bounds = project_child_rect(
             [0.0, 0.0],
@@ -341,16 +341,16 @@ fn validate_container_placements(
 
     let mut seen_placements = HashSet::with_capacity(placement.placements().len());
     for render_placement in placement.placements() {
-        if !seen_placements.insert(render_placement.child_index) {
+        if !seen_placements.insert(render_placement.id) {
             return Err(AvengerChartError::InternalError(format!(
                 "Duplicate child-frame container placement for child index {}",
-                render_placement.child_index
+                render_placement.id
             )));
         }
 
         if !children
             .iter()
-            .any(|child| child.child_index == render_placement.child_index)
+            .any(|child| child.child_index == render_placement.id)
         {
             let available = child_debug_labels
                 .map(|labels| labels.join(", "))
@@ -363,7 +363,7 @@ fn validate_container_placements(
                 });
             return Err(AvengerChartError::InternalError(format!(
                 "Child-frame container placement index {} did not resolve to a child measurement; available children: {}",
-                render_placement.child_index, available
+                render_placement.id, available
             )));
         }
     }

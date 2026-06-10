@@ -42,7 +42,7 @@ pub enum LayoutSlotContent<Id = usize> {
 /// One slotted child of a layout node.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayoutItem<Id = usize> {
-    pub child_index: Id,
+    pub id: Id,
     pub slot: GridSlot,
     pub content: LayoutSlotContent<Id>,
 }
@@ -73,7 +73,7 @@ pub struct TreeEnvelope {
 /// One placed region of a solved tree, in root content coordinates.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SolvedRegion<Id = usize> {
-    pub child_index: Id,
+    pub id: Id,
     pub depth: usize,
     pub content_rect: Rect,
     pub edge_targets: EdgeTargets,
@@ -123,7 +123,7 @@ fn collect_node<Id: Clone>(node: &LayoutNode<Id>) -> Result<CollectedNode<Id>, G
             }
         };
         grid_items.push(GridItem {
-            child_index: item.child_index.clone(),
+            id: item.id.clone(),
             slot: item.slot,
             content_size,
             inner_edges,
@@ -339,7 +339,7 @@ fn solve_node_into<Id: Clone>(
         let slot_size = solution.content_size_for_slot(item.slot);
         let region_origin = [origin[0] + slot_origin[0], origin[1] + slot_origin[1]];
         regions.push(SolvedRegion {
-            child_index: item.child_index.clone(),
+            id: item.id.clone(),
             depth,
             content_rect: Rect::new(
                 region_origin[0],
@@ -389,14 +389,9 @@ pub fn solve_tree<Id: Clone>(
 mod tests {
     use super::*;
 
-    fn leaf(
-        child_index: usize,
-        column: usize,
-        size: Size,
-        total_edges: Edges<f32>,
-    ) -> LayoutItem<usize> {
+    fn leaf(id: usize, column: usize, size: Size, total_edges: Edges<f32>) -> LayoutItem<usize> {
         LayoutItem {
-            child_index,
+            id,
             slot: GridSlot {
                 row: 0,
                 column,
@@ -476,7 +471,7 @@ mod tests {
         let node = column_band(
             vec![
                 LayoutItem {
-                    child_index: 0,
+                    id: 0,
                     slot: GridSlot {
                         row: 0,
                         column: 0,
@@ -491,7 +486,7 @@ mod tests {
                     },
                 },
                 LayoutItem {
-                    child_index: 1,
+                    id: 1,
                     slot: GridSlot {
                         row: 0,
                         column: 1,
@@ -543,7 +538,7 @@ mod tests {
             vec![
                 leaf(0, 0, Size::new(100.0, 60.0), Edges::default()),
                 LayoutItem {
-                    child_index: 1,
+                    id: 1,
                     slot: GridSlot {
                         row: 0,
                         column: 1,
@@ -576,7 +571,7 @@ mod tests {
             vec![
                 leaf(0, 0, Size::new(50.0, 60.0), Edges::default()),
                 LayoutItem {
-                    child_index: 1,
+                    id: 1,
                     slot: GridSlot {
                         row: 0,
                         column: 1,
@@ -596,7 +591,7 @@ mod tests {
         let rects: Vec<(usize, usize, Rect)> = solved
             .regions
             .iter()
-            .map(|region| (region.depth, region.child_index, region.content_rect))
+            .map(|region| (region.depth, region.id, region.content_rect))
             .collect();
         assert_eq!(
             rects,
@@ -620,7 +615,7 @@ mod tests {
         );
         let root = column_band(
             vec![LayoutItem {
-                child_index: 0,
+                id: 0,
                 slot: GridSlot {
                     row: 0,
                     column: 0,

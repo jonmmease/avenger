@@ -17,7 +17,7 @@ use crate::{
     },
     layout::{
         AlignmentNode, EdgeDemand, GridRequirements, GridShape, GridSlot, SkippedGroupReason,
-        TrackSpacing, align, zero_edge_demands,
+        TrackSpacing, align,
     },
     plot::compiled::{ChildFrameKey, ComponentsMeasurement, ContainerPathSegment},
     positioned_subplot::PositionedCoordMeasurement,
@@ -406,10 +406,10 @@ fn facet_grid_requirements_from_placement(
         row_spacing: TrackSpacing::default(),
         column_widths: vec![0.0; shape.columns],
         row_heights: vec![0.0; shape.rows],
-        column_left: zero_edge_demands(shape.columns),
-        column_right: zero_edge_demands(shape.columns),
-        row_top: zero_edge_demands(shape.rows),
-        row_bottom: zero_edge_demands(shape.rows),
+        column_left: vec![EdgeDemand::default(); shape.columns],
+        column_right: vec![EdgeDemand::default(); shape.columns],
+        row_top: vec![EdgeDemand::default(); shape.rows],
+        row_bottom: vec![EdgeDemand::default(); shape.rows],
     };
 
     match placement.axis {
@@ -864,10 +864,10 @@ fn collect_child_frame_layout_coordination_nodes_into(
 
     if let Some(container) = measurement.child_frame_container_view()? {
         for placement in container.placement().placements() {
-            let child = container.child_measurement(placement.child_index).ok_or_else(|| {
+            let child = container.child_measurement(placement.id).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Missing child-frame measurement for child index {} while collecting layout coordination nodes",
-                    placement.child_index
+                    placement.id
                 ))
             })?;
             collect_child_frame_layout_coordination_nodes_into(child, nodes)?;
@@ -990,10 +990,10 @@ mod tests {
                 row_spacing: TrackSpacing::default(),
                 column_widths: vec![width],
                 row_heights: vec![10.0],
-                column_left: zero_edge_demands(1),
-                column_right: zero_edge_demands(1),
-                row_top: zero_edge_demands(1),
-                row_bottom: zero_edge_demands(1),
+                column_left: vec![EdgeDemand::default(); 1],
+                column_right: vec![EdgeDemand::default(); 1],
+                row_top: vec![EdgeDemand::default(); 1],
+                row_bottom: vec![EdgeDemand::default(); 1],
             },
             guide_slot_gap_px: 0.0,
         })
@@ -1136,11 +1136,11 @@ mod tests {
         assert_eq!(requirements.row_heights, vec![40.0]);
         assert_eq!(
             requirements.column_left,
-            crate::layout::total_edge_demands([0.0, 2.0])
+            vec![EdgeDemand::total(0.0), EdgeDemand::total(2.0)]
         );
         assert_eq!(
             requirements.column_right,
-            crate::layout::total_edge_demands([7.0, 0.0])
+            vec![EdgeDemand::total(7.0), EdgeDemand::total(0.0)]
         );
         Ok(())
     }
@@ -1228,7 +1228,7 @@ mod tests {
         );
         assert_eq!(
             merged.column_right,
-            crate::layout::total_edge_demands([18.0, 0.0]),
+            vec![EdgeDemand::total(18.0), EdgeDemand::total(0.0)],
             "raw boundary demands merge independently of padding policy"
         );
         Ok(())

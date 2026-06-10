@@ -173,7 +173,7 @@ impl FacetBandPlacement {
 impl FacetCellPlacement {
     fn from_placed_child(child: &PlacedBandItem) -> Self {
         Self {
-            cell_index: child.child_index,
+            cell_index: child.id,
             main_start: child.main_start,
             main_size: child.main_size,
         }
@@ -390,7 +390,7 @@ pub(crate) fn compute_explicit_facet_band_placement(
         .map(|(child_index, cell)| {
             let boundary = rendered_boundary_demand_for_measurement(axis, &cell.measurement);
             BandItem {
-                child_index,
+                id: child_index,
                 main_size: cell_main_plot_size(axis, &cell.measurement),
                 cross_size: cell_cross_plot_size(axis, &cell.measurement),
                 boundary: BoundaryDemand {
@@ -409,7 +409,7 @@ pub(crate) fn compute_explicit_facet_band_placement(
         let gap_size = gap.max(after_current + before_next);
         trace!(
             axis = ?axis,
-            cell_index = current.child_index,
+            cell_index = current.id,
             base_gap = gap,
             after_current,
             before_next,
@@ -431,7 +431,7 @@ pub(crate) fn compute_explicit_facet_band_placement(
         let mut band_inputs = inputs.clone();
         for child_index in inputs.len()..slot_count {
             band_inputs.push(BandItem {
-                child_index,
+                id: child_index,
                 main_size: fallback_main_size,
                 cross_size: fallback_cross_size,
                 boundary: BoundaryDemand::default(),

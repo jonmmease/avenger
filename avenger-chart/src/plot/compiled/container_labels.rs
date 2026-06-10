@@ -73,9 +73,8 @@ pub(crate) fn container_label_items_from_placements<'a>(
     let mut items = Vec::new();
 
     for render_placement in placement.placements() {
-        let child_frame = child_frame(render_placement.child_index)?;
-        let Some(label) =
-            child_label(render_placement.child_index).filter(|label| !label.trim().is_empty())
+        let child_frame = child_frame(render_placement.id)?;
+        let Some(label) = child_label(render_placement.id).filter(|label| !label.trim().is_empty())
         else {
             continue;
         };

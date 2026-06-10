@@ -811,7 +811,7 @@ impl ConcatCoordMeasurement {
             .map(|(slot_index, child)| {
                 let frame_demand = child.measurement.frame_demand();
                 Ok(GridItem {
-                    child_index: child.child_index,
+                    id: child.child_index,
                     slot: self.layout_coordination_slot_for_child(slot_index, child)?,
                     content_size: Size::new(
                         child.measurement.plot_area_width,
@@ -942,7 +942,7 @@ fn band_input_for_child(direction: Orientation, child: &ConcatChildMeasurement) 
     };
 
     BandItem {
-        child_index: child.child_index,
+        id: child.child_index,
         main_size,
         cross_size,
         boundary: boundary_demand_for_child(direction, &child.measurement),
@@ -1966,7 +1966,7 @@ fn grid_child_items(
                 ))
             })?;
             Ok(GridItem {
-                child_index: child.child_index,
+                id: child.child_index,
                 slot: grid_slot_from_placement(placement),
                 content_size: Size::new(
                     child.measurement.plot_area_width,
@@ -2035,7 +2035,6 @@ mod tests {
         },
         layout::{
             EdgeDemand, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, TrackSpacing,
-            total_edge_demands, zero_edge_demands,
         },
         marks::{Subplot, line::Line, symbol::Symbol},
         plot::{
@@ -2068,6 +2067,14 @@ mod tests {
         AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, ChartEventBinding, ChartEventType,
         CoordinationAxis, CoordinationScope, DomainCoordination,
     };
+
+    fn zero_edge_demands(len: usize) -> Vec<EdgeDemand> {
+        vec![EdgeDemand::default(); len]
+    }
+
+    fn total_edge_demands(values: impl IntoIterator<Item = f32>) -> Vec<EdgeDemand> {
+        values.into_iter().map(EdgeDemand::total).collect()
+    }
 
     async fn measurement_for_plot(
         compiled: &CompiledPlot,
@@ -2482,14 +2489,12 @@ mod tests {
         };
         snapshots.push(container.placement().clone());
         for placement in container.placement().placements() {
-            let child = container
-                .child_measurement(placement.child_index)
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Missing child-frame measurement for snapshot child index {}",
-                        placement.child_index
-                    ))
-                })?;
+            let child = container.child_measurement(placement.id).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing child-frame measurement for snapshot child index {}",
+                    placement.id
+                ))
+            })?;
             collect_child_frame_placement_snapshots(child, snapshots)?;
         }
         Ok(())
@@ -2623,7 +2628,7 @@ mod tests {
         let origins = placement
             .placements()
             .iter()
-            .map(|placement| (placement.child_index, placement.origin))
+            .map(|placement| (placement.id, placement.origin))
             .collect::<Vec<_>>();
         assert_eq!(
             origins,
@@ -2698,7 +2703,7 @@ mod tests {
         let origins = placement
             .placements()
             .iter()
-            .map(|placement| (placement.child_index, placement.origin))
+            .map(|placement| (placement.id, placement.origin))
             .collect::<Vec<_>>();
         assert_eq!(origins, vec![(0, [0.0, 0.0]), (1, [200.0, 100.0])]);
         assert_eq!(placement.content_size, Size::new(300.0, 200.0));
@@ -4019,7 +4024,7 @@ mod tests {
         let origins = placement
             .placements()
             .iter()
-            .map(|placement| (placement.child_index, placement.origin))
+            .map(|placement| (placement.id, placement.origin))
             .collect::<Vec<_>>();
         assert_eq!(
             origins,
@@ -4067,7 +4072,7 @@ mod tests {
         let origins = placement
             .placements()
             .iter()
-            .map(|placement| (placement.child_index, placement.origin))
+            .map(|placement| (placement.id, placement.origin))
             .collect::<Vec<_>>();
         assert_eq!(
             origins,
@@ -4109,7 +4114,7 @@ mod tests {
         let origins = placement
             .placements()
             .iter()
-            .map(|placement| (placement.child_index, placement.origin))
+            .map(|placement| (placement.id, placement.origin))
             .collect::<Vec<_>>();
         assert_eq!(origins, vec![(0, [0.0, 0.0])]);
         assert_eq!(

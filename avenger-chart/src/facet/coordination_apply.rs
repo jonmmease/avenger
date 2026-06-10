@@ -407,7 +407,7 @@ where
                 FacetAxis::Row => LayoutSize::new(child.plot_area_width, target),
             };
             LayoutItem {
-                child_index: idx,
+                id: idx,
                 slot: GridSlot {
                     row,
                     column,

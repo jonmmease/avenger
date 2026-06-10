@@ -57,10 +57,7 @@ impl DebugScene {
                     String::new()
                 };
                 DebugRegion {
-                    label: format!(
-                        "{} r{}c{}{}",
-                        item.child_index, slot.row, slot.column, span_label
-                    ),
+                    label: format!("{} r{}c{}{}", item.id, slot.row, slot.column, span_label),
                     content,
                     inner_envelope: Some(expand(
                         content,
@@ -119,7 +116,7 @@ impl DebugScene {
                     ),
                 };
                 DebugRegion {
-                    label: format!("{}", child.child_index),
+                    label: format!("{}", child.id),
                     content,
                     inner_envelope: None,
                     total_envelope: None,
@@ -257,13 +254,13 @@ mod tests {
             Orientation::Horizontal,
             &[
                 BandItem {
-                    child_index: 0,
+                    id: 0,
                     main_size: 30.0,
                     cross_size: 80.0,
                     boundary: BoundaryDemand::default(),
                 },
                 BandItem {
-                    child_index: 1,
+                    id: 1,
                     main_size: 40.0,
                     cross_size: 90.0,
                     boundary: BoundaryDemand::default(),
@@ -286,7 +283,7 @@ mod tests {
         };
         let items = vec![
             GridItem {
-                child_index: 0,
+                id: 0,
                 slot: GridSlot {
                     row: 0,
                     column: 0,
@@ -299,7 +296,7 @@ mod tests {
                 total_edges: Edges::new(0.0, 12.0, 0.0, 0.0),
             },
             GridItem {
-                child_index: 1,
+                id: 1,
                 slot: GridSlot {
                     row: 0,
                     column: 1,

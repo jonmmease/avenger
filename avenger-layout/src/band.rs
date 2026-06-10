@@ -30,7 +30,7 @@ pub struct BoundaryDemand {
 /// Sized child input for placement that owns its sibling gaps.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BandItem<Id = usize> {
-    pub child_index: Id,
+    pub id: Id,
     pub main_size: f32,
     pub cross_size: f32,
     pub boundary: BoundaryDemand,
@@ -48,7 +48,7 @@ pub struct BandSpacing {
 /// Positioned child in main/cross-axis coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlacedBandItem<Id = usize> {
-    pub child_index: Id,
+    pub id: Id,
     pub main_start: f32,
     pub main_size: f32,
     pub cross_start: f32,
@@ -56,9 +56,9 @@ pub struct PlacedBandItem<Id = usize> {
 }
 
 impl<Id> PlacedBandItem<Id> {
-    pub fn new(child_index: Id, main_start: f32, main_size: f32) -> Self {
+    pub fn new(id: Id, main_start: f32, main_size: f32) -> Self {
         Self {
-            child_index,
+            id,
             main_start,
             main_size,
             cross_start: 0.0,
@@ -67,14 +67,14 @@ impl<Id> PlacedBandItem<Id> {
     }
 
     pub fn with_cross_axis(
-        child_index: Id,
+        id: Id,
         main_start: f32,
         main_size: f32,
         cross_start: f32,
         cross_size: f32,
     ) -> Self {
         Self {
-            child_index,
+            id,
             main_start,
             main_size,
             cross_start: cross_start.max(0.0),
@@ -171,7 +171,7 @@ impl<Id: Clone> BandSolution<Id> {
                     ),
                 };
                 GridItem {
-                    child_index: child.child_index.clone(),
+                    id: child.id.clone(),
                     slot,
                     content_size,
                     inner_edges: Edges::default(),
@@ -215,7 +215,7 @@ impl<Id: Clone> BandSolution<Id> {
             .map(|(slot_index, child)| {
                 let child_cross_size = child.cross_size.max(0.0);
                 PlacedBandItem::with_cross_axis(
-                    child.child_index.clone(),
+                    child.id.clone(),
                     main_starts[slot_index],
                     main_sizes[slot_index],
                     spacing.cross_align.offset(cross_extent, child_cross_size),
@@ -253,7 +253,7 @@ impl<Id: Clone> BandSolution<Id> {
                         child.main_start + origin_offset[1],
                     ],
                 };
-                PlacedRegion::new(child.child_index.clone(), origin)
+                PlacedRegion::new(child.id.clone(), origin)
             })
             .collect();
 
@@ -287,15 +287,9 @@ impl CrossAlign {
 mod tests {
     use super::*;
 
-    fn input(
-        child_index: usize,
-        main_size: f32,
-        cross_size: f32,
-        before: f32,
-        after: f32,
-    ) -> BandItem {
+    fn input(id: usize, main_size: f32, cross_size: f32, before: f32, after: f32) -> BandItem {
         BandItem {
-            child_index,
+            id,
             main_size,
             cross_size,
             boundary: BoundaryDemand { before, after },
@@ -469,7 +463,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(placement.children[0].child_index, 3);
+        assert_eq!(placement.children[0].id, 3);
         assert_eq!(placement.children[0].main_start, 20.0);
         assert_eq!(placement.children[1].main_size, 30.0);
         assert_eq!(placement.main_extent, 120.0);

@@ -39,7 +39,7 @@ impl GridSlot {
 /// Content and edge demand exported by one grid child.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GridItem<Id = usize> {
-    pub child_index: Id,
+    pub id: Id,
     pub slot: GridSlot,
     pub content_size: Size,
     pub inner_edges: Edges<f32>,
@@ -309,17 +309,19 @@ pub fn solve_grid_requirements<Id>(
 }
 
 /// Collect the `total` component of each edge demand.
-pub fn edge_demand_totals(edges: &[EdgeDemand]) -> Vec<f32> {
+pub(crate) fn edge_demand_totals(edges: &[EdgeDemand]) -> Vec<f32> {
     edges.iter().map(|edge| edge.total).collect()
 }
 
 /// Build a vector of zero edge demands.
-pub fn zero_edge_demands(len: usize) -> Vec<EdgeDemand> {
+#[cfg(test)]
+pub(crate) fn zero_edge_demands(len: usize) -> Vec<EdgeDemand> {
     vec![EdgeDemand::default(); len]
 }
 
 /// Build edge demands carrying only totals.
-pub fn total_edge_demands(values: impl IntoIterator<Item = f32>) -> Vec<EdgeDemand> {
+#[cfg(test)]
+pub(crate) fn total_edge_demands(values: impl IntoIterator<Item = f32>) -> Vec<EdgeDemand> {
     values.into_iter().map(EdgeDemand::total).collect()
 }
 
@@ -359,7 +361,7 @@ fn satisfy_span_axis_constraints(
 }
 
 /// Extent of a span of tracks including the inter-track gaps it crosses.
-pub fn span_axis_extent(
+pub(crate) fn span_axis_extent(
     sizes: &[f32],
     trailing_edges: &[f32],
     leading_edges: &[f32],
@@ -493,7 +495,7 @@ mod tests {
     }
 
     fn grid_item(
-        child_index: usize,
+        id: usize,
         row: usize,
         column: usize,
         row_span: usize,
@@ -502,7 +504,7 @@ mod tests {
         total_edges: Edges<f32>,
     ) -> GridItem {
         grid_item_with_edges(
-            child_index,
+            id,
             row,
             column,
             row_span,
@@ -516,7 +518,7 @@ mod tests {
 
     #[allow(clippy::too_many_arguments)]
     fn grid_item_with_edges(
-        child_index: usize,
+        id: usize,
         row: usize,
         column: usize,
         row_span: usize,
@@ -527,7 +529,7 @@ mod tests {
         total_edges: Edges<f32>,
     ) -> GridItem {
         GridItem {
-            child_index,
+            id,
             slot: GridSlot {
                 row,
                 column,
