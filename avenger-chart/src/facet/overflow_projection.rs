@@ -41,7 +41,6 @@ use crate::{
     layout::{
         EdgeDemand, EdgeSlabs, Edges, FrameDemand, GridShape, GridSlot, LayoutItem, LayoutNode,
         LayoutSlotContent, OwnedEdgeSlabs, Size as LayoutSize, TrackSpacing, TreeEnvelopeKind,
-        tree_envelope_with,
     },
     plot::compiled::ComponentsMeasurement,
 };
@@ -533,7 +532,8 @@ pub(crate) fn band_overflow_node(
 
 /// Measured envelope of a band node as a coordinated overflow value.
 pub(crate) fn band_node_envelope(node: &LayoutNode) -> CoordinatedOverflow {
-    let envelope = tree_envelope_with(node, TreeEnvelopeKind::Measured)
+    let envelope = node
+        .envelope(TreeEnvelopeKind::Geometric)
         .expect("facet band leaves are single-span and indexed within the band shape");
     CoordinatedOverflow {
         guide: OverflowSpaceRequirement {
@@ -1110,7 +1110,7 @@ fn facet_measurement_overflow(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::{LayoutItem, LayoutNode, LayoutSlotContent, tree_envelope};
+    use crate::layout::{LayoutItem, LayoutNode, LayoutSlotContent, TreeEnvelopeKind};
 
     /// The aggregation IS the measured tree envelope (since Phase 9a), so
     /// equality must hold even in the mixed-dominance case where the
@@ -1276,7 +1276,9 @@ mod tests {
                 items,
             };
 
-            let envelope = tree_envelope(&node).expect("facet band tree should collect");
+            let envelope = node
+                .envelope(TreeEnvelopeKind::Layered)
+                .expect("facet band tree should collect");
 
             assert_eq!(envelope.inner_edges.top, aggregated.guide.top, "{axis:?}");
             assert_eq!(

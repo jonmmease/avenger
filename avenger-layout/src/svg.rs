@@ -94,15 +94,15 @@ impl DebugScene {
     /// envelopes are not retained and the envelope layers are omitted.
     pub fn from_band<Id: Display>(band: &BandSolution<Id>) -> Self {
         let cross_extent = band.cross_extent.unwrap_or(0.0);
-        let content_size = match band.direction {
+        let content_size = match band.orientation {
             Orientation::Horizontal => Size::new(band.main_extent, cross_extent),
             Orientation::Vertical => Size::new(cross_extent, band.main_extent),
         };
         let regions = band
-            .children
+            .items
             .iter()
             .map(|child| {
-                let content = match band.direction {
+                let content = match band.orientation {
                     Orientation::Horizontal => Rect::new(
                         child.main_start,
                         child.cross_start,
@@ -287,10 +287,10 @@ mod tests {
     use crate::band::{BandItem, BoundaryDemand, CrossAlign};
     use crate::geometry::Edges;
     use crate::grid::TrackSpacing;
-    use crate::grid::{GridShape, GridSlot, grid_requirements, solve_grid_requirements};
+    use crate::grid::{GridRequirements, GridShape, GridSlot};
 
     fn band_scene() -> DebugScene {
-        let band = BandSolution::from_sized_children(
+        let band = BandSolution::solve(
             Orientation::Horizontal,
             &[
                 BandItem {
@@ -349,9 +349,9 @@ mod tests {
                 total_edges: Edges::new(0.0, 0.0, 0.0, 3.0),
             },
         ];
-        let requirements = grid_requirements(shape, Size::new(100.0, 60.0), &items)
+        let requirements = GridRequirements::from_items(shape, Size::new(100.0, 60.0), &items)
             .expect("test grid items fit the shape");
-        let solution = solve_grid_requirements(&requirements, &items);
+        let solution = requirements.solve(&items);
         DebugScene::from_grid(&solution, &items)
     }
 
@@ -392,7 +392,7 @@ mod tests {
     #[test]
     fn solved_tree_svg_snapshot() {
         use crate::grid::{GridShape, GridSlot, TrackSpacing};
-        use crate::tree::{LayoutItem, LayoutNode, LayoutSlotContent, solve_tree};
+        use crate::tree::{LayoutItem, LayoutNode, LayoutSlotContent};
 
         fn leaf(id: usize, column: usize, width: f32) -> LayoutItem<usize> {
             LayoutItem {
@@ -446,7 +446,7 @@ mod tests {
             ],
             10.0,
         );
-        let solved = solve_tree(&root, None).expect("tree should solve");
+        let solved = root.solve(None).expect("tree should solve");
 
         let svg = DebugScene::from_solved_tree(&solved).to_svg();
         let expected = "\

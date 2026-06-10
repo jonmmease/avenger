@@ -31,7 +31,7 @@ use crate::{
     },
     layout::{
         GridItem, GridRequirements, GridShape, GridSlot, LayoutBounds, Orientation, PlacedBandItem,
-        Size, TrackSpacing, grid_requirements, layout_edges, solve_grid_requirements,
+        Size, TrackSpacing, layout_edges,
     },
     marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
@@ -577,7 +577,7 @@ impl ConcatChildPlacement {
 
     fn band_direction(&self) -> Option<Orientation> {
         match self {
-            Self::Band(band) => Some(band.direction),
+            Self::Band(band) => Some(band.orientation),
             Self::Grid { .. } => None,
         }
     }
@@ -665,7 +665,7 @@ impl ConcatCoordMeasurement {
     pub(crate) fn layout_coordination_shape(&self) -> Option<GridShape> {
         match &self.placement {
             ConcatChildPlacement::Grid { shape, .. } => Some(*shape),
-            ConcatChildPlacement::Band(band) => match band.direction {
+            ConcatChildPlacement::Band(band) => match band.orientation {
                 Orientation::Horizontal => Some(GridShape {
                     rows: 1,
                     columns: self.children.len().max(1),
@@ -721,8 +721,9 @@ impl ConcatCoordMeasurement {
             self.fallback_content_size.height / shape.rows.max(1) as f32,
         );
         let demands = self.layout_coordination_grid_items()?;
-        let mut requirements = grid_requirements(shape, base_child_content_size, &demands)
-            .map_err(|err| AvengerChartError::InvalidArgument(err.to_string()))?;
+        let mut requirements =
+            GridRequirements::from_items(shape, base_child_content_size, &demands)
+                .map_err(|err| AvengerChartError::InvalidArgument(err.to_string()))?;
         requirements.column_spacing.min_gap = self.min_gap;
         requirements.row_spacing.min_gap = self.min_gap;
         Ok(requirements)
@@ -746,7 +747,7 @@ impl ConcatCoordMeasurement {
 
         let old_placement = self.child_frame_placement();
         let demands = self.layout_coordination_grid_items()?;
-        let solution = solve_grid_requirements(requirements, &demands);
+        let solution = requirements.solve(&demands);
 
         let placement = match &self.placement {
             ConcatChildPlacement::Grid {
@@ -781,7 +782,7 @@ impl ConcatCoordMeasurement {
                 }
             }
             ConcatChildPlacement::Band(band) => {
-                let direction = band.direction;
+                let direction = band.orientation;
                 let children = self
                     .children
                     .iter()
@@ -820,8 +821,8 @@ impl ConcatCoordMeasurement {
                     }
                 };
                 ConcatChildPlacement::Band(BandSolution {
-                    direction,
-                    children,
+                    orientation: direction,
+                    items: children,
                     main_extent,
                     cross_extent: Some(cross_extent),
                 })
@@ -1362,7 +1363,7 @@ pub(crate) async fn measure_concat_coord_system(
         .iter()
         .map(|child| band_input_for_child(direction, child))
         .collect::<Vec<_>>();
-    let child_band_layout = BandSolution::from_sized_children(
+    let child_band_layout = BandSolution::solve(
         direction,
         &inputs,
         TrackSpacing {
@@ -2010,11 +2011,11 @@ fn grid_child_frame_placement(
     min_gap: f32,
 ) -> Result<PlacementSolution, AvengerChartError> {
     let demands = grid_child_items(children)?;
-    let mut requirements = grid_requirements(shape, base_cell_size, &demands)
+    let mut requirements = GridRequirements::from_items(shape, base_cell_size, &demands)
         .map_err(|err| AvengerChartError::InvalidArgument(err.to_string()))?;
     requirements.column_spacing.min_gap = min_gap;
     requirements.row_spacing.min_gap = min_gap;
-    let solution = solve_grid_requirements(&requirements, &demands);
+    let solution = requirements.solve(&demands);
 
     let placements = children
         .iter()

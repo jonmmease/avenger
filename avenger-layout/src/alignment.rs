@@ -139,13 +139,8 @@ where
     align_by(
         nodes,
         SingletonPolicy::Skip,
-        |members| merge_grid_requirements(members.iter().copied()),
-        |local, merged| {
-            (
-                grid_content_delta(local, merged),
-                grid_edge_delta(local, merged),
-            )
-        },
+        |members| GridRequirements::merged(members.iter().copied()),
+        |local, merged| (local.content_delta(merged), local.edge_delta(merged)),
     )
 }
 
@@ -279,47 +274,50 @@ impl ConvergenceTrace {
     }
 }
 
-/// Merge compatible requirements by component-wise maximum.
-///
-/// Returns `None` when the input is empty or any two requirements have
-/// different shapes.
-pub fn merge_grid_requirements<'a>(
-    requirements: impl IntoIterator<Item = &'a GridRequirements>,
-) -> Option<GridRequirements> {
-    let mut iter = requirements.into_iter();
-    let first = iter.next()?.clone();
-    iter.try_fold(first, |mut merged, next| {
-        if merged.shape != next.shape {
-            return None;
-        }
+impl GridRequirements {
+    /// Merge compatible requirements by component-wise maximum.
+    ///
+    /// Returns `None` when the input is empty or any two requirements have
+    /// different shapes.
+    pub fn merged<'a>(
+        requirements: impl IntoIterator<Item = &'a GridRequirements>,
+    ) -> Option<GridRequirements> {
+        let mut iter = requirements.into_iter();
+        let first = iter.next()?.clone();
+        iter.try_fold(first, |mut merged, next| {
+            if merged.shape != next.shape {
+                return None;
+            }
 
-        merged.column_spacing = merged.column_spacing.merge_max(next.column_spacing);
-        merged.row_spacing = merged.row_spacing.merge_max(next.row_spacing);
-        max_assign_each(&mut merged.column_widths, &next.column_widths);
-        max_assign_each(&mut merged.row_heights, &next.row_heights);
-        max_assign_edge_each(&mut merged.column_left, &next.column_left);
-        max_assign_edge_each(&mut merged.column_right, &next.column_right);
-        max_assign_edge_each(&mut merged.row_top, &next.row_top);
-        max_assign_edge_each(&mut merged.row_bottom, &next.row_bottom);
-        Some(merged)
-    })
-}
+            merged.column_spacing = merged.column_spacing.merge_max(next.column_spacing);
+            merged.row_spacing = merged.row_spacing.merge_max(next.row_spacing);
+            max_assign_each(&mut merged.column_widths, &next.column_widths);
+            max_assign_each(&mut merged.row_heights, &next.row_heights);
+            max_assign_edge_each(&mut merged.column_left, &next.column_left);
+            max_assign_edge_each(&mut merged.column_right, &next.column_right);
+            max_assign_edge_each(&mut merged.row_top, &next.row_top);
+            max_assign_edge_each(&mut merged.row_bottom, &next.row_bottom);
+            Some(merged)
+        })
+    }
 
-/// Total absolute track-size difference between local and merged requirements.
-pub fn grid_content_delta(local: &GridRequirements, merged: &GridRequirements) -> f32 {
-    abs_delta_sum(&local.column_widths, &merged.column_widths)
-        + abs_delta_sum(&local.row_heights, &merged.row_heights)
-}
+    /// Total absolute track-size difference against merged requirements.
+    pub fn content_delta(&self, merged: &GridRequirements) -> f32 {
+        let local = self;
+        abs_delta_sum(&local.column_widths, &merged.column_widths)
+            + abs_delta_sum(&local.row_heights, &merged.row_heights)
+    }
 
-/// Total absolute edge/spacing difference between local and merged
-/// requirements.
-pub fn grid_edge_delta(local: &GridRequirements, merged: &GridRequirements) -> f32 {
-    abs_edge_delta_sum(&local.column_left, &merged.column_left)
-        + abs_edge_delta_sum(&local.column_right, &merged.column_right)
-        + abs_edge_delta_sum(&local.row_top, &merged.row_top)
-        + abs_edge_delta_sum(&local.row_bottom, &merged.row_bottom)
-        + local.column_spacing.abs_delta(merged.column_spacing)
-        + local.row_spacing.abs_delta(merged.row_spacing)
+    /// Total absolute edge/spacing difference against merged requirements.
+    pub fn edge_delta(&self, merged: &GridRequirements) -> f32 {
+        let local = self;
+        abs_edge_delta_sum(&local.column_left, &merged.column_left)
+            + abs_edge_delta_sum(&local.column_right, &merged.column_right)
+            + abs_edge_delta_sum(&local.row_top, &merged.row_top)
+            + abs_edge_delta_sum(&local.row_bottom, &merged.row_bottom)
+            + local.column_spacing.abs_delta(merged.column_spacing)
+            + local.row_spacing.abs_delta(merged.row_spacing)
+    }
 }
 
 fn max_assign_each(target: &mut [f32], source: &[f32]) {
@@ -385,7 +383,7 @@ mod tests {
         second.column_spacing.min_gap = 5.0;
         second.column_spacing.outer_start = 3.0;
 
-        let merged = merge_grid_requirements([&first, &second]).unwrap();
+        let merged = GridRequirements::merged([&first, &second]).unwrap();
 
         assert_eq!(merged.column_widths, vec![100.0]);
         assert_eq!(merged.row_heights, vec![55.0]);
@@ -406,7 +404,7 @@ mod tests {
         let mut second = requirements(80.0, 12.0);
         second.shape.columns = 2;
 
-        assert!(merge_grid_requirements([&first, &second]).is_none());
+        assert!(GridRequirements::merged([&first, &second]).is_none());
     }
 
     #[test]
@@ -417,8 +415,8 @@ mod tests {
         merged.column_spacing.outer_start = 3.0;
         merged.column_spacing.min_gap = 6.0;
 
-        assert_eq!(grid_content_delta(&local, &merged), 25.0);
-        assert_eq!(grid_edge_delta(&local, &merged), 15.0);
+        assert_eq!(local.content_delta(&merged), 25.0);
+        assert_eq!(local.edge_delta(&merged), 15.0);
     }
 
     fn node(

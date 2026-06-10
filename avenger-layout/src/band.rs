@@ -6,9 +6,7 @@
 //! [`TrackSpacing::min_gap`]. Cross-axis alignment stays in this band layer.
 
 use crate::geometry::{Edges, Orientation, Size};
-use crate::grid::{
-    GridItem, GridShape, GridSlot, TrackSpacing, grid_requirements, solve_grid_requirements,
-};
+use crate::grid::{GridItem, GridRequirements, GridShape, GridSlot, TrackSpacing};
 
 use crate::region::{PlacedRegion, PlacementSolution};
 
@@ -75,11 +73,11 @@ impl<Id> PlacedBandItem<Id> {
     }
 }
 
-/// Placement result for a one-dimensional band of children.
+/// Placement result for a one-dimensional band of items.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BandSolution<Id = usize> {
-    pub direction: Orientation,
-    pub children: Vec<PlacedBandItem<Id>>,
+    pub orientation: Orientation,
+    pub items: Vec<PlacedBandItem<Id>>,
     pub main_extent: f32,
     pub cross_extent: Option<f32>,
 }
@@ -91,27 +89,27 @@ impl<Id: Clone> BandSolution<Id> {
     /// [`TrackSpacing`] (gaps follow the grid rule
     /// `max(min_gap, after + before)`); `cross_align` positions children
     /// within the band's cross extent.
-    pub fn from_sized_children(
-        direction: Orientation,
-        children: &[BandItem<Id>],
+    pub fn solve(
+        orientation: Orientation,
+        items: &[BandItem<Id>],
         spacing: TrackSpacing,
         cross_align: CrossAlign,
     ) -> Self {
-        let shape = match direction {
+        let shape = match orientation {
             Orientation::Horizontal => GridShape {
                 rows: 1,
-                columns: children.len(),
+                columns: items.len(),
             },
             Orientation::Vertical => GridShape {
-                rows: children.len(),
+                rows: items.len(),
                 columns: 1,
             },
         };
-        let items = children
+        let grid_items = items
             .iter()
             .enumerate()
             .map(|(slot_index, child)| {
-                let (slot, content_size, total_edges) = match direction {
+                let (slot, content_size, total_edges) = match orientation {
                     Orientation::Horizontal => (
                         GridSlot {
                             row: 0,
@@ -144,15 +142,15 @@ impl<Id: Clone> BandSolution<Id> {
             })
             .collect::<Vec<_>>();
 
-        let mut requirements = grid_requirements(shape, Size::default(), &items)
+        let mut requirements = GridRequirements::from_items(shape, Size::default(), &grid_items)
             .expect("band slots are single-span and indexed within the band grid shape");
-        match direction {
+        match orientation {
             Orientation::Horizontal => requirements.column_spacing = spacing,
             Orientation::Vertical => requirements.row_spacing = spacing,
         }
-        let solution = solve_grid_requirements(&requirements, &items);
+        let solution = requirements.solve(&grid_items);
 
-        let (main_starts, main_sizes, cross_extent, main_extent) = match direction {
+        let (main_starts, main_sizes, cross_extent, main_extent) = match orientation {
             Orientation::Horizontal => (
                 &solution.column_starts,
                 &solution.column_widths,
@@ -167,7 +165,7 @@ impl<Id: Clone> BandSolution<Id> {
             ),
         };
 
-        let placed_children = children
+        let placed_items = items
             .iter()
             .enumerate()
             .map(|(slot_index, child)| {
@@ -183,8 +181,8 @@ impl<Id: Clone> BandSolution<Id> {
             .collect();
 
         Self {
-            direction,
-            children: placed_children,
+            orientation,
+            items: placed_items,
             main_extent,
             cross_extent: Some(cross_extent),
         }
@@ -198,10 +196,10 @@ impl<Id: Clone> BandSolution<Id> {
         fallback_content_size: Size,
     ) -> PlacementSolution<Id> {
         let placements = self
-            .children
+            .items
             .iter()
             .map(|child| {
-                let origin = match self.direction {
+                let origin = match self.orientation {
                     Orientation::Horizontal => [
                         child.main_start + origin_offset[0],
                         child.cross_start + origin_offset[1],
@@ -215,7 +213,7 @@ impl<Id: Clone> BandSolution<Id> {
             })
             .collect();
 
-        let content_size = match self.direction {
+        let content_size = match self.orientation {
             Orientation::Horizontal => Size::new(
                 self.main_extent,
                 self.cross_extent.unwrap_or(fallback_content_size.height),
@@ -256,7 +254,7 @@ mod tests {
 
     #[test]
     fn horizontal_fixed_size_children_compute_expected_starts() {
-        let placement = BandSolution::from_sized_children(
+        let placement = BandSolution::solve(
             Orientation::Horizontal,
             &[
                 input(0, 30.0, 80.0, 0.0, 0.0),
@@ -270,15 +268,15 @@ mod tests {
             CrossAlign::default(),
         );
 
-        assert_eq!(placement.children[0].main_start, 5.0);
-        assert_eq!(placement.children[1].main_start, 45.0);
+        assert_eq!(placement.items[0].main_start, 5.0);
+        assert_eq!(placement.items[1].main_start, 45.0);
         assert_eq!(placement.main_extent, 92.0);
         assert_eq!(placement.cross_extent, Some(90.0));
     }
 
     #[test]
     fn vertical_fixed_size_children_compute_expected_starts() {
-        let placement = BandSolution::from_sized_children(
+        let placement = BandSolution::solve(
             Orientation::Vertical,
             &[
                 input(0, 12.0, 44.0, 0.0, 0.0),
@@ -292,15 +290,15 @@ mod tests {
             CrossAlign::default(),
         );
 
-        assert_eq!(placement.children[0].main_start, 3.0);
-        assert_eq!(placement.children[1].main_start, 21.0);
+        assert_eq!(placement.items[0].main_start, 3.0);
+        assert_eq!(placement.items[1].main_start, 21.0);
         assert_eq!(placement.main_extent, 43.0);
         assert_eq!(placement.cross_extent, Some(44.0));
     }
 
     #[test]
     fn horizontal_center_alignment_offsets_smaller_children_on_cross_axis() {
-        let placement = BandSolution::from_sized_children(
+        let placement = BandSolution::solve(
             Orientation::Horizontal,
             &[
                 input(0, 30.0, 40.0, 0.0, 0.0),
@@ -314,8 +312,8 @@ mod tests {
         );
 
         assert_eq!(placement.cross_extent, Some(80.0));
-        assert_eq!(placement.children[0].cross_start, 20.0);
-        assert_eq!(placement.children[1].cross_start, 0.0);
+        assert_eq!(placement.items[0].cross_start, 20.0);
+        assert_eq!(placement.items[1].cross_start, 0.0);
 
         let result = placement.to_placement_solution([0.0, 10.0], Size::new(1.0, 2.0));
         assert_eq!(result.child(0).unwrap().origin, [0.0, 30.0]);
@@ -324,7 +322,7 @@ mod tests {
 
     #[test]
     fn vertical_end_alignment_offsets_smaller_children_on_cross_axis() {
-        let placement = BandSolution::from_sized_children(
+        let placement = BandSolution::solve(
             Orientation::Vertical,
             &[
                 input(0, 20.0, 25.0, 0.0, 0.0),
@@ -338,8 +336,8 @@ mod tests {
         );
 
         assert_eq!(placement.cross_extent, Some(75.0));
-        assert_eq!(placement.children[0].cross_start, 50.0);
-        assert_eq!(placement.children[1].cross_start, 0.0);
+        assert_eq!(placement.items[0].cross_start, 50.0);
+        assert_eq!(placement.items[1].cross_start, 0.0);
 
         let result = placement.to_placement_solution([7.0, 0.0], Size::new(1.0, 2.0));
         assert_eq!(result.child(0).unwrap().origin, [57.0, 0.0]);
@@ -348,7 +346,7 @@ mod tests {
 
     #[test]
     fn minimum_gap_wins_when_larger_than_boundary_demand() {
-        let placement = BandSolution::from_sized_children(
+        let placement = BandSolution::solve(
             Orientation::Horizontal,
             &[
                 input(0, 20.0, 10.0, 0.0, 2.0),
@@ -361,13 +359,13 @@ mod tests {
             CrossAlign::default(),
         );
 
-        assert_eq!(placement.children[1].main_start, 32.0);
+        assert_eq!(placement.items[1].main_start, 32.0);
         assert_eq!(placement.main_extent, 52.0);
     }
 
     #[test]
     fn boundary_demand_wins_when_larger_than_minimum_gap() {
-        let placement = BandSolution::from_sized_children(
+        let placement = BandSolution::solve(
             Orientation::Horizontal,
             &[
                 input(0, 20.0, 10.0, 0.0, 8.0),
@@ -380,7 +378,7 @@ mod tests {
             CrossAlign::default(),
         );
 
-        assert_eq!(placement.children[1].main_start, 35.0);
+        assert_eq!(placement.items[1].main_start, 35.0);
         assert_eq!(placement.main_extent, 55.0);
     }
 
@@ -390,13 +388,13 @@ mod tests {
             min_gap: 10.0,
             ..Default::default()
         };
-        let single = BandSolution::from_sized_children(
+        let single = BandSolution::solve(
             Orientation::Horizontal,
             &[input(0, 100.0, 50.0, 0.0, 0.0)],
             spacing,
             CrossAlign::default(),
         );
-        let padded = BandSolution::from_sized_children(
+        let padded = BandSolution::solve(
             Orientation::Horizontal,
             &[
                 input(0, 100.0, 50.0, 0.0, 0.0),
@@ -407,8 +405,8 @@ mod tests {
             CrossAlign::default(),
         );
 
-        assert_eq!(single.children[0].main_start, 0.0);
-        assert_eq!(padded.children[0].main_start, 0.0);
+        assert_eq!(single.items[0].main_start, 0.0);
+        assert_eq!(padded.items[0].main_start, 0.0);
         assert_eq!(single.main_extent, 100.0);
         assert_eq!(padded.main_extent, 320.0);
     }
@@ -416,8 +414,8 @@ mod tests {
     #[test]
     fn positioned_children_preserve_explicit_starts_and_sizes() {
         let placement = BandSolution {
-            direction: Orientation::Horizontal,
-            children: vec![
+            orientation: Orientation::Horizontal,
+            items: vec![
                 PlacedBandItem::with_cross_axis(3, 20.0, 40.0, 5.0, 45.0),
                 PlacedBandItem::with_cross_axis(1, 80.0, 30.0, 12.0, 20.0),
             ],
@@ -425,19 +423,19 @@ mod tests {
             cross_extent: Some(50.0),
         };
 
-        assert_eq!(placement.children[0].id, 3);
-        assert_eq!(placement.children[0].main_start, 20.0);
-        assert_eq!(placement.children[1].main_size, 30.0);
+        assert_eq!(placement.items[0].id, 3);
+        assert_eq!(placement.items[0].main_start, 20.0);
+        assert_eq!(placement.items[1].main_size, 30.0);
         assert_eq!(placement.main_extent, 120.0);
         assert_eq!(placement.cross_extent, Some(50.0));
-        assert_eq!(placement.children[1].cross_start, 12.0);
+        assert_eq!(placement.items[1].cross_start, 12.0);
     }
 
     #[test]
     fn horizontal_conversion_maps_main_axis_to_x_origin() {
         let placement = BandSolution {
-            direction: Orientation::Horizontal,
-            children: vec![PlacedBandItem::new(2, 30.0, 40.0)],
+            orientation: Orientation::Horizontal,
+            items: vec![PlacedBandItem::new(2, 30.0, 40.0)],
             main_extent: 100.0,
             cross_extent: Some(80.0),
         };
@@ -451,8 +449,8 @@ mod tests {
     #[test]
     fn vertical_conversion_maps_main_axis_to_y_origin() {
         let placement = BandSolution {
-            direction: Orientation::Vertical,
-            children: vec![PlacedBandItem::new(2, 30.0, 40.0)],
+            orientation: Orientation::Vertical,
+            items: vec![PlacedBandItem::new(2, 30.0, 40.0)],
             main_extent: 100.0,
             cross_extent: Some(80.0),
         };

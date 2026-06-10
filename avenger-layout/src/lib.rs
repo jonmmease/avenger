@@ -64,19 +64,18 @@ pub mod tree;
 
 pub use alignment::{
     AlignedGroup, AlignmentNode, AlignmentPlan, ConvergenceTrace, NodeDelta, RoundDeltas,
-    SingletonPolicy, SkippedGroup, SkippedGroupReason, align, align_by, grid_content_delta,
-    grid_edge_delta, merge_grid_requirements,
+    SingletonPolicy, SkippedGroup, SkippedGroupReason, align, align_by,
 };
 pub use band::{BandItem, BandSolution, BoundaryDemand, CrossAlign, PlacedBandItem};
 pub use geometry::{Edges, Orientation, Rect, Side, Size};
 pub use grid::{
     GridError, GridItem, GridRequirements, GridShape, GridSlot, GridSolution, TrackSpacing,
-    UniformTrackSolution, UniformTracks, grid_requirements, solve_grid_requirements,
+    UniformTrackSolution, UniformTracks,
 };
 pub use region::{EdgeDemand, EdgeTargets, PlacedRegion, PlacementSolution, project_rect};
 #[cfg(feature = "svg")]
 pub use svg::{DebugRegion, DebugScene};
 pub use tree::{
     LayoutItem, LayoutNode, LayoutSlotContent, SolvedRegion, SolvedTree, TreeEnvelope,
-    TreeEnvelopeKind, solve_tree, tree_envelope, tree_envelope_with,
+    TreeEnvelopeKind,
 };

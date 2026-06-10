@@ -215,129 +215,129 @@ fn grid_edge_demand<Id>(demand: &GridItem<Id>, side: crate::geometry::Side) -> E
     }
 }
 
-/// Derive per-track sizes and edge demands from measured grid items.
-pub fn grid_requirements<Id>(
-    shape: GridShape,
-    base_cell_size: Size,
-    demands: &[GridItem<Id>],
-) -> Result<GridRequirements, GridError> {
-    use crate::geometry::Side;
+impl GridRequirements {
+    /// Derive per-track sizes and edge demands from measured grid items.
+    pub fn from_items<Id>(
+        shape: GridShape,
+        base_cell_size: Size,
+        demands: &[GridItem<Id>],
+    ) -> Result<GridRequirements, GridError> {
+        use crate::geometry::Side;
 
-    let mut requirements = GridRequirements {
-        shape,
-        column_spacing: TrackSpacing::default(),
-        row_spacing: TrackSpacing::default(),
-        column_widths: vec![base_cell_size.width; shape.columns],
-        row_heights: vec![base_cell_size.height; shape.rows],
-        column_left: vec![EdgeDemand::default(); shape.columns],
-        column_right: vec![EdgeDemand::default(); shape.columns],
-        row_top: vec![EdgeDemand::default(); shape.rows],
-        row_bottom: vec![EdgeDemand::default(); shape.rows],
-    };
+        let mut requirements = GridRequirements {
+            shape,
+            column_spacing: TrackSpacing::default(),
+            row_spacing: TrackSpacing::default(),
+            column_widths: vec![base_cell_size.width; shape.columns],
+            row_heights: vec![base_cell_size.height; shape.rows],
+            column_left: vec![EdgeDemand::default(); shape.columns],
+            column_right: vec![EdgeDemand::default(); shape.columns],
+            row_top: vec![EdgeDemand::default(); shape.rows],
+            row_bottom: vec![EdgeDemand::default(); shape.rows],
+        };
 
-    for demand in demands {
-        let slot = demand.slot;
-        if slot.row_span == 0
-            || slot.column_span == 0
-            || slot.row_end() > shape.rows
-            || slot.column_end() > shape.columns
-        {
-            return Err(GridError::SlotOutOfBounds { slot, shape });
+        for demand in demands {
+            let slot = demand.slot;
+            if slot.row_span == 0
+                || slot.column_span == 0
+                || slot.row_end() > shape.rows
+                || slot.column_end() > shape.columns
+            {
+                return Err(GridError::SlotOutOfBounds { slot, shape });
+            }
+
+            let last_row = slot.row_end() - 1;
+            let last_column = slot.column_end() - 1;
+            requirements.column_left[slot.column] = requirements.column_left[slot.column]
+                .max_components(grid_edge_demand(demand, Side::Left));
+            requirements.column_right[last_column] = requirements.column_right[last_column]
+                .max_components(grid_edge_demand(demand, Side::Right));
+            requirements.row_top[slot.row] =
+                requirements.row_top[slot.row].max_components(grid_edge_demand(demand, Side::Top));
+            requirements.row_bottom[last_row] = requirements.row_bottom[last_row]
+                .max_components(grid_edge_demand(demand, Side::Bottom));
+
+            if slot.column_span == 1 {
+                requirements.column_widths[slot.column] =
+                    requirements.column_widths[slot.column].max(demand.content_size.width);
+            }
+            if slot.row_span == 1 {
+                requirements.row_heights[slot.row] =
+                    requirements.row_heights[slot.row].max(demand.content_size.height);
+            }
         }
 
-        let last_row = slot.row_end() - 1;
-        let last_column = slot.column_end() - 1;
-        requirements.column_left[slot.column] = requirements.column_left[slot.column]
-            .max_components(grid_edge_demand(demand, Side::Left));
-        requirements.column_right[last_column] = requirements.column_right[last_column]
-            .max_components(grid_edge_demand(demand, Side::Right));
-        requirements.row_top[slot.row] =
-            requirements.row_top[slot.row].max_components(grid_edge_demand(demand, Side::Top));
-        requirements.row_bottom[last_row] = requirements.row_bottom[last_row]
-            .max_components(grid_edge_demand(demand, Side::Bottom));
-
-        if slot.column_span == 1 {
-            requirements.column_widths[slot.column] =
-                requirements.column_widths[slot.column].max(demand.content_size.width);
-        }
-        if slot.row_span == 1 {
-            requirements.row_heights[slot.row] =
-                requirements.row_heights[slot.row].max(demand.content_size.height);
-        }
+        Ok(requirements)
     }
 
-    Ok(requirements)
-}
+    /// Solve track starts, span constraints, and content size for one grid.
+    pub fn solve<Id>(&self, demands: &[GridItem<Id>]) -> GridSolution {
+        let requirements = self;
+        debug_assert_eq!(requirements.column_widths.len(), requirements.shape.columns);
+        debug_assert_eq!(requirements.row_heights.len(), requirements.shape.rows);
 
-/// Solve track starts, span constraints, and content size for one grid.
-pub fn solve_grid_requirements<Id>(
-    requirements: &GridRequirements,
-    demands: &[GridItem<Id>],
-) -> GridSolution {
-    debug_assert_eq!(requirements.column_widths.len(), requirements.shape.columns);
-    debug_assert_eq!(requirements.row_heights.len(), requirements.shape.rows);
+        let mut column_widths = requirements.column_widths.clone();
+        let mut row_heights = requirements.row_heights.clone();
+        let column_right_totals = edge_demand_totals(&requirements.column_right);
+        let column_left_totals = edge_demand_totals(&requirements.column_left);
+        let row_bottom_totals = edge_demand_totals(&requirements.row_bottom);
+        let row_top_totals = edge_demand_totals(&requirements.row_top);
 
-    let mut column_widths = requirements.column_widths.clone();
-    let mut row_heights = requirements.row_heights.clone();
-    let column_right_totals = edge_demand_totals(&requirements.column_right);
-    let column_left_totals = edge_demand_totals(&requirements.column_left);
-    let row_bottom_totals = edge_demand_totals(&requirements.row_bottom);
-    let row_top_totals = edge_demand_totals(&requirements.row_top);
+        satisfy_span_axis_constraints(
+            &mut column_widths,
+            &column_right_totals,
+            &column_left_totals,
+            requirements.column_spacing.min_gap,
+            demands
+                .iter()
+                .map(|demand| AxisSpanConstraint {
+                    start: demand.slot.column,
+                    span: demand.slot.column_span,
+                    target: demand.content_size.width,
+                })
+                .collect(),
+        );
+        satisfy_span_axis_constraints(
+            &mut row_heights,
+            &row_bottom_totals,
+            &row_top_totals,
+            requirements.row_spacing.min_gap,
+            demands
+                .iter()
+                .map(|demand| AxisSpanConstraint {
+                    start: demand.slot.row,
+                    span: demand.slot.row_span,
+                    target: demand.content_size.height,
+                })
+                .collect(),
+        );
 
-    satisfy_span_axis_constraints(
-        &mut column_widths,
-        &column_right_totals,
-        &column_left_totals,
-        requirements.column_spacing.min_gap,
-        demands
-            .iter()
-            .map(|demand| AxisSpanConstraint {
-                start: demand.slot.column,
-                span: demand.slot.column_span,
-                target: demand.content_size.width,
-            })
-            .collect(),
-    );
-    satisfy_span_axis_constraints(
-        &mut row_heights,
-        &row_bottom_totals,
-        &row_top_totals,
-        requirements.row_spacing.min_gap,
-        demands
-            .iter()
-            .map(|demand| AxisSpanConstraint {
-                start: demand.slot.row,
-                span: demand.slot.row_span,
-                target: demand.content_size.height,
-            })
-            .collect(),
-    );
+        let (column_starts, content_width) = track_starts_and_content_size(
+            &column_widths,
+            &column_right_totals,
+            &column_left_totals,
+            requirements.column_spacing,
+        );
+        let (row_starts, content_height) = track_starts_and_content_size(
+            &row_heights,
+            &row_bottom_totals,
+            &row_top_totals,
+            requirements.row_spacing,
+        );
 
-    let (column_starts, content_width) = track_starts_and_content_size(
-        &column_widths,
-        &column_right_totals,
-        &column_left_totals,
-        requirements.column_spacing,
-    );
-    let (row_starts, content_height) = track_starts_and_content_size(
-        &row_heights,
-        &row_bottom_totals,
-        &row_top_totals,
-        requirements.row_spacing,
-    );
-
-    GridSolution {
-        column_spacing: requirements.column_spacing,
-        row_spacing: requirements.row_spacing,
-        column_widths,
-        row_heights,
-        column_left: requirements.column_left.clone(),
-        column_right: requirements.column_right.clone(),
-        row_top: requirements.row_top.clone(),
-        row_bottom: requirements.row_bottom.clone(),
-        column_starts,
-        row_starts,
-        content_size: Size::new(content_width, content_height),
+        GridSolution {
+            column_spacing: requirements.column_spacing,
+            row_spacing: requirements.row_spacing,
+            column_widths,
+            row_heights,
+            column_left: requirements.column_left.clone(),
+            column_right: requirements.column_right.clone(),
+            row_top: requirements.row_top.clone(),
+            row_bottom: requirements.row_bottom.clone(),
+            column_starts,
+            row_starts,
+            content_size: Size::new(content_width, content_height),
+        }
     }
 }
 
@@ -518,7 +518,7 @@ mod tests {
                 total_edges: Edges::default(),
             })
             .collect::<Vec<_>>();
-        let mut requirements = grid_requirements(
+        let mut requirements = GridRequirements::from_items(
             GridShape {
                 rows: 1,
                 columns: 3,
@@ -528,7 +528,7 @@ mod tests {
         )
         .expect("uniform items fit the shape");
         requirements.column_spacing = tracks.spacing;
-        let grid = solve_grid_requirements(&requirements, &items);
+        let grid = requirements.solve(&items);
 
         assert_eq!(solved.starts, grid.column_starts);
         assert_eq!(solved.extent, grid.content_size.width);
@@ -656,8 +656,8 @@ mod tests {
             ),
         ];
 
-        let requirements = grid_requirements(shape, Size::new(100.0, 50.0), &demands)?;
-        let solution = solve_grid_requirements(&requirements, &demands);
+        let requirements = GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands)?;
+        let solution = requirements.solve(&demands);
 
         assert_eq!(solution.column_widths, vec![100.0, 120.0]);
         assert_eq!(solution.row_heights, vec![50.0, 60.0]);
@@ -691,7 +691,8 @@ mod tests {
             Edges::default(),
         )];
 
-        let mut requirements = grid_requirements(shape, Size::new(100.0, 50.0), &demands)?;
+        let mut requirements =
+            GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands)?;
         requirements.column_spacing = TrackSpacing {
             outer_start: 3.0,
             outer_end: 7.0,
@@ -703,7 +704,7 @@ mod tests {
             min_gap: 0.0,
         };
 
-        let solution = solve_grid_requirements(&requirements, &demands);
+        let solution = requirements.solve(&demands);
 
         assert_eq!(solution.column_starts, vec![3.0]);
         assert_eq!(solution.row_starts, vec![5.0]);
@@ -726,8 +727,8 @@ mod tests {
             grid_item(1, 1, 2, 1, 1, Size::new(100.0, 100.0), Edges::default()),
         ];
 
-        let requirements = grid_requirements(shape, Size::new(100.0, 100.0), &demands)?;
-        let solution = solve_grid_requirements(&requirements, &demands);
+        let requirements = GridRequirements::from_items(shape, Size::new(100.0, 100.0), &demands)?;
+        let solution = requirements.solve(&demands);
 
         assert_eq!(solution.column_starts, vec![0.0, 100.0, 200.0]);
         assert_eq!(solution.row_starts, vec![0.0, 100.0]);
@@ -755,7 +756,7 @@ mod tests {
             Edges::default(),
         )];
 
-        let err = grid_requirements(shape, Size::new(100.0, 100.0), &demands)
+        let err = GridRequirements::from_items(shape, Size::new(100.0, 100.0), &demands)
             .expect_err("slot rect should exceed shape");
         assert!(err.to_string().contains("exceeds grid shape"));
     }
@@ -787,8 +788,8 @@ mod tests {
             ),
         ];
 
-        let requirements = grid_requirements(shape, Size::new(50.0, 50.0), &demands)?;
-        let solution = solve_grid_requirements(&requirements, &demands);
+        let requirements = GridRequirements::from_items(shape, Size::new(50.0, 50.0), &demands)?;
+        let solution = requirements.solve(&demands);
 
         assert_eq!(
             edge_demand_totals(&solution.column_left),
@@ -854,10 +855,11 @@ mod tests {
             ),
         ];
 
-        let mut requirements = grid_requirements(shape, Size::new(100.0, 50.0), &demands)?;
+        let mut requirements =
+            GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands)?;
         requirements.column_spacing.min_gap = 10.0;
 
-        let solution = solve_grid_requirements(&requirements, &demands);
+        let solution = requirements.solve(&demands);
 
         // First pair: edge demand 2.0 + 3.0 = 5.0 < min_gap 10.0 -> floored.
         // Second pair: edge demand 9.0 + 4.0 = 13.0 > min_gap 10.0 -> demand wins.
@@ -894,10 +896,11 @@ mod tests {
             ),
         ];
 
-        let mut requirements = grid_requirements(shape, Size::new(100.0, 50.0), &demands)?;
+        let mut requirements =
+            GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands)?;
         requirements.column_spacing.min_gap = 8.0;
 
-        let solution = solve_grid_requirements(&requirements, &demands);
+        let solution = requirements.solve(&demands);
 
         // The floored gap (max(8.0, 1.0 + 2.0) = 8.0) counts toward the span
         // target of 250.0, so each track absorbs (250 - 200 - 8) / 2 = 21.0.
@@ -946,13 +949,13 @@ mod tests {
             ),
         ];
 
-        let requirements = grid_requirements(shape, Size::new(100.0, 60.0), &demands)?;
+        let requirements = GridRequirements::from_items(shape, Size::new(100.0, 60.0), &demands)?;
         assert_eq!(
             requirements.column_right[0],
             EdgeDemand::new(6.0, 20.0, 12.0)
         );
 
-        let solution = solve_grid_requirements(&requirements, &demands);
+        let solution = requirements.solve(&demands);
         let targets = solution.edge_targets_for_slot(demands[0].slot);
         assert_eq!(targets.inner.right, 6.0);
         assert_eq!(targets.total.right, 26.0);

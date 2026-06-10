@@ -17,7 +17,7 @@ use crate::{
     },
     layout::{
         Edges, GridShape, GridSlot, LayoutItem, LayoutNode, LayoutSlotContent, Size as LayoutSize,
-        TrackSpacing, solve_tree,
+        TrackSpacing,
     },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
@@ -445,7 +445,7 @@ where
         stacked_outer_edges: Edges::default(),
         items,
     };
-    let solved = solve_tree(&node, None).ok()?;
+    let solved = node.solve(None).ok()?;
     Some(
         solved
             .regions

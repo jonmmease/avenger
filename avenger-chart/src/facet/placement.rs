@@ -47,8 +47,8 @@ fn band_solution_from_children(
         }
     });
     BandSolution {
-        direction,
-        children,
+        orientation: direction,
+        items: children,
         main_extent,
         cross_extent,
     }
@@ -109,7 +109,7 @@ impl FacetBandPlacement {
 
     fn from_child_frame_band(axis: FacetAxis, band: BandSolution) -> Self {
         let cells = band
-            .children
+            .items
             .iter()
             .map(FacetCellPlacement::from_placed_child)
             .collect();
@@ -501,7 +501,7 @@ pub(crate) fn compute_explicit_facet_band_placement(
         inputs.clone()
     };
 
-    let band = BandSolution::from_sized_children(
+    let band = BandSolution::solve(
         band_direction(axis),
         &band_inputs,
         TrackSpacing {
@@ -512,7 +512,7 @@ pub(crate) fn compute_explicit_facet_band_placement(
         CrossAlign::default(),
     );
     let main_axis_positions = band
-        .children
+        .items
         .iter()
         .take(cells.len())
         .map(|child| child.main_start)

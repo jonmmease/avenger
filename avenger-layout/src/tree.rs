@@ -23,8 +23,7 @@
 
 use crate::geometry::{Edges, Rect, Size};
 use crate::grid::{
-    GridError, GridItem, GridShape, GridSlot, GridSolution, TrackSpacing, grid_requirements,
-    solve_grid_requirements,
+    GridError, GridItem, GridRequirements, GridShape, GridSlot, GridSolution, TrackSpacing,
 };
 use crate::region::{EdgeDemand, EdgeTargets};
 
@@ -138,10 +137,11 @@ fn collect_node<Id: Clone>(node: &LayoutNode<Id>) -> Result<CollectedNode<Id>, G
         children.push(collected);
     }
 
-    let mut requirements = grid_requirements(node.shape, node.base_cell_size, &grid_items)?;
+    let mut requirements =
+        GridRequirements::from_items(node.shape, node.base_cell_size, &grid_items)?;
     requirements.column_spacing = node.column_spacing;
     requirements.row_spacing = node.row_spacing;
-    let solution = solve_grid_requirements(&requirements, &grid_items);
+    let solution = requirements.solve(&grid_items);
 
     Ok(CollectedNode {
         grid_items,
@@ -194,27 +194,37 @@ pub enum TreeEnvelopeKind {
     /// the space regions occupy after coordinated patches apply.
     Layered,
     /// Geometric view: per-side totals merge by raw maximum across
-    /// contributors, without the lift — the measured rendered envelope.
+    /// contributors, without the lift — the raw rendered envelope.
     /// The `inner` layer is identical in both kinds; `outer` is derived as
     /// `(total - inner).max(0)`.
-    Measured,
+    Geometric,
 }
 
-/// Collect a subtree bottom-up and export what its parent slot sees
-/// (layered law).
-pub fn tree_envelope<Id: Clone>(node: &LayoutNode<Id>) -> Result<TreeEnvelope, GridError> {
-    tree_envelope_with(node, TreeEnvelopeKind::Layered)
-}
+impl<Id: Clone> LayoutNode<Id> {
+    /// Collect this subtree bottom-up and export what its parent slot sees
+    /// under the given envelope law.
+    pub fn envelope(&self, kind: TreeEnvelopeKind) -> Result<TreeEnvelope, GridError> {
+        let collected = collect_node(self)?;
+        match kind {
+            TreeEnvelopeKind::Layered => Ok(node_envelope(self, &collected)),
+            TreeEnvelopeKind::Geometric => Ok(geometric_envelope(self, &collected, kind)),
+        }
+    }
 
-/// Collect a subtree bottom-up with an explicit envelope law.
-pub fn tree_envelope_with<Id: Clone>(
-    node: &LayoutNode<Id>,
-    kind: TreeEnvelopeKind,
-) -> Result<TreeEnvelope, GridError> {
-    let collected = collect_node(node)?;
-    match kind {
-        TreeEnvelopeKind::Layered => Ok(node_envelope(node, &collected)),
-        TreeEnvelopeKind::Measured => Ok(measured_envelope(node, &collected, kind)),
+    /// Solve this tree top-down into placed regions in root coordinates.
+    ///
+    /// `allocation` is the content size granted by the caller; when it
+    /// exceeds the tree's natural extent the root's tracks stretch evenly
+    /// and the stretch propagates through nested allocations.
+    pub fn solve(&self, allocation: Option<Size>) -> Result<SolvedTree<Id>, GridError> {
+        let collected = collect_node(self)?;
+        let mut regions = Vec::new();
+        let content_size =
+            solve_node_into(self, &collected, allocation, [0.0, 0.0], 0, &mut regions);
+        Ok(SolvedTree {
+            content_size,
+            regions,
+        })
     }
 }
 
@@ -228,7 +238,7 @@ fn slot_edge_roles<Id>(node: &LayoutNode<Id>, slot: GridSlot) -> Edges<bool> {
     )
 }
 
-fn measured_envelope<Id: Clone>(
+fn geometric_envelope<Id: Clone>(
     node: &LayoutNode<Id>,
     collected: &CollectedNode<Id>,
     kind: TreeEnvelopeKind,
@@ -243,7 +253,7 @@ fn measured_envelope<Id: Clone>(
         let raw_total = match (&item.content, collected.children[index].as_ref()) {
             (LayoutSlotContent::Leaf { total_edges, .. }, _) => *total_edges,
             (LayoutSlotContent::Node(child), Some(child_collected)) => {
-                measured_envelope(child, child_collected, kind).total_edges
+                geometric_envelope(child, child_collected, kind).total_edges
             }
             (LayoutSlotContent::Node(_), None) => Edges::default(),
         };
@@ -325,7 +335,7 @@ fn stretch_solution<Id>(
         row_top: solution.row_top.clone(),
         row_bottom: solution.row_bottom.clone(),
     };
-    solve_grid_requirements(&requirements, &collected.grid_items)
+    requirements.solve(&collected.grid_items)
 }
 
 fn solve_node_into<Id: Clone>(
@@ -377,24 +387,6 @@ fn solve_node_into<Id: Clone>(
     }
 
     solution.content_size
-}
-
-/// Solve a layout tree top-down into placed regions in root coordinates.
-///
-/// `allocation` is the content size granted by the caller; when it exceeds
-/// the tree's natural extent the root's tracks stretch evenly and the
-/// stretch propagates through nested allocations.
-pub fn solve_tree<Id: Clone>(
-    node: &LayoutNode<Id>,
-    allocation: Option<Size>,
-) -> Result<SolvedTree<Id>, GridError> {
-    let collected = collect_node(node)?;
-    let mut regions = Vec::new();
-    let content_size = solve_node_into(node, &collected, allocation, [0.0, 0.0], 0, &mut regions);
-    Ok(SolvedTree {
-        content_size,
-        regions,
-    })
 }
 
 #[cfg(test)]
@@ -462,7 +454,9 @@ mod tests {
             0.0,
         );
 
-        let envelope = tree_envelope(&node).expect("band tree should collect");
+        let envelope = node
+            .envelope(TreeEnvelopeKind::Layered)
+            .expect("band tree should collect");
 
         assert_eq!(envelope.total_edges.left, 15.0, "first child's left");
         assert_eq!(envelope.total_edges.right, 11.0, "last child's right");
@@ -476,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn measured_envelope_reports_raw_max_totals() {
+    fn geometric_envelope_reports_raw_max_totals() {
         // Mixed dominance on the cross axis: cell 0 is all guide (top
         // total 10), cell 1 is all legend (top total 8). The layered law
         // lifts to max(guide) + max(legend) = 18; the measured law reports
@@ -517,9 +511,11 @@ mod tests {
             0.0,
         );
 
-        let layered =
-            tree_envelope_with(&node, TreeEnvelopeKind::Layered).expect("band tree should collect");
-        let measured = tree_envelope_with(&node, TreeEnvelopeKind::Measured)
+        let layered = node
+            .envelope(TreeEnvelopeKind::Layered)
+            .expect("band tree should collect");
+        let measured = node
+            .envelope(TreeEnvelopeKind::Geometric)
             .expect("band tree should collect");
 
         assert_eq!(layered.total_edges.top, 18.0);
@@ -544,7 +540,9 @@ mod tests {
         );
         inner.stacked_inner_edges = Edges::new(0.0, 35.0, 0.0, 0.0);
 
-        let inner_envelope = tree_envelope(&inner).expect("inner tree should collect");
+        let inner_envelope = inner
+            .envelope(TreeEnvelopeKind::Layered)
+            .expect("inner tree should collect");
         assert_eq!(inner_envelope.total_edges.right, 50.0);
 
         let outer = column_band(
@@ -564,7 +562,9 @@ mod tests {
             0.0,
         );
 
-        let envelope = tree_envelope(&outer).expect("outer tree should collect");
+        let envelope = outer
+            .envelope(TreeEnvelopeKind::Layered)
+            .expect("outer tree should collect");
         assert_eq!(
             envelope.total_edges.right, 50.0,
             "the rightmost subtree's stacked envelope reaches the outer edge"
@@ -597,7 +597,7 @@ mod tests {
             10.0,
         );
 
-        let solved = solve_tree(&root, None).expect("tree should solve");
+        let solved = root.solve(None).expect("tree should solve");
 
         // Inner extent: 40 + 6 + 40 = 86; root: 50 + 10 + 86 = 146.
         assert_eq!(solved.content_size, Size::new(146.0, 60.0));
@@ -643,7 +643,8 @@ mod tests {
         // Natural extent is 80x60; the caller grants 120x60 (for charts: an
         // aligned sibling grew). The root track stretches, and the nested
         // band's tracks absorb the surplus evenly: 40 -> 60 each.
-        let solved = solve_tree(&root, Some(Size::new(120.0, 60.0)))
+        let solved = root
+            .solve(Some(Size::new(120.0, 60.0)))
             .expect("tree should solve with allocation");
 
         assert_eq!(solved.content_size, Size::new(120.0, 60.0));

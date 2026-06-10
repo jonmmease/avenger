@@ -17,8 +17,7 @@ use crate::{
     },
     layout::{
         AlignmentNode, EdgeDemand, GridRequirements, GridShape, GridSlot, SingletonPolicy,
-        SkippedGroupReason, TrackSpacing, align_by, grid_content_delta, grid_edge_delta,
-        merge_grid_requirements,
+        SkippedGroupReason, TrackSpacing, align_by,
     },
     plot::compiled::{ChildFrameKey, ComponentsMeasurement, ContainerPathSegment},
     positioned_subplot::PositionedCoordMeasurement,
@@ -758,7 +757,7 @@ pub(crate) fn build_child_frame_layout_alignment_diagnostics(
         &alignment_nodes,
         SingletonPolicy::Skip,
         |members: &[&ChartGridRequirements]| {
-            let grid = merge_grid_requirements(members.iter().map(|member| &member.grid))?;
+            let grid = GridRequirements::merged(members.iter().map(|member| &member.grid))?;
             let guide_slot_gap_px = members
                 .iter()
                 .map(|member| member.guide_slot_gap_px)
@@ -770,8 +769,8 @@ pub(crate) fn build_child_frame_layout_alignment_diagnostics(
         },
         |local, merged| {
             (
-                grid_content_delta(&local.grid, &merged.grid),
-                grid_edge_delta(&local.grid, &merged.grid)
+                local.grid.content_delta(&merged.grid),
+                local.grid.edge_delta(&merged.grid)
                     + (merged.guide_slot_gap_px - local.guide_slot_gap_px).abs(),
             )
         },
@@ -970,7 +969,6 @@ fn apply_child_frame_layout_alignment_recursive(
 mod tests {
     use super::*;
     use crate::facet::placement::FacetCellPlacement;
-    use crate::layout::merge_grid_requirements;
 
     fn test_alignment_key(kind: ChildFrameContainerKind) -> LayoutAlignmentKey {
         LayoutAlignmentKey {
@@ -1222,7 +1220,7 @@ mod tests {
         let second =
             facet_grid_requirements_from_placement(shape, &placement, 8.0, &wide_boundaries)?;
 
-        let merged = merge_grid_requirements([&first, &second]).expect("compatible facet grids");
+        let merged = GridRequirements::merged([&first, &second]).expect("compatible facet grids");
         let layout = facet_grid_requirements_to_coordinated_layout(
             FacetAxis::Column,
             &ChartGridRequirements {
