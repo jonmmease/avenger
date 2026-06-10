@@ -1057,6 +1057,146 @@ fn facet_measurement_overflow(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::{LayoutItem, LayoutNode, LayoutSlotContent, tree_envelope};
+
+    /// Acceptance test for the avenger-layout tree sweeps: the facet band's
+    /// first/last-vs-max edge aggregation falls out of grid edge math when
+    /// cells are leaves of a 1xN (Column) or Nx1 (Row) layout tree.
+    ///
+    /// The comparison holds when one cell dominates each side in both the
+    /// guide and legend layers (as here). In the mixed case the two computed
+    /// values intentionally diverge: this aggregation reports the measured
+    /// envelope (max of per-cell totals), while the tree envelope reports
+    /// the layered coordination view (max guide + max legend), which is what
+    /// cells physically occupy after overflow patches are applied.
+    #[test]
+    fn tree_envelope_matches_facet_band_overflow_aggregation() {
+        use crate::layout::{Edges, GridShape, GridSlot, Size, TrackSpacing};
+
+        let cell_inputs = [
+            FacetCellOverflowInput {
+                renderable: true,
+                guide: OverflowSpaceRequirement {
+                    top: 4.0,
+                    right: 9.0,
+                    bottom: 1.0,
+                    left: 15.0,
+                },
+                total: OverflowSpaceRequirement {
+                    top: 6.0,
+                    right: 12.0,
+                    bottom: 2.0,
+                    left: 18.0,
+                },
+            },
+            FacetCellOverflowInput {
+                renderable: true,
+                guide: OverflowSpaceRequirement {
+                    top: 7.0,
+                    right: 3.0,
+                    bottom: 8.0,
+                    left: 2.0,
+                },
+                total: OverflowSpaceRequirement {
+                    top: 10.0,
+                    right: 5.0,
+                    bottom: 11.0,
+                    left: 3.0,
+                },
+            },
+        ];
+
+        for axis in [FacetAxis::Column, FacetAxis::Row] {
+            let aggregated = aggregate_facet_band_overflow_with_policy(
+                axis,
+                &cell_inputs,
+                FacetBandNoRenderablePolicy::DefaultOverflow,
+            )
+            .expect("non-empty cells should aggregate");
+
+            let items = cell_inputs
+                .iter()
+                .enumerate()
+                .map(|(index, cell)| {
+                    let (row, column) = match axis {
+                        FacetAxis::Column => (0, index),
+                        FacetAxis::Row => (index, 0),
+                    };
+                    LayoutItem {
+                        child_index: index,
+                        slot: GridSlot {
+                            row,
+                            column,
+                            row_span: 1,
+                            column_span: 1,
+                        },
+                        content: LayoutSlotContent::Leaf {
+                            content_size: Size::new(100.0, 60.0),
+                            inner_edges: Edges::new(
+                                cell.guide.top,
+                                cell.guide.right,
+                                cell.guide.bottom,
+                                cell.guide.left,
+                            ),
+                            outer_edges: Edges::new(
+                                (cell.total.top - cell.guide.top).max(0.0),
+                                (cell.total.right - cell.guide.right).max(0.0),
+                                (cell.total.bottom - cell.guide.bottom).max(0.0),
+                                (cell.total.left - cell.guide.left).max(0.0),
+                            ),
+                            total_edges: Edges::new(
+                                cell.total.top,
+                                cell.total.right,
+                                cell.total.bottom,
+                                cell.total.left,
+                            ),
+                        },
+                    }
+                })
+                .collect::<Vec<_>>();
+            let shape = match axis {
+                FacetAxis::Column => GridShape {
+                    rows: 1,
+                    columns: cell_inputs.len(),
+                },
+                FacetAxis::Row => GridShape {
+                    rows: cell_inputs.len(),
+                    columns: 1,
+                },
+            };
+            let node = LayoutNode {
+                shape,
+                column_spacing: TrackSpacing::default(),
+                row_spacing: TrackSpacing::default(),
+                base_cell_size: Size::default(),
+                stacked_edges: Edges::default(),
+                items,
+            };
+
+            let envelope = tree_envelope(&node).expect("facet band tree should collect");
+
+            assert_eq!(envelope.inner_edges.top, aggregated.guide.top, "{axis:?}");
+            assert_eq!(
+                envelope.inner_edges.right, aggregated.guide.right,
+                "{axis:?}"
+            );
+            assert_eq!(
+                envelope.inner_edges.bottom, aggregated.guide.bottom,
+                "{axis:?}"
+            );
+            assert_eq!(envelope.inner_edges.left, aggregated.guide.left, "{axis:?}");
+            assert_eq!(envelope.total_edges.top, aggregated.total.top, "{axis:?}");
+            assert_eq!(
+                envelope.total_edges.right, aggregated.total.right,
+                "{axis:?}"
+            );
+            assert_eq!(
+                envelope.total_edges.bottom, aggregated.total.bottom,
+                "{axis:?}"
+            );
+            assert_eq!(envelope.total_edges.left, aggregated.total.left, "{axis:?}");
+        }
+    }
 
     fn overflow(guide: (f32, f32, f32, f32), total: (f32, f32, f32, f32)) -> CoordinatedOverflow {
         CoordinatedOverflow {

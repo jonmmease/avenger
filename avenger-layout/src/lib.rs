@@ -47,6 +47,7 @@ pub mod grid;
 pub mod region;
 #[cfg(feature = "svg")]
 pub mod svg;
+pub mod tree;
 
 pub use alignment::{
     AlignedGroup, AlignmentNode, AlignmentPlan, ConvergenceTrace, NodeDelta, RoundDeltas,
@@ -63,3 +64,7 @@ pub use grid::{
 pub use region::{EdgeDemand, EdgeTargets, PlacedRegion, PlacementSolution, project_rect};
 #[cfg(feature = "svg")]
 pub use svg::{DebugRegion, DebugScene};
+pub use tree::{
+    LayoutItem, LayoutNode, LayoutSlotContent, SolvedRegion, SolvedTree, TreeEnvelope, solve_tree,
+    tree_envelope,
+};

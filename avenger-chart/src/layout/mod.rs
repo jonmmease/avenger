@@ -26,7 +26,10 @@ pub(crate) use avenger_layout::{
     zero_edge_demands,
 };
 #[cfg(test)]
-pub(crate) use avenger_layout::{merge_grid_requirements, total_edge_demands};
+pub(crate) use avenger_layout::{
+    LayoutItem, LayoutNode, LayoutSlotContent, merge_grid_requirements, total_edge_demands,
+    tree_envelope,
+};
 pub use band_position::BandPositionIterator;
 pub use content_solver::{
     ChildFrameContentMeasurement, ChildFrameContentPlan, ChildFrameContentSolver,
