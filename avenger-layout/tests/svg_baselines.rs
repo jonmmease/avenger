@@ -632,22 +632,15 @@ fn frame_around_tree(tree: &LayoutNode<usize>, extra: Option<Size>) -> DebugScen
         .expect("tree solves in the frame's content");
 
     let mut scene = DebugScene::from_frame(&frame_solution);
-    scene.regions.extend(
-        DebugScene::from_tree(&solved)
-            .regions
-            .into_iter()
-            .map(|mut region| {
-                region.content.x += content.x;
-                region.content.y += content.y;
-                if let Some(anchor) = &mut region.label_anchor {
-                    anchor[0] += content.x;
-                    // One extra line down so depth-0 labels clear the
-                    // frame's own "content" label.
-                    anchor[1] += content.y + 12.0;
-                }
-                region
-            }),
-    );
+    let mut tree_scene = DebugScene::from_tree(&solved);
+    // One extra line down so depth-0 labels clear the frame's own
+    // "content" label.
+    for region in &mut tree_scene.regions {
+        if let Some(anchor) = &mut region.label_anchor {
+            anchor[1] += 12.0;
+        }
+    }
+    scene.embed(tree_scene, [content.x, content.y]);
     scene
 }
 
@@ -765,24 +758,15 @@ fn frame_wrapping_facet_tree() {
     );
 
     let mut scene = DebugScene::from_frame(&frame_solution);
-    scene
-        .regions
-        .extend(
-            DebugScene::from_tree(&solved_tree)
-                .regions
-                .into_iter()
-                .map(|mut region| {
-                    region.content.x += content.x;
-                    region.content.y += content.y;
-                    if let Some(anchor) = &mut region.label_anchor {
-                        anchor[0] += content.x;
-                        // One extra line down so depth-0 labels clear the
-                        // frame's own "content" label.
-                        anchor[1] += content.y + 12.0;
-                    }
-                    region
-                }),
-        );
+    let mut tree_scene = DebugScene::from_tree(&solved_tree);
+    // One extra line down so depth-0 labels clear the frame's own
+    // "content" label.
+    for region in &mut tree_scene.regions {
+        if let Some(anchor) = &mut region.label_anchor {
+            anchor[1] += 12.0;
+        }
+    }
+    scene.embed(tree_scene, [content.x, content.y]);
     assert_svg_baseline("frame_wrapping_facet_tree", &scene.to_svg());
 }
 

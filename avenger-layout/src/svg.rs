@@ -414,6 +414,30 @@ impl DebugScene {
         }
     }
 
+    /// Embed another scene at an origin: regions, label anchors, and
+    /// markers translate; the embedded scene's own bounds/dividers are
+    /// dropped (the host scene owns the canvas). This is how composed
+    /// solves render as one image — e.g. a tree solved inside a frame's
+    /// content rectangle embeds at that rectangle's origin.
+    pub fn embed(&mut self, scene: DebugScene, origin: [f32; 2]) {
+        self.regions
+            .extend(scene.regions.into_iter().map(|mut region| {
+                region.content.x += origin[0];
+                region.content.y += origin[1];
+                if let Some(anchor) = &mut region.label_anchor {
+                    anchor[0] += origin[0];
+                    anchor[1] += origin[1];
+                }
+                region
+            }));
+        self.markers
+            .extend(scene.markers.into_iter().map(|mut marker| {
+                marker.position[0] += origin[0];
+                marker.position[1] += origin[1];
+                marker
+            }));
+    }
+
     /// Write the scene as a self-contained SVG document.
     pub fn to_svg(&self) -> String {
         const PADDING: f32 = 10.0;
