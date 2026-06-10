@@ -463,6 +463,9 @@ pub(crate) fn compute_explicit_facet_band_placement(
         })
         .collect::<Vec<_>>();
 
+    // Trace-only: mirrors the gap rule BandSolution::solve applies from
+    // TrackSpacing { min_gap } and the raw boundaries below. Nothing
+    // computed here feeds the solve.
     for window in inputs.windows(2) {
         let current = &window[0];
         let next = &window[1];

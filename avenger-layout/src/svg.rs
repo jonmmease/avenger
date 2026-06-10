@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 use crate::band::BandSolution;
 use crate::geometry::{Orientation, Rect, Size};
 use crate::grid::{GridItem, GridSolution};
-use crate::tree::SolvedTree;
+use crate::tree::TreeSolution;
 
 /// One labeled region in a solved layout.
 #[derive(Clone, Debug, PartialEq)]
@@ -133,7 +133,7 @@ impl DebugScene {
 
     /// Capture a solved layout tree: one region per solved node or leaf,
     /// labeled with its ID and depth, in root coordinates.
-    pub fn from_solved_tree<Id: Display>(tree: &SolvedTree<Id>) -> Self {
+    pub fn from_tree<Id: Display>(tree: &TreeSolution<Id>) -> Self {
         let regions = tree
             .regions
             .iter()
@@ -448,7 +448,7 @@ mod tests {
         );
         let solved = root.solve(None).expect("tree should solve");
 
-        let svg = DebugScene::from_solved_tree(&solved).to_svg();
+        let svg = DebugScene::from_tree(&solved).to_svg();
         let expected = "\
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 166 80\" font-family=\"monospace\" font-size=\"10\">
   <rect x=\"0\" y=\"0\" width=\"146\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>

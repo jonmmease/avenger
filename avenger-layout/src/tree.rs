@@ -3,7 +3,7 @@
 //! A [`LayoutNode`] is a grid whose slots hold either leaf content (a content
 //! size plus layered edge demand) or child subtrees. The two sweeps are:
 //!
-//! - [`tree_envelope`] (bottom-up): each subtree solves locally and exports
+//! - [`LayoutNode::envelope`] (bottom-up): each subtree solves locally and exports
 //!   what its parent slot sees — the solved content size plus boundary edge
 //!   demands. Because a grid excludes the first leading and last trailing
 //!   edges from its content extent, the classic facet aggregation rules fall
@@ -12,7 +12,7 @@
 //!   by max. A node's own stacked chrome (for charts: facet
 //!   labels/titles on the inner layer, band legends on the outer layer)
 //!   stacks beyond the aggregated child envelope.
-//! - [`solve_tree`] (top-down): origins, per-slot content sizes, and edge
+//! - [`LayoutNode::solve`] (top-down): origins, per-slot content sizes, and edge
 //!   targets for every region in root coordinates. When a parent allocates
 //!   more space than a subtree's natural extent (for charts: an aligned
 //!   sibling grew), the subtree's tracks stretch evenly to fill the
@@ -85,7 +85,7 @@ pub struct SolvedRegion<Id = usize> {
 
 /// Result of solving a layout tree top-down.
 #[derive(Clone, Debug, PartialEq)]
-pub struct SolvedTree<Id = usize> {
+pub struct TreeSolution<Id = usize> {
     pub content_size: Size,
     pub regions: Vec<SolvedRegion<Id>>,
 }
@@ -216,12 +216,12 @@ impl<Id: Clone> LayoutNode<Id> {
     /// `allocation` is the content size granted by the caller; when it
     /// exceeds the tree's natural extent the root's tracks stretch evenly
     /// and the stretch propagates through nested allocations.
-    pub fn solve(&self, allocation: Option<Size>) -> Result<SolvedTree<Id>, GridError> {
+    pub fn solve(&self, allocation: Option<Size>) -> Result<TreeSolution<Id>, GridError> {
         let collected = collect_node(self)?;
         let mut regions = Vec::new();
         let content_size =
             solve_node_into(self, &collected, allocation, [0.0, 0.0], 0, &mut regions);
-        Ok(SolvedTree {
+        Ok(TreeSolution {
             content_size,
             regions,
         })

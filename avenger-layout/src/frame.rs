@@ -26,7 +26,8 @@
 //! All slab inputs are clamped to zero before solving. Solved positions are
 //! exact (unrounded); pixel snapping is a caller policy.
 
-use crate::geometry::{Rect, Size};
+use crate::geometry::{Edges, Rect, Size};
+use crate::region::EdgeDemand;
 
 /// Per-axis sizing input for a frame solve.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -69,6 +70,13 @@ impl FrameSide {
         total += self.outer.max(0.0);
         total += self.inner.max(0.0);
         total
+    }
+
+    /// This side's declared chrome as layered edge demand (see
+    /// [`SolvedFrameSide::edge_demand`] for the solved counterpart). The
+    /// margin and bands count toward the total layer only.
+    pub fn edge_demand(&self) -> EdgeDemand {
+        EdgeDemand::new(self.inner.max(0.0), self.outer.max(0.0), self.total())
     }
 }
 
@@ -116,6 +124,27 @@ pub struct SolvedFrameSide {
     pub inner: SolvedSlab,
 }
 
+impl SolvedFrameSide {
+    /// Total solved chrome extent on this side
+    /// (margin + bands + outer + inner).
+    pub fn total_size(&self) -> f32 {
+        let mut total = self.margin.size;
+        for band in &self.bands {
+            total += band.size;
+        }
+        total + self.outer.size + self.inner.size
+    }
+
+    /// This side's chrome as layered edge demand: the `inner` layer is the
+    /// guide-like demand, `outer` the legend-like demand, and the total is
+    /// the full chrome stack including bands and the margin. This is the
+    /// bridge from a solved frame to the demand vocabulary the band, grid,
+    /// and tree solvers consume.
+    pub fn edge_demand(&self) -> EdgeDemand {
+        EdgeDemand::new(self.inner.size, self.outer.size, self.total_size())
+    }
+}
+
 /// A solved frame axis: leading chrome, content, trailing chrome, and the
 /// solved envelope extent (which can exceed a requested envelope when the
 /// content floor wins).
@@ -140,6 +169,21 @@ impl Frame {
             horizontal: self.horizontal.solve(),
             vertical: self.vertical.solve(),
         }
+    }
+}
+
+impl FrameSolution {
+    /// Per-side layered edge demand of the solved frame: top and bottom
+    /// from the vertical axis, left and right from the horizontal axis.
+    /// This is what a container consumes when it arranges solved frames as
+    /// band, grid, or tree items.
+    pub fn edge_demands(&self) -> Edges<EdgeDemand> {
+        Edges::new(
+            self.vertical.leading.edge_demand(),
+            self.horizontal.trailing.edge_demand(),
+            self.vertical.trailing.edge_demand(),
+            self.horizontal.leading.edge_demand(),
+        )
     }
 }
 
@@ -446,12 +490,56 @@ mod tests {
         assert_eq!(solution.extent(), Size::new(400.0, 300.0));
     }
 
-    impl SolvedFrameSide {
-        fn total_size(&self) -> f32 {
-            self.margin.size
-                + self.bands.iter().map(|slab| slab.size).sum::<f32>()
-                + self.outer.size
-                + self.inner.size
+    #[test]
+    fn solved_sides_emit_layered_edge_demand() {
+        let solution = Frame {
+            horizontal: axis(
+                FrameAxisSizing::ContentFixed { content: 100.0 },
+                side(10.0, &[], 20.0, 5.0),
+                side(0.0, &[], 0.0, 7.0),
+            ),
+            vertical: axis(
+                FrameAxisSizing::ContentFixed { content: 80.0 },
+                side(4.0, &[21.0, 11.0], 30.0, 16.0),
+                side(0.0, &[], 12.0, 0.0),
+            ),
         }
+        .solve();
+
+        let demands = solution.edge_demands();
+        // Top: inner = guide layer, outer = legend layer, total = the full
+        // stack including bands and margin.
+        assert_eq!(demands.top.inner, 16.0);
+        assert_eq!(demands.top.outer, 30.0);
+        assert_eq!(demands.top.total, 4.0 + 21.0 + 11.0 + 30.0 + 16.0);
+        assert_eq!(demands.left.inner, 5.0);
+        assert_eq!(demands.left.outer, 20.0);
+        assert_eq!(demands.left.total, 35.0);
+        assert_eq!(demands.right.inner, 7.0);
+        assert_eq!(demands.right.outer, 0.0);
+        assert_eq!(demands.right.total, 7.0);
+        assert_eq!(demands.bottom.total, 12.0);
+
+        // The declared-side bridge agrees when nothing is flexible.
+        let declared = side(4.0, &[21.0, 11.0], 30.0, 16.0).edge_demand();
+        assert_eq!(declared, demands.top);
+    }
+
+    #[test]
+    fn flexible_margins_show_up_in_solved_edge_demand() {
+        let solution = axis(
+            FrameAxisSizing::EnvelopeAndContentFixed {
+                extent: 500.0,
+                content: 300.0,
+            },
+            side(7.0, &[], 0.0, 0.0),
+            side(13.0, &[], 0.0, 0.0),
+        )
+        .solve();
+
+        // Declared margins are replaced by the slack split; the solved
+        // demand reflects what was actually laid out.
+        assert_eq!(solution.leading.edge_demand().total, 100.0);
+        assert_eq!(solution.trailing.edge_demand().total, 100.0);
     }
 }

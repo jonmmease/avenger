@@ -222,6 +222,28 @@ impl GridRequirements {
         base_cell_size: Size,
         demands: &[GridItem<Id>],
     ) -> Result<GridRequirements, GridError> {
+        for demand in demands {
+            let slot = demand.slot;
+            if slot.row_span == 0
+                || slot.column_span == 0
+                || slot.row_end() > shape.rows
+                || slot.column_end() > shape.columns
+            {
+                return Err(GridError::SlotOutOfBounds { slot, shape });
+            }
+        }
+        Ok(Self::from_items_validated(shape, base_cell_size, demands))
+    }
+
+    /// Like [`GridRequirements::from_items`] for callers whose slots are
+    /// correct by construction (the band adapter derives every slot from
+    /// the item index, so out-of-bounds is structurally impossible).
+    /// Bounds are debug-asserted only.
+    pub(crate) fn from_items_validated<Id>(
+        shape: GridShape,
+        base_cell_size: Size,
+        demands: &[GridItem<Id>],
+    ) -> GridRequirements {
         use crate::geometry::Side;
 
         let mut requirements = GridRequirements {
@@ -238,13 +260,13 @@ impl GridRequirements {
 
         for demand in demands {
             let slot = demand.slot;
-            if slot.row_span == 0
-                || slot.column_span == 0
-                || slot.row_end() > shape.rows
-                || slot.column_end() > shape.columns
-            {
-                return Err(GridError::SlotOutOfBounds { slot, shape });
-            }
+            debug_assert!(
+                slot.row_span > 0
+                    && slot.column_span > 0
+                    && slot.row_end() <= shape.rows
+                    && slot.column_end() <= shape.columns,
+                "slot out of bounds: {slot:?} in {shape:?}"
+            );
 
             let last_row = slot.row_end() - 1;
             let last_column = slot.column_end() - 1;
@@ -267,7 +289,7 @@ impl GridRequirements {
             }
         }
 
-        Ok(requirements)
+        requirements
     }
 
     /// Solve track starts, span constraints, and content size for one grid.

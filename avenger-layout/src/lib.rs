@@ -43,6 +43,28 @@
 //! crate: callers own what an ID means and how equivalent regions are
 //! grouped.
 //!
+//! # Vocabulary
+//!
+//! Result naming follows one principle: `*Solution` is the whole result of
+//! a solve ([`GridSolution`], [`BandSolution`], [`FrameSolution`],
+//! [`TreeSolution`]), `Solved*` is one component inside a solution
+//! ([`SolvedSlab`], [`SolvedRegion`]), and `Placed*` is one positioned
+//! child entry ([`PlacedRegion`], [`PlacedBandItem`]).
+//!
+//! Three spatial vocabularies coexist, each natural to its solver, with a
+//! fixed mapping between them:
+//!
+//! - **Cardinal** ([`Edges`]: top/right/bottom/left) — what containers and
+//!   demands speak.
+//! - **Per-axis** ([`frame`]: leading/trailing) — the frame's two axes are
+//!   symmetric. Mapping: top = vertical leading, bottom = vertical
+//!   trailing, left = horizontal leading, right = horizontal trailing.
+//! - **Main/cross** ([`band`]: main/cross starts and sizes) — the band is
+//!   orientation-generic. For [`Orientation::Horizontal`], main = x/width
+//!   and cross = y/height; vertical swaps them. A band item's
+//!   [`BoundaryDemand`] (`before`/`after`) is the main-axis projection of
+//!   its leading/trailing edge totals.
+//!
 //! # Choosing a solver
 //!
 //! - One leaf region's chrome geometry (content plus margin/band/outer/inner
@@ -87,6 +109,6 @@ pub use region::{EdgeDemand, EdgeTargets, PlacedRegion, PlacementSolution, proje
 #[cfg(feature = "svg")]
 pub use svg::{DebugRegion, DebugScene};
 pub use tree::{
-    LayoutItem, LayoutNode, LayoutSlotContent, SolvedRegion, SolvedTree, TreeEnvelope,
-    TreeEnvelopeKind,
+    LayoutItem, LayoutNode, LayoutSlotContent, SolvedRegion, TreeEnvelope, TreeEnvelopeKind,
+    TreeSolution,
 };

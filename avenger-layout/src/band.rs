@@ -20,6 +20,11 @@ pub enum CrossAlign {
 }
 
 /// Main-axis rendered demand outside one child boundary.
+///
+/// This is the band's one-dimensional view of [`crate::EdgeDemand`]:
+/// `before`/`after` are the child's leading/trailing edge **totals**
+/// projected onto the main axis. The solver feeds them into the same gap
+/// rule the grid uses (`max(min_gap, after + before)`).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct BoundaryDemand {
     pub before: f32,
@@ -89,6 +94,10 @@ impl<Id: Clone> BandSolution<Id> {
     /// [`TrackSpacing`] (gaps follow the grid rule
     /// `max(min_gap, after + before)`); `cross_align` positions children
     /// within the band's cross extent.
+    ///
+    /// Infallible: every slot is derived from the item index against a
+    /// shape built from the item count, so the grid's only error
+    /// (out-of-bounds slot) is structurally impossible here.
     pub fn solve(
         orientation: Orientation,
         items: &[BandItem<Id>],
@@ -142,8 +151,8 @@ impl<Id: Clone> BandSolution<Id> {
             })
             .collect::<Vec<_>>();
 
-        let mut requirements = GridRequirements::from_items(shape, Size::default(), &grid_items)
-            .expect("band slots are single-span and indexed within the band grid shape");
+        let mut requirements =
+            GridRequirements::from_items_validated(shape, Size::default(), &grid_items);
         match orientation {
             Orientation::Horizontal => requirements.column_spacing = spacing,
             Orientation::Vertical => requirements.row_spacing = spacing,
