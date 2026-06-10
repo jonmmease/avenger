@@ -20,6 +20,15 @@ review the diffs:
 AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --features svg --test svg_baselines
 ```
 
+To render the gallery to PNGs (e.g. for sharing), `rsvg-convert` from
+librsvg (`brew install librsvg`) is the simplest route:
+
+```sh
+for f in avenger-layout/tests/baselines/*.svg; do
+  rsvg-convert -z 2 "$f" -o "${f%.svg}.png"
+done
+```
+
 ## Reading the SVGs
 
 - black frame: the arrangement's content bounds (for frames, the solved
