@@ -13,9 +13,10 @@
 //!   solved envelope extent),
 //! - overflow strips beside each content rectangle encode three things:
 //!   **hue** is the layer (red = inner/guide-like, green = remainder up to
-//!   the total), **shade** is the region's nesting depth (deeper is
-//!   darker; a frame's own chrome strips sit at the light end of the same
-//!   ramps), and **solid vs hatched** is requested vs coordinated — a
+//!   the total), **shade** is the region's nesting depth (dark at the
+//!   base layer, lighter as nesting deepens; a frame's own chrome strips
+//!   are the darkest step of the same ramps), and **solid vs hatched** is
+//!   requested vs coordinated — a
 //!   solid strip is demand the region itself carried, a hatched strip
 //!   (bordered in its shade) is the target the solve produced. Where a
 //!   hatched band extends past the solid strip inside it, coordination
@@ -426,17 +427,15 @@ impl DebugScene {
         ];
         const KEY_HEIGHT: f32 = 24.0;
         // Demand strips encode three things: hue = layer (red inner, green
-        // outer), shade = nesting depth (deeper is darker, clamped; a
-        // frame's own chrome strips sit at the light end of the same
-        // ramps), and solid vs hatched = requested vs coordinated. Fills
-        // are opaque:
+        // outer), shade = nesting depth (dark at the base layer, lighter as
+        // nesting deepens; a frame's own chrome strips are the darkest
+        // step of the same ramps), and solid vs hatched = requested vs
+        // coordinated. Fills are opaque:
         // nested regions draw overlapping strips, and translucency would
         // invent in-between shades where they stack.
         const STRIP_BORDER: &str = "stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"";
-        const INNER_SHADES: [&str; 3] = ["#f8b4b4", "#ec6e6e", "#c52f2f"];
-        const OUTER_SHADES: [&str; 3] = ["#a3e4bf", "#4cbd7d", "#1e8a4c"];
-        let inner_shade = |depth: usize| INNER_SHADES[depth.min(INNER_SHADES.len() - 1)];
-        let outer_shade = |depth: usize| OUTER_SHADES[depth.min(OUTER_SHADES.len() - 1)];
+        let inner_shade = |depth: usize| INNER_SHADES[(depth + 1).min(INNER_SHADES.len() - 1)];
+        let outer_shade = |depth: usize| OUTER_SHADES[(depth + 1).min(OUTER_SHADES.len() - 1)];
         let solid_fill = |shade: &str| format!("fill=\"{shade}\" {STRIP_BORDER}");
         let hatch_fill = |layer: char, depth: usize| {
             let shade = match layer {
@@ -847,6 +846,12 @@ fn union(a: Rect, b: Rect) -> Rect {
     Rect::new(x, y, right - x, bottom - y)
 }
 
+/// Shade ramps shared by frame chrome and demand strips: index 0 is the
+/// base (frame) layer, tree depth `d` uses index `d + 1`; dark at the base,
+/// lighter as nesting deepens (clamped).
+const INNER_SHADES: [&str; 4] = ["#9f2222", "#cf4444", "#e98080", "#f7bcbc"];
+const OUTER_SHADES: [&str; 4] = ["#14602f", "#2f9c5c", "#6cc795", "#b2e6c9"];
+
 /// Rendered style per region kind.
 fn kind_style(kind: DebugRegionKind) -> &'static str {
     match kind {
@@ -859,11 +864,13 @@ fn kind_style(kind: DebugRegionKind) -> &'static str {
         DebugRegionKind::Band => {
             "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
         }
+        // OUTER_SHADES[0]: the base step of the outer ramp.
         DebugRegionKind::Outer => {
-            "fill=\"#bbf7d0\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
+            "fill=\"#14602f\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
         }
+        // INNER_SHADES[0]: the base step of the inner ramp.
         DebugRegionKind::Inner => {
-            "fill=\"#fecaca\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
+            "fill=\"#9f2222\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\""
         }
         DebugRegionKind::Bounds => "fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"",
     }
@@ -1091,27 +1098,27 @@ mod tests {
         let expected = "\
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10 -10 249 104\" font-family=\"monospace\" font-size=\"10\">
   <defs>
-    <pattern id=\"hatch-i0\" patternUnits=\"userSpaceOnUse\" width=\"4\" height=\"4\" patternTransform=\"rotate(45)\"><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"#f8b4b4\" stroke-width=\"1.6\"/></pattern>
-    <pattern id=\"hatch-o0\" patternUnits=\"userSpaceOnUse\" width=\"4\" height=\"4\" patternTransform=\"rotate(45)\"><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"#a3e4bf\" stroke-width=\"1.6\"/></pattern>
+    <pattern id=\"hatch-i0\" patternUnits=\"userSpaceOnUse\" width=\"4\" height=\"4\" patternTransform=\"rotate(45)\"><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"#cf4444\" stroke-width=\"1.6\"/></pattern>
+    <pattern id=\"hatch-o0\" patternUnits=\"userSpaceOnUse\" width=\"4\" height=\"4\" patternTransform=\"rotate(45)\"><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"4\" stroke=\"#2f9c5c\" stroke-width=\"1.6\"/></pattern>
   </defs>
   <rect x=\"-10\" y=\"-10\" width=\"249\" height=\"104\" fill=\"#ffffff\"/>
-  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"url(#hatch-i0)\" stroke=\"#f8b4b4\" stroke-width=\"1\"/>
-  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"url(#hatch-o0)\" stroke=\"#a3e4bf\" stroke-width=\"1\"/>
-  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#f8b4b4\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
-  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#a3e4bf\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"url(#hatch-i0)\" stroke=\"#cf4444\" stroke-width=\"1\"/>
+  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"url(#hatch-o0)\" stroke=\"#2f9c5c\" stroke-width=\"1\"/>
+  <rect x=\"100\" y=\"0\" width=\"6\" height=\"60\" fill=\"#cf4444\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"106\" y=\"0\" width=\"20\" height=\"60\" fill=\"#2f9c5c\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <rect x=\"0\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"3\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">0 r0c0</text>
-  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"url(#hatch-o0)\" stroke=\"#a3e4bf\" stroke-width=\"1\"/>
-  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#a3e4bf\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
+  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"url(#hatch-o0)\" stroke=\"#2f9c5c\" stroke-width=\"1\"/>
+  <rect x=\"126\" y=\"0\" width=\"3\" height=\"60\" fill=\"#2f9c5c\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <rect x=\"129\" y=\"0\" width=\"100\" height=\"60\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"132\" y=\"12\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">1 r0c1</text>
   <rect x=\"0\" y=\"70\" width=\"10\" height=\"10\" fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#ffffff\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"/>
   <text x=\"13\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">content</text>
-  <rect x=\"69\" y=\"70\" width=\"5\" height=\"10\" fill=\"#f8b4b4\" stroke=\"#f8b4b4\" stroke-width=\"1\"/>
-  <rect x=\"74\" y=\"70\" width=\"5\" height=\"10\" fill=\"url(#hatch-i0)\" stroke=\"#f8b4b4\" stroke-width=\"1\"/>
+  <rect x=\"69\" y=\"70\" width=\"5\" height=\"10\" fill=\"#cf4444\" stroke=\"#cf4444\" stroke-width=\"1\"/>
+  <rect x=\"74\" y=\"70\" width=\"5\" height=\"10\" fill=\"url(#hatch-i0)\" stroke=\"#cf4444\" stroke-width=\"1\"/>
   <text x=\"82\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">inner</text>
-  <rect x=\"126\" y=\"70\" width=\"5\" height=\"10\" fill=\"#a3e4bf\" stroke=\"#a3e4bf\" stroke-width=\"1\"/>
-  <rect x=\"131\" y=\"70\" width=\"5\" height=\"10\" fill=\"url(#hatch-o0)\" stroke=\"#a3e4bf\" stroke-width=\"1\"/>
+  <rect x=\"126\" y=\"70\" width=\"5\" height=\"10\" fill=\"#2f9c5c\" stroke=\"#2f9c5c\" stroke-width=\"1\"/>
+  <rect x=\"131\" y=\"70\" width=\"5\" height=\"10\" fill=\"url(#hatch-o0)\" stroke=\"#2f9c5c\" stroke-width=\"1\"/>
   <text x=\"139\" y=\"79\" fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\">outer</text>
   <rect x=\"0\" y=\"0\" width=\"229\" height=\"60\" fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"/>
 </svg>
