@@ -107,7 +107,7 @@ pub use grid::{
 };
 pub use region::{EdgeDemand, EdgeTargets, PlacedRegion, PlacementSolution, project_rect};
 #[cfg(feature = "svg")]
-pub use svg::{DebugRegion, DebugScene};
+pub use svg::{DebugMarker, DebugRegion, DebugRegionKind, DebugScene};
 pub use tree::{
     LayoutItem, LayoutNode, LayoutSlotContent, SolvedRegion, TreeEnvelope, TreeEnvelopeKind,
     TreeSolution,

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 230 155" font-family="monospace" font-size="10">
+  <rect x="0" y="0" width="210" height="135" fill="none" stroke="#111111" stroke-width="1"/>
+  <rect x="0" y="0" width="92.5" height="55" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="3" y="12">a r0c0</text>
+  <rect x="160" y="0" width="50" height="55" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="163" y="12">b r0c2</text>
+  <rect x="0" y="55" width="160" height="45" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="3" y="67">wide r1c0 span 1x2</text>
+  <rect x="92.5" y="100" width="67.5" height="35" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="95.5" y="112">c r2c1</text>
+</svg>

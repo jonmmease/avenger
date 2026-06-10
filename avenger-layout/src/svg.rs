@@ -11,25 +11,60 @@
 //! - dashed purple: total edge envelope (`EdgeTargets::total`),
 //! - dotted blue: inner edge envelope (`EdgeTargets::inner`),
 //! - filled blue: content rectangle,
-//! - black frame: the arrangement's content bounds.
+//! - black frame: the arrangement's content bounds (for a frame scene, the
+//!   solved envelope extent).
+//!
+//! Frame scenes ([`DebugScene::from_frame`]) additionally tile the chrome
+//! layers as translucent strips, one per solved slab: gray margins, amber
+//! bands, green outer (legend-like) layers, and red inner (guide-like)
+//! layers. The two axes are solved independently, so horizontal and
+//! vertical strips overlap at the corners by design. Placement scenes
+//! ([`DebugScene::from_placements`]) draw each child origin as a labeled
+//! cross marker.
 
 use std::fmt::Display;
 use std::fmt::Write as _;
 
 use crate::band::BandSolution;
+use crate::frame::{FrameAxisSolution, FrameSolution, SolvedSlab};
 use crate::geometry::{Orientation, Rect, Size};
-use crate::grid::{GridItem, GridSolution};
+use crate::grid::{GridItem, GridSolution, UniformTrackSolution};
+use crate::region::PlacementSolution;
 use crate::tree::TreeSolution;
+
+/// What a region represents, which selects its rendered style.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum DebugRegionKind {
+    /// A content rectangle (filled blue).
+    #[default]
+    Content,
+    /// A frame margin strip (gray).
+    Margin,
+    /// A frame band strip, e.g. a title row (amber).
+    Band,
+    /// A frame outer (legend-like) strip (green).
+    Outer,
+    /// A frame inner (guide-like) strip (red).
+    Inner,
+}
 
 /// One labeled region in a solved layout.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DebugRegion {
     pub label: String,
+    pub kind: DebugRegionKind,
     pub content: Rect,
     /// Content expanded by the coordinated inner edges, when known.
     pub inner_envelope: Option<Rect>,
     /// Content expanded by the coordinated total edges, when known.
     pub total_envelope: Option<Rect>,
+}
+
+/// One labeled point marker (e.g. a placement origin).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DebugMarker {
+    pub label: String,
+    pub position: [f32; 2],
 }
 
 /// A solved layout captured for inspection.
@@ -38,6 +73,7 @@ pub struct DebugScene {
     /// The arrangement's solved content size.
     pub content_size: Size,
     pub regions: Vec<DebugRegion>,
+    pub markers: Vec<DebugMarker>,
 }
 
 impl DebugScene {
@@ -59,6 +95,7 @@ impl DebugScene {
                 };
                 DebugRegion {
                     label: format!("{} r{}c{}{}", item.id, slot.row, slot.column, span_label),
+                    kind: DebugRegionKind::Content,
                     content,
                     inner_envelope: Some(expand(
                         content,
@@ -85,6 +122,7 @@ impl DebugScene {
         Self {
             content_size: solution.content_size,
             regions,
+            markers: Vec::new(),
         }
     }
 
@@ -118,6 +156,7 @@ impl DebugScene {
                 };
                 DebugRegion {
                     label: format!("{}", child.id),
+                    kind: DebugRegionKind::Content,
                     content,
                     inner_envelope: None,
                     total_envelope: None,
@@ -128,6 +167,7 @@ impl DebugScene {
         Self {
             content_size,
             regions,
+            markers: Vec::new(),
         }
     }
 
@@ -141,6 +181,7 @@ impl DebugScene {
                 let content = region.content_rect;
                 DebugRegion {
                     label: format!("{} d{}", region.id, region.depth),
+                    kind: DebugRegionKind::Content,
                     content,
                     inner_envelope: Some(expand(
                         content,
@@ -166,6 +207,120 @@ impl DebugScene {
         Self {
             content_size: tree.content_size,
             regions,
+            markers: Vec::new(),
+        }
+    }
+
+    /// Capture a solved frame: the content rectangle plus one strip per
+    /// non-empty chrome slab. Vertical-axis slabs span the envelope width
+    /// and horizontal-axis slabs span the envelope height; because the two
+    /// axes solve independently, the strips overlap at the corners.
+    pub fn from_frame(solution: &FrameSolution) -> Self {
+        let extent = solution.extent();
+        let mut regions = Vec::new();
+
+        let mut push = |label: String, kind: DebugRegionKind, rect: Rect| {
+            if rect.width <= 0.0 || rect.height <= 0.0 {
+                return;
+            }
+            regions.push(DebugRegion {
+                label,
+                kind,
+                content: rect,
+                inner_envelope: None,
+                total_envelope: None,
+            });
+        };
+
+        let mut push_axis = |axis: &FrameAxisSolution, vertical: bool| {
+            let strip = |slab: SolvedSlab| {
+                if vertical {
+                    Rect::new(0.0, slab.start, extent.width, slab.size)
+                } else {
+                    Rect::new(slab.start, 0.0, slab.size, extent.height)
+                }
+            };
+            let (lead, trail) = if vertical { ("t", "b") } else { ("l", "r") };
+            for (prefix, side) in [(lead, &axis.leading), (trail, &axis.trailing)] {
+                push(
+                    format!("{prefix} margin"),
+                    DebugRegionKind::Margin,
+                    strip(side.margin),
+                );
+                for (index, band) in side.bands.iter().enumerate() {
+                    push(
+                        format!("{prefix} band {index}"),
+                        DebugRegionKind::Band,
+                        strip(*band),
+                    );
+                }
+                push(
+                    format!("{prefix} outer"),
+                    DebugRegionKind::Outer,
+                    strip(side.outer),
+                );
+                push(
+                    format!("{prefix} inner"),
+                    DebugRegionKind::Inner,
+                    strip(side.inner),
+                );
+            }
+        };
+        push_axis(&solution.vertical, true);
+        push_axis(&solution.horizontal, false);
+
+        regions.push(DebugRegion {
+            label: "content".to_string(),
+            kind: DebugRegionKind::Content,
+            content: solution.content_rect(),
+            inner_envelope: None,
+            total_envelope: None,
+        });
+
+        Self {
+            content_size: extent,
+            regions,
+            markers: Vec::new(),
+        }
+    }
+
+    /// Capture solved uniform tracks, rendered horizontally: one region per
+    /// track at the given cross extent.
+    pub fn from_uniform_tracks(solution: &UniformTrackSolution, cross_extent: f32) -> Self {
+        let regions = solution
+            .starts
+            .iter()
+            .enumerate()
+            .map(|(index, start)| DebugRegion {
+                label: format!("track {index}"),
+                kind: DebugRegionKind::Content,
+                content: Rect::new(*start, 0.0, solution.track_size, cross_extent),
+                inner_envelope: None,
+                total_envelope: None,
+            })
+            .collect();
+        Self {
+            content_size: Size::new(solution.extent, cross_extent),
+            regions,
+            markers: Vec::new(),
+        }
+    }
+
+    /// Capture a placement handoff: each child origin as a labeled marker
+    /// within the parent's content bounds.
+    pub fn from_placements<Id: Display, M>(solution: &PlacementSolution<Id, M>) -> Self {
+        let markers = solution
+            .placements
+            .iter()
+            .map(|placement| DebugMarker {
+                label: format!("{}", placement.id),
+                position: placement.origin,
+            })
+            .collect();
+        Self {
+            content_size: solution.content_size,
+            regions: Vec::new(),
+            markers,
         }
     }
 
@@ -183,6 +338,12 @@ impl DebugScene {
             if let Some(rect) = region.total_envelope {
                 bounds = union(bounds, rect);
             }
+        }
+        for marker in &self.markers {
+            bounds = union(
+                bounds,
+                Rect::new(marker.position[0] - 4.0, marker.position[1] - 4.0, 8.0, 8.0),
+            );
         }
 
         let mut svg = String::new();
@@ -227,20 +388,74 @@ impl DebugScene {
                     )
                 );
             }
+            let style = match region.kind {
+                DebugRegionKind::Content => {
+                    "fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\""
+                }
+                DebugRegionKind::Margin => {
+                    "fill=\"#e5e7eb\" fill-opacity=\"0.6\" stroke=\"#6b7280\""
+                }
+                DebugRegionKind::Band => "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#d97706\"",
+                DebugRegionKind::Outer => {
+                    "fill=\"#bbf7d0\" fill-opacity=\"0.6\" stroke=\"#16a34a\""
+                }
+                DebugRegionKind::Inner => {
+                    "fill=\"#fecaca\" fill-opacity=\"0.6\" stroke=\"#dc2626\""
+                }
+            };
+            let _ = write!(svg, "  {}\n", rect_element(region.content, style));
+            // Tall narrow chrome strips (a frame's left/right layers) get
+            // their label rotated to run down the strip instead of
+            // colliding with the labels along the top edge.
+            let tall_narrow = region.kind != DebugRegionKind::Content
+                && region.content.width < 60.0
+                && region.content.height > region.content.width * 1.5;
+            if tall_narrow {
+                let x = region.content.x + 12.0;
+                let y = region.content.y + 3.0;
+                let _ = write!(
+                    svg,
+                    "  <text x=\"{}\" y=\"{}\" transform=\"rotate(90 {} {})\">{}</text>\n",
+                    x,
+                    y,
+                    x,
+                    y,
+                    escape_text(&region.label),
+                );
+            } else {
+                let _ = write!(
+                    svg,
+                    "  <text x=\"{}\" y=\"{}\">{}</text>\n",
+                    region.content.x + 3.0,
+                    region.content.y + 12.0,
+                    escape_text(&region.label),
+                );
+            }
+        }
+
+        for marker in &self.markers {
+            let [x, y] = marker.position;
             let _ = write!(
                 svg,
-                "  {}\n",
-                rect_element(
-                    region.content,
-                    "fill=\"#dbeafe\" fill-opacity=\"0.6\" stroke=\"#1d4ed8\""
-                )
+                concat!(
+                    "  <path d=\"M {} {} L {} {} M {} {} L {} {}\" ",
+                    "stroke=\"#111827\" stroke-width=\"1.5\"/>\n"
+                ),
+                x - 4.0,
+                y,
+                x + 4.0,
+                y,
+                x,
+                y - 4.0,
+                x,
+                y + 4.0,
             );
             let _ = write!(
                 svg,
                 "  <text x=\"{}\" y=\"{}\">{}</text>\n",
-                region.content.x + 3.0,
-                region.content.y + 12.0,
-                escape_text(&region.label),
+                x + 6.0,
+                y - 3.0,
+                escape_text(&marker.label),
             );
         }
 

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 300 60" font-family="monospace" font-size="10">
+  <rect x="0" y="0" width="280" height="40" fill="none" stroke="#111111" stroke-width="1"/>
+  <rect x="10" y="0" width="56" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="13" y="12">track 0</text>
+  <rect x="80" y="0" width="56" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="83" y="12">track 1</text>
+  <rect x="150" y="0" width="56" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="153" y="12">track 2</text>
+  <rect x="220" y="0" width="56" height="40" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="223" y="12">track 3</text>
+</svg>

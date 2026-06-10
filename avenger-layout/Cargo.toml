@@ -9,3 +9,7 @@ description = "Chart-independent layout primitives for arranging rectangular reg
 svg = []
 
 [dependencies]
+
+[[test]]
+name = "svg_baselines"
+required-features = ["svg"]

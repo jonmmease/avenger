@@ -1,0 +1,50 @@
+# avenger-layout SVG baselines
+
+Each SVG here is the rendered output of a like-named example test in
+[`../svg_baselines.rs`](../svg_baselines.rs). The tests build layouts
+through the crate's public API and snapshot them via `DebugScene::to_svg`,
+so this directory doubles as a visual gallery of what every solver does —
+open any file in a browser.
+
+Run the suite:
+
+```sh
+cargo test -p avenger-layout --features svg --test svg_baselines
+```
+
+On mismatch the actual SVG is written to `../failures/<name>.svg`
+(gitignored). After an intentional change, regenerate everything and
+review the diffs:
+
+```sh
+AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --features svg --test svg_baselines
+```
+
+## Reading the SVGs
+
+- black frame: the arrangement's content bounds (for frames, the solved
+  envelope extent)
+- filled blue: content rectangles
+- dotted blue / dashed purple: inner / total edge envelopes
+- frame chrome strips: gray margins, amber bands (titles), green outer
+  (legend-like), red inner (guide-like); the two frame axes solve
+  independently, so strips overlap at corners by design
+- crosses: placement origins
+
+## Gallery
+
+| Baseline | Shows |
+|---|---|
+| `band_horizontal_gaps_and_min_gap_floor` | boundary chrome becomes gaps, floored by `min_gap`; outer offsets |
+| `band_vertical_cross_align_center` | vertical band, ragged children centered on the cross axis |
+| `band_placement_handoff_markers` | `to_placement_solution` origins as markers over the band |
+| `grid_spans_holes_and_base_cell_size` | column span, empty slot, per-track base size floor |
+| `grid_edge_demand_layers_and_gap_law` | layered envelopes and the gap rule `max(min_gap, after + before)` |
+| `uniform_tracks_merged_policy` | two `UniformTracks` policies merged by max, then solved |
+| `frame_envelope_fixed_chart_chrome` | canvas-style frame: chrome subtracted from a fixed envelope |
+| `frame_content_fixed_envelope_derived` | content-first frame: envelope is the sum of all layers |
+| `frame_envelope_and_content_fixed_margin_slack` | both fixed: margins absorb the slack |
+| `frame_content_min_floor_overflows_envelope` | the content floor wins over a too-small envelope |
+| `tree_nested_with_stacked_chrome` | nested band with stacked inner/outer chrome; layered vs geometric envelopes asserted in the test |
+| `tree_allocation_stretches_tracks_evenly` | allocation larger than natural extent stretches every track |
+| `alignment_merges_grids_across_instances` | two instances before alignment, then both re-solved on the merged grid |

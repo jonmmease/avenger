@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-22 -10 276 178" font-family="monospace" font-size="10">
+  <rect x="0" y="0" width="200" height="154" fill="none" stroke="#111111" stroke-width="1"/>
+  <rect x="-12" y="0" width="256" height="66" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
+  <rect x="-12" y="0" width="218" height="66" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
+  <rect x="0" y="0" width="200" height="60" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="3" y="12">0 d0</text>
+  <rect x="-12" y="66" width="256" height="92" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
+  <rect x="-12" y="66" width="218" height="92" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
+  <rect x="0" y="84" width="200" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="3" y="96">1 d0</text>
+  <rect x="-12" y="80" width="112" height="78" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
+  <rect x="-12" y="80" width="112" height="78" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
+  <rect x="0" y="84" width="94" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="3" y="96">10 d1</text>
+  <rect x="100" y="80" width="124" height="78" fill="none" stroke="#9333ea" stroke-dasharray="4 2"/>
+  <rect x="100" y="80" width="106" height="78" fill="none" stroke="#2563eb" stroke-dasharray="2 2"/>
+  <rect x="106" y="84" width="94" height="70" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="109" y="96">11 d1</text>
+</svg>

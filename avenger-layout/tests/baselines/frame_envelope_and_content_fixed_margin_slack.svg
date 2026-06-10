@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 480 340" font-family="monospace" font-size="10">
+  <rect x="0" y="0" width="460" height="320" fill="none" stroke="#111111" stroke-width="1"/>
+  <rect x="0" y="0" width="460" height="50" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
+  <text x="3" y="12">t margin</text>
+  <rect x="0" y="50" width="460" height="22" fill="#fde68a" fill-opacity="0.6" stroke="#d97706"/>
+  <text x="3" y="62">t band 0</text>
+  <rect x="0" y="72" width="460" height="16" fill="#fde68a" fill-opacity="0.6" stroke="#d97706"/>
+  <text x="3" y="84">t band 1</text>
+  <rect x="0" y="88" width="460" height="4" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
+  <text x="3" y="100">t inner</text>
+  <rect x="0" y="270" width="460" height="50" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
+  <text x="3" y="282">b margin</text>
+  <rect x="0" y="252" width="460" height="18" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
+  <text x="3" y="264">b inner</text>
+  <rect x="0" y="0" width="64" height="320" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
+  <text x="3" y="12">l margin</text>
+  <rect x="64" y="0" width="34" height="320" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
+  <text x="76" y="3" transform="rotate(90 76 3)">l inner</text>
+  <rect x="396" y="0" width="64" height="320" fill="#e5e7eb" fill-opacity="0.6" stroke="#6b7280"/>
+  <text x="399" y="12">r margin</text>
+  <rect x="344" y="0" width="52" height="320" fill="#bbf7d0" fill-opacity="0.6" stroke="#16a34a"/>
+  <text x="356" y="3" transform="rotate(90 356 3)">r outer</text>
+  <rect x="338" y="0" width="6" height="320" fill="#fecaca" fill-opacity="0.6" stroke="#dc2626"/>
+  <text x="350" y="3" transform="rotate(90 350 3)">r inner</text>
+  <rect x="98" y="92" width="240" height="160" fill="#dbeafe" fill-opacity="0.6" stroke="#1d4ed8"/>
+  <text x="101" y="104">content</text>
+</svg>
