@@ -16,8 +16,8 @@ use crate::{
         placement::{FacetBandPlacement, resolve_facet_band_placement},
     },
     layout::{
-        AlignmentNode, EdgeDemand, GridRequirements, GridShape, GridSlot, SingletonPolicy,
-        SkippedGroupReason, TrackSpacing, align_by,
+        AlignmentNode, EdgeDemand, GridShape, GridSlot, SingletonPolicy, SkippedGroupReason,
+        TrackSpacing, align_by,
     },
     plot::compiled::{ChildFrameKey, ComponentsMeasurement, ContainerPathSegment},
     positioned_subplot::PositionedCoordMeasurement,
@@ -190,9 +190,11 @@ impl ChildFrameLayoutCoordinationNode {
 }
 
 /// Neutral grid requirements plus chart-only side-car state.
+use crate::layout::concat_grid::ChartGridData;
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ChartGridRequirements {
-    pub(crate) grid: GridRequirements,
+    pub(crate) grid: ChartGridData,
     /// Chart-adapter facet guide slot gap needed when generic grid
     /// requirements are projected back into `CoordinatedLayout`.
     ///
@@ -399,8 +401,8 @@ fn facet_grid_requirements_from_placement(
     placement: &FacetBandPlacement,
     min_gap: f32,
     cell_boundaries: &[FacetBoundaryDemand],
-) -> Result<GridRequirements, AvengerChartError> {
-    let mut requirements = GridRequirements {
+) -> Result<ChartGridData, AvengerChartError> {
+    let mut requirements = ChartGridData {
         shape,
         column_spacing: TrackSpacing::default(),
         row_spacing: TrackSpacing::default(),
@@ -991,7 +993,7 @@ mod tests {
 
     fn test_requirements(width: f32) -> ChildFrameLayoutRequirements {
         ChildFrameLayoutRequirements::Grid(ChartGridRequirements {
-            grid: GridRequirements {
+            grid: ChartGridData {
                 shape: GridShape {
                     rows: 1,
                     columns: 1,

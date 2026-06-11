@@ -16,11 +16,13 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use avenger_layout::{EdgeDemand, GridRequirements};
+use avenger_layout::EdgeDemand;
+
+use super::concat_grid::ChartGridData;
 
 /// One measured node participating in a single alignment round.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct AlignmentNode<Id = usize, Key = usize, P = GridRequirements> {
+pub(crate) struct AlignmentNode<Id = usize, Key = usize, P = ChartGridData> {
     pub id: Id,
     pub group_key: Key,
     pub requirements: P,
@@ -47,7 +49,7 @@ pub(crate) struct NodeDelta<Id = usize> {
 /// One group of nodes merged to a shared payload. `deltas` doubles as the
 /// member list (one entry per node, in input order).
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct AlignedGroup<Id = usize, Key = usize, P = GridRequirements> {
+pub(crate) struct AlignedGroup<Id = usize, Key = usize, P = ChartGridData> {
     pub key: Key,
     pub merged: P,
     pub deltas: Vec<NodeDelta<Id>>,
@@ -70,7 +72,7 @@ pub(crate) struct SkippedGroup<Key = usize> {
 
 /// Result of one alignment round.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct AlignmentPlan<Id = usize, Key = usize, P = GridRequirements> {
+pub(crate) struct AlignmentPlan<Id = usize, Key = usize, P = ChartGridData> {
     pub node_count: usize,
     pub groups: Vec<AlignedGroup<Id, Key, P>>,
     pub skipped: Vec<SkippedGroup<Key>>,
@@ -225,8 +227,8 @@ impl ConvergenceTrace {
 /// Merge compatible grid requirements by component-wise maximum. `None`
 /// when the input is empty or any two requirements have different shapes.
 pub(crate) fn merged_grid_requirements<'a>(
-    requirements: impl IntoIterator<Item = &'a GridRequirements>,
-) -> Option<GridRequirements> {
+    requirements: impl IntoIterator<Item = &'a ChartGridData>,
+) -> Option<ChartGridData> {
     let mut iter = requirements.into_iter();
     let first = iter.next()?.clone();
     iter.try_fold(first, |mut merged, next| {
@@ -247,13 +249,13 @@ pub(crate) fn merged_grid_requirements<'a>(
 }
 
 /// Total absolute track-size difference against merged requirements.
-pub(crate) fn grid_content_delta(local: &GridRequirements, merged: &GridRequirements) -> f32 {
+pub(crate) fn grid_content_delta(local: &ChartGridData, merged: &ChartGridData) -> f32 {
     abs_delta_sum(&local.column_widths, &merged.column_widths)
         + abs_delta_sum(&local.row_heights, &merged.row_heights)
 }
 
 /// Total absolute edge/spacing difference against merged requirements.
-pub(crate) fn grid_edge_delta(local: &GridRequirements, merged: &GridRequirements) -> f32 {
+pub(crate) fn grid_edge_delta(local: &ChartGridData, merged: &ChartGridData) -> f32 {
     abs_edge_delta_sum(&local.column_left, &merged.column_left)
         + abs_edge_delta_sum(&local.column_right, &merged.column_right)
         + abs_edge_delta_sum(&local.row_top, &merged.row_top)

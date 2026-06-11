@@ -10,6 +10,7 @@ pub(crate) mod alignment;
 mod band;
 mod band_position;
 mod chrome;
+pub(crate) mod concat_grid;
 mod content_solver;
 pub(crate) mod declared_frame;
 mod frame_solver;
@@ -27,8 +28,7 @@ pub use avenger_chart_core::{
     LayoutBounds, OverflowSide, OwnedEdgeSlabs, Size2D,
 };
 pub(crate) use avenger_layout::{
-    EdgeDemand, Edges, GridItem, GridRequirements, GridShape, GridSlot, Orientation, Size,
-    TrackSpacing,
+    EdgeDemand, Edges, GridShape, GridSlot, Orientation, Size, TrackSpacing,
 };
 pub(crate) use band::{BandItem, BandSolution, BoundaryDemand, CrossAlign, PlacedBandItem};
 pub(crate) use placement::EdgeTargets;
