@@ -88,12 +88,18 @@ pub mod frame;
 pub mod geometry;
 pub mod grid;
 pub mod region;
+pub mod solution;
+mod solve;
 #[cfg(feature = "svg")]
 pub mod svg;
 pub mod tree;
 
 pub use build::{
     CellAlign, Distribute, Layout, LayoutError, SolveFor, SolveOptions, Spacing, TrackSize,
+};
+pub use solution::{
+    ChromeLayer, ChromeSlab, Diagnostics, Envelope, LayoutSolution, Region, RegionDetail,
+    SkippedShare, SkippedShareReason, SolvedTracks,
 };
 
 pub use alignment::{

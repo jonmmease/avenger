@@ -1,0 +1,164 @@
+//! The result of [`Layout::solve`](crate::build::Layout::solve): absolute
+//! geometry for every node, queryable by id or structural path.
+
+use crate::geometry::{Edges, Rect, Side, Size};
+use crate::region::EdgeDemand;
+
+/// The chrome layer a positioned slab belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChromeLayer {
+    Margin,
+    Band,
+    Outer,
+    Inner,
+}
+
+/// One positioned chrome slab of a chromed node, in root coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChromeSlab {
+    pub layer: ChromeLayer,
+    pub side: Side,
+    /// Index among this side's bands (outside-in declaration order); zero
+    /// for the other layers.
+    pub band_index: usize,
+    pub rect: Rect,
+}
+
+/// Solved track geometry of one grid region, in root coordinates.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SolvedTracks {
+    pub column_starts: Vec<f32>,
+    pub column_sizes: Vec<f32>,
+    pub row_starts: Vec<f32>,
+    pub row_sizes: Vec<f32>,
+}
+
+/// Kind-specific detail of one solved region.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RegionDetail {
+    Leaf,
+    Grid { tracks: SolvedTracks },
+}
+
+/// One solved node, in root coordinates (the root envelope's top-left corner
+/// is the origin).
+///
+/// Two rectangles, deliberately distinct:
+///
+/// - [`slot`](Region::slot) is the **allotment** — the space the parent
+///   granted this node (a track-span rectangle for grid children; the
+///   solved content area at the root). This is what grows under stretch and
+///   coordination, and what a convergence loop adopts for re-measurement.
+/// - [`content`](Region::content) is the node's own content rectangle — a
+///   leaf's measured size, a grid's solved track extent, or a contained
+///   (`SolveFor::Content`/`Margins`) node's derived content — positioned
+///   within the slot by the node's `CellAlign`. Content never lies: the
+///   solver does not falsify a measurement to fill space; slack shows as
+///   `slot` exceeding `content`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Region<Id = usize> {
+    pub id: Option<Id>,
+    /// Index route from the root (empty for the root region itself).
+    pub path: Vec<usize>,
+    pub depth: usize,
+    pub slot: Rect,
+    pub content: Rect,
+    /// Declared chrome, positioned. Empty when the node declares none.
+    pub slabs: Vec<ChromeSlab>,
+    /// The overflow this node asked for (measured demands plus lifted
+    /// chrome).
+    pub requested: Edges<EdgeDemand>,
+    /// The overflow space granted around this node's slot (per-track merged
+    /// demand within its parent; equals `requested` at the root).
+    pub granted: Edges<EdgeDemand>,
+    pub detail: RegionDetail,
+}
+
+/// What the whole solved layout looks like from outside: its content extent
+/// plus per-side overflow, in both demand laws.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Envelope {
+    pub content_size: Size,
+    /// Layered view: per-side totals lifted to `>= inner + outer` (the
+    /// coordination law).
+    pub layered: Edges<EdgeDemand>,
+    /// Geometric view: raw per-side maxima without the lift (the rendered
+    /// envelope).
+    pub geometric_total: Edges<f32>,
+}
+
+/// Non-fatal observations from a solve (populated by share-key
+/// coordination).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Diagnostics {
+    /// Share groups skipped because members had incompatible shapes.
+    pub skipped_groups: Vec<SkippedShare>,
+    /// Axes where declared track sizes overrode a `uniform_*` flag.
+    pub uniform_conflicts: usize,
+}
+
+/// One skipped share group.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SkippedShare {
+    /// Paths of the member grids.
+    pub member_paths: Vec<Vec<usize>>,
+    pub reason: SkippedShareReason,
+}
+
+/// Why a share group could not merge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SkippedShareReason {
+    /// Non-uniform members with different grid shapes.
+    ShapeMismatch,
+    /// Members declared conflicting `TrackSize` vectors.
+    TrackSizeMismatch,
+}
+
+/// Solved geometry for one [`Layout`](crate::build::Layout).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayoutSolution<Id = usize> {
+    /// Total solved envelope (the canvas).
+    pub size: Size,
+    pub(crate) regions: Vec<Region<Id>>,
+    pub(crate) envelope: Envelope,
+    pub(crate) diagnostics: Diagnostics,
+}
+
+impl<Id> LayoutSolution<Id> {
+    /// All regions in document order (root first, then children depth-first
+    /// in declaration order).
+    pub fn regions(&self) -> impl Iterator<Item = &Region<Id>> {
+        self.regions.iter()
+    }
+
+    /// Leaf regions only.
+    pub fn leaves(&self) -> impl Iterator<Item = &Region<Id>> {
+        self.regions
+            .iter()
+            .filter(|region| matches!(region.detail, RegionDetail::Leaf))
+    }
+
+    /// The region at a structural index path (empty path = root).
+    pub fn at_path(&self, path: &[usize]) -> Option<&Region<Id>> {
+        self.regions.iter().find(|region| region.path == path)
+    }
+
+    /// The whole layout's content extent plus per-side overflow.
+    pub fn envelope(&self) -> &Envelope {
+        &self.envelope
+    }
+
+    /// Non-fatal observations from the solve.
+    pub fn diagnostics(&self) -> &Diagnostics {
+        &self.diagnostics
+    }
+}
+
+impl<Id: PartialEq> LayoutSolution<Id> {
+    /// The region carrying a caller id.
+    pub fn region(&self, id: &Id) -> Option<&Region<Id>> {
+        self.regions
+            .iter()
+            .find(|region| region.id.as_ref() == Some(id))
+    }
+}
