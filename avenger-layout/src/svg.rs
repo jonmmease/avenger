@@ -40,8 +40,23 @@ use crate::band::{BandSolution, BoundaryDemand};
 use crate::frame::{FrameAxisSolution, FrameSolution, SolvedSlab};
 use crate::geometry::{Edges, Orientation, Rect, Side, Size};
 use crate::grid::{GridItem, GridSolution, UniformTrackSolution};
-use crate::region::{EdgeTargets, PlacementSolution};
+use crate::region::{EdgeDemand, EdgeTargets, PlacementSolution};
+use crate::solution::{ChromeLayer, LayoutSolution};
 use crate::tree::TreeSolution;
+
+/// Rendering options for [`LayoutSolution::to_svg_with`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SvgOptions {
+    /// Draw region labels (ids / structural paths). The color key always
+    /// renders.
+    pub labels: bool,
+}
+
+impl Default for SvgOptions {
+    fn default() -> Self {
+        Self { labels: true }
+    }
+}
 
 /// What a region represents, which selects its rendered style.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -57,6 +72,9 @@ pub enum DebugRegionKind {
     Outer,
     /// A frame inner (guide-like) strip (red).
     Inner,
+    /// A slot (allotment) outline where it differs from the honest content
+    /// rectangle (dashed gray) — granted space the content does not fill.
+    Slot,
     /// An arrangement boundary (black frame, no fill) — used when several
     /// independent scenes are composed into one image and each needs its
     /// own bounds.
@@ -367,6 +385,107 @@ impl DebugScene {
         }
     }
 
+    /// Capture a unified-API solution: chrome slabs (behind), content
+    /// rectangles with requested-vs-granted demand strips, and dashed slot
+    /// outlines where the allotment exceeds the honest content.
+    pub fn from_solution<Id: Display>(solution: &LayoutSolution<Id>, options: &SvgOptions) -> Self {
+        let targets = |edges: &Edges<EdgeDemand>| EdgeTargets {
+            inner: Edges::new(
+                edges.top.inner,
+                edges.right.inner,
+                edges.bottom.inner,
+                edges.left.inner,
+            ),
+            total: Edges::new(
+                edges.top.total,
+                edges.right.total,
+                edges.bottom.total,
+                edges.left.total,
+            ),
+        };
+        let mut regions = Vec::new();
+        for region in solution.regions() {
+            // Declared chrome slabs first: they sit behind the demand
+            // strips of the same node ("frame in the back").
+            for slab in &region.slabs {
+                regions.push(DebugRegion {
+                    label: String::new(),
+                    kind: match slab.layer {
+                        ChromeLayer::Margin => DebugRegionKind::Margin,
+                        ChromeLayer::Band => DebugRegionKind::Band,
+                        ChromeLayer::Outer => DebugRegionKind::Outer,
+                        ChromeLayer::Inner => DebugRegionKind::Inner,
+                    },
+                    content: slab.rect,
+                    requested: None,
+                    target: None,
+                    label_anchor: None,
+                    label_rotated: false,
+                    depth: region.depth,
+                });
+            }
+            // Slot outline when the allotment differs from the content.
+            let slack = (region.slot.width - region.content.width).abs() > 0.5
+                || (region.slot.height - region.content.height).abs() > 0.5
+                || (region.slot.x - region.content.x).abs() > 0.5
+                || (region.slot.y - region.content.y).abs() > 0.5;
+            if slack {
+                regions.push(DebugRegion {
+                    label: String::new(),
+                    kind: DebugRegionKind::Slot,
+                    content: region.slot,
+                    requested: None,
+                    target: None,
+                    label_anchor: None,
+                    label_rotated: false,
+                    depth: region.depth,
+                });
+            }
+            let label = if !options.labels {
+                String::new()
+            } else if let Some(id) = &region.id {
+                id.to_string()
+            } else if region.path.is_empty() {
+                String::new() // the unlabeled canvas
+            } else {
+                format!(
+                    "c{}",
+                    region.path.iter().map(usize::to_string).collect::<String>()
+                )
+            };
+            // Demand strips for nested regions only: the root's chrome is
+            // already visible as slabs, and its demands wrap the canvas.
+            let (requested, target) = if region.path.is_empty() {
+                (None, None)
+            } else {
+                (
+                    Some(targets(&region.requested)),
+                    Some(targets(&region.granted)),
+                )
+            };
+            regions.push(DebugRegion {
+                label,
+                kind: DebugRegionKind::Content,
+                content: region.content,
+                requested,
+                target,
+                label_anchor: Some([
+                    region.content.x + 3.0,
+                    region.content.y + 12.0 + 12.0 * region.depth as f32,
+                ]),
+                label_rotated: false,
+                depth: region.depth,
+            });
+        }
+        Self {
+            content_size: solution.size,
+            draw_bounds: true,
+            regions,
+            markers: Vec::new(),
+            dividers: Vec::new(),
+        }
+    }
+
     /// Capture solved uniform tracks, rendered horizontally: one region per
     /// track at the given cross extent.
     pub fn from_uniform_tracks(solution: &UniformTrackSolution, cross_extent: f32) -> Self {
@@ -444,12 +563,13 @@ impl DebugScene {
         /// White halo under label text so overlapping labels stay legible.
         const TEXT_STYLE: &str = "fill=\"#111111\" stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\"";
         /// Swatch order and labels for the color key row.
-        const KEY_KINDS: [(DebugRegionKind, &str); 5] = [
+        const KEY_KINDS: [(DebugRegionKind, &str); 6] = [
             (DebugRegionKind::Content, "content"),
             (DebugRegionKind::Margin, "margin"),
             (DebugRegionKind::Band, "band"),
             (DebugRegionKind::Outer, "outer"),
             (DebugRegionKind::Inner, "inner"),
+            (DebugRegionKind::Slot, "slot"),
         ];
         const KEY_HEIGHT: f32 = 24.0;
         // Demand strips encode three things: hue = layer (red inner, green
@@ -821,6 +941,77 @@ impl DebugScene {
     }
 }
 
+impl<Id: Display> LayoutSolution<Id> {
+    /// Render this solution as a self-contained SVG document (the debug
+    /// gallery visual language: blue content, chrome slabs behind,
+    /// requested-vs-granted demand strips, dashed slot outlines).
+    pub fn to_svg(&self) -> String {
+        self.to_svg_with(&SvgOptions::default())
+    }
+
+    /// [`LayoutSolution::to_svg`] with options.
+    pub fn to_svg_with(&self, options: &SvgOptions) -> String {
+        DebugScene::from_solution(self, options).to_svg()
+    }
+}
+
+/// Render several solutions stacked vertically with captions and divider
+/// lines — the before/after gallery format.
+pub fn svg_panels<Id: Display>(panels: &[(&str, &LayoutSolution<Id>)]) -> String {
+    const CAPTION: f32 = 16.0;
+    const GAP: f32 = 20.0;
+
+    let mut combined = DebugScene {
+        content_size: Size::default(),
+        draw_bounds: false,
+        regions: Vec::new(),
+        markers: Vec::new(),
+        dividers: Vec::new(),
+    };
+    let mut y = 0.0f32;
+    let mut max_width = 0.0f32;
+    for (index, (caption, solution)) in panels.iter().enumerate() {
+        if index > 0 {
+            combined.dividers.push(y - GAP / 2.0);
+        }
+        combined.regions.push(DebugRegion {
+            label: (*caption).to_string(),
+            kind: DebugRegionKind::Content,
+            content: Rect::new(0.0, y, 0.0, 0.0),
+            requested: None,
+            target: None,
+            label_anchor: Some([0.0, y + 11.0]),
+            label_rotated: false,
+            depth: 0,
+        });
+        y += CAPTION;
+
+        let mut scene = DebugScene::from_solution(solution, &SvgOptions::default());
+        // Each panel carries its own bounds, drawn after its regions.
+        scene.regions.push(DebugRegion {
+            label: String::new(),
+            kind: DebugRegionKind::Bounds,
+            content: Rect::new(
+                0.0,
+                0.0,
+                scene.content_size.width,
+                scene.content_size.height,
+            ),
+            requested: None,
+            target: None,
+            label_anchor: None,
+            label_rotated: false,
+            depth: 0,
+        });
+        let panel_size = scene.content_size;
+        combined.embed(scene, [0.0, y]);
+        y += panel_size.height + GAP;
+        max_width = max_width.max(panel_size.width);
+    }
+    combined.content_size = Size::new(max_width, (y - GAP).max(0.0));
+    combined.to_svg()
+}
+
 /// One overflow strip adjacent to a content rectangle: `offset` is the
 /// distance from the content edge where the strip starts, `thickness` its
 /// extent outward; the strip spans the content on the cross axis.
@@ -894,6 +1085,9 @@ fn kind_style(kind: DebugRegionKind) -> &'static str {
         DebugRegionKind::Outer => "fill=\"#14602f\" stroke=\"#14602f\" stroke-width=\"0.5\"",
         // INNER_SHADES[0]: the base step of the inner ramp.
         DebugRegionKind::Inner => "fill=\"#9f2222\" stroke=\"#9f2222\" stroke-width=\"0.5\"",
+        DebugRegionKind::Slot => {
+            "fill=\"none\" stroke=\"#6b7280\" stroke-width=\"0.7\" stroke-dasharray=\"3 2\""
+        }
         DebugRegionKind::Bounds => "fill=\"none\" stroke=\"#111111\" stroke-width=\"1\"",
     }
 }
@@ -1146,5 +1340,50 @@ mod tests {
 </svg>
 ";
         assert_eq!(svg, expected);
+    }
+
+    #[test]
+    fn solution_scene_renders_slabs_demands_and_slot_outlines() {
+        use crate::build::{Layout, SolveFor, SolveOptions};
+        use crate::region::EdgeDemand as Demand;
+
+        // A chromed canvas containing a row of two leaves with different
+        // top demands: slabs, hatched grants, and a slot outline (second
+        // leaf narrower than its track after a sibling stretches it) all
+        // appear.
+        let root: Layout<&str> = Layout::row(vec![
+            Layout::leaf(Size::new(100.0, 60.0))
+                .demand(Side::Top, Demand::new(20.0, 0.0, 20.0))
+                .id("a"),
+            Layout::leaf(Size::new(60.0, 60.0))
+                .demand(Side::Top, Demand::new(8.0, 0.0, 8.0))
+                .id("b"),
+        ])
+        .margin(8.0)
+        .inner(Side::Left, 30.0)
+        .sizing(SolveFor::Content)
+        .id("fig");
+        let solved = root
+            .solve(&SolveOptions {
+                width: Some(400.0),
+                height: Some(200.0),
+            })
+            .expect("solve");
+
+        let svg = solved.to_svg();
+        assert!(svg.starts_with("<svg "));
+        assert!(svg.contains("url(#hatch-i1)"), "granted strips hatch");
+        assert!(svg.contains("stroke-dasharray=\"3 2\""), "slot outline");
+        assert!(svg.contains(">a</text>"), "id labels render");
+        assert!(svg.contains(">slot</text>"), "key explains the slot");
+        assert!(svg.contains(">margin</text>"), "key explains slabs");
+
+        let unlabeled = solved.to_svg_with(&SvgOptions { labels: false });
+        assert!(!unlabeled.contains(">a</text>"));
+
+        let panels = svg_panels(&[("before", &solved), ("after", &solved)]);
+        assert!(panels.contains(">before</text>"));
+        assert!(panels.contains(">after</text>"));
+        assert!(panels.contains("<line "), "divider between panels");
     }
 }
