@@ -84,14 +84,15 @@ pub(crate) struct FacetBandExplicitPlacement {
 /// Placement model for a facet band.
 ///
 /// Scale-backed placement resolves cell positions from the active band scale.
-/// Explicit placement stores the final cell positions on the measurement, which
-/// is needed when the facet band's physical main dimension is leaf-plot-area
-/// sized and the containing plot area grows to fit the rendered subtree.
-#[derive(Debug, Clone, Default)]
+/// Explicit placement computes cell positions on read from the live cells
+/// and the coordinated views, which is needed when the facet band's physical
+/// main dimension is leaf-plot-area sized and the containing plot area grows
+/// to fit the rendered subtree.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum FacetBandPlacementModel {
     #[default]
     ScaleBacked,
-    Explicit(FacetBandExplicitPlacement),
+    Explicit,
 }
 
 impl FacetBandPlacement {

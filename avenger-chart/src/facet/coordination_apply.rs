@@ -88,7 +88,6 @@ pub(crate) fn apply_requirement_pass(
             facet_band
                 .base_mut()
                 .set_coordination_solution(std::sync::Arc::clone(solution), node_id.clone());
-            FacetCoordinationPolicy::refresh_placement_after_requirement_patch(facet_band, true);
         },
     );
 
@@ -183,7 +182,6 @@ fn run_retarget_recursive<'a>(
                 .base_mut()
                 .apply_retarget_actions(eval_ctx, &planned.actions)
                 .await?;
-            FacetCoordinationPolicy::refresh_placement_after_retarget_node(&mut facet_band);
 
             let parent_cross_size = facet_band.base().coordinated_subplot_cross_size();
             let parent_axis = facet_band.base().axis;
@@ -523,7 +521,6 @@ fn run_final_propagation_recursive(
         facet_band
             .base_mut()
             .realize_coordinated_child_frame_allocations();
-        FacetCoordinationPolicy::refresh_placement_after_final_propagation_node(&mut facet_band);
 
         node_results.push(FinalPropagationNodeTrace {
             node_id,

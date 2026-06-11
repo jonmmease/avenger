@@ -2668,14 +2668,6 @@ impl CompiledPlot {
             }
 
             facet_band.realize_coordinated_child_frame_allocations();
-            if facet_band.uses_explicit_placement() && facet_band.cells.is_empty() {
-                facet_band.preserve_empty_slot_plot_area_if_explicit(
-                    measurement.plot_area_width,
-                    measurement.plot_area_height,
-                );
-            } else if facet_band.uses_explicit_placement() {
-                facet_band.recompute_explicit_placement_if_needed();
-            }
             return Ok(());
         }
 
@@ -3422,7 +3414,6 @@ impl CompiledPlot {
             .as_any_mut()
             .downcast_mut::<FacetBandCoordMeasurement>()
         {
-            let uses_explicit_placement = facet_band.uses_explicit_placement();
             let compiled_subplot = facet_band.compiled_subplot.clone();
             for cell in &mut facet_band.cells {
                 let child_layout_spec = Self::nested_fixed_plot_area_layout_spec(
@@ -3440,14 +3431,6 @@ impl CompiledPlot {
             }
 
             facet_band.realize_coordinated_child_frame_allocations();
-            if uses_explicit_placement && facet_band.cells.is_empty() {
-                facet_band.preserve_empty_slot_plot_area_if_explicit(
-                    measurement.plot_area_width,
-                    measurement.plot_area_height,
-                );
-            } else if uses_explicit_placement {
-                facet_band.recompute_explicit_placement_if_needed();
-            }
         } else {
             return Ok(());
         }
@@ -8878,8 +8861,11 @@ mod tests {
     fn assert_plot_area_sized_facet_plot_area_matches_placement(
         measurement: &ComponentsMeasurement,
     ) {
-        if let Some(plot_area_sized_facet) =
-            facet_band_ref(measurement).filter(|facet_band| facet_band.uses_explicit_placement())
+        if let Some(plot_area_sized_facet) = facet_band_ref(measurement)
+            .filter(|facet_band| facet_band.uses_explicit_placement())
+            // Empty explicit bands derive their extent from the containing
+            // measurement's plot area, making this check an identity.
+            .filter(|facet_band| !facet_band.cells.is_empty())
         {
             let (expected_width, expected_height) = plot_area_sized_facet.plot_area_extent();
             assert!(

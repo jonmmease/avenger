@@ -55,10 +55,6 @@ impl<'a> FacetBandMut<'a> {
     pub(crate) fn base_mut(&mut self) -> &mut FacetBandCoordMeasurement {
         self.base
     }
-
-    pub(crate) fn recompute_explicit_placement_if_needed(&mut self) {
-        self.base.recompute_explicit_placement_if_needed();
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,25 +115,6 @@ impl FacetCoordinationPolicy {
         measurement: &mut ComponentsMeasurement,
     ) -> Option<FacetBandMut<'_>> {
         facet_band_mut_from_coord(measurement.coord_measurement.as_mut()).map(FacetBandMut::new)
-    }
-
-    pub(crate) fn refresh_placement_after_requirement_patch(
-        facet_band: &mut FacetBandMut<'_>,
-        patch_applied: bool,
-    ) {
-        if patch_applied {
-            facet_band.recompute_explicit_placement_if_needed();
-        }
-    }
-
-    pub(crate) fn refresh_placement_after_retarget_node(facet_band: &mut FacetBandMut<'_>) {
-        facet_band.recompute_explicit_placement_if_needed();
-    }
-
-    pub(crate) fn refresh_placement_after_final_propagation_node(
-        facet_band: &mut FacetBandMut<'_>,
-    ) {
-        facet_band.recompute_explicit_placement_if_needed();
     }
 
     pub(crate) fn build_retarget_actions(

@@ -317,7 +317,7 @@ impl FacetBandCoordMeasurement {
     }
 
     pub(crate) fn uses_explicit_placement(&self) -> bool {
-        matches!(self.placement_model, FacetBandPlacementModel::Explicit(_))
+        matches!(self.placement_model, FacetBandPlacementModel::Explicit)
     }
 
     pub(crate) fn owned_legend_slabs_for_overflow(
@@ -335,59 +335,41 @@ impl FacetBandCoordMeasurement {
             .with_realized_owned_legend_slabs(owned_slabs);
     }
 
-    pub(crate) fn recompute_explicit_placement_if_needed(&mut self) {
-        if self.uses_explicit_placement() {
-            self.recompute_explicit_placement();
-        }
-    }
-
-    pub(crate) fn recompute_explicit_placement(&mut self) {
-        let active_layout = self.active_layout();
+    /// Explicit placement for this band, computed on read from the live
+    /// cells and the coordinated views (solution layout, boundary
+    /// overflow). There is no cached placement to refresh: mutating
+    /// cells, scales, or coordinated values is immediately visible to
+    /// the next read.
+    pub(crate) fn explicit_placement(&self) -> FacetBandExplicitPlacement {
         let mut placement =
-            compute_explicit_facet_band_placement(self.axis, &self.cells, active_layout);
+            compute_explicit_facet_band_placement(self.axis, &self.cells, self.active_layout());
         let slabs = FacetOverflowSlabs::from_coordinated(self.active_boundary_overflow());
         let cross_start_offset = match self.axis {
             FacetAxis::Column => slabs.legend.top,
             FacetAxis::Row => slabs.legend.left,
         };
         placement.cross_size += cross_start_offset.max(0.0);
-        self.placement_model = FacetBandPlacementModel::Explicit(placement);
-    }
-
-    pub(crate) fn preserve_empty_slot_plot_area_if_explicit(
-        &mut self,
-        plot_width: f32,
-        plot_height: f32,
-    ) {
-        if !self.uses_explicit_placement() {
-            return;
-        }
-        if !self.cells.is_empty() {
-            return;
-        }
-
-        let (main_size, cross_size) = match self.axis {
-            FacetAxis::Column => (plot_width, plot_height),
-            FacetAxis::Row => (plot_height, plot_width),
-        };
-        self.placement_model = FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement {
-            main_axis_positions: Vec::new(),
-            main_size: main_size.max(0.0),
-            cross_size: cross_size.max(0.0),
-        });
+        placement
     }
 
     /// Return the realized plot-area extent for this facet subtree.
+    ///
+    /// Empty explicit bands have no cells to derive an extent from;
+    /// every caller resolves that case from its containing measurement's
+    /// plot area before consulting this.
     pub(crate) fn plot_area_extent(&self) -> (f32, f32) {
-        let FacetBandPlacementModel::Explicit(explicit_placement) = &self.placement_model else {
-            return match self.axis {
+        match self.placement_model {
+            FacetBandPlacementModel::ScaleBacked => match self.axis {
                 FacetAxis::Column => (self.subplot_cross_size, 0.0),
                 FacetAxis::Row => (0.0, self.subplot_cross_size),
-            };
-        };
-        match self.axis {
-            FacetAxis::Column => (explicit_placement.main_size, explicit_placement.cross_size),
-            FacetAxis::Row => (explicit_placement.cross_size, explicit_placement.main_size),
+            },
+            FacetBandPlacementModel::Explicit => {
+                let placement = self.explicit_placement();
+                match self.axis {
+                    FacetAxis::Column => (placement.main_size, placement.cross_size),
+                    FacetAxis::Row => (placement.cross_size, placement.main_size),
+                }
+            }
         }
     }
 
@@ -396,9 +378,11 @@ impl FacetBandCoordMeasurement {
         scales: &HashMap<String, ConfiguredScale>,
     ) -> Result<FacetBandPlacement, AvengerChartError> {
         match &self.placement_model {
-            FacetBandPlacementModel::Explicit(explicit) => {
-                FacetBandPlacement::from_explicit(self.axis, explicit, &self.cells)
-            }
+            FacetBandPlacementModel::Explicit => FacetBandPlacement::from_explicit(
+                self.axis,
+                &self.explicit_placement(),
+                &self.cells,
+            ),
             FacetBandPlacementModel::ScaleBacked => {
                 let configured = scales.get(self.axis.scale_name()).ok_or_else(|| {
                     AvengerChartError::InternalError(format!(
@@ -423,9 +407,11 @@ impl FacetBandCoordMeasurement {
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
     ) -> Result<FacetBandPlacement, AvengerChartError> {
         match &self.placement_model {
-            FacetBandPlacementModel::Explicit(explicit) => {
-                FacetBandPlacement::from_explicit(self.axis, explicit, &self.cells)
-            }
+            FacetBandPlacementModel::Explicit => FacetBandPlacement::from_explicit(
+                self.axis,
+                &self.explicit_placement(),
+                &self.cells,
+            ),
             FacetBandPlacementModel::ScaleBacked => {
                 let configured = scales.get(self.axis.scale_name()).ok_or_else(|| {
                     AvengerChartError::InternalError(format!(
@@ -812,7 +798,6 @@ impl FacetBandCoordMeasurement {
             )?;
         }
         self.realize_coordinated_child_frame_allocations();
-        self.recompute_explicit_placement_if_needed();
 
         Ok(())
     }
@@ -927,7 +912,6 @@ impl FacetBandCoordMeasurement {
             )?;
         }
         self.realize_coordinated_child_frame_allocations();
-        self.recompute_explicit_placement_if_needed();
 
         Ok(())
     }
@@ -1940,9 +1924,8 @@ pub(crate) fn retarget_measurement_plot_area_no_remeasure(
     );
 
     if let Some(facet_band) = facet_band_mut(measurement.coord_measurement.as_mut()) {
-        if facet_band.uses_explicit_placement() {
-            facet_band.recompute_explicit_placement_if_needed();
-        } else {
+        // Explicit bands need nothing here: placement is computed on read.
+        if !facet_band.uses_explicit_placement() {
             facet_band.retarget_parent_plot_area_no_remeasure(
                 &mut measurement.scales,
                 eval_ctx,
@@ -2186,7 +2169,7 @@ fn empty_facet_band_measurement(
             orthogonal_dimension_canvas_constrained,
         ),
         placement_model: if plot_area_sized_mode {
-            FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default())
+            FacetBandPlacementModel::Explicit
         } else {
             FacetBandPlacementModel::ScaleBacked
         },
@@ -4556,15 +4539,13 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .facet_runtime_sizing_mode()
                 .facet_band_is_leaf_plot_area_sized(self.axis_ops.axis)
             {
-                FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default())
+                FacetBandPlacementModel::Explicit
             } else {
                 FacetBandPlacementModel::ScaleBacked
             },
         };
 
-        let mut measurement = base;
-        measurement.recompute_explicit_placement_if_needed();
-        Ok(Box::new(measurement))
+        Ok(Box::new(base))
     }
 }
 
@@ -4683,9 +4664,7 @@ pub(crate) async fn measure_facet_wrap(
     .await
     .map(|mut measurement| {
         if let Some(facet_band) = facet_band_mut(measurement.as_mut()) {
-            facet_band.placement_model =
-                FacetBandPlacementModel::Explicit(FacetBandExplicitPlacement::default());
-            facet_band.recompute_explicit_placement();
+            facet_band.placement_model = FacetBandPlacementModel::Explicit;
         }
         measurement
     })
