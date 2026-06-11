@@ -12,25 +12,23 @@
 
 use std::collections::HashSet;
 
-use avenger_chart_core::{AvengerChartError, FacetAxis, FacetEmptyCellPolicy};
+use avenger_chart_core::AvengerChartError;
 use tracing::{debug, trace};
 
 use crate::{
     facet::{
         coord::renderable_for_empty_policy,
         coordination_apply::{
-            apply_requirement_pass, build_final_propagation_plan_for_eval, build_retarget_plan,
-            run_final_propagation_with_trace, run_retarget_with_trace,
-            visit_facet_bands_with_node_id,
+            apply_requirement_pass, build_final_propagation_plan_for_eval,
+            run_final_propagation_with_trace, run_retarget, visit_facet_bands_with_node_id,
         },
         coordination_plans::{
             CoordinationNodeKey, CoordinationRunArtifacts, FinalPropagationPlan,
             FinalPropagationTrace, RequirementNodeSnapshot, RequirementSnapshot, RequirementStage,
-            RetargetPlan, RetargetTrace, build_requirement_pass, build_requirement_pass_with_round,
+            build_requirement_pass, build_requirement_pass_with_round,
         },
         coordination_policy::FacetCoordinationPolicy,
         layout_plan::effective_edge_indices,
-        overflow_projection::FacetOverflowSlabs,
     },
     layout::ConvergenceTrace,
     plot::compiled::ComponentsMeasurement,
@@ -44,7 +42,8 @@ use crate::facet::coord::{
 };
 #[cfg(test)]
 use crate::facet::coordination_apply::{
-    build_final_propagation_plan, visit_facet_bands_with_node_id_mut,
+    apply_retarget_decisions, build_final_propagation_plan, derive_retarget_decisions,
+    visit_facet_bands_with_node_id_mut,
 };
 #[cfg(test)]
 use crate::render::context::{FacetRuntimeSizingMode, FacetRuntimeSizingPolicy};
@@ -210,10 +209,9 @@ async fn run_facet_coordination_rounds(
     }
 
     // Retarget: frames re-solve at the written-back coordinated targets.
-    let retarget_plan = build_retarget_plan(measurement, eval_ctx)?;
-    validate_retarget_plan_coverage(measurement, &retarget_plan)?;
-    let trace = run_retarget_with_trace(measurement, eval_ctx, &retarget_plan).await?;
-    validate_retarget_trace_alignment(&retarget_plan, &trace)?;
+    // The walk derives all decisions from pre-retarget state, then applies
+    // parent-first; coverage and trace alignment are by construction.
+    let trace = run_retarget(measurement, eval_ctx).await?;
     debug!(
         policy = FacetCoordinationPolicy::LABEL,
         parent_cross_propagations = trace
@@ -388,76 +386,6 @@ fn validate_node_set_coverage(
     )))
 }
 
-pub(crate) fn validate_retarget_plan_coverage(
-    measurement: &ComponentsMeasurement,
-    plan: &RetargetPlan,
-) -> Result<(), AvengerChartError> {
-    let expected_ids: HashSet<CoordinationNodeKey> =
-        measurement_node_ids(measurement).into_iter().collect();
-    let actual_ids: HashSet<CoordinationNodeKey> = plan
-        .node_plans
-        .iter()
-        .map(|node| node.node_id.clone())
-        .collect();
-
-    validate_node_set_coverage("retarget plan node", actual_ids, expected_ids)?;
-
-    for node in &plan.node_plans {
-        if node.requirements.child_count != node.requirements.child_plot_areas.len() {
-            return Err(AvengerChartError::InternalError(format!(
-                "retarget requirements for node path {:?} have child_count={} but {} child plot-area sizes",
-                node.node_id.path,
-                node.requirements.child_count,
-                node.requirements.child_plot_areas.len()
-            )));
-        }
-        if node.requirements.child_count != node.actions.child_actions.len() {
-            return Err(AvengerChartError::InternalError(format!(
-                "retarget actions for node path {:?} have child_count={} but {} child actions",
-                node.node_id.path,
-                node.requirements.child_count,
-                node.actions.child_actions.len()
-            )));
-        }
-        let slabs = FacetOverflowSlabs::from_coordinated(&node.requirements.coordinated_overflow);
-        let (legend_start, legend_end) = match node.requirements.axis {
-            FacetAxis::Column => slabs.legend_vertical(),
-            FacetAxis::Row => slabs.legend_horizontal(),
-        };
-        if (node.requirements.legend_main_axis_slab.start - legend_start).abs() > 0.01
-            || (node.requirements.legend_main_axis_slab.end - legend_end).abs() > 0.01
-        {
-            return Err(AvengerChartError::InternalError(format!(
-                "retarget requirements for node path {:?} have stale legend slab: planned=({:.3}, {:.3}), derived=({:.3}, {:.3})",
-                node.node_id.path,
-                node.requirements.legend_main_axis_slab.start,
-                node.requirements.legend_main_axis_slab.end,
-                legend_start,
-                legend_end
-            )));
-        }
-        if node.requirements.layout_changed && node.requirements.coordinated_layout.is_none() {
-            return Err(AvengerChartError::InternalError(format!(
-                "retarget requirements for node path {:?} changed layout without a coordinated layout",
-                node.node_id.path
-            )));
-        }
-        if !node.requirements.ownership.has_holes
-            && node.requirements.ownership.axis_owner_ignore_empty_cells
-            && !matches!(
-                node.requirements.ownership.empty_cell_policy,
-                FacetEmptyCellPolicy::Hole
-            )
-        {
-            return Err(AvengerChartError::InternalError(format!(
-                "retarget requirements for node path {:?} ignore empty cells without facet holes",
-                node.node_id.path
-            )));
-        }
-    }
-    Ok(())
-}
-
 pub(crate) fn validate_final_propagation_plan_coverage(
     measurement: &ComponentsMeasurement,
     plan: &FinalPropagationPlan,
@@ -471,59 +399,6 @@ pub(crate) fn validate_final_propagation_plan_coverage(
         .collect();
 
     validate_node_set_coverage("final propagation plan node", actual_ids, expected_ids)
-}
-
-pub(crate) fn validate_retarget_trace_alignment(
-    plan: &RetargetPlan,
-    trace: &RetargetTrace,
-) -> Result<(), AvengerChartError> {
-    let derived_ids: Vec<CoordinationNodeKey> = plan
-        .node_plans
-        .iter()
-        .map(|node| node.node_id.clone())
-        .collect();
-    let trace_ids: Vec<CoordinationNodeKey> = trace
-        .node_results
-        .iter()
-        .map(|node| node.node_id.clone())
-        .collect();
-
-    if trace_ids != derived_ids {
-        return Err(AvengerChartError::InternalError(format!(
-            "retarget execution trace nodes diverged from plan order: trace={:?}, plan={:?}",
-            trace_ids
-                .iter()
-                .map(|node| node.path.clone())
-                .collect::<Vec<_>>(),
-            derived_ids
-                .iter()
-                .map(|node| node.path.clone())
-                .collect::<Vec<_>>()
-        )));
-    }
-
-    for (planned, trace_result) in plan.node_plans.iter().zip(trace.node_results.iter()) {
-        let expected_counts = planned.actions.child_action_counts();
-        if trace_result.node_id != planned.node_id
-            || trace_result.axis != planned.requirements.axis
-            || trace_result.planned_has_legend_overflow != planned.requirements.has_legend_overflow
-            || trace_result.planned_layout_changed != planned.requirements.layout_changed
-            || trace_result.planned_axis_owner_ignore_empty_cells
-                != planned.requirements.ownership.axis_owner_ignore_empty_cells
-            || trace_result.planned_band_action != planned.actions.band_action
-            || trace_result.planned_child_action_counts != expected_counts
-            || trace_result.planned_child_count != planned.requirements.child_count
-            || trace_result.plot_area_retarget_count != expected_counts.plot_area_retarget_count()
-            || trace_result.width_retarget_count != expected_counts.width_targets
-            || trace_result.height_retarget_count != expected_counts.height_targets
-        {
-            return Err(AvengerChartError::InternalError(format!(
-                "retarget execution trace diverged from plan for node path {:?}",
-                planned.node_id.path
-            )));
-        }
-    }
-    Ok(())
 }
 
 pub(crate) fn validate_final_propagation_trace_alignment(
@@ -935,9 +810,7 @@ mod tests {
             root.set_coordinated_layout_value(forced_layout);
         }
 
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
-        let _retarget_trace =
-            run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
+        let _retarget_trace = run_retarget(&mut measurement, &eval_ctx).await?;
 
         let after_cross_size = facet_band_ref(&measurement)
             .expect("fixture should produce root facet-band measurement")
@@ -960,9 +833,7 @@ mod tests {
             collect_requirement_snapshot(&measurement),
         )?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
-        let _retarget_trace =
-            run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
+        let _retarget_trace = run_retarget(&mut measurement, &eval_ctx).await?;
 
         let mut bumped_one = false;
         visit_facet_bands_mut(&mut measurement, 0, &mut |depth, facet_band| {
@@ -1104,9 +975,7 @@ mod tests {
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
         force_root_top_legend_slab(&mut measurement, 18.0);
 
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
-        let retarget_trace =
-            run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
+        let retarget_trace = run_retarget(&mut measurement, &eval_ctx).await?;
         assert!(!retarget_trace.node_results.is_empty());
         let root_result = retarget_trace
             .node_results
@@ -1133,9 +1002,7 @@ mod tests {
             collect_requirement_snapshot(&measurement),
         )?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
-        let _retarget_trace =
-            run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
+        let _retarget_trace = run_retarget(&mut measurement, &eval_ctx).await?;
 
         let retargeted_requirement_pass = build_requirement_pass(
             RequirementStage::Initial,
@@ -1372,7 +1239,7 @@ mod tests {
             .expect("fixture should produce root facet-band measurement")
             .subplot_cross_size;
 
-        let plan = build_retarget_plan(&measurement, &eval_ctx)?;
+        let decisions = derive_retarget_decisions(&measurement, &eval_ctx)?;
 
         let after_node_ids = measurement_node_ids(&measurement);
         let after_cross_size = facet_band_ref(&measurement)
@@ -1382,7 +1249,7 @@ mod tests {
         assert_eq!(before_node_ids, after_node_ids);
         assert_eq!(before_cross_size, after_cross_size);
         assert_eq!(
-            plan.node_plans
+            decisions
                 .iter()
                 .map(|node| node.node_id.clone())
                 .collect::<std::collections::HashSet<_>>(),
@@ -1397,9 +1264,9 @@ mod tests {
     async fn retarget_plan_contains_requirements_and_actions_for_each_node()
     -> Result<(), AvengerChartError> {
         let (measurement, eval_ctx) = nested_fixture().await?;
-        let plan = build_retarget_plan(&measurement, &eval_ctx)?;
-        assert!(!plan.node_plans.is_empty());
-        for node in &plan.node_plans {
+        let decisions = derive_retarget_decisions(&measurement, &eval_ctx)?;
+        assert!(!decisions.is_empty());
+        for node in &decisions {
             assert_eq!(node.requirements.node_id, node.node_id);
             assert_eq!(node.actions.node_id, node.node_id);
             assert_eq!(node.actions.axis, node.requirements.axis);
@@ -1417,15 +1284,14 @@ mod tests {
     #[tokio::test]
     async fn retarget_errors_when_node_plan_missing() -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let mut plan = build_retarget_plan(&measurement, &eval_ctx)?;
-        let root_idx = plan
-            .node_plans
+        let mut decisions = derive_retarget_decisions(&measurement, &eval_ctx)?;
+        let root_idx = decisions
             .iter()
             .position(|node| node.node_id.path.is_empty())
-            .expect("retarget plan should include a root node");
-        plan.node_plans.remove(root_idx);
+            .expect("retarget decisions should include a root node");
+        decisions.remove(root_idx);
 
-        let error = run_retarget_with_trace(&mut measurement, &eval_ctx, &plan)
+        let error = apply_retarget_decisions(&mut measurement, &eval_ctx, &decisions)
             .await
             .expect_err("missing retarget node plan should error");
         assert_internal_error_contains(error, "Missing retarget plan");
@@ -1435,18 +1301,17 @@ mod tests {
     #[tokio::test]
     async fn retarget_errors_when_child_action_count_mismatches() -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let mut plan = build_retarget_plan(&measurement, &eval_ctx)?;
-        let root_plan = plan
-            .node_plans
+        let mut decisions = derive_retarget_decisions(&measurement, &eval_ctx)?;
+        let root_plan = decisions
             .iter_mut()
             .find(|node| node.node_id.path.is_empty())
-            .expect("retarget plan should include a root node");
+            .expect("retarget decisions should include a root node");
         assert!(
             root_plan.actions.child_actions.pop().is_some(),
             "fixture root should have at least one child action"
         );
 
-        let error = run_retarget_with_trace(&mut measurement, &eval_ctx, &plan)
+        let error = apply_retarget_decisions(&mut measurement, &eval_ctx, &decisions)
             .await
             .expect_err("retarget child action mismatch should error");
         assert_internal_error_contains(error, "Retarget action child count mismatch");
@@ -1467,10 +1332,7 @@ mod tests {
         }
         force_root_top_legend_slab(&mut measurement, 18.0);
 
-        let plan = build_retarget_plan(&measurement, &eval_ctx)?;
-        let retarget_trace = run_retarget_with_trace(&mut measurement, &eval_ctx, &plan).await?;
-
-        validate_retarget_trace_alignment(&plan, &retarget_trace)?;
+        let retarget_trace = run_retarget(&mut measurement, &eval_ctx).await?;
         let root_result = retarget_trace
             .node_results
             .iter()
@@ -1498,9 +1360,8 @@ mod tests {
         )?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
 
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
-        let retarget_trace =
-            run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
+        let decisions = derive_retarget_decisions(&measurement, &eval_ctx)?;
+        let retarget_trace = run_retarget(&mut measurement, &eval_ctx).await?;
 
         assert_eq!(
             retarget_trace
@@ -1508,8 +1369,7 @@ mod tests {
                 .iter()
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>(),
-            retarget_plan
-                .node_plans
+            decisions
                 .iter()
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>()
@@ -1639,17 +1499,15 @@ mod tests {
         )?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
 
-        let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
-        let retarget_trace =
-            run_retarget_with_trace(&mut measurement, &eval_ctx, &retarget_plan).await?;
+        let decisions = derive_retarget_decisions(&measurement, &eval_ctx)?;
+        let retarget_trace = run_retarget(&mut measurement, &eval_ctx).await?;
         assert_eq!(
             retarget_trace
                 .node_results
                 .iter()
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>(),
-            retarget_plan
-                .node_plans
+            decisions
                 .iter()
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>()

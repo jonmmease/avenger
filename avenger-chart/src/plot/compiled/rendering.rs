@@ -6629,7 +6629,7 @@ mod tests {
         coords::{CoordinatedOverflow, FacetAxis},
         facet::{
             coord::{FacetBandCoordMeasurement, facet_band_ref as facet_band_ref_from_coord},
-            coordination_apply::build_retarget_plan,
+            coordination_apply::derive_retarget_decisions,
             coordination_plans::CoordinationNodeKey,
         },
         layout::{BandPositionIterator, CanvasConstraint, FrameDimensionSizing, PlotConstraint},
@@ -10068,9 +10068,8 @@ mod tests {
             }
         }
 
-        let plan = build_retarget_plan(&measurement, &eval_ctx)?;
+        let plan = derive_retarget_decisions(&measurement, &eval_ctx)?;
         let legend_nodes = plan
-            .node_plans
             .iter()
             .filter(|node| node.requirements.has_legend_overflow)
             .collect::<Vec<_>>();
@@ -10116,8 +10115,8 @@ mod tests {
             )
             .await?;
 
-        let plan = build_retarget_plan(&measurement, &eval_ctx)?;
-        for node in &plan.node_plans {
+        let plan = derive_retarget_decisions(&measurement, &eval_ctx)?;
+        for node in &plan {
             let counts = node.actions.child_action_counts();
             assert_eq!(
                 counts.preserve + counts.retarget_plot_area,

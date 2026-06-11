@@ -221,6 +221,7 @@ impl CellRetargetActionCounts {
         counts
     }
 
+    #[cfg(test)]
     pub(crate) fn plot_area_retarget_count(&self) -> usize {
         self.retarget_plot_area
     }
@@ -247,21 +248,18 @@ pub(crate) struct RetargetNodePlan {
     pub(crate) actions: RetargetNodeActions,
 }
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct RetargetPlan {
-    pub(crate) node_plans: Vec<RetargetNodePlan>,
-}
-
+/// Per-node summary of one applied retarget decision. The `planned_*`
+/// mirror fields died with the trace-alignment validator (alignment is by
+/// construction in the fused walk); `node_id`, `axis`, and the decision
+/// counts remain for test assertions.
 #[derive(Debug, Clone)]
 pub(crate) struct RetargetNodeTrace {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) node_id: CoordinationNodeKey,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) axis: FacetAxis,
-    pub(crate) planned_has_legend_overflow: bool,
-    pub(crate) planned_layout_changed: bool,
-    pub(crate) planned_axis_owner_ignore_empty_cells: bool,
-    pub(crate) planned_band_action: BandRetargetAction,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) planned_child_action_counts: CellRetargetActionCounts,
-    pub(crate) planned_child_count: usize,
     pub(crate) parent_cross_size_propagated: bool,
     pub(crate) subplot_cross_size_before: f32,
     pub(crate) subplot_cross_size_after: f32,
