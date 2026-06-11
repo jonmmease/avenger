@@ -24,7 +24,10 @@ pub struct ChromeSlab {
     pub rect: Rect,
 }
 
-/// Solved track geometry of one grid region, in root coordinates.
+/// Solved track geometry of one grid region, **relative to the region's
+/// content rectangle** (add `region.content.x/y` for root coordinates).
+/// Relative starts are the solver's exact floats, which byte-stable
+/// consumers (placement change detection) rely on.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SolvedTracks {
     pub column_starts: Vec<f32>,

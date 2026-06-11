@@ -6,6 +6,7 @@
 //! solving, sizing specs, and adapters between chart-core geometry and
 //! `avenger-layout` geometry.
 
+mod band;
 mod band_position;
 mod chrome;
 mod content_solver;
@@ -13,6 +14,7 @@ pub(crate) mod declared_frame;
 mod frame_solver;
 mod info;
 mod sizing;
+mod uniform;
 
 pub use avenger_chart_core::BandPosition;
 pub use avenger_chart_core::{
@@ -20,11 +22,12 @@ pub use avenger_chart_core::{
     LayoutBounds, OverflowSide, OwnedEdgeSlabs, Size2D,
 };
 pub(crate) use avenger_layout::{
-    AlignmentNode, BandItem, BandSolution, BoundaryDemand, ConvergenceTrace, CrossAlign,
-    EdgeDemand, EdgeTargets, Edges, GridItem, GridRequirements, GridShape, GridSlot, LayoutItem,
-    LayoutNode, LayoutSlotContent, Orientation, PlacedBandItem, RoundDeltas, SingletonPolicy, Size,
-    SkippedGroupReason, TrackSpacing, TreeEnvelopeKind, UniformTracks, align_by,
+    AlignmentNode, ConvergenceTrace, EdgeDemand, EdgeTargets, Edges, GridItem, GridRequirements,
+    GridShape, GridSlot, LayoutItem, LayoutNode, LayoutSlotContent, Orientation, RoundDeltas,
+    SingletonPolicy, Size, SkippedGroupReason, TrackSpacing, TreeEnvelopeKind, align_by,
 };
+pub(crate) use band::{BandItem, BandSolution, BoundaryDemand, CrossAlign, PlacedBandItem};
+pub(crate) use uniform::UniformTracks;
 
 /// Chart placement metadata carried through the neutral handoff: the
 /// concat retarget protocol state. `avenger-layout` never reads it.

@@ -766,17 +766,9 @@ fn place<Id: Clone, Key>(
 
     regions[region_index].detail = RegionDetail::Grid {
         tracks: SolvedTracks {
-            column_starts: solution
-                .column_starts
-                .iter()
-                .map(|start| content.x + start)
-                .collect(),
+            column_starts: solution.column_starts.clone(),
             column_sizes: solution.column_widths.clone(),
-            row_starts: solution
-                .row_starts
-                .iter()
-                .map(|start| content.y + start)
-                .collect(),
+            row_starts: solution.row_starts.clone(),
             row_sizes: solution.row_heights.clone(),
         },
     };
