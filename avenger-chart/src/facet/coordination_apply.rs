@@ -66,6 +66,9 @@ pub(crate) fn apply_requirement_pass(
     measurement: &mut ComponentsMeasurement,
     requirement_pass: &RequirementPass,
 ) -> Result<(), AvengerChartError> {
+    let solution = std::sync::Arc::new(
+        crate::facet::coordination_solution::CoordinationSolution::from_pass(requirement_pass),
+    );
     let snapshot_keys_by_node = requirement_pass
         .snapshot
         .nodes
@@ -170,6 +173,9 @@ pub(crate) fn apply_requirement_pass(
                 return;
             };
             facet_band.base_mut().set_coordinated_layout_value(layout);
+            facet_band
+                .base_mut()
+                .set_coordination_solution(std::sync::Arc::clone(&solution), node_id.clone());
             FacetCoordinationPolicy::refresh_placement_after_requirement_patch(facet_band, true);
         },
     );

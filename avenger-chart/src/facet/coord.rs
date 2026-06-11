@@ -281,6 +281,15 @@ pub struct FacetBandCoordMeasurement {
     /// solve. Same stability rule: never recomputed from live cells after
     /// coordination mutates them.
     pub(crate) overflow_cells: Option<Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>>,
+    /// Handle to the coordination round this band last participated in,
+    /// plus this band's traversal key within it. Coordinated values are
+    /// views into the solution; a band rebuilt during retargeting has no
+    /// handle until the next round installs one (reads fall back to local
+    /// values).
+    pub(crate) coordination: Option<(
+        std::sync::Arc<crate::facet::coordination_solution::CoordinationSolution>,
+        CoordinationNodeKey,
+    )>,
     /// Reference to compiled subplot for retargeting after coordination.
     /// Used by retarget actions when coordinated layout changes child sizing.
     pub compiled_subplot: Arc<CompiledPlot>,
@@ -511,8 +520,110 @@ impl FacetBandProbeMeasurement {
     }
 }
 
+/// Read-time parity guard for the stores-dissolution transition: when
+/// `AVENGER_ASSERT_STORE_PARITY` is set, every coordinated-value read
+/// asserts the solution view equals the legacy store (hard `assert!` so
+/// release-mode sweeps exercise it).
+fn store_parity_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("AVENGER_ASSERT_STORE_PARITY").is_ok())
+}
+
 impl FacetBandCoordMeasurement {
+    pub(crate) fn set_coordination_solution(
+        &mut self,
+        solution: std::sync::Arc<crate::facet::coordination_solution::CoordinationSolution>,
+        node_id: CoordinationNodeKey,
+    ) {
+        self.coordination = Some((solution, node_id));
+    }
+
+    fn solution_layout(&self) -> Option<&CoordinatedLayout> {
+        self.coordination
+            .as_ref()
+            .and_then(|(solution, node_id)| solution.layout(node_id))
+    }
+
+    fn solution_overflow(&self) -> Option<&CoordinatedOverflow> {
+        self.coordination
+            .as_ref()
+            .and_then(|(solution, node_id)| solution.overflow(node_id))
+    }
+
+    fn solution_guide_anchor_overflow(&self) -> Option<&CoordinatedOverflow> {
+        self.coordination
+            .as_ref()
+            .and_then(|(solution, node_id)| solution.guide_anchor_overflow(node_id))
+    }
+
+    fn solution_boundary_overflow(&self) -> Option<&CoordinatedOverflow> {
+        self.coordination
+            .as_ref()
+            .and_then(|(solution, node_id)| solution.boundary_overflow(node_id))
+    }
+
+    fn assert_store_parity(&self) {
+        if !store_parity_enabled() {
+            return;
+        }
+        let overflow_eq = |a: &CoordinatedOverflow, b: &CoordinatedOverflow| {
+            let side_eq = |x: f32, y: f32| (x - y).abs() <= 1e-6;
+            side_eq(a.guide.top, b.guide.top)
+                && side_eq(a.guide.right, b.guide.right)
+                && side_eq(a.guide.bottom, b.guide.bottom)
+                && side_eq(a.guide.left, b.guide.left)
+                && side_eq(a.total.top, b.total.top)
+                && side_eq(a.total.right, b.total.right)
+                && side_eq(a.total.bottom, b.total.bottom)
+                && side_eq(a.total.left, b.total.left)
+        };
+        let layout_eq = |a: &CoordinatedLayout, b: &CoordinatedLayout| {
+            a.n == b.n
+                && (a.padding_inner_px - b.padding_inner_px).abs() <= 1e-6
+                && (a.guide_slot_gap_px - b.guide_slot_gap_px).abs() <= 1e-6
+                && (a.outer_start - b.outer_start).abs() <= 1e-6
+                && (a.outer_end - b.outer_end).abs() <= 1e-6
+        };
+
+        match (self.solution_layout(), self.coordinated_layout.as_ref()) {
+            (None, None) => {}
+            (Some(view), Some(store)) if layout_eq(view, store) => {}
+            (view, store) => {
+                panic!("coordination layout parity violated: view={view:?} store={store:?}")
+            }
+        }
+        let default_overflow = CoordinatedOverflow::default();
+        let overflow_view = self.solution_overflow().unwrap_or(&default_overflow);
+        assert!(
+            overflow_eq(overflow_view, &self.coordinated_overflow),
+            "coordination overflow parity violated: view={overflow_view:?} store={:?}",
+            self.coordinated_overflow
+        );
+        match (
+            self.solution_boundary_overflow(),
+            self.coordinated_boundary_overflow.as_ref(),
+        ) {
+            (None, None) => {}
+            (Some(view), Some(store)) if overflow_eq(view, store) => {}
+            (view, store) => {
+                panic!("coordination boundary parity violated: view={view:?} store={store:?}")
+            }
+        }
+        match (
+            self.solution_guide_anchor_overflow(),
+            self.coordinated_guide_anchor_overflow.as_ref(),
+        ) {
+            (None, None) => {}
+            (Some(view), Some(store)) if overflow_eq(view, store) => {}
+            (view, store) => {
+                panic!("coordination guide-anchor parity violated: view={view:?} store={store:?}")
+            }
+        }
+    }
+
     fn active_layout(&self) -> &CoordinatedLayout {
+        self.assert_store_parity();
         self.coordinated_layout
             .as_ref()
             .unwrap_or(&self.local_layout)
@@ -580,14 +691,17 @@ impl FacetBandCoordMeasurement {
     }
 
     pub(crate) fn coordinated_boundary_overflow_value(&self) -> Option<&CoordinatedOverflow> {
+        self.assert_store_parity();
         self.coordinated_boundary_overflow.as_ref()
     }
 
     pub(crate) fn coordinated_guide_anchor_overflow_value(&self) -> Option<&CoordinatedOverflow> {
+        self.assert_store_parity();
         self.coordinated_guide_anchor_overflow.as_ref()
     }
 
     pub(crate) fn active_boundary_overflow(&self) -> &CoordinatedOverflow {
+        self.assert_store_parity();
         self.coordinated_boundary_overflow
             .as_ref()
             .unwrap_or(&self.coordinated_overflow)
@@ -969,6 +1083,7 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
     }
 
     fn coordinated_overflow(&self) -> Option<&CoordinatedOverflow> {
+        self.assert_store_parity();
         Some(&self.coordinated_overflow)
     }
 }
@@ -2097,6 +2212,7 @@ fn empty_facet_band_measurement(
         coordinated_guide_anchor_overflow: None,
         measured_overflow: None,
         overflow_cells: None,
+        coordination: None,
         compiled_subplot: compiled_subplot.clone(),
         subplot_cross_size: 0.0,
         facet_depth: facet_path.len() as u8 + 1,
@@ -4465,6 +4581,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             coordinated_guide_anchor_overflow: None,
             measured_overflow,
             overflow_cells,
+            coordination: None,
             compiled_subplot: prepared_runtime.compiled_subplot.clone(),
             subplot_cross_size: final_subplot_cross_size,
             facet_depth,
