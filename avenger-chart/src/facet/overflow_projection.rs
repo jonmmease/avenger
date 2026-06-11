@@ -640,10 +640,7 @@ pub(crate) fn rendered_subtree_overflow_from_coord_measurement(
     match source {
         FacetOverflowSource::MeasuredLocal => {
             if let Some(facet_measurement) = facet_band_from_coord(measurement) {
-                let active_layout = facet_measurement
-                    .coordinated_layout
-                    .as_ref()
-                    .unwrap_or(&facet_measurement.local_layout);
+                let active_layout = facet_measurement.active_layout();
                 return facet_measurement.measured_overflow_value().map(|overflow| {
                     rendered_subtree_overflow_for_facet_band(
                         facet_measurement,
@@ -671,13 +668,10 @@ pub(crate) fn rendered_subtree_overflow_from_coord_measurement(
         }
         FacetOverflowSource::Coordinated => {
             if let Some(facet_measurement) = facet_band_from_coord(measurement) {
-                let active_layout = facet_measurement
-                    .coordinated_layout
-                    .as_ref()
-                    .unwrap_or(&facet_measurement.local_layout);
+                let active_layout = facet_measurement.active_layout();
                 return Some(rendered_subtree_overflow_for_facet_band(
                     facet_measurement,
-                    &facet_measurement.coordinated_overflow,
+                    facet_measurement.active_overflow(),
                     active_layout,
                 ));
             }
@@ -690,10 +684,7 @@ fn realized_rendered_subtree_overflow_from_coord_measurement(
     measurement: &dyn CoordMeasurement,
 ) -> Option<CoordinatedOverflow> {
     let facet_measurement = facet_band_from_coord(measurement)?;
-    let active_layout = facet_measurement
-        .coordinated_layout
-        .as_ref()
-        .unwrap_or(&facet_measurement.local_layout);
+    let active_layout = facet_measurement.active_layout();
     let overflow = realized_facet_band_overflow(facet_measurement)?;
     Some(rendered_subtree_overflow_for_facet_band(
         facet_measurement,
@@ -732,10 +723,7 @@ fn realized_cell_overflow(measurement: &ComponentsMeasurement) -> CoordinatedOve
     if let Some(facet_measurement) = facet_band_from_coord(measurement.coord_measurement.as_ref())
         && let Some(realized) = realized_facet_band_overflow(facet_measurement)
     {
-        let active_layout = facet_measurement
-            .coordinated_layout
-            .as_ref()
-            .unwrap_or(&facet_measurement.local_layout);
+        let active_layout = facet_measurement.active_layout();
         let rendered =
             rendered_subtree_overflow_for_facet_band(facet_measurement, &realized, active_layout);
         overflow.guide = overflow.guide.max_components(&rendered.guide);
@@ -1104,7 +1092,7 @@ fn facet_measurement_overflow(
             facet_band_from_coord(measurement).map(|facet_measurement| {
                 (
                     facet_measurement.axis,
-                    facet_measurement.coordinated_overflow.clone(),
+                    facet_measurement.active_overflow().clone(),
                 )
             })
         }

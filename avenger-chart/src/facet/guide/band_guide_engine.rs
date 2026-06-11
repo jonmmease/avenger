@@ -1329,10 +1329,7 @@ fn coordinated_col_title_midpoint_override(
         return None;
     }
 
-    let active_layout = facet_measurement
-        .coordinated_layout
-        .as_ref()
-        .unwrap_or(&facet_measurement.local_layout);
+    let active_layout = facet_measurement.active_layout();
     let guide_slot_gap_px = active_layout
         .guide_slot_gap_px
         .max(active_layout.padding_inner_px);

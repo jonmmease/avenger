@@ -8710,7 +8710,7 @@ mod tests {
 
     fn count_coordinated_layout_patches(measurement: &ComponentsMeasurement) -> usize {
         if let Some(facet_band) = facet_band_ref(measurement) {
-            let local = usize::from(facet_band.coordinated_layout.is_some());
+            let local = usize::from(facet_band.has_coordinated_layout());
             local
                 + facet_band
                     .child_measurements_iter()
@@ -8820,10 +8820,7 @@ mod tests {
         if let Some(plot_area_sized_facet) =
             facet_band_ref(measurement).filter(|facet_band| facet_band.uses_explicit_placement())
         {
-            let layout = plot_area_sized_facet
-                .coordinated_layout
-                .as_ref()
-                .unwrap_or(&plot_area_sized_facet.local_layout);
+            let layout = plot_area_sized_facet.active_layout();
             let expected = crate::facet::placement::compute_explicit_main_axis_positions(
                 plot_area_sized_facet.axis,
                 &plot_area_sized_facet.cells,
@@ -8925,7 +8922,7 @@ mod tests {
         if let Some(facet_band) = facet_band_ref(measurement) {
             if facet_band.coordination_field_identity == "team" {
                 let slabs = crate::facet::overflow_projection::FacetOverflowSlabs::from_coordinated(
-                    &facet_band.coordinated_overflow,
+                    facet_band.active_overflow(),
                 );
                 let requirements = facet_band
                     .derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()))?;
@@ -10074,12 +10071,14 @@ mod tests {
             .expect("fixture should produce a plot-area-sized root facet");
         match root_facet.axis {
             FacetAxis::Column => {
-                root_facet.coordinated_overflow.total.top =
-                    root_facet.coordinated_overflow.guide.top + 24.0;
+                root_facet.force_coordinated_overflow_for_tests(|overflow| {
+                    overflow.total.top = overflow.guide.top + 24.0;
+                });
             }
             FacetAxis::Row => {
-                root_facet.coordinated_overflow.total.left =
-                    root_facet.coordinated_overflow.guide.left + 24.0;
+                root_facet.force_coordinated_overflow_for_tests(|overflow| {
+                    overflow.total.left = overflow.guide.left + 24.0;
+                });
             }
         }
 
@@ -10556,7 +10555,7 @@ mod tests {
         let row_facet = facet_band_ref(&measurement)
             .expect("row facet origin invariant expects FacetBandCoordMeasurement");
         let legend_start =
-            legend_slab_for_position(&row_facet.coordinated_overflow, LegendPosition::Left);
+            legend_slab_for_position(row_facet.active_overflow(), LegendPosition::Left);
         let base_x = measurement.layout.plot_area_bounds().x;
         let base_y = measurement.layout.plot_area_bounds().y;
         let row_scale = measurement
@@ -10607,7 +10606,7 @@ mod tests {
         let col_facet = facet_band_ref(&measurement)
             .expect("col facet origin invariant expects FacetBandCoordMeasurement");
         let legend_start =
-            legend_slab_for_position(&col_facet.coordinated_overflow, LegendPosition::Top);
+            legend_slab_for_position(col_facet.active_overflow(), LegendPosition::Top);
         let base_x = measurement.layout.plot_area_bounds().x;
         let base_y = measurement.layout.plot_area_bounds().y;
         let col_scale = measurement
@@ -11099,10 +11098,7 @@ mod tests {
 
         let outer_facet = facet_band_ref(&measurement)
             .expect("top-level deeply nested test should measure as FacetBandCoordMeasurement");
-        let active_layout = outer_facet
-            .coordinated_layout
-            .as_ref()
-            .unwrap_or(&outer_facet.local_layout);
+        let active_layout = outer_facet.active_layout();
 
         assert!(
             active_layout.padding_inner_px < 180.0,

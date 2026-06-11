@@ -363,7 +363,7 @@ pub(crate) fn resolve_facet_band_placement(
 }
 
 fn facet_cell_main_start_offset(facet_band: &FacetBandCoordMeasurement) -> (f32, f32) {
-    let slabs = FacetOverflowSlabs::from_coordinated(&facet_band.coordinated_overflow);
+    let slabs = FacetOverflowSlabs::from_coordinated(facet_band.active_overflow());
     match facet_band.axis {
         FacetAxis::Column => (0.0, slabs.legend.top),
         FacetAxis::Row => (slabs.legend.left, 0.0),

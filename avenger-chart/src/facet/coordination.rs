@@ -758,7 +758,9 @@ mod tests {
     fn force_root_top_legend_slab(measurement: &mut ComponentsMeasurement, slab: f32) {
         let root = facet_band_mut(measurement)
             .expect("fixture should produce root facet-band measurement");
-        root.coordinated_overflow.total.top = root.coordinated_overflow.guide.top + slab;
+        root.force_coordinated_overflow_for_tests(|overflow| {
+            overflow.total.top = overflow.guide.top + slab;
+        });
     }
 
     fn build_nested_plot(df: DataFrame) -> Plot<FacetColumn> {
@@ -1024,7 +1026,7 @@ mod tests {
         let mut bumped_one = false;
         visit_facet_bands_mut(&mut measurement, 0, &mut |depth, facet_band| {
             if depth == 1 {
-                facet_band.coordinated_layout = None;
+                facet_band.clear_coordinated_layout_for_tests();
                 if !bumped_one {
                     facet_band.local_layout.padding_inner_px += 11.0;
                     facet_band.local_layout.n = facet_band.local_layout.n.saturating_add(2);

@@ -3726,8 +3726,7 @@ mod tests {
                     .downcast_ref::<FacetBandCoordMeasurement>()
                     .expect("grid child should contain a FacetColumn measurement");
                 facet
-                    .coordinated_layout
-                    .clone()
+                    .coordinated_layout_value()
                     .expect("aligned facet sibling should have a coordinated layout")
             })
             .collect::<Vec<_>>();
@@ -5097,8 +5096,7 @@ mod tests {
             .downcast_ref::<FacetBandCoordMeasurement>()
             .expect("FacetColumn should measure as FacetBandCoordMeasurement");
         let layout = facet
-            .coordinated_layout
-            .as_ref()
+            .coordinated_layout_value()
             .expect("facet-band apply should install coordinated layout");
         assert_eq!(layout.n, cell_count);
         assert_eq!(layout.outer_start, 19.0);

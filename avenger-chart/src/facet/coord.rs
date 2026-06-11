@@ -360,10 +360,7 @@ impl FacetBandCoordMeasurement {
     }
 
     pub(crate) fn recompute_explicit_placement(&mut self) {
-        let active_layout = self
-            .coordinated_layout
-            .as_ref()
-            .unwrap_or(&self.local_layout);
+        let active_layout = self.active_layout();
         let mut placement =
             compute_explicit_facet_band_placement(self.axis, &self.cells, active_layout);
         let slabs = FacetOverflowSlabs::from_coordinated(self.active_boundary_overflow());
@@ -524,6 +521,12 @@ impl FacetBandProbeMeasurement {
 /// `AVENGER_ASSERT_STORE_PARITY` is set, every coordinated-value read
 /// asserts the solution view equals the legacy store (hard `assert!` so
 /// release-mode sweeps exercise it).
+fn default_overflow() -> &'static CoordinatedOverflow {
+    use std::sync::OnceLock;
+    static DEFAULT: OnceLock<CoordinatedOverflow> = OnceLock::new();
+    DEFAULT.get_or_init(CoordinatedOverflow::default)
+}
+
 fn store_parity_enabled() -> bool {
     use std::sync::OnceLock;
     static ENABLED: OnceLock<bool> = OnceLock::new();
@@ -622,11 +625,28 @@ impl FacetBandCoordMeasurement {
         }
     }
 
-    fn active_layout(&self) -> &CoordinatedLayout {
+    pub(crate) fn active_layout(&self) -> &CoordinatedLayout {
         self.assert_store_parity();
-        self.coordinated_layout
-            .as_ref()
-            .unwrap_or(&self.local_layout)
+        self.solution_layout().unwrap_or(&self.local_layout)
+    }
+
+    /// The coordinated whole-band overflow (the zero envelope before
+    /// coordination — the law the legacy non-`Option` store encoded).
+    pub(crate) fn active_overflow(&self) -> &CoordinatedOverflow {
+        self.assert_store_parity();
+        self.solution_overflow().unwrap_or(default_overflow())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_coordinated_layout(&self) -> bool {
+        self.assert_store_parity();
+        self.solution_layout().is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn coordinated_layout_value(&self) -> Option<CoordinatedLayout> {
+        self.assert_store_parity();
+        self.solution_layout().cloned()
     }
 
     pub fn cell_values(&self) -> impl Iterator<Item = &ScalarValue> {
@@ -682,9 +702,59 @@ impl FacetBandCoordMeasurement {
         self.local_layout.clone()
     }
 
+    /// Copy-on-write update of this band's solution entry (the dissolution
+    /// transition keeps setters working for the gated child-frame adapter
+    /// and tests; a band without a handle gets a private single-node one).
+    fn update_solution(
+        &mut self,
+        update: impl FnOnce(
+            &mut crate::facet::coordination_solution::CoordinationSolution,
+            &CoordinationNodeKey,
+        ),
+    ) {
+        let (solution, node_id) = self.coordination.get_or_insert_with(|| {
+            (
+                std::sync::Arc::new(Default::default()),
+                CoordinationNodeKey::new(Vec::new()),
+            )
+        });
+        update(std::sync::Arc::make_mut(solution), node_id);
+    }
+
+    /// Test-only: perturb the coordinated whole-band overflow in BOTH the
+    /// legacy store and the solution view, without the setter side effects
+    /// (guide-anchor clear, ownership reset) so fixtures touch exactly one
+    /// channel.
+    #[cfg(test)]
+    pub(crate) fn force_coordinated_overflow_for_tests(
+        &mut self,
+        update: impl FnOnce(&mut CoordinatedOverflow),
+    ) {
+        let mut overflow = self.active_overflow().clone();
+        update(&mut overflow);
+        self.coordinated_overflow = overflow.clone();
+        self.update_solution(|solution, node_id| {
+            solution.overflow_by_node.insert(node_id.clone(), overflow);
+        });
+    }
+
+    /// Test-only: drop the coordinated layout from BOTH the legacy store and
+    /// the solution view (simulates an uncoordinated or rebuilt band).
+    #[cfg(test)]
+    pub(crate) fn clear_coordinated_layout_for_tests(&mut self) {
+        self.coordinated_layout = None;
+        self.update_solution(|solution, node_id| {
+            solution.layout_by_node.remove(node_id);
+        });
+    }
+
     pub fn set_coordinated_overflow_value(&mut self, overflow: CoordinatedOverflow) {
-        self.coordinated_overflow = overflow;
+        self.coordinated_overflow = overflow.clone();
         self.coordinated_guide_anchor_overflow = None;
+        self.update_solution(|solution, node_id| {
+            solution.overflow_by_node.insert(node_id.clone(), overflow);
+            solution.guide_anchor_overflow_by_node.remove(node_id);
+        });
         self.allocation_ownership = self
             .allocation_ownership
             .without_realized_owned_legend_slabs();
@@ -692,34 +762,46 @@ impl FacetBandCoordMeasurement {
 
     pub(crate) fn coordinated_boundary_overflow_value(&self) -> Option<&CoordinatedOverflow> {
         self.assert_store_parity();
-        self.coordinated_boundary_overflow.as_ref()
+        self.solution_boundary_overflow()
     }
 
     pub(crate) fn coordinated_guide_anchor_overflow_value(&self) -> Option<&CoordinatedOverflow> {
         self.assert_store_parity();
-        self.coordinated_guide_anchor_overflow.as_ref()
+        self.solution_guide_anchor_overflow()
     }
 
     pub(crate) fn active_boundary_overflow(&self) -> &CoordinatedOverflow {
         self.assert_store_parity();
-        self.coordinated_boundary_overflow
-            .as_ref()
-            .unwrap_or(&self.coordinated_overflow)
+        self.solution_boundary_overflow()
+            .unwrap_or_else(|| self.active_overflow())
     }
 
     pub fn set_coordinated_boundary_overflow_value(&mut self, overflow: CoordinatedOverflow) {
-        self.coordinated_boundary_overflow = Some(overflow);
+        self.coordinated_boundary_overflow = Some(overflow.clone());
+        self.update_solution(|solution, node_id| {
+            solution
+                .boundary_overflow_by_node
+                .insert(node_id.clone(), overflow);
+        });
         self.allocation_ownership = self
             .allocation_ownership
             .without_realized_owned_legend_slabs();
     }
 
     pub fn set_coordinated_guide_anchor_overflow_value(&mut self, overflow: CoordinatedOverflow) {
-        self.coordinated_guide_anchor_overflow = Some(overflow);
+        self.coordinated_guide_anchor_overflow = Some(overflow.clone());
+        self.update_solution(|solution, node_id| {
+            solution
+                .guide_anchor_overflow_by_node
+                .insert(node_id.clone(), overflow);
+        });
     }
 
     pub fn set_coordinated_layout_value(&mut self, layout: CoordinatedLayout) {
-        self.coordinated_layout = Some(layout);
+        self.coordinated_layout = Some(layout.clone());
+        self.update_solution(|solution, node_id| {
+            solution.layout_by_node.insert(node_id.clone(), layout);
+        });
         self.allocation_ownership = self
             .allocation_ownership
             .without_realized_owned_legend_slabs();
@@ -816,8 +898,7 @@ impl FacetBandCoordMeasurement {
         })?;
         self.subplot_cross_size = new_subplot_cross_size;
 
-        let (legend_start, legend_end) =
-            legend_axis_overflow(self.axis, &self.coordinated_overflow);
+        let (legend_start, legend_end) = legend_axis_overflow(self.axis, self.active_overflow());
         let (target_plot_area_width, target_plot_area_height) = match self.axis {
             FacetAxis::Column => (
                 new_subplot_cross_size,
@@ -919,8 +1000,7 @@ impl FacetBandCoordMeasurement {
             }
         }
 
-        let (legend_start, legend_end) =
-            legend_axis_overflow(self.axis, &self.coordinated_overflow);
+        let (legend_start, legend_end) = legend_axis_overflow(self.axis, self.active_overflow());
         let orthogonal_canvas_constrained = policy
             .facet_orthogonal_dimension(self.axis)
             .is_canvas_constrained();
@@ -1084,7 +1164,7 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
 
     fn coordinated_overflow(&self) -> Option<&CoordinatedOverflow> {
         self.assert_store_parity();
-        Some(&self.coordinated_overflow)
+        Some(self.active_overflow())
     }
 }
 
@@ -1355,7 +1435,7 @@ impl FacetBandCoordMeasurement {
         &self,
         node_id: &CoordinationNodeKey,
     ) -> Result<f32, AvengerChartError> {
-        let layout = self.coordinated_layout.as_ref().ok_or_else(|| {
+        let layout = self.solution_layout().ok_or_else(|| {
             AvengerChartError::InternalError(format!(
                 "Facet retarget requirements for node path {:?} need coordinated layout, but none is present",
                 node_id.path
@@ -1389,15 +1469,14 @@ impl FacetBandCoordMeasurement {
         &self,
         node_id: CoordinationNodeKey,
     ) -> Result<RetargetNodeRequirements, AvengerChartError> {
-        let (legend_start, legend_end) =
-            legend_axis_overflow(self.axis, &self.coordinated_overflow);
+        let (legend_start, legend_end) = legend_axis_overflow(self.axis, self.active_overflow());
         let legend_main_axis_slab = AxisSlab {
             start: legend_start,
             end: legend_end,
         };
         let has_legend_overflow = legend_main_axis_slab.has_slab();
         let layout_changed =
-            has_coordinated_layout_change(&self.local_layout, self.coordinated_layout.as_ref());
+            has_coordinated_layout_change(&self.local_layout, self.solution_layout());
         let policy = resolve_facet_ownership_policy(
             self.empty_cell_policy,
             has_holes_from_cells(self.cells.iter().map(|cell| cell.plan.is_empty)),
@@ -1422,8 +1501,8 @@ impl FacetBandCoordMeasurement {
             node_id,
             axis: self.axis,
             child_count: self.cells.len(),
-            coordinated_overflow: self.coordinated_overflow.clone(),
-            coordinated_layout: self.coordinated_layout.clone(),
+            coordinated_overflow: self.active_overflow().clone(),
+            coordinated_layout: self.solution_layout().cloned(),
             layout_changed,
             legend_main_axis_slab,
             has_legend_overflow,
@@ -1438,7 +1517,7 @@ impl FacetBandCoordMeasurement {
     }
 
     fn apply_coordinated_layout_cross_size(&mut self) -> Result<(), AvengerChartError> {
-        let layout = self.coordinated_layout.as_ref().ok_or_else(|| {
+        let layout = self.solution_layout().ok_or_else(|| {
             AvengerChartError::InternalError(format!(
                 "Facet retarget action requested coordinated layout for {} facet at depth {}, but no coordinated layout is present",
                 self.axis.scale_name(),
@@ -1506,14 +1585,15 @@ impl FacetBandCoordMeasurement {
         }
 
         let subplot_cross_size_before = self.subplot_cross_size;
-        let legend_slabs = FacetOverflowSlabs::from_coordinated(&self.coordinated_overflow);
+        let coordinated_overflow = self.active_overflow();
+        let legend_slabs = FacetOverflowSlabs::from_coordinated(coordinated_overflow);
 
         trace!(
             axis = ?self.axis,
             facet_depth = self.facet_depth,
             coordination_field = %self.coordination_field_identity,
-            legend_start = legend_axis_overflow(self.axis, &self.coordinated_overflow).0,
-            legend_end = legend_axis_overflow(self.axis, &self.coordinated_overflow).1,
+            legend_start = legend_axis_overflow(self.axis, coordinated_overflow).0,
+            legend_end = legend_axis_overflow(self.axis, coordinated_overflow).1,
             legend_top = legend_slabs.legend.top,
             legend_right = legend_slabs.legend.right,
             legend_bottom = legend_slabs.legend.bottom,
@@ -1527,14 +1607,14 @@ impl FacetBandCoordMeasurement {
             coordination_field = %self.coordination_field_identity,
             band_action = ?actions.band_action,
             child_action_count = actions.child_actions.len(),
-            coordinated_guide_top = self.coordinated_overflow.guide.top,
-            coordinated_guide_right = self.coordinated_overflow.guide.right,
-            coordinated_guide_bottom = self.coordinated_overflow.guide.bottom,
-            coordinated_guide_left = self.coordinated_overflow.guide.left,
-            coordinated_total_top = self.coordinated_overflow.total.top,
-            coordinated_total_right = self.coordinated_overflow.total.right,
-            coordinated_total_bottom = self.coordinated_overflow.total.bottom,
-            coordinated_total_left = self.coordinated_overflow.total.left,
+            coordinated_guide_top = coordinated_overflow.guide.top,
+            coordinated_guide_right = coordinated_overflow.guide.right,
+            coordinated_guide_bottom = coordinated_overflow.guide.bottom,
+            coordinated_guide_left = coordinated_overflow.guide.left,
+            coordinated_total_top = coordinated_overflow.total.top,
+            coordinated_total_right = coordinated_overflow.total.right,
+            coordinated_total_bottom = coordinated_overflow.total.bottom,
+            coordinated_total_left = coordinated_overflow.total.left,
             "FacetBand apply_retarget_actions coordinated inputs"
         );
 
@@ -1775,14 +1855,13 @@ fn refresh_measurement_frame_allocation_rect(measurement: &mut ComponentsMeasure
 }
 
 pub(crate) fn sync_measurement_owned_slabs_from_coord(measurement: &mut ComponentsMeasurement) {
-    let owned_slabs = if let Some(facet_band) =
-        facet_band_ref(measurement.coord_measurement.as_ref())
-    {
-        let active_layout = facet_band.active_layout();
-        facet_band.owned_legend_slabs_for_overflow(&facet_band.coordinated_overflow, active_layout)
-    } else {
-        EdgeSlabs::default()
-    };
+    let owned_slabs =
+        if let Some(facet_band) = facet_band_ref(measurement.coord_measurement.as_ref()) {
+            let active_layout = facet_band.active_layout();
+            facet_band.owned_legend_slabs_for_overflow(facet_band.active_overflow(), active_layout)
+        } else {
+            EdgeSlabs::default()
+        };
 
     measurement.frame_allocation.owned_slabs = owned_slabs;
     if let Some(facet_band) = facet_band_mut(measurement.coord_measurement.as_mut()) {
@@ -5918,7 +5997,7 @@ mod tests {
             .as_any_mut()
             .downcast_mut::<FacetBandCoordMeasurement>()
             .expect("expected FacetBandCoordMeasurement");
-        facet_band.coordinated_overflow.total.top = 12.0;
+        facet_band.force_coordinated_overflow_for_tests(|overflow| overflow.total.top = 12.0);
 
         let requirements =
             facet_band.derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()))?;
@@ -6027,7 +6106,7 @@ mod tests {
             .as_any_mut()
             .downcast_mut::<FacetBandCoordMeasurement>()
             .expect("expected FacetBandCoordMeasurement");
-        facet_band.coordinated_overflow.total.top = 18.0;
+        facet_band.force_coordinated_overflow_for_tests(|overflow| overflow.total.top = 18.0);
         let expected_cells = facet_band.cells.len();
         let first_before = facet_band
             .cells
