@@ -20,13 +20,6 @@ pub(crate) struct UniformTracks {
 }
 
 impl UniformTracks {
-    pub(crate) fn merge_max(self, other: Self) -> Self {
-        Self {
-            count: self.count.max(other.count),
-            spacing: self.spacing.merge_max(other.spacing),
-        }
-    }
-
     /// Solve the uniform arrangement for a given per-track size: starts form
     /// an arithmetic progression with the spacing's `min_gap` between
     /// tracks, offset by `outer_start`; the extent includes both outers.

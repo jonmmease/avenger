@@ -19,10 +19,7 @@ use avenger_chart_core::{
 use crate::{
     facet::overflow_projection::{FacetOverflowProjection, project_facet_overflow},
     facet::overflow_projection::{overflow_edge_demands, overflow_from_edge_demands},
-    layout::{
-        AlignmentNode, EdgeDemand, Edges, RoundDeltas, SingletonPolicy, TrackSpacing,
-        UniformTracks, align_by,
-    },
+    layout::{AlignmentNode, EdgeDemand, Edges, RoundDeltas, SingletonPolicy, align_by},
     plot::compiled::{CoordinationKind, CoordinationScopeKey},
 };
 
@@ -353,17 +350,17 @@ pub(crate) struct CoordinationRunArtifacts {
 }
 
 #[derive(Debug, Clone)]
-struct RoundCollectionInput {
-    node_id: CoordinationNodeKey,
-    key: CoordinationScopeKey,
-    axis: FacetAxis,
-    slot_sharing: SharingLevel,
-    min_slot_count: usize,
-    measured_overflow: Option<CoordinatedOverflow>,
-    local_layout: CoordinatedLayout,
-    guide_padding_inner_px: f32,
-    first_edge_index: usize,
-    last_edge_index: usize,
+pub(crate) struct RoundCollectionInput {
+    pub(crate) node_id: CoordinationNodeKey,
+    pub(crate) key: CoordinationScopeKey,
+    pub(crate) axis: FacetAxis,
+    pub(crate) slot_sharing: SharingLevel,
+    pub(crate) min_slot_count: usize,
+    pub(crate) measured_overflow: Option<CoordinatedOverflow>,
+    pub(crate) local_layout: CoordinatedLayout,
+    pub(crate) guide_padding_inner_px: f32,
+    pub(crate) first_edge_index: usize,
+    pub(crate) last_edge_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -582,8 +579,22 @@ fn build_round_collection(nodes: &[RoundCollectionInput]) -> RoundCollectionOutp
     let scopes = RequirementScopeMetadata::collect(nodes);
     let grouped = collect_round_groups(nodes, &scopes);
     let (mut merged, overflow_round_deltas) = merge_round_groups(&grouped);
-    let (layout_by_key, layout_round_deltas) = align_layout_groups(nodes);
-    merged.layout_by_key = layout_by_key;
+    let solved_layout = crate::facet::round_tree::solve_layout_round(nodes);
+    let layout_round_deltas = nodes
+        .iter()
+        .filter_map(|node| {
+            solved_layout
+                .merged_by_node
+                .get(&node.node_id)
+                .map(|merged| coordinated_layout_delta(&node.local_layout, merged))
+        })
+        .fold(RoundDeltas::default(), |deltas, (content, edge)| {
+            RoundDeltas {
+                content: deltas.content + content,
+                edge: deltas.edge + edge,
+            }
+        });
+    merged.layout_by_key = solved_layout.merged_by_key;
     let patches = build_round_patches(nodes, &scopes, &grouped, &merged);
 
     RoundCollectionOutput {
@@ -729,84 +740,6 @@ fn coordinated_overflow_delta(
         + (merged.total.bottom - local.total.bottom).abs()
         + (merged.total.left - local.total.left).abs();
     (0.0, edge)
-}
-
-/// Run the layout sub-pass as one neutral alignment round.
-///
-/// Group keys (`CoordinationScopeKey` + `ChildSize` kind) and all per-node
-/// patch adjustments (free slot-sharing, lane gap folds, global edge
-/// reversion) stay chart-side in `build_round_patches`; the engine provides
-/// grouping, merging, and delta totals. `SingletonPolicy::Merge` because
-/// every node must receive a coordinated layout patch.
-fn align_layout_groups(
-    nodes: &[RoundCollectionInput],
-) -> (
-    HashMap<CoordinationScopeKey, CoordinatedLayout>,
-    RoundDeltas,
-) {
-    let layout_nodes = nodes
-        .iter()
-        .map(|node| AlignmentNode {
-            id: node.node_id.clone(),
-            group_key: node.key.with_kind(CoordinationKind::ChildSize),
-            requirements: node.local_layout.clone(),
-        })
-        .collect::<Vec<_>>();
-
-    let plan = align_by(
-        &layout_nodes,
-        SingletonPolicy::Merge,
-        |members| {
-            // The layout policy merge is the neutral uniform-tracks law;
-            // guide_slot_gap_px is the chart side-car folded alongside.
-            let mut tracks = UniformTracks::default();
-            let mut guide_slot_gap_px = 0.0f32;
-            for member in members {
-                tracks = tracks.merge_max(uniform_tracks_from_layout(member));
-                guide_slot_gap_px = guide_slot_gap_px.max(member.guide_slot_gap_px);
-            }
-            Some(layout_from_uniform_tracks(tracks, guide_slot_gap_px))
-        },
-        coordinated_layout_delta,
-    );
-
-    let deltas = RoundDeltas {
-        content: plan.total_content_delta(),
-        edge: plan.total_edge_delta(),
-    };
-    let layout_by_key = plan
-        .groups
-        .into_iter()
-        .map(|group| (group.key, group.merged))
-        .collect();
-    (layout_by_key, deltas)
-}
-
-/// The neutral uniform-tracks view of a coordinated layout: `n` slots with
-/// shared spacing, padding as the min gap. `guide_slot_gap_px` is the chart
-/// side-car and travels separately.
-pub(crate) fn uniform_tracks_from_layout(layout: &CoordinatedLayout) -> UniformTracks {
-    UniformTracks {
-        count: layout.n,
-        spacing: TrackSpacing {
-            outer_start: layout.outer_start,
-            outer_end: layout.outer_end,
-            min_gap: layout.padding_inner_px,
-        },
-    }
-}
-
-pub(crate) fn layout_from_uniform_tracks(
-    tracks: UniformTracks,
-    guide_slot_gap_px: f32,
-) -> CoordinatedLayout {
-    CoordinatedLayout {
-        padding_inner_px: tracks.spacing.min_gap,
-        guide_slot_gap_px,
-        outer_start: tracks.spacing.outer_start,
-        outer_end: tracks.spacing.outer_end,
-        n: tracks.count,
-    }
 }
 
 /// Two-channel delta for coordinated layout policy: slot-count difference is
