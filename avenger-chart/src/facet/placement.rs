@@ -73,14 +73,6 @@ pub(crate) struct FacetCellPlacement {
     pub(crate) main_size: f32,
 }
 
-/// Explicit placement model used when a band dimension is leaf-plot-area-sized.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct FacetBandExplicitPlacement {
-    pub(crate) main_axis_positions: Vec<f32>,
-    pub(crate) main_size: f32,
-    pub(crate) cross_size: f32,
-}
-
 /// Placement model for a facet band.
 ///
 /// Scale-backed placement resolves cell positions from the active band scale.
@@ -117,43 +109,6 @@ impl FacetBandPlacement {
             .map(FacetCellPlacement::from_placed_child)
             .collect();
         Self::new(axis, cells, band.main_extent, band.cross_extent)
-    }
-
-    pub(crate) fn from_explicit(
-        axis: FacetAxis,
-        explicit: &FacetBandExplicitPlacement,
-        cells: &[FacetCellRuntime],
-    ) -> Result<Self, AvengerChartError> {
-        if explicit.main_axis_positions.len() != cells.len() {
-            return Err(AvengerChartError::InternalError(format!(
-                "Facet explicit placement count mismatch: positions={}, cells={}",
-                explicit.main_axis_positions.len(),
-                cells.len()
-            )));
-        }
-
-        let children = explicit
-            .main_axis_positions
-            .iter()
-            .copied()
-            .zip(cells.iter())
-            .enumerate()
-            .map(|(child_index, (main_start, cell))| {
-                PlacedBandItem::new(
-                    child_index,
-                    main_start,
-                    cell_main_plot_size(axis, &cell.measurement),
-                )
-            })
-            .collect();
-        let band = band_solution_from_children(
-            band_direction(axis),
-            children,
-            explicit.main_size,
-            Some(explicit.cross_size),
-        );
-
-        Ok(Self::from_child_frame_band(axis, band))
     }
 
     pub(crate) fn cell_count(&self) -> usize {
@@ -441,9 +396,9 @@ pub(crate) fn compute_explicit_facet_band_placement(
     axis: FacetAxis,
     cells: &[FacetCellRuntime],
     layout: &CoordinatedLayout,
-) -> FacetBandExplicitPlacement {
+) -> FacetBandPlacement {
     if cells.is_empty() {
-        return FacetBandExplicitPlacement::default();
+        return FacetBandPlacement::new(axis, Vec::new(), 0.0, Some(0.0));
     }
 
     let gap = padding_policy::main_axis_gap(layout.padding_inner_px);
@@ -520,20 +475,21 @@ pub(crate) fn compute_explicit_facet_band_placement(
         CrossAlign::default(),
         None,
     );
-    let main_axis_positions = band
+    // Ghost slots pad the solve to the coordinated slot count; only the
+    // real cells become placements.
+    let placed_cells = band
         .items
         .iter()
         .take(cells.len())
-        .map(|child| child.main_start)
+        .map(FacetCellPlacement::from_placed_child)
         .collect();
-    let main_size = band.main_extent;
-    let cross_size = band.cross_extent.unwrap_or(0.0);
 
-    FacetBandExplicitPlacement {
-        main_axis_positions,
-        main_size,
-        cross_size,
-    }
+    FacetBandPlacement::new(
+        axis,
+        placed_cells,
+        band.main_extent,
+        Some(band.cross_extent.unwrap_or(0.0)),
+    )
 }
 
 #[cfg(test)]
@@ -542,7 +498,11 @@ pub(crate) fn compute_explicit_main_axis_positions(
     cells: &[FacetCellRuntime],
     layout: &CoordinatedLayout,
 ) -> Vec<f32> {
-    compute_explicit_facet_band_placement(axis, cells, layout).main_axis_positions
+    compute_explicit_facet_band_placement(axis, cells, layout)
+        .cells
+        .iter()
+        .map(|cell| cell.main_start)
+        .collect()
 }
 
 /// Returns the main-axis extent of a cell for plot-area-sized positioning.

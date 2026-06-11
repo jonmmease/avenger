@@ -58,8 +58,8 @@ use crate::{
         ownership_policy::{has_holes_from_cells, resolve_facet_ownership_policy},
         padding_policy,
         placement::{
-            FacetBandExplicitPlacement, FacetBandPlacement, FacetBandPlacementModel,
-            compute_explicit_facet_band_placement, resolve_scale_backed_facet_band_placement,
+            FacetBandPlacement, FacetBandPlacementModel, compute_explicit_facet_band_placement,
+            resolve_scale_backed_facet_band_placement,
         },
         probe_summary::FacetCellProbeSummary,
         scale_precompute::{
@@ -340,7 +340,7 @@ impl FacetBandCoordMeasurement {
     /// overflow). There is no cached placement to refresh: mutating
     /// cells, scales, or coordinated values is immediately visible to
     /// the next read.
-    pub(crate) fn explicit_placement(&self) -> FacetBandExplicitPlacement {
+    pub(crate) fn explicit_placement(&self) -> FacetBandPlacement {
         let mut placement =
             compute_explicit_facet_band_placement(self.axis, &self.cells, self.active_layout());
         let slabs = FacetOverflowSlabs::from_coordinated(self.active_boundary_overflow());
@@ -348,7 +348,8 @@ impl FacetBandCoordMeasurement {
             FacetAxis::Column => slabs.legend.top,
             FacetAxis::Row => slabs.legend.left,
         };
-        placement.cross_size += cross_start_offset.max(0.0);
+        placement.cross_extent =
+            Some(placement.cross_extent.unwrap_or(0.0) + cross_start_offset.max(0.0));
         placement
     }
 
@@ -365,9 +366,10 @@ impl FacetBandCoordMeasurement {
             },
             FacetBandPlacementModel::Explicit => {
                 let placement = self.explicit_placement();
+                let cross_extent = placement.cross_extent.unwrap_or(0.0);
                 match self.axis {
-                    FacetAxis::Column => (placement.main_size, placement.cross_size),
-                    FacetAxis::Row => (placement.cross_size, placement.main_size),
+                    FacetAxis::Column => (placement.main_extent, cross_extent),
+                    FacetAxis::Row => (cross_extent, placement.main_extent),
                 }
             }
         }
@@ -378,11 +380,7 @@ impl FacetBandCoordMeasurement {
         scales: &HashMap<String, ConfiguredScale>,
     ) -> Result<FacetBandPlacement, AvengerChartError> {
         match &self.placement_model {
-            FacetBandPlacementModel::Explicit => FacetBandPlacement::from_explicit(
-                self.axis,
-                &self.explicit_placement(),
-                &self.cells,
-            ),
+            FacetBandPlacementModel::Explicit => Ok(self.explicit_placement()),
             FacetBandPlacementModel::ScaleBacked => {
                 let configured = scales.get(self.axis.scale_name()).ok_or_else(|| {
                     AvengerChartError::InternalError(format!(
@@ -407,11 +405,7 @@ impl FacetBandCoordMeasurement {
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
     ) -> Result<FacetBandPlacement, AvengerChartError> {
         match &self.placement_model {
-            FacetBandPlacementModel::Explicit => FacetBandPlacement::from_explicit(
-                self.axis,
-                &self.explicit_placement(),
-                &self.cells,
-            ),
+            FacetBandPlacementModel::Explicit => Ok(self.explicit_placement()),
             FacetBandPlacementModel::ScaleBacked => {
                 let configured = scales.get(self.axis.scale_name()).ok_or_else(|| {
                     AvengerChartError::InternalError(format!(
