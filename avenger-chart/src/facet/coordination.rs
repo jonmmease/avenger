@@ -176,18 +176,14 @@ async fn run_facet_coordination_rounds(
             RequirementStage::Retargeted
         };
         let requirement_pass =
-            build_requirement_pass(stage, collect_requirement_snapshot(measurement));
-        validate_requirement_coverage(&requirement_pass)?;
+            build_requirement_pass(stage, collect_requirement_snapshot(measurement))?;
         debug!(
             policy = FacetCoordinationPolicy::LABEL,
             round,
             stage = stage.label(),
-            overflow_groups = requirement_pass.aggregates.merged_overflow_by_key.len(),
-            boundary_overflow_groups = requirement_pass
-                .aggregates
-                .merged_boundary_overflow_by_key
-                .len(),
-            layout_groups = requirement_pass.aggregates.merged_layout_by_key.len(),
+            overflow_groups = requirement_pass.diagnostics.overflow_groups,
+            boundary_overflow_groups = requirement_pass.diagnostics.boundary_overflow_groups,
+            layout_groups = requirement_pass.diagnostics.layout_groups,
             "coordinate_facet_measurement_tree round aggregate + distribution"
         );
         apply_requirement_pass(measurement, &requirement_pass)?;
@@ -380,71 +376,6 @@ fn validate_node_set_coverage(
     Err(AvengerChartError::InternalError(format!(
         "{label} coverage mismatch: missing={missing:?}, unexpected={unexpected:?}"
     )))
-}
-
-pub(crate) fn validate_requirement_coverage(
-    requirement_pass: &RequirementPass,
-) -> Result<(), AvengerChartError> {
-    let stage_label = requirement_pass.stage.label();
-    let snapshot_nodes: HashSet<CoordinationNodeKey> = requirement_pass
-        .snapshot
-        .nodes
-        .iter()
-        .map(|node| node.node_id.clone())
-        .collect();
-    let layout_patch_nodes: HashSet<CoordinationNodeKey> = requirement_pass
-        .distribution
-        .layout_patches_by_node
-        .keys()
-        .cloned()
-        .collect();
-    validate_node_set_coverage(
-        &format!("{stage_label} layout patch"),
-        layout_patch_nodes,
-        snapshot_nodes.clone(),
-    )?;
-
-    let overflow_required_nodes: HashSet<CoordinationNodeKey> = requirement_pass
-        .snapshot
-        .nodes
-        .iter()
-        .filter(|node| node.overflow_cells.is_some())
-        .map(|node| node.node_id.clone())
-        .collect();
-    let overflow_patch_nodes: HashSet<CoordinationNodeKey> = requirement_pass
-        .distribution
-        .overflow_patches_by_node
-        .keys()
-        .cloned()
-        .collect();
-    validate_node_set_coverage(
-        &format!("{stage_label} overflow patch"),
-        overflow_patch_nodes,
-        overflow_required_nodes.clone(),
-    )?;
-    let boundary_patch_nodes: HashSet<CoordinationNodeKey> = requirement_pass
-        .distribution
-        .boundary_overflow_patches_by_node
-        .keys()
-        .cloned()
-        .collect();
-    validate_node_set_coverage(
-        &format!("{stage_label} boundary-overflow patch"),
-        boundary_patch_nodes,
-        overflow_required_nodes.clone(),
-    )?;
-    let guide_anchor_patch_nodes: HashSet<CoordinationNodeKey> = requirement_pass
-        .distribution
-        .guide_anchor_overflow_patches_by_node
-        .keys()
-        .cloned()
-        .collect();
-    validate_node_set_coverage(
-        &format!("{stage_label} guide-anchor-overflow patch"),
-        guide_anchor_patch_nodes,
-        overflow_required_nodes,
-    )?;
-    Ok(())
 }
 
 pub(crate) fn validate_retarget_plan_coverage(
@@ -950,7 +881,7 @@ mod tests {
         let initial_requirement_pass = build_requirement_pass(
             RequirementStage::Initial,
             collect_requirement_snapshot(&measurement),
-        );
+        )?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
 
         let states = depth1_states(&measurement);
@@ -1017,7 +948,7 @@ mod tests {
         let initial_requirement_pass = build_requirement_pass(
             RequirementStage::Initial,
             collect_requirement_snapshot(&measurement),
-        );
+        )?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
         let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
         let _retarget_trace =
@@ -1054,7 +985,7 @@ mod tests {
         let retargeted_requirement_pass = build_requirement_pass(
             RequirementStage::Retargeted,
             collect_requirement_snapshot(&measurement),
-        );
+        )?;
         apply_requirement_pass(&mut measurement, &retargeted_requirement_pass)?;
 
         let states = depth1_states(&measurement);
@@ -1138,26 +1069,15 @@ mod tests {
         let initial_requirement_pass = build_requirement_pass(
             RequirementStage::Initial,
             collect_requirement_snapshot(&measurement),
-        );
+        )?;
         assert!(!initial_requirement_pass.snapshot.nodes.is_empty());
-        assert!(
-            !initial_requirement_pass
-                .aggregates
-                .merged_layout_by_key
-                .is_empty()
-        );
+        assert!(initial_requirement_pass.diagnostics.layout_groups > 0);
         assert_eq!(
-            initial_requirement_pass
-                .distribution
-                .layout_patches_by_node
-                .len(),
+            initial_requirement_pass.solution.layout_by_node.len(),
             initial_requirement_pass.snapshot.nodes.len()
         );
         assert!(
-            initial_requirement_pass
-                .distribution
-                .overflow_patches_by_node
-                .len()
+            initial_requirement_pass.solution.overflow_by_node.len()
                 <= initial_requirement_pass.snapshot.nodes.len()
         );
         Ok(())
@@ -1170,7 +1090,7 @@ mod tests {
         let initial_requirement_pass = build_requirement_pass(
             RequirementStage::Initial,
             collect_requirement_snapshot(&measurement),
-        );
+        )?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
         force_root_top_legend_slab(&mut measurement, 18.0);
 
@@ -1201,7 +1121,7 @@ mod tests {
         let initial_requirement_pass = build_requirement_pass(
             RequirementStage::Initial,
             collect_requirement_snapshot(&measurement),
-        );
+        )?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
         let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
         let _retarget_trace =
@@ -1210,11 +1130,11 @@ mod tests {
         let retargeted_requirement_pass = build_requirement_pass(
             RequirementStage::Retargeted,
             collect_requirement_snapshot(&measurement),
-        );
+        )?;
         assert!(
             !retargeted_requirement_pass
-                .distribution
-                .layout_patches_by_node
+                .solution
+                .layout_by_node
                 .is_empty()
         );
         apply_requirement_pass(&mut measurement, &retargeted_requirement_pass)?;
@@ -1565,7 +1485,7 @@ mod tests {
         let initial_requirement_pass = build_requirement_pass(
             RequirementStage::Initial,
             collect_requirement_snapshot(&measurement),
-        );
+        )?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
 
         let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
@@ -1649,11 +1569,11 @@ mod tests {
     async fn initial_requirement_pass_distribution_patch_coverage_matches_snapshot()
     -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
+        // Coverage is validated at construction; the `?` exercises it.
         let initial_requirement_pass = build_requirement_pass(
             RequirementStage::Initial,
             collect_requirement_snapshot(&measurement),
-        );
-        validate_requirement_coverage(&initial_requirement_pass)?;
+        )?;
         let snapshot_nodes: std::collections::HashSet<CoordinationNodeKey> =
             initial_requirement_pass
                 .snapshot
@@ -1663,8 +1583,8 @@ mod tests {
                 .collect();
         let layout_patch_nodes: std::collections::HashSet<CoordinationNodeKey> =
             initial_requirement_pass
-                .distribution
-                .layout_patches_by_node
+                .solution
+                .layout_by_node
                 .keys()
                 .cloned()
                 .collect();
@@ -1676,11 +1596,11 @@ mod tests {
     async fn retargeted_requirement_pass_distribution_patch_coverage_matches_snapshot()
     -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
+        // Coverage is validated at construction; the `?` exercises it.
         let retargeted_requirement_pass = build_requirement_pass(
             RequirementStage::Retargeted,
             collect_requirement_snapshot(&measurement),
-        );
-        validate_requirement_coverage(&retargeted_requirement_pass)?;
+        )?;
         let snapshot_nodes: std::collections::HashSet<CoordinationNodeKey> =
             retargeted_requirement_pass
                 .snapshot
@@ -1690,8 +1610,8 @@ mod tests {
                 .collect();
         let layout_patch_nodes: std::collections::HashSet<CoordinationNodeKey> =
             retargeted_requirement_pass
-                .distribution
-                .layout_patches_by_node
+                .solution
+                .layout_by_node
                 .keys()
                 .cloned()
                 .collect();
@@ -1706,7 +1626,7 @@ mod tests {
         let initial_requirement_pass = build_requirement_pass(
             RequirementStage::Initial,
             collect_requirement_snapshot(&measurement),
-        );
+        )?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
 
         let retarget_plan = build_retarget_plan(&measurement, &eval_ctx)?;
@@ -1728,7 +1648,7 @@ mod tests {
         let retargeted_requirement_pass = build_requirement_pass(
             RequirementStage::Retargeted,
             collect_requirement_snapshot(&measurement),
-        );
+        )?;
         apply_requirement_pass(&mut measurement, &retargeted_requirement_pass)?;
 
         let final_propagation_plan = build_final_propagation_plan(&measurement);

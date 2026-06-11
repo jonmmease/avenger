@@ -38,7 +38,7 @@ use avenger_chart_core::{
 };
 use avenger_layout::{EdgeDemand, Layout, RegionDetail, Side, Size, SolveOptions, Spacing};
 
-use crate::facet::coordination_plans::{CoordinationNodeKey, RoundCollectionInput};
+use crate::facet::coordination_plans::{CoordinationNodeKey, RequirementNodeSnapshot};
 use crate::plot::compiled::{CoordinationKind, CoordinationScopeKey};
 
 /// Solved values for one round, before the per-node write-back adjustments:
@@ -55,7 +55,7 @@ pub(crate) struct SolvedRound {
 /// Lower every node's uniform-track policy and measured overflow into one
 /// share-keyed layout tree, solve it, and read back the group-merged
 /// values per node.
-pub(crate) fn solve_round(nodes: &[RoundCollectionInput]) -> SolvedRound {
+pub(crate) fn solve_round(nodes: &[RequirementNodeSnapshot]) -> SolvedRound {
     if nodes.is_empty() {
         return SolvedRound {
             merged_by_key: HashMap::new(),
@@ -263,8 +263,8 @@ mod tests {
         path: Vec<usize>,
         key: CoordinationScopeKey,
         layout: CoordinatedLayout,
-    ) -> RoundCollectionInput {
-        RoundCollectionInput {
+    ) -> RequirementNodeSnapshot {
+        RequirementNodeSnapshot {
             node_id: CoordinationNodeKey::new(path),
             key,
             axis: FacetAxis::Column,

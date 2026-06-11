@@ -66,9 +66,7 @@ pub(crate) fn apply_requirement_pass(
     measurement: &mut ComponentsMeasurement,
     requirement_pass: &RequirementPass,
 ) -> Result<(), AvengerChartError> {
-    let solution = std::sync::Arc::new(
-        crate::facet::coordination_solution::CoordinationSolution::from_pass(requirement_pass),
-    );
+    let solution = &requirement_pass.solution;
     let snapshot_keys_by_node = requirement_pass
         .snapshot
         .nodes
@@ -104,12 +102,7 @@ pub(crate) fn apply_requirement_pass(
                 )));
                 return;
             }
-            if let Some(overflow) = requirement_pass
-                .distribution
-                .overflow_patches_by_node
-                .get(node_id)
-                .cloned()
-            {
+            if let Some(overflow) = solution.overflow_by_node.get(node_id).cloned() {
                 facet_band
                     .base_mut()
                     .set_coordinated_overflow_value(overflow);
@@ -122,11 +115,8 @@ pub(crate) fn apply_requirement_pass(
                 )));
                 return;
             }
-            if let Some(boundary_overflow) = requirement_pass
-                .distribution
-                .boundary_overflow_patches_by_node
-                .get(node_id)
-                .cloned()
+            if let Some(boundary_overflow) =
+                solution.boundary_overflow_by_node.get(node_id).cloned()
             {
                 facet_band
                     .base_mut()
@@ -140,11 +130,8 @@ pub(crate) fn apply_requirement_pass(
                 )));
                 return;
             }
-            if let Some(guide_anchor_overflow) = requirement_pass
-                .distribution
-                .guide_anchor_overflow_patches_by_node
-                .get(node_id)
-                .cloned()
+            if let Some(guide_anchor_overflow) =
+                solution.guide_anchor_overflow_by_node.get(node_id).cloned()
             {
                 facet_band
                     .base_mut()
@@ -158,12 +145,7 @@ pub(crate) fn apply_requirement_pass(
                 )));
                 return;
             }
-            let Some(layout) = requirement_pass
-                .distribution
-                .layout_patches_by_node
-                .get(node_id)
-                .cloned()
-            else {
+            let Some(layout) = solution.layout_by_node.get(node_id).cloned() else {
                 error = Some(AvengerChartError::InternalError(format!(
                     "{} pass missing coordinated layout patch for node path {:?}, group {:?}",
                     requirement_pass.stage.label(),
@@ -175,7 +157,7 @@ pub(crate) fn apply_requirement_pass(
             facet_band.base_mut().set_coordinated_layout_value(layout);
             facet_band
                 .base_mut()
-                .set_coordination_solution(std::sync::Arc::clone(&solution), node_id.clone());
+                .set_coordination_solution(std::sync::Arc::clone(solution), node_id.clone());
             FacetCoordinationPolicy::refresh_placement_after_requirement_patch(facet_band, true);
         },
     );

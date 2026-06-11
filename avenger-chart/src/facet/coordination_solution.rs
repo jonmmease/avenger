@@ -30,22 +30,6 @@ pub(crate) struct CoordinationSolution {
 }
 
 impl CoordinationSolution {
-    /// Build the solution from one requirement pass (transitional: the
-    /// pass structs collapse into this artifact when the stores dissolve).
-    pub(crate) fn from_pass(
-        pass: &crate::facet::coordination_plans::RequirementPass,
-    ) -> CoordinationSolution {
-        CoordinationSolution {
-            layout_by_node: pass.distribution.layout_patches_by_node.clone(),
-            overflow_by_node: pass.distribution.overflow_patches_by_node.clone(),
-            guide_anchor_overflow_by_node: pass
-                .distribution
-                .guide_anchor_overflow_patches_by_node
-                .clone(),
-            boundary_overflow_by_node: pass.distribution.boundary_overflow_patches_by_node.clone(),
-        }
-    }
-
     pub(crate) fn layout(&self, node: &CoordinationNodeKey) -> Option<&CoordinatedLayout> {
         self.layout_by_node.get(node)
     }
