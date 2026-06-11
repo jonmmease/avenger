@@ -739,6 +739,7 @@ fn place<Id: Clone, Key>(
         slabs,
         requested: requested.demands,
         granted,
+        geometric: measured.geometric_total,
         detail: RegionDetail::Leaf, // patched below for grids
     });
 
@@ -1874,6 +1875,24 @@ mod tests {
         let col_a = solved.region(&"col_a").unwrap();
         let col_b = solved.region(&"col_b").unwrap();
         assert_eq!(col_b.slot.x - (col_a.slot.x + col_a.slot.width), 26.0);
+    }
+
+    #[test]
+    fn region_geometric_reports_raw_totals_without_lift() {
+        // One side with a guide-heavy cell (inner 5) and a legend-heavy
+        // cell (outer 8): the layered demand lifts total to inner + outer,
+        // while the geometric view keeps the raw per-side maximum.
+        let band: Layout<&str> = Layout::row(vec![
+            Layout::leaf(Size::new(40.0, 30.0)).demand(Side::Top, EdgeDemand::new(5.0, 0.0, 5.0)),
+            Layout::leaf(Size::new(40.0, 30.0)).demand(Side::Top, EdgeDemand::new(0.0, 8.0, 8.0)),
+        ])
+        .id("band");
+        let solved = band.solve(&SolveOptions::default()).expect("solve");
+        let region = solved.region(&"band").expect("band region");
+        assert_eq!(region.requested.top.inner, 5.0);
+        assert_eq!(region.requested.top.outer, 8.0);
+        assert_eq!(region.requested.top.total, 13.0, "layered law lifts");
+        assert_eq!(region.geometric.top, 8.0, "geometric law keeps raw max");
     }
 
     #[test]

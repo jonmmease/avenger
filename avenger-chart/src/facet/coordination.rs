@@ -322,7 +322,7 @@ pub(crate) fn collect_requirement_snapshot(
                 axis: facet_band.axis,
                 slot_sharing: facet_band.slot_sharing,
                 min_slot_count: facet_band.min_slot_count,
-                measured_overflow: facet_band.measured_overflow_value(),
+                overflow_cells: facet_band.overflow_cell_envelopes(),
                 local_layout: facet_band.local_layout_value(),
                 guide_padding_inner_px: facet_band.guide_padding_inner_px_value(),
                 first_edge_index,
@@ -408,7 +408,7 @@ pub(crate) fn validate_requirement_coverage(
         .snapshot
         .nodes
         .iter()
-        .filter(|node| node.measured_overflow.is_some())
+        .filter(|node| node.overflow_cells.is_some())
         .map(|node| node.node_id.clone())
         .collect();
     let overflow_patch_nodes: HashSet<CoordinationNodeKey> = requirement_pass

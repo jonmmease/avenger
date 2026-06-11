@@ -79,6 +79,10 @@ pub struct Region<Id = usize> {
     /// The overflow space granted around this node's slot (per-track merged
     /// demand within its parent; equals `requested` at the root).
     pub granted: Edges<EdgeDemand>,
+    /// Geometric view of this node's own measured overflow: raw per-side
+    /// maxima without the layered `inner + outer` lift (the node-level
+    /// analogue of [`Envelope::geometric_total`]).
+    pub geometric: Edges<f32>,
     pub detail: RegionDetail,
 }
 

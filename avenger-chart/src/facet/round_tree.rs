@@ -1,10 +1,11 @@
 //! One facet coordination round lowered onto a share-keyed
 //! `avenger_layout::Layout` and solved in a single pass (seam plan §A).
 //!
-//! Every requirement node lowers to a uniform grid of placeholder tracks
-//! carrying its local spacing and its measured whole-band overflow as edge
-//! demands; cousins — nodes with the same coordination scope — share one
-//! key, so a single solve coordinates both channels:
+//! Every requirement node lowers to a uniform grid of its REAL renderable
+//! cells — each cell a leaf carrying its (guide, total) overflow envelope
+//! as edge demands — with the node's local spacing on the main axis;
+//! cousins (nodes with the same coordination scope) share one key, so a
+//! single solve coordinates both channels:
 //!
 //! - **layout**: the solver's share coordination merges spacing
 //!   (post-merge values read from `SolvedTracks`). Free-slot nodes share
@@ -15,31 +16,39 @@
 //!   `guide_slot_gap_px` side-car merge chart-side from the group
 //!   membership (the solver coordinates geometry, not chart policy
 //!   scalars).
-//! - **overflow**: edge demands merge per track through the share patches,
-//!   so each member's post-patch `requested` edges ARE the group-equalized
-//!   envelope (the same `EdgeDemand::max_components` law the legacy merge
-//!   applied).
+//! - **overflow**: per-cell demands fold per track and merge across
+//!   cousins through the share patches. Each node's OWN envelope is the
+//!   pre-merge view: guide from `requested.inner` (the layered law),
+//!   total from `Region::geometric` (the raw law — guide-heavy and
+//!   legend-heavy cells on one side do not lift each other within a
+//!   band). The group-MERGED total then re-applies the cross-cousin
+//!   layered lift (`max(guide) + max(legend)` may exceed `max(total)`:
+//!   one cousin's guide layer and another's legend layer must coexist in
+//!   the equalized band).
 //!
 //! The guide-anchor and boundary channels remain chart-side folds over
 //! their own scopes (lanes split groups; boundary strips global edges per
-//! node), in `coordination_plans`.
+//! node), in `coordination_plans`; they consume the tree-derived OWN
+//! envelopes.
 
 use std::collections::HashMap;
 
-use avenger_chart_core::{CoordinatedLayout, CoordinatedOverflow, FacetAxis};
-use avenger_layout::{Layout, RegionDetail, Side, Size, SolveOptions, Spacing};
+use avenger_chart_core::{
+    CoordinatedLayout, CoordinatedOverflow, FacetAxis, OverflowSpaceRequirement,
+};
+use avenger_layout::{EdgeDemand, Layout, RegionDetail, Side, Size, SolveOptions, Spacing};
 
 use crate::facet::coordination_plans::{CoordinationNodeKey, RoundCollectionInput};
-use crate::facet::overflow_projection::{overflow_edge_demands, overflow_from_edge_demands};
 use crate::plot::compiled::{CoordinationKind, CoordinationScopeKey};
 
 /// Solved values for one round, before the per-node write-back adjustments:
-/// the group-merged layout per share key and per node, and the
-/// group-equalized whole-band envelope per node (only nodes that reported a
-/// measured overflow).
+/// the group-merged layout per share key and per node, plus each node's
+/// own (pre-merge) and group-equalized whole-band envelopes (only nodes
+/// with cells).
 pub(crate) struct SolvedRound {
     pub(crate) merged_by_key: HashMap<CoordinationScopeKey, CoordinatedLayout>,
     pub(crate) merged_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
+    pub(crate) own_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
 }
 
@@ -51,6 +60,7 @@ pub(crate) fn solve_round(nodes: &[RoundCollectionInput]) -> SolvedRound {
         return SolvedRound {
             merged_by_key: HashMap::new(),
             merged_by_node: HashMap::new(),
+            own_overflow_by_node: HashMap::new(),
             overflow_by_node: HashMap::new(),
         };
     }
@@ -74,39 +84,40 @@ pub(crate) fn solve_round(nodes: &[RoundCollectionInput]) -> SolvedRound {
                 outer_end: node.local_layout.outer_end,
                 min_gap: node.local_layout.padding_inner_px,
             };
-            // Placeholder tracks: spacing coordination is content-free, and
-            // uniform share groups tolerate ragged counts. The measured
-            // whole-band envelope hangs on the edge cells: the main-axis
-            // sides on the first/last track, the cross-axis sides on the
-            // single cross track (folded over its cells).
-            let track_count = node.local_layout.n.max(1);
-            let demands = node
-                .measured_overflow
-                .as_ref()
-                .map(overflow_edge_demands)
-                .unwrap_or_default();
-            let (main_start, main_end) = match node.axis {
-                FacetAxis::Column => (Side::Left, Side::Right),
-                FacetAxis::Row => (Side::Top, Side::Bottom),
+            // The node's real renderable cells, each carrying its
+            // (guide, total) overflow envelope as layered edge demands —
+            // the same per-cell construction the band envelope fold used.
+            // Spacing coordination is content-free, uniform share groups
+            // tolerate ragged counts, and a cell-less node keeps one zero
+            // placeholder leaf (the zero envelope).
+            let cells = node.overflow_cells.as_deref().unwrap_or(&[]);
+            let leaves = if cells.is_empty() {
+                vec![Layout::leaf(Size::default())]
+            } else {
+                cells
+                    .iter()
+                    .map(|(guide, total)| {
+                        let mut leaf: Layout<usize, CoordinationScopeKey> =
+                            Layout::leaf(Size::default());
+                        for (side, guide_value, total_value) in [
+                            (Side::Top, guide.top, total.top),
+                            (Side::Right, guide.right, total.right),
+                            (Side::Bottom, guide.bottom, total.bottom),
+                            (Side::Left, guide.left, total.left),
+                        ] {
+                            leaf = leaf.demand(
+                                side,
+                                EdgeDemand::new(
+                                    guide_value,
+                                    (total_value - guide_value).max(0.0),
+                                    total_value,
+                                ),
+                            );
+                        }
+                        leaf
+                    })
+                    .collect::<Vec<_>>()
             };
-            let (cross_start, cross_end) = match node.axis {
-                FacetAxis::Column => (Side::Top, Side::Bottom),
-                FacetAxis::Row => (Side::Left, Side::Right),
-            };
-            let leaves = (0..track_count)
-                .map(|index| {
-                    let mut leaf: Layout<usize, CoordinationScopeKey> =
-                        Layout::leaf(Size::default());
-                    if index == 0 {
-                        leaf = leaf.demand(main_start, *demands.side(main_start));
-                    }
-                    if index == track_count - 1 {
-                        leaf = leaf.demand(main_end, *demands.side(main_end));
-                    }
-                    leaf = leaf.demand(cross_start, *demands.side(cross_start));
-                    leaf.demand(cross_end, *demands.side(cross_end))
-                })
-                .collect::<Vec<_>>();
             match node.axis {
                 FacetAxis::Column => Layout::row(leaves)
                     .uniform_columns()
@@ -129,8 +140,48 @@ pub(crate) fn solve_round(nodes: &[RoundCollectionInput]) -> SolvedRound {
         .solve(&SolveOptions::default())
         .expect("a uniform placeholder round always solves");
 
+    // Per-side envelope reads. OWN: guide from the layered pre-merge
+    // demand, total from the raw geometric view (the within-band law).
+    let own_envelope = |index: usize| -> CoordinatedOverflow {
+        let region = solved.at_path(&[index]).expect("member region");
+        CoordinatedOverflow {
+            guide: OverflowSpaceRequirement {
+                top: region.requested.top.inner,
+                right: region.requested.right.inner,
+                bottom: region.requested.bottom.inner,
+                left: region.requested.left.inner,
+            },
+            total: OverflowSpaceRequirement {
+                top: region.geometric.top,
+                right: region.geometric.right,
+                bottom: region.geometric.bottom,
+                left: region.geometric.left,
+            },
+        }
+    };
+    // MERGED: guide from the post-patch granted demand; total re-applies
+    // the cross-cousin layered lift over the group's own envelopes —
+    // max(total) raised to max(guide) + max(legend), because one cousin's
+    // guide layer and another's legend layer must coexist in the
+    // equalized band.
+    let merged_total = |group: &[usize], side: fn(&OverflowSpaceRequirement) -> f32| -> f32 {
+        let mut max_total = 0.0f32;
+        let mut max_guide = 0.0f32;
+        let mut max_legend = 0.0f32;
+        for &member in group {
+            let own = own_envelope(member);
+            let guide = side(&own.guide);
+            let total = side(&own.total);
+            max_total = max_total.max(total);
+            max_guide = max_guide.max(guide);
+            max_legend = max_legend.max((total - guide).max(0.0));
+        }
+        max_total.max(max_guide + max_legend)
+    };
+
     let mut merged_by_key = HashMap::new();
     let mut merged_by_node = HashMap::new();
+    let mut own_overflow_by_node = HashMap::new();
     let mut overflow_by_node = HashMap::new();
     for (index, node) in nodes.iter().enumerate() {
         let region = solved
@@ -139,13 +190,33 @@ pub(crate) fn solve_round(nodes: &[RoundCollectionInput]) -> SolvedRound {
         let RegionDetail::Grid { tracks } = &region.detail else {
             unreachable!("lowered nodes are grids");
         };
-        // Nodes without a measured overflow contribute nothing here; they
-        // still receive the group value through the keyed patch lookup
-        // downstream, as in the legacy merge.
-        if node.measured_overflow.is_some() {
+        // Cell-less nodes contribute nothing here; they still receive the
+        // group value through the keyed patch lookup downstream, as in the
+        // legacy merge.
+        if node.overflow_cells.is_some() {
+            let group = &group_members[&share_keys[index]];
+            let members_with_cells = group
+                .iter()
+                .copied()
+                .filter(|&member| nodes[member].overflow_cells.is_some())
+                .collect::<Vec<_>>();
+            own_overflow_by_node.insert(node.node_id.clone(), own_envelope(index));
             overflow_by_node.insert(
                 node.node_id.clone(),
-                overflow_from_edge_demands(region.granted),
+                CoordinatedOverflow {
+                    guide: OverflowSpaceRequirement {
+                        top: region.granted.top.inner,
+                        right: region.granted.right.inner,
+                        bottom: region.granted.bottom.inner,
+                        left: region.granted.left.inner,
+                    },
+                    total: OverflowSpaceRequirement {
+                        top: merged_total(&members_with_cells, |sides| sides.top),
+                        right: merged_total(&members_with_cells, |sides| sides.right),
+                        bottom: merged_total(&members_with_cells, |sides| sides.bottom),
+                        left: merged_total(&members_with_cells, |sides| sides.left),
+                    },
+                },
             );
         }
         let solved_spacing = match node.axis {
@@ -178,6 +249,7 @@ pub(crate) fn solve_round(nodes: &[RoundCollectionInput]) -> SolvedRound {
     SolvedRound {
         merged_by_key,
         merged_by_node,
+        own_overflow_by_node,
         overflow_by_node,
     }
 }
@@ -198,12 +270,67 @@ mod tests {
             axis: FacetAxis::Column,
             slot_sharing: SharingLevel::default(),
             min_slot_count: 0,
-            measured_overflow: None,
+            overflow_cells: None,
             local_layout: layout,
             guide_padding_inner_px: 0.0,
             first_edge_index: 0,
             last_edge_index: 0,
         }
+    }
+
+    fn side(value: f32) -> OverflowSpaceRequirement {
+        OverflowSpaceRequirement {
+            top: value,
+            right: 0.0,
+            bottom: 0.0,
+            left: 0.0,
+        }
+    }
+
+    /// The two envelope laws: within a band, a guide-heavy and a
+    /// legend-heavy cell on one side do not lift each other (geometric
+    /// total); across cousins, one band's guide layer and another's legend
+    /// layer must coexist (lifted total).
+    #[test]
+    fn envelope_laws_within_band_geometric_across_cousins_lifted() {
+        let cousins = CoordinationScopeKey::container_group(
+            crate::plot::compiled::CoordinationKind::ChildSize,
+            1,
+            "col:team",
+        );
+        let lone = CoordinationScopeKey::container_group(
+            crate::plot::compiled::CoordinationKind::ChildSize,
+            1,
+            "col:year",
+        );
+        // Cousin A is guide-heavy (top guide 5), cousin B legend-heavy
+        // (top legend 8); the lone band holds both kinds of cell itself.
+        let mut guide_heavy = node(vec![0], cousins.clone(), CoordinatedLayout::default());
+        guide_heavy.overflow_cells = Some(vec![(side(5.0), side(5.0))]);
+        let mut legend_heavy = node(vec![1], cousins, CoordinatedLayout::default());
+        legend_heavy.overflow_cells = Some(vec![(side(0.0), side(8.0))]);
+        let mut mixed_cells = node(vec![2], lone, CoordinatedLayout::default());
+        mixed_cells.overflow_cells = Some(vec![(side(5.0), side(5.0)), (side(0.0), side(8.0))]);
+
+        let solved = solve_round(&[guide_heavy, legend_heavy, mixed_cells]);
+        let own =
+            |path: Vec<usize>| solved.own_overflow_by_node[&CoordinationNodeKey::new(path)].clone();
+        let merged =
+            |path: Vec<usize>| solved.overflow_by_node[&CoordinationNodeKey::new(path)].clone();
+
+        // Within-band law: the lone band's total is the geometric max (8),
+        // not the lifted 5 + 8.
+        assert_eq!(own(vec![2]).guide.top, 5.0);
+        assert_eq!(own(vec![2]).total.top, 8.0);
+        assert_eq!(merged(vec![2]).total.top, 8.0, "singleton merge is own");
+
+        // Cross-cousin law: the equalized band must hold A's guide layer
+        // AND B's legend layer.
+        assert_eq!(own(vec![0]).total.top, 5.0);
+        assert_eq!(own(vec![1]).total.top, 8.0);
+        assert_eq!(merged(vec![0]).guide.top, 5.0);
+        assert_eq!(merged(vec![0]).total.top, 13.0, "cross-cousin lift");
+        assert_eq!(merged(vec![1]).total.top, 13.0);
     }
 
     /// Cousins merge spacing through the solver's share coordination;

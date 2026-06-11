@@ -80,7 +80,7 @@ pub(crate) fn apply_requirement_pass(
         .snapshot
         .nodes
         .iter()
-        .filter(|node| node.measured_overflow.is_some())
+        .filter(|node| node.overflow_cells.is_some())
         .map(|node| node.node_id.clone())
         .collect::<HashSet<_>>();
     let mut error = None;

@@ -18,10 +18,11 @@ use avenger_chart_core::{
     AvengerChartError, AxisPosition, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
     CoordinateSystemTransform, CoordinateSystemTransformCore, CoordinatedLayout,
     CoordinatedOverflow, DomainCoordination, FacetAxis, FacetDimensionConfig, FacetEmptyCellPolicy,
-    NoGuide, PlotGeometry, RowDimensionConfig, SharingLevel, SubplotGeometry, SubplotRect,
+    NoGuide, OverflowSpaceRequirement, PlotGeometry, RowDimensionConfig, SharingLevel,
+    SubplotGeometry, SubplotRect,
 };
 #[cfg(test)]
-use avenger_chart_core::{DerivedScalarsByChannel, GuideSharingContext, OverflowSpaceRequirement};
+use avenger_chart_core::{DerivedScalarsByChannel, GuideSharingContext};
 
 use crate::{
     container::{ChildFrameKey, ChildFrameScopeKey, ContainerPathSegment, EdgeTargets},
@@ -274,6 +275,12 @@ pub struct FacetBandCoordMeasurement {
     /// not be recomputed from child layouts after coordinated alignment slabs
     /// are projected into those child layouts.
     pub measured_overflow: Option<CoordinatedOverflow>,
+    /// The renderable cells' (guide, total) overflow envelopes captured at
+    /// the same instant as `measured_overflow` (the per-cell inputs its
+    /// band fold consumed), lowered directly into the coordination round
+    /// solve. Same stability rule: never recomputed from live cells after
+    /// coordination mutates them.
+    pub(crate) overflow_cells: Option<Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>>,
     /// Reference to compiled subplot for retargeting after coordination.
     /// Used by retarget actions when coordinated layout changes child sizing.
     pub compiled_subplot: Arc<CompiledPlot>,
@@ -527,6 +534,18 @@ impl FacetBandCoordMeasurement {
 
     pub fn measured_overflow_value(&self) -> Option<CoordinatedOverflow> {
         self.measured_overflow.clone()
+    }
+
+    /// The renderable cells' (guide, total) overflow envelopes captured
+    /// with `measured_overflow`, in band order: the per-cell inputs the
+    /// band envelope fold consumed, exposed so coordination can lower the
+    /// cells directly into its share-keyed round solve. `None` for
+    /// cell-less bands; an empty list when no cell is renderable (the
+    /// zero envelope).
+    pub(crate) fn overflow_cell_envelopes(
+        &self,
+    ) -> Option<Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>> {
+        self.overflow_cells.clone()
     }
 
     #[cfg(test)]
@@ -837,11 +856,17 @@ impl FacetBandCoordMeasurement {
     }
 }
 
+/// The band envelope plus the renderable per-cell (guide, total) inputs
+/// it folded over, captured together so coordination's round solve lowers
+/// exactly the cells this envelope reflects.
 fn measured_overflow_from_cells(
     axis: FacetAxis,
     cells: &[FacetCellRuntime],
     empty_cell_policy: FacetEmptyCellPolicy,
-) -> Option<CoordinatedOverflow> {
+) -> (
+    Option<CoordinatedOverflow>,
+    Option<Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>>,
+) {
     let overflow_inputs = cells
         .iter()
         .map(|cell| {
@@ -856,7 +881,15 @@ fn measured_overflow_from_cells(
             }
         })
         .collect::<Vec<_>>();
-    aggregate_facet_band_overflow(axis, &overflow_inputs)
+    let envelope = aggregate_facet_band_overflow(axis, &overflow_inputs);
+    let cell_envelopes = (!overflow_inputs.is_empty()).then(|| {
+        overflow_inputs
+            .into_iter()
+            .filter(|input| input.renderable)
+            .map(|input| (input.guide, input.total))
+            .collect()
+    });
+    (envelope, cell_envelopes)
 }
 
 fn parent_cell_overflow_summary(measurement: &ComponentsMeasurement) -> FacetCellProbeSummary {
@@ -2063,6 +2096,7 @@ fn empty_facet_band_measurement(
         coordinated_boundary_overflow: None,
         coordinated_guide_anchor_overflow: None,
         measured_overflow: None,
+        overflow_cells: None,
         compiled_subplot: compiled_subplot.clone(),
         subplot_cross_size: 0.0,
         facet_depth: facet_path.len() as u8 + 1,
@@ -4405,7 +4439,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             outer_end: band_layout_plan.outer_end,
             n: band_layout_plan.n,
         };
-        let measured_overflow =
+        let (measured_overflow, overflow_cells) =
             measured_overflow_from_cells(self.axis_ops.axis, &cell_runtimes, empty_cell_policy);
         let scope_path_prefix = facet_scope_path_prefix(
             self.eval_ctx.child_frame_container_path(),
@@ -4430,6 +4464,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             coordinated_boundary_overflow: None,
             coordinated_guide_anchor_overflow: None,
             measured_overflow,
+            overflow_cells,
             compiled_subplot: prepared_runtime.compiled_subplot.clone(),
             subplot_cross_size: final_subplot_cross_size,
             facet_depth,

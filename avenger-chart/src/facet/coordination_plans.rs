@@ -56,7 +56,9 @@ pub(crate) struct RequirementNodeSnapshot {
     pub(crate) axis: FacetAxis,
     pub(crate) slot_sharing: SharingLevel,
     pub(crate) min_slot_count: usize,
-    pub(crate) measured_overflow: Option<CoordinatedOverflow>,
+    /// The renderable cells' (guide, total) overflow envelopes, lowered
+    /// directly into the round solve. `None` for cell-less bands.
+    pub(crate) overflow_cells: Option<Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>>,
     pub(crate) local_layout: CoordinatedLayout,
     pub(crate) guide_padding_inner_px: f32,
     pub(crate) first_edge_index: usize,
@@ -356,7 +358,9 @@ pub(crate) struct RoundCollectionInput {
     pub(crate) axis: FacetAxis,
     pub(crate) slot_sharing: SharingLevel,
     pub(crate) min_slot_count: usize,
-    pub(crate) measured_overflow: Option<CoordinatedOverflow>,
+    /// The renderable cells' (guide, total) overflow envelopes, lowered
+    /// directly into the round solve. `None` for cell-less bands.
+    pub(crate) overflow_cells: Option<Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>>,
     pub(crate) local_layout: CoordinatedLayout,
     pub(crate) guide_padding_inner_px: f32,
     pub(crate) first_edge_index: usize,
@@ -576,8 +580,9 @@ fn set_overflow_side(overflow: &mut OverflowSpaceRequirement, side: AxisPosition
 
 fn build_round_collection(nodes: &[RoundCollectionInput]) -> RoundCollectionOutput {
     let scopes = RequirementScopeMetadata::collect(nodes);
-    let grouped = collect_round_groups(nodes, &scopes);
     let solved = crate::facet::round_tree::solve_round(nodes);
+
+    let grouped = collect_round_groups(nodes, &scopes, &solved.own_overflow_by_node);
 
     // Layout channel: solver-merged spacing plus chart-side scalars.
     let layout_round_deltas = nodes
@@ -601,14 +606,14 @@ fn build_round_collection(nodes: &[RoundCollectionInput]) -> RoundCollectionOutp
     let mut overflow_by_key = HashMap::new();
     let mut full_overflow_deltas = RoundDeltas::default();
     for node in nodes {
-        let Some(measured) = &node.measured_overflow else {
+        let Some(own) = solved.own_overflow_by_node.get(&node.node_id) else {
             continue;
         };
         let merged_overflow = solved
             .overflow_by_node
             .get(&node.node_id)
             .expect("every measured node has a solved overflow");
-        let (content, edge) = coordinated_overflow_delta(measured, merged_overflow);
+        let (content, edge) = coordinated_overflow_delta(own, merged_overflow);
         full_overflow_deltas.content += content;
         full_overflow_deltas.edge += edge;
         overflow_by_key.insert(
@@ -654,10 +659,11 @@ fn build_round_collection(nodes: &[RoundCollectionInput]) -> RoundCollectionOutp
 fn collect_round_groups(
     nodes: &[RoundCollectionInput],
     scopes: &RequirementScopeMetadata,
+    own_overflow_by_node: &HashMap<CoordinationNodeKey, CoordinatedOverflow>,
 ) -> RoundGroupedRequirements {
     let mut grouped = RoundGroupedRequirements::default();
     for node in nodes {
-        if let Some(measured_overflow) = node.measured_overflow.clone() {
+        if let Some(measured_overflow) = own_overflow_by_node.get(&node.node_id).cloned() {
             let guide_anchor_key = scopes.guide_anchor_scope_key(node);
             let guide_anchor_overflow = guide_anchor_overflow_for_node(node, &measured_overflow);
             grouped.guide_anchor_entries.push((
@@ -824,7 +830,7 @@ pub(crate) fn build_requirement_pass(
             axis: node.axis,
             slot_sharing: node.slot_sharing,
             min_slot_count: node.min_slot_count,
-            measured_overflow: node.measured_overflow.clone(),
+            overflow_cells: node.overflow_cells.clone(),
             local_layout: node.local_layout.clone(),
             guide_padding_inner_px: node.guide_padding_inner_px,
             first_edge_index: node.first_edge_index,
@@ -885,7 +891,9 @@ mod tests {
             axis,
             slot_sharing: SharingLevel::GLOBAL,
             min_slot_count: 0,
-            measured_overflow,
+            overflow_cells: measured_overflow
+                .as_ref()
+                .map(|overflow| vec![(overflow.guide.clone(), overflow.total.clone())]),
             local_layout: CoordinatedLayout {
                 padding_inner_px: 0.0,
                 guide_slot_gap_px: 0.0,
@@ -914,7 +922,8 @@ mod tests {
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: Some(overflow(1.0, 2.0, 3.0, 4.0)),
+                    overflow_cells: Some(overflow(1.0, 2.0, 3.0, 4.0))
+                        .map(|o| vec![(o.guide, o.total)]),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 2.0,
                         guide_slot_gap_px: 2.0,
@@ -932,7 +941,8 @@ mod tests {
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: Some(overflow(3.0, 1.0, 5.0, 2.0)),
+                    overflow_cells: Some(overflow(3.0, 1.0, 5.0, 2.0))
+                        .map(|o| vec![(o.guide, o.total)]),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 4.0,
                         guide_slot_gap_px: 4.0,
@@ -970,7 +980,7 @@ mod tests {
                         axis: FacetAxis::Column,
                         slot_sharing: SharingLevel::FREE,
                         min_slot_count: 0,
-                        measured_overflow: None,
+                        overflow_cells: None,
                         local_layout: CoordinatedLayout {
                             n: 1,
                             ..Default::default()
@@ -985,7 +995,7 @@ mod tests {
                         axis: FacetAxis::Column,
                         slot_sharing: SharingLevel::FREE,
                         min_slot_count: 0,
-                        measured_overflow: None,
+                        overflow_cells: None,
                         local_layout: CoordinatedLayout {
                             n: 3,
                             ..Default::default()
@@ -1029,7 +1039,7 @@ mod tests {
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::FREE,
                     min_slot_count: 5,
-                    measured_overflow: None,
+                    overflow_cells: None,
                     local_layout: CoordinatedLayout {
                         n: 2,
                         ..Default::default()
@@ -1066,7 +1076,7 @@ mod tests {
                         axis: FacetAxis::Column,
                         slot_sharing: SharingLevel::GLOBAL,
                         min_slot_count: 0,
-                        measured_overflow: None,
+                        overflow_cells: None,
                         local_layout: CoordinatedLayout {
                             n: 1,
                             ..Default::default()
@@ -1081,7 +1091,7 @@ mod tests {
                         axis: FacetAxis::Column,
                         slot_sharing: SharingLevel::GLOBAL,
                         min_slot_count: 0,
-                        measured_overflow: None,
+                        overflow_cells: None,
                         local_layout: CoordinatedLayout {
                             n: 3,
                             ..Default::default()
@@ -1311,7 +1321,7 @@ mod tests {
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: None,
+                    overflow_cells: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 36.0,
                         guide_slot_gap_px: 36.0,
@@ -1329,7 +1339,7 @@ mod tests {
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: None,
+                    overflow_cells: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 27.0,
                         guide_slot_gap_px: 27.0,
@@ -1347,7 +1357,7 @@ mod tests {
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: None,
+                    overflow_cells: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 9.0,
                         guide_slot_gap_px: 9.0,
@@ -1429,7 +1439,7 @@ mod tests {
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: None,
+                    overflow_cells: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 8.0,
                         guide_slot_gap_px: 8.0,
@@ -1447,7 +1457,7 @@ mod tests {
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: None,
+                    overflow_cells: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 12.0,
                         guide_slot_gap_px: 12.0,
@@ -1465,7 +1475,7 @@ mod tests {
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: None,
+                    overflow_cells: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 40.0,
                         guide_slot_gap_px: 40.0,
@@ -1513,7 +1523,7 @@ mod tests {
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: None,
+                    overflow_cells: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 160.0,
                         guide_slot_gap_px: 24.0,
@@ -1531,7 +1541,7 @@ mod tests {
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: None,
+                    overflow_cells: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 24.0,
                         guide_slot_gap_px: 24.0,
@@ -1589,7 +1599,7 @@ mod tests {
                     axis: FacetAxis::Column,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: None,
+                    overflow_cells: None,
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 0.0,
                         guide_slot_gap_px: 0.0,
@@ -1607,7 +1617,8 @@ mod tests {
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: Some(overflow(0.0, 3.0, 0.0, 39.0)),
+                    overflow_cells: Some(overflow(0.0, 3.0, 0.0, 39.0))
+                        .map(|o| vec![(o.guide, o.total)]),
                     local_layout: CoordinatedLayout::default(),
                     guide_padding_inner_px: 0.0,
                     first_edge_index: 0,
@@ -1619,7 +1630,8 @@ mod tests {
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: Some(overflow(0.0, 8.0, 0.0, 8.0)),
+                    overflow_cells: Some(overflow(0.0, 8.0, 0.0, 8.0))
+                        .map(|o| vec![(o.guide, o.total)]),
                     local_layout: CoordinatedLayout::default(),
                     guide_padding_inner_px: 0.0,
                     first_edge_index: 0,
@@ -1673,7 +1685,8 @@ mod tests {
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: Some(overflow(1.0, 1.0, 2.0, 3.0)),
+                    overflow_cells: Some(overflow(1.0, 1.0, 2.0, 3.0))
+                        .map(|o| vec![(o.guide, o.total)]),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 3.0,
                         guide_slot_gap_px: 3.0,
@@ -1691,7 +1704,8 @@ mod tests {
                     axis: FacetAxis::Row,
                     slot_sharing: SharingLevel::GLOBAL,
                     min_slot_count: 0,
-                    measured_overflow: Some(overflow(2.0, 4.0, 1.0, 1.0)),
+                    overflow_cells: Some(overflow(2.0, 4.0, 1.0, 1.0))
+                        .map(|o| vec![(o.guide, o.total)]),
                     local_layout: CoordinatedLayout {
                         padding_inner_px: 5.0,
                         guide_slot_gap_px: 5.0,
