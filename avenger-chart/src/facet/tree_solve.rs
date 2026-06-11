@@ -1,38 +1,40 @@
-//! Real-tree facet lowering and the shadow census (solver unification P5).
+//! Real-tree facet lowering: the production source of the coordination
+//! requirement channels (`tree_solved_round`), plus the env-gated shadow
+//! census (`AVENGER_SHADOW_TREE_SOLVE=1`) that compares the tree against
+//! the legacy diagonal solve for diagnostics.
 //!
 //! Lowers the LIVE facet measurement tree — real nested topology, real cell
 //! plot sizes, epoch-frozen overflow envelopes — into one
 //! `avenger_layout::Layout` and solves it, so a single solve produces both
 //! the coordination channel values (per-node `Region.coordinated` edges,
-//! solved track spacing) and every cell's slot geometry.
-//!
-//! In P5 this runs as an env-gated SHADOW (`AVENGER_SHADOW_TREE_SOLVE=1`):
-//! per coordination run it solves the shadow tree and REPORTS deltas
-//! against the legacy pipeline's post-everything values, without changing
-//! behavior. The census across the visual suite prices Phases 6–7 (which
-//! adopt the solve's channels and geometry) and validates the lowering
-//! rules:
+//! solved track spacing) and every cell's slot geometry. Lowering rules:
 //!
 //! - Leaf cells lower at their live plot sizes with
 //!   `EdgeDemand::from_inner_and_envelope` per side from the epoch
 //!   envelopes (renderable-index aligned, like the band envelope fold).
-//! - Nested-band cells lower as nested grids inside a 1×1 chrome wrapper
-//!   carrying the layered RESIDUAL between the parent's epoch cell
-//!   envelope and the child band's own epoch envelope (inner = guide
-//!   residual, outer = legend residual). The wrapper keeps the nested
-//!   band's own `Region.coordinated` chrome-free for channel reads.
+//! - Nested-band cells lower behind a TWO-WRAPPER boundary (the channel
+//!   contract law, locked in 2026-06-11; see
+//!   `nested_boundary_two_wrapper_overrides_child_classification`): a
+//!   band's channel edges are its OWN epoch cell folds, INCLUDING the
+//!   parent level's guide/legend classification, which legitimately
+//!   differs from the child's structural layering. A CONTAINED
+//!   (`SolveFor::Content`) wrapper zeroes the child's structural lift
+//!   toward the parent, and an Envelope wrapper around it declares the
+//!   cell's FULL epoch envelope as layered chrome. Per-layer residual
+//!   chrome double-counts reclassified space and is wrong.
 //! - Cross-band cousins share `coordination_scope_key_for_depth` keys in
 //!   ONE tree; `uniform_*` is set per band axis iff every cell is a leaf
 //!   (uniform equalization is a no-op there and buys the ragged-tolerant
-//!   spacing merge); ghost slots pad to the active slot count with the
-//!   trailing edge cell's demand mirrored onto the last ghost
-//!   (renderable-edge law).
+//!   spacing merge); ghost slots pad to the active slot count, floored by
+//!   `min_slot_count`, with the trailing edge cell's demand mirrored onto
+//!   the last ghost (renderable-edge law).
 //! - Spacing lowers RAW (`padding_inner_px` as `min_gap`, like the legacy
-//!   round lowering) so the layout channel stays comparable; the
-//!   placement-time `main_axis_gap` floor is a known, classified
-//!   geometry-side divergence the census reports.
-//! - Canvas-constrained axes constrain the root `SolveOptions` at the
-//!   facet root's plot area; leaf-plot-sized axes solve content-driven.
+//!   round lowering); the placement-time `main_axis_gap` floor stays a
+//!   render-side concern.
+//! - Physical axes are content-driven when any band with that main axis
+//!   uses explicit placement (else by sizing policy); constrained axes
+//!   pin the root `SolveOptions` at the facet root's plot area and
+//!   distribute free space, content-driven axes keep natural tracks.
 //!
 //! Channel reads use `Region.coordinated` (the node's own post-share ask;
 //! `granted` would fold in unrelated siblings) — guide from `.inner`,
