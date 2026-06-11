@@ -840,3 +840,54 @@ pub(crate) fn snapshot_hash(
     format!("{snapshot:?}").hash(&mut hasher);
     hasher.finish()
 }
+
+#[cfg(test)]
+mod tests {
+    use avenger_layout::{EdgeDemand, EdgeGrant, Layout, Side, Size, SolveFor, SolveOptions};
+
+    /// The nested-boundary channel contract (confirmed by Jon 2026-06-11:
+    /// the `51fd7a27` baselines are the desired behavior): a parent
+    /// band's channel edges are its OWN epoch cell folds, INCLUDING the
+    /// parent level's guide/legend classification — not the child band's
+    /// structural layering (a chunk-level legend legitimately folds as
+    /// guide at the wrap-row level). The lowering encodes this as the
+    /// two-wrapper boundary; this test pins the mechanism it relies on:
+    /// a CONTAINED (`SolveFor::Content`) wrapper zeroes the child's
+    /// structural lift toward the parent, so the outer wrapper's
+    /// full-epoch chrome alone defines the parent-visible edge. Naive
+    /// per-layer residual chrome double-counts reclassified space
+    /// (42 guide + 42 legend = 84 for the SAME 42px legend) — the bug
+    /// behind the retracted P6a blesses.
+    #[test]
+    fn nested_boundary_two_wrapper_overrides_child_classification() {
+        // Child band: one cell whose 42px right edge is structurally
+        // LEGEND-classified (inner 0 / outer 42).
+        let child: Layout =
+            Layout::row(vec![Layout::leaf(Size::new(100.0, 50.0)).demand(
+                Side::Right,
+                EdgeDemand::from_inner_and_envelope(0.0, 42.0),
+            )])
+            .id(1);
+        // Two-wrapper boundary: the contained wrapper zeroes the child's
+        // structural lift; the outer wrapper declares the parent's epoch
+        // view of the SAME 42px, which classifies it as GUIDE (inner).
+        let contained = Layout::row(vec![child]).sizing(SolveFor::Content);
+        let wrapper = Layout::row(vec![contained]).inner(Side::Right, 42.0).id(0);
+        let parent: Layout = Layout::row(vec![wrapper]);
+        let solved = parent.solve(&SolveOptions::default()).expect("solve");
+
+        // Parent-visible edge = the epoch classification (guide 42,
+        // total 42) — not the child's structural (0, 42, 42), and not a
+        // double-counted (42, 42, 84).
+        let root = solved.at_path(&[]).expect("root region");
+        assert_eq!(root.coordinated.right, EdgeGrant::new(42.0, 0.0, 42.0));
+
+        // The child band's own channel edges keep its structural fold —
+        // containment isolates, it does not rewrite.
+        let child_region = solved.region(&1).expect("child band region");
+        assert_eq!(
+            child_region.coordinated.right,
+            EdgeGrant::new(0.0, 42.0, 42.0)
+        );
+    }
+}
