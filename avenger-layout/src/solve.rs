@@ -770,6 +770,8 @@ fn place<Id: Clone, Key>(
             column_sizes: solution.column_widths.clone(),
             row_starts: solution.row_starts.clone(),
             row_sizes: solution.row_heights.clone(),
+            column_spacing: solution.column_spacing,
+            row_spacing: solution.row_spacing,
         },
     };
 
@@ -1872,6 +1874,74 @@ mod tests {
         let col_a = solved.region(&"col_a").unwrap();
         let col_b = solved.region(&"col_b").unwrap();
         assert_eq!(col_b.slot.x - (col_a.slot.x + col_a.slot.width), 26.0);
+    }
+
+    #[test]
+    fn solved_tracks_report_merged_spacing() {
+        use crate::build::Spacing;
+        let g1 = Layout::row(vec![
+            Layout::leaf(Size::new(100.0, 50.0)),
+            Layout::leaf(Size::new(80.0, 50.0)),
+        ])
+        .column_spacing(Spacing {
+            outer_start: 4.0,
+            outer_end: 0.0,
+            min_gap: 14.0,
+        })
+        .share("bands")
+        .id("g1");
+        let g2 = Layout::row(vec![
+            Layout::leaf(Size::new(90.0, 50.0)),
+            Layout::leaf(Size::new(70.0, 50.0)),
+        ])
+        .column_spacing(Spacing {
+            outer_start: 0.0,
+            outer_end: 9.0,
+            min_gap: 6.0,
+        })
+        .share("bands")
+        .id("g2");
+        let lone = Layout::row(vec![
+            Layout::leaf(Size::new(50.0, 30.0)),
+            Layout::leaf(Size::new(50.0, 30.0)),
+        ])
+        .column_spacing(Spacing {
+            outer_start: 1.0,
+            outer_end: 2.0,
+            min_gap: 3.0,
+        })
+        .id("lone");
+        let root: Layout<&str, &str> = Layout::column(vec![g1, g2, lone]);
+
+        let solved = root.solve(&SolveOptions::default()).expect("solve");
+        assert!(solved.diagnostics().skipped_groups.is_empty());
+
+        let tracks = |id: &'static str| {
+            let region = solved.region(&id).expect("grid region");
+            let crate::solution::RegionDetail::Grid { tracks } = &region.detail else {
+                panic!("grid expected for {id}");
+            };
+            tracks.clone()
+        };
+
+        // Shared members both report the group-merged spacing.
+        let merged = Spacing {
+            outer_start: 4.0,
+            outer_end: 9.0,
+            min_gap: 14.0,
+        };
+        assert_eq!(tracks("g1").column_spacing, merged);
+        assert_eq!(tracks("g2").column_spacing, merged);
+
+        // An unshared grid reports its own declared spacing.
+        assert_eq!(
+            tracks("lone").column_spacing,
+            Spacing {
+                outer_start: 1.0,
+                outer_end: 2.0,
+                min_gap: 3.0,
+            }
+        );
     }
 
     #[test]

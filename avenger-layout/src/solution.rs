@@ -1,6 +1,7 @@
 //! The result of [`Layout::solve`](crate::build::Layout::solve): absolute
 //! geometry for every node, queryable by id or structural path.
 
+use crate::build::Spacing;
 use crate::geometry::{Edges, Rect, Side, Size};
 use crate::region::EdgeDemand;
 
@@ -34,6 +35,10 @@ pub struct SolvedTracks {
     pub column_sizes: Vec<f32>,
     pub row_starts: Vec<f32>,
     pub row_sizes: Vec<f32>,
+    /// The spacing the solve actually used on each axis: declared values
+    /// merged with the grid's share group (outers and `min_gap` by max).
+    pub column_spacing: Spacing,
+    pub row_spacing: Spacing,
 }
 
 /// Kind-specific detail of one solved region.
