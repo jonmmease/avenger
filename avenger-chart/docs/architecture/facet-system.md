@@ -129,7 +129,15 @@ ranges to descendants.
 
 Rendering resolves `FacetBandPlacement` through `facet/placement.rs`, converts
 that placement to child-frame render placements, and calls
-`CompiledPlot::build_plot_components` for each renderable cell.
+`CompiledPlot::build_plot_components` for each renderable cell. Placement is
+a pure read in both modes: scale-backed bands resolve cell positions from the
+active band scale, and explicit (leaf-plot-area-sized) bands solve the band
+on read from the live cells and the coordinated views
+(`explicit_placement()`: an avenger-layout band solve over cell plot sizes
+and boundary demands, plus the boundary-overflow cross offset). There is no
+cached placement and nothing to refresh after mutating cells, scales, or
+coordinated values. Empty explicit bands derive their extent from the
+containing measurement's plot area at each consumer.
 
 ## Generic Layout Alignment Boundary
 
