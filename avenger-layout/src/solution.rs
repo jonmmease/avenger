@@ -162,3 +162,29 @@ impl<Id: PartialEq> LayoutSolution<Id> {
             .find(|region| region.id.as_ref() == Some(id))
     }
 }
+
+impl<Id> LayoutSolution<Id> {
+    /// Maximum absolute difference in leaf **allotment** (slot) sizes
+    /// against another solution, matched by structural path; infinity when
+    /// the leaf structures differ.
+    ///
+    /// This is the convergence-loop driver: the allotment is what a caller
+    /// adopts as the next measurement operating point, so a delta below
+    /// epsilon means re-measuring would change nothing.
+    pub fn content_delta(&self, other: &LayoutSolution<Id>) -> f32 {
+        let mut mine = self.leaves();
+        let mut theirs = other.leaves();
+        let mut delta = 0.0f32;
+        loop {
+            match (mine.next(), theirs.next()) {
+                (None, None) => return delta,
+                (Some(a), Some(b)) if a.path == b.path => {
+                    delta = delta
+                        .max((a.slot.width - b.slot.width).abs())
+                        .max((a.slot.height - b.slot.height).abs());
+                }
+                _ => return f32::INFINITY,
+            }
+        }
+    }
+}

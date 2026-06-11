@@ -2138,4 +2138,24 @@ mod tests {
         // The span's 100px deficit lands entirely on the Auto track.
         assert_eq!(tracks.column_sizes, vec![50.0, 150.0]);
     }
+
+    #[test]
+    fn content_delta_drives_the_convergence_loop() {
+        let build = |width: f32| -> Layout {
+            Layout::row(vec![
+                Layout::leaf(Size::new(width, 50.0)),
+                Layout::leaf(Size::new(width, 50.0)),
+            ])
+        };
+        let first = build(100.0).solve(&SolveOptions::default()).expect("solve");
+        let same = build(100.0).solve(&SolveOptions::default()).expect("solve");
+        assert_eq!(first.content_delta(&same), 0.0);
+
+        let wider = build(130.0).solve(&SolveOptions::default()).expect("solve");
+        assert_eq!(first.content_delta(&wider), 30.0);
+
+        let reshaped: Layout = Layout::row(vec![Layout::leaf(Size::new(100.0, 50.0))]);
+        let reshaped = reshaped.solve(&SolveOptions::default()).expect("solve");
+        assert_eq!(first.content_delta(&reshaped), f32::INFINITY);
+    }
 }
