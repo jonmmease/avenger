@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    future::Future,
-    pin::Pin,
-};
+use std::{collections::HashMap, future::Future, pin::Pin};
 
 use crate::{
     coords::FacetAxis,
@@ -67,23 +63,6 @@ pub(crate) fn apply_requirement_pass(
     requirement_pass: &RequirementPass,
 ) -> Result<(), AvengerChartError> {
     let solution = &requirement_pass.solution;
-    let snapshot_keys_by_node = requirement_pass
-        .snapshot
-        .nodes
-        .iter()
-        .map(|node| (node.node_id.clone(), node.key.clone()))
-        .collect::<HashMap<_, _>>();
-    let snapshot_nodes = snapshot_keys_by_node
-        .keys()
-        .cloned()
-        .collect::<HashSet<_>>();
-    let nodes_requiring_overflow = requirement_pass
-        .snapshot
-        .nodes
-        .iter()
-        .filter(|node| node.overflow_cells.is_some())
-        .map(|node| node.node_id.clone())
-        .collect::<HashSet<_>>();
     let mut error = None;
     let mut node_path = Vec::new();
     visit_facet_bands_with_node_id_mut(
@@ -94,7 +73,10 @@ pub(crate) fn apply_requirement_pass(
             if error.is_some() {
                 return;
             }
-            if !snapshot_nodes.contains(node_id) {
+            // Construction guarantees the layout channel covers every
+            // snapshot node, so a missing entry means this tree node was
+            // not in the pass's snapshot.
+            if !solution.layout_by_node.contains_key(node_id) {
                 error = Some(AvengerChartError::InternalError(format!(
                     "{} pass did not include node path {:?}",
                     requirement_pass.stage.label(),
@@ -102,59 +84,7 @@ pub(crate) fn apply_requirement_pass(
                 )));
                 return;
             }
-            if let Some(overflow) = solution.overflow_by_node.get(node_id).cloned() {
-                facet_band
-                    .base_mut()
-                    .set_coordinated_overflow_value(overflow);
-            } else if nodes_requiring_overflow.contains(node_id) {
-                error = Some(AvengerChartError::InternalError(format!(
-                    "{} pass missing coordinated overflow patch for node path {:?}, group {:?}",
-                    requirement_pass.stage.label(),
-                    node_id.path,
-                    snapshot_keys_by_node.get(node_id)
-                )));
-                return;
-            }
-            if let Some(boundary_overflow) =
-                solution.boundary_overflow_by_node.get(node_id).cloned()
-            {
-                facet_band
-                    .base_mut()
-                    .set_coordinated_boundary_overflow_value(boundary_overflow);
-            } else if nodes_requiring_overflow.contains(node_id) {
-                error = Some(AvengerChartError::InternalError(format!(
-                    "{} pass missing boundary overflow patch for node path {:?}, group {:?}",
-                    requirement_pass.stage.label(),
-                    node_id.path,
-                    snapshot_keys_by_node.get(node_id)
-                )));
-                return;
-            }
-            if let Some(guide_anchor_overflow) =
-                solution.guide_anchor_overflow_by_node.get(node_id).cloned()
-            {
-                facet_band
-                    .base_mut()
-                    .set_coordinated_guide_anchor_overflow_value(guide_anchor_overflow);
-            } else if nodes_requiring_overflow.contains(node_id) {
-                error = Some(AvengerChartError::InternalError(format!(
-                    "{} pass missing guide-anchor overflow patch for node path {:?}, group {:?}",
-                    requirement_pass.stage.label(),
-                    node_id.path,
-                    snapshot_keys_by_node.get(node_id)
-                )));
-                return;
-            }
-            let Some(layout) = solution.layout_by_node.get(node_id).cloned() else {
-                error = Some(AvengerChartError::InternalError(format!(
-                    "{} pass missing coordinated layout patch for node path {:?}, group {:?}",
-                    requirement_pass.stage.label(),
-                    node_id.path,
-                    snapshot_keys_by_node.get(node_id)
-                )));
-                return;
-            };
-            facet_band.base_mut().set_coordinated_layout_value(layout);
+            facet_band.base_mut().clear_realized_owned_legend_slabs();
             facet_band
                 .base_mut()
                 .set_coordination_solution(std::sync::Arc::clone(solution), node_id.clone());

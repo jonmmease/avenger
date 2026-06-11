@@ -253,22 +253,6 @@ pub struct FacetBandCoordMeasurement {
     /// visible cell count for wrap rows with trailing holes. Layout-only padding
     /// for ragged sibling branches is represented by `local_layout.n`.
     pub(crate) min_slot_count: usize,
-    /// Coordinated overflow values aggregated across ALL facets at this nesting level.
-    /// Populated by facet coordination after local measurement.
-    pub coordinated_overflow: CoordinatedOverflow,
-    /// Coordinated sibling-boundary/allocation overflow with true chart-edge
-    /// slabs removed.
-    ///
-    /// Explicit sibling gaps and parent-projected child frame allocations use
-    /// this boundary contract so globally outer axes/titles do not become
-    /// interior spacing.
-    pub(crate) coordinated_boundary_overflow: Option<CoordinatedOverflow>,
-    /// Coordinated facet guide anchor overflow for this visual lane.
-    ///
-    /// Unlike `coordinated_overflow`, this is scoped by the orthogonal lane so
-    /// guides align within a row/column lane without borrowing hidden axis
-    /// chrome from unrelated lanes.
-    pub(crate) coordinated_guide_anchor_overflow: Option<CoordinatedOverflow>,
     /// Overflow measured from this facet band's rendered children before coordination.
     ///
     /// This is the stable "what this subtree actually renders" value. It must
@@ -306,8 +290,6 @@ pub struct FacetBandCoordMeasurement {
     pub local_layout: CoordinatedLayout,
     /// Interior padding required by axis and facet guides, excluding legend-only slabs.
     pub guide_padding_inner_px: f32,
-    /// Coordinated layout values (post-coordination). None before coordination.
-    pub coordinated_layout: Option<CoordinatedLayout>,
     /// Effective policy used when deciding whether empty cells are renderable.
     pub empty_cell_policy: FacetEmptyCellPolicy,
     /// Rendered legend slabs owned by this facet band's parent allocation.
@@ -517,20 +499,12 @@ impl FacetBandProbeMeasurement {
     }
 }
 
-/// Read-time parity guard for the stores-dissolution transition: when
-/// `AVENGER_ASSERT_STORE_PARITY` is set, every coordinated-value read
-/// asserts the solution view equals the legacy store (hard `assert!` so
-/// release-mode sweeps exercise it).
+/// The zero envelope an uncoordinated band reads as its whole-band
+/// overflow (the law the legacy non-`Option` store encoded).
 fn default_overflow() -> &'static CoordinatedOverflow {
     use std::sync::OnceLock;
     static DEFAULT: OnceLock<CoordinatedOverflow> = OnceLock::new();
     DEFAULT.get_or_init(CoordinatedOverflow::default)
-}
-
-fn store_parity_enabled() -> bool {
-    use std::sync::OnceLock;
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var("AVENGER_ASSERT_STORE_PARITY").is_ok())
 }
 
 impl FacetBandCoordMeasurement {
@@ -566,86 +540,23 @@ impl FacetBandCoordMeasurement {
             .and_then(|(solution, node_id)| solution.boundary_overflow(node_id))
     }
 
-    fn assert_store_parity(&self) {
-        if !store_parity_enabled() {
-            return;
-        }
-        let overflow_eq = |a: &CoordinatedOverflow, b: &CoordinatedOverflow| {
-            let side_eq = |x: f32, y: f32| (x - y).abs() <= 1e-6;
-            side_eq(a.guide.top, b.guide.top)
-                && side_eq(a.guide.right, b.guide.right)
-                && side_eq(a.guide.bottom, b.guide.bottom)
-                && side_eq(a.guide.left, b.guide.left)
-                && side_eq(a.total.top, b.total.top)
-                && side_eq(a.total.right, b.total.right)
-                && side_eq(a.total.bottom, b.total.bottom)
-                && side_eq(a.total.left, b.total.left)
-        };
-        let layout_eq = |a: &CoordinatedLayout, b: &CoordinatedLayout| {
-            a.n == b.n
-                && (a.padding_inner_px - b.padding_inner_px).abs() <= 1e-6
-                && (a.guide_slot_gap_px - b.guide_slot_gap_px).abs() <= 1e-6
-                && (a.outer_start - b.outer_start).abs() <= 1e-6
-                && (a.outer_end - b.outer_end).abs() <= 1e-6
-        };
-
-        match (self.solution_layout(), self.coordinated_layout.as_ref()) {
-            (None, None) => {}
-            (Some(view), Some(store)) if layout_eq(view, store) => {}
-            (view, store) => {
-                panic!("coordination layout parity violated: view={view:?} store={store:?}")
-            }
-        }
-        let default_overflow = CoordinatedOverflow::default();
-        let overflow_view = self.solution_overflow().unwrap_or(&default_overflow);
-        assert!(
-            overflow_eq(overflow_view, &self.coordinated_overflow),
-            "coordination overflow parity violated: view={overflow_view:?} store={:?}",
-            self.coordinated_overflow
-        );
-        match (
-            self.solution_boundary_overflow(),
-            self.coordinated_boundary_overflow.as_ref(),
-        ) {
-            (None, None) => {}
-            (Some(view), Some(store)) if overflow_eq(view, store) => {}
-            (view, store) => {
-                panic!("coordination boundary parity violated: view={view:?} store={store:?}")
-            }
-        }
-        match (
-            self.solution_guide_anchor_overflow(),
-            self.coordinated_guide_anchor_overflow.as_ref(),
-        ) {
-            (None, None) => {}
-            (Some(view), Some(store)) if overflow_eq(view, store) => {}
-            (view, store) => {
-                panic!("coordination guide-anchor parity violated: view={view:?} store={store:?}")
-            }
-        }
-    }
-
     pub(crate) fn active_layout(&self) -> &CoordinatedLayout {
-        self.assert_store_parity();
         self.solution_layout().unwrap_or(&self.local_layout)
     }
 
     /// The coordinated whole-band overflow (the zero envelope before
     /// coordination — the law the legacy non-`Option` store encoded).
     pub(crate) fn active_overflow(&self) -> &CoordinatedOverflow {
-        self.assert_store_parity();
         self.solution_overflow().unwrap_or(default_overflow())
     }
 
     #[cfg(test)]
     pub(crate) fn has_coordinated_layout(&self) -> bool {
-        self.assert_store_parity();
         self.solution_layout().is_some()
     }
 
     #[cfg(test)]
     pub(crate) fn coordinated_layout_value(&self) -> Option<CoordinatedLayout> {
-        self.assert_store_parity();
         self.solution_layout().cloned()
     }
 
@@ -702,9 +613,10 @@ impl FacetBandCoordMeasurement {
         self.local_layout.clone()
     }
 
-    /// Copy-on-write update of this band's solution entry (the dissolution
-    /// transition keeps setters working for the gated child-frame adapter
-    /// and tests; a band without a handle gets a private single-node one).
+    /// Copy-on-write update of this band's solution entry — the write path
+    /// for values that arrive OUTSIDE a coordination round (the child-frame
+    /// grid alignment adapter and test fixtures). A band without a handle
+    /// gets a private single-node solution.
     fn update_solution(
         &mut self,
         update: impl FnOnce(
@@ -721,10 +633,9 @@ impl FacetBandCoordMeasurement {
         update(std::sync::Arc::make_mut(solution), node_id);
     }
 
-    /// Test-only: perturb the coordinated whole-band overflow in BOTH the
-    /// legacy store and the solution view, without the setter side effects
-    /// (guide-anchor clear, ownership reset) so fixtures touch exactly one
-    /// channel.
+    /// Test-only: perturb the coordinated whole-band overflow in this
+    /// band's solution view, without the value-write side effects
+    /// (ownership reset) so fixtures touch exactly one channel.
     #[cfg(test)]
     pub(crate) fn force_coordinated_overflow_for_tests(
         &mut self,
@@ -732,79 +643,51 @@ impl FacetBandCoordMeasurement {
     ) {
         let mut overflow = self.active_overflow().clone();
         update(&mut overflow);
-        self.coordinated_overflow = overflow.clone();
         self.update_solution(|solution, node_id| {
             solution.overflow_by_node.insert(node_id.clone(), overflow);
         });
     }
 
-    /// Test-only: drop the coordinated layout from BOTH the legacy store and
-    /// the solution view (simulates an uncoordinated or rebuilt band).
+    /// Test-only: drop the coordinated layout from this band's solution
+    /// view (simulates an uncoordinated or rebuilt band).
     #[cfg(test)]
     pub(crate) fn clear_coordinated_layout_for_tests(&mut self) {
-        self.coordinated_layout = None;
         self.update_solution(|solution, node_id| {
             solution.layout_by_node.remove(node_id);
         });
     }
 
-    pub fn set_coordinated_overflow_value(&mut self, overflow: CoordinatedOverflow) {
-        self.coordinated_overflow = overflow.clone();
-        self.coordinated_guide_anchor_overflow = None;
-        self.update_solution(|solution, node_id| {
-            solution.overflow_by_node.insert(node_id.clone(), overflow);
-            solution.guide_anchor_overflow_by_node.remove(node_id);
-        });
+    /// Reset realized legend-slab ownership when coordinated values change
+    /// (the law every legacy value setter applied).
+    pub(crate) fn clear_realized_owned_legend_slabs(&mut self) {
         self.allocation_ownership = self
             .allocation_ownership
             .without_realized_owned_legend_slabs();
     }
 
     pub(crate) fn coordinated_boundary_overflow_value(&self) -> Option<&CoordinatedOverflow> {
-        self.assert_store_parity();
         self.solution_boundary_overflow()
     }
 
     pub(crate) fn coordinated_guide_anchor_overflow_value(&self) -> Option<&CoordinatedOverflow> {
-        self.assert_store_parity();
         self.solution_guide_anchor_overflow()
     }
 
     pub(crate) fn active_boundary_overflow(&self) -> &CoordinatedOverflow {
-        self.assert_store_parity();
         self.solution_boundary_overflow()
             .unwrap_or_else(|| self.active_overflow())
     }
 
-    pub fn set_coordinated_boundary_overflow_value(&mut self, overflow: CoordinatedOverflow) {
-        self.coordinated_boundary_overflow = Some(overflow.clone());
-        self.update_solution(|solution, node_id| {
-            solution
-                .boundary_overflow_by_node
-                .insert(node_id.clone(), overflow);
-        });
-        self.allocation_ownership = self
-            .allocation_ownership
-            .without_realized_owned_legend_slabs();
-    }
-
-    pub fn set_coordinated_guide_anchor_overflow_value(&mut self, overflow: CoordinatedOverflow) {
-        self.coordinated_guide_anchor_overflow = Some(overflow.clone());
-        self.update_solution(|solution, node_id| {
-            solution
-                .guide_anchor_overflow_by_node
-                .insert(node_id.clone(), overflow);
-        });
-    }
-
+    /// Write a coordinated layout into this band's solution view — the
+    /// value-write path for layouts that arrive outside a coordination
+    /// round (the child-frame grid alignment adapter and test fixtures).
+    /// Resets realized legend-slab ownership like every coordinated-value
+    /// change does.
     pub fn set_coordinated_layout_value(&mut self, layout: CoordinatedLayout) {
-        self.coordinated_layout = Some(layout.clone());
         self.update_solution(|solution, node_id| {
             solution.layout_by_node.insert(node_id.clone(), layout);
         });
-        self.allocation_ownership = self
-            .allocation_ownership
-            .without_realized_owned_legend_slabs();
+        self.clear_realized_owned_legend_slabs();
     }
 
     /// Realize the parent-owned coordinated cross-axis slabs on each child frame.
@@ -1163,7 +1046,6 @@ impl CoordMeasurement for FacetBandCoordMeasurement {
     }
 
     fn coordinated_overflow(&self) -> Option<&CoordinatedOverflow> {
-        self.assert_store_parity();
         Some(self.active_overflow())
     }
 }
@@ -2286,9 +2168,6 @@ fn empty_facet_band_measurement(
         cells: Vec::new(),
         scope_path_prefix: Vec::new(),
         shared_scale_builder: ScaleBuilder::default(),
-        coordinated_overflow: CoordinatedOverflow::default(),
-        coordinated_boundary_overflow: None,
-        coordinated_guide_anchor_overflow: None,
         measured_overflow: None,
         overflow_cells: None,
         coordination: None,
@@ -2298,7 +2177,6 @@ fn empty_facet_band_measurement(
         original_band_scale: band_scale.configured().clone(),
         local_layout: CoordinatedLayout::default(),
         guide_padding_inner_px: 0.0,
-        coordinated_layout: None,
         coordination_field_identity: axis.scale_name().to_string(),
         slot_sharing: SharingLevel::FREE,
         min_slot_count: 0,
@@ -4655,9 +4533,6 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                 .scale_artifacts
                 .shared_scale_builder
                 .clone(),
-            coordinated_overflow: CoordinatedOverflow::default(),
-            coordinated_boundary_overflow: None,
-            coordinated_guide_anchor_overflow: None,
             measured_overflow,
             overflow_cells,
             coordination: None,
@@ -4667,7 +4542,6 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             original_band_scale: prepared_runtime.original_band_scale.clone(),
             local_layout,
             guide_padding_inner_px: band_layout_plan.guide_padding_inner_px,
-            coordinated_layout: None,
             coordination_field_identity,
             slot_sharing,
             min_slot_count,
@@ -5964,7 +5838,8 @@ mod tests {
         coordinated.total.left += 100.0;
         coordinated.guide.right += 100.0;
         coordinated.total.right += 100.0;
-        facet_band.set_coordinated_overflow_value(coordinated);
+        facet_band.force_coordinated_overflow_for_tests(|overflow| *overflow = coordinated);
+        facet_band.clear_realized_owned_legend_slabs();
         facet_band.realize_coordinated_child_frame_allocations();
 
         let measured_after = facet_band

@@ -371,10 +371,7 @@ fn facet_grid_requirements(
             "Facet grid track requirements requested for non-facet measurement".to_string(),
         )
     })?;
-    let active_layout = facet_band
-        .coordinated_layout
-        .as_ref()
-        .unwrap_or(&facet_band.local_layout);
+    let active_layout = facet_band.active_layout();
     let cell_boundaries = facet_band
         .cells
         .iter()
@@ -577,10 +574,7 @@ pub(crate) fn apply_facet_band_grid_requirements(
         }
     };
 
-    let active_layout = facet_band
-        .coordinated_layout
-        .as_ref()
-        .unwrap_or(&facet_band.local_layout);
+    let active_layout = facet_band.active_layout();
     if coordinated_layout_values_equal(active_layout, &layout) {
         return Ok(false);
     }

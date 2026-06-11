@@ -678,8 +678,8 @@ mod tests {
                 states.push(Depth1State {
                     key: facet_band.coordination_scope_key_for_depth(depth),
                     local_layout: facet_band.local_layout.clone(),
-                    coordinated_layout: facet_band.coordinated_layout.clone(),
-                    coordinated_overflow: facet_band.coordinated_overflow.clone(),
+                    coordinated_layout: facet_band.coordinated_layout_value(),
+                    coordinated_overflow: facet_band.active_overflow().clone(),
                 });
             }
         });
