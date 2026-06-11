@@ -35,6 +35,7 @@ pub mod test_facet_column;
 pub mod test_facet_data_scope;
 pub mod test_facet_dimension_mixed;
 pub mod test_facet_domain_edge_cases;
+pub mod test_facet_grid_alignment;
 pub mod test_facet_layout_snapshots;
 pub mod test_facet_legend_sharing;
 pub mod test_facet_legends;
