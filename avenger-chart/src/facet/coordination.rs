@@ -168,6 +168,7 @@ async fn run_facet_coordination_rounds(
     let mut retarget_trace = RetargetTrace {
         node_results: Vec::new(),
     };
+    let mut shadow_snapshot_hashes: Vec<u64> = Vec::new();
 
     for round in 0..COORDINATION_ROUNDS {
         let stage = if round == 0 {
@@ -175,8 +176,11 @@ async fn run_facet_coordination_rounds(
         } else {
             RequirementStage::Retargeted
         };
-        let requirement_pass =
-            build_requirement_pass(stage, collect_requirement_snapshot(measurement))?;
+        let snapshot = collect_requirement_snapshot(measurement);
+        if crate::facet::tree_solve::shadow_enabled() {
+            shadow_snapshot_hashes.push(crate::facet::tree_solve::snapshot_hash(&snapshot));
+        }
+        let requirement_pass = build_requirement_pass(stage, snapshot)?;
         debug!(
             policy = FacetCoordinationPolicy::LABEL,
             round,
@@ -286,6 +290,17 @@ async fn run_facet_coordination_rounds(
             .sum::<usize>(),
         "coordinate_facet_measurement_tree final propagation complete"
     );
+
+    // Shadow census (P5): solve the real tree from the post-everything
+    // state and report channel + geometry deltas against the legacy
+    // pipeline; behavior-neutral, env-gated.
+    if crate::facet::tree_solve::shadow_enabled() {
+        crate::facet::tree_solve::run_shadow_census(
+            measurement,
+            eval_ctx.facet_runtime_sizing_mode(),
+            &shadow_snapshot_hashes,
+        );
+    }
 
     let mut passes = requirement_passes.into_iter();
     let initial_requirement_pass = passes.next().expect("at least one coordination round runs");

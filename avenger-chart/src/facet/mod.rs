@@ -58,5 +58,6 @@ pub(crate) mod round_tree;
 pub(crate) mod scale_precompute;
 pub mod sharing_policy;
 pub(crate) mod subtree_plot_area;
+pub(crate) mod tree_solve;
 
 pub use direction::FacetDirection;
