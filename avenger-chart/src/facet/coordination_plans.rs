@@ -528,9 +528,21 @@ pub(crate) fn build_requirement_pass(
     stage: RequirementStage,
     snapshot: RequirementSnapshot,
 ) -> Result<RequirementPass, AvengerChartError> {
+    let solved = crate::facet::round_tree::solve_round(&snapshot.nodes);
+    build_requirement_pass_with_round(stage, snapshot, solved)
+}
+
+/// Build one requirement pass from an already-solved round: the legacy
+/// diagonal solve and the real-tree solve (`tree_solve::tree_solved_round`)
+/// both produce the `SolvedRound` shape; chart-side folds, write-back
+/// adjustments, and solution construction are identical from here.
+pub(crate) fn build_requirement_pass_with_round(
+    stage: RequirementStage,
+    snapshot: RequirementSnapshot,
+    solved: crate::facet::round_tree::SolvedRound,
+) -> Result<RequirementPass, AvengerChartError> {
     let nodes = &snapshot.nodes;
     let scopes = RequirementScopeMetadata::collect(nodes);
-    let solved = crate::facet::round_tree::solve_round(nodes);
 
     let grouped = collect_round_groups(nodes, &scopes, &solved.own_overflow_by_node);
 

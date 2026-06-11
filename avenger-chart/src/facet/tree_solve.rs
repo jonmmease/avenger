@@ -578,6 +578,84 @@ pub(crate) fn extract_channels(
     }
 }
 
+/// Produce the legacy `SolvedRound` shape from one real-tree solve — the
+/// P6 channel seam: `build_requirement_pass_with_round` consumes this in
+/// place of the diagonal `round_tree::solve_round`, and everything
+/// downstream (chart-side folds, write-back adjustments, solution
+/// construction) is unchanged.
+///
+/// - `merged_by_node` spacing comes from solved tracks (share-merged);
+///   `n`/`guide_slot_gap_px` fold over share groups (pre-adjustment
+///   values, like the legacy).
+/// - `overflow_by_node` reads `Region.coordinated` (guide = inner,
+///   total = total): each node's own post-share ask, which in a real
+///   tree also carries ancestor-honest growth from nested members.
+/// - `own_overflow_by_node` keeps the legacy own-envelope law: guide
+///   from pass-1 `requested.inner`, total from the raw `geometric` view.
+///
+/// Returns `None` when the measurement has no facet band or the solve
+/// fails (callers fall back to the legacy producer).
+pub(crate) fn tree_solved_round(
+    measurement: &ComponentsMeasurement,
+    sizing: FacetRuntimeSizingMode,
+) -> Option<crate::facet::round_tree::SolvedRound> {
+    let lowered = lower_facet_tree(measurement, sizing, None)?;
+    let solved = match lowered.solve() {
+        Ok(solved) => solved,
+        Err(error) => {
+            warn!(
+                target: "avenger_chart::facet::tree_solve",
+                error,
+                "tree solve failed; falling back to the diagonal round"
+            );
+            return None;
+        }
+    };
+    let channels = extract_channels(&lowered, &solved);
+
+    let mut own_overflow_by_node = HashMap::new();
+    let mut merged_by_key = HashMap::new();
+    for band in &lowered.bands {
+        if let Some(layout) = channels.layout_by_node.get(&band.node_id) {
+            merged_by_key.insert(
+                band.key
+                    .with_kind(crate::plot::compiled::CoordinationKind::ChildSize),
+                layout.clone(),
+            );
+        }
+        if !band.has_overflow_cells {
+            continue;
+        }
+        let Some(region) = solved.region(&band.node_id) else {
+            continue;
+        };
+        own_overflow_by_node.insert(
+            band.node_id.clone(),
+            CoordinatedOverflow {
+                guide: avenger_chart_core::OverflowSpaceRequirement {
+                    top: region.requested.top.inner,
+                    right: region.requested.right.inner,
+                    bottom: region.requested.bottom.inner,
+                    left: region.requested.left.inner,
+                },
+                total: avenger_chart_core::OverflowSpaceRequirement {
+                    top: region.geometric.top,
+                    right: region.geometric.right,
+                    bottom: region.geometric.bottom,
+                    left: region.geometric.left,
+                },
+            },
+        );
+    }
+
+    Some(crate::facet::round_tree::SolvedRound {
+        merged_by_key,
+        merged_by_node: channels.layout_by_node,
+        own_overflow_by_node,
+        overflow_by_node: channels.overflow_by_node,
+    })
+}
+
 const SHADOW_EPS: f32 = 0.01;
 
 fn overflow_delta(a: &CoordinatedOverflow, b: &CoordinatedOverflow) -> f32 {

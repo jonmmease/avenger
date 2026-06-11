@@ -27,6 +27,7 @@ use crate::{
             CoordinationNodeKey, CoordinationRunArtifacts, FinalPropagationPlan,
             FinalPropagationTrace, RequirementNodeSnapshot, RequirementPass, RequirementSnapshot,
             RequirementStage, RetargetPlan, RetargetTrace, build_requirement_pass,
+            build_requirement_pass_with_round,
         },
         coordination_policy::FacetCoordinationPolicy,
         layout_plan::effective_edge_indices,
@@ -180,7 +181,20 @@ async fn run_facet_coordination_rounds(
         if crate::facet::tree_solve::shadow_enabled() {
             shadow_snapshot_hashes.push(crate::facet::tree_solve::snapshot_hash(&snapshot));
         }
-        let requirement_pass = build_requirement_pass(stage, snapshot)?;
+        // P6 cohort: fully leaf-plot-sized charts read the requirement
+        // channels from the real-tree solve (one tree, real topology);
+        // other charts keep the legacy diagonal until P7. Solve failures
+        // fall back to the legacy producer.
+        let sizing = eval_ctx.facet_runtime_sizing_mode();
+        let policy = sizing.policy();
+        let tree_round = (policy.width.is_leaf_plot_area_sized()
+            && policy.height.is_leaf_plot_area_sized())
+        .then(|| crate::facet::tree_solve::tree_solved_round(measurement, sizing))
+        .flatten();
+        let requirement_pass = match tree_round {
+            Some(solved) => build_requirement_pass_with_round(stage, snapshot, solved)?,
+            None => build_requirement_pass(stage, snapshot)?,
+        };
         debug!(
             policy = FacetCoordinationPolicy::LABEL,
             round,
