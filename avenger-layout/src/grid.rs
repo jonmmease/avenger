@@ -3,12 +3,11 @@
 //! This is the general solver: rectangular slots with row/column spans, track
 //! sizes derived from content, and one gap rule shared by every consumer:
 //! `gap(i, i + 1) = max(min_gap, trailing[i].total + leading[i + 1].total)`.
-//! One-dimensional bands are 1xN grids (see [`crate::band`]).
 
 use std::fmt;
 
 use crate::geometry::{Edges, Size};
-use crate::region::{EdgeDemand, EdgeTargets};
+use crate::region::EdgeDemand;
 
 /// Two-dimensional grid track count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -80,61 +79,6 @@ impl TrackSpacing {
 #[inline]
 fn track_gap(trailing_total: f32, leading_total: f32, min_gap: f32) -> f32 {
     (trailing_total + leading_total).max(min_gap.max(0.0))
-}
-
-/// Uniform single-span tracks: the policy-level requirement for `count`
-/// equally sized slots sharing one [`TrackSpacing`].
-///
-/// This is the neutral form of band/facet layout policy, where per-track
-/// geometry is uniform by construction and merging coordinates the policy
-/// (max count, max spacing) rather than per-track values. Unlike
-/// [`GridRequirements`], merging across different counts is well-defined.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct UniformTracks {
-    pub count: usize,
-    pub spacing: TrackSpacing,
-}
-
-impl UniformTracks {
-    pub fn merge_max(self, other: Self) -> Self {
-        Self {
-            count: self.count.max(other.count),
-            spacing: self.spacing.merge_max(other.spacing),
-        }
-    }
-
-    /// Solve the uniform arrangement for a given per-track size: starts form
-    /// an arithmetic progression with the spacing's `min_gap` between
-    /// tracks, offset by `outer_start`, and the extent includes both outers.
-    pub fn solve(&self, track_size: f32) -> UniformTrackSolution {
-        let track_size = track_size.max(0.0);
-        let gap = self.spacing.min_gap.max(0.0);
-        let outer_start = self.spacing.outer_start.max(0.0);
-        let starts = (0..self.count)
-            .map(|index| outer_start + index as f32 * (track_size + gap))
-            .collect::<Vec<_>>();
-        let extent = if self.count == 0 {
-            outer_start + self.spacing.outer_end.max(0.0)
-        } else {
-            outer_start
-                + self.count as f32 * track_size
-                + (self.count - 1) as f32 * gap
-                + self.spacing.outer_end.max(0.0)
-        };
-        UniformTrackSolution {
-            starts,
-            track_size,
-            extent,
-        }
-    }
-}
-
-/// Solved positions for a uniform arrangement.
-#[derive(Clone, Debug, PartialEq)]
-pub struct UniformTrackSolution {
-    pub starts: Vec<f32>,
-    pub track_size: f32,
-    pub extent: f32,
 }
 
 /// Track sizes and edge requirements needed to align one measured grid.
@@ -215,41 +159,6 @@ fn grid_edge_demand<Id>(demand: &GridItem<Id>, side: crate::geometry::Side) -> E
     }
 }
 
-impl<Id> GridItem<Id> {
-    /// The overflow this item carries into a solve, as inner/total edge
-    /// targets (totals lifted to `max(total, inner + outer)`, matching the
-    /// merge laws).
-    pub fn requested_targets(&self) -> EdgeTargets {
-        let lifted =
-            |inner: f32, outer: f32, total: f32| EdgeDemand::new(inner, outer, total).total;
-        EdgeTargets {
-            inner: self.inner_edges,
-            total: Edges::new(
-                lifted(
-                    self.inner_edges.top,
-                    self.outer_edges.top,
-                    self.total_edges.top,
-                ),
-                lifted(
-                    self.inner_edges.right,
-                    self.outer_edges.right,
-                    self.total_edges.right,
-                ),
-                lifted(
-                    self.inner_edges.bottom,
-                    self.outer_edges.bottom,
-                    self.total_edges.bottom,
-                ),
-                lifted(
-                    self.inner_edges.left,
-                    self.outer_edges.left,
-                    self.total_edges.left,
-                ),
-            ),
-        }
-    }
-}
-
 impl GridRequirements {
     /// Derive per-track sizes and edge demands from measured grid items.
     pub fn from_items<Id>(
@@ -327,14 +236,10 @@ impl GridRequirements {
         requirements
     }
 
-    /// Solve track starts, span constraints, and content size for one grid.
-    pub fn solve<Id>(&self, demands: &[GridItem<Id>]) -> GridSolution {
-        self.solve_with_growth(demands, None, None)
-    }
-
-    /// Like [`GridRequirements::solve`], with optional per-track growth
-    /// kinds: span deficits distribute to `Auto` tracks first, then `Flex`,
-    /// never `Fixed`. `None` treats every track as `Auto`.
+    /// Solve track starts, span constraints, and content size for one grid,
+    /// with optional per-track growth kinds: span deficits distribute to
+    /// `Auto` tracks first, then `Flex`, never `Fixed`. `None` treats every
+    /// track as `Auto`.
     pub(crate) fn solve_with_growth<Id>(
         &self,
         demands: &[GridItem<Id>],
@@ -415,18 +320,6 @@ impl GridRequirements {
 /// Collect the `total` component of each edge demand.
 pub(crate) fn edge_demand_totals(edges: &[EdgeDemand]) -> Vec<f32> {
     edges.iter().map(|edge| edge.total).collect()
-}
-
-/// Build a vector of zero edge demands.
-#[cfg(test)]
-pub(crate) fn zero_edge_demands(len: usize) -> Vec<EdgeDemand> {
-    vec![EdgeDemand::default(); len]
-}
-
-/// Build edge demands carrying only totals.
-#[cfg(test)]
-pub(crate) fn total_edge_demands(values: impl IntoIterator<Item = f32>) -> Vec<EdgeDemand> {
-    values.into_iter().map(EdgeDemand::total).collect()
 }
 
 /// How one track may absorb distributed space (span deficits, stretch).
@@ -536,144 +429,9 @@ fn track_starts_and_content_size(
     (starts, cursor + spacing.outer_end.max(0.0))
 }
 
-impl GridSolution {
-    pub fn content_origin_for_slot(&self, slot: GridSlot) -> [f32; 2] {
-        [self.column_starts[slot.column], self.row_starts[slot.row]]
-    }
-
-    pub fn edge_targets_for_slot(&self, slot: GridSlot) -> EdgeTargets {
-        let last_row = slot.row_end() - 1;
-        let last_column = slot.column_end() - 1;
-        let top = self.row_top[slot.row];
-        let right = self.column_right[last_column];
-        let bottom = self.row_bottom[last_row];
-        let left = self.column_left[slot.column];
-
-        EdgeTargets {
-            inner: Edges {
-                top: top.inner,
-                right: right.inner,
-                bottom: bottom.inner,
-                left: left.inner,
-            },
-            total: Edges {
-                top: top.total,
-                right: right.total,
-                bottom: bottom.total,
-                left: left.total,
-            },
-        }
-    }
-
-    pub fn content_size_for_slot(&self, slot: GridSlot) -> Size {
-        let column_right_totals = edge_demand_totals(&self.column_right);
-        let column_left_totals = edge_demand_totals(&self.column_left);
-        let row_bottom_totals = edge_demand_totals(&self.row_bottom);
-        let row_top_totals = edge_demand_totals(&self.row_top);
-        Size::new(
-            span_axis_extent(
-                &self.column_widths,
-                &column_right_totals,
-                &column_left_totals,
-                self.column_spacing.min_gap,
-                slot.column,
-                slot.column_span,
-            ),
-            span_axis_extent(
-                &self.row_heights,
-                &row_bottom_totals,
-                &row_top_totals,
-                self.row_spacing.min_gap,
-                slot.row,
-                slot.row_span,
-            ),
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn uniform_tracks_solve_matches_uniform_grid_solve() {
-        let tracks = UniformTracks {
-            count: 3,
-            spacing: TrackSpacing {
-                outer_start: 5.0,
-                outer_end: 7.0,
-                min_gap: 10.0,
-            },
-        };
-        let solved = tracks.solve(40.0);
-
-        let items = (0..3)
-            .map(|index| GridItem {
-                id: index,
-                slot: GridSlot {
-                    row: 0,
-                    column: index,
-                    row_span: 1,
-                    column_span: 1,
-                },
-                content_size: Size::new(40.0, 20.0),
-                inner_edges: Edges::default(),
-                outer_edges: Edges::default(),
-                total_edges: Edges::default(),
-            })
-            .collect::<Vec<_>>();
-        let mut requirements = GridRequirements::from_items(
-            GridShape {
-                rows: 1,
-                columns: 3,
-            },
-            Size::default(),
-            &items,
-        )
-        .expect("uniform items fit the shape");
-        requirements.column_spacing = tracks.spacing;
-        let grid = requirements.solve(&items);
-
-        assert_eq!(solved.starts, grid.column_starts);
-        assert_eq!(solved.extent, grid.content_size.width);
-        assert_eq!(solved.track_size, 40.0);
-    }
-
-    #[test]
-    fn uniform_tracks_merge_coordinates_policy() {
-        let first = UniformTracks {
-            count: 2,
-            spacing: TrackSpacing {
-                outer_start: 11.0,
-                outer_end: 12.0,
-                min_gap: 24.0,
-            },
-        };
-        let second = UniformTracks {
-            count: 4,
-            spacing: TrackSpacing {
-                outer_start: 91.0,
-                outer_end: 2.0,
-                min_gap: 18.0,
-            },
-        };
-
-        let merged = first.merge_max(second);
-        assert_eq!(merged.count, 4);
-        assert_eq!(
-            merged.spacing,
-            TrackSpacing {
-                outer_start: 91.0,
-                outer_end: 12.0,
-                min_gap: 24.0,
-            }
-        );
-        assert_eq!(
-            UniformTracks::default().merge_max(first),
-            first,
-            "merging from the default seed is the identity"
-        );
-    }
 
     fn grid_item(
         id: usize,
@@ -761,21 +519,13 @@ mod tests {
         ];
 
         let requirements = GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands)?;
-        let solution = requirements.solve(&demands);
+        let solution = requirements.solve_with_growth(&demands, None, None);
 
         assert_eq!(solution.column_widths, vec![100.0, 120.0]);
         assert_eq!(solution.row_heights, vec![50.0, 60.0]);
         assert_eq!(solution.column_starts, vec![0.0, 112.0]);
         assert_eq!(solution.row_starts, vec![0.0, 61.0]);
         assert_eq!(solution.content_size, Size::new(232.0, 121.0));
-        assert_eq!(
-            solution.content_origin_for_slot(demands[1].slot),
-            [112.0, 0.0]
-        );
-        assert_eq!(
-            solution.content_origin_for_slot(demands[2].slot),
-            [0.0, 61.0]
-        );
         Ok(())
     }
 
@@ -808,15 +558,11 @@ mod tests {
             min_gap: 0.0,
         };
 
-        let solution = requirements.solve(&demands);
+        let solution = requirements.solve_with_growth(&demands, None, None);
 
         assert_eq!(solution.column_starts, vec![3.0]);
         assert_eq!(solution.row_starts, vec![5.0]);
         assert_eq!(solution.content_size, Size::new(110.0, 66.0));
-        assert_eq!(
-            solution.content_origin_for_slot(demands[0].slot),
-            [3.0, 5.0]
-        );
         Ok(())
     }
 
@@ -832,14 +578,10 @@ mod tests {
         ];
 
         let requirements = GridRequirements::from_items(shape, Size::new(100.0, 100.0), &demands)?;
-        let solution = requirements.solve(&demands);
+        let solution = requirements.solve_with_growth(&demands, None, None);
 
         assert_eq!(solution.column_starts, vec![0.0, 100.0, 200.0]);
         assert_eq!(solution.row_starts, vec![0.0, 100.0]);
-        assert_eq!(
-            solution.content_origin_for_slot(demands[1].slot),
-            [200.0, 100.0]
-        );
         assert_eq!(solution.content_size, Size::new(300.0, 200.0));
         Ok(())
     }
@@ -893,7 +635,7 @@ mod tests {
         ];
 
         let requirements = GridRequirements::from_items(shape, Size::new(50.0, 50.0), &demands)?;
-        let solution = requirements.solve(&demands);
+        let solution = requirements.solve_with_growth(&demands, None, None);
 
         assert_eq!(
             edge_demand_totals(&solution.column_left),
@@ -963,7 +705,7 @@ mod tests {
             GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands)?;
         requirements.column_spacing.min_gap = 10.0;
 
-        let solution = requirements.solve(&demands);
+        let solution = requirements.solve_with_growth(&demands, None, None);
 
         // First pair: edge demand 2.0 + 3.0 = 5.0 < min_gap 10.0 -> floored.
         // Second pair: edge demand 9.0 + 4.0 = 13.0 > min_gap 10.0 -> demand wins.
@@ -1004,7 +746,7 @@ mod tests {
             GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands)?;
         requirements.column_spacing.min_gap = 8.0;
 
-        let solution = requirements.solve(&demands);
+        let solution = requirements.solve_with_growth(&demands, None, None);
 
         // The floored gap (max(8.0, 1.0 + 2.0) = 8.0) counts toward the span
         // target of 250.0, so each track absorbs (250 - 200 - 8) / 2 = 21.0.
@@ -1014,57 +756,9 @@ mod tests {
 
         // Slot content size agrees with the positional distance from span
         // start to span end content edge.
-        let span_slot = demands[0].slot;
         let positional_extent =
             solution.column_starts[1] + solution.column_widths[1] - solution.column_starts[0];
-        assert_eq!(
-            solution.content_size_for_slot(span_slot).width,
-            positional_extent
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn grid_solution_carries_structured_edge_targets() -> Result<(), GridError> {
-        let shape = GridShape {
-            rows: 1,
-            columns: 2,
-        };
-        let demands = vec![
-            grid_item_with_edges(
-                0,
-                0,
-                0,
-                1,
-                1,
-                Size::new(100.0, 60.0),
-                Edges::new(0.0, 6.0, 0.0, 0.0),
-                Edges::new(0.0, 20.0, 0.0, 0.0),
-                Edges::new(0.0, 12.0, 0.0, 0.0),
-            ),
-            grid_item(
-                1,
-                0,
-                1,
-                1,
-                1,
-                Size::new(100.0, 60.0),
-                Edges::new(0.0, 0.0, 0.0, 3.0),
-            ),
-        ];
-
-        let requirements = GridRequirements::from_items(shape, Size::new(100.0, 60.0), &demands)?;
-        assert_eq!(
-            requirements.column_right[0],
-            EdgeDemand::new(6.0, 20.0, 12.0)
-        );
-
-        let solution = requirements.solve(&demands);
-        let targets = solution.edge_targets_for_slot(demands[0].slot);
-        assert_eq!(targets.inner.right, 6.0);
-        assert_eq!(targets.total.right, 26.0);
-        assert_eq!(targets.inner.left, 0.0);
-        assert_eq!(targets.total.left, 0.0);
+        assert!((positional_extent - 250.0).abs() < 0.0001);
         Ok(())
     }
 }

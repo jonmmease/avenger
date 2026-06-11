@@ -319,129 +319,80 @@ mod tests {
         }
     }
 
-    fn legacy_requirements(
-        shape: GridShape,
-        base: Size,
-        cells: &[GridCell],
-        min_gap: f32,
-    ) -> avenger_layout::GridRequirements {
-        let items: Vec<avenger_layout::GridItem> = cells
-            .iter()
-            .enumerate()
-            .map(|(index, cell)| avenger_layout::GridItem {
-                id: index,
-                slot: cell.slot,
-                content_size: cell.content_size,
-                inner_edges: cell.inner_edges,
-                outer_edges: cell.outer_edges,
-                total_edges: cell.total_edges,
-            })
-            .collect();
-        let mut requirements =
-            avenger_layout::GridRequirements::from_items(shape, base, &items).expect("valid");
-        requirements.column_spacing.min_gap = min_gap;
-        requirements.row_spacing.min_gap = min_gap;
-        requirements
-    }
-
-    /// Export reproduces the legacy pre-solve requirement fold exactly,
-    /// including spans (no content contribution) and holes (defaults).
+    /// Export reproduces the pre-solve requirement fold: per-track maxima
+    /// with base floors, span items contributing edges (first/last track)
+    /// but no content, holes defaulting.
     #[test]
-    fn export_matches_legacy_requirement_fold() {
+    fn export_is_the_pre_solve_requirement_fold() {
         let shape = GridShape {
             rows: 2,
             columns: 3,
         };
-        let base = Size::new(40.5, 30.25);
+        let base = Size::new(40.0, 30.0);
         let cells = vec![
-            cell(0, 0, 1, 1, 101.5, 51.25, Edges::new(1.5, 5.0, 2.0, 3.25)),
-            cell(0, 2, 1, 1, 120.0, 50.0, Edges::new(1.0, 4.0, 2.0, 7.5)),
-            cell(1, 0, 1, 2, 199.75, 60.5, Edges::new(9.0, 5.5, 2.0, 3.0)),
+            cell(0, 0, 1, 1, 100.0, 50.0, Edges::new(0.0, 5.0, 0.0, 3.0)),
+            cell(0, 2, 1, 1, 120.0, 50.0, Edges::new(0.0, 4.0, 0.0, 7.0)),
+            cell(1, 0, 1, 2, 200.0, 60.0, Edges::new(0.0, 6.0, 0.0, 2.0)),
         ];
         let spacing = Spacing {
-            min_gap: 11.5,
+            min_gap: 10.0,
             ..Default::default()
         };
         let exported =
             solve_concat_grid(shape, base, &cells, spacing, spacing, true).expect("solve");
-        let legacy = legacy_requirements(shape, base, &cells, 11.5);
 
-        assert_eq!(exported.data.column_widths, legacy.column_widths);
-        assert_eq!(exported.data.row_heights, legacy.row_heights);
-        assert_eq!(exported.data.column_left, legacy.column_left);
-        assert_eq!(exported.data.column_right, legacy.column_right);
-        assert_eq!(exported.data.row_top, legacy.row_top);
-        assert_eq!(exported.data.row_bottom, legacy.row_bottom);
+        // Span content does not reach the tracks; the hole keeps the base.
+        assert_eq!(exported.data.column_widths, vec![100.0, 40.0, 120.0]);
+        assert_eq!(exported.data.row_heights, vec![50.0, 60.0]);
+        // Span edges land on the first/last spanned tracks.
+        let totals = |edges: &[EdgeDemand]| edges.iter().map(|edge| edge.total).collect::<Vec<_>>();
+        assert_eq!(totals(&exported.data.column_left), vec![3.0, 0.0, 7.0]);
+        assert_eq!(totals(&exported.data.column_right), vec![5.0, 6.0, 4.0]);
     }
 
-    /// The phantom-cousin apply reproduces the legacy
-    /// `merged_requirements.solve(&local_items)` per-slot reads exactly.
+    /// The phantom-cousin apply: merged floors install exactly, local span
+    /// constraints re-apply on top, and per-slot reads follow the laws.
     #[test]
-    fn apply_matches_legacy_solve_against_merged() {
+    fn apply_installs_merged_floors_and_reapplies_spans() {
         let shape = GridShape {
             rows: 2,
-            columns: 2,
+            columns: 3,
         };
-        let base = Size::new(50.0, 40.0);
+        let base = Size::new(40.0, 30.0);
         let cells = vec![
-            cell(0, 0, 1, 1, 101.5, 51.25, Edges::new(1.5, 5.0, 2.0, 3.25)),
-            cell(0, 1, 1, 1, 90.0, 50.0, Edges::new(1.0, 4.0, 2.0, 7.5)),
-            cell(1, 0, 1, 2, 260.25, 60.5, Edges::new(9.0, 5.5, 2.0, 3.0)),
+            cell(0, 0, 1, 1, 100.0, 50.0, Edges::new(0.0, 5.0, 0.0, 3.0)),
+            cell(0, 2, 1, 1, 120.0, 50.0, Edges::new(0.0, 4.0, 0.0, 7.0)),
+            cell(1, 0, 1, 2, 200.0, 60.0, Edges::new(0.0, 6.0, 0.0, 2.0)),
         ];
         let spacing = Spacing {
-            min_gap: 12.25,
+            min_gap: 10.0,
             ..Default::default()
         };
-        // A merged payload strictly above the local export (a cousin was
-        // bigger).
-        let local = solve_concat_grid(shape, base, &cells, spacing, spacing, true).expect("solve");
-        let mut merged = local.data.clone();
-        merged.column_widths[0] += 13.5;
-        merged.row_heights[1] += 7.25;
-        merged.column_left[0] =
-            EdgeDemand::new(6.0, 2.0, 8.0).max_components(merged.column_left[0]);
-        merged.column_spacing.min_gap = 14.0;
+        let mut merged = solve_concat_grid(shape, base, &cells, spacing, spacing, true)
+            .expect("solve")
+            .data;
+        // A cousin was bigger: wider first column, taller second row, a
+        // larger min gap.
+        merged.column_widths[0] = 120.0;
+        merged.row_heights[1] = 70.0;
+        merged.column_spacing.min_gap = 12.0;
+        merged.row_spacing.min_gap = 12.0;
 
         let applied = solve_concat_grid_against(&merged, base, &cells).expect("apply");
 
-        // Legacy: install merged values into requirements, solve local items.
-        let mut legacy = legacy_requirements(shape, base, &cells, 12.25);
-        legacy.column_widths = merged.column_widths.clone();
-        legacy.row_heights = merged.row_heights.clone();
-        legacy.column_left = merged.column_left.clone();
-        legacy.column_right = merged.column_right.clone();
-        legacy.row_top = merged.row_top.clone();
-        legacy.row_bottom = merged.row_bottom.clone();
-        legacy.column_spacing = merged.column_spacing;
-        legacy.row_spacing = merged.row_spacing;
-        let items: Vec<avenger_layout::GridItem> = cells
-            .iter()
-            .enumerate()
-            .map(|(index, cell)| avenger_layout::GridItem {
-                id: index,
-                slot: cell.slot,
-                content_size: cell.content_size,
-                inner_edges: cell.inner_edges,
-                outer_edges: cell.outer_edges,
-                total_edges: cell.total_edges,
-            })
-            .collect();
-        let legacy_solution = legacy.solve(&items);
-
-        assert_eq!(applied.column_starts, legacy_solution.column_starts);
-        assert_eq!(applied.row_starts, legacy_solution.row_starts);
-        assert_eq!(applied.data.column_widths, legacy_solution.column_widths);
-        assert_eq!(applied.data.row_heights, legacy_solution.row_heights);
-        assert_eq!(applied.content_size, legacy_solution.content_size);
-        for cell in &cells {
-            let new_targets = applied.edge_targets_for_slot(cell.slot);
-            let legacy_targets = legacy_solution.edge_targets_for_slot(cell.slot);
-            assert_eq!(new_targets.inner, legacy_targets.inner);
-            assert_eq!(new_targets.total, legacy_targets.total);
-            assert_eq!(
-                applied.content_origin_for_slot(cell.slot),
-                legacy_solution.content_origin_for_slot(cell.slot)
-            );
-        }
+        // Span deficit: 120 + gap(12) + 40 = 172 against 200 -> +14 per
+        // spanned track.
+        assert_eq!(applied.data.column_widths, vec![134.0, 54.0, 120.0]);
+        assert_eq!(applied.data.row_heights, vec![50.0, 70.0]);
+        // Gaps: max(12, 5+0) = 12 and max(12, 6+7) = 13.
+        assert_eq!(applied.column_starts, vec![0.0, 146.0, 213.0]);
+        assert_eq!(applied.row_starts, vec![0.0, 62.0]);
+        assert_eq!(applied.content_size, Size::new(333.0, 132.0));
+        // The span slot's positional extent meets its constraint exactly.
+        let span_slot = cells[2].slot;
+        assert_eq!(applied.content_size_for_slot(span_slot).width, 200.0);
+        assert_eq!(applied.content_origin_for_slot(span_slot), [0.0, 62.0]);
+        // Per-track fold: max(cell00's left 3.0, the span's left 2.0).
+        assert_eq!(applied.edge_targets_for_slot(span_slot).total.left, 3.0);
     }
 }

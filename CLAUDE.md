@@ -99,7 +99,7 @@ See `avenger-chart/docs/DEBUGGING.md` for detailed debugging documentation.
 The repository is organized as a Rust workspace with these key crates:
 - `avenger-scenegraph`: Core scene graph representation
 - `avenger-wgpu`: GPU rendering implementation
-- `avenger-layout`: Chart-independent layout primitives (band/grid solvers, requirement alignment)
+- `avenger-layout`: Chart-independent layout. One public paradigm: build a nested `Layout` (leaves + grids, chrome on any node), `solve()` once (measurement, share-key cousin coordination, allocation), read `LayoutSolution` / render SVG. Gallery: `avenger-layout/tests/baselines/`
 - `avenger-scales`: Visualization scales (linear, log, ordinal, etc.)
 - `avenger-vega-scenegraph`: Vega compatibility layer
 - `avenger-eventstream`: Event handling system

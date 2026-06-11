@@ -1330,11 +1330,9 @@ fn check_duplicate_ids<'a, Id: Eq + Hash, Key>(
 #[cfg(test)]
 mod tests {
     use crate::build::{CellAlign, Distribute, Layout, LayoutError, SolveFor, SolveOptions};
-    use crate::frame::{Frame, FrameAxis, FrameAxisSizing, FrameSide};
+    use crate::frame::{FrameAxis, FrameAxisSizing, FrameSide};
     use crate::geometry::{Edges, Rect, Side, Size};
-    use crate::grid::{GridShape, GridSlot, TrackSpacing};
     use crate::region::EdgeDemand;
-    use crate::tree::{LayoutItem, LayoutNode, LayoutSlotContent};
 
     fn chart_leaf() -> Layout<&'static str> {
         Layout::leaf(Size::default())
@@ -1347,27 +1345,48 @@ mod tests {
             .id("chart")
     }
 
-    fn chart_frame(sizing_x: FrameAxisSizing, sizing_y: FrameAxisSizing) -> Frame {
+    /// Solve the chart-leaf chrome per axis through the internal frame
+    /// solver (the parity oracle for the three sizing modes).
+    fn chart_axes(
+        sizing_x: FrameAxisSizing,
+        sizing_y: FrameAxisSizing,
+    ) -> (
+        crate::frame::FrameAxisSolution,
+        crate::frame::FrameAxisSolution,
+    ) {
         let side = |margin: f32, bands: &[f32], outer: f32, inner: f32| FrameSide {
             margin,
             bands: bands.to_vec(),
             outer,
             inner,
         };
-        Frame {
-            horizontal: FrameAxis {
-                sizing: sizing_x,
-                leading: side(8.0, &[], 0.0, 38.0),
-                trailing: side(8.0, &[], 64.0, 0.0),
-                content_min: 50.0,
-            },
-            vertical: FrameAxis {
-                sizing: sizing_y,
-                leading: side(8.0, &[18.0], 0.0, 0.0),
-                trailing: side(8.0, &[], 0.0, 22.0),
-                content_min: 40.0,
-            },
+        let horizontal = FrameAxis {
+            sizing: sizing_x,
+            leading: side(8.0, &[], 0.0, 38.0),
+            trailing: side(8.0, &[], 64.0, 0.0),
+            content_min: 50.0,
         }
+        .solve();
+        let vertical = FrameAxis {
+            sizing: sizing_y,
+            leading: side(8.0, &[18.0], 0.0, 0.0),
+            trailing: side(8.0, &[], 0.0, 22.0),
+            content_min: 40.0,
+        }
+        .solve();
+        (horizontal, vertical)
+    }
+
+    fn frame_content_rect(
+        horizontal: &crate::frame::FrameAxisSolution,
+        vertical: &crate::frame::FrameAxisSolution,
+    ) -> Rect {
+        Rect::new(
+            horizontal.content.start,
+            vertical.content.start,
+            horizontal.content.size,
+            vertical.content.size,
+        )
     }
 
     #[test]
@@ -1379,15 +1398,14 @@ mod tests {
                 height: Some(300.0),
             })
             .expect("solve");
-        let frame = chart_frame(
+        let (horizontal, vertical) = chart_axes(
             FrameAxisSizing::EnvelopeFixed { extent: 400.0 },
             FrameAxisSizing::EnvelopeFixed { extent: 300.0 },
-        )
-        .solve();
+        );
 
         let region = solved.region(&"chart").expect("chart region");
-        assert_eq!(region.content, frame.content_rect());
-        assert_eq!(solved.size, frame.extent());
+        assert_eq!(region.content, frame_content_rect(&horizontal, &vertical));
+        assert_eq!(solved.size, Size::new(horizontal.extent, vertical.extent));
         assert_eq!(region.slot, Rect::new(0.0, 0.0, 400.0, 300.0));
     }
 
@@ -1405,15 +1423,14 @@ mod tests {
             .id("chart")
             .solve(&SolveOptions::default())
             .expect("solve");
-        let frame = chart_frame(
+        let (horizontal, vertical) = chart_axes(
             FrameAxisSizing::ContentFixed { content: 200.0 },
             FrameAxisSizing::ContentFixed { content: 150.0 },
-        )
-        .solve();
+        );
 
         let region = solved.region(&"chart").expect("chart region");
-        assert_eq!(region.content, frame.content_rect());
-        assert_eq!(solved.size, frame.extent());
+        assert_eq!(region.content, frame_content_rect(&horizontal, &vertical));
+        assert_eq!(solved.size, Size::new(horizontal.extent, vertical.extent));
     }
 
     #[test]
@@ -1431,7 +1448,7 @@ mod tests {
                 height: Some(300.0),
             })
             .expect("solve");
-        let frame = chart_frame(
+        let (horizontal, vertical) = chart_axes(
             FrameAxisSizing::EnvelopeAndContentFixed {
                 extent: 400.0,
                 content: 200.0,
@@ -1440,12 +1457,11 @@ mod tests {
                 extent: 300.0,
                 content: 150.0,
             },
-        )
-        .solve();
+        );
 
         let region = solved.region(&"chart").expect("chart region");
-        assert_eq!(region.content, frame.content_rect());
-        assert_eq!(solved.size, frame.extent());
+        assert_eq!(region.content, frame_content_rect(&horizontal, &vertical));
+        assert_eq!(solved.size, Size::new(horizontal.extent, vertical.extent));
     }
 
     #[test]
@@ -1475,71 +1491,10 @@ mod tests {
         assert_eq!(solved.size.height, 188.0);
     }
 
-    fn tree_leaf(id: usize, column: usize, size: Size) -> LayoutItem<usize> {
-        LayoutItem {
-            id,
-            slot: GridSlot {
-                row: 0,
-                column,
-                row_span: 1,
-                column_span: 1,
-            },
-            content: LayoutSlotContent::Leaf {
-                content_size: size,
-                inner_edges: Edges::default(),
-                outer_edges: Edges::default(),
-                total_edges: Edges::default(),
-            },
-        }
-    }
-
-    fn tree_band(items: Vec<LayoutItem<usize>>, min_gap: f32) -> LayoutNode<usize> {
-        LayoutNode {
-            shape: GridShape {
-                rows: 1,
-                columns: items.len(),
-            },
-            column_spacing: TrackSpacing {
-                outer_start: 0.0,
-                outer_end: 0.0,
-                min_gap,
-            },
-            row_spacing: TrackSpacing::default(),
-            base_cell_size: Size::default(),
-            stacked_inner_edges: Edges::default(),
-            stacked_outer_edges: Edges::default(),
-            items,
-        }
-    }
-
     #[test]
-    fn nested_grid_matches_tree_solver() {
-        // The tree.rs nested-band case, expressed on both APIs.
-        let old_inner = tree_band(
-            vec![
-                tree_leaf(10, 0, Size::new(40.0, 60.0)),
-                tree_leaf(11, 1, Size::new(40.0, 60.0)),
-            ],
-            6.0,
-        );
-        let old_root = tree_band(
-            vec![
-                tree_leaf(0, 0, Size::new(50.0, 60.0)),
-                LayoutItem {
-                    id: 1,
-                    slot: GridSlot {
-                        row: 0,
-                        column: 1,
-                        row_span: 1,
-                        column_span: 1,
-                    },
-                    content: LayoutSlotContent::Node(old_inner),
-                },
-            ],
-            10.0,
-        );
-        let old = old_root.solve(None).expect("tree solve");
-
+    fn nested_grid_reproduces_the_tree_solver_values() {
+        // The historical nested-band case; expectations are the legacy tree
+        // solver's exact outputs, pinned as literals.
         let new_root: Layout = Layout::row([
             Layout::leaf(Size::new(50.0, 60.0)),
             Layout::row([
@@ -1551,14 +1506,15 @@ mod tests {
         .min_gap(10.0);
         let new = new_root.solve(&SolveOptions::default()).expect("solve");
 
-        assert_eq!(new.envelope().content_size, old.content_size);
-        for old_region in &old.regions {
-            let new_region = new.at_path(&old_region.path).expect("matching path");
-            assert_eq!(
-                new_region.content, old_region.content_rect,
-                "content rect at path {:?}",
-                old_region.path
-            );
+        assert_eq!(new.envelope().content_size, Size::new(146.0, 60.0));
+        for (path, expected) in [
+            (vec![0usize], Rect::new(0.0, 0.0, 50.0, 60.0)),
+            (vec![1], Rect::new(60.0, 0.0, 86.0, 60.0)),
+            (vec![1, 0], Rect::new(60.0, 0.0, 40.0, 60.0)),
+            (vec![1, 1], Rect::new(106.0, 0.0, 40.0, 60.0)),
+        ] {
+            let new_region = new.at_path(&path).expect("matching path");
+            assert_eq!(new_region.content, expected, "content rect at {path:?}");
         }
     }
 
@@ -1607,36 +1563,18 @@ mod tests {
     }
 
     #[test]
-    fn grid_chrome_matches_stacked_edges_law() {
-        // Old: stacked_inner_edges on the node. New: .inner on the grid.
-        let mut old = tree_band(vec![tree_leaf(0, 0, Size::new(100.0, 60.0))], 0.0);
-        old.items[0] = LayoutItem {
-            id: 0,
-            slot: old.items[0].slot,
-            content: LayoutSlotContent::Leaf {
-                content_size: Size::new(100.0, 60.0),
-                inner_edges: Edges::default(),
-                outer_edges: Edges::default(),
-                total_edges: Edges::new(0.0, 15.0, 0.0, 0.0),
-            },
-        };
-        old.stacked_inner_edges = Edges::new(0.0, 35.0, 0.0, 0.0);
-        let old_envelope = old
-            .envelope(crate::tree::TreeEnvelopeKind::Layered)
-            .expect("envelope");
-
+    fn grid_chrome_reproduces_the_stacked_edges_law() {
+        // Chrome on the grid replaces the legacy stacked_inner_edges: a
+        // 15px child right demand plus a 35px inner header = a 50px
+        // envelope with the header on the inner (coordinated) layer.
         let new: Layout = Layout::row([
             Layout::leaf(Size::new(100.0, 60.0)).demand(Side::Right, EdgeDemand::total(15.0))
         ])
         .inner(Side::Right, 35.0);
         let solved = new.solve(&SolveOptions::default()).expect("solve");
 
-        assert_eq!(old_envelope.total_edges.right, 50.0);
         assert_eq!(solved.envelope().layered.right.total, 50.0);
-        assert_eq!(
-            solved.envelope().layered.right.inner,
-            old_envelope.inner_edges.right
-        );
+        assert_eq!(solved.envelope().layered.right.inner, 35.0);
     }
 
     #[test]

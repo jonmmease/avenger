@@ -16,15 +16,6 @@ pub struct EdgeTargets {
     pub total: Edges<f32>,
 }
 
-impl From<avenger_layout::EdgeTargets> for EdgeTargets {
-    fn from(targets: avenger_layout::EdgeTargets) -> Self {
-        Self {
-            inner: targets.inner,
-            total: targets.total,
-        }
-    }
-}
-
 /// Placement for one child region relative to its parent content rectangle.
 /// `M` is chart metadata (the concat retarget protocol state).
 #[derive(Debug, Clone, PartialEq)]

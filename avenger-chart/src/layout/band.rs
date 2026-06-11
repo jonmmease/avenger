@@ -274,64 +274,6 @@ mod tests {
     /// The Layout-backed solve is byte-identical to the legacy band solver
     /// for every placed float and boundary target.
     #[test]
-    fn solve_matches_legacy_band_solver_exactly() {
-        for orientation in [Orientation::Horizontal, Orientation::Vertical] {
-            let items = [
-                input(0, 60.0, 81.5, 5.25, 8.0),
-                input(1, 90.1, 80.0, 14.0, 2.5),
-                input(2, 45.0, 79.25, 1.0, 0.75),
-            ];
-            let spacing = Spacing {
-                outer_start: 6.5,
-                outer_end: 10.0,
-                min_gap: 12.25,
-            };
-            let new = BandSolution::solve(orientation, &items, spacing, CrossAlign::Center);
-            let legacy_items: Vec<avenger_layout::BandItem> = items
-                .iter()
-                .map(|item| avenger_layout::BandItem {
-                    id: item.id,
-                    main_size: item.main_size,
-                    cross_size: item.cross_size,
-                    boundary: avenger_layout::BoundaryDemand {
-                        before: item.boundary.before,
-                        after: item.boundary.after,
-                    },
-                })
-                .collect();
-            let legacy = avenger_layout::BandSolution::solve(
-                orientation,
-                &legacy_items,
-                spacing,
-                avenger_layout::CrossAlign::Center,
-            );
-
-            assert_eq!(new.main_extent, legacy.main_extent);
-            assert_eq!(new.cross_extent, legacy.cross_extent);
-            for (new_item, legacy_item) in new.items.iter().zip(legacy.items.iter()) {
-                assert_eq!(new_item.main_start, legacy_item.main_start);
-                assert_eq!(new_item.main_size, legacy_item.main_size);
-                assert_eq!(new_item.cross_start, legacy_item.cross_start);
-                assert_eq!(new_item.cross_size, legacy_item.cross_size);
-            }
-            for (new_boundary, legacy_boundary) in
-                new.boundaries.iter().zip(legacy.boundaries.iter())
-            {
-                assert_eq!(
-                    new_boundary.requested.before,
-                    legacy_boundary.requested.before
-                );
-                assert_eq!(
-                    new_boundary.requested.after,
-                    legacy_boundary.requested.after
-                );
-                assert_eq!(new_boundary.target.before, legacy_boundary.target.before);
-                assert_eq!(new_boundary.target.after, legacy_boundary.target.after);
-            }
-        }
-    }
-
-    #[test]
     fn horizontal_fixed_size_children_compute_expected_starts() {
         let placement = BandSolution::solve(
             Orientation::Horizontal,

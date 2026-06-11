@@ -1,123 +1,74 @@
-//! Chart-independent layout primitives, solvers, and diagnostics.
+//! Chart-independent layout: build one nested [`Layout`], solve it in one
+//! step, read the solution, render it to SVG.
 //!
-//! # The content-plus-overflow model
+//! # The model: two node kinds, every node is content + overflow
 //!
-//! Every laid-out region is a **content rectangle** plus layered **edge
-//! demand** on each side:
+//! A [`Layout`] is either a **leaf** (a measured region: content size plus
+//! per-side [`EdgeDemand`] the solver cannot see inside) or a **grid** (an
+//! arrangement of children in slots with spans and holes, per-axis
+//! [`Spacing`], declared [`TrackSize`]s, free-space [`Distribute`] policy,
+//! optional uniform tracks, and an optional **share key** for cousin
+//! alignment). [`Layout::row`]/[`Layout::column`] are 1×N conveniences.
 //!
-//! - `inner`: interior chrome between the content rectangle and any outer
-//!   content (for charts: axis ticks and labels),
-//! - `outer`: content that stacks beyond the inner edge (for charts: legends,
-//!   container labels),
-//! - `total`: the full rendered envelope on that side
-//!   (`total >= inner + outer`).
+//! Every node — leaf or grid — can additionally carry **declared chrome**:
+//! named slabs per side (margin, repeatable bands, outer, inner) plus a
+//! per-axis [`SolveFor`] sizing mode. Chrome is structured overflow: the
+//! solver knows the individual slabs and returns their positioned
+//! rectangles ([`ChromeSlab`]); measured demands stay opaque totals. Inner
+//! slabs extend the `inner` demand layer toward the parent, outer slabs the
+//! `outer` layer; bands and margins lift into `total` only (private
+//! envelope, never matched against a cousin's named layers).
 //!
-//! When regions are arranged along an axis, **interior** boundary edges
-//! become inter-track gaps, while the **first leading** and **last trailing**
-//! edges are excluded from the arrangement's content extent: they overlap the
-//! container's own edge overflow instead of consuming interior space. This is
-//! what lets sibling content rectangles align exactly while edge chrome of
-//! differing sizes stays synchronized.
+//! # The laws
 //!
-//! # Modules
+//! - **Gap law**: `gap(i, i+1) = max(min_gap, trailing[i] + leading[i+1])`;
+//!   the first leading and last trailing edges are excluded from a grid's
+//!   content extent (they overlap the container's own edge overflow).
+//! - **Lift law**: a side's `total >= inner + outer`.
+//! - **Free-space precedence**: fixed → content → coordination → fr →
+//!   stretch/justify. Coordination ([`Layout::share`]) only raises floors;
+//!   on shared axes free space distributes in policy space under the
+//!   min-slack rule so cousins stay congruent.
+//! - **Content never lies**: a region's [`content`](Region::content)
+//!   rectangle is its measured/solved extent positioned by [`CellAlign`]
+//!   within its [`slot`](Region::slot) (the allotment); the solver never
+//!   falsifies a measurement to fill space.
 //!
-//! - [`geometry`]: plain value types (`Size`, `Point`, `Rect`, `Edges`,
-//!   `Side`, `Orientation`).
-//! - [`region`]: edge demand layering and the placement handoff
-//!   (`EdgeDemand`, `EdgeTargets`, `PlacedRegion`, `PlacementSolution`).
-//! - [`grid`]: the general solver. Rectangular slots with row/column spans,
-//!   per-axis [`grid::TrackSpacing`] (outer offsets plus a `min_gap` floor),
-//!   and one gap rule: `gap(i, i+1) = max(min_gap, trailing[i] +
-//!   leading[i+1])`.
-//! - [`band`]: a one-dimensional orientation adapter over the grid solver
-//!   for row/column bands, plus cross-axis alignment.
-//! - [`frame`]: the leaf solver. One content rectangle plus per-side chrome
-//!   layers (margin, bands, outer, inner), sized from the envelope inward
-//!   or from the content outward.
-//! - [`alignment`]: requirement merging and deltas for aligning equivalent
-//!   grids that are measured independently.
-//! - `svg`: a renderer-independent debug data model and SVG export for
-//!   inspecting solved layouts (dependency-free).
+//! # One solve, no loop
 //!
-//! Item identity is generic (`Id`, defaulting to `usize`) and opaque to this
-//! crate: callers own what an ID means and how equivalent regions are
-//! grouped.
+//! [`Layout::solve`] runs measure-up → coordinate (one pure round over all
+//! share groups) → allocate-down, once. Demands are constant inputs; if a
+//! caller's measurements depend on allocated sizes (chart tick labels), the
+//! caller re-measures at the granted allotments and solves again —
+//! [`LayoutSolution::content_delta`] drives that loop.
 //!
-//! # Vocabulary
+//! # Reading a solution
 //!
-//! Result naming follows one principle: `*Solution` is the whole result of
-//! a solve ([`GridSolution`], [`BandSolution`], [`FrameSolution`],
-//! [`TreeSolution`]), `Solved*` is one component inside a solution
-//! ([`SolvedSlab`], [`SolvedRegion`]), and `Placed*` is one positioned
-//! child entry ([`PlacedRegion`], [`PlacedBandItem`]).
-//!
-//! Three spatial vocabularies coexist, each natural to its solver, with a
-//! fixed mapping between them:
-//!
-//! - **Cardinal** ([`Edges`]: top/right/bottom/left) — what containers and
-//!   demands speak.
-//! - **Per-axis** ([`frame`]: leading/trailing) — the frame's two axes are
-//!   symmetric. Mapping: top = vertical leading, bottom = vertical
-//!   trailing, left = horizontal leading, right = horizontal trailing.
-//! - **Main/cross** ([`band`]: main/cross starts and sizes) — the band is
-//!   orientation-generic. For [`Orientation::Horizontal`], main = x/width
-//!   and cross = y/height; vertical swaps them. A band item's
-//!   [`BoundaryDemand`] (`before`/`after`) is the main-axis projection of
-//!   its leading/trailing edge totals.
-//!
-//! # Choosing a solver
-//!
-//! - One leaf region's chrome geometry (content plus margin/band/outer/inner
-//!   layers per side, sized from either end): [`frame`] ([`Frame`] and its
-//!   per-axis solve).
-//! - Uniform policy, no per-track content: [`UniformTracks`] (merge and
-//!   solve).
-//! - Measured per-track content, spans, or holes: [`grid`]
-//!   ([`GridRequirements`] and its solve).
-//! - One axis with cross-axis alignment: [`band`] (an orientation adapter
-//!   over the grid).
-//! - Nesting, envelopes, or allocation propagation: [`tree`].
-//! - Coordinating equivalent instances measured independently:
-//!   [`alignment`] ([`align`] / [`align_by`], with [`ConvergenceTrace`]
-//!   for multi-round drivers).
+//! [`LayoutSolution`] holds every node as a [`Region`] (queryable by caller
+//! id or structural path): the slot allotment, the honest content rect,
+//! positioned chrome slabs, requested-vs-granted demands, and solved grid
+//! tracks. [`LayoutSolution::to_svg`] renders the debug gallery view;
+//! [`svg_panels`] stacks several solutions with captions. The committed
+//! gallery in `tests/baselines/` doubles as the visual reference for every
+//! feature.
 
-pub mod alignment;
-pub mod band;
-pub mod build;
-pub mod frame;
-pub mod geometry;
-pub mod grid;
-pub mod region;
-pub mod solution;
+mod build;
+mod frame;
+mod geometry;
+mod grid;
+mod region;
+mod solution;
 mod solve;
-pub mod svg;
-pub mod tree;
+mod svg;
 
 pub use build::{
     CellAlign, Distribute, Layout, LayoutError, SolveFor, SolveOptions, Spacing, TrackSize,
 };
+pub use geometry::{Edges, Orientation, Rect, Side, Size};
+pub use grid::{GridShape, GridSlot};
+pub use region::EdgeDemand;
 pub use solution::{
     ChromeLayer, ChromeSlab, Diagnostics, Envelope, LayoutSolution, Region, RegionDetail,
     SkippedShare, SkippedShareReason, SolvedTracks,
 };
-
-pub use alignment::{
-    AlignedGroup, AlignmentNode, AlignmentPlan, ConvergenceTrace, NodeDelta, RoundDeltas,
-    SingletonPolicy, SkippedGroup, SkippedGroupReason, align, align_by,
-};
-pub use band::{BandItem, BandSolution, BoundaryDemand, CrossAlign, PlacedBandItem};
-pub use frame::{
-    Frame, FrameAxis, FrameAxisSizing, FrameAxisSolution, FrameSide, FrameSolution,
-    SolvedFrameSide, SolvedSlab,
-};
-pub use geometry::{Edges, Orientation, Rect, Side, Size};
-pub use grid::{
-    GridError, GridItem, GridRequirements, GridShape, GridSlot, GridSolution, TrackSpacing,
-    UniformTrackSolution, UniformTracks,
-};
-pub use region::{EdgeDemand, EdgeTargets, PlacedRegion, PlacementSolution, project_rect};
-pub use svg::{DebugMarker, DebugRegion, DebugRegionKind, DebugScene, SvgOptions, svg_panels};
-pub use tree::{
-    LayoutItem, LayoutNode, LayoutSlotContent, SolvedRegion, TreeEnvelope, TreeEnvelopeKind,
-    TreeSolution,
-};
+pub use svg::{SvgOptions, svg_panels};

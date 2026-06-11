@@ -210,7 +210,6 @@ impl DeclaredFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use avenger_layout::{Frame, FrameAxis, FrameAxisSizing, FrameSide};
 
     fn declared_side(margin: f32, bands: &[f32], outer: f32, inner: f32) -> DeclaredSide {
         DeclaredSide {
@@ -221,118 +220,78 @@ mod tests {
         }
     }
 
-    fn frame_side(side: &DeclaredSide) -> FrameSide {
-        FrameSide {
-            margin: side.margin,
-            bands: side.bands.clone(),
-            outer: side.outer,
-            inner: side.inner,
-        }
-    }
-
-    fn old_sizing(sizing: DeclaredAxisSizing) -> FrameAxisSizing {
-        match sizing {
-            DeclaredAxisSizing::EnvelopeFixed { extent } => {
-                FrameAxisSizing::EnvelopeFixed { extent }
-            }
-            DeclaredAxisSizing::EnvelopeAndContentFixed { extent, content } => {
-                FrameAxisSizing::EnvelopeAndContentFixed { extent, content }
-            }
-            DeclaredAxisSizing::ContentFixed { content } => {
-                FrameAxisSizing::ContentFixed { content }
-            }
-        }
-    }
-
-    /// The unified-API solve reproduces the legacy frame solver exactly for
-    /// every present slab, the content, and the extent.
-    fn assert_parity(declared: &DeclaredFrame) {
-        let view = declared.solve();
-        let legacy = Frame {
-            horizontal: FrameAxis {
-                sizing: old_sizing(declared.horizontal.sizing),
-                leading: frame_side(&declared.horizontal.leading),
-                trailing: frame_side(&declared.horizontal.trailing),
-                content_min: declared.horizontal.content_min,
-            },
-            vertical: FrameAxis {
-                sizing: old_sizing(declared.vertical.sizing),
-                leading: frame_side(&declared.vertical.leading),
-                trailing: frame_side(&declared.vertical.trailing),
-                content_min: declared.vertical.content_min,
-            },
-        }
-        .solve();
-
-        for (axis_view, axis_legacy) in [
-            (&view.horizontal, &legacy.horizontal),
-            (&view.vertical, &legacy.vertical),
-        ] {
-            assert_eq!(axis_view.extent, axis_legacy.extent);
-            assert_eq!(axis_view.content.start, axis_legacy.content.start);
-            assert_eq!(axis_view.content.size, axis_legacy.content.size);
-            for (side_view, side_legacy) in [
-                (&axis_view.leading, &axis_legacy.leading),
-                (&axis_view.trailing, &axis_legacy.trailing),
-            ] {
-                for (slab_view, slab_legacy) in [
-                    (&side_view.margin, &side_legacy.margin),
-                    (&side_view.outer, &side_legacy.outer),
-                    (&side_view.inner, &side_legacy.inner),
-                ] {
-                    assert_eq!(slab_view.size, slab_legacy.size);
-                    if slab_legacy.size > 0.0 {
-                        assert_eq!(slab_view.start, slab_legacy.start);
-                    }
-                }
-                assert_eq!(side_view.bands.len(), side_legacy.bands.len());
-                for (band_view, band_legacy) in side_view.bands.iter().zip(side_legacy.bands.iter())
-                {
-                    assert_eq!(band_view.size, band_legacy.size);
-                    if band_legacy.size > 0.0 {
-                        assert_eq!(band_view.start, band_legacy.start);
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn declared_frame_matches_legacy_solver_in_all_modes() {
-        let chart = DeclaredFrame {
+    fn chart(sizing_x: DeclaredAxisSizing, sizing_y: DeclaredAxisSizing) -> DeclaredFrame {
+        DeclaredFrame {
             horizontal: DeclaredAxis {
-                sizing: DeclaredAxisSizing::EnvelopeFixed { extent: 400.0 },
+                sizing: sizing_x,
                 leading: declared_side(10.0, &[], 0.0, 35.0),
                 trailing: declared_side(10.0, &[], 57.0, 7.0),
                 content_min: 50.0,
             },
             vertical: DeclaredAxis {
-                sizing: DeclaredAxisSizing::EnvelopeFixed { extent: 300.0 },
+                sizing: sizing_y,
                 leading: declared_side(10.0, &[21.0, 13.0], 0.0, 16.0),
                 trailing: declared_side(10.0, &[], 24.0, 12.0),
                 content_min: 50.0,
             },
-        };
-        assert_parity(&chart);
+        }
+    }
 
-        let mut plot_sized = chart.clone();
-        plot_sized.horizontal.sizing = DeclaredAxisSizing::ContentFixed { content: 338.0 };
-        plot_sized.vertical.sizing = DeclaredAxisSizing::ContentFixed { content: 203.0 };
-        assert_parity(&plot_sized);
+    /// Pinned frame-solver values across the three sizing modes (these are
+    /// the legacy solver's exact outputs, kept as literals).
+    #[test]
+    fn declared_frame_solves_all_modes() {
+        let view = chart(
+            DeclaredAxisSizing::EnvelopeFixed { extent: 400.0 },
+            DeclaredAxisSizing::EnvelopeFixed { extent: 300.0 },
+        )
+        .solve();
+        // Horizontal: 10 + 35 | content 281 | 7 + 57 + 10 = 400.
+        assert_eq!(view.horizontal.content.start, 45.0);
+        assert_eq!(view.horizontal.content.size, 281.0);
+        assert_eq!(view.horizontal.extent, 400.0);
+        assert_eq!(view.horizontal.leading.margin.start, 0.0);
+        assert_eq!(view.horizontal.leading.inner.start, 10.0);
+        assert_eq!(view.horizontal.trailing.inner.start, 326.0);
+        assert_eq!(view.horizontal.trailing.outer.start, 333.0);
+        // Vertical: 10 + 21 + 13 + 16 | content 194 | 12 + 24 + 10 = 300.
+        assert_eq!(view.vertical.content.start, 60.0);
+        assert_eq!(view.vertical.content.size, 194.0);
+        assert_eq!(view.vertical.leading.bands[0].start, 10.0);
+        assert_eq!(view.vertical.leading.bands[0].size, 21.0);
+        assert_eq!(view.vertical.leading.bands[1].start, 31.0);
+        assert_eq!(view.vertical.extent, 300.0);
 
-        let mut both = chart.clone();
-        both.horizontal.sizing = DeclaredAxisSizing::EnvelopeAndContentFixed {
-            extent: 500.0,
-            content: 300.0,
-        };
-        both.vertical.sizing = DeclaredAxisSizing::EnvelopeAndContentFixed {
-            extent: 400.0,
-            content: 200.0,
-        };
-        assert_parity(&both);
+        let plot_sized = chart(
+            DeclaredAxisSizing::ContentFixed { content: 338.0 },
+            DeclaredAxisSizing::ContentFixed { content: 203.0 },
+        )
+        .solve();
+        assert_eq!(plot_sized.horizontal.content.start, 45.0);
+        assert_eq!(plot_sized.horizontal.extent, 45.0 + 338.0 + 74.0);
+        assert_eq!(plot_sized.vertical.extent, 60.0 + 203.0 + 46.0);
 
-        let mut floored = chart.clone();
-        floored.horizontal.sizing = DeclaredAxisSizing::EnvelopeFixed { extent: 80.0 };
-        assert_parity(&floored);
+        let both = chart(
+            DeclaredAxisSizing::EnvelopeAndContentFixed {
+                extent: 500.0,
+                content: 300.0,
+            },
+            DeclaredAxisSizing::ContentFixed { content: 203.0 },
+        )
+        .solve();
+        // Slack 500 - (35 + 300 + 7 + 57) = 101, split 50.5 per margin.
+        assert_eq!(both.horizontal.leading.margin.size, 50.5);
+        assert_eq!(both.horizontal.content.start, 85.5);
+        assert_eq!(both.horizontal.content.size, 300.0);
+        assert_eq!(both.horizontal.extent, 500.0);
+
+        let floored = chart(
+            DeclaredAxisSizing::EnvelopeFixed { extent: 80.0 },
+            DeclaredAxisSizing::ContentFixed { content: 203.0 },
+        )
+        .solve();
+        // Chrome (119) exceeds the 80 envelope; the 50 floor wins.
+        assert_eq!(floored.horizontal.content.size, 50.0);
+        assert_eq!(floored.horizontal.extent, 169.0);
     }
 }
