@@ -424,11 +424,13 @@ impl DebugScene {
                     depth: region.depth,
                 });
             }
-            // Slot outline when the allotment differs from the content.
-            let slack = (region.slot.width - region.content.width).abs() > 0.5
-                || (region.slot.height - region.content.height).abs() > 0.5
-                || (region.slot.x - region.content.x).abs() > 0.5
-                || (region.slot.y - region.content.y).abs() > 0.5;
+            // Slot outline when the allotment differs from the content —
+            // skipped at the root, whose slot is the canvas itself.
+            let slack = !region.path.is_empty()
+                && ((region.slot.width - region.content.width).abs() > 0.5
+                    || (region.slot.height - region.content.height).abs() > 0.5
+                    || (region.slot.x - region.content.x).abs() > 0.5
+                    || (region.slot.y - region.content.y).abs() > 0.5);
             if slack {
                 regions.push(DebugRegion {
                     label: String::new(),

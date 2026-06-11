@@ -1,16 +1,15 @@
 //! Public-API examples rendered to SVG and compared against committed
 //! baselines.
 //!
-//! Each test builds a layout through the public API, captures it as a
-//! [`DebugScene`], and compares the SVG against
-//! `tests/baselines/<name>.svg`. The baselines double as a visual gallery
-//! of what every solver does — open them in a browser, or see
-//! `tests/baselines/README.md` for the index.
+//! Each test builds a [`Layout`], solves it in one step, and compares the
+//! solution's SVG against `tests/baselines/<name>.svg`. The baselines double
+//! as a visual gallery of everything the unified API does — open them in a
+//! browser, or see `tests/baselines/README.md` for the index.
 //!
 //! To regenerate baselines after an intentional change:
 //!
 //! ```sh
-//! AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --features svg --test svg_baselines
+//! AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines
 //! ```
 //!
 //! On mismatch the actual SVG is written to `tests/failures/<name>.svg`.
@@ -19,11 +18,12 @@ use std::fs;
 use std::path::PathBuf;
 
 use avenger_layout::{
-    AlignmentNode, BandItem, BandSolution, BoundaryDemand, CrossAlign, DebugScene, EdgeDemand,
-    Edges, Frame, FrameAxis, FrameAxisSizing, FrameSide, GridItem, GridRequirements, GridShape,
-    GridSlot, GridSolution, LayoutItem, LayoutNode, LayoutSlotContent, Orientation,
-    SingletonPolicy, Size, TrackSpacing, TreeEnvelopeKind, UniformTracks, align, align_by,
+    CellAlign, Distribute, EdgeDemand, Layout, RegionDetail, Side, Size, SolveFor, SolveOptions,
+    Spacing, TrackSize, svg_panels,
 };
+
+/// Most tests share string ids and string share keys.
+type L = Layout<&'static str, &'static str>;
 
 fn baseline_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/baselines")
@@ -66,7 +66,7 @@ fn assert_svg_baseline(name: &str, svg: &str) {
     let expected = fs::read_to_string(&path).unwrap_or_else(|_| {
         panic!(
             "missing baseline {path:?}; regenerate with \
-             AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --features svg"
+             AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines"
         )
     });
     if expected != svg {
@@ -83,1201 +83,633 @@ fn assert_svg_baseline(name: &str, svg: &str) {
     }
 }
 
-fn slot(row: usize, column: usize) -> GridSlot {
-    GridSlot {
-        row,
-        column,
-        row_span: 1,
-        column_span: 1,
+fn natural() -> SolveOptions {
+    SolveOptions::default()
+}
+
+fn allocated(width: f32, height: f32) -> SolveOptions {
+    SolveOptions {
+        width: Some(width),
+        height: Some(height),
     }
 }
 
-// --- band -------------------------------------------------------------
+// --- rows, columns, and the gap law -----------------------------------------
 
 /// Sibling boundary chrome becomes inter-child gaps, floored by `min_gap`:
 /// the first pair's chrome (8 + 14 = 22) wins over the floor, the second
 /// pair's (2 + 1 = 3) is floored to 12. `outer_start`/`outer_end` reserve
 /// space before the first and after the last child.
 #[test]
-fn band_horizontal_gaps_and_min_gap_floor() {
-    let items = [
-        BandItem {
-            id: 0,
-            main_size: 60.0,
-            cross_size: 80.0,
-            boundary: BoundaryDemand {
-                before: 5.0,
-                after: 8.0,
-            },
-        },
-        BandItem {
-            id: 1,
-            main_size: 90.0,
-            cross_size: 80.0,
-            boundary: BoundaryDemand {
-                before: 14.0,
-                after: 2.0,
-            },
-        },
-        BandItem {
-            id: 2,
-            main_size: 45.0,
-            cross_size: 80.0,
-            boundary: BoundaryDemand {
-                before: 1.0,
-                after: 0.0,
-            },
-        },
-    ];
-    let band = BandSolution::solve(
-        Orientation::Horizontal,
-        &items,
-        TrackSpacing {
-            outer_start: 6.0,
-            outer_end: 10.0,
-            min_gap: 12.0,
-        },
-        CrossAlign::default(),
-    );
+fn row_gaps_and_min_gap_floor() {
+    let root: L = Layout::row(vec![
+        Layout::leaf(Size::new(60.0, 80.0))
+            .demand(Side::Left, EdgeDemand::total(5.0))
+            .demand(Side::Right, EdgeDemand::total(8.0))
+            .id("a"),
+        Layout::leaf(Size::new(90.0, 80.0))
+            .demand(Side::Left, EdgeDemand::total(14.0))
+            .demand(Side::Right, EdgeDemand::total(2.0))
+            .id("b"),
+        Layout::leaf(Size::new(45.0, 80.0))
+            .demand(Side::Left, EdgeDemand::total(1.0))
+            .id("c"),
+    ])
+    .column_spacing(Spacing {
+        outer_start: 6.0,
+        outer_end: 10.0,
+        min_gap: 12.0,
+    });
+    let solved = root.solve(&natural()).expect("solve");
 
-    assert_eq!(band.items[1].main_start - band.items[0].main_start, 82.0); // 60 + (8 + 14)
-    assert_eq!(band.items[2].main_start - band.items[1].main_start, 102.0); // 90 + floored 12
+    let a = solved.region(&"a").unwrap();
+    let b = solved.region(&"b").unwrap();
+    let c = solved.region(&"c").unwrap();
+    assert_eq!(b.slot.x - a.slot.x, 82.0); // 60 + (8 + 14)
+    assert_eq!(c.slot.x - b.slot.x, 102.0); // 90 + floored 12
 
-    assert_svg_baseline(
-        "band_horizontal_gaps_and_min_gap_floor",
-        &DebugScene::from_band(&band).to_svg(),
-    );
+    assert_svg_baseline("row_gaps_and_min_gap_floor", &solved.to_svg());
 }
 
-/// A vertical band with ragged cross sizes, centered on the cross axis.
+/// A vertical arrangement with ragged widths: per-child `CellAlign` centers
+/// or end-aligns the narrower children, and the dashed slot outlines show
+/// the granted space their content does not fill.
 #[test]
-fn band_vertical_cross_align_center() {
-    let items = [
-        BandItem {
-            id: 0,
-            main_size: 40.0,
-            cross_size: 120.0,
-            boundary: BoundaryDemand::default(),
-        },
-        BandItem {
-            id: 1,
-            main_size: 40.0,
-            cross_size: 70.0,
-            boundary: BoundaryDemand::default(),
-        },
-        BandItem {
-            id: 2,
-            main_size: 40.0,
-            cross_size: 95.0,
-            boundary: BoundaryDemand::default(),
-        },
-    ];
-    let band = BandSolution::solve(
-        Orientation::Vertical,
-        &items,
-        TrackSpacing {
-            min_gap: 8.0,
-            ..Default::default()
-        },
-        CrossAlign::Center,
-    );
+fn column_cell_align_ragged_children() {
+    let root: L = Layout::column(vec![
+        Layout::leaf(Size::new(120.0, 40.0)).id("wide"),
+        Layout::leaf(Size::new(70.0, 40.0))
+            .align_in_cell(CellAlign::Center, CellAlign::Start)
+            .id("center"),
+        Layout::leaf(Size::new(95.0, 40.0))
+            .align_in_cell(CellAlign::End, CellAlign::Start)
+            .id("end"),
+    ])
+    .min_gap(8.0);
+    let solved = root.solve(&natural()).expect("solve");
 
-    assert_svg_baseline(
-        "band_vertical_cross_align_center",
-        &DebugScene::from_band(&band).to_svg(),
-    );
+    let centered = solved.region(&"center").unwrap();
+    assert_eq!(centered.slot.width, 120.0);
+    assert_eq!(centered.content.x, 25.0);
+    assert_eq!(centered.content.width, 70.0);
+
+    assert_svg_baseline("column_cell_align_ragged_children", &solved.to_svg());
 }
 
-/// The placement handoff: a solved band converted into per-child origins
-/// in the parent's content space, drawn as labeled origin markers.
+/// The solution is queryable: regions by caller id or structural path, with
+/// the slot (allotment) and honest content rectangles distinct.
 #[test]
-fn band_placement_handoff_markers() {
-    let items = [
-        BandItem {
-            id: 0,
-            main_size: 70.0,
-            cross_size: 50.0,
-            boundary: BoundaryDemand::default(),
-        },
-        BandItem {
-            id: 1,
-            main_size: 50.0,
-            cross_size: 60.0,
-            boundary: BoundaryDemand::default(),
-        },
-    ];
-    let band = BandSolution::solve(
-        Orientation::Horizontal,
-        &items,
-        TrackSpacing {
-            min_gap: 16.0,
-            ..Default::default()
-        },
-        CrossAlign::End,
-    );
-    let placement = band.to_placement_solution([20.0, 10.0], Size::new(300.0, 80.0));
+fn solution_query_by_id_and_path() {
+    let root: L = Layout::row(vec![
+        Layout::leaf(Size::new(70.0, 50.0)).id("first"),
+        Layout::leaf(Size::new(50.0, 60.0)).id("second"),
+    ])
+    .min_gap(16.0);
+    let solved = root.solve(&natural()).expect("solve");
 
-    let child = placement.child(1).expect("child 1 is placed");
-    assert_eq!(child.origin, [106.0, 10.0]); // 20 + 70 + 16, end-aligned at 10 + (60 - 60)
+    assert_eq!(solved.region(&"second").unwrap().slot.x, 86.0); // 70 + 16
+    assert_eq!(solved.at_path(&[1]).unwrap().id, Some("second"));
+    assert_eq!(solved.at_path(&[]).unwrap().depth, 0); // the root grid
 
-    let mut scene = DebugScene::from_placements(&placement);
-    // Overlay the band's content rectangles so the markers have context.
-    scene.regions.extend(
-        DebugScene::from_band(&band)
-            .regions
-            .into_iter()
-            .map(|mut region| {
-                region.content.x += 20.0;
-                region.content.y += 10.0;
-                region
-            }),
-    );
-    assert_svg_baseline("band_placement_handoff_markers", &scene.to_svg());
+    assert_svg_baseline("solution_query_by_id_and_path", &solved.to_svg());
 }
 
-// --- grid -------------------------------------------------------------
+// --- grids -------------------------------------------------------------------
 
-/// A 3x3 grid with a hole (no item in r1c1), a two-column span whose
-/// content exceeds its tracks' natural widths, and a `base_cell_size`
-/// floor for every track.
+/// Column span, an empty slot, and a per-track base cell size floor.
 #[test]
 fn grid_spans_holes_and_base_cell_size() {
-    let shape = GridShape {
-        rows: 3,
-        columns: 3,
-    };
-    let items = vec![
-        GridItem {
-            id: "a",
-            slot: slot(0, 0),
-            content_size: Size::new(70.0, 40.0),
-            inner_edges: Edges::default(),
-            outer_edges: Edges::default(),
-            total_edges: Edges::default(),
-        },
-        GridItem {
-            id: "b",
-            slot: slot(0, 2),
-            content_size: Size::new(50.0, 55.0),
-            inner_edges: Edges::default(),
-            outer_edges: Edges::default(),
-            total_edges: Edges::default(),
-        },
-        GridItem {
-            id: "wide",
-            slot: GridSlot {
-                row: 1,
-                column: 0,
-                row_span: 1,
-                column_span: 2,
-            },
-            content_size: Size::new(160.0, 45.0),
-            inner_edges: Edges::default(),
-            outer_edges: Edges::default(),
-            total_edges: Edges::default(),
-        },
-        GridItem {
-            id: "c",
-            slot: slot(2, 1),
-            content_size: Size::new(45.0, 35.0),
-            inner_edges: Edges::default(),
-            outer_edges: Edges::default(),
-            total_edges: Edges::default(),
-        },
-    ];
-    let requirements = GridRequirements::from_items(shape, Size::new(40.0, 30.0), &items)
-        .expect("slots fit the shape");
-    let solution = requirements.solve(&items);
+    let root: L = Layout::grid(2, 3)
+        .cell(0, 0, Layout::leaf(Size::new(100.0, 60.0)).id("a"))
+        .cell(1, 2, Layout::leaf(Size::new(100.0, 60.0)).id("b"))
+        .cell_span(
+            1,
+            0,
+            1,
+            2,
+            Layout::leaf(Size::new(170.0, 60.0)).id("wide span"),
+        )
+        .base_cell_size(Size::new(70.0, 50.0));
+    let solved = root.solve(&natural()).expect("solve");
 
-    assert_svg_baseline(
-        "grid_spans_holes_and_base_cell_size",
-        &DebugScene::from_grid(&solution, &items).to_svg(),
-    );
+    let RegionDetail::Grid { tracks } = &solved.at_path(&[]).unwrap().detail else {
+        panic!("grid expected");
+    };
+    assert_eq!(tracks.column_sizes.len(), 3);
+    assert_eq!(tracks.row_sizes, vec![60.0, 60.0]);
+
+    assert_svg_baseline("grid_spans_holes_and_base_cell_size", &solved.to_svg());
 }
 
-/// Layered edge demand around grid items: dotted blue shows the inner
-/// (guide-like) envelope, dashed purple the total envelope, and the gap
-/// between columns is `max(min_gap, trailing total + leading total)`.
+/// Layered demand and the gap law: each side carries inner (red) and outer
+/// (green) layers; interior boundary edges become gaps via
+/// `max(min_gap, after + before)` while first/last edges overlap the
+/// container's envelope.
 #[test]
 fn grid_edge_demand_layers_and_gap_law() {
-    let shape = GridShape {
-        rows: 1,
-        columns: 2,
-    };
-    let items = vec![
-        GridItem {
-            id: 0,
-            slot: slot(0, 0),
-            content_size: Size::new(110.0, 70.0),
-            inner_edges: Edges::new(8.0, 10.0, 8.0, 24.0),
-            outer_edges: Edges::new(0.0, 18.0, 0.0, 0.0),
-            total_edges: Edges::new(8.0, 28.0, 8.0, 24.0),
-        },
-        GridItem {
-            id: 1,
-            slot: slot(0, 1),
-            content_size: Size::new(110.0, 70.0),
-            inner_edges: Edges::new(8.0, 6.0, 8.0, 9.0),
-            outer_edges: Edges::default(),
-            total_edges: Edges::new(8.0, 6.0, 8.0, 9.0),
-        },
-    ];
-    let requirements =
-        GridRequirements::from_items(shape, Size::default(), &items).expect("slots fit");
-    let solution = requirements.solve(&items);
-
-    // Gap law: item 0 trailing total (28) + item 1 leading total (9) = 37.
-    let targets = solution.edge_targets_for_slot(items[0].slot);
-    assert_eq!(targets.total.right, 28.0);
-    assert_eq!(
-        solution.content_origin_for_slot(items[1].slot)[0],
-        110.0 + 37.0
-    );
-
-    assert_svg_baseline(
-        "grid_edge_demand_layers_and_gap_law",
-        &DebugScene::from_grid(&solution, &items).to_svg(),
-    );
-}
-
-/// Uniform tracks: a count-and-spacing policy solved at a given track
-/// size, after merging two policies by component-wise max.
-#[test]
-fn uniform_tracks_merged_policy() {
-    let a = UniformTracks {
-        count: 3,
-        spacing: TrackSpacing {
-            outer_start: 4.0,
-            outer_end: 4.0,
-            min_gap: 6.0,
-        },
-    };
-    let b = UniformTracks {
-        count: 4,
-        spacing: TrackSpacing {
-            outer_start: 10.0,
-            outer_end: 2.0,
-            min_gap: 14.0,
-        },
-    };
-    let merged = a.merge_max(b);
-    assert_eq!(merged.count, 4);
-    assert_eq!(merged.spacing.min_gap, 14.0);
-    assert_eq!(merged.spacing.outer_end, 4.0); // component-wise max
-
-    let solution = merged.solve(56.0);
-    assert_eq!(solution.extent, 10.0 + 4.0 * 56.0 + 3.0 * 14.0 + 4.0);
-
-    assert_svg_baseline(
-        "uniform_tracks_merged_policy",
-        &DebugScene::from_uniform_tracks(&solution, 40.0).to_svg(),
-    );
-}
-
-// --- frame ------------------------------------------------------------
-
-fn chart_like_frame(horizontal: FrameAxisSizing, vertical: FrameAxisSizing) -> Frame {
-    Frame {
-        horizontal: FrameAxis {
-            sizing: horizontal,
-            leading: FrameSide {
-                margin: 10.0,
-                bands: vec![],
-                outer: 0.0,
-                inner: 34.0,
-            },
-            trailing: FrameSide {
-                margin: 10.0,
-                bands: vec![],
-                outer: 52.0,
-                inner: 6.0,
-            },
-            content_min: 50.0,
-        },
-        vertical: FrameAxis {
-            sizing: vertical,
-            leading: FrameSide {
-                margin: 10.0,
-                bands: vec![22.0, 16.0],
-                outer: 0.0,
-                inner: 4.0,
-            },
-            trailing: FrameSide {
-                margin: 10.0,
-                bands: vec![],
-                outer: 0.0,
-                inner: 18.0,
-            },
-            content_min: 50.0,
-        },
-    }
-}
-
-/// Envelope-fixed: a 400x300 envelope, chart-like chrome (margins, two
-/// title bands, a right legend strip, guide strips), and the content takes
-/// the remainder.
-#[test]
-fn frame_envelope_fixed_chart_chrome() {
-    let frame = chart_like_frame(
-        FrameAxisSizing::EnvelopeFixed { extent: 400.0 },
-        FrameAxisSizing::EnvelopeFixed { extent: 300.0 },
-    );
-    let solution = frame.solve();
-
-    assert_eq!(solution.extent(), Size::new(400.0, 300.0));
-    assert_eq!(
-        solution.content_rect().width,
-        400.0 - 10.0 - 34.0 - 6.0 - 52.0 - 10.0
-    );
-
-    // The solved frame emits the demand vocabulary containers consume.
-    let demands = solution.edge_demands();
-    assert_eq!(demands.top.total, 10.0 + 22.0 + 16.0 + 4.0);
-    assert_eq!(demands.right.inner, 6.0);
-    assert_eq!(demands.right.outer, 52.0);
-
-    assert_svg_baseline(
-        "frame_envelope_fixed_chart_chrome",
-        &DebugScene::from_frame(&solution).to_svg(),
-    );
-}
-
-/// Content-fixed: the same chrome, but the content extent is given and the
-/// envelope is the sum of all layers.
-#[test]
-fn frame_content_fixed_envelope_derived() {
-    let frame = chart_like_frame(
-        FrameAxisSizing::ContentFixed { content: 240.0 },
-        FrameAxisSizing::ContentFixed { content: 160.0 },
-    );
-    let solution = frame.solve();
-
-    assert_eq!(
-        solution.extent(),
-        Size::new(240.0 + 112.0, 160.0 + 80.0) // chrome sums per axis
-    );
-
-    assert_svg_baseline(
-        "frame_content_fixed_envelope_derived",
-        &DebugScene::from_frame(&solution).to_svg(),
-    );
-}
-
-/// Envelope and content both fixed: the margins absorb the slack, half
-/// each (declared margins are replaced — see `FrameAxisSizing` docs).
-#[test]
-fn frame_envelope_and_content_fixed_margin_slack() {
-    let frame = chart_like_frame(
-        FrameAxisSizing::EnvelopeAndContentFixed {
-            extent: 460.0,
-            content: 240.0,
-        },
-        FrameAxisSizing::EnvelopeAndContentFixed {
-            extent: 320.0,
-            content: 160.0,
-        },
-    );
-    let solution = frame.solve();
-
-    let slack_h = 460.0 - (34.0 + 6.0 + 52.0 + 240.0);
-    assert_eq!(solution.horizontal.leading.margin.size, slack_h / 2.0);
-
-    assert_svg_baseline(
-        "frame_envelope_and_content_fixed_margin_slack",
-        &DebugScene::from_frame(&solution).to_svg(),
-    );
-}
-
-/// The content floor: chrome alone exceeds the requested envelope, so the
-/// content holds at `content_min` and the solved extent grows past the
-/// request.
-#[test]
-fn frame_content_min_floor_overflows_envelope() {
-    let frame = chart_like_frame(
-        FrameAxisSizing::EnvelopeFixed { extent: 130.0 },
-        FrameAxisSizing::EnvelopeFixed { extent: 100.0 },
-    );
-    let solution = frame.solve();
-
-    assert_eq!(solution.content_rect().width, 50.0);
-    assert_eq!(solution.horizontal.extent, 112.0 + 50.0);
-
-    assert_svg_baseline(
-        "frame_content_min_floor_overflows_envelope",
-        &DebugScene::from_frame(&solution).to_svg(),
-    );
-}
-
-// --- tree -------------------------------------------------------------
-
-fn tree_leaf(id: usize, slot: GridSlot, size: Size, total: Edges<f32>) -> LayoutItem<usize> {
-    LayoutItem {
-        id,
-        slot,
-        content: LayoutSlotContent::Leaf {
-            content_size: size,
-            inner_edges: total,
-            outer_edges: Edges::default(),
-            total_edges: total,
-        },
-    }
-}
-
-fn nested_tree() -> LayoutNode<usize> {
-    let inner = LayoutNode {
-        shape: GridShape {
-            rows: 1,
-            columns: 2,
-        },
-        column_spacing: TrackSpacing {
-            min_gap: 8.0,
-            ..Default::default()
-        },
-        row_spacing: TrackSpacing::default(),
-        base_cell_size: Size::default(),
-        // Band-level chrome stacks beyond the aggregated child envelope:
-        // inner (e.g. facet labels) on top, outer (e.g. a band legend) on
-        // the right.
-        stacked_inner_edges: Edges::new(14.0, 0.0, 0.0, 0.0),
-        stacked_outer_edges: Edges::new(0.0, 20.0, 0.0, 0.0),
-        items: vec![
-            tree_leaf(
-                10,
-                slot(0, 0),
-                Size::new(60.0, 50.0),
-                Edges::new(4.0, 6.0, 4.0, 12.0),
-            ),
-            // The trailing child's right edge has inner + outer (6 + 18)
-            // exceeding its raw rendered total (12): the layered envelope
-            // lifts it, the geometric envelope reports it as measured.
-            LayoutItem {
-                id: 11,
-                slot: slot(0, 1),
-                content: LayoutSlotContent::Leaf {
-                    content_size: Size::new(60.0, 50.0),
-                    inner_edges: Edges::new(4.0, 6.0, 4.0, 6.0),
-                    outer_edges: Edges::new(0.0, 18.0, 0.0, 0.0),
-                    total_edges: Edges::new(4.0, 12.0, 4.0, 6.0),
-                },
-            },
-        ],
-    };
-    LayoutNode {
-        shape: GridShape {
-            rows: 2,
-            columns: 1,
-        },
-        column_spacing: TrackSpacing::default(),
-        row_spacing: TrackSpacing {
-            min_gap: 16.0,
-            ..Default::default()
-        },
-        base_cell_size: Size::default(),
-        stacked_inner_edges: Edges::default(),
-        stacked_outer_edges: Edges::default(),
-        items: vec![
-            tree_leaf(
-                0,
-                slot(0, 0),
-                Size::new(140.0, 40.0),
-                Edges::new(0.0, 0.0, 6.0, 0.0),
-            ),
-            LayoutItem {
-                id: 1,
-                slot: slot(1, 0),
-                content: LayoutSlotContent::Node(inner),
-            },
-        ],
-    }
-}
-
-/// Wrap a tree in a margins-only frame and compose one scene: the tree's
-/// layered envelope becomes the frame's inner/outer reservations, and the
-/// frame's content (the tree's natural extent plus `extra`, if any)
-/// allocates the tree. Framed scenes are easier to reason about than bare
-/// trees, whose boundary chrome floats outside their own bounds.
-fn frame_around_tree(tree: &LayoutNode<usize>, extra: Option<Size>) -> DebugScene {
-    let envelope = tree
-        .envelope(TreeEnvelopeKind::Layered)
-        .expect("envelope solves");
-    let extra = extra.unwrap_or_default();
-    let chrome_side = |outer: f32, inner: f32| FrameSide {
-        margin: 12.0,
-        bands: vec![],
-        outer,
-        inner,
-    };
-    let frame = Frame {
-        horizontal: FrameAxis {
-            sizing: FrameAxisSizing::ContentFixed {
-                content: envelope.content_size.width + extra.width,
-            },
-            leading: chrome_side(envelope.outer_edges.left, envelope.inner_edges.left),
-            trailing: chrome_side(envelope.outer_edges.right, envelope.inner_edges.right),
-            content_min: 50.0,
-        },
-        vertical: FrameAxis {
-            sizing: FrameAxisSizing::ContentFixed {
-                content: envelope.content_size.height + extra.height,
-            },
-            leading: chrome_side(envelope.outer_edges.top, envelope.inner_edges.top),
-            trailing: chrome_side(envelope.outer_edges.bottom, envelope.inner_edges.bottom),
-            content_min: 50.0,
-        },
-    };
-    let frame_solution = frame.solve();
-    let content = frame_solution.content_rect();
-    let solved = tree
-        .solve(Some(Size::new(content.width, content.height)))
-        .expect("tree solves in the frame's content");
-
-    let mut scene = DebugScene::from_frame(&frame_solution);
-    let mut tree_scene = DebugScene::from_tree(&solved);
-    // One extra line down so depth-0 labels clear the frame's own
-    // "content" label.
-    for region in &mut tree_scene.regions {
-        if let Some(anchor) = &mut region.label_anchor {
-            anchor[1] += 12.0;
-        }
-    }
-    scene.embed(tree_scene, [content.x, content.y]);
-    scene
-}
-
-/// A nested tree solved at its natural extent: a column of one leaf over a
-/// two-child band whose stacked chrome (labels above, a band legend right)
-/// extends the band's envelope.
-#[test]
-fn tree_nested_with_stacked_chrome() {
-    let root = nested_tree();
-
-    // The two envelope laws: the layered envelope lifts each total to at
-    // least inner + outer (post-coordination occupancy); the geometric
-    // envelope reports raw measured maxima. Both include the band's
-    // stacked outer chrome on the right.
-    let layered = root
-        .envelope(TreeEnvelopeKind::Layered)
-        .expect("envelope solves");
-    let geometric = root
-        .envelope(TreeEnvelopeKind::Geometric)
-        .expect("envelope solves");
-    // Layered: lift(max(12, 6 + 18)) + stacked outer 20 = 44.
-    // Geometric: raw measured total 12 + stacked outer 20 = 32.
-    assert_eq!(layered.total_edges.right, 44.0);
-    assert_eq!(geometric.total_edges.right, 32.0);
-
-    assert_svg_baseline(
-        "tree_nested_with_stacked_chrome",
-        &frame_around_tree(&root, None).to_svg(),
-    );
-}
-
-/// The same tree given a larger allocation: every track stretches evenly
-/// and the stretch propagates into the nested band.
-#[test]
-fn tree_allocation_stretches_tracks_evenly() {
-    let root = nested_tree();
-    let natural = root.solve(None).expect("tree solves").content_size;
-    let solved = root
-        .solve(Some(Size::new(natural.width + 60.0, natural.height + 40.0)))
-        .expect("tree solves with allocation");
-    assert_eq!(solved.content_size.width, natural.width + 60.0);
-
-    assert_svg_baseline(
-        "tree_allocation_stretches_tracks_evenly",
-        &frame_around_tree(&root, Some(Size::new(60.0, 40.0))).to_svg(),
-    );
-}
-
-/// A faceted chart in miniature: a frame (margins, title band, a frame-
-/// level legend) whose content is the nested facet tree. This is the
-/// handoff between the two solvers, both ways: the tree's layered
-/// envelope becomes the frame's inner/outer reservations, and the frame's
-/// solved content rectangle becomes the tree's allocation. Composed
-/// test-side by offsetting the tree scene into the frame's content rect.
-#[test]
-fn frame_wrapping_facet_tree() {
-    let tree = nested_tree();
-    let envelope = tree
-        .envelope(TreeEnvelopeKind::Layered)
-        .expect("envelope solves");
-
-    let chrome_side = |margin: f32, bands: Vec<f32>, outer: f32, inner: f32| FrameSide {
-        margin,
-        bands,
-        outer,
-        inner,
-    };
-    let frame = Frame {
-        horizontal: FrameAxis {
-            sizing: FrameAxisSizing::EnvelopeFixed { extent: 460.0 },
-            leading: chrome_side(
-                12.0,
-                vec![],
-                envelope.outer_edges.left,
-                envelope.inner_edges.left,
-            ),
-            // The tree's band-level legend and a frame-level legend share
-            // the outer ring on the right.
-            trailing: chrome_side(
-                12.0,
-                vec![],
-                envelope.outer_edges.right + 48.0,
-                envelope.inner_edges.right,
-            ),
-            content_min: 50.0,
-        },
-        vertical: FrameAxis {
-            sizing: FrameAxisSizing::EnvelopeFixed { extent: 380.0 },
-            leading: chrome_side(
-                12.0,
-                vec![20.0],
-                envelope.outer_edges.top,
-                envelope.inner_edges.top,
-            ),
-            trailing: chrome_side(
-                12.0,
-                vec![],
-                envelope.outer_edges.bottom,
-                envelope.inner_edges.bottom,
-            ),
-            content_min: 50.0,
-        },
-    };
-    let frame_solution = frame.solve();
-    let content = frame_solution.content_rect();
-
-    // The frame's content allocates the tree; both axes exceed the tree's
-    // natural extent here, so every track stretches.
-    let solved_tree = tree
-        .solve(Some(Size::new(content.width, content.height)))
-        .expect("tree solves in the frame's content");
-    assert_eq!(
-        solved_tree.content_size,
-        Size::new(content.width, content.height)
-    );
-
-    let mut scene = DebugScene::from_frame(&frame_solution);
-    let mut tree_scene = DebugScene::from_tree(&solved_tree);
-    // One extra line down so depth-0 labels clear the frame's own
-    // "content" label.
-    for region in &mut tree_scene.regions {
-        if let Some(anchor) = &mut region.label_anchor {
-            anchor[1] += 12.0;
-        }
-    }
-    scene.embed(tree_scene, [content.x, content.y]);
-    assert_svg_baseline("frame_wrapping_facet_tree", &scene.to_svg());
-}
-
-// --- alignment --------------------------------------------------------
-
-/// Stack captioned scenes vertically into one gallery image (test-side
-/// composition; the crate's scenes stay single-arrangement).
-fn stack_scenes(scenes: Vec<(&str, DebugScene)>) -> DebugScene {
-    const CAPTION: f32 = 16.0;
-    const GAP: f32 = 20.0;
-    let mut combined = DebugScene {
-        content_size: Size::new(0.0, 0.0),
-        // The panels are independent arrangements: no shared bounds frame;
-        // each panel gets its own Bounds region instead.
-        draw_bounds: false,
-        regions: Vec::new(),
-        markers: Vec::new(),
-        dividers: Vec::new(),
-    };
-    let mut y_offset = 0.0;
-    let mut divider_ys = Vec::new();
-    for (caption, scene) in scenes {
-        if y_offset > 0.0 {
-            // Divider midway through the gap above this panel's caption.
-            divider_ys.push(y_offset - GAP / 2.0);
-        }
-        // A zero-size region carries the caption above the panel.
-        combined.regions.push(avenger_layout::DebugRegion {
-            label: caption.to_string(),
-            kind: avenger_layout::DebugRegionKind::Content,
-            content: avenger_layout::Rect::new(0.0, y_offset, 0.0, 0.0),
-            requested: None,
-            target: None,
-            label_anchor: Some([0.0, y_offset + 10.0]),
-            label_rotated: false,
-            depth: 0,
-        });
-        y_offset += CAPTION;
-        for mut region in scene.regions {
-            // Demands are content-relative; the rect and label move.
-            region.content.y += y_offset;
-            if let Some(anchor) = &mut region.label_anchor {
-                anchor[1] += y_offset;
-            }
-            combined.regions.push(region);
-        }
-        // Drawn after the panel's regions so the boundary stays visible
-        // where content edges coincide with it.
-        combined.regions.push(avenger_layout::DebugRegion {
-            label: String::new(),
-            kind: avenger_layout::DebugRegionKind::Bounds,
-            content: avenger_layout::Rect::new(
-                0.0,
-                y_offset,
-                scene.content_size.width,
-                scene.content_size.height,
-            ),
-            requested: None,
-            target: None,
-            label_anchor: None,
-            label_rotated: false,
-            depth: 0,
-        });
-        combined.content_size.width = combined.content_size.width.max(scene.content_size.width);
-        y_offset += scene.content_size.height + GAP;
-        combined.content_size.height = y_offset - GAP;
-    }
-    // Thin separators between the independent panels, drawn edge to edge
-    // by the renderer.
-    combined.dividers = divider_ys;
-    combined
-}
-
-/// Two instances of the same two-column arrangement measured with
-/// different content and chrome. `align` merges their requirements by
-/// max; re-solving each from the merged requirements makes their tracks
-/// (and so their content rectangles) line up exactly. The gallery shows
-/// instance A, instance B, then both re-solved on the merged grid.
-#[test]
-fn alignment_merges_grids_across_instances() {
-    let shape = GridShape {
-        rows: 1,
-        columns: 2,
-    };
-    let items_a = vec![
-        GridItem {
-            id: 0,
-            slot: slot(0, 0),
-            content_size: Size::new(80.0, 60.0),
-            inner_edges: Edges::new(0.0, 0.0, 0.0, 26.0),
-            outer_edges: Edges::default(),
-            total_edges: Edges::new(0.0, 0.0, 0.0, 26.0),
-        },
-        GridItem {
-            id: 1,
-            slot: slot(0, 1),
-            content_size: Size::new(120.0, 60.0),
-            inner_edges: Edges::default(),
-            outer_edges: Edges::default(),
-            total_edges: Edges::default(),
-        },
-    ];
-    let items_b = vec![
-        GridItem {
-            id: 0,
-            slot: slot(0, 0),
-            content_size: Size::new(110.0, 45.0),
-            inner_edges: Edges::new(0.0, 0.0, 0.0, 9.0),
-            outer_edges: Edges::default(),
-            total_edges: Edges::new(0.0, 0.0, 0.0, 9.0),
-        },
-        GridItem {
-            id: 1,
-            slot: slot(0, 1),
-            content_size: Size::new(70.0, 45.0),
-            inner_edges: Edges::default(),
-            outer_edges: Edges::default(),
-            total_edges: Edges::default(),
-        },
-    ];
-    let requirements_a =
-        GridRequirements::from_items(shape, Size::default(), &items_a).expect("a fits");
-    let requirements_b =
-        GridRequirements::from_items(shape, Size::default(), &items_b).expect("b fits");
-
-    let plan = align(&[
-        AlignmentNode {
-            id: "a",
-            group_key: "row",
-            requirements: requirements_a.clone(),
-        },
-        AlignmentNode {
-            id: "b",
-            group_key: "row",
-            requirements: requirements_b.clone(),
-        },
+    let root: L = Layout::row(vec![
+        Layout::leaf(Size::new(100.0, 60.0))
+            .demand(Side::Right, EdgeDemand::new(6.0, 20.0, 26.0))
+            .demand(Side::Left, EdgeDemand::new(9.0, 0.0, 9.0))
+            .id("a"),
+        Layout::leaf(Size::new(100.0, 60.0))
+            .demand(Side::Left, EdgeDemand::new(0.0, 3.0, 3.0))
+            .demand(Side::Top, EdgeDemand::new(7.0, 11.0, 18.0))
+            .id("b"),
     ]);
-    assert_eq!(plan.group_count(), 1);
-    let merged = &plan.groups[0].merged;
-    assert_eq!(merged.column_widths, vec![110.0, 120.0]);
-    assert_eq!(merged.column_left[0].total, 26.0);
+    let solved = root.solve(&natural()).expect("solve");
 
-    let scenes = vec![
-        (
-            "a — own requirements",
-            DebugScene::from_grid(&requirements_a.solve(&items_a), &items_a),
-        ),
-        (
-            "b — own requirements",
-            DebugScene::from_grid(&requirements_b.solve(&items_b), &items_b),
-        ),
-        (
-            "a — merged (already the max)",
-            DebugScene::from_grid(&merged.solve(&items_a), &items_a),
-        ),
-        (
-            "b — merged (granted a's chrome)",
-            DebugScene::from_grid(&merged.solve(&items_b), &items_b),
-        ),
-    ];
+    let a = solved.region(&"a").unwrap();
+    let b = solved.region(&"b").unwrap();
+    assert_eq!(b.slot.x - a.slot.x, 129.0); // 100 + gap (26 + 3)
+    assert_eq!(solved.envelope().layered.left.inner, 9.0);
+    assert_eq!(solved.envelope().layered.top.total, 18.0);
+
+    assert_svg_baseline("grid_edge_demand_layers_and_gap_law", &solved.to_svg());
+}
+
+// --- chromed leaves (the chart canvas) ---------------------------------------
+
+fn chart_canvas() -> L {
+    Layout::leaf(Size::default())
+        .margin(10.0)
+        .band(Side::Top, 18.0)
+        .band(Side::Top, 12.0)
+        .outer(Side::Right, 40.0)
+        .outer(Side::Bottom, 26.0)
+        .inner(Side::Left, 30.0)
+        .inner(Side::Bottom, 16.0)
+        .content_min(Size::new(50.0, 40.0))
+        .id("chart")
+}
+
+/// Canvas-style sizing: the envelope is given (`SolveFor::Content`) and the
+/// chrome is subtracted from it — title and subtitle bands, a legend column
+/// and caption row (outer), and axis strips (inner).
+#[test]
+fn chromed_leaf_solve_for_content() {
+    let solved = chart_canvas()
+        .sizing(SolveFor::Content)
+        .solve(&allocated(360.0, 240.0))
+        .expect("solve");
+
+    let chart = solved.region(&"chart").unwrap();
+    // 360 - (10 + 30) - (10 + 40) = 270 content width.
+    assert_eq!(chart.content.width, 270.0);
+    assert_eq!(solved.size, Size::new(360.0, 240.0));
+
+    assert_svg_baseline("chromed_leaf_solve_for_content", &solved.to_svg());
+}
+
+/// Content-first sizing: the plot area is given and the envelope is the sum
+/// of all layers (`SolveFor::Envelope`, the default).
+#[test]
+fn chromed_leaf_solve_for_envelope() {
+    let chart: L = Layout::leaf(Size::new(220.0, 140.0))
+        .margin(10.0)
+        .band(Side::Top, 18.0)
+        .outer(Side::Right, 40.0)
+        .inner(Side::Left, 30.0)
+        .inner(Side::Bottom, 16.0)
+        .id("chart");
+    let solved = chart.solve(&natural()).expect("solve");
+
+    assert_eq!(solved.size, Size::new(310.0, 194.0));
+    let chart = solved.region(&"chart").unwrap();
+    assert_eq!(chart.content.x, 40.0); // margin 10 + inner 30
+
+    assert_svg_baseline("chromed_leaf_solve_for_envelope", &solved.to_svg());
+}
+
+/// Both envelope and content given: the margins absorb the slack
+/// (`SolveFor::Margins`), centering the content.
+#[test]
+fn chromed_leaf_solve_for_margins() {
+    let chart: L = Layout::leaf(Size::new(180.0, 110.0))
+        .margin(5.0) // declared, but ignored: margins are the flexible layer
+        .inner(Side::Left, 30.0)
+        .inner(Side::Bottom, 16.0)
+        .id("chart")
+        .sizing(SolveFor::Margins);
+    let solved = chart.solve(&allocated(340.0, 200.0)).expect("solve");
+
+    let chart = solved.region(&"chart").unwrap();
+    assert_eq!(chart.content.width, 180.0);
+    // Horizontal slack: 340 - 30 - 180 = 130, split 65/65.
+    assert_eq!(chart.content.x, 65.0 + 30.0);
+
+    assert_svg_baseline("chromed_leaf_solve_for_margins", &solved.to_svg());
+}
+
+/// The content floor wins over a too-small envelope: chrome plus
+/// `content_min` exceed the allocation, so the solved envelope grows past
+/// it.
+#[test]
+fn chromed_leaf_content_min_overflows_envelope() {
+    let solved = chart_canvas()
+        .sizing(SolveFor::Content)
+        .solve(&allocated(110.0, 100.0))
+        .expect("solve");
+
+    assert!(solved.size.width > 110.0);
+    let chart = solved.region(&"chart").unwrap();
+    assert_eq!(chart.content.width, 50.0); // the floor
+
     assert_svg_baseline(
-        "alignment_merges_grids_across_instances",
-        &stack_scenes(scenes).to_svg(),
+        "chromed_leaf_content_min_overflows_envelope",
+        &solved.to_svg(),
     );
 }
 
-/// What a nested row/col facet does, framed: each column is a grid of
-/// subplot cells measured independently (different axis-label overflows,
-/// heights, widths). The columns are cousins: one alignment round merges
-/// their requirements, each re-solves from the merged result, a root band
-/// places the columns (the inter-column gap absorbing the coordinated
-/// boundary chrome, like shared y-axis labels), and a frame wraps it all.
-/// Before coordination the columns are ragged; after, every row edge
-/// lines up and the low-chrome column shows hatched granted reservations.
+/// Per-axis constraints: width figure-sized, height plot-area-sized — the
+/// fixed-subplot pattern, loop-free because the height-axis measurement is
+/// authoritative.
+#[test]
+fn per_axis_allocation_plot_sized_height() {
+    let chart: L = Layout::leaf(Size::new(0.0, 150.0))
+        .margin(8.0)
+        .inner(Side::Left, 30.0)
+        .inner(Side::Bottom, 16.0)
+        .sizing_x(SolveFor::Content)
+        .id("chart");
+    let solved = chart
+        .solve(&SolveOptions {
+            width: Some(320.0),
+            height: None,
+        })
+        .expect("solve");
+
+    assert_eq!(solved.size.width, 320.0);
+    assert_eq!(solved.size.height, 8.0 + 150.0 + 16.0 + 8.0);
+
+    assert_svg_baseline("per_axis_allocation_plot_sized_height", &solved.to_svg());
+}
+
+/// Bands on all four sides carve with the corner-ownership rule: layers
+/// carve outside-in, vertical sides before horizontal, so the top band runs
+/// wider than the left band of the same layer.
+#[test]
+fn bands_all_four_sides_corner_rule() {
+    let solved = Layout::<&str>::leaf(Size::default())
+        .margin(10.0)
+        .band(Side::Top, 20.0)
+        .band(Side::Left, 26.0)
+        .band(Side::Bottom, 14.0)
+        .band(Side::Right, 18.0)
+        .inner(Side::Left, 12.0)
+        .sizing(SolveFor::Content)
+        .id("boxed")
+        .solve(&allocated(320.0, 200.0))
+        .expect("solve");
+
+    assert_svg_baseline("bands_all_four_sides_corner_rule", &solved.to_svg());
+}
+
+// --- nested grids with chrome -------------------------------------------------
+
+/// A nested column inside a row, where the nested grid carries its own
+/// chrome: a header strip on the inner layer (extends the guide layer, so
+/// cousins would coordinate it) and a legend strip on the outer layer.
+/// Chrome on the grid replaces the old `stacked_inner/outer_edges`.
+#[test]
+fn nested_grid_with_chrome() {
+    let nested: L = Layout::column(vec![
+        Layout::leaf(Size::new(90.0, 50.0))
+            .demand(Side::Right, EdgeDemand::total(15.0))
+            .id("c0"),
+        Layout::leaf(Size::new(90.0, 56.0)).id("c1"),
+    ])
+    .min_gap(10.0)
+    .inner(Side::Top, 16.0)
+    .outer(Side::Right, 22.0)
+    .id("group");
+    let root: L = Layout::row(vec![
+        Layout::leaf(Size::new(70.0, 120.0)).id("solo"),
+        nested,
+    ])
+    .min_gap(12.0)
+    .margin(12.0);
+    let solved = root.solve(&natural()).expect("solve");
+
+    let group = solved.region(&"group").unwrap();
+    assert_eq!(group.requested.top.inner, 16.0);
+    assert_eq!(group.requested.right.total, 15.0 + 22.0);
+
+    assert_svg_baseline("nested_grid_with_chrome", &solved.to_svg());
+}
+
+/// The same nested arrangement granted a larger canvas: tracks stretch
+/// evenly (the default `Distribute::StretchTracks`), slots grow, and the
+/// honest leaf content shows the slack as dashed slot outlines.
+#[test]
+fn allocation_stretches_tracks_evenly() {
+    let inner: L = Layout::row(vec![
+        Layout::leaf(Size::new(60.0, 60.0)).id("i0"),
+        Layout::leaf(Size::new(60.0, 60.0)).id("i1"),
+    ])
+    .min_gap(6.0);
+    let root: L = Layout::row(vec![Layout::leaf(Size::new(50.0, 60.0)).id("solo"), inner])
+        .min_gap(10.0)
+        .margin(10.0)
+        .sizing(SolveFor::Content);
+    let solved = root.solve(&allocated(320.0, 110.0)).expect("solve");
+
+    let i1 = solved.region(&"i1").unwrap();
+    assert!(i1.slot.width > 60.0, "stretched slot");
+    assert_eq!(i1.content.width, 60.0, "honest content");
+
+    assert_svg_baseline("allocation_stretches_tracks_evenly", &solved.to_svg());
+}
+
+// --- track sizing and distribution ---------------------------------------------
+
+/// Uneven tracks, CSS-style: a rigid `Fixed` gutter, weighted `Flex`
+/// tracks splitting the leftover 2:1, and a content-sized `Auto` track.
+#[test]
+fn track_size_fixed_and_flex() {
+    let root: L = Layout::row(vec![
+        Layout::leaf(Size::new(30.0, 70.0)).id("fixed 50"),
+        Layout::leaf(Size::new(40.0, 70.0)).id("flex 2"),
+        Layout::leaf(Size::new(40.0, 70.0)).id("flex 1"),
+        Layout::leaf(Size::new(60.0, 70.0)).id("auto"),
+    ])
+    .columns([
+        TrackSize::Fixed(50.0),
+        TrackSize::Flex(2.0),
+        TrackSize::Flex(1.0),
+        TrackSize::Auto,
+    ])
+    .min_gap(8.0)
+    .id("grid");
+    let solved = root
+        .solve(&SolveOptions {
+            width: Some(370.0),
+            height: None,
+        })
+        .expect("solve");
+
+    let RegionDetail::Grid { tracks } = &solved.region(&"grid").unwrap().detail else {
+        panic!("grid expected");
+    };
+    // Natural: 50 + 40 + 40 + 60 + 3 gaps of 8 = 214; 156 free split 2:1.
+    assert_eq!(tracks.column_sizes, vec![50.0, 144.0, 92.0, 60.0]);
+
+    assert_svg_baseline("track_size_fixed_and_flex", &solved.to_svg());
+}
+
+/// `Distribute::SpaceBetween`: with no `Flex` tracks, the free space lands
+/// in the inter-track gaps instead of stretching the tracks.
+#[test]
+fn distribute_space_between() {
+    let root: L = Layout::row(vec![
+        Layout::leaf(Size::new(60.0, 50.0)).id("a"),
+        Layout::leaf(Size::new(60.0, 50.0)).id("b"),
+        Layout::leaf(Size::new(60.0, 50.0)).id("c"),
+    ])
+    .distribute_x(Distribute::SpaceBetween);
+    let solved = root
+        .solve(&SolveOptions {
+            width: Some(300.0),
+            height: None,
+        })
+        .expect("solve");
+
+    assert_eq!(solved.region(&"b").unwrap().slot.x, 120.0);
+    assert_eq!(solved.region(&"c").unwrap().slot.x, 240.0);
+
+    assert_svg_baseline("distribute_space_between", &solved.to_svg());
+}
+
+/// `Fixed` never grows for oversized content: the child keeps its measured
+/// size and honestly overflows the rigid track.
+#[test]
+fn fixed_track_content_overflow() {
+    let root: L = Layout::row(vec![
+        Layout::leaf(Size::new(110.0, 50.0)).id("too wide"),
+        Layout::leaf(Size::new(70.0, 50.0)).id("fits"),
+    ])
+    .columns([TrackSize::Fixed(60.0), TrackSize::Auto])
+    .min_gap(10.0);
+    let solved = root.solve(&natural()).expect("solve");
+
+    let wide = solved.region(&"too wide").unwrap();
+    assert_eq!(wide.slot.width, 60.0);
+    assert_eq!(wide.content.width, 110.0);
+
+    assert_svg_baseline("fixed_track_content_overflow", &solved.to_svg());
+}
+
+// --- share-key coordination -----------------------------------------------------
+
+/// Two uniform bands with different track counts share one key: the ragged
+/// member adopts the merged uniform track size (the policy merge that
+/// subsumes the chart's `band_n` trick).
+#[test]
+fn uniform_share_tolerates_ragged_counts() {
+    let build = |share: bool| -> L {
+        let with_key = |grid: L| if share { grid.share("bands") } else { grid };
+        Layout::column(vec![
+            with_key(
+                Layout::row(vec![
+                    Layout::leaf(Size::new(100.0, 50.0)).id("a0"),
+                    Layout::leaf(Size::new(80.0, 50.0)).id("a1"),
+                    Layout::leaf(Size::new(90.0, 50.0)).id("a2"),
+                ])
+                .uniform_columns()
+                .min_gap(10.0)
+                .id("three"),
+            ),
+            with_key(
+                Layout::row(vec![
+                    Layout::leaf(Size::new(60.0, 50.0)).id("b0"),
+                    Layout::leaf(Size::new(120.0, 50.0)).id("b1"),
+                ])
+                .uniform_columns()
+                .min_gap(10.0)
+                .id("two"),
+            ),
+        ])
+        .min_gap(16.0)
+    };
+    let before = build(false).solve(&natural()).expect("solve");
+    let after = build(true).solve(&natural()).expect("solve");
+
+    let RegionDetail::Grid { tracks } = &after.region(&"two").unwrap().detail else {
+        panic!("grid expected");
+    };
+    assert!(tracks.column_sizes.iter().all(|&width| width == 120.0));
+
+    assert_svg_baseline(
+        "uniform_share_tolerates_ragged_counts",
+        &svg_panels(&[("measured", &before), ("coordinated", &after)]),
+    );
+}
+
+/// The nested row/col facet lowering, whole: two facet columns measured
+/// with different cell sizes and chrome, shared as cousins, inside a
+/// margined figure. Coordination grants column b the larger chrome
+/// (hatched) and grows column a's slots to the merged width (dashed
+/// outlines); the inter-column gap absorbs the granted chrome.
 #[test]
 fn nested_facet_columns_coordinated() {
-    let shape = GridShape {
-        rows: 2,
-        columns: 1,
+    let cell = |width: f32, height: f32, left: f32, bottom: f32| -> L {
+        Layout::leaf(Size::new(width, height))
+            .demand(Side::Left, EdgeDemand::new(left, 0.0, left))
+            .demand(Side::Bottom, EdgeDemand::total(bottom))
     };
-    // (id, size, left axis chrome, bottom tick chrome)
-    let cell = |id: &'static str, row: usize, size: Size, left: f32, bottom: f32| GridItem {
-        id,
-        slot: slot(row, 0),
-        content_size: size,
-        inner_edges: Edges::new(0.0, 0.0, bottom, left),
-        outer_edges: Edges::default(),
-        total_edges: Edges::new(0.0, 0.0, bottom, left),
+    let build = |share: bool| -> L {
+        let with_key = |grid: L| if share { grid.share("cols") } else { grid };
+        Layout::row(vec![
+            with_key(
+                Layout::column(vec![
+                    cell(110.0, 50.0, 26.0, 18.0).id("a0"),
+                    cell(110.0, 70.0, 26.0, 0.0).id("a1"),
+                ])
+                .min_gap(14.0)
+                .id("col a"),
+            ),
+            with_key(
+                Layout::column(vec![
+                    cell(150.0, 64.0, 9.0, 5.0).id("b0"),
+                    cell(150.0, 40.0, 9.0, 0.0).id("b1"),
+                ])
+                .min_gap(14.0)
+                .id("col b"),
+            ),
+        ])
+        .min_gap(14.0)
+        .margin(12.0)
     };
-    let column_a = vec![
-        cell("a0", 0, Size::new(110.0, 50.0), 26.0, 18.0),
-        cell("a1", 1, Size::new(110.0, 70.0), 26.0, 0.0),
-    ];
-    let column_b = vec![
-        cell("b0", 0, Size::new(150.0, 64.0), 9.0, 5.0),
-        cell("b1", 1, Size::new(150.0, 40.0), 9.0, 0.0),
-    ];
-    let requirements_a =
-        GridRequirements::from_items(shape, Size::default(), &column_a).expect("a fits");
-    let requirements_b =
-        GridRequirements::from_items(shape, Size::default(), &column_b).expect("b fits");
+    let before = build(false).solve(&natural()).expect("solve");
+    let after = build(true).solve(&natural()).expect("solve");
 
-    // The columns are cousins: align their requirements.
-    let plan = align(&[
-        AlignmentNode {
-            id: "a",
-            group_key: "columns",
-            requirements: requirements_a.clone(),
-        },
-        AlignmentNode {
-            id: "b",
-            group_key: "columns",
-            requirements: requirements_b.clone(),
-        },
-    ]);
-    let merged = &plan.groups[0].merged;
-    assert_eq!(merged.column_widths, vec![150.0]);
-    assert_eq!(merged.row_heights, vec![64.0, 70.0]);
-    assert_eq!(merged.row_bottom[0].total, 18.0); // inter-row chrome
-    assert_eq!(merged.column_left[0].total, 26.0); // shared axis labels
-
-    // Compose one framed chart from per-column requirements: solve each
-    // column, place the columns as a band (gaps absorb boundary chrome),
-    // wrap in a frame whose reservations are the outer boundaries.
-    let framed = |column_requirements: [&GridRequirements; 2]| {
-        let solutions = [
-            column_requirements[0].solve(&column_a),
-            column_requirements[1].solve(&column_b),
-        ];
-        let band_items: Vec<BandItem> = solutions
-            .iter()
-            .enumerate()
-            .map(|(index, solution)| BandItem {
-                id: index,
-                main_size: solution.content_size.width,
-                cross_size: solution.content_size.height,
-                boundary: BoundaryDemand {
-                    before: solution.column_left[0].total,
-                    after: solution.column_right[0].total,
-                },
-            })
-            .collect();
-        let band = BandSolution::solve(
-            Orientation::Horizontal,
-            &band_items,
-            TrackSpacing {
-                min_gap: 14.0,
-                ..Default::default()
-            },
-            CrossAlign::Start,
-        );
-
-        let max_edge = |pick: fn(&GridSolution) -> avenger_layout::EdgeDemand| {
-            solutions
-                .iter()
-                .map(pick)
-                .fold(avenger_layout::EdgeDemand::default(), |merged, edge| {
-                    merged.max_components(edge)
-                })
-        };
-        let top = max_edge(|solution| solution.row_top[0]);
-        let bottom = max_edge(|solution| *solution.row_bottom.last().unwrap());
-        let left = solutions[0].column_left[0];
-        let right = solutions[1].column_right[0];
-        let chrome_side = |edge: avenger_layout::EdgeDemand| FrameSide {
-            margin: 12.0,
-            bands: vec![],
-            outer: (edge.total - edge.inner).max(0.0),
-            inner: edge.inner,
-        };
-        let frame = Frame {
-            horizontal: FrameAxis {
-                sizing: FrameAxisSizing::ContentFixed {
-                    content: band.main_extent,
-                },
-                leading: chrome_side(left),
-                trailing: chrome_side(right),
-                content_min: 50.0,
-            },
-            vertical: FrameAxis {
-                sizing: FrameAxisSizing::ContentFixed {
-                    content: band.cross_extent.unwrap_or(0.0),
-                },
-                leading: chrome_side(top),
-                trailing: chrome_side(bottom),
-                content_min: 50.0,
-            },
-        };
-        let frame_solution = frame.solve();
-        let content = frame_solution.content_rect();
-
-        let mut scene = DebugScene::from_frame(&frame_solution);
-        for ((solution, items), placed) in solutions
-            .iter()
-            .zip([&column_a, &column_b])
-            .zip(band.items.iter())
-        {
-            let mut column_scene = DebugScene::from_grid(solution, items);
-            for region in &mut column_scene.regions {
-                // Below the frame's own "content" label.
-                region.label_anchor = Some([region.content.x + 3.0, region.content.y + 24.0]);
-            }
-            scene.embed(
-                column_scene,
-                [
-                    content.x + placed.main_start,
-                    content.y + placed.cross_start,
-                ],
-            );
-        }
-        scene
-    };
-
-    let before = framed([&requirements_a, &requirements_b]);
-    let after = framed([merged, merged]);
+    let b0 = after.region(&"b0").unwrap();
+    assert_eq!(b0.granted.left.total, 26.0);
+    assert_eq!(b0.requested.left.total, 9.0);
+    let a0 = after.region(&"a0").unwrap();
+    assert_eq!(a0.slot.width, 150.0);
+    assert_eq!(a0.slot.y, after.region(&"b0").unwrap().slot.y);
 
     assert_svg_baseline(
         "nested_facet_columns_coordinated",
-        &stack_scenes(vec![("measured", before), ("coordinated", after)]).to_svg(),
+        &svg_panels(&[("measured", &before), ("coordinated", &after)]),
     );
 }
 
-/// The full loop on whole charts: measure -> coordinate -> allocate.
-/// Two framed "charts" (a frame around a 1x2 grid, boundary chrome
-/// becoming the frame's reservations) are measured independently, their
-/// grid requirements aligned across instances, and each re-solved from
-/// the merged result: afterwards both canvases have identical geometry,
-/// and the instance with less chrome shows hatched coordinated bands it
-/// was granted (e.g. b inherits a's 24px axis-label reservation).
+/// The full loop on whole charts under one root: two chart-like groups
+/// (margined grids of cells with axis chrome) share a key; coordination
+/// makes their plot grids congruent in one solve.
 #[test]
-fn alignment_coordinates_framed_charts() {
-    let shape = GridShape {
-        rows: 1,
-        columns: 2,
-    };
-    let item = |id: usize, column: usize, size: Size, left_inner: f32| GridItem {
-        id,
-        slot: slot(0, column),
-        content_size: size,
-        inner_edges: Edges::new(0.0, 0.0, 0.0, left_inner),
-        outer_edges: Edges::default(),
-        total_edges: Edges::new(0.0, 0.0, 0.0, left_inner),
-    };
-    let items_a = vec![
-        item(0, 0, Size::new(90.0, 60.0), 24.0),
-        item(1, 1, Size::new(130.0, 60.0), 0.0),
-    ];
-    let items_b = vec![
-        item(0, 0, Size::new(120.0, 40.0), 8.0),
-        item(1, 1, Size::new(80.0, 40.0), 0.0),
-    ];
-    let requirements_a =
-        GridRequirements::from_items(shape, Size::default(), &items_a).expect("a fits");
-    let requirements_b =
-        GridRequirements::from_items(shape, Size::default(), &items_b).expect("b fits");
-
-    // Coordinate the cousins: one alignment round merges the requirements.
-    let plan = align(&[
-        AlignmentNode {
-            id: "a",
-            group_key: "row",
-            requirements: requirements_a.clone(),
-        },
-        AlignmentNode {
-            id: "b",
-            group_key: "row",
-            requirements: requirements_b.clone(),
-        },
-    ]);
-    let merged = &plan.groups[0].merged;
-    assert_eq!(merged.column_widths, vec![120.0, 130.0]);
-    assert_eq!(merged.column_left[0].total, 24.0);
-
-    // Wrap one solved grid in a frame whose reservations are the grid's
-    // boundary chrome, and compose the scenes.
-    let framed = |requirements: &GridRequirements, items: &[GridItem<usize>]| {
-        let solution = requirements.solve(items);
-        let left = solution.column_left.first().copied().unwrap_or_default();
-        let right = solution.column_right.last().copied().unwrap_or_default();
-        let top = solution.row_top.first().copied().unwrap_or_default();
-        let bottom = solution.row_bottom.last().copied().unwrap_or_default();
-        let chrome_side = |edge: avenger_layout::EdgeDemand| FrameSide {
-            margin: 10.0,
-            bands: vec![],
-            outer: (edge.total - edge.inner).max(0.0),
-            inner: edge.inner,
-        };
-        let frame = Frame {
-            horizontal: FrameAxis {
-                sizing: FrameAxisSizing::ContentFixed {
-                    content: solution.content_size.width,
-                },
-                leading: chrome_side(left),
-                trailing: chrome_side(right),
-                content_min: 50.0,
-            },
-            vertical: FrameAxis {
-                sizing: FrameAxisSizing::ContentFixed {
-                    content: solution.content_size.height,
-                },
-                leading: chrome_side(top),
-                trailing: chrome_side(bottom),
-                content_min: 50.0,
-            },
-        };
-        let frame_solution = frame.solve();
-        let content = frame_solution.content_rect();
-        let mut scene = DebugScene::from_frame(&frame_solution);
-        let mut grid_scene = DebugScene::from_grid(&solution, items);
-        for region in &mut grid_scene.regions {
-            if let Some(anchor) = &mut region.label_anchor {
-                anchor[1] += 12.0;
-            } else {
-                region.label_anchor = Some([region.content.x + 3.0, region.content.y + 24.0]);
-            }
-        }
-        scene.embed(grid_scene, [content.x, content.y]);
-        scene
-    };
-
-    // After coordination both instances solve from the merged requirements
-    // and end up with identical canvas geometry.
-    let after_a = framed(merged, &items_a);
-    let after_b = framed(merged, &items_b);
-    assert_eq!(after_a.content_size, after_b.content_size);
-
-    assert_svg_baseline(
-        "alignment_coordinates_framed_charts",
-        &stack_scenes(vec![
-            ("a — measured", framed(&requirements_a, &items_a)),
-            ("b — measured", framed(&requirements_b, &items_b)),
-            ("a — coordinated", after_a),
-            ("b — coordinated", after_b),
+fn shared_charts_coordinate_in_one_solve() {
+    let chart = |id: &'static str, width: f32, left: f32, bottom: f32| -> L {
+        Layout::row(vec![
+            Layout::leaf(Size::new(width, 90.0))
+                .demand(Side::Left, EdgeDemand::new(left, 0.0, left))
+                .demand(Side::Bottom, EdgeDemand::total(bottom)),
+            Layout::leaf(Size::new(width, 90.0)).demand(Side::Bottom, EdgeDemand::total(bottom)),
         ])
-        .to_svg(),
-    );
+        .min_gap(12.0)
+        .share("plots")
+        .margin(10.0)
+        .band(Side::Top, 14.0)
+        .id(id)
+    };
+    let root: L = Layout::row(vec![
+        chart("left chart", 80.0, 24.0, 18.0),
+        chart("right chart", 110.0, 9.0, 4.0),
+    ])
+    .min_gap(18.0);
+    let solved = root.solve(&natural()).expect("solve");
+
+    let left = solved.region(&"left chart").unwrap();
+    let right = solved.region(&"right chart").unwrap();
+    let (RegionDetail::Grid { tracks: l }, RegionDetail::Grid { tracks: r }) =
+        (&left.detail, &right.detail)
+    else {
+        panic!("grids expected");
+    };
+    assert_eq!(l.column_sizes, r.column_sizes, "congruent cousins");
+
+    assert_svg_baseline("shared_charts_coordinate_in_one_solve", &solved.to_svg());
 }
 
-/// `align_by` with a caller-owned payload and merge/delta laws, plus the
-/// singleton policy: under `Merge`, a group of one still yields a patch.
-/// Numeric only — alignment of custom payloads has no geometry to draw.
+/// Asymmetric offers and the min-slack rule: one shared grid sits in a slot
+/// widened by a sibling, the other does not. The group stretches by the
+/// minimum offer (zero), so the cousins stay congruent and the wide slot's
+/// slack shows as a dashed outline.
 #[test]
-fn align_by_custom_payload_and_singleton_policy() {
-    #[derive(Clone, Debug, PartialEq)]
-    struct Lane {
-        before: f32,
-        after: f32,
-    }
+fn min_slack_asymmetric_share() {
+    let plot = |id: &'static str| -> L {
+        Layout::row(vec![Layout::leaf(Size::new(100.0, 50.0))])
+            .share("g")
+            .id(id)
+    };
+    let root: L = Layout::row(vec![
+        Layout::column(vec![
+            plot("cramped"),
+            Layout::leaf(Size::new(200.0, 50.0)).id("wide"),
+        ])
+        .min_gap(12.0),
+        Layout::column(vec![plot("roomy")]).min_gap(12.0),
+    ])
+    .min_gap(16.0);
+    let solved = root.solve(&natural()).expect("solve");
 
-    let plan = align_by(
-        &[
-            AlignmentNode {
-                id: 0,
-                group_key: "lane-0",
-                requirements: Lane {
-                    before: 4.0,
-                    after: 10.0,
-                },
-            },
-            AlignmentNode {
-                id: 1,
-                group_key: "lane-0",
-                requirements: Lane {
-                    before: 9.0,
-                    after: 2.0,
-                },
-            },
-            AlignmentNode {
-                id: 2,
-                group_key: "lane-1",
-                requirements: Lane {
-                    before: 1.0,
-                    after: 1.0,
-                },
-            },
-        ],
-        SingletonPolicy::Merge,
-        |lanes: &[&Lane]| {
-            Some(lanes.iter().fold(
-                Lane {
-                    before: 0.0,
-                    after: 0.0,
-                },
-                |merged, lane| Lane {
-                    before: merged.before.max(lane.before),
-                    after: merged.after.max(lane.after),
-                },
-            ))
-        },
-        |local, merged| {
-            (
-                0.0,
-                (merged.before - local.before).abs() + (merged.after - local.after).abs(),
-            )
-        },
-    );
+    assert_eq!(solved.region(&"cramped").unwrap().content.width, 100.0);
+    assert_eq!(solved.region(&"roomy").unwrap().content.width, 100.0);
+    assert_eq!(solved.region(&"cramped").unwrap().slot.width, 200.0);
 
-    assert_eq!(plan.group_count(), 2);
-    assert_eq!(plan.skipped.len(), 0);
-    let lane0 = &plan.groups[0];
-    assert_eq!(
-        lane0.merged,
-        Lane {
-            before: 9.0,
-            after: 10.0,
-        }
-    );
-    assert_eq!(plan.changed_node_count(), 2);
+    assert_svg_baseline("min_slack_asymmetric_share", &solved.to_svg());
+}
 
-    // EdgeDemand's lift law, the heart of layered merging: totals lift to
-    // inner + outer so merged totals equal max(inner) + max(outer).
-    let lifted = EdgeDemand::new(5.0, 8.0, 4.0);
-    assert_eq!(lifted.total, 13.0);
+/// A non-uniform share group whose members have different shapes is
+/// skipped, reported in diagnostics, and rendered uncoordinated.
+#[test]
+fn share_group_shape_mismatch_diagnostics() {
+    let root: L = Layout::column(vec![
+        Layout::row(vec![
+            Layout::leaf(Size::new(90.0, 40.0)).id("a0"),
+            Layout::leaf(Size::new(70.0, 40.0)).id("a1"),
+        ])
+        .share("g")
+        .id("pair"),
+        Layout::row(vec![Layout::leaf(Size::new(120.0, 40.0)).id("b0")])
+            .share("g")
+            .id("single"),
+    ])
+    .min_gap(14.0);
+    let solved = root.solve(&natural()).expect("solve");
+
+    assert_eq!(solved.diagnostics().skipped_groups.len(), 1);
+
+    assert_svg_baseline("share_group_shape_mismatch_diagnostics", &solved.to_svg());
+}
+
+// --- the aspect-ratio recipe ----------------------------------------------------
+
+/// Contain-fit slack, the caller-side aspect recipe's terminal state: a
+/// square (ratio-respecting) measurement inside a Flex track that
+/// re-stretches wider every round. The standing slot-vs-content difference
+/// is the durable record of the deliberate slack.
+#[test]
+fn aspect_contain_fit_slack() {
+    let root: L = Layout::row(vec![
+        Layout::leaf(Size::new(120.0, 120.0))
+            .align_in_cell(CellAlign::Center, CellAlign::Start)
+            .id("square"),
+    ])
+    .columns([TrackSize::Flex(1.0)])
+    .id("grid");
+    let solved = root
+        .solve(&SolveOptions {
+            width: Some(260.0),
+            height: None,
+        })
+        .expect("solve");
+
+    let square = solved.region(&"square").unwrap();
+    assert_eq!(square.content.width, 120.0);
+    assert_eq!(square.slot.width, 260.0);
+
+    assert_svg_baseline("aspect_contain_fit_slack", &solved.to_svg());
 }

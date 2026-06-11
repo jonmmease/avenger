@@ -1,71 +1,59 @@
-# avenger-layout SVG baselines
+# avenger-layout SVG baseline gallery
 
-Each SVG here is the rendered output of a like-named example test in
-[`../svg_baselines.rs`](../svg_baselines.rs). The tests build layouts
-through the crate's public API and snapshot them via `DebugScene::to_svg`,
-so this directory doubles as a visual gallery of what every solver does —
-open any file in a browser.
+Every test in `tests/svg_baselines.rs` builds a [`Layout`] through the public
+API, solves it in one step with `Layout::solve`, and snapshots the solution's
+SVG. The committed SVGs are the snapshots; the PNGs beside them are a viewing
+convenience (regenerated at bless time, never compared).
 
-Run the suite:
-
-```sh
-cargo test -p avenger-layout --features svg --test svg_baselines
-```
-
-On mismatch the actual SVG is written to `../failures/<name>.svg`
-(gitignored). After an intentional change, regenerate everything and
-review the diffs:
+Regenerate after an intentional change:
 
 ```sh
-AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --features svg --test svg_baselines
+AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines
 ```
 
-Blessing also writes a PNG next to each SVG (rendered with `resvg`, 2x
-scale, white background) so the gallery is viewable anywhere SVGs are
-inconvenient. The PNGs are a viewing convenience only: rasterization
-goes through system fonts, so they are not byte-stable across machines
-and the tests never compare them — the SVG string is the snapshot.
+## Visual language
 
-## Reading the SVGs
-
-- black frame: the arrangement's content bounds (for frames, the solved
-  envelope extent)
-- filled blue: content rectangles
-- overflow strips beside content rects encode three things: **hue** =
-  layer (red = inner/guide-like, green = remainder up to the total),
-  **shade** = nesting depth (dark at the base layer, lighter as nesting
-  deepens; a frame's own chrome strips are the darkest step of the same
-  ramps; key labels gain `d0`/`d1` when a scene has multiple depths), **solid vs hatched** =
-  requested vs coordinated (the key swatches show solid|hatched side by
-  side). Where a hatched band extends past the solid strip inside it,
-  coordination grew that region's allocation. Frame margin/outer/inner
-  strips are unlabeled — the key identifies them
-- frame chrome strips: gray margins, amber bands (titles), green outer
-  (legend-like), red inner (guide-like). Bands/outer/inner span the
-  content on their cross axis (as realized chart chrome does); margins
-  span the full envelope. A color key row below the scene identifies the
-  kinds; strips too thin to hold a label rely on it
-- tree regions are labeled with their structural index path (`c0`,
-  `c12` = second item's third child, …); the prefix shows ancestry
-- crosses: placement origins
+- **Filled blue**: honest content rectangles (a leaf's measured size, a
+  grid's solved track extent, a contained node's derived content).
+- **Dashed gray outline**: the **slot** (allotment) where it differs from
+  the content — granted space the content does not fill (stretch slack,
+  ragged cousins, fixed-track overflow).
+- **Chrome slabs** (drawn behind): gray margins, amber bands, dark green
+  outer, dark red inner — declared chrome positioned by the solver, carved
+  outside-in with vertical sides before horizontal (corners belong to the
+  outer-more / vertical-first slab).
+- **Demand strips** beside each content rectangle encode three things:
+  **hue** is the layer (red = inner/guide-like, green = remainder up to the
+  total), **shade** is nesting depth (darker shallower), and **solid vs
+  hatched** is requested vs granted — where a hatched strip extends past the
+  solid one inside it, coordination granted that region more than it asked
+  for.
+- **Black frame**: the solved canvas (envelope). A color key row identifies
+  every kind present in the scene.
 
 ## Gallery
 
-| Baseline | Shows |
+| Baseline | What it demonstrates |
 |---|---|
-| `band_horizontal_gaps_and_min_gap_floor` | boundary chrome becomes gaps, floored by `min_gap`; outer offsets |
-| `band_vertical_cross_align_center` | vertical band, ragged children centered on the cross axis |
-| `band_placement_handoff_markers` | `to_placement_solution` origins as markers over the band |
+| `row_gaps_and_min_gap_floor` | boundary chrome becomes gaps via `max(min_gap, after + before)`; outer offsets |
+| `column_cell_align_ragged_children` | ragged children positioned by per-child `CellAlign`; slack as dashed slots |
+| `solution_query_by_id_and_path` | regions queryable by caller id and structural path; slot vs content distinct |
 | `grid_spans_holes_and_base_cell_size` | column span, empty slot, per-track base size floor |
-| `grid_edge_demand_layers_and_gap_law` | layered envelopes and the gap rule `max(min_gap, after + before)` |
-| `uniform_tracks_merged_policy` | two `UniformTracks` policies merged by max, then solved |
-| `frame_envelope_fixed_chart_chrome` | canvas-style frame: chrome subtracted from a fixed envelope |
-| `frame_content_fixed_envelope_derived` | content-first frame: envelope is the sum of all layers |
-| `frame_envelope_and_content_fixed_margin_slack` | both fixed: margins absorb the slack |
-| `frame_content_min_floor_overflows_envelope` | the content floor wins over a too-small envelope |
-| `tree_nested_with_stacked_chrome` | nested band with stacked inner/outer chrome, framed with margins; layered vs geometric envelopes asserted in the test |
-| `tree_allocation_stretches_tracks_evenly` | the same framed tree given a larger allocation: every track stretches |
-| `alignment_merges_grids_across_instances` | two instances before alignment, then both re-solved on the merged grid |
-| `nested_facet_columns_coordinated` | two framed facet columns with different overflows: measured side-by-side ragged, then aligned to shared widths/heights with granted chrome hatched |
-| `alignment_coordinates_framed_charts` | the full loop on whole charts: measure → align across instances → re-solve; canvases end up identical, granted chrome shows hatched |
-| `frame_wrapping_facet_tree` | a faceted chart in miniature: the tree's envelope becomes the frame's reservations, the frame's content allocates the tree |
+| `grid_edge_demand_layers_and_gap_law` | layered inner/outer demands and the gap law |
+| `chromed_leaf_solve_for_content` | canvas-style chart: envelope given, chrome carved, content gets the remainder |
+| `chromed_leaf_solve_for_envelope` | plot-area-sized chart: content given, envelope derived (the default mode) |
+| `chromed_leaf_solve_for_margins` | both given: flexible margins absorb the slack |
+| `chromed_leaf_content_min_overflows_envelope` | the content floor wins over a too-small envelope |
+| `per_axis_allocation_plot_sized_height` | width figure-sized + height plot-area-sized in one solve |
+| `bands_all_four_sides_corner_rule` | repeatable bands on every side; corner-ownership carving |
+| `nested_grid_with_chrome` | chrome on a grid node (header = inner, legend = outer) replacing stacked edges |
+| `allocation_stretches_tracks_evenly` | default `StretchTracks`: slots grow, leaf content stays honest |
+| `track_size_fixed_and_flex` | CSS-style tracks: rigid `Fixed`, weighted `Flex` leftover split, content `Auto` |
+| `distribute_space_between` | free space into gaps when no `Flex` track exists |
+| `fixed_track_content_overflow` | `Fixed` never grows: oversized content overflows honestly |
+| `uniform_share_tolerates_ragged_counts` | uniform policy merge across cousins with different track counts |
+| `nested_facet_columns_coordinated` | the nested facet lowering: measured vs coordinated panels, granted chrome hatched, gaps absorbing it |
+| `shared_charts_coordinate_in_one_solve` | two chart-like groups under one root made congruent by a share key |
+| `min_slack_asymmetric_share` | the min-slack rule: asymmetric offers, congruent cousins, honest slack |
+| `share_group_shape_mismatch_diagnostics` | mismatched non-uniform group skipped and reported |
+| `aspect_contain_fit_slack` | the aspect-ratio recipe's terminal state: standing slot-vs-content slack |

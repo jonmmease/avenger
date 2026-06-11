@@ -1267,9 +1267,21 @@ impl<Id: Clone + Eq + Hash, Key: Eq + Hash> Layout<Id, Key> {
             &mut state,
         );
 
+        // The root box can legitimately outgrow a contained-axis allocation
+        // (the content_min floor wins over the envelope); the solved size
+        // covers the actual root geometry.
+        let root = &regions[0];
+        let mut max_x = root.content.x + root.content.width;
+        let mut max_y = root.content.y + root.content.height;
+        for slab in &root.slabs {
+            max_x = max_x.max(slab.rect.x + slab.rect.width);
+            max_y = max_y.max(slab.rect.y + slab.rect.height);
+        }
+        let size = Size::new(envelope_w.max(max_x), envelope_h.max(max_y));
+
         let root_content = regions[0].content;
         Ok(LayoutSolution {
-            size: Size::new(envelope_w, envelope_h),
+            size,
             envelope: Envelope {
                 content_size: Size::new(root_content.width, root_content.height),
                 layered: measured.demands,

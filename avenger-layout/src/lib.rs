@@ -36,8 +36,8 @@
 //!   or from the content outward.
 //! - [`alignment`]: requirement merging and deltas for aligning equivalent
 //!   grids that are measured independently.
-//! - `svg` (behind the `svg` feature): a renderer-independent debug data
-//!   model and SVG export for inspecting solved layouts.
+//! - `svg`: a renderer-independent debug data model and SVG export for
+//!   inspecting solved layouts (dependency-free).
 //!
 //! Item identity is generic (`Id`, defaulting to `usize`) and opaque to this
 //! crate: callers own what an ID means and how equivalent regions are
@@ -90,7 +90,6 @@ pub mod grid;
 pub mod region;
 pub mod solution;
 mod solve;
-#[cfg(feature = "svg")]
 pub mod svg;
 pub mod tree;
 
@@ -117,7 +116,6 @@ pub use grid::{
     UniformTrackSolution, UniformTracks,
 };
 pub use region::{EdgeDemand, EdgeTargets, PlacedRegion, PlacementSolution, project_rect};
-#[cfg(feature = "svg")]
 pub use svg::{DebugMarker, DebugRegion, DebugRegionKind, DebugScene, SvgOptions, svg_panels};
 pub use tree::{
     LayoutItem, LayoutNode, LayoutSlotContent, SolvedRegion, TreeEnvelope, TreeEnvelopeKind,
