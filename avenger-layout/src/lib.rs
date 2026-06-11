@@ -66,7 +66,7 @@ pub use build::{
 };
 pub use geometry::{Edges, Orientation, Rect, Side, Size};
 pub use grid::{GridShape, GridSlot};
-pub use region::EdgeDemand;
+pub use region::{EdgeDemand, EdgeGrant};
 pub use solution::{
     ChromeLayer, ChromeSlab, Diagnostics, Envelope, LayoutSolution, Region, RegionDetail,
     SkippedShare, SkippedShareReason, SolvedTracks,

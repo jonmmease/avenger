@@ -2357,7 +2357,7 @@ mod tests {
             marks::{FacetColumnSubplotChannels, FacetRowSubplotChannels},
         },
         layout::{
-            EdgeDemand, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, TrackSpacing,
+            EdgeGrant, EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, TrackSpacing,
         },
         marks::{Subplot, line::Line, symbol::Symbol},
         plot::{
@@ -2389,8 +2389,8 @@ mod tests {
         CoordinationAxis, CoordinationScope, DomainCoordination,
     };
 
-    fn zero_edge_demands(len: usize) -> Vec<EdgeDemand> {
-        vec![EdgeDemand::default(); len]
+    fn zero_edge_demands(len: usize) -> Vec<EdgeGrant> {
+        vec![EdgeGrant::default(); len]
     }
     async fn measurement_for_plot(
         compiled: &CompiledPlot,

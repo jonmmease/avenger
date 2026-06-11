@@ -7,7 +7,7 @@
 use std::fmt;
 
 use crate::geometry::{Edges, Size};
-use crate::region::EdgeDemand;
+use crate::region::EdgeGrant;
 
 /// Two-dimensional grid track count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -89,10 +89,10 @@ pub struct GridRequirements {
     pub row_spacing: TrackSpacing,
     pub column_widths: Vec<f32>,
     pub row_heights: Vec<f32>,
-    pub column_left: Vec<EdgeDemand>,
-    pub column_right: Vec<EdgeDemand>,
-    pub row_top: Vec<EdgeDemand>,
-    pub row_bottom: Vec<EdgeDemand>,
+    pub column_left: Vec<EdgeGrant>,
+    pub column_right: Vec<EdgeGrant>,
+    pub row_top: Vec<EdgeGrant>,
+    pub row_bottom: Vec<EdgeGrant>,
 }
 
 /// Solved track starts and effective content size for one grid.
@@ -102,10 +102,10 @@ pub struct GridSolution {
     pub row_spacing: TrackSpacing,
     pub column_widths: Vec<f32>,
     pub row_heights: Vec<f32>,
-    pub column_left: Vec<EdgeDemand>,
-    pub column_right: Vec<EdgeDemand>,
-    pub row_top: Vec<EdgeDemand>,
-    pub row_bottom: Vec<EdgeDemand>,
+    pub column_left: Vec<EdgeGrant>,
+    pub column_right: Vec<EdgeGrant>,
+    pub row_top: Vec<EdgeGrant>,
+    pub row_bottom: Vec<EdgeGrant>,
     pub column_starts: Vec<f32>,
     pub row_starts: Vec<f32>,
     pub content_size: Size,
@@ -133,25 +133,25 @@ impl fmt::Display for GridError {
 
 impl std::error::Error for GridError {}
 
-fn grid_edge_demand<Id>(demand: &GridItem<Id>, side: crate::geometry::Side) -> EdgeDemand {
+fn grid_edge_demand<Id>(demand: &GridItem<Id>, side: crate::geometry::Side) -> EdgeGrant {
     use crate::geometry::Side;
     match side {
-        Side::Top => EdgeDemand::new(
+        Side::Top => EdgeGrant::new(
             demand.inner_edges.top,
             demand.outer_edges.top,
             demand.total_edges.top,
         ),
-        Side::Right => EdgeDemand::new(
+        Side::Right => EdgeGrant::new(
             demand.inner_edges.right,
             demand.outer_edges.right,
             demand.total_edges.right,
         ),
-        Side::Bottom => EdgeDemand::new(
+        Side::Bottom => EdgeGrant::new(
             demand.inner_edges.bottom,
             demand.outer_edges.bottom,
             demand.total_edges.bottom,
         ),
-        Side::Left => EdgeDemand::new(
+        Side::Left => EdgeGrant::new(
             demand.inner_edges.left,
             demand.outer_edges.left,
             demand.total_edges.left,
@@ -196,10 +196,10 @@ impl GridRequirements {
             row_spacing: TrackSpacing::default(),
             column_widths: vec![base_cell_size.width; shape.columns],
             row_heights: vec![base_cell_size.height; shape.rows],
-            column_left: vec![EdgeDemand::default(); shape.columns],
-            column_right: vec![EdgeDemand::default(); shape.columns],
-            row_top: vec![EdgeDemand::default(); shape.rows],
-            row_bottom: vec![EdgeDemand::default(); shape.rows],
+            column_left: vec![EdgeGrant::default(); shape.columns],
+            column_right: vec![EdgeGrant::default(); shape.columns],
+            row_top: vec![EdgeGrant::default(); shape.rows],
+            row_bottom: vec![EdgeGrant::default(); shape.rows],
         };
 
         for demand in demands {
@@ -318,7 +318,7 @@ impl GridRequirements {
 }
 
 /// Collect the `total` component of each edge demand.
-pub(crate) fn edge_demand_totals(edges: &[EdgeDemand]) -> Vec<f32> {
+pub(crate) fn edge_demand_totals(edges: &[EdgeGrant]) -> Vec<f32> {
     edges.iter().map(|edge| edge.total).collect()
 }
 

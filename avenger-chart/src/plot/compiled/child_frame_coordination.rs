@@ -16,7 +16,7 @@ use crate::{
         placement::{FacetBandPlacement, resolve_facet_band_placement},
     },
     layout::{
-        AlignmentNode, EdgeDemand, GridShape, GridSlot, SingletonPolicy, SkippedGroupReason,
+        AlignmentNode, EdgeGrant, GridShape, GridSlot, SingletonPolicy, SkippedGroupReason,
         TrackSpacing, align_by,
     },
     plot::compiled::{ChildFrameKey, ComponentsMeasurement, ContainerPathSegment},
@@ -413,10 +413,10 @@ fn facet_grid_requirements_from_placement(
         row_spacing: TrackSpacing::default(),
         column_widths: vec![0.0; shape.columns],
         row_heights: vec![0.0; shape.rows],
-        column_left: vec![EdgeDemand::default(); shape.columns],
-        column_right: vec![EdgeDemand::default(); shape.columns],
-        row_top: vec![EdgeDemand::default(); shape.rows],
-        row_bottom: vec![EdgeDemand::default(); shape.rows],
+        column_left: vec![EdgeGrant::default(); shape.columns],
+        column_right: vec![EdgeGrant::default(); shape.columns],
+        row_top: vec![EdgeGrant::default(); shape.rows],
+        row_bottom: vec![EdgeGrant::default(); shape.rows],
     };
 
     match placement.axis {
@@ -442,8 +442,8 @@ fn facet_grid_requirements_from_placement(
                 requirements.column_widths[cell.cell_index] = cell.main_size;
             }
             for (index, boundary) in cell_boundaries.iter().enumerate().take(shape.columns) {
-                requirements.column_left[index] = EdgeDemand::total(boundary.before);
-                requirements.column_right[index] = EdgeDemand::total(boundary.after);
+                requirements.column_left[index] = EdgeGrant::total_only(boundary.before);
+                requirements.column_right[index] = EdgeGrant::total_only(boundary.after);
             }
         }
         FacetAxis::Row => {
@@ -468,8 +468,8 @@ fn facet_grid_requirements_from_placement(
                 requirements.row_heights[cell.cell_index] = cell.main_size;
             }
             for (index, boundary) in cell_boundaries.iter().enumerate().take(shape.rows) {
-                requirements.row_top[index] = EdgeDemand::total(boundary.before);
-                requirements.row_bottom[index] = EdgeDemand::total(boundary.after);
+                requirements.row_top[index] = EdgeGrant::total_only(boundary.before);
+                requirements.row_bottom[index] = EdgeGrant::total_only(boundary.after);
             }
         }
     }
@@ -946,10 +946,10 @@ mod tests {
                 row_spacing: TrackSpacing::default(),
                 column_widths: vec![width],
                 row_heights: vec![10.0],
-                column_left: vec![EdgeDemand::default(); 1],
-                column_right: vec![EdgeDemand::default(); 1],
-                row_top: vec![EdgeDemand::default(); 1],
-                row_bottom: vec![EdgeDemand::default(); 1],
+                column_left: vec![EdgeGrant::default(); 1],
+                column_right: vec![EdgeGrant::default(); 1],
+                row_top: vec![EdgeGrant::default(); 1],
+                row_bottom: vec![EdgeGrant::default(); 1],
             },
             guide_slot_gap_px: 0.0,
         })
@@ -1095,11 +1095,11 @@ mod tests {
         assert_eq!(requirements.row_heights, vec![40.0]);
         assert_eq!(
             requirements.column_left,
-            vec![EdgeDemand::total(0.0), EdgeDemand::total(2.0)]
+            vec![EdgeGrant::total_only(0.0), EdgeGrant::total_only(2.0)]
         );
         assert_eq!(
             requirements.column_right,
-            vec![EdgeDemand::total(7.0), EdgeDemand::total(0.0)]
+            vec![EdgeGrant::total_only(7.0), EdgeGrant::total_only(0.0)]
         );
         Ok(())
     }
@@ -1171,7 +1171,7 @@ mod tests {
         );
         assert_eq!(
             merged.column_right,
-            vec![EdgeDemand::total(18.0), EdgeDemand::total(0.0)],
+            vec![EdgeGrant::total_only(18.0), EdgeGrant::total_only(0.0)],
             "raw boundary demands merge independently of padding policy"
         );
         Ok(())

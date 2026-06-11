@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use avenger_layout::EdgeDemand;
+use avenger_layout::EdgeGrant;
 
 use super::concat_grid::ChartGridData;
 
@@ -252,7 +252,7 @@ fn max_assign_each(target: &mut [f32], source: &[f32]) {
     }
 }
 
-fn max_assign_edge_each(target: &mut [EdgeDemand], source: &[EdgeDemand]) {
+fn max_assign_edge_each(target: &mut [EdgeGrant], source: &[EdgeGrant]) {
     debug_assert_eq!(target.len(), source.len());
     for (target, source) in target.iter_mut().zip(source.iter()) {
         *target = target.max_components(*source);
@@ -268,7 +268,7 @@ fn abs_delta_sum(local: &[f32], merged: &[f32]) -> f32 {
         .sum()
 }
 
-fn abs_edge_delta_sum(local: &[EdgeDemand], merged: &[EdgeDemand]) -> f32 {
+fn abs_edge_delta_sum(local: &[EdgeGrant], merged: &[EdgeGrant]) -> f32 {
     debug_assert_eq!(local.len(), merged.len());
     local
         .iter()

@@ -38,7 +38,9 @@ use crate::{
         renderable_for_empty_policy,
     },
     facet::layout_plan::effective_edge_indices,
-    layout::{EdgeDemand, EdgeSlabs, Edges, FrameDemand, OwnedEdgeSlabs, Size as LayoutSize},
+    layout::{
+        EdgeDemand, EdgeGrant, EdgeSlabs, Edges, FrameDemand, OwnedEdgeSlabs, Size as LayoutSize,
+    },
     plot::compiled::ComponentsMeasurement,
 };
 
@@ -606,8 +608,8 @@ pub(crate) fn aggregate_facet_band_overflow_with_policy(
 
 /// Per-side layered demand view of a coordinated overflow: guide chrome is
 /// `inner`, legend chrome is `outer`.
-pub(crate) fn overflow_edge_demands(overflow: &CoordinatedOverflow) -> Edges<EdgeDemand> {
-    let side = |guide: f32, total: f32| EdgeDemand::new(guide, (total - guide).max(0.0), total);
+pub(crate) fn overflow_edge_demands(overflow: &CoordinatedOverflow) -> Edges<EdgeGrant> {
+    let side = |guide: f32, total: f32| EdgeGrant::new(guide, (total - guide).max(0.0), total);
     Edges::new(
         side(overflow.guide.top, overflow.total.top),
         side(overflow.guide.right, overflow.total.right),
@@ -616,7 +618,7 @@ pub(crate) fn overflow_edge_demands(overflow: &CoordinatedOverflow) -> Edges<Edg
     )
 }
 
-pub(crate) fn overflow_from_edge_demands(demands: Edges<EdgeDemand>) -> CoordinatedOverflow {
+pub(crate) fn overflow_from_edge_demands(demands: Edges<EdgeGrant>) -> CoordinatedOverflow {
     CoordinatedOverflow {
         guide: OverflowSpaceRequirement {
             top: demands.top.inner,

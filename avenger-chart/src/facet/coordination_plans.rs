@@ -24,7 +24,7 @@ use crate::{
     facet::coordination_solution::CoordinationSolution,
     facet::overflow_projection::{FacetOverflowProjection, project_facet_overflow},
     facet::overflow_projection::{overflow_edge_demands, overflow_from_edge_demands},
-    layout::{EdgeDemand, Edges, RoundDeltas},
+    layout::{EdgeGrant, Edges, RoundDeltas},
     plot::compiled::{CoordinationKind, CoordinationScopeKey},
 };
 
@@ -712,14 +712,14 @@ fn coordination_axis_from_facet_axis(axis: FacetAxis) -> CoordinationAxis {
     }
 }
 
-/// Fold one overflow grouping: per-key `Edges<EdgeDemand>` component max
+/// Fold one overflow grouping: per-key `Edges<EdgeGrant>` component max
 /// (the same law the solver's share patches apply), plus per-entry deltas
 /// against the merged value.
 ///
 /// Keys and payload pre-projections (guide-anchor lanes, boundary edge
 /// stripping) are chart policy and happen before this call; the merge runs
-/// through the neutral per-side `Edges<EdgeDemand>` law, which matches
-/// `CoordinatedOverflow::merge` exactly: `EdgeDemand::new` lifts totals to
+/// through the neutral per-side `Edges<EdgeGrant>` law, which matches
+/// `CoordinatedOverflow::merge` exactly: `EdgeGrant::new` lifts totals to
 /// `inner + outer`, so the merged total is `max(guide) + max(legend)` on
 /// every input.
 fn fold_overflow_entries(
@@ -728,7 +728,7 @@ fn fold_overflow_entries(
     HashMap<CoordinationScopeKey, CoordinatedOverflow>,
     RoundDeltas,
 ) {
-    let mut merged_demands: HashMap<CoordinationScopeKey, Edges<EdgeDemand>> = HashMap::new();
+    let mut merged_demands: HashMap<CoordinationScopeKey, Edges<EdgeGrant>> = HashMap::new();
     for (_, key, overflow) in entries {
         let entry = merged_demands.entry(key.clone()).or_default();
         *entry = entry.max_components(overflow_edge_demands(overflow));

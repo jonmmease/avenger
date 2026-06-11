@@ -20,8 +20,8 @@
 //! vectors, span content sizes positionally from the tracks.
 
 use avenger_layout::{
-    EdgeDemand, Edges, GridShape, GridSlot, Layout, LayoutSolution, RegionDetail, Side, Size,
-    SolveOptions, Spacing, TrackSize,
+    EdgeDemand, EdgeGrant, Edges, GridShape, GridSlot, Layout, LayoutSolution, RegionDetail, Side,
+    Size, SolveOptions, Spacing, TrackSize,
 };
 
 use super::placement::EdgeTargets;
@@ -45,10 +45,10 @@ pub(crate) struct ChartGridData {
     pub row_spacing: Spacing,
     pub column_widths: Vec<f32>,
     pub row_heights: Vec<f32>,
-    pub column_left: Vec<EdgeDemand>,
-    pub column_right: Vec<EdgeDemand>,
-    pub row_top: Vec<EdgeDemand>,
-    pub row_bottom: Vec<EdgeDemand>,
+    pub column_left: Vec<EdgeGrant>,
+    pub column_right: Vec<EdgeGrant>,
+    pub row_top: Vec<EdgeGrant>,
+    pub row_bottom: Vec<EdgeGrant>,
 }
 
 /// A solved concat grid: per-track geometry plus the requirement vectors,
@@ -208,10 +208,10 @@ fn extract(
         return Err("grid member is not a grid".to_string());
     };
 
-    let mut column_left = vec![EdgeDemand::default(); shape.columns];
-    let mut column_right = vec![EdgeDemand::default(); shape.columns];
-    let mut row_top = vec![EdgeDemand::default(); shape.rows];
-    let mut row_bottom = vec![EdgeDemand::default(); shape.rows];
+    let mut column_left = vec![EdgeGrant::default(); shape.columns];
+    let mut column_right = vec![EdgeGrant::default(); shape.columns];
+    let mut row_top = vec![EdgeGrant::default(); shape.rows];
+    let mut row_bottom = vec![EdgeGrant::default(); shape.rows];
     for (index, cell) in cells.iter().enumerate() {
         let mut child_path = member_path.to_vec();
         child_path.push(index);
@@ -368,7 +368,7 @@ mod tests {
         assert_eq!(exported.data.column_widths, vec![100.0, 40.0, 120.0]);
         assert_eq!(exported.data.row_heights, vec![50.0, 60.0]);
         // Span edges land on the first/last spanned tracks.
-        let totals = |edges: &[EdgeDemand]| edges.iter().map(|edge| edge.total).collect::<Vec<_>>();
+        let totals = |edges: &[EdgeGrant]| edges.iter().map(|edge| edge.total).collect::<Vec<_>>();
         assert_eq!(totals(&exported.data.column_left), vec![3.0, 0.0, 7.0]);
         assert_eq!(totals(&exported.data.column_right), vec![5.0, 6.0, 4.0]);
     }

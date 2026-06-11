@@ -17,7 +17,7 @@ use std::fmt::Display;
 use std::fmt::Write as _;
 
 use crate::geometry::{Edges, Rect, Side, Size};
-use crate::region::{EdgeDemand, EdgeTargets};
+use crate::region::{EdgeGrant, EdgeTargets};
 use crate::solution::{ChromeLayer, LayoutSolution};
 
 /// Rendering options for [`LayoutSolution::to_svg_with`].
@@ -112,7 +112,7 @@ impl DebugScene {
     /// rectangles with requested-vs-granted demand strips, and dashed slot
     /// outlines where the allotment exceeds the honest content.
     pub fn from_solution<Id: Display>(solution: &LayoutSolution<Id>, options: &SvgOptions) -> Self {
-        let targets = |edges: &Edges<EdgeDemand>| EdgeTargets {
+        let targets = |edges: &Edges<EdgeGrant>| EdgeTargets {
             inner: Edges::new(
                 edges.top.inner,
                 edges.right.inner,

@@ -28,7 +28,7 @@ pub use avenger_chart_core::{
     LayoutBounds, OverflowSide, OwnedEdgeSlabs, Size2D,
 };
 pub(crate) use avenger_layout::{
-    EdgeDemand, Edges, GridShape, GridSlot, Orientation, Size, Spacing as TrackSpacing,
+    EdgeDemand, EdgeGrant, Edges, GridShape, GridSlot, Orientation, Size, Spacing as TrackSpacing,
 };
 pub(crate) use band::{BandItem, BandSolution, BoundaryDemand, CrossAlign, PlacedBandItem};
 pub(crate) use placement::EdgeTargets;

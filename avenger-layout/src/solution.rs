@@ -3,7 +3,7 @@
 
 use crate::build::Spacing;
 use crate::geometry::{Edges, Rect, Side, Size};
-use crate::region::EdgeDemand;
+use crate::region::EdgeGrant;
 
 /// The chrome layer a positioned slab belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,10 +75,10 @@ pub struct Region<Id = usize> {
     pub slabs: Vec<ChromeSlab>,
     /// The overflow this node asked for (measured demands plus lifted
     /// chrome).
-    pub requested: Edges<EdgeDemand>,
+    pub requested: Edges<EdgeGrant>,
     /// The overflow space granted around this node's slot (per-track merged
     /// demand within its parent; equals `requested` at the root).
-    pub granted: Edges<EdgeDemand>,
+    pub granted: Edges<EdgeGrant>,
     /// Geometric view of this node's own measured overflow: raw per-side
     /// maxima without the layered `inner + outer` lift (the node-level
     /// analogue of [`Envelope::geometric_total`]).
@@ -93,7 +93,7 @@ pub struct Envelope {
     pub content_size: Size,
     /// Layered view: per-side totals lifted to `>= inner + outer` (the
     /// coordination law).
-    pub layered: Edges<EdgeDemand>,
+    pub layered: Edges<EdgeGrant>,
     /// Geometric view: raw per-side maxima without the lift (the rendered
     /// envelope).
     pub geometric_total: Edges<f32>,

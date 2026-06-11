@@ -27,7 +27,7 @@ use crate::build::{
 use crate::frame::{FrameAxis, FrameAxisSizing, FrameSide};
 use crate::geometry::{Edges, Rect, Size};
 use crate::grid::{GridItem, GridRequirements, GridSolution, TrackGrowth};
-use crate::region::EdgeDemand;
+use crate::region::EdgeGrant;
 use crate::solution::{
     Diagnostics, Envelope, LayoutSolution, Region, RegionDetail, SkippedShare, SkippedShareReason,
     SolvedTracks,
@@ -42,7 +42,7 @@ pub(crate) struct Measured {
     /// axes.
     pub(crate) item_size: Size,
     /// Lifted overflow toward the parent (zero on contained axes).
-    pub(crate) demands: Edges<EdgeDemand>,
+    pub(crate) demands: Edges<EdgeGrant>,
     /// Raw per-side totals (no lift) for the geometric envelope view.
     pub(crate) geometric_total: Edges<f32>,
     /// The node's own content extent before chrome.
@@ -85,8 +85,8 @@ fn pin_fixed_tracks(sizes: &mut [f32], declared: &[TrackSize]) {
 /// Stack one side's declared chrome onto the content's own demand
 /// (the `stacked_inner/outer_edges` law: additive per layer; bands and
 /// margins extend `total` only).
-fn lift_chrome(demand: EdgeDemand, chrome: &ChromeSide) -> EdgeDemand {
-    EdgeDemand::new(
+fn lift_chrome(demand: EdgeGrant, chrome: &ChromeSide) -> EdgeGrant {
+    EdgeGrant::new(
         demand.inner + chrome.inner.max(0.0),
         demand.outer + chrome.outer.max(0.0),
         demand.total + chrome_total(chrome),
@@ -118,16 +118,16 @@ pub(crate) enum AxisPatch {
     /// Equal-shape merge: per-track floors.
     PerTrack {
         sizes: Vec<f32>,
-        leading: Vec<EdgeDemand>,
-        trailing: Vec<EdgeDemand>,
+        leading: Vec<EdgeGrant>,
+        trailing: Vec<EdgeGrant>,
         spacing: crate::grid::TrackSpacing,
     },
     /// Uniform policy merge (ragged-tolerant): one track-size floor plus
     /// first/last edge chrome.
     Uniform {
         size: f32,
-        first: EdgeDemand,
-        last: EdgeDemand,
+        first: EdgeGrant,
+        last: EdgeGrant,
         spacing: crate::grid::TrackSpacing,
     },
 }
@@ -135,8 +135,8 @@ pub(crate) enum AxisPatch {
 fn apply_axis_patch(
     patch: &AxisPatch,
     sizes: &mut [f32],
-    leading: &mut [EdgeDemand],
-    trailing: &mut [EdgeDemand],
+    leading: &mut [EdgeGrant],
+    trailing: &mut [EdgeGrant],
     spacing: &mut crate::grid::TrackSpacing,
 ) {
     match patch {
@@ -195,15 +195,23 @@ pub(crate) fn measure_with<Id: Clone, Key>(
             content_size,
             demands,
         } => {
+            // Declarations enter grant space here: everything downstream of
+            // measurement works in solved/merged values.
+            let grants = Edges::new(
+                EdgeGrant::from(demands.top),
+                EdgeGrant::from(demands.right),
+                EdgeGrant::from(demands.bottom),
+                EdgeGrant::from(demands.left),
+            );
             let geometric = Edges::new(
-                demands.top.total,
-                demands.right.total,
-                demands.bottom.total,
-                demands.left.total,
+                grants.top.total,
+                grants.right.total,
+                grants.bottom.total,
+                grants.left.total,
             );
             (
                 Size::new(content_size.width.max(0.0), content_size.height.max(0.0)),
-                *demands,
+                grants,
                 geometric,
                 None,
             )
@@ -348,8 +356,8 @@ pub(crate) fn measure_with<Id: Clone, Key>(
             let content = natural_content.width.max(chrome.content_min.width.max(0.0));
             item_size.width =
                 chrome_total(&chrome.sides.left) + content + chrome_total(&chrome.sides.right);
-            demands.left = EdgeDemand::default();
-            demands.right = EdgeDemand::default();
+            demands.left = EdgeGrant::default();
+            demands.right = EdgeGrant::default();
             geometric_total.left = 0.0;
             geometric_total.right = 0.0;
         }
@@ -357,8 +365,8 @@ pub(crate) fn measure_with<Id: Clone, Key>(
             item_size.width = chrome_fixed_total(&chrome.sides.left)
                 + natural_content.width
                 + chrome_fixed_total(&chrome.sides.right);
-            demands.left = EdgeDemand::default();
-            demands.right = EdgeDemand::default();
+            demands.left = EdgeGrant::default();
+            demands.right = EdgeGrant::default();
             geometric_total.left = 0.0;
             geometric_total.right = 0.0;
         }
@@ -376,8 +384,8 @@ pub(crate) fn measure_with<Id: Clone, Key>(
                 .max(chrome.content_min.height.max(0.0));
             item_size.height =
                 chrome_total(&chrome.sides.top) + content + chrome_total(&chrome.sides.bottom);
-            demands.top = EdgeDemand::default();
-            demands.bottom = EdgeDemand::default();
+            demands.top = EdgeGrant::default();
+            demands.bottom = EdgeGrant::default();
             geometric_total.top = 0.0;
             geometric_total.bottom = 0.0;
         }
@@ -385,8 +393,8 @@ pub(crate) fn measure_with<Id: Clone, Key>(
             item_size.height = chrome_fixed_total(&chrome.sides.top)
                 + natural_content.height
                 + chrome_fixed_total(&chrome.sides.bottom);
-            demands.top = EdgeDemand::default();
-            demands.bottom = EdgeDemand::default();
+            demands.top = EdgeGrant::default();
+            demands.bottom = EdgeGrant::default();
             geometric_total.top = 0.0;
             geometric_total.bottom = 0.0;
         }
@@ -646,7 +654,7 @@ fn place<Id: Clone, Key>(
     measured: &Measured,
     requested: &Measured,
     slot: Rect,
-    granted: Edges<EdgeDemand>,
+    granted: Edges<EdgeGrant>,
     depth: usize,
     path: &[usize],
     regions: &mut Vec<Region<Id>>,
@@ -1043,13 +1051,13 @@ fn merge_share_axis<Key>(
             ShareAxis::Row => &entries[m].requirements.row_heights,
         }
     };
-    let leading = |m: usize| -> &[EdgeDemand] {
+    let leading = |m: usize| -> &[EdgeGrant] {
         match axis {
             ShareAxis::Column => &entries[m].requirements.column_left,
             ShareAxis::Row => &entries[m].requirements.row_top,
         }
     };
-    let trailing = |m: usize| -> &[EdgeDemand] {
+    let trailing = |m: usize| -> &[EdgeGrant] {
         match axis {
             ShareAxis::Column => &entries[m].requirements.column_right,
             ShareAxis::Row => &entries[m].requirements.row_bottom,
@@ -1077,11 +1085,11 @@ fn merge_share_axis<Key>(
         let first = members
             .iter()
             .filter_map(|&m| leading(m).first().copied())
-            .fold(EdgeDemand::default(), |a, b| a.max_components(b));
+            .fold(EdgeGrant::default(), |a, b| a.max_components(b));
         let last = members
             .iter()
             .filter_map(|&m| trailing(m).last().copied())
-            .fold(EdgeDemand::default(), |a, b| a.max_components(b));
+            .fold(EdgeGrant::default(), |a, b| a.max_components(b));
         return Some(AxisPatch::Uniform {
             size,
             first,
