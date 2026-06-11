@@ -2,37 +2,40 @@
 
 use crate::geometry::Edges;
 
-/// A caller's declared per-side overflow on a leaf: interior chrome
-/// (`inner`), content stacking beyond it (`outer`), and the full rendered
-/// envelope (`total`).
+/// A caller's declared per-side overflow on a leaf.
 ///
 /// This is the *declaration* type consumed by
-/// [`Layout::demand`](crate::build::Layout::demand). The solver's outputs
-/// (requested/granted edges, envelopes) are [`EdgeGrant`].
-///
-/// `new` lifts the total to `max(total, inner + outer, 0)` so a declaration
-/// is always representable in grant space.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct EdgeDemand {
-    pub inner: f32,
-    pub outer: f32,
-    pub total: f32,
+/// [`Layout::demand`](crate::build::Layout::demand); the solver's outputs
+/// (requested/granted edges, envelopes) are [`EdgeGrant`]. A side is either
+/// layered (interior chrome plus content stacking beyond it) or a bare
+/// total — mixing layered and unlayered space on one side is
+/// unrepresentable by design. Node-attached unlayered space is declared as
+/// chrome, not as a demand.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EdgeDemand {
+    /// Interior chrome (`inner`, e.g. guides) plus content stacking beyond
+    /// it (`outer`, e.g. legends). The granted total is `inner + outer`.
+    Layered { inner: f32, outer: f32 },
+    /// A total-only envelope with no layer structure.
+    Unlayered(f32),
 }
 
 impl EdgeDemand {
-    pub fn new(inner: f32, outer: f32, total: f32) -> Self {
+    /// The residual declaration pattern: a known interior layer within a
+    /// measured envelope. `outer` is the non-negative remainder, so the
+    /// granted total is `max(envelope, inner)`.
+    pub fn from_inner_and_envelope(inner: f32, envelope: f32) -> Self {
         let inner = inner.max(0.0);
-        let outer = outer.max(0.0);
-        let total = total.max(inner + outer).max(0.0);
-        Self {
+        Self::Layered {
             inner,
-            outer,
-            total,
+            outer: (envelope - inner).max(0.0),
         }
     }
+}
 
-    pub fn total(total: f32) -> Self {
-        Self::new(0.0, 0.0, total)
+impl Default for EdgeDemand {
+    fn default() -> Self {
+        Self::Unlayered(0.0)
     }
 }
 
@@ -86,12 +89,9 @@ impl EdgeGrant {
 
 impl From<EdgeDemand> for EdgeGrant {
     fn from(demand: EdgeDemand) -> Self {
-        // The declaration constructor already lifted, so this is a plain
-        // field copy into grant space.
-        Self {
-            inner: demand.inner,
-            outer: demand.outer,
-            total: demand.total,
+        match demand {
+            EdgeDemand::Layered { inner, outer } => Self::new(inner, outer, inner + outer),
+            EdgeDemand::Unlayered(total) => Self::total_only(total),
         }
     }
 }

@@ -135,8 +135,8 @@ impl<Id: Clone> BandSolution<Id> {
                 ),
             };
             Layout::<usize>::leaf(size)
-                .demand(before_side, EdgeDemand::total(child.boundary.before))
-                .demand(after_side, EdgeDemand::total(child.boundary.after))
+                .demand(before_side, EdgeDemand::Unlayered(child.boundary.before))
+                .demand(after_side, EdgeDemand::Unlayered(child.boundary.after))
         });
         let mut band = match orientation {
             Orientation::Horizontal => Layout::row(leaves).column_spacing(spacing),

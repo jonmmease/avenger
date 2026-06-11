@@ -798,10 +798,22 @@ mod tests {
         // appear.
         let root: Layout<&str> = Layout::row(vec![
             Layout::leaf(Size::new(100.0, 60.0))
-                .demand(Side::Top, Demand::new(20.0, 0.0, 20.0))
+                .demand(
+                    Side::Top,
+                    Demand::Layered {
+                        inner: 20.0,
+                        outer: 0.0,
+                    },
+                )
                 .id("a"),
             Layout::leaf(Size::new(60.0, 60.0))
-                .demand(Side::Top, Demand::new(8.0, 0.0, 8.0))
+                .demand(
+                    Side::Top,
+                    Demand::Layered {
+                        inner: 8.0,
+                        outer: 0.0,
+                    },
+                )
                 .id("b"),
         ])
         .margin(8.0)

@@ -31,9 +31,9 @@ use super::placement::EdgeTargets;
 pub(crate) struct GridCell {
     pub slot: GridSlot,
     pub content_size: Size,
-    pub inner_edges: Edges<f32>,
-    pub outer_edges: Edges<f32>,
-    pub total_edges: Edges<f32>,
+    /// Per-side edge demand declarations (layered guide/legend pairs at
+    /// production sites; unlayered totals in fixtures).
+    pub edges: Edges<EdgeDemand>,
 }
 
 /// Per-track requirement data for one measured grid: the chart's
@@ -119,14 +119,7 @@ fn cell_leaf(cell: &GridCell, export: bool) -> Layout<usize> {
     }
     let mut leaf = Layout::leaf(content);
     for side in [Side::Top, Side::Right, Side::Bottom, Side::Left] {
-        leaf = leaf.demand(
-            side,
-            EdgeDemand::new(
-                *cell.inner_edges.side(side),
-                *cell.outer_edges.side(side),
-                *cell.total_edges.side(side),
-            ),
-        );
+        leaf = leaf.demand(side, *cell.edges.side(side));
     }
     leaf
 }
@@ -336,9 +329,12 @@ mod tests {
                 column_span,
             },
             content_size: Size::new(width, height),
-            inner_edges: Edges::default(),
-            outer_edges: Edges::default(),
-            total_edges: edges,
+            edges: Edges::new(
+                EdgeDemand::Unlayered(edges.top),
+                EdgeDemand::Unlayered(edges.right),
+                EdgeDemand::Unlayered(edges.bottom),
+                EdgeDemand::Unlayered(edges.left),
+            ),
         }
     }
 

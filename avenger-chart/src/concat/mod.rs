@@ -30,8 +30,8 @@ use crate::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
     layout::{
-        ChartRegionMeta, GridShape, GridSlot, LayoutBounds, Orientation, PlacedBandItem, Size,
-        TrackSpacing, layout_edges,
+        ChartRegionMeta, EdgeDemand, Edges, GridShape, GridSlot, LayoutBounds, Orientation,
+        PlacedBandItem, Size, TrackSpacing, layout_edges,
     },
     marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
@@ -1061,9 +1061,10 @@ impl ConcatCoordMeasurement {
                         child.measurement.plot_area_width,
                         child.measurement.plot_area_height,
                     ),
-                    inner_edges: layout_edges(frame_demand.guide_slabs),
-                    outer_edges: layout_edges(frame_demand.legend_slabs),
-                    total_edges: layout_edges(frame_demand.rendered_envelope),
+                    edges: layered_cell_edges(
+                        layout_edges(frame_demand.guide_slabs),
+                        layout_edges(frame_demand.legend_slabs),
+                    ),
                 })
             })
             .collect()
@@ -2296,12 +2297,39 @@ fn grid_child_items(
                     child.measurement.plot_area_width,
                     child.measurement.plot_area_height,
                 ),
-                inner_edges: layout_edges(child.measurement.frame_demand().guide_slabs),
-                outer_edges: layout_edges(child.measurement.frame_demand().legend_slabs),
-                total_edges: layout_edges(child.measurement.frame_demand().rendered_envelope),
+                edges: layered_cell_edges(
+                    layout_edges(child.measurement.frame_demand().guide_slabs),
+                    layout_edges(child.measurement.frame_demand().legend_slabs),
+                ),
             })
         })
         .collect()
+}
+
+/// Per-side layered cell-edge declarations from guide (inner) and legend
+/// (outer) slab extents. Legend slabs are the clamped remainder of the
+/// rendered envelope after guides
+/// (`FrameDemand::from_guide_and_rendered_envelope`), so `inner + outer`
+/// covers the cell's rendered edge.
+fn layered_cell_edges(guide: Edges<f32>, legend: Edges<f32>) -> Edges<EdgeDemand> {
+    Edges::new(
+        EdgeDemand::Layered {
+            inner: guide.top,
+            outer: legend.top,
+        },
+        EdgeDemand::Layered {
+            inner: guide.right,
+            outer: legend.right,
+        },
+        EdgeDemand::Layered {
+            inner: guide.bottom,
+            outer: legend.bottom,
+        },
+        EdgeDemand::Layered {
+            inner: guide.left,
+            outer: legend.left,
+        },
+    )
 }
 
 fn container_point_geometry(
@@ -3014,7 +3042,7 @@ mod tests {
         // solve patches the local grid to the cousin's folds.
         let local_spec = concat.grid_member_spec()?;
         let mut cousin_spec = local_spec.clone();
-        cousin_spec.cells[1].total_edges.left = 32.0;
+        cousin_spec.cells[1].edges.left = EdgeDemand::Unlayered(32.0);
         let solutions =
             crate::layout::concat_grid::solve_concat_grid_group(&[local_spec, cousin_spec])
                 .map_err(AvengerChartError::InternalError)?;

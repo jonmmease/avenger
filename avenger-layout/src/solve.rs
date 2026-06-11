@@ -1578,10 +1578,10 @@ mod tests {
         // Chrome on the grid replaces the legacy stacked_inner_edges: a
         // 15px child right demand plus a 35px inner header = a 50px
         // envelope with the header on the inner (coordinated) layer.
-        let new: Layout = Layout::row([
-            Layout::leaf(Size::new(100.0, 60.0)).demand(Side::Right, EdgeDemand::total(15.0))
-        ])
-        .inner(Side::Right, 35.0);
+        let new: Layout =
+            Layout::row([Layout::leaf(Size::new(100.0, 60.0))
+                .demand(Side::Right, EdgeDemand::Unlayered(15.0))])
+            .inner(Side::Right, 35.0);
         let solved = new.solve(&SolveOptions::default()).expect("solve");
 
         assert_eq!(solved.envelope().layered.right.total, 50.0);
@@ -1593,9 +1593,20 @@ mod tests {
         // Mixed dominance: all-guide top 10 vs all-legend top 8. Layered
         // lifts to 18; geometric reports the raw max 10.
         let root: Layout = Layout::row([
-            Layout::leaf(Size::new(100.0, 60.0))
-                .demand(Side::Top, EdgeDemand::new(10.0, 0.0, 10.0)),
-            Layout::leaf(Size::new(100.0, 60.0)).demand(Side::Top, EdgeDemand::new(0.0, 8.0, 8.0)),
+            Layout::leaf(Size::new(100.0, 60.0)).demand(
+                Side::Top,
+                EdgeDemand::Layered {
+                    inner: 10.0,
+                    outer: 0.0,
+                },
+            ),
+            Layout::leaf(Size::new(100.0, 60.0)).demand(
+                Side::Top,
+                EdgeDemand::Layered {
+                    inner: 0.0,
+                    outer: 8.0,
+                },
+            ),
         ]);
         let solved = root.solve(&SolveOptions::default()).expect("solve");
 
@@ -1641,9 +1652,20 @@ mod tests {
         // row reserves the max; both contents align by sharing the track;
         // granted reports the track-level demand.
         let root: Layout = Layout::row([
-            Layout::leaf(Size::new(100.0, 60.0))
-                .demand(Side::Top, EdgeDemand::new(20.0, 0.0, 20.0)),
-            Layout::leaf(Size::new(100.0, 60.0)).demand(Side::Top, EdgeDemand::new(8.0, 0.0, 8.0)),
+            Layout::leaf(Size::new(100.0, 60.0)).demand(
+                Side::Top,
+                EdgeDemand::Layered {
+                    inner: 20.0,
+                    outer: 0.0,
+                },
+            ),
+            Layout::leaf(Size::new(100.0, 60.0)).demand(
+                Side::Top,
+                EdgeDemand::Layered {
+                    inner: 8.0,
+                    outer: 0.0,
+                },
+            ),
         ]);
         let solved = root.solve(&SolveOptions::default()).expect("solve");
 
@@ -1822,8 +1844,14 @@ mod tests {
         bottom: f32,
     ) -> Layout<&'static str, &'static str> {
         Layout::leaf(Size::new(width, height))
-            .demand(Side::Left, EdgeDemand::new(left, 0.0, left))
-            .demand(Side::Bottom, EdgeDemand::total(bottom))
+            .demand(
+                Side::Left,
+                EdgeDemand::Layered {
+                    inner: left,
+                    outer: 0.0,
+                },
+            )
+            .demand(Side::Bottom, EdgeDemand::Unlayered(bottom))
     }
 
     #[test]
@@ -1891,8 +1919,20 @@ mod tests {
         // cell (outer 8): the layered demand lifts total to inner + outer,
         // while the geometric view keeps the raw per-side maximum.
         let band: Layout<&str> = Layout::row(vec![
-            Layout::leaf(Size::new(40.0, 30.0)).demand(Side::Top, EdgeDemand::new(5.0, 0.0, 5.0)),
-            Layout::leaf(Size::new(40.0, 30.0)).demand(Side::Top, EdgeDemand::new(0.0, 8.0, 8.0)),
+            Layout::leaf(Size::new(40.0, 30.0)).demand(
+                Side::Top,
+                EdgeDemand::Layered {
+                    inner: 5.0,
+                    outer: 0.0,
+                },
+            ),
+            Layout::leaf(Size::new(40.0, 30.0)).demand(
+                Side::Top,
+                EdgeDemand::Layered {
+                    inner: 0.0,
+                    outer: 8.0,
+                },
+            ),
         ])
         .id("band");
         let solved = band.solve(&SolveOptions::default()).expect("solve");

@@ -104,15 +104,15 @@ fn allocated(width: f32, height: f32) -> SolveOptions {
 fn row_gaps_and_min_gap_floor() {
     let root: L = Layout::row(vec![
         Layout::leaf(Size::new(60.0, 80.0))
-            .demand(Side::Left, EdgeDemand::total(5.0))
-            .demand(Side::Right, EdgeDemand::total(8.0))
+            .demand(Side::Left, EdgeDemand::Unlayered(5.0))
+            .demand(Side::Right, EdgeDemand::Unlayered(8.0))
             .id("a"),
         Layout::leaf(Size::new(90.0, 80.0))
-            .demand(Side::Left, EdgeDemand::total(14.0))
-            .demand(Side::Right, EdgeDemand::total(2.0))
+            .demand(Side::Left, EdgeDemand::Unlayered(14.0))
+            .demand(Side::Right, EdgeDemand::Unlayered(2.0))
             .id("b"),
         Layout::leaf(Size::new(45.0, 80.0))
-            .demand(Side::Left, EdgeDemand::total(1.0))
+            .demand(Side::Left, EdgeDemand::Unlayered(1.0))
             .id("c"),
     ])
     .column_spacing(Spacing {
@@ -209,12 +209,36 @@ fn grid_spans_holes_and_base_cell_size() {
 fn grid_edge_demand_layers_and_gap_law() {
     let root: L = Layout::row(vec![
         Layout::leaf(Size::new(100.0, 60.0))
-            .demand(Side::Right, EdgeDemand::new(6.0, 20.0, 26.0))
-            .demand(Side::Left, EdgeDemand::new(9.0, 0.0, 9.0))
+            .demand(
+                Side::Right,
+                EdgeDemand::Layered {
+                    inner: 6.0,
+                    outer: 20.0,
+                },
+            )
+            .demand(
+                Side::Left,
+                EdgeDemand::Layered {
+                    inner: 9.0,
+                    outer: 0.0,
+                },
+            )
             .id("a"),
         Layout::leaf(Size::new(100.0, 60.0))
-            .demand(Side::Left, EdgeDemand::new(0.0, 3.0, 3.0))
-            .demand(Side::Top, EdgeDemand::new(7.0, 11.0, 18.0))
+            .demand(
+                Side::Left,
+                EdgeDemand::Layered {
+                    inner: 0.0,
+                    outer: 3.0,
+                },
+            )
+            .demand(
+                Side::Top,
+                EdgeDemand::Layered {
+                    inner: 7.0,
+                    outer: 11.0,
+                },
+            )
             .id("b"),
     ]);
     let solved = root.solve(&natural()).expect("solve");
@@ -375,7 +399,7 @@ fn bands_all_four_sides_corner_rule() {
 fn nested_grid_with_chrome() {
     let nested: L = Layout::column(vec![
         Layout::leaf(Size::new(90.0, 50.0))
-            .demand(Side::Right, EdgeDemand::total(15.0))
+            .demand(Side::Right, EdgeDemand::Unlayered(15.0))
             .id("c0"),
         Layout::leaf(Size::new(90.0, 56.0)).id("c1"),
     ])
@@ -554,8 +578,14 @@ fn uniform_share_tolerates_ragged_counts() {
 fn nested_facet_columns_coordinated() {
     let cell = |width: f32, height: f32, left: f32, bottom: f32| -> L {
         Layout::leaf(Size::new(width, height))
-            .demand(Side::Left, EdgeDemand::new(left, 0.0, left))
-            .demand(Side::Bottom, EdgeDemand::total(bottom))
+            .demand(
+                Side::Left,
+                EdgeDemand::Layered {
+                    inner: left,
+                    outer: 0.0,
+                },
+            )
+            .demand(Side::Bottom, EdgeDemand::Unlayered(bottom))
     };
     let build = |share: bool| -> L {
         let with_key = |grid: L| if share { grid.share("cols") } else { grid };
@@ -604,9 +634,16 @@ fn shared_charts_coordinate_in_one_solve() {
     let chart = |id: &'static str, width: f32, left: f32, bottom: f32| -> L {
         Layout::row(vec![
             Layout::leaf(Size::new(width, 90.0))
-                .demand(Side::Left, EdgeDemand::new(left, 0.0, left))
-                .demand(Side::Bottom, EdgeDemand::total(bottom)),
-            Layout::leaf(Size::new(width, 90.0)).demand(Side::Bottom, EdgeDemand::total(bottom)),
+                .demand(
+                    Side::Left,
+                    EdgeDemand::Layered {
+                        inner: left,
+                        outer: 0.0,
+                    },
+                )
+                .demand(Side::Bottom, EdgeDemand::Unlayered(bottom)),
+            Layout::leaf(Size::new(width, 90.0))
+                .demand(Side::Bottom, EdgeDemand::Unlayered(bottom)),
         ])
         .min_gap(12.0)
         .share("plots")

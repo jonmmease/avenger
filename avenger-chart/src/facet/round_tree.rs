@@ -107,11 +107,7 @@ pub(crate) fn solve_round(nodes: &[RequirementNodeSnapshot]) -> SolvedRound {
                         ] {
                             leaf = leaf.demand(
                                 side,
-                                EdgeDemand::new(
-                                    guide_value,
-                                    (total_value - guide_value).max(0.0),
-                                    total_value,
-                                ),
+                                EdgeDemand::from_inner_and_envelope(guide_value, total_value),
                             );
                         }
                         leaf
