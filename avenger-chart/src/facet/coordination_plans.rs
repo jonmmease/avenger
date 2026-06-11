@@ -42,14 +42,12 @@ impl CoordinationNodeKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RequirementStage {
     Initial,
-    Retargeted,
 }
 
 impl RequirementStage {
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Initial => "initial requirements",
-            Self::Retargeted => "retargeted requirements",
         }
     }
 }
@@ -1678,7 +1676,7 @@ mod tests {
             ],
         };
 
-        let pass = build_pass(RequirementStage::Retargeted, snapshot);
+        let pass = build_pass(RequirementStage::Initial, snapshot);
         assert_eq!(pass.snapshot.nodes.len(), 2);
         assert_eq!(pass.diagnostics.overflow_groups, 1);
         assert_eq!(pass.diagnostics.layout_groups, 1);
