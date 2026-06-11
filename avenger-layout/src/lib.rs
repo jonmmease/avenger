@@ -83,6 +83,7 @@
 
 pub mod alignment;
 pub mod band;
+pub mod build;
 pub mod frame;
 pub mod geometry;
 pub mod grid;
@@ -90,6 +91,10 @@ pub mod region;
 #[cfg(feature = "svg")]
 pub mod svg;
 pub mod tree;
+
+pub use build::{
+    CellAlign, Distribute, Layout, LayoutError, SolveFor, SolveOptions, Spacing, TrackSize,
+};
 
 pub use alignment::{
     AlignedGroup, AlignmentNode, AlignmentPlan, ConvergenceTrace, NodeDelta, RoundDeltas,
