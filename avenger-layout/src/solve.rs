@@ -22,11 +22,11 @@ use std::hash::Hash;
 
 use crate::build::{
     CellAlign, ChromeSide, Distribute, GridSpec, Layout, LayoutError, LayoutKind, SolveFor,
-    SolveOptions,
+    SolveOptions, TrackSize,
 };
 use crate::frame::{FrameAxis, FrameAxisSizing, FrameSide};
 use crate::geometry::{Edges, Rect, Size};
-use crate::grid::{GridItem, GridRequirements, GridSolution};
+use crate::grid::{GridItem, GridRequirements, GridSolution, TrackGrowth};
 use crate::region::EdgeDemand;
 use crate::solution::{
     Diagnostics, Envelope, LayoutSolution, Region, RegionDetail, SkippedShare, SkippedShareReason,
@@ -55,6 +55,31 @@ pub(crate) struct MeasuredGrid {
     pub(crate) requirements: GridRequirements,
     pub(crate) natural: GridSolution,
     pub(crate) children: Vec<Measured>,
+    pub(crate) column_growth: Option<Vec<TrackGrowth>>,
+    pub(crate) row_growth: Option<Vec<TrackGrowth>>,
+}
+
+/// Map declared track sizes onto growth kinds (missing entries are `Auto`).
+fn growth_vector(declared: Option<&[TrackSize]>, count: usize) -> Option<Vec<TrackGrowth>> {
+    declared.map(|declared| {
+        (0..count)
+            .map(|index| match declared.get(index) {
+                Some(TrackSize::Fixed(_)) => TrackGrowth::Fixed,
+                Some(TrackSize::Flex(_)) => TrackGrowth::Flex,
+                Some(TrackSize::Auto) | None => TrackGrowth::Auto,
+            })
+            .collect()
+    })
+}
+
+/// Pin `Fixed` tracks to their declared pixels (rigid: content neither
+/// grows nor shrinks them; an oversized child overflows).
+fn pin_fixed_tracks(sizes: &mut [f32], declared: &[TrackSize]) {
+    for (index, size) in sizes.iter_mut().enumerate() {
+        if let Some(TrackSize::Fixed(pixels)) = declared.get(index) {
+            *size = pixels.max(0.0);
+        }
+    }
 }
 
 /// Stack one side's declared chrome onto the content's own demand
@@ -226,6 +251,12 @@ pub(crate) fn measure_with<Id: Clone, Key>(
             if spec.uniform_rows && spec.row_sizes.is_none() {
                 equalize(&mut requirements.row_heights);
             }
+            if let Some(declared) = spec.column_sizes.as_deref() {
+                pin_fixed_tracks(&mut requirements.column_widths, declared);
+            }
+            if let Some(declared) = spec.row_sizes.as_deref() {
+                pin_fixed_tracks(&mut requirements.row_heights, declared);
+            }
             if let Some(patch) = patches.get(path.as_slice()) {
                 apply_axis_patch(
                     &patch.column,
@@ -241,8 +272,22 @@ pub(crate) fn measure_with<Id: Clone, Key>(
                     &mut requirements.row_bottom,
                     &mut requirements.row_spacing,
                 );
+                // Fixed tracks stay rigid even against merged floors
+                // (group members declare identical TrackSize vectors).
+                if let Some(declared) = spec.column_sizes.as_deref() {
+                    pin_fixed_tracks(&mut requirements.column_widths, declared);
+                }
+                if let Some(declared) = spec.row_sizes.as_deref() {
+                    pin_fixed_tracks(&mut requirements.row_heights, declared);
+                }
             }
-            let natural = requirements.solve(&items);
+            let column_growth = growth_vector(spec.column_sizes.as_deref(), spec.shape.columns);
+            let row_growth = growth_vector(spec.row_sizes.as_deref(), spec.shape.rows);
+            let natural = requirements.solve_with_growth(
+                &items,
+                column_growth.as_deref(),
+                row_growth.as_deref(),
+            );
 
             // Boundary demands: first/last track edges reach the envelope;
             // interior edges became gaps.
@@ -280,6 +325,8 @@ pub(crate) fn measure_with<Id: Clone, Key>(
                     requirements,
                     natural,
                     children,
+                    column_growth,
+                    row_growth,
                 }),
             )
         }
@@ -804,6 +851,59 @@ fn slot_rect_positional(
     Rect::new(content.x + x, content.y + y, width, height)
 }
 
+/// Grow one axis's tracks for `free` extra space. `Flex` tracks (if any)
+/// take the leftover by weight; otherwise `StretchTracks` spreads it evenly
+/// over non-`Fixed` tracks. Returns whether sizes changed (requiring a
+/// re-solve); `false` leaves the free space to `offset_starts`.
+fn expand_tracks(
+    sizes: &mut [f32],
+    free: f32,
+    distribute: Distribute,
+    declared: Option<&[TrackSize]>,
+) -> bool {
+    if free <= 0.0 || sizes.is_empty() {
+        return false;
+    }
+    if let Some(declared) = declared {
+        let weights: Vec<(usize, f32)> = declared
+            .iter()
+            .enumerate()
+            .filter_map(|(index, track)| match track {
+                TrackSize::Flex(weight) if *weight > 0.0 && index < sizes.len() => {
+                    Some((index, *weight))
+                }
+                _ => None,
+            })
+            .collect();
+        let total: f32 = weights.iter().map(|(_, weight)| weight).sum();
+        if total > 0.0 {
+            for (index, weight) in weights {
+                sizes[index] += free * weight / total;
+            }
+            return true;
+        }
+    }
+    if distribute != Distribute::StretchTracks {
+        return false;
+    }
+    let stretchable: Vec<usize> = (0..sizes.len())
+        .filter(|&index| {
+            !matches!(
+                declared.and_then(|declared| declared.get(index)),
+                Some(TrackSize::Fixed(_))
+            )
+        })
+        .collect();
+    if stretchable.is_empty() {
+        return false; // all Fixed: free space trails.
+    }
+    let extra = free / stretchable.len() as f32;
+    for index in stretchable {
+        sizes[index] += extra;
+    }
+    true
+}
+
 /// Apply the grid's free-space policy for a target content size, returning
 /// the solution to place children with.
 fn distribute<Id, Key>(
@@ -818,31 +918,33 @@ fn distribute<Id, Key>(
         return natural.clone();
     }
 
-    let stretch_x = spec.distribute_x == Distribute::StretchTracks && free_x > 0.0;
-    let stretch_y = spec.distribute_y == Distribute::StretchTracks && free_y > 0.0;
-    let mut solution = if stretch_x || stretch_y {
-        let mut requirements = grid.requirements.clone();
-        if stretch_x && !requirements.column_widths.is_empty() {
-            let extra = free_x / requirements.column_widths.len() as f32;
-            for width in &mut requirements.column_widths {
-                *width += extra;
-            }
-        }
-        if stretch_y && !requirements.row_heights.is_empty() {
-            let extra = free_y / requirements.row_heights.len() as f32;
-            for height in &mut requirements.row_heights {
-                *height += extra;
-            }
-        }
-        requirements.solve(&grid.items)
+    let mut requirements = grid.requirements.clone();
+    let absorbed_x = expand_tracks(
+        &mut requirements.column_widths,
+        free_x,
+        spec.distribute_x,
+        spec.column_sizes.as_deref(),
+    );
+    let absorbed_y = expand_tracks(
+        &mut requirements.row_heights,
+        free_y,
+        spec.distribute_y,
+        spec.row_sizes.as_deref(),
+    );
+    let mut solution = if absorbed_x || absorbed_y {
+        requirements.solve_with_growth(
+            &grid.items,
+            grid.column_growth.as_deref(),
+            grid.row_growth.as_deref(),
+        )
     } else {
         natural.clone()
     };
 
-    if !stretch_x && free_x > 0.0 {
+    if !absorbed_x && free_x > 0.0 {
         offset_starts(&mut solution.column_starts, spec.distribute_x, free_x);
     }
-    if !stretch_y && free_y > 0.0 {
+    if !absorbed_y && free_y > 0.0 {
         offset_starts(&mut solution.row_starts, spec.distribute_y, free_y);
     }
     solution
@@ -1951,5 +2053,89 @@ mod tests {
             panic!("grid expected");
         };
         assert_eq!(tracks.column_sizes, vec![100.0, 80.0], "uniform ignored");
+    }
+
+    #[test]
+    fn flex_tracks_split_leftover_by_weight() {
+        use crate::build::TrackSize::{Auto, Flex};
+        let root: Layout = Layout::row(vec![
+            Layout::leaf(Size::new(40.0, 20.0)),
+            Layout::leaf(Size::new(40.0, 20.0)),
+            Layout::leaf(Size::new(40.0, 20.0)),
+        ])
+        .columns([Flex(2.0), Flex(1.0), Auto])
+        .id(0);
+        let solved = root
+            .solve(&SolveOptions {
+                width: Some(240.0),
+                height: None,
+            })
+            .expect("solve");
+        let region = solved.region(&0).unwrap();
+        let crate::solution::RegionDetail::Grid { tracks } = &region.detail else {
+            panic!("grid expected");
+        };
+        // 120 free over weights 2:1; the Auto track gets none.
+        assert_eq!(tracks.column_sizes, vec![120.0, 80.0, 40.0]);
+        assert_eq!(solved.size.width, 240.0);
+    }
+
+    #[test]
+    fn fixed_track_is_rigid_and_oversized_content_overflows() {
+        use crate::build::TrackSize::{Auto, Fixed};
+        let root: Layout = Layout::row(vec![
+            Layout::leaf(Size::new(100.0, 50.0)).id(1),
+            Layout::leaf(Size::new(50.0, 50.0)).id(2),
+        ])
+        .columns([Fixed(60.0), Auto])
+        .id(0);
+        let solved = root
+            .solve(&SolveOptions {
+                width: Some(200.0),
+                height: None,
+            })
+            .expect("solve");
+        let region = solved.region(&0).unwrap();
+        let crate::solution::RegionDetail::Grid { tracks } = &region.detail else {
+            panic!("grid expected");
+        };
+        // Fixed stays 60 (not grown for the 100-wide child, not stretched);
+        // all 90 of free space goes to the Auto track.
+        assert_eq!(tracks.column_sizes, vec![60.0, 140.0]);
+        let first = solved.region(&1).unwrap();
+        assert_eq!(first.slot.width, 60.0);
+        assert_eq!(first.content.width, 100.0, "honest overflow");
+    }
+
+    #[test]
+    fn flex_tracks_floor_at_content() {
+        use crate::build::TrackSize::Flex;
+        let root: Layout = Layout::row(vec![Layout::leaf(Size::new(100.0, 50.0))])
+            .columns([Flex(1.0)])
+            .id(0);
+        let solved = root.solve(&SolveOptions::default()).expect("solve");
+        let region = solved.region(&0).unwrap();
+        let crate::solution::RegionDetail::Grid { tracks } = &region.detail else {
+            panic!("grid expected");
+        };
+        assert_eq!(tracks.column_sizes, vec![100.0], "minmax(auto, fr)");
+    }
+
+    #[test]
+    fn span_deficits_avoid_fixed_tracks() {
+        use crate::build::TrackSize::{Auto, Fixed};
+        let root: Layout = Layout::grid(1, 2)
+            .cell(0, 0, Layout::leaf(Size::new(40.0, 50.0)))
+            .cell(0, 1, Layout::leaf(Size::new(50.0, 50.0)))
+            .cell_span(0, 0, 1, 2, Layout::leaf(Size::new(200.0, 50.0)))
+            .columns([Fixed(50.0), Auto])
+            .id(0);
+        let solved = root.solve(&SolveOptions::default()).expect("solve");
+        let region = solved.region(&0).unwrap();
+        let crate::solution::RegionDetail::Grid { tracks } = &region.detail else {
+            panic!("grid expected");
+        };
+        // The span's 100px deficit lands entirely on the Auto track.
+        assert_eq!(tracks.column_sizes, vec![50.0, 150.0]);
     }
 }

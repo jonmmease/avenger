@@ -329,6 +329,18 @@ impl GridRequirements {
 
     /// Solve track starts, span constraints, and content size for one grid.
     pub fn solve<Id>(&self, demands: &[GridItem<Id>]) -> GridSolution {
+        self.solve_with_growth(demands, None, None)
+    }
+
+    /// Like [`GridRequirements::solve`], with optional per-track growth
+    /// kinds: span deficits distribute to `Auto` tracks first, then `Flex`,
+    /// never `Fixed`. `None` treats every track as `Auto`.
+    pub(crate) fn solve_with_growth<Id>(
+        &self,
+        demands: &[GridItem<Id>],
+        column_growth: Option<&[TrackGrowth]>,
+        row_growth: Option<&[TrackGrowth]>,
+    ) -> GridSolution {
         let requirements = self;
         debug_assert_eq!(requirements.column_widths.len(), requirements.shape.columns);
         debug_assert_eq!(requirements.row_heights.len(), requirements.shape.rows);
@@ -345,6 +357,7 @@ impl GridRequirements {
             &column_right_totals,
             &column_left_totals,
             requirements.column_spacing.min_gap,
+            column_growth,
             demands
                 .iter()
                 .map(|demand| AxisSpanConstraint {
@@ -359,6 +372,7 @@ impl GridRequirements {
             &row_bottom_totals,
             &row_top_totals,
             requirements.row_spacing.min_gap,
+            row_growth,
             demands
                 .iter()
                 .map(|demand| AxisSpanConstraint {
@@ -415,6 +429,14 @@ pub(crate) fn total_edge_demands(values: impl IntoIterator<Item = f32>) -> Vec<E
     values.into_iter().map(EdgeDemand::total).collect()
 }
 
+/// How one track may absorb distributed space (span deficits, stretch).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TrackGrowth {
+    Auto,
+    Flex,
+    Fixed,
+}
+
 #[derive(Clone, Debug)]
 struct AxisSpanConstraint {
     start: usize,
@@ -427,6 +449,7 @@ fn satisfy_span_axis_constraints(
     trailing_edges: &[f32],
     leading_edges: &[f32],
     min_gap: f32,
+    growth: Option<&[TrackGrowth]>,
     mut constraints: Vec<AxisSpanConstraint>,
 ) {
     constraints.sort_by_key(|constraint| constraint.span);
@@ -443,9 +466,33 @@ fn satisfy_span_axis_constraints(
         if deficit <= 0.0 || constraint.span == 0 {
             continue;
         }
-        let extra_per_track = deficit / constraint.span as f32;
-        for size in &mut sizes[constraint.start..constraint.start + constraint.span] {
-            *size += extra_per_track;
+        let range = constraint.start..constraint.start + constraint.span;
+        // Deficits prefer Auto tracks, then Flex, never Fixed.
+        let growable: Vec<usize> = match growth {
+            None => range.collect(),
+            Some(growth) => {
+                let of_kind = |kind: TrackGrowth| -> Vec<usize> {
+                    range
+                        .clone()
+                        .filter(|&index| {
+                            growth.get(index).copied().unwrap_or(TrackGrowth::Auto) == kind
+                        })
+                        .collect()
+                };
+                let auto = of_kind(TrackGrowth::Auto);
+                if !auto.is_empty() {
+                    auto
+                } else {
+                    of_kind(TrackGrowth::Flex)
+                }
+            }
+        };
+        if growable.is_empty() {
+            continue; // all Fixed: the spanning item overflows.
+        }
+        let extra_per_track = deficit / growable.len() as f32;
+        for index in growable {
+            sizes[index] += extra_per_track;
         }
     }
 }
