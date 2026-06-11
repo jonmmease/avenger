@@ -17,7 +17,7 @@
 //!   (distributing free space per their own policy); contained chrome
 //!   boxes fill their slot and solve content inside.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 use crate::build::{
@@ -28,7 +28,10 @@ use crate::frame::{FrameAxis, FrameAxisSizing, FrameSide};
 use crate::geometry::{Edges, Rect, Size};
 use crate::grid::{GridItem, GridRequirements, GridSolution};
 use crate::region::EdgeDemand;
-use crate::solution::{Diagnostics, Envelope, LayoutSolution, Region, RegionDetail, SolvedTracks};
+use crate::solution::{
+    Diagnostics, Envelope, LayoutSolution, Region, RegionDetail, SkippedShare, SkippedShareReason,
+    SolvedTracks,
+};
 
 // --- measurement -----------------------------------------------------------
 
@@ -78,7 +81,90 @@ fn chrome_fixed_total(side: &ChromeSide) -> f32 {
     chrome_total(side) - side.margin.max(0.0)
 }
 
+/// Merged floors patched into one shared grid during the pass-2 re-measure.
+#[derive(Clone, Debug)]
+pub(crate) struct SharePatch {
+    pub(crate) column: AxisPatch,
+    pub(crate) row: AxisPatch,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum AxisPatch {
+    /// Equal-shape merge: per-track floors.
+    PerTrack {
+        sizes: Vec<f32>,
+        leading: Vec<EdgeDemand>,
+        trailing: Vec<EdgeDemand>,
+        spacing: crate::grid::TrackSpacing,
+    },
+    /// Uniform policy merge (ragged-tolerant): one track-size floor plus
+    /// first/last edge chrome.
+    Uniform {
+        size: f32,
+        first: EdgeDemand,
+        last: EdgeDemand,
+        spacing: crate::grid::TrackSpacing,
+    },
+}
+
+fn apply_axis_patch(
+    patch: &AxisPatch,
+    sizes: &mut [f32],
+    leading: &mut [EdgeDemand],
+    trailing: &mut [EdgeDemand],
+    spacing: &mut crate::grid::TrackSpacing,
+) {
+    match patch {
+        AxisPatch::PerTrack {
+            sizes: merged_sizes,
+            leading: merged_leading,
+            trailing: merged_trailing,
+            spacing: merged_spacing,
+        } => {
+            // Coordination only raises floors: max with the re-measured
+            // values so a pass-2 cascade can still grow past the pass-1
+            // merge (residual converges through the caller's loop).
+            for (size, merged) in sizes.iter_mut().zip(merged_sizes) {
+                *size = size.max(*merged);
+            }
+            for (edge, merged) in leading.iter_mut().zip(merged_leading) {
+                *edge = edge.max_components(*merged);
+            }
+            for (edge, merged) in trailing.iter_mut().zip(merged_trailing) {
+                *edge = edge.max_components(*merged);
+            }
+            *spacing = spacing.merge_max(*merged_spacing);
+        }
+        AxisPatch::Uniform {
+            size: merged_size,
+            first,
+            last,
+            spacing: merged_spacing,
+        } => {
+            for size in sizes.iter_mut() {
+                *size = size.max(*merged_size);
+            }
+            if let Some(edge) = leading.first_mut() {
+                *edge = edge.max_components(*first);
+            }
+            if let Some(edge) = trailing.last_mut() {
+                *edge = edge.max_components(*last);
+            }
+            *spacing = spacing.merge_max(*merged_spacing);
+        }
+    }
+}
+
 pub(crate) fn measure<Id: Clone, Key>(node: &Layout<Id, Key>) -> Result<Measured, LayoutError> {
+    let mut path = Vec::new();
+    measure_with(node, &mut path, &HashMap::new())
+}
+
+pub(crate) fn measure_with<Id: Clone, Key>(
+    node: &Layout<Id, Key>,
+    path: &mut Vec<usize>,
+    patches: &HashMap<Vec<usize>, SharePatch>,
+) -> Result<Measured, LayoutError> {
     let (natural_content, content_demands, mut geometric_total, grid) = match &node.kind {
         LayoutKind::Leaf {
             content_size,
@@ -101,7 +187,9 @@ pub(crate) fn measure<Id: Clone, Key>(node: &Layout<Id, Key>) -> Result<Measured
             let mut children = Vec::with_capacity(spec.children.len());
             let mut items = Vec::with_capacity(spec.children.len());
             for (index, child) in spec.children.iter().enumerate() {
-                let measured = measure(&child.layout)?;
+                path.push(index);
+                let measured = measure_with(&child.layout, path, patches)?;
+                path.pop();
                 items.push(GridItem {
                     id: index,
                     slot: child.slot,
@@ -132,11 +220,27 @@ pub(crate) fn measure<Id: Clone, Key>(node: &Layout<Id, Key>) -> Result<Measured
                 GridRequirements::from_items(spec.shape, spec.base_cell_size, &items)?;
             requirements.column_spacing = spec.column_spacing;
             requirements.row_spacing = spec.row_spacing;
-            if spec.uniform_columns {
+            if spec.uniform_columns && spec.column_sizes.is_none() {
                 equalize(&mut requirements.column_widths);
             }
-            if spec.uniform_rows {
+            if spec.uniform_rows && spec.row_sizes.is_none() {
                 equalize(&mut requirements.row_heights);
+            }
+            if let Some(patch) = patches.get(path.as_slice()) {
+                apply_axis_patch(
+                    &patch.column,
+                    &mut requirements.column_widths,
+                    &mut requirements.column_left,
+                    &mut requirements.column_right,
+                    &mut requirements.column_spacing,
+                );
+                apply_axis_patch(
+                    &patch.row,
+                    &mut requirements.row_heights,
+                    &mut requirements.row_top,
+                    &mut requirements.row_bottom,
+                    &mut requirements.row_spacing,
+                );
             }
             let natural = requirements.solve(&items);
 
@@ -280,18 +384,14 @@ fn place_axis(
     trailing: &ChromeSide,
     content_min: f32,
     natural_content: f32,
-    fills_slot: bool,
+    content_target: f32,
     align: CellAlign,
     slot_start: f32,
     slot_extent: f32,
 ) -> AxisPlacement {
     match sizing {
         SolveFor::Envelope => {
-            let content_extent = if fills_slot {
-                slot_extent
-            } else {
-                natural_content
-            };
+            let content_extent = content_target;
             let offset = align.offset(slot_extent, content_extent);
             let content_start = slot_start + offset;
             let axis = FrameAxis {
@@ -469,23 +569,79 @@ fn frame_side(side: &ChromeSide) -> FrameSide {
     }
 }
 
+/// Runtime state for share-key coordination during placement.
+///
+/// The dry pass records each shared grid's free-space offer (its slot minus
+/// its coordinated natural extent); the real pass stretches every group
+/// member by the group's **minimum** offer (the min-slack rule: free space
+/// is distributed in policy space, never per instance, so cousins stay
+/// congruent and none overflows).
+struct ShareState<'a> {
+    by_path: &'a HashMap<Vec<usize>, usize>,
+    /// Per group: `[x, y]` slack. Dry pass: collecting minima
+    /// (starts at infinity). Real pass: the granted slack.
+    slack: Vec<[f32; 2]>,
+    dry: bool,
+}
+
+impl ShareState<'_> {
+    fn group(&self, path: &[usize]) -> Option<usize> {
+        if self.by_path.is_empty() {
+            return None;
+        }
+        self.by_path.get(path).copied()
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn place<Id: Clone, Key>(
     node: &Layout<Id, Key>,
     measured: &Measured,
+    requested: &Measured,
     slot: Rect,
     granted: Edges<EdgeDemand>,
     depth: usize,
     path: &[usize],
     regions: &mut Vec<Region<Id>>,
+    shares: &mut ShareState<'_>,
 ) {
-    let fills_slot = measured.grid.is_some();
+    // Content target on Envelope axes: leaves keep their measured size;
+    // unshared grids fill their slot; shared grids stretch only by the
+    // group's min-slack (policy space).
+    let group = if measured.grid.is_some() {
+        shares.group(path)
+    } else {
+        None
+    };
+    let (target_w, target_h) = match (&measured.grid, group) {
+        (None, _) => (
+            measured.natural_content.width,
+            measured.natural_content.height,
+        ),
+        (Some(_), None) => (slot.width, slot.height),
+        (Some(_), Some(group)) => {
+            if shares.dry {
+                (
+                    measured.natural_content.width,
+                    measured.natural_content.height,
+                )
+            } else {
+                let slack = shares.slack[group];
+                (
+                    (measured.natural_content.width + slack[0]).min(slot.width),
+                    (measured.natural_content.height + slack[1]).min(slot.height),
+                )
+            }
+        }
+    };
+
     let horizontal = place_axis(
         node.chrome.sizing_x,
         &node.chrome.sides.left,
         &node.chrome.sides.right,
         node.chrome.content_min.width,
         measured.natural_content.width,
-        fills_slot,
+        target_w,
         node.align.0,
         slot.x,
         slot.width,
@@ -496,7 +652,7 @@ fn place<Id: Clone, Key>(
         &node.chrome.sides.bottom,
         node.chrome.content_min.height,
         measured.natural_content.height,
-        fills_slot,
+        target_h,
         node.align.1,
         slot.y,
         slot.height,
@@ -507,6 +663,21 @@ fn place<Id: Clone, Key>(
         horizontal.content_extent,
         vertical.content_extent,
     );
+
+    // Dry pass: record this shared grid's free-space offer.
+    if let Some(group) = group {
+        if shares.dry {
+            let offer_x = (content_avail(&horizontal, node.chrome.sizing_x, slot.width)
+                - measured.natural_content.width)
+                .max(0.0);
+            let offer_y = (content_avail(&vertical, node.chrome.sizing_y, slot.height)
+                - measured.natural_content.height)
+                .max(0.0);
+            let slack = &mut shares.slack[group];
+            slack[0] = slack[0].min(offer_x);
+            slack[1] = slack[1].min(offer_y);
+        }
+    }
 
     let mut slabs = Vec::new();
     carve_slabs(&horizontal, &vertical, &mut slabs);
@@ -519,7 +690,7 @@ fn place<Id: Clone, Key>(
         slot,
         content,
         slabs,
-        requested: measured.demands,
+        requested: requested.demands,
         granted,
         detail: RegionDetail::Leaf, // patched below for grids
     });
@@ -531,7 +702,20 @@ fn place<Id: Clone, Key>(
         unreachable!("measured grid implies grid kind");
     };
 
-    let solution = distribute(grid, spec, Size::new(content.width, content.height));
+    // Track distribution target: shared grids distribute only up to their
+    // policy-space extent even when a contained-mode box gave them more.
+    let track_target = match group {
+        Some(group) if !shares.dry => {
+            let slack = shares.slack[group];
+            Size::new(
+                (measured.natural_content.width + slack[0]).min(content.width),
+                (measured.natural_content.height + slack[1]).min(content.height),
+            )
+        }
+        Some(_) => measured.natural_content,
+        None => Size::new(content.width, content.height),
+    };
+    let solution = distribute(grid, spec, track_target);
 
     regions[region_index].detail = RegionDetail::Grid {
         tracks: SolvedTracks {
@@ -576,15 +760,31 @@ fn place<Id: Clone, Key>(
         );
         let mut child_path = path.to_vec();
         child_path.push(index);
+        let child_requested = requested
+            .grid
+            .as_ref()
+            .map(|requested_grid| &requested_grid.children[index])
+            .unwrap_or(&grid.children[index]);
         place(
             &child.layout,
             &grid.children[index],
+            child_requested,
             slot_rect,
             child_granted,
             depth + 1,
             &child_path,
             regions,
+            shares,
         );
+    }
+}
+
+/// The content extent available to a node on one axis: its slot on
+/// `Envelope` axes, the frame-solved content on contained axes.
+fn content_avail(placement: &AxisPlacement, sizing: SolveFor, slot_extent: f32) -> f32 {
+    match sizing {
+        SolveFor::Envelope => slot_extent,
+        SolveFor::Content | SolveFor::Margins => placement.chrome.content.size,
     }
 }
 
@@ -674,16 +874,234 @@ fn offset_starts(starts: &mut [f32], distribute: Distribute, free: f32) {
     }
 }
 
+// --- share-key coordination --------------------------------------------------
+
+/// One shared grid collected from the pass-1 measurement.
+struct ShareEntry<'a, Key> {
+    key: &'a Key,
+    path: Vec<usize>,
+    uniform_columns: bool,
+    uniform_rows: bool,
+    column_sizes: Option<&'a [crate::build::TrackSize]>,
+    row_sizes: Option<&'a [crate::build::TrackSize]>,
+    requirements: &'a GridRequirements,
+}
+
+fn collect_shares<'a, Id, Key>(
+    node: &'a Layout<Id, Key>,
+    measured: &'a Measured,
+    path: &mut Vec<usize>,
+    entries: &mut Vec<ShareEntry<'a, Key>>,
+    diagnostics: &mut Diagnostics,
+) {
+    let (LayoutKind::Grid(spec), Some(grid)) = (&node.kind, &measured.grid) else {
+        return;
+    };
+    if (spec.uniform_columns && spec.column_sizes.is_some())
+        || (spec.uniform_rows && spec.row_sizes.is_some())
+    {
+        // Contradictory: declared track sizes win, uniform is ignored.
+        diagnostics.uniform_conflicts += 1;
+    }
+    if let Some(key) = &spec.share {
+        entries.push(ShareEntry {
+            key,
+            path: path.clone(),
+            uniform_columns: spec.uniform_columns && spec.column_sizes.is_none(),
+            uniform_rows: spec.uniform_rows && spec.row_sizes.is_none(),
+            column_sizes: spec.column_sizes.as_deref(),
+            row_sizes: spec.row_sizes.as_deref(),
+            requirements: &grid.requirements,
+        });
+    }
+    for (index, child) in spec.children.iter().enumerate() {
+        path.push(index);
+        collect_shares(
+            &child.layout,
+            &grid.children[index],
+            path,
+            entries,
+            diagnostics,
+        );
+        path.pop();
+    }
+}
+
+enum ShareAxis {
+    Column,
+    Row,
+}
+
+/// Merge one axis of a share group: uniform policy merge when every member
+/// is uniform on the axis (ragged-tolerant), per-track merge when shapes
+/// agree, `None` otherwise.
+fn merge_share_axis<Key>(
+    members: &[usize],
+    entries: &[ShareEntry<'_, Key>],
+    axis: ShareAxis,
+) -> Option<AxisPatch> {
+    let sizes = |m: usize| -> &[f32] {
+        match axis {
+            ShareAxis::Column => &entries[m].requirements.column_widths,
+            ShareAxis::Row => &entries[m].requirements.row_heights,
+        }
+    };
+    let leading = |m: usize| -> &[EdgeDemand] {
+        match axis {
+            ShareAxis::Column => &entries[m].requirements.column_left,
+            ShareAxis::Row => &entries[m].requirements.row_top,
+        }
+    };
+    let trailing = |m: usize| -> &[EdgeDemand] {
+        match axis {
+            ShareAxis::Column => &entries[m].requirements.column_right,
+            ShareAxis::Row => &entries[m].requirements.row_bottom,
+        }
+    };
+    let spacing = |m: usize| match axis {
+        ShareAxis::Column => entries[m].requirements.column_spacing,
+        ShareAxis::Row => entries[m].requirements.row_spacing,
+    };
+    let uniform = |m: usize| match axis {
+        ShareAxis::Column => entries[m].uniform_columns,
+        ShareAxis::Row => entries[m].uniform_rows,
+    };
+
+    let merged_spacing = members
+        .iter()
+        .map(|&m| spacing(m))
+        .fold(crate::grid::TrackSpacing::default(), |a, b| a.merge_max(b));
+
+    if members.iter().all(|&m| uniform(m)) {
+        let size = members
+            .iter()
+            .flat_map(|&m| sizes(m).iter().copied())
+            .fold(0.0f32, f32::max);
+        let first = members
+            .iter()
+            .filter_map(|&m| leading(m).first().copied())
+            .fold(EdgeDemand::default(), |a, b| a.max_components(b));
+        let last = members
+            .iter()
+            .filter_map(|&m| trailing(m).last().copied())
+            .fold(EdgeDemand::default(), |a, b| a.max_components(b));
+        return Some(AxisPatch::Uniform {
+            size,
+            first,
+            last,
+            spacing: merged_spacing,
+        });
+    }
+
+    let count = sizes(members[0]).len();
+    if members.iter().any(|&m| sizes(m).len() != count) {
+        return None;
+    }
+    let mut merged_sizes = sizes(members[0]).to_vec();
+    let mut merged_leading = leading(members[0]).to_vec();
+    let mut merged_trailing = trailing(members[0]).to_vec();
+    for &m in &members[1..] {
+        for (target, source) in merged_sizes.iter_mut().zip(sizes(m)) {
+            *target = target.max(*source);
+        }
+        for (target, source) in merged_leading.iter_mut().zip(leading(m)) {
+            *target = target.max_components(*source);
+        }
+        for (target, source) in merged_trailing.iter_mut().zip(trailing(m)) {
+            *target = target.max_components(*source);
+        }
+    }
+    Some(AxisPatch::PerTrack {
+        sizes: merged_sizes,
+        leading: merged_leading,
+        trailing: merged_trailing,
+        spacing: merged_spacing,
+    })
+}
+
+type SharePlan = (
+    HashMap<Vec<usize>, SharePatch>,
+    HashMap<Vec<usize>, usize>,
+    usize,
+);
+
+fn plan_shares<Key: Eq + Hash>(
+    entries: &[ShareEntry<'_, Key>],
+    diagnostics: &mut Diagnostics,
+) -> SharePlan {
+    let mut order: Vec<Vec<usize>> = Vec::new();
+    let mut index_of: HashMap<&Key, usize> = HashMap::new();
+    for (index, entry) in entries.iter().enumerate() {
+        match index_of.get(entry.key) {
+            Some(&group) => order[group].push(index),
+            None => {
+                index_of.insert(entry.key, order.len());
+                order.push(vec![index]);
+            }
+        }
+    }
+
+    let mut patches = HashMap::new();
+    let mut by_path = HashMap::new();
+    let mut group_count = 0;
+    for members in order {
+        let skip = |reason: SkippedShareReason, diagnostics: &mut Diagnostics| {
+            diagnostics.skipped_groups.push(SkippedShare {
+                member_paths: members.iter().map(|&m| entries[m].path.clone()).collect(),
+                reason,
+            });
+        };
+        let first = &entries[members[0]];
+        if members.iter().any(|&m| {
+            entries[m].column_sizes != first.column_sizes || entries[m].row_sizes != first.row_sizes
+        }) {
+            skip(SkippedShareReason::TrackSizeMismatch, diagnostics);
+            continue;
+        }
+        let column = merge_share_axis(&members, entries, ShareAxis::Column);
+        let row = merge_share_axis(&members, entries, ShareAxis::Row);
+        let (Some(column), Some(row)) = (column, row) else {
+            skip(SkippedShareReason::ShapeMismatch, diagnostics);
+            continue;
+        };
+        let patch = SharePatch { column, row };
+        for &member in &members {
+            patches.insert(entries[member].path.clone(), patch.clone());
+            by_path.insert(entries[member].path.clone(), group_count);
+        }
+        group_count += 1;
+    }
+    (patches, by_path, group_count)
+}
+
 // --- entry point -------------------------------------------------------------
 
-impl<Id: Clone + Eq + Hash, Key> Layout<Id, Key> {
-    /// Solve this layout in one step: measure up, coordinate share groups,
-    /// allocate down. See the [crate docs](crate) and [`SolveOptions`].
+impl<Id: Clone + Eq + Hash, Key: Eq + Hash> Layout<Id, Key> {
+    /// Solve this layout in one step: measure up, coordinate share groups
+    /// (one pure round), allocate down. See the [crate docs](crate) and
+    /// [`SolveOptions`].
     pub fn solve(&self, options: &SolveOptions) -> Result<LayoutSolution<Id>, LayoutError> {
         let mut seen = HashSet::new();
         check_duplicate_ids(self, &mut seen)?;
 
-        let measured = measure(self)?;
+        // Pass 1: natural measurement; collect shared grids.
+        let pass1 = measure(self)?;
+        let mut diagnostics = Diagnostics::default();
+        let mut entries = Vec::new();
+        let mut walk_path = Vec::new();
+        collect_shares(self, &pass1, &mut walk_path, &mut entries, &mut diagnostics);
+        let (patches, by_path, group_count) = plan_shares(&entries, &mut diagnostics);
+        drop(entries);
+
+        // Pass 2: re-measure with the merged floors patched in; the patched
+        // envelopes cascade through ancestors.
+        let coordinated;
+        let measured = if patches.is_empty() {
+            &pass1
+        } else {
+            coordinated = measure_with(self, &mut Vec::new(), &patches)?;
+            &coordinated
+        };
 
         // Root slot per axis: contained axes treat the allocation as the
         // box; `Envelope` axes treat it as the envelope around content plus
@@ -702,16 +1120,49 @@ impl<Id: Clone + Eq + Hash, Key> Layout<Id, Key> {
             measured.demands.top.total,
             measured.demands.bottom.total,
         );
+        let root_slot = Rect::new(slot_x, slot_y, slot_w, slot_h);
+
+        // Min-slack: a dry placement records every shared grid's free-space
+        // offer; the real pass stretches each group by the minimum.
+        let mut state = ShareState {
+            by_path: &by_path,
+            slack: vec![[f32::INFINITY; 2]; group_count],
+            dry: true,
+        };
+        if group_count > 0 {
+            let mut scratch = Vec::new();
+            place(
+                self,
+                measured,
+                &pass1,
+                root_slot,
+                measured.demands,
+                0,
+                &[],
+                &mut scratch,
+                &mut state,
+            );
+            for slack in &mut state.slack {
+                for value in slack.iter_mut() {
+                    if !value.is_finite() {
+                        *value = 0.0;
+                    }
+                }
+            }
+        }
+        state.dry = false;
 
         let mut regions = Vec::new();
         place(
             self,
-            &measured,
-            Rect::new(slot_x, slot_y, slot_w, slot_h),
+            measured,
+            &pass1,
+            root_slot,
             measured.demands,
             0,
             &[],
             &mut regions,
+            &mut state,
         );
 
         let root_content = regions[0].content;
@@ -723,7 +1174,7 @@ impl<Id: Clone + Eq + Hash, Key> Layout<Id, Key> {
                 geometric_total: measured.geometric_total,
             },
             regions,
-            diagnostics: Diagnostics::default(),
+            diagnostics,
         })
     }
 }
@@ -1307,5 +1758,198 @@ mod tests {
         assert_eq!(left.rect.width, 100.0);
         assert_eq!(right.rect.width, 100.0);
         assert_eq!(region.content.width, 200.0);
+    }
+
+    fn facet_cell(
+        width: f32,
+        height: f32,
+        left: f32,
+        bottom: f32,
+    ) -> Layout<&'static str, &'static str> {
+        Layout::leaf(Size::new(width, height))
+            .demand(Side::Left, EdgeDemand::new(left, 0.0, left))
+            .demand(Side::Bottom, EdgeDemand::total(bottom))
+    }
+
+    #[test]
+    fn shared_columns_coordinate_tracks_and_chrome() {
+        // The nested-facet-columns gallery scenario: two 2x1 columns with
+        // different cell sizes and chrome, shared as cousins.
+        let column_a = Layout::column(vec![
+            facet_cell(110.0, 50.0, 26.0, 18.0).id("a0"),
+            facet_cell(110.0, 70.0, 26.0, 0.0).id("a1"),
+        ])
+        .min_gap(14.0)
+        .share("cols")
+        .id("col_a");
+        let column_b = Layout::column(vec![
+            facet_cell(150.0, 64.0, 9.0, 5.0).id("b0"),
+            facet_cell(150.0, 40.0, 9.0, 0.0).id("b1"),
+        ])
+        .min_gap(14.0)
+        .share("cols")
+        .id("col_b");
+        let fig = Layout::row(vec![column_a, column_b]).min_gap(14.0);
+
+        let solved = fig.solve(&SolveOptions::default()).expect("solve");
+        assert!(solved.diagnostics().skipped_groups.is_empty());
+
+        // Merged tracks on both members.
+        for id in ["col_a", "col_b"] {
+            let region = solved.region(&id).expect("column region");
+            let crate::solution::RegionDetail::Grid { tracks } = &region.detail else {
+                panic!("grid expected");
+            };
+            assert_eq!(tracks.column_sizes, vec![150.0], "{id} column width");
+            assert_eq!(tracks.row_sizes, vec![64.0, 70.0], "{id} row heights");
+        }
+
+        // Rows align across cousins.
+        let a0 = solved.region(&"a0").unwrap();
+        let b0 = solved.region(&"b0").unwrap();
+        let a1 = solved.region(&"a1").unwrap();
+        let b1 = solved.region(&"b1").unwrap();
+        assert_eq!(a0.slot.y, b0.slot.y);
+        assert_eq!(a1.slot.y, b1.slot.y);
+
+        // Granted chrome exceeds b's own request (the hatched story).
+        assert_eq!(b0.requested.left.total, 9.0);
+        assert_eq!(b0.granted.left.total, 26.0);
+        assert_eq!(b0.requested.bottom.total, 5.0);
+        assert_eq!(b0.granted.bottom.total, 18.0);
+
+        // Content never lies: a's cells keep their measured width inside
+        // the grown slot.
+        assert_eq!(a0.slot.width, 150.0);
+        assert_eq!(a0.content.width, 110.0);
+
+        // The inter-column gap absorbs b's granted left chrome:
+        // max(min_gap 14, a.right 0 + b.left 26) = 26.
+        let col_a = solved.region(&"col_a").unwrap();
+        let col_b = solved.region(&"col_b").unwrap();
+        assert_eq!(col_b.slot.x - (col_a.slot.x + col_a.slot.width), 26.0);
+    }
+
+    #[test]
+    fn ragged_uniform_group_merges_policy() {
+        let g1 = Layout::row(vec![
+            Layout::leaf(Size::new(100.0, 50.0)),
+            Layout::leaf(Size::new(80.0, 50.0)),
+            Layout::leaf(Size::new(90.0, 50.0)),
+        ])
+        .uniform_columns()
+        .share("bands")
+        .id("g1");
+        let g2 = Layout::row(vec![
+            Layout::leaf(Size::new(60.0, 50.0)),
+            Layout::leaf(Size::new(120.0, 50.0)),
+        ])
+        .uniform_columns()
+        .share("bands")
+        .id("g2");
+        let root: Layout<&str, &str> = Layout::column(vec![g1, g2]);
+
+        let solved = root.solve(&SolveOptions::default()).expect("solve");
+        assert!(solved.diagnostics().skipped_groups.is_empty());
+        for id in ["g1", "g2"] {
+            let region = solved.region(&id).unwrap();
+            let crate::solution::RegionDetail::Grid { tracks } = &region.detail else {
+                panic!("grid expected");
+            };
+            assert!(
+                tracks.column_sizes.iter().all(|&width| width == 120.0),
+                "{id} tracks {:?}",
+                tracks.column_sizes
+            );
+        }
+    }
+
+    #[test]
+    fn shape_mismatch_skips_non_uniform_group() {
+        let g1 = Layout::row(vec![
+            Layout::leaf(Size::new(100.0, 50.0)),
+            Layout::leaf(Size::new(100.0, 50.0)),
+        ])
+        .share("g")
+        .id("g1");
+        let g2 = Layout::row(vec![Layout::leaf(Size::new(60.0, 50.0))])
+            .share("g")
+            .id("g2");
+        let root: Layout<&str, &str> = Layout::column(vec![g1, g2]);
+
+        let solved = root.solve(&SolveOptions::default()).expect("solve");
+        assert_eq!(solved.diagnostics().skipped_groups.len(), 1);
+        assert_eq!(
+            solved.diagnostics().skipped_groups[0].reason,
+            crate::solution::SkippedShareReason::ShapeMismatch
+        );
+        // Unpatched: each keeps its own track sizes.
+        let g1 = solved.region(&"g1").unwrap();
+        let crate::solution::RegionDetail::Grid { tracks } = &g1.detail else {
+            panic!("grid expected");
+        };
+        assert_eq!(tracks.column_sizes, vec![100.0, 100.0]);
+    }
+
+    #[test]
+    fn min_slack_keeps_asymmetric_cousins_congruent() {
+        let g1 = Layout::row(vec![Layout::leaf(Size::new(100.0, 50.0))])
+            .share("g")
+            .id("g1");
+        let g2 = Layout::row(vec![Layout::leaf(Size::new(100.0, 50.0))])
+            .share("g")
+            .id("g2");
+        // g1 sits in a column whose track is widened to 200 by a sibling;
+        // g2's slot is exactly its natural width. Offers: 100 vs 0.
+        let root: Layout<&str, &str> = Layout::row(vec![
+            Layout::column(vec![g1, Layout::leaf(Size::new(200.0, 50.0))]),
+            Layout::column(vec![g2]),
+        ]);
+
+        let solved = root.solve(&SolveOptions::default()).expect("solve");
+        let g1 = solved.region(&"g1").unwrap();
+        let g2 = solved.region(&"g2").unwrap();
+        // Min-slack is zero: neither stretches; cousins stay congruent.
+        assert_eq!(g1.content.width, 100.0);
+        assert_eq!(g2.content.width, 100.0);
+        assert_eq!(g1.slot.width, 200.0, "the wide slot is honest");
+    }
+
+    #[test]
+    fn singleton_share_stretches_by_its_own_offer() {
+        let root: Layout<&str, &str> = Layout::row(vec![
+            Layout::row(vec![Layout::leaf(Size::new(40.0, 20.0))])
+                .share("solo")
+                .id("g"),
+        ]);
+        let solved = root
+            .solve(&SolveOptions {
+                width: Some(120.0),
+                height: None,
+            })
+            .expect("solve");
+        let region = solved.region(&"g").unwrap();
+        // Policy-space stretch on a group of one is just that instance
+        // stretching: it fills like an unshared grid.
+        assert_eq!(region.content.width, 120.0);
+    }
+
+    #[test]
+    fn uniform_conflict_reports_diagnostic_and_declared_sizes_win() {
+        use crate::build::TrackSize;
+        let root: Layout = Layout::row(vec![
+            Layout::leaf(Size::new(100.0, 50.0)),
+            Layout::leaf(Size::new(80.0, 50.0)),
+        ])
+        .uniform_columns()
+        .columns([TrackSize::Auto, TrackSize::Auto])
+        .id(1);
+        let solved = root.solve(&SolveOptions::default()).expect("solve");
+        assert_eq!(solved.diagnostics().uniform_conflicts, 1);
+        let region = solved.region(&1).unwrap();
+        let crate::solution::RegionDetail::Grid { tracks } = &region.detail else {
+            panic!("grid expected");
+        };
+        assert_eq!(tracks.column_sizes, vec![100.0, 80.0], "uniform ignored");
     }
 }
