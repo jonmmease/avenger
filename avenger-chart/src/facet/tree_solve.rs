@@ -233,21 +233,6 @@ fn lower_band(
     let key = band.coordination_scope_key_for_depth(depth);
     let envelopes = cell_envelopes_by_index(band);
 
-    // Band-level chrome: the legend slabs realized as band-owned (hoisted
-    // legends and parent-allocation-owned slabs) — space the band's cells
-    // do not carry. measured_overflow covers rendered CHILDREN only, so
-    // the owned slabs are the band-level slice; they ride a wrapper (see
-    // below) to keep the band grid's coordinated edges cells-only.
-    let owned_slabs =
-        band.owned_legend_slabs_for_overflow(band.active_boundary_overflow(), band.active_layout());
-    let chrome_inner = [0.0f32; 4]; // top, right, bottom, left
-    let chrome_outer = [
-        owned_slabs.top.max(0.0),
-        owned_slabs.right.max(0.0),
-        owned_slabs.bottom.max(0.0),
-        owned_slabs.left.max(0.0),
-    ];
-
     let mut all_leaves = true;
     let mut cell_nodes: Vec<Layout<CoordinationNodeKey, CoordinationScopeKey>> = Vec::new();
     for (idx, cell) in band.cells.iter().enumerate() {
@@ -256,15 +241,8 @@ fn lower_band(
         let node = if let Some(nested) = nested {
             all_leaves = false;
             let nested_band = nested.base();
-            let child_epoch = nested_band
-                .measured_overflow_value()
-                .unwrap_or_else(CoordinatedOverflow::default);
             node_path.push(idx);
             layout_path.push(idx);
-            // The wrapper (1×1 grid) carries the layered residual between
-            // the parent's epoch cell envelope and the child band's own
-            // epoch envelope, keeping the child's coordinated edges
-            // chrome-free for channel reads.
             layout_path.push(0);
             let child = lower_band(
                 nested_band,
@@ -275,46 +253,36 @@ fn lower_band(
                 overrides,
                 bands,
             );
-            layout_path.pop();
             node_path.pop();
             layout_path.pop();
-            let mut wrapper = Layout::row(vec![child]);
+            layout_path.pop();
+            // Two-wrapper boundary. Channel contract: a band's coordinated
+            // edges are its OWN epoch cell folds — including each level's
+            // guide/legend classification, which can legitimately differ
+            // from the child's structural layering (a chunk-level legend
+            // may fold as guide at the outer level). So the inner wrapper
+            // is CONTAINED (SolveFor::Content zeroes the child's boundary
+            // lift toward the parent), and the outer wrapper declares the
+            // cell's FULL epoch envelope as layered chrome — the parent
+            // sees exactly what the legacy per-band fold saw, while the
+            // real nested structure still solves inside for geometry.
+            let contained = Layout::row(vec![child]).sizing(avenger_layout::SolveFor::Content);
+            let mut wrapper = Layout::row(vec![contained]);
             if let Some((cell_guide, cell_total)) = &cell_envelope {
-                for (side, cell_g, cell_t, band_g, band_t) in [
-                    (
-                        Side::Top,
-                        cell_guide.top,
-                        cell_total.top,
-                        child_epoch.guide.top,
-                        child_epoch.total.top,
-                    ),
-                    (
-                        Side::Right,
-                        cell_guide.right,
-                        cell_total.right,
-                        child_epoch.guide.right,
-                        child_epoch.total.right,
-                    ),
-                    (
-                        Side::Bottom,
-                        cell_guide.bottom,
-                        cell_total.bottom,
-                        child_epoch.guide.bottom,
-                        child_epoch.total.bottom,
-                    ),
-                    (
-                        Side::Left,
-                        cell_guide.left,
-                        cell_total.left,
-                        child_epoch.guide.left,
-                        child_epoch.total.left,
-                    ),
+                for (side, cell_g, cell_t) in [
+                    (Side::Top, cell_guide.top, cell_total.top),
+                    (Side::Right, cell_guide.right, cell_total.right),
+                    (Side::Bottom, cell_guide.bottom, cell_total.bottom),
+                    (Side::Left, cell_guide.left, cell_total.left),
                 ] {
-                    let guide_residual = (cell_g - band_g).max(0.0);
-                    let legend_residual = ((cell_t - cell_g) - (band_t - band_g)).max(0.0);
-                    wrapper = wrapper
-                        .inner(side, guide_residual)
-                        .outer(side, legend_residual);
+                    let guide = cell_g.max(0.0);
+                    let legend = (cell_t - cell_g).max(0.0);
+                    if guide > 0.0 {
+                        wrapper = wrapper.inner(side, guide);
+                    }
+                    if legend > 0.0 {
+                        wrapper = wrapper.outer(side, legend);
+                    }
                 }
             }
             wrapper
@@ -451,29 +419,6 @@ fn lower_band(
         .distribute_x(distribute_for(content_driven.0))
         .distribute_y(distribute_for(content_driven.1));
     grid = grid.share(key.clone()).id(node_id.clone());
-
-    // Band chrome rides a wrapper so the band grid's own coordinated
-    // edges stay cells-only (channel parity with the legacy round, which
-    // lowered cell envelopes alone); the wrapper still lifts the chrome
-    // toward the parent and consumes root width on constrained axes.
-    let has_chrome = chrome_inner.iter().any(|v| *v > 0.0) || chrome_outer.iter().any(|v| *v > 0.0);
-    if has_chrome {
-        let mut wrapper = Layout::row(vec![grid]);
-        for (slot, side) in [
-            (0usize, Side::Top),
-            (1, Side::Right),
-            (2, Side::Bottom),
-            (3, Side::Left),
-        ] {
-            if chrome_inner[slot] > 0.0 {
-                wrapper = wrapper.inner(side, chrome_inner[slot]);
-            }
-            if chrome_outer[slot] > 0.0 {
-                wrapper = wrapper.outer(side, chrome_outer[slot]);
-            }
-        }
-        grid = wrapper;
-    }
 
     bands.push(LoweredBand {
         node_id,
