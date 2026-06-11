@@ -746,6 +746,7 @@ fn place<Id: Clone, Key>(
         content,
         slabs,
         requested: requested.demands,
+        coordinated: measured.demands,
         granted,
         geometric: measured.geometric_total,
         detail: RegionDetail::Leaf, // patched below for grids
@@ -2236,5 +2237,54 @@ mod tests {
         let reshaped: Layout = Layout::row(vec![Layout::leaf(Size::new(100.0, 50.0))]);
         let reshaped = reshaped.solve(&SolveOptions::default()).expect("solve");
         assert_eq!(first.content_delta(&reshaped), f32::INFINITY);
+    }
+
+    /// Pin the pass provenance of the three `Region` edge fields:
+    /// `requested` is pass-1 (pre-merge), `coordinated` is pass-2 (the
+    /// node's own ask raised to share-group floors), `granted` is the
+    /// parent's track allocation (which also folds in unshared siblings).
+    ///
+    /// The numbers mirror the chart's envelope-laws fixture: a guide-heavy
+    /// member (inner 5 within envelope 5) shares a key with a legend-heavy
+    /// member (inner 0 within envelope 8); the coordinated side must hold
+    /// both layers at once (total 13 = 5 + 8 — the cross-cousin lift).
+    #[test]
+    fn region_edges_pin_pass_provenance() {
+        use crate::region::EdgeGrant;
+
+        let member = |inner: f32, envelope: f32| -> Layout<&'static str, &'static str> {
+            Layout::row(vec![Layout::leaf(Size::new(40.0, 30.0)).demand(
+                Side::Top,
+                EdgeDemand::from_inner_and_envelope(inner, envelope),
+            )])
+            .share("k")
+        };
+        let root: Layout<&str, &str> = Layout::row(vec![
+            member(5.0, 5.0).id("guide-heavy"),
+            member(0.0, 8.0).id("legend-heavy"),
+            Layout::leaf(Size::new(40.0, 30.0))
+                .demand(Side::Top, EdgeDemand::Unlayered(20.0))
+                .id("fat"),
+        ]);
+        let solved = root.solve(&SolveOptions::default()).expect("solve");
+
+        let a = solved.region(&"guide-heavy").expect("member region");
+        // Pass 1: the member's own natural ask.
+        assert_eq!(a.requested.top, EdgeGrant::new(5.0, 0.0, 5.0));
+        // Pass 2: raised to the share group's merged floors — one member's
+        // guide layer and the other's legend layer coexist.
+        assert_eq!(a.coordinated.top, EdgeGrant::new(5.0, 8.0, 13.0));
+        // Parent allocation: the row's top track edge also folds in the
+        // unshared sibling's bigger total.
+        assert_eq!(a.granted.top, EdgeGrant::new(5.0, 8.0, 20.0));
+
+        let b = solved.region(&"legend-heavy").expect("member region");
+        assert_eq!(b.requested.top, EdgeGrant::new(0.0, 8.0, 8.0));
+        assert_eq!(b.coordinated.top, EdgeGrant::new(5.0, 8.0, 13.0));
+        assert_eq!(b.granted.top, EdgeGrant::new(5.0, 8.0, 20.0));
+
+        // Nodes no share patch touches keep coordinated == requested.
+        let fat = solved.region(&"fat").expect("leaf region");
+        assert_eq!(fat.coordinated, fat.requested);
     }
 }
