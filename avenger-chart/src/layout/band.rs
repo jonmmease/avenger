@@ -15,9 +15,10 @@
 //! re-derives positions through float round trips.
 
 use avenger_layout::{
-    EdgeDemand, Layout, Orientation, PlacedRegion, PlacementSolution, RegionDetail, Side, Size,
-    SolveOptions, Spacing,
+    EdgeDemand, Layout, Orientation, RegionDetail, Side, Size, SolveOptions, Spacing,
 };
+
+use super::placement::{PlacedRegion, PlacementSolution};
 
 /// Cross-axis alignment for children inside a one-dimensional band.
 ///

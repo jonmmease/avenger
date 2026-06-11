@@ -14,6 +14,7 @@ mod content_solver;
 pub(crate) mod declared_frame;
 mod frame_solver;
 mod info;
+pub(crate) mod placement;
 mod sizing;
 mod uniform;
 
@@ -26,10 +27,11 @@ pub use avenger_chart_core::{
     LayoutBounds, OverflowSide, OwnedEdgeSlabs, Size2D,
 };
 pub(crate) use avenger_layout::{
-    EdgeDemand, EdgeTargets, Edges, GridItem, GridRequirements, GridShape, GridSlot, Orientation,
-    Size, TrackSpacing,
+    EdgeDemand, Edges, GridItem, GridRequirements, GridShape, GridSlot, Orientation, Size,
+    TrackSpacing,
 };
 pub(crate) use band::{BandItem, BandSolution, BoundaryDemand, CrossAlign, PlacedBandItem};
+pub(crate) use placement::EdgeTargets;
 pub(crate) use uniform::UniformTracks;
 
 /// Chart placement metadata carried through the neutral handoff: the
@@ -40,9 +42,9 @@ pub struct ChartRegionMeta {
     pub(crate) edge_targets: Option<EdgeTargets>,
 }
 
-/// The chart's placement handoff: neutral placement with chart metadata.
-pub type PlacementSolution = avenger_layout::PlacementSolution<usize, ChartRegionMeta>;
-pub type PlacedRegion = avenger_layout::PlacedRegion<usize, ChartRegionMeta>;
+/// The chart's placement handoff: positioned children with chart metadata.
+pub type PlacementSolution = placement::PlacementSolution<usize, ChartRegionMeta>;
+pub type PlacedRegion = placement::PlacedRegion<usize, ChartRegionMeta>;
 pub use band_position::BandPositionIterator;
 pub(crate) use chrome::FrameChrome;
 pub use content_solver::{
@@ -79,7 +81,7 @@ pub(crate) fn project_child_rect(
     child_plot_bounds: LayoutBounds,
     child_bounds: LayoutBounds,
 ) -> LayoutBounds {
-    let rect = avenger_layout::project_rect(
+    let rect = placement::project_rect(
         parent_content_origin,
         child_render_origin,
         layout_rect(child_plot_bounds),

@@ -771,7 +771,7 @@ impl ConcatCoordMeasurement {
                             origin,
                             ChartRegionMeta {
                                 content_size_override,
-                                edge_targets: Some(edge_targets),
+                                edge_targets: Some(edge_targets.into()),
                             },
                         ))
                     })
@@ -2033,7 +2033,7 @@ fn grid_child_frame_placement(
                 origin,
                 ChartRegionMeta {
                     content_size_override,
-                    edge_targets: Some(edge_targets),
+                    edge_targets: Some(edge_targets.into()),
                 },
             )
         })
