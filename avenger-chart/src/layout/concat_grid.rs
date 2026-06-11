@@ -1,21 +1,19 @@
 //! Chart-owned concat/wrap grid solving through the unified
 //! `avenger_layout::Layout` API.
 //!
-//! Concat coordination works on per-track requirement data
-//! ([`ChartGridData`]): exported from measured children, max-merged across
-//! cousins (`layout::alignment`), and applied back by re-solving the merged
-//! values against the local children. The solving itself goes through
-//! `Layout`:
+//! Concat coordination solves cousin grids together on a real share key
+//! ([`solve_concat_grid_group`]): every member is rebuilt from its own
+//! measured cells ([`GridMemberSpec`]), the solver merges the per-track
+//! requirement folds across the group, and each member's solved region is
+//! extracted as its own [`SolvedConcatGrid`] (merged floors plus that
+//! member's span constraints).
 //!
-//! - **Export** ([`solve_concat_grid`] with `export = true`) zeroes the
-//!   spanned-axis content of multi-span cells so the extracted track sizes
-//!   equal the pre-span-constraint requirement fold (span constraints are
-//!   re-applied at apply time, per member — the historical contract).
-//! - **Apply** ([`solve_concat_grid_against`]) uses a **phantom cousin**:
-//!   the local grid and an equal-shape phantom reproducing the merged
-//!   requirements share one key, so the solve's coordination patches the
-//!   local grid to exactly the merged floors (merged ≥ local by the
-//!   align-merge construction) and re-applies local span constraints.
+//! [`ChartGridData`] remains the exported requirement payload for
+//! diagnostics and delta gating: [`solve_concat_grid`] with `export = true`
+//! zeroes the spanned-axis content of multi-span cells so the extracted
+//! track sizes equal the pre-span-constraint requirement fold (span
+//! constraints re-apply per member in the group solve — the historical
+//! contract).
 //!
 //! Per-slot reads mirror the historical grid solution: origins from track
 //! starts (the solver's exact floats), edge targets from per-track demand
@@ -181,14 +179,27 @@ fn cells_grid(
     grid
 }
 
-/// Extract the solved per-track view from a grid member region.
+/// Everything needed to rebuild one member grid for a coordination group
+/// solve.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GridMemberSpec {
+    pub shape: GridShape,
+    pub base_cell_size: Size,
+    pub cells: Vec<GridCell>,
+    pub column_spacing: Spacing,
+    pub row_spacing: Spacing,
+    pub column_sizes: Option<Vec<TrackSize>>,
+    pub row_sizes: Option<Vec<TrackSize>>,
+}
+
+/// Extract the solved per-track view from a grid member region. Spacing
+/// comes from the solved tracks: the values the solve actually used,
+/// post-merge for share-group members.
 fn extract(
     solution: &LayoutSolution<usize>,
     member_path: &[usize],
     shape: GridShape,
     cells: &[GridCell],
-    column_spacing: Spacing,
-    row_spacing: Spacing,
 ) -> Result<SolvedConcatGrid, String> {
     let member = solution
         .at_path(member_path)
@@ -220,8 +231,8 @@ fn extract(
     Ok(SolvedConcatGrid {
         data: ChartGridData {
             shape,
-            column_spacing,
-            row_spacing,
+            column_spacing: tracks.column_spacing,
+            row_spacing: tracks.row_spacing,
             column_widths: tracks.column_sizes.clone(),
             row_heights: tracks.row_sizes.clone(),
             column_left,
@@ -262,73 +273,46 @@ pub(crate) fn solve_concat_grid(
     let solved = grid
         .solve(&SolveOptions::default())
         .map_err(|err| err.to_string())?;
-    extract(&solved, &[], shape, cells, column_spacing, row_spacing)
+    extract(&solved, &[], shape, cells)
 }
 
-/// Solve the local cells against merged requirements (the apply path): the
-/// local grid and a phantom cousin reproducing the merged values share one
-/// key, so coordination patches the local grid to the merged floors and the
-/// local span constraints re-apply.
-pub(crate) fn solve_concat_grid_against(
-    merged: &ChartGridData,
-    base_cell_size: Size,
-    cells: &[GridCell],
-    column_sizes: Option<&[TrackSize]>,
-    row_sizes: Option<&[TrackSize]>,
-) -> Result<SolvedConcatGrid, String> {
-    let shape = merged.shape;
-    let local = cells_grid(
-        shape,
-        base_cell_size,
-        cells,
-        merged.column_spacing,
-        merged.row_spacing,
-        column_sizes,
-        row_sizes,
-        false,
-    )
-    .share(0usize);
-
-    let mut phantom = Layout::grid(shape.rows, shape.columns)
-        .column_spacing(merged.column_spacing)
-        .row_spacing(merged.row_spacing)
-        .share(0usize);
-    if let Some(sizes) = column_sizes {
-        phantom = phantom.columns(sizes.iter().copied());
-    }
-    if let Some(sizes) = row_sizes {
-        phantom = phantom.rows(sizes.iter().copied());
-    }
-    for row in 0..shape.rows {
-        for column in 0..shape.columns {
-            let mut leaf = Layout::leaf(Size::new(
-                merged.column_widths[column],
-                merged.row_heights[row],
-            ));
-            for (side, demand) in [
-                (Side::Top, merged.row_top[row]),
-                (Side::Right, merged.column_right[column]),
-                (Side::Bottom, merged.row_bottom[row]),
-                (Side::Left, merged.column_left[column]),
-            ] {
-                leaf = leaf.demand(side, demand);
-            }
-            phantom = phantom.cell(row, column, leaf);
-        }
-    }
-
-    let root: Layout<usize> = Layout::row(vec![local, phantom]);
+/// Solve a coordination group of cousin grids together on one share key.
+/// The solver merges the members' per-track requirement folds (merged ≥
+/// every local fold by construction), then each member re-solves at the
+/// merged floors with its own span constraints. Returns one solved view per
+/// member, in input order.
+pub(crate) fn solve_concat_grid_group(
+    members: &[GridMemberSpec],
+) -> Result<Vec<SolvedConcatGrid>, String> {
+    let root: Layout<usize> = Layout::row(
+        members
+            .iter()
+            .map(|member| {
+                cells_grid(
+                    member.shape,
+                    member.base_cell_size,
+                    &member.cells,
+                    member.column_spacing,
+                    member.row_spacing,
+                    member.column_sizes.as_deref(),
+                    member.row_sizes.as_deref(),
+                    false,
+                )
+                .share(0usize)
+            })
+            .collect::<Vec<_>>(),
+    );
     let solved = root
         .solve(&SolveOptions::default())
         .map_err(|err| err.to_string())?;
-    extract(
-        &solved,
-        &[0],
-        shape,
-        cells,
-        merged.column_spacing,
-        merged.row_spacing,
-    )
+    if !solved.diagnostics().skipped_groups.is_empty() {
+        return Err("concat coordination group members had incompatible shapes".to_string());
+    }
+    members
+        .iter()
+        .enumerate()
+        .map(|(index, member)| extract(&solved, &[index], member.shape, &member.cells))
+        .collect()
 }
 
 #[cfg(test)]
@@ -389,10 +373,12 @@ mod tests {
         assert_eq!(totals(&exported.data.column_right), vec![5.0, 6.0, 4.0]);
     }
 
-    /// The phantom-cousin apply: merged floors install exactly, local span
-    /// constraints re-apply on top, and per-slot reads follow the laws.
+    /// The group solve on a real share key: the bigger cousin's folds become
+    /// the group floors, local span constraints re-apply on top, and
+    /// per-slot reads follow the laws. The literals are the former
+    /// phantom-cousin apply values (the group solve is the same float path).
     #[test]
-    fn apply_installs_merged_floors_and_reapplies_spans() {
+    fn group_solve_installs_merged_floors_and_reapplies_spans() {
         let shape = GridShape {
             rows: 2,
             columns: 3,
@@ -403,22 +389,44 @@ mod tests {
             cell(0, 2, 1, 1, 120.0, 50.0, Edges::new(0.0, 4.0, 0.0, 7.0)),
             cell(1, 0, 1, 2, 200.0, 60.0, Edges::new(0.0, 6.0, 0.0, 2.0)),
         ];
-        let spacing = Spacing {
-            min_gap: 10.0,
+        // The bigger cousin: wider first column, taller second row, a larger
+        // min gap (its requirement fold is [120, 40, 120] x [50, 70]).
+        let cousin_cells = vec![
+            cell(0, 0, 1, 1, 120.0, 50.0, Edges::default()),
+            cell(0, 2, 1, 1, 120.0, 50.0, Edges::default()),
+            cell(1, 0, 1, 1, 120.0, 70.0, Edges::default()),
+        ];
+        let spacing = |min_gap: f32| Spacing {
+            min_gap,
             ..Default::default()
         };
-        let mut merged = solve_concat_grid(shape, base, &cells, spacing, spacing, None, None, true)
-            .expect("solve")
-            .data;
-        // A cousin was bigger: wider first column, taller second row, a
-        // larger min gap.
-        merged.column_widths[0] = 120.0;
-        merged.row_heights[1] = 70.0;
-        merged.column_spacing.min_gap = 12.0;
-        merged.row_spacing.min_gap = 12.0;
+        let members = vec![
+            GridMemberSpec {
+                shape,
+                base_cell_size: base,
+                cells: cells.clone(),
+                column_spacing: spacing(10.0),
+                row_spacing: spacing(10.0),
+                column_sizes: None,
+                row_sizes: None,
+            },
+            GridMemberSpec {
+                shape,
+                base_cell_size: base,
+                cells: cousin_cells,
+                column_spacing: spacing(12.0),
+                row_spacing: spacing(12.0),
+                column_sizes: None,
+                row_sizes: None,
+            },
+        ];
 
-        let applied = solve_concat_grid_against(&merged, base, &cells, None, None).expect("apply");
+        let solved = solve_concat_grid_group(&members).expect("group solve");
+        let applied = &solved[0];
 
+        // Merged spacing reported on every member.
+        assert_eq!(applied.data.column_spacing.min_gap, 12.0);
+        assert_eq!(applied.data.row_spacing.min_gap, 12.0);
         // Span deficit: 120 + gap(12) + 40 = 172 against 200 -> +14 per
         // spanned track.
         assert_eq!(applied.data.column_widths, vec![134.0, 54.0, 120.0]);
@@ -433,5 +441,8 @@ mod tests {
         assert_eq!(applied.content_origin_for_slot(span_slot), [0.0, 62.0]);
         // Per-track fold: max(cell00's left 3.0, the span's left 2.0).
         assert_eq!(applied.edge_targets_for_slot(span_slot).total.left, 3.0);
+        // The cousin holds the merged floors without span growth.
+        assert_eq!(solved[1].data.column_widths, vec![120.0, 40.0, 120.0]);
+        assert_eq!(solved[1].data.row_heights, vec![50.0, 70.0]);
     }
 }

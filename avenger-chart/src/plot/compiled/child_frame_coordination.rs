@@ -177,6 +177,10 @@ pub(crate) struct ChildFrameLayoutCoordinationNode {
     pub(crate) topology: ChildFrameLayoutTopology,
     pub(crate) slots: Vec<ChildFrameLayoutSlot>,
     pub(crate) requirements: ChildFrameLayoutRequirements,
+    /// The member grid for a coordination group solve. Present for concat
+    /// containers (whose alignment solves cousins together on a share key);
+    /// `None` for facet bands, which apply merged requirement values.
+    pub(crate) member: Option<GridMemberSpec>,
 }
 
 impl ChildFrameLayoutCoordinationNode {
@@ -190,7 +194,9 @@ impl ChildFrameLayoutCoordinationNode {
 }
 
 /// Neutral grid requirements plus chart-only side-car state.
-use crate::layout::concat_grid::ChartGridData;
+use crate::layout::concat_grid::{
+    ChartGridData, GridMemberSpec, SolvedConcatGrid, solve_concat_grid_group,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ChartGridRequirements {
@@ -250,6 +256,7 @@ pub(crate) fn grid_layout_coordination_node(
         topology,
         slots,
         requirements,
+        member: Some(concat.grid_member_spec()?),
     }))
 }
 
@@ -294,6 +301,7 @@ pub(crate) fn facet_band_layout_coordination_node(
         topology,
         slots,
         requirements,
+        member: None,
     }))
 }
 
@@ -710,6 +718,7 @@ pub(crate) fn apply_child_frame_layout_alignment(
     let nodes = collect_child_frame_layout_coordination_nodes(measurement)?;
     let diagnostics = build_child_frame_layout_alignment_diagnostics(&nodes);
     let plans = alignment_solution_plans(&diagnostics);
+    let concat_solutions = solve_planned_concat_groups(&nodes, &plans)?;
 
     let mut trace = ChildFrameLayoutAlignmentApplyTrace {
         exported_node_count: diagnostics.exported_node_count,
@@ -719,7 +728,12 @@ pub(crate) fn apply_child_frame_layout_alignment(
     };
 
     if !plans.is_empty() {
-        apply_child_frame_layout_alignment_recursive(measurement, &plans, &mut trace)?;
+        apply_child_frame_layout_alignment_recursive(
+            measurement,
+            &plans,
+            &concat_solutions,
+            &mut trace,
+        )?;
     }
 
     if trace.exported_node_count > 0 {
@@ -828,6 +842,47 @@ pub(crate) fn build_child_frame_layout_alignment_diagnostics(
     }
 }
 
+/// Solve every planned concat-kind group on a real share key: cousins are
+/// rebuilt from their member specs and solved together, and each member's
+/// extracted solution is keyed by its instance for the apply walk. Facet
+/// bands stay on the merged-requirements path (they apply values, not
+/// placements).
+fn solve_planned_concat_groups(
+    nodes: &[ChildFrameLayoutCoordinationNode],
+    plans: &IndexMap<LayoutAlignmentKey, ChildFrameLayoutRequirements>,
+) -> Result<IndexMap<ChildFrameContainerInstanceKey, SolvedConcatGrid>, AvengerChartError> {
+    let mut solutions = IndexMap::new();
+    for key in plans.keys() {
+        if !matches!(
+            key.kind,
+            ChildFrameContainerKind::HConcat
+                | ChildFrameContainerKind::VConcat
+                | ChildFrameContainerKind::GridConcat
+        ) {
+            continue;
+        }
+        let members = nodes
+            .iter()
+            .filter(|node| &node.alignment_key() == key)
+            .collect::<Vec<_>>();
+        let specs = members
+            .iter()
+            .map(|node| {
+                node.member.clone().ok_or_else(|| {
+                    AvengerChartError::InternalError(
+                        "Concat coordination node is missing its grid member spec".to_string(),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        let solved = solve_concat_grid_group(&specs).map_err(AvengerChartError::InternalError)?;
+        for (node, solution) in members.iter().zip(solved) {
+            solutions.insert(node.instance_key.clone(), solution);
+        }
+    }
+    Ok(solutions)
+}
+
 fn alignment_solution_plans(
     diagnostics: &ChildFrameLayoutAlignmentDiagnostics,
 ) -> IndexMap<LayoutAlignmentKey, ChildFrameLayoutRequirements> {
@@ -893,23 +948,25 @@ fn collect_child_frame_layout_coordination_nodes_into(
 fn apply_child_frame_layout_alignment_recursive(
     measurement: &mut ComponentsMeasurement,
     plans: &IndexMap<LayoutAlignmentKey, ChildFrameLayoutRequirements>,
+    concat_solutions: &IndexMap<ChildFrameContainerInstanceKey, SolvedConcatGrid>,
     trace: &mut ChildFrameLayoutAlignmentApplyTrace,
 ) -> Result<(), AvengerChartError> {
-    if let Some(alignment_key) = measurement
+    if let Some(instance_key) = measurement
         .coord_measurement
         .as_any()
         .downcast_ref::<ConcatCoordMeasurement>()
-        .and_then(|concat| grid_layout_coordination_node(concat).transpose())
+        .filter(|concat| concat.layout_coordination_shape().is_some())
+        .map(|concat| Ok::<_, AvengerChartError>(concat.container_path()?))
         .transpose()?
-        .map(|node| node.alignment_key())
+        .map(ChildFrameContainerInstanceKey::new)
     {
-        if let Some(ChildFrameLayoutRequirements::Grid(requirements)) = plans.get(&alignment_key) {
+        if let Some(solution) = concat_solutions.get(&instance_key) {
             if let Some(concat) = measurement
                 .coord_measurement
                 .as_any_mut()
                 .downcast_mut::<ConcatCoordMeasurement>()
             {
-                if concat.apply_grid_requirements(&requirements.grid)? {
+                if concat.install_grid_solution(solution)? {
                     trace.applied_container_count += 1;
                 }
             }
@@ -922,7 +979,12 @@ fn apply_child_frame_layout_alignment_recursive(
         .downcast_mut::<ConcatCoordMeasurement>()
     {
         for child in &mut concat.children {
-            apply_child_frame_layout_alignment_recursive(&mut child.measurement, plans, trace)?;
+            apply_child_frame_layout_alignment_recursive(
+                &mut child.measurement,
+                plans,
+                concat_solutions,
+                trace,
+            )?;
         }
         return Ok(());
     }
@@ -951,7 +1013,12 @@ fn apply_child_frame_layout_alignment_recursive(
         .downcast_mut::<FacetBandCoordMeasurement>()
     {
         for cell in &mut facet_band.cells {
-            apply_child_frame_layout_alignment_recursive(&mut cell.measurement, plans, trace)?;
+            apply_child_frame_layout_alignment_recursive(
+                &mut cell.measurement,
+                plans,
+                concat_solutions,
+                trace,
+            )?;
         }
         return Ok(());
     }
@@ -962,7 +1029,12 @@ fn apply_child_frame_layout_alignment_recursive(
         .downcast_mut::<PositionedCoordMeasurement>()
     {
         for child in &mut positioned.children {
-            apply_child_frame_layout_alignment_recursive(&mut child.measurement, plans, trace)?;
+            apply_child_frame_layout_alignment_recursive(
+                &mut child.measurement,
+                plans,
+                concat_solutions,
+                trace,
+            )?;
         }
     }
 
@@ -1039,6 +1111,7 @@ mod tests {
             },
             slots: Vec::new(),
             requirements: ChildFrameLayoutRequirements::Grid(chart_grid),
+            member: None,
         }
     }
 

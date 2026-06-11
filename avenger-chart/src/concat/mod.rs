@@ -706,7 +706,7 @@ impl CoordinateSystemTransform for WrapConcat {
 }
 
 use crate::layout::concat_grid::{
-    ChartGridData, GridCell, solve_concat_grid, solve_concat_grid_against,
+    ChartGridData, GridCell, GridMemberSpec, SolvedConcatGrid, solve_concat_grid,
 };
 
 #[derive(Clone, Debug)]
@@ -869,66 +869,69 @@ impl ConcatCoordMeasurement {
             .collect()
     }
 
-    pub(crate) fn grid_requirements(&self) -> Result<ChartGridData, AvengerChartError> {
+    /// Everything needed to rebuild this container's grid as one member of
+    /// a coordination group solve.
+    pub(crate) fn grid_member_spec(&self) -> Result<GridMemberSpec, AvengerChartError> {
         let shape = self.layout_coordination_shape().ok_or_else(|| {
             AvengerChartError::InternalError(
                 "Grid requirements requested for non-child-frame concat measurement".to_string(),
             )
         })?;
-        let base_child_content_size = Size::new(
+        let base_cell_size = Size::new(
             self.fallback_content_size.width / shape.columns.max(1) as f32,
             self.fallback_content_size.height / shape.rows.max(1) as f32,
         );
-        let cells = self.layout_coordination_grid_items()?;
         let spacing = TrackSpacing {
             min_gap: self.min_gap,
             ..Default::default()
         };
-        let exported = solve_concat_grid(
+        Ok(GridMemberSpec {
             shape,
-            base_child_content_size,
-            &cells,
-            spacing,
-            spacing,
-            self.column_sizes.as_deref(),
-            self.row_sizes.as_deref(),
+            base_cell_size,
+            cells: self.layout_coordination_grid_items()?,
+            column_spacing: spacing,
+            row_spacing: spacing,
+            column_sizes: self.column_sizes.clone(),
+            row_sizes: self.row_sizes.clone(),
+        })
+    }
+
+    pub(crate) fn grid_requirements(&self) -> Result<ChartGridData, AvengerChartError> {
+        let spec = self.grid_member_spec()?;
+        let exported = solve_concat_grid(
+            spec.shape,
+            spec.base_cell_size,
+            &spec.cells,
+            spec.column_spacing,
+            spec.row_spacing,
+            spec.column_sizes.as_deref(),
+            spec.row_sizes.as_deref(),
             true,
         )
         .map_err(AvengerChartError::InvalidArgument)?;
         Ok(exported.data)
     }
 
-    pub(crate) fn apply_grid_requirements(
+    /// Install a solved grid produced by a coordination group solve for this
+    /// container (this member's extracted view): pure placement write-back
+    /// with change detection, no solving.
+    pub(crate) fn install_grid_solution(
         &mut self,
-        requirements: &ChartGridData,
+        solution: &SolvedConcatGrid,
     ) -> Result<bool, AvengerChartError> {
         let shape = self.layout_coordination_shape().ok_or_else(|| {
             AvengerChartError::InternalError(
                 "Grid solution applied to non-child-frame concat measurement".to_string(),
             )
         })?;
-        if requirements.shape != shape {
+        if solution.data.shape != shape {
             return Err(AvengerChartError::InternalError(format!(
                 "Grid solution shape {:?} did not match concat coordination shape {:?}",
-                requirements.shape, shape
+                solution.data.shape, shape
             )));
         }
 
         let old_placement = self.child_frame_placement();
-        let base_child_content_size = Size::new(
-            self.fallback_content_size.width / shape.columns.max(1) as f32,
-            self.fallback_content_size.height / shape.rows.max(1) as f32,
-        );
-        let cells = self.layout_coordination_grid_items()?;
-        let solution = solve_concat_grid_against(
-            requirements,
-            base_child_content_size,
-            &cells,
-            self.column_sizes.as_deref(),
-            self.row_sizes.as_deref(),
-        )
-        .map_err(AvengerChartError::InternalError)?;
-
         let placement = match &self.placement {
             ConcatChildPlacement::Grid {
                 retarget_plot_area_size,
@@ -2696,6 +2699,7 @@ mod tests {
                 },
                 guide_slot_gap_px: 0.0,
             }),
+            member: None,
         }
     }
 
@@ -2761,6 +2765,7 @@ mod tests {
                 },
                 guide_slot_gap_px: 0.0,
             }),
+            member: None,
         }
     }
 
@@ -3041,16 +3046,22 @@ mod tests {
         let old_placement = concat.child_frame_placement();
         assert_eq!(old_placement.placements()[1].origin, [100.0, 0.0]);
 
-        let mut requirements = concat.grid_requirements()?;
-        requirements.column_left[1] = EdgeDemand::total(32.0);
-        assert!(concat.apply_grid_requirements(&requirements)?);
+        // A cousin whose second cell demands a wider left edge: the group
+        // solve patches the local grid to the cousin's folds.
+        let local_spec = concat.grid_member_spec()?;
+        let mut cousin_spec = local_spec.clone();
+        cousin_spec.cells[1].total_edges.left = 32.0;
+        let solutions =
+            crate::layout::concat_grid::solve_concat_grid_group(&[local_spec, cousin_spec])
+                .map_err(AvengerChartError::InternalError)?;
+        assert!(concat.install_grid_solution(&solutions[0])?);
 
         let applied_placement = concat.child_frame_placement();
         assert_eq!(applied_placement.placements()[0].origin, [0.0, 0.0]);
         assert_eq!(applied_placement.placements()[1].origin, [132.0, 0.0]);
         assert_eq!(applied_placement.content_size, Size::new(232.0, 100.0));
         assert_ne!(applied_placement, old_placement);
-        assert!(!concat.apply_grid_requirements(&requirements)?);
+        assert!(!concat.install_grid_solution(&solutions[0])?);
         Ok(())
     }
 
