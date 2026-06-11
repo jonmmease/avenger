@@ -18,19 +18,19 @@ For the overall architecture, see `avenger-chart/docs/architecture/facet-system.
 
 | Property | Value |
 |----------|-------|
-| **Invariant** | `FacetBandCoordMeasurement` is mutable across coordination stages. Renderers must read it only after `FacetCoordinationStage::FinalPropagation` completes. |
+| **Invariant** | `FacetBandCoordMeasurement` is mutable across coordination rounds. Renderers must read it only after `coordinate_facet_measurement_tree` returns (the loop's final-propagation phase, `CoordinationCheckpoint::FinalPropagationComplete`). |
 | **Consequence if Violated** | Renderers see Phase-2 (local) values instead of Phase-3 (coordinated) values — cell sizes and padding will be wrong. |
 | **Current Enforcement** | `CoordinationCheckpoint` gating in `plot/compiled/rendering.rs`; the coordinated measurement is the one boxed onto `ComponentsMeasurement.coord_measurement`. |
 | **Location** | `avenger-chart/src/facet/coordination.rs`, `avenger-chart/src/plot/compiled/rendering.rs` |
 
-### 3. `CoordinationGroupKey` Identifies Bands That Must Agree
+### 3. `CoordinationScopeKey` Identifies Bands That Must Agree
 
 | Property | Value |
 |----------|-------|
-| **Invariant** | Bands sharing the same `CoordinationGroupKey { depth, facet_group_identity }` must end coordination with identical `subplot_cross_size`, identical `padding_inner_px`, and consistent edge overflow. |
+| **Invariant** | Bands sharing the same coordination scope (`CoordinationScopeKey::container_group(kind, depth, "{axis}:{field_identity}")`) must end coordination with identical `subplot_cross_size`, identical `padding_inner_px`, and consistent edge overflow. |
 | **Consequence if Violated** | Misaligned grids — adjacent facets at the same depth will visibly drift apart. |
-| **Current Enforcement** | `coordinate_facet_measurement_tree` distributes max-reduced values back to every band in each group. |
-| **Location** | `avenger-chart/src/facet/coordination.rs:68` (key), `coord.rs:1100` (key construction) |
+| **Current Enforcement** | The round solve (`facet/round_tree.rs::solve_round`) shares cousins on their scope key so the solver equalizes spacing and overflow grants; `build_round_patches` distributes the merged values back to every band. |
+| **Location** | `avenger-chart/src/plot/compiled/coordination_scope.rs` (key), `coord.rs` `coordination_scope_key_for_depth` (key construction) |
 
 ### 4. Visibility Logic Must Match in Measure and Render
 

@@ -128,13 +128,27 @@ for nested child-frame containers. It is separate from domain coordination:
 
 The implementation lives in
 `plot/compiled/child_frame_coordination.rs`. It exports
-`ChildFrameLayoutCoordinationNode` values from measured containers and runs
-them through `avenger_layout::align`, the one-round alignment engine: nodes
-are grouped by `LayoutAlignmentKey`, compatible groups merge their
-`avenger_layout::GridRequirements` by component-wise max, and the merged
-requirements apply through container-specific adapters. The chart-only
-`guide_slot_gap_px` rides in a `ChartGridRequirements` side-car and is folded
-per group over the plan's member IDs.
+`ChildFrameLayoutCoordinationNode` values from measured containers and groups
+them by `LayoutAlignmentKey` through the chart-side alignment engine
+(`layout/alignment.rs::align_by`): compatible groups merge their
+`ChartGridData` per-track requirements by component-wise max for delta
+gating and diagnostics. The chart-only `guide_slot_gap_px` rides in a
+`ChartGridRequirements` side-car and is folded per group over the plan's
+member IDs.
+
+How a planned group applies depends on the container family:
+
+- **Concat-family groups solve together on a real share key**
+  (`layout/concat_grid.rs::solve_concat_grid_group`): every member is
+  rebuilt from its own measured cells (`GridMemberSpec`), all members share
+  one `avenger_layout` key in a single solve (the solver merges the
+  per-track requirement folds; each member re-solves at the merged floors
+  with its own span constraints), and each member installs its own
+  extracted solution through
+  `ConcatCoordMeasurement::install_grid_solution` — pure placement
+  write-back with change detection, no solving.
+- **Facet-band groups apply merged requirement values** through the gated
+  facet adapter described below.
 
 For grid-shaped child-frame containers, the exported topology is a list of
 slot rectangles, not just child count. A manual `GridConcat` child with

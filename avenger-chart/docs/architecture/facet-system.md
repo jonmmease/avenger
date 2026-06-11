@@ -12,7 +12,7 @@ flowchart TD
     Tree["EvaluatedFacetTree\nPartitionNode hierarchy"]
     Band["FacetBandMeasurePipeline\nper-band measurement"]
     Domains["scale_precompute and domain_coordination"]
-    Coordination["coordinate_facet_measurement_tree\nrequirements, retarget, final propagation"]
+    Coordination["coordinate_facet_measurement_tree\nround loop: requirements + retarget, then final propagation"]
     Placement["FacetBandPlacement\nfacet_child_frame_placement_from_band"]
     Render["render_facet_band_common\nchild plot groups"]
 
@@ -84,18 +84,41 @@ compiled child plot.
 
 ## Coordination And Placement
 
-`coordinate_facet_measurement_tree` runs the cross-band coordination pipeline.
+`coordinate_facet_measurement_tree` runs the cross-band coordination loop.
 The driver is in `facet/coordination.rs`, immutable plans live in
 `facet/coordination_plans.rs`, bounded mutation walkers live in
-`facet/coordination_apply.rs`, and sizing decisions live in
+`facet/coordination_apply.rs`, the share-keyed round solve lives in
+`facet/round_tree.rs`, and sizing decisions live in
 `FacetCoordinationPolicy`.
 
-The coordination stages are:
+The driver (`run_facet_coordination_rounds`) loops over coordination
+rounds. Each round:
 
-- initial requirement collection and distribution,
-- retarget planning and execution,
-- retargeted requirement collection,
-- final propagation.
+- collects a requirement snapshot from every facet band
+  (`collect_requirement_snapshot`),
+- solves the round on share keys (`round_tree::solve_round`): every node
+  lowers to a uniform placeholder grid carrying its local spacing and its
+  measured whole-band overflow as edge demands; cousins — nodes with the
+  same coordination scope — share one `avenger_layout` key, so a single
+  solve merges both the layout channel (spacing via the solver's share
+  coordination; slot counts and the `guide_slot_gap_px` side-car fold
+  chart-side) and the full-overflow channel (each member's granted edges
+  are its group-equalized envelope). Guide-anchor and boundary overflow
+  remain chart-side folds over their own scopes
+  (`fold_overflow_entries`): lanes split groups, and boundary strips
+  global edges per node,
+- applies the per-node patches (`apply_requirement_pass`), with the
+  write-back adjustments (free slot sharing keeps local counts, lane gap
+  folds, global-edge outer reversion) in `build_round_patches`,
+- retargets frames at the written-back targets between rounds
+  (`build_retarget_plan` + `run_retarget_with_trace`; plans derive from
+  pre-execution state for all nodes, then execute top-down).
+
+`COORDINATION_ROUNDS = 2` reproduces the historical
+Initial -> Retarget -> Retargeted reconciliation cadence; the public
+`CoordinationCheckpoint` variants map onto round boundaries. After the
+rounds settle, final propagation pushes coordinated plot areas and scale
+ranges to descendants.
 
 Rendering resolves `FacetBandPlacement` through `facet/placement.rs`, converts
 that placement to child-frame render placements, and calls
@@ -115,10 +138,10 @@ The generic pass currently coexists with the facet-specific coordination
 driver. Facet-only measurement still uses `coordinate_facet_measurement_tree`
 as the authoritative retarget/final-propagation path. The generic facet-band
 apply adapter is deliberately narrower: it only mutates safe explicit
-`FacetColumn` / `FacetRow` bands by converting merged
-`avenger_layout::GridRequirements` back into `CoordinatedLayout` (an exact
-round trip: `TrackSpacing::min_gap` <-> `padding_inner_px`, outer offsets and
-track count map directly), then reusing
+`FacetColumn` / `FacetRow` bands by converting merged `ChartGridData`
+per-track requirements back into `CoordinatedLayout` (an exact round trip:
+`Spacing::min_gap` <-> `padding_inner_px`, outer offsets and track count map
+directly), then reusing
 `FacetBandCoordMeasurement::set_coordinated_layout_value(...)` and
 `recompute_explicit_placement_if_needed()`.
 
