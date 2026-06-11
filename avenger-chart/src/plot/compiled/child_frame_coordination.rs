@@ -757,7 +757,9 @@ pub(crate) fn build_child_frame_layout_alignment_diagnostics(
         &alignment_nodes,
         SingletonPolicy::Skip,
         |members: &[&ChartGridRequirements]| {
-            let grid = GridRequirements::merged(members.iter().map(|member| &member.grid))?;
+            let grid = crate::layout::alignment::merged_grid_requirements(
+                members.iter().map(|member| &member.grid),
+            )?;
             let guide_slot_gap_px = members
                 .iter()
                 .map(|member| member.guide_slot_gap_px)
@@ -769,8 +771,8 @@ pub(crate) fn build_child_frame_layout_alignment_diagnostics(
         },
         |local, merged| {
             (
-                local.grid.content_delta(&merged.grid),
-                local.grid.edge_delta(&merged.grid)
+                crate::layout::alignment::grid_content_delta(&local.grid, &merged.grid),
+                crate::layout::alignment::grid_edge_delta(&local.grid, &merged.grid)
                     + (merged.guide_slot_gap_px - local.guide_slot_gap_px).abs(),
             )
         },
@@ -1220,7 +1222,8 @@ mod tests {
         let second =
             facet_grid_requirements_from_placement(shape, &placement, 8.0, &wide_boundaries)?;
 
-        let merged = GridRequirements::merged([&first, &second]).expect("compatible facet grids");
+        let merged = crate::layout::alignment::merged_grid_requirements([&first, &second])
+            .expect("compatible facet grids");
         let layout = facet_grid_requirements_to_coordinated_layout(
             FacetAxis::Column,
             &ChartGridRequirements {

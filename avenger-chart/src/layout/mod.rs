@@ -6,6 +6,7 @@
 //! solving, sizing specs, and adapters between chart-core geometry and
 //! `avenger-layout` geometry.
 
+pub(crate) mod alignment;
 mod band;
 mod band_position;
 mod chrome;
@@ -16,15 +17,17 @@ mod info;
 mod sizing;
 mod uniform;
 
+pub(crate) use alignment::{
+    AlignmentNode, ConvergenceTrace, RoundDeltas, SingletonPolicy, SkippedGroupReason, align_by,
+};
 pub use avenger_chart_core::BandPosition;
 pub use avenger_chart_core::{
     EdgeSlabs, FrameAllocation, FrameDemand, FrameDimensionSizing, FrameLayout, FrameSizingPolicy,
     LayoutBounds, OverflowSide, OwnedEdgeSlabs, Size2D,
 };
 pub(crate) use avenger_layout::{
-    AlignmentNode, ConvergenceTrace, EdgeDemand, EdgeTargets, Edges, GridItem, GridRequirements,
-    GridShape, GridSlot, Orientation, RoundDeltas, SingletonPolicy, Size, SkippedGroupReason,
-    TrackSpacing, align_by,
+    EdgeDemand, EdgeTargets, Edges, GridItem, GridRequirements, GridShape, GridSlot, Orientation,
+    Size, TrackSpacing,
 };
 pub(crate) use band::{BandItem, BandSolution, BoundaryDemand, CrossAlign, PlacedBandItem};
 pub(crate) use uniform::UniformTracks;
