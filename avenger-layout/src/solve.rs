@@ -259,14 +259,19 @@ fn equalize(sizes: &mut [f32]) {
 
 // --- allocation ------------------------------------------------------------
 
-/// Per-axis placement of one node within its slot: where its content lands
-/// and how big it is. `box_start`/`box_extent` describe the chromed box
-/// (equal to the slot for contained axes; content plus hanging chrome lives
-/// outside the box concept on `Envelope` axes, where the box IS the
-/// content).
+/// Per-axis placement of one node within its slot: where its content lands,
+/// plus the solved chrome stack (for slab carving) and the absolute origin
+/// of the chromed box on this axis.
 struct AxisPlacement {
     content_start: f32,
     content_extent: f32,
+    /// The full per-axis chrome solution (slab sizes; flexible margins
+    /// already resolved).
+    chrome: crate::frame::FrameAxisSolution,
+    /// Absolute start of the chromed box: the slot start on contained axes,
+    /// `content_start - leading chrome` on `Envelope` axes (chrome hangs
+    /// outside the content into gap/edge space).
+    box_start: f32,
 }
 
 fn place_axis(
@@ -288,9 +293,22 @@ fn place_axis(
                 natural_content
             };
             let offset = align.offset(slot_extent, content_extent);
+            let content_start = slot_start + offset;
+            let axis = FrameAxis {
+                sizing: FrameAxisSizing::ContentFixed {
+                    content: content_extent,
+                },
+                leading: frame_side(leading),
+                trailing: frame_side(trailing),
+                content_min,
+            };
+            let solved = axis.solve();
+            let box_start = content_start - solved.content.start;
             AxisPlacement {
-                content_start: slot_start + offset,
+                content_start,
                 content_extent,
+                chrome: solved,
+                box_start,
             }
         }
         SolveFor::Content | SolveFor::Margins => {
@@ -312,9 +330,134 @@ fn place_axis(
             AxisPlacement {
                 content_start: slot_start + solved.content.start,
                 content_extent: solved.content.size,
+                chrome: solved,
+                box_start: slot_start,
             }
         }
     }
+}
+
+/// Carve 2D slab rectangles from the per-axis chrome solutions.
+///
+/// Layers carve from the outside in (margin → bands → outer → inner); within
+/// one layer, vertical sides (top/bottom) carve before horizontal
+/// (left/right), so a top band runs wider than a left band of the same layer
+/// and corners belong to the outer-more / vertical-first slab. The innermost
+/// slabs end up exactly content-sized on their cross axis.
+fn carve_slabs(
+    horizontal: &AxisPlacement,
+    vertical: &AxisPlacement,
+    slabs: &mut Vec<crate::solution::ChromeSlab>,
+) {
+    use crate::geometry::Side;
+    use crate::solution::{ChromeLayer, ChromeSlab};
+
+    // Remaining rect starts as the full chromed box.
+    let mut x0 = horizontal.box_start;
+    let mut x1 = horizontal.box_start + horizontal.chrome.extent;
+    let mut y0 = vertical.box_start;
+    let mut y1 = vertical.box_start + vertical.chrome.extent;
+
+    let top = &vertical.chrome.leading;
+    let bottom = &vertical.chrome.trailing;
+    let left = &horizontal.chrome.leading;
+    let right = &horizontal.chrome.trailing;
+
+    let band_steps = top
+        .bands
+        .len()
+        .max(bottom.bands.len())
+        .max(left.bands.len())
+        .max(right.bands.len());
+
+    // One carving step: sizes per side for this layer, in vertical-first
+    // order. Emits non-empty slabs and shrinks the remaining rect.
+    let mut step = |layer: ChromeLayer,
+                    band_index: usize,
+                    top_size: f32,
+                    right_size: f32,
+                    bottom_size: f32,
+                    left_size: f32,
+                    slabs: &mut Vec<ChromeSlab>| {
+        if top_size > 0.0 {
+            slabs.push(ChromeSlab {
+                layer,
+                side: Side::Top,
+                band_index,
+                rect: Rect::new(x0, y0, x1 - x0, top_size),
+            });
+        }
+        y0 += top_size;
+        if bottom_size > 0.0 {
+            slabs.push(ChromeSlab {
+                layer,
+                side: Side::Bottom,
+                band_index,
+                rect: Rect::new(x0, y1 - bottom_size, x1 - x0, bottom_size),
+            });
+        }
+        y1 -= bottom_size;
+        if left_size > 0.0 {
+            slabs.push(ChromeSlab {
+                layer,
+                side: Side::Left,
+                band_index,
+                rect: Rect::new(x0, y0, left_size, y1 - y0),
+            });
+        }
+        x0 += left_size;
+        if right_size > 0.0 {
+            slabs.push(ChromeSlab {
+                layer,
+                side: Side::Right,
+                band_index,
+                rect: Rect::new(x1 - right_size, y0, right_size, y1 - y0),
+            });
+        }
+        x1 -= right_size;
+    };
+
+    step(
+        ChromeLayer::Margin,
+        0,
+        top.margin.size,
+        right.margin.size,
+        bottom.margin.size,
+        left.margin.size,
+        slabs,
+    );
+    for index in 0..band_steps {
+        let band = |side: &crate::frame::SolvedFrameSide| {
+            side.bands.get(index).map(|slab| slab.size).unwrap_or(0.0)
+        };
+        step(
+            ChromeLayer::Band,
+            index,
+            band(top),
+            band(right),
+            band(bottom),
+            band(left),
+            slabs,
+        );
+    }
+    step(
+        ChromeLayer::Outer,
+        0,
+        top.outer.size,
+        right.outer.size,
+        bottom.outer.size,
+        left.outer.size,
+        slabs,
+    );
+    step(
+        ChromeLayer::Inner,
+        0,
+        top.inner.size,
+        right.inner.size,
+        bottom.inner.size,
+        left.inner.size,
+        slabs,
+    );
 }
 
 fn frame_side(side: &ChromeSide) -> FrameSide {
@@ -365,6 +508,9 @@ fn place<Id: Clone, Key>(
         vertical.content_extent,
     );
 
+    let mut slabs = Vec::new();
+    carve_slabs(&horizontal, &vertical, &mut slabs);
+
     let region_index = regions.len();
     regions.push(Region {
         id: node.id.clone(),
@@ -372,7 +518,7 @@ fn place<Id: Clone, Key>(
         depth,
         slot,
         content,
-        slabs: Vec::new(),
+        slabs,
         requested: measured.demands,
         granted,
         detail: RegionDetail::Leaf, // patched below for grids
@@ -1001,5 +1147,165 @@ mod tests {
         assert_eq!(second.requested.top.inner, 8.0);
         assert_eq!(second.granted.top.inner, 20.0, "track-level grant");
         assert_eq!(solved.envelope().layered.top.inner, 20.0);
+    }
+
+    #[test]
+    fn bands_on_all_four_sides_carve_with_corner_rule() {
+        use crate::solution::{ChromeLayer, ChromeSlab};
+        let solved = Layout::<&str>::leaf(Size::default())
+            .margin(10.0)
+            .band(Side::Top, 20.0)
+            .band(Side::Left, 30.0)
+            .sizing(SolveFor::Content)
+            .id("box")
+            .solve(&SolveOptions {
+                width: Some(400.0),
+                height: Some(300.0),
+            })
+            .expect("solve");
+
+        let region = solved.region(&"box").expect("region");
+        let slab = |layer: ChromeLayer, side: Side| -> &ChromeSlab {
+            region
+                .slabs
+                .iter()
+                .find(|slab| slab.layer == layer && slab.side == side)
+                .expect("slab present")
+        };
+
+        // Margins carve first, vertical before horizontal: top/bottom span
+        // the full box, left/right sit between them (corners belong to the
+        // vertical slabs).
+        assert_eq!(
+            slab(ChromeLayer::Margin, Side::Top).rect,
+            Rect::new(0.0, 0.0, 400.0, 10.0)
+        );
+        assert_eq!(
+            slab(ChromeLayer::Margin, Side::Left).rect,
+            Rect::new(0.0, 10.0, 10.0, 280.0)
+        );
+        // Band layer: the top band runs wider than the left band of the
+        // same layer; the left band starts below the top band.
+        assert_eq!(
+            slab(ChromeLayer::Band, Side::Top).rect,
+            Rect::new(10.0, 10.0, 380.0, 20.0)
+        );
+        assert_eq!(
+            slab(ChromeLayer::Band, Side::Left).rect,
+            Rect::new(10.0, 30.0, 30.0, 260.0)
+        );
+        assert_eq!(region.content, Rect::new(40.0, 30.0, 350.0, 260.0));
+    }
+
+    #[test]
+    fn repeated_bands_stack_outside_in() {
+        use crate::solution::{ChromeLayer, ChromeSlab};
+        let solved = Layout::<&str>::leaf(Size::default())
+            .margin(8.0)
+            .band(Side::Top, 18.0) // title (outermost)
+            .band(Side::Top, 12.0) // subtitle (inside the title)
+            .sizing(SolveFor::Content)
+            .id("chart")
+            .solve(&SolveOptions {
+                width: Some(200.0),
+                height: Some(100.0),
+            })
+            .expect("solve");
+
+        let region = solved.region(&"chart").expect("region");
+        let bands: Vec<&ChromeSlab> = region
+            .slabs
+            .iter()
+            .filter(|slab| slab.layer == ChromeLayer::Band)
+            .collect();
+        assert_eq!(bands.len(), 2);
+        assert_eq!(bands[0].band_index, 0);
+        assert_eq!(bands[0].rect, Rect::new(8.0, 8.0, 184.0, 18.0));
+        assert_eq!(bands[1].band_index, 1);
+        assert_eq!(bands[1].rect, Rect::new(8.0, 26.0, 184.0, 12.0));
+    }
+
+    #[test]
+    fn horizontal_inner_slabs_are_content_sized_on_cross_axis() {
+        use crate::solution::ChromeLayer;
+        let solved = Layout::<&str>::leaf(Size::default())
+            .margin(8.0)
+            .inner(Side::Left, 38.0)
+            .inner(Side::Bottom, 22.0)
+            .sizing(SolveFor::Content)
+            .id("chart")
+            .solve(&SolveOptions {
+                width: Some(400.0),
+                height: Some(300.0),
+            })
+            .expect("solve");
+
+        let region = solved.region(&"chart").expect("region");
+        let left_inner = region
+            .slabs
+            .iter()
+            .find(|slab| slab.layer == ChromeLayer::Inner && slab.side == Side::Left)
+            .expect("left inner");
+        assert_eq!(left_inner.rect.y, region.content.y);
+        assert_eq!(left_inner.rect.height, region.content.height);
+        assert_eq!(left_inner.rect.x + left_inner.rect.width, region.content.x);
+    }
+
+    #[test]
+    fn envelope_mode_chrome_hangs_outside_the_content_rect() {
+        use crate::solution::ChromeLayer;
+        let solved = Layout::<&str>::leaf(Size::new(200.0, 150.0))
+            .margin(8.0)
+            .inner(Side::Left, 38.0)
+            .id("chart")
+            .solve(&SolveOptions::default())
+            .expect("solve");
+
+        let region = solved.region(&"chart").expect("region");
+        assert_eq!(region.content, Rect::new(46.0, 8.0, 200.0, 150.0));
+        let left_inner = region
+            .slabs
+            .iter()
+            .find(|slab| slab.layer == ChromeLayer::Inner && slab.side == Side::Left)
+            .expect("left inner");
+        assert_eq!(left_inner.rect, Rect::new(8.0, 8.0, 38.0, 150.0));
+        let left_margin = region
+            .slabs
+            .iter()
+            .find(|slab| slab.layer == ChromeLayer::Margin && slab.side == Side::Left)
+            .expect("left margin");
+        assert_eq!(left_margin.rect.x, 0.0);
+    }
+
+    #[test]
+    fn margins_mode_carves_solved_flexible_margins() {
+        use crate::solution::ChromeLayer;
+        let solved = Layout::<&str>::leaf(Size::new(200.0, 150.0))
+            .margin_edges(Edges::new(0.0, 13.0, 0.0, 7.0))
+            .sizing_x(SolveFor::Margins)
+            .sizing_y(SolveFor::Envelope)
+            .id("box")
+            .solve(&SolveOptions {
+                width: Some(400.0),
+                height: None,
+            })
+            .expect("solve");
+
+        let region = solved.region(&"box").expect("region");
+        // Declared margins are ignored on the Margins axis; each side gets
+        // half the 200 slack.
+        let left = region
+            .slabs
+            .iter()
+            .find(|slab| slab.layer == ChromeLayer::Margin && slab.side == Side::Left)
+            .expect("left margin");
+        let right = region
+            .slabs
+            .iter()
+            .find(|slab| slab.layer == ChromeLayer::Margin && slab.side == Side::Right)
+            .expect("right margin");
+        assert_eq!(left.rect.width, 100.0);
+        assert_eq!(right.rect.width, 100.0);
+        assert_eq!(region.content.width, 200.0);
     }
 }
