@@ -107,9 +107,16 @@ rounds. Each round:
   remain chart-side folds over their own scopes
   (`fold_overflow_entries`): lanes split groups, and boundary strips
   global edges per node,
-- applies the per-node patches (`apply_requirement_pass`), with the
-  write-back adjustments (free slot sharing keeps local counts, lane gap
-  folds, global-edge outer reversion) in `build_round_patches`,
+- constructs the round's `CoordinationSolution`
+  (`build_requirement_pass`): the per-node channel values with the
+  write-back adjustments applied (free slot sharing keeps local counts,
+  lane gap folds, global-edge outer reversion, in
+  `build_round_solution`), coverage-validated at construction,
+- installs the solution (`apply_requirement_pass`): per band, reset
+  realized legend-slab ownership, install the round's `Arc` handle, and
+  refresh placement. Bands read coordinated values as views into the
+  installed solution (`active_layout()` / `active_overflow()` / the
+  `*_value()` accessors), falling back to local values pre-coordination,
 - retargets frames at the written-back targets between rounds
   (`build_retarget_plan` + `run_retarget_with_trace`; plans derive from
   pre-execution state for all nodes, then execute top-down).
@@ -134,22 +141,18 @@ node includes a facet semantic tag so equivalent facet bands can align across
 manual or repeat-generated container siblings without grouping unrelated
 facet fields.
 
-The generic pass currently coexists with the facet-specific coordination
-driver. Facet-only measurement still uses `coordinate_facet_measurement_tree`
-as the authoritative retarget/final-propagation path. The generic facet-band
-apply adapter is deliberately narrower: it only mutates safe explicit
-`FacetColumn` / `FacetRow` bands by converting merged `ChartGridData`
-per-track requirements back into `CoordinatedLayout` (an exact round trip:
-`Spacing::min_gap` <-> `padding_inner_px`, outer offsets and track count map
-directly), then reusing
-`FacetBandCoordMeasurement::set_coordinated_layout_value(...)` and
-`recompute_explicit_placement_if_needed()`.
-
-The adapter refuses cases where that round trip is not proven safe, including
-`FacetWrap`'s nested physical band topology, scale-backed placement, empty
-bands, and topology mismatches. This keeps the full facet pipeline in charge
-of complex facet retargeting while still allowing the generic layout pass to
-align safe facet bands nested inside concat or repeat structures.
+Facet nodes participate in the generic pass for DIAGNOSTICS only (group
+membership, merged requirements, deltas). The value-apply adapter that
+once pushed merged grid requirements back into a band was deleted: its
+apply guard required explicit placement, which exists only under a
+leaf-plot-sized facet root — and a root cannot also be a concat child,
+so no multi-member alignment group could ever reach a band the guard
+admitted (in-chart facet cousins are already equalized by the
+coordination rounds before alignment runs). The
+`concat_grid_facet_track_alignment` visual baseline pins the closest
+reachable boundary rendering. `coordinate_facet_measurement_tree`
+remains the authoritative facet retarget/final-propagation path; concat
+containers are the only apply-capable alignment kinds.
 
 ## Coordination
 

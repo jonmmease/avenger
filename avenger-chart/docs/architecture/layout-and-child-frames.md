@@ -185,18 +185,15 @@ Concat-family containers are the primary apply-capable containers. `GridConcat`,
 `WrapConcat`, `HConcat`, and `VConcat` expose grid-shaped requirements and can
 be physically aligned across equivalent instances.
 
-Facet bands also export layout-coordination nodes. Their mutating adapter is
-gated: it applies only to safe explicit `FacetColumn` / `FacetRow` bands whose
-topology can round-trip through the existing facet placement path. The adapter
-rejects empty bands, nested facet children, scale-backed facet placement, and
-topology mismatches. The existing facet coordination driver remains the
-authoritative path for facet-only retargeting and final propagation.
-
-This coexistence is intentional. The generic pass solves cross-container
-alignment such as repeat inside facet, facet inside repeat, and facet bands
-inside manual grid siblings. The facet-specific driver still owns the full
-facet measurement algorithm until broad facet parity justifies retiring more
-of that code.
+Facet bands export layout-coordination nodes for diagnostics only — group
+membership, merged requirements, and deltas surface in the alignment
+diagnostics, but no facet value-apply adapter exists. The one that did was
+unreachable from any end-to-end chart spec (its apply guard required
+explicit placement, which exists only under a leaf-plot-sized facet root —
+never a concat child) and was deleted with the coordinated value stores;
+the `concat_grid_facet_track_alignment` visual baseline pins the boundary.
+The facet coordination driver remains the authoritative path for facet
+retargeting and final propagation.
 
 ## Preview Invariant
 
