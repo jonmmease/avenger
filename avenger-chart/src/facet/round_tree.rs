@@ -1,38 +1,59 @@
 //! One facet coordination round lowered onto a share-keyed
 //! `avenger_layout::Layout` and solved in a single pass (seam plan §A).
 //!
-//! Phase scope (P2): the facet-band LAYOUT channel. Every requirement node
-//! lowers to a uniform grid of placeholder tracks carrying its local
-//! spacing, and cousins — nodes with the same coordination scope — share
-//! one key, so the solver's share coordination merges their spacing.
-//! Free-slot nodes share too: in the legacy merge free nodes always
-//! contributed to and received the group spacing, reverting only their slot
-//! count, which stays a write-back adjustment in `build_round_patches`
-//! alongside lane gap folds and global-edge outer reversion. Slot counts
-//! and the `guide_slot_gap_px` side-car merge chart-side from the group
-//! membership (the solver coordinates geometry, not chart policy scalars).
+//! Every requirement node lowers to a uniform grid of placeholder tracks
+//! carrying its local spacing and its measured whole-band overflow as edge
+//! demands; cousins — nodes with the same coordination scope — share one
+//! key, so a single solve coordinates both channels:
 //!
-//! Overflow channels (full, guide-anchor, boundary) stay on the legacy
-//! merge until P3.
+//! - **layout**: the solver's share coordination merges spacing
+//!   (post-merge values read from `SolvedTracks`). Free-slot nodes share
+//!   too: in the legacy merge free nodes always contributed to and received
+//!   the group spacing, reverting only their slot count, which stays a
+//!   write-back adjustment in `build_round_patches` alongside lane gap
+//!   folds and global-edge outer reversion. Slot counts and the
+//!   `guide_slot_gap_px` side-car merge chart-side from the group
+//!   membership (the solver coordinates geometry, not chart policy
+//!   scalars).
+//! - **overflow**: edge demands merge per track through the share patches,
+//!   so each member's post-patch `requested` edges ARE the group-equalized
+//!   envelope (the same `EdgeDemand::max_components` law the legacy merge
+//!   applied).
+//!
+//! The guide-anchor and boundary channels remain chart-side folds over
+//! their own scopes (lanes split groups; boundary strips global edges per
+//! node), in `coordination_plans`.
 
 use std::collections::HashMap;
 
-use avenger_chart_core::{CoordinatedLayout, FacetAxis};
-use avenger_layout::{Layout, RegionDetail, Size, SolveOptions, Spacing};
+use avenger_chart_core::{CoordinatedLayout, CoordinatedOverflow, FacetAxis};
+use avenger_layout::{Layout, RegionDetail, Side, Size, SolveOptions, Spacing};
 
 use crate::facet::coordination_plans::{CoordinationNodeKey, RoundCollectionInput};
+use crate::facet::overflow_projection::{overflow_edge_demands, overflow_from_edge_demands};
 use crate::plot::compiled::{CoordinationKind, CoordinationScopeKey};
 
-/// Solved layout values for one round: the group-merged view per share key
-/// and per node, before the per-node write-back adjustments.
-pub(crate) struct SolvedLayoutRound {
+/// Solved values for one round, before the per-node write-back adjustments:
+/// the group-merged layout per share key and per node, and the
+/// group-equalized whole-band envelope per node (only nodes that reported a
+/// measured overflow).
+pub(crate) struct SolvedRound {
     pub(crate) merged_by_key: HashMap<CoordinationScopeKey, CoordinatedLayout>,
     pub(crate) merged_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
+    pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
 }
 
-/// Lower every node's uniform-track policy into one share-keyed layout
-/// tree, solve it, and read back the group-merged layout per node.
-pub(crate) fn solve_layout_round(nodes: &[RoundCollectionInput]) -> SolvedLayoutRound {
+/// Lower every node's uniform-track policy and measured overflow into one
+/// share-keyed layout tree, solve it, and read back the group-merged
+/// values per node.
+pub(crate) fn solve_round(nodes: &[RoundCollectionInput]) -> SolvedRound {
+    if nodes.is_empty() {
+        return SolvedRound {
+            merged_by_key: HashMap::new(),
+            merged_by_node: HashMap::new(),
+            overflow_by_node: HashMap::new(),
+        };
+    }
     let mut group_members: HashMap<CoordinationScopeKey, Vec<usize>> = HashMap::new();
     let mut share_keys = Vec::with_capacity(nodes.len());
     for (index, node) in nodes.iter().enumerate() {
@@ -54,9 +75,37 @@ pub(crate) fn solve_layout_round(nodes: &[RoundCollectionInput]) -> SolvedLayout
                 min_gap: node.local_layout.padding_inner_px,
             };
             // Placeholder tracks: spacing coordination is content-free, and
-            // uniform share groups tolerate ragged counts.
-            let leaves = (0..node.local_layout.n.max(1))
-                .map(|_| Layout::leaf(Size::default()))
+            // uniform share groups tolerate ragged counts. The measured
+            // whole-band envelope hangs on the edge cells: the main-axis
+            // sides on the first/last track, the cross-axis sides on the
+            // single cross track (folded over its cells).
+            let track_count = node.local_layout.n.max(1);
+            let demands = node
+                .measured_overflow
+                .as_ref()
+                .map(overflow_edge_demands)
+                .unwrap_or_default();
+            let (main_start, main_end) = match node.axis {
+                FacetAxis::Column => (Side::Left, Side::Right),
+                FacetAxis::Row => (Side::Top, Side::Bottom),
+            };
+            let (cross_start, cross_end) = match node.axis {
+                FacetAxis::Column => (Side::Top, Side::Bottom),
+                FacetAxis::Row => (Side::Left, Side::Right),
+            };
+            let leaves = (0..track_count)
+                .map(|index| {
+                    let mut leaf: Layout<usize, CoordinationScopeKey> =
+                        Layout::leaf(Size::default());
+                    if index == 0 {
+                        leaf = leaf.demand(main_start, *demands.side(main_start));
+                    }
+                    if index == track_count - 1 {
+                        leaf = leaf.demand(main_end, *demands.side(main_end));
+                    }
+                    leaf = leaf.demand(cross_start, *demands.side(cross_start));
+                    leaf.demand(cross_end, *demands.side(cross_end))
+                })
                 .collect::<Vec<_>>();
             match node.axis {
                 FacetAxis::Column => Layout::row(leaves)
@@ -68,13 +117,21 @@ pub(crate) fn solve_layout_round(nodes: &[RoundCollectionInput]) -> SolvedLayout
         })
         .collect::<Vec<_>>();
 
-    let root: Layout<usize, CoordinationScopeKey> = Layout::row(members);
+    // Members sit on the root grid's diagonal so every member is the only
+    // occupant of its row and column: its granted edges from the root are
+    // then exactly its own post-patch (group-merged) demands on all four
+    // sides.
+    let mut root: Layout<usize, CoordinationScopeKey> = Layout::grid(members.len(), members.len());
+    for (index, member) in members.into_iter().enumerate() {
+        root = root.cell(index, index, member);
+    }
     let solved = root
         .solve(&SolveOptions::default())
         .expect("a uniform placeholder round always solves");
 
     let mut merged_by_key = HashMap::new();
     let mut merged_by_node = HashMap::new();
+    let mut overflow_by_node = HashMap::new();
     for (index, node) in nodes.iter().enumerate() {
         let region = solved
             .at_path(&[index])
@@ -82,6 +139,15 @@ pub(crate) fn solve_layout_round(nodes: &[RoundCollectionInput]) -> SolvedLayout
         let RegionDetail::Grid { tracks } = &region.detail else {
             unreachable!("lowered nodes are grids");
         };
+        // Nodes without a measured overflow contribute nothing here; they
+        // still receive the group value through the keyed patch lookup
+        // downstream, as in the legacy merge.
+        if node.measured_overflow.is_some() {
+            overflow_by_node.insert(
+                node.node_id.clone(),
+                overflow_from_edge_demands(region.granted),
+            );
+        }
         let solved_spacing = match node.axis {
             FacetAxis::Column => tracks.column_spacing,
             FacetAxis::Row => tracks.row_spacing,
@@ -109,9 +175,10 @@ pub(crate) fn solve_layout_round(nodes: &[RoundCollectionInput]) -> SolvedLayout
         merged_by_node.insert(node.node_id.clone(), merged);
     }
 
-    SolvedLayoutRound {
+    SolvedRound {
         merged_by_key,
         merged_by_node,
+        overflow_by_node,
     }
 }
 
@@ -190,7 +257,7 @@ mod tests {
             ),
         ];
 
-        let solved = solve_layout_round(&nodes);
+        let solved = solve_round(&nodes);
         let merged = |path: Vec<usize>| {
             solved
                 .merged_by_node

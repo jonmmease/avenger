@@ -33,9 +33,6 @@ pub(crate) struct AlignmentNode<Id = usize, Key = usize, P = ChartGridData> {
 pub(crate) enum SingletonPolicy {
     /// Report singleton groups as skipped; there is nothing to align.
     Skip,
-    /// Merge singleton groups (merged == the lone payload) so every node
-    /// receives a patch.
-    Merge,
 }
 
 /// Requirement delta from one local node to its group's merged requirements.
@@ -82,22 +79,6 @@ impl<Id, Key, P> AlignmentPlan<Id, Key, P> {
     /// Total number of distinct group keys seen, merged or skipped.
     pub(crate) fn group_count(&self) -> usize {
         self.groups.len() + self.skipped.len()
-    }
-
-    pub(crate) fn total_content_delta(&self) -> f32 {
-        self.groups
-            .iter()
-            .flat_map(|group| group.deltas.iter())
-            .map(|delta| delta.content_delta)
-            .sum()
-    }
-
-    pub(crate) fn total_edge_delta(&self) -> f32 {
-        self.groups
-            .iter()
-            .flat_map(|group| group.deltas.iter())
-            .map(|delta| delta.edge_delta)
-            .sum()
     }
 }
 

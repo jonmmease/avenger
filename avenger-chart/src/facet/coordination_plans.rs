@@ -19,7 +19,7 @@ use avenger_chart_core::{
 use crate::{
     facet::overflow_projection::{FacetOverflowProjection, project_facet_overflow},
     facet::overflow_projection::{overflow_edge_demands, overflow_from_edge_demands},
-    layout::{AlignmentNode, EdgeDemand, Edges, RoundDeltas, SingletonPolicy, align_by},
+    layout::{EdgeDemand, Edges, RoundDeltas},
     plot::compiled::{CoordinationKind, CoordinationScopeKey},
 };
 
@@ -391,7 +391,6 @@ type OverflowEntry = (
 
 #[derive(Debug, Clone, Default)]
 struct RoundGroupedRequirements {
-    overflow_entries: Vec<OverflowEntry>,
     guide_anchor_entries: Vec<OverflowEntry>,
     boundary_entries: Vec<OverflowEntry>,
     max_guide_slot_gap_by_axis_group: HashMap<CoordinationScopeKey, f32>,
@@ -578,12 +577,13 @@ fn set_overflow_side(overflow: &mut OverflowSpaceRequirement, side: AxisPosition
 fn build_round_collection(nodes: &[RoundCollectionInput]) -> RoundCollectionOutput {
     let scopes = RequirementScopeMetadata::collect(nodes);
     let grouped = collect_round_groups(nodes, &scopes);
-    let (mut merged, overflow_round_deltas) = merge_round_groups(&grouped);
-    let solved_layout = crate::facet::round_tree::solve_layout_round(nodes);
+    let solved = crate::facet::round_tree::solve_round(nodes);
+
+    // Layout channel: solver-merged spacing plus chart-side scalars.
     let layout_round_deltas = nodes
         .iter()
         .filter_map(|node| {
-            solved_layout
+            solved
                 .merged_by_node
                 .get(&node.node_id)
                 .map(|merged| coordinated_layout_delta(&node.local_layout, merged))
@@ -594,7 +594,48 @@ fn build_round_collection(nodes: &[RoundCollectionInput]) -> RoundCollectionOutp
                 edge: deltas.edge + edge,
             }
         });
-    merged.layout_by_key = solved_layout.merged_by_key;
+
+    // Full-overflow channel: each measured node's group-equalized envelope
+    // from the solved round (the keyed map hands the value to overflow-less
+    // cousins through the patch lookup, as the legacy merge did).
+    let mut overflow_by_key = HashMap::new();
+    let mut full_overflow_deltas = RoundDeltas::default();
+    for node in nodes {
+        let Some(measured) = &node.measured_overflow else {
+            continue;
+        };
+        let merged_overflow = solved
+            .overflow_by_node
+            .get(&node.node_id)
+            .expect("every measured node has a solved overflow");
+        let (content, edge) = coordinated_overflow_delta(measured, merged_overflow);
+        full_overflow_deltas.content += content;
+        full_overflow_deltas.edge += edge;
+        overflow_by_key.insert(
+            node.key.with_kind(CoordinationKind::OverflowResidual),
+            merged_overflow.clone(),
+        );
+    }
+
+    // Guide-anchor and boundary channels: chart-side folds over their own
+    // scopes (lanes split groups; boundary strips global edges per node).
+    let (guide_anchor_overflow_by_key, guide_anchor_deltas) =
+        fold_overflow_entries(&grouped.guide_anchor_entries);
+    let (boundary_overflow_by_key, boundary_deltas) =
+        fold_overflow_entries(&grouped.boundary_entries);
+
+    let merged = RoundMergedRequirements {
+        overflow_by_key,
+        guide_anchor_overflow_by_key,
+        boundary_overflow_by_key,
+        layout_by_key: solved.merged_by_key,
+    };
+    let overflow_round_deltas = RoundDeltas {
+        content: full_overflow_deltas.content
+            + guide_anchor_deltas.content
+            + boundary_deltas.content,
+        edge: full_overflow_deltas.edge + guide_anchor_deltas.edge + boundary_deltas.edge,
+    };
     let patches = build_round_patches(nodes, &scopes, &grouped, &merged);
 
     RoundCollectionOutput {
@@ -617,12 +658,6 @@ fn collect_round_groups(
     let mut grouped = RoundGroupedRequirements::default();
     for node in nodes {
         if let Some(measured_overflow) = node.measured_overflow.clone() {
-            let overflow_key = node.key.with_kind(CoordinationKind::OverflowResidual);
-            grouped.overflow_entries.push((
-                node.node_id.clone(),
-                overflow_key,
-                measured_overflow.clone(),
-            ));
             let guide_anchor_key = scopes.guide_anchor_scope_key(node);
             let guide_anchor_overflow = guide_anchor_overflow_for_node(node, &measured_overflow);
             grouped.guide_anchor_entries.push((
@@ -655,29 +690,9 @@ fn coordination_axis_from_facet_axis(axis: FacetAxis) -> CoordinationAxis {
     }
 }
 
-fn merge_round_groups(
-    grouped: &RoundGroupedRequirements,
-) -> (RoundMergedRequirements, RoundDeltas) {
-    let (overflow_by_key, overflow_deltas) = align_overflow_groups(&grouped.overflow_entries);
-    let (guide_anchor_overflow_by_key, guide_anchor_deltas) =
-        align_overflow_groups(&grouped.guide_anchor_entries);
-    let (boundary_overflow_by_key, boundary_deltas) =
-        align_overflow_groups(&grouped.boundary_entries);
-
-    let merged = RoundMergedRequirements {
-        overflow_by_key,
-        guide_anchor_overflow_by_key,
-        boundary_overflow_by_key,
-        layout_by_key: HashMap::new(),
-    };
-    let deltas = RoundDeltas {
-        content: 0.0,
-        edge: overflow_deltas.edge + guide_anchor_deltas.edge + boundary_deltas.edge,
-    };
-    (merged, deltas)
-}
-
-/// Run one overflow grouping as a neutral alignment round.
+/// Fold one overflow grouping: per-key `Edges<EdgeDemand>` component max
+/// (the same law the solver's share patches apply), plus per-entry deltas
+/// against the merged value.
 ///
 /// Keys and payload pre-projections (guide-anchor lanes, boundary edge
 /// stripping) are chart policy and happen before this call; the merge runs
@@ -685,44 +700,28 @@ fn merge_round_groups(
 /// `CoordinatedOverflow::merge` exactly: `EdgeDemand::new` lifts totals to
 /// `inner + outer`, so the merged total is `max(guide) + max(legend)` on
 /// every input.
-fn align_overflow_groups(
+fn fold_overflow_entries(
     entries: &[OverflowEntry],
 ) -> (
     HashMap<CoordinationScopeKey, CoordinatedOverflow>,
     RoundDeltas,
 ) {
-    let nodes = entries
-        .iter()
-        .map(|(node_id, key, overflow)| AlignmentNode {
-            id: node_id.clone(),
-            group_key: key.clone(),
-            requirements: overflow.clone(),
-        })
-        .collect::<Vec<_>>();
-
-    let plan = align_by(
-        &nodes,
-        SingletonPolicy::Merge,
-        |members| {
-            let merged = members
-                .iter()
-                .fold(Edges::<EdgeDemand>::default(), |merged, overflow| {
-                    merged.max_components(overflow_edge_demands(overflow))
-                });
-            Some(overflow_from_edge_demands(merged))
-        },
-        coordinated_overflow_delta,
-    );
-
-    let deltas = RoundDeltas {
-        content: plan.total_content_delta(),
-        edge: plan.total_edge_delta(),
-    };
-    let merged_by_key = plan
-        .groups
+    let mut merged_demands: HashMap<CoordinationScopeKey, Edges<EdgeDemand>> = HashMap::new();
+    for (_, key, overflow) in entries {
+        let entry = merged_demands.entry(key.clone()).or_default();
+        *entry = entry.max_components(overflow_edge_demands(overflow));
+    }
+    let merged_by_key = merged_demands
         .into_iter()
-        .map(|group| (group.key, group.merged))
-        .collect();
+        .map(|(key, demands)| (key, overflow_from_edge_demands(demands)))
+        .collect::<HashMap<_, _>>();
+
+    let mut deltas = RoundDeltas::default();
+    for (_, key, overflow) in entries {
+        let (content, edge) = coordinated_overflow_delta(overflow, &merged_by_key[key]);
+        deltas.content += content;
+        deltas.edge += edge;
+    }
     (merged_by_key, deltas)
 }
 
