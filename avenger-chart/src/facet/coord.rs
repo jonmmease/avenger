@@ -4844,7 +4844,12 @@ mod tests {
         legends: IndexMap<String, LayoutBounds>,
         legends_by_position: IndexMap<LegendPosition, Vec<String>>,
     ) -> crate::render::LayoutSolution {
-        use avenger_layout::{Edges as LayoutEdges, Frame, FrameAxis, FrameAxisSizing, FrameSide};
+        use avenger_layout::Edges as LayoutEdges;
+
+        use crate::layout::declared_frame::{
+            DeclaredAxis as FrameAxis, DeclaredAxisSizing as FrameAxisSizing,
+            DeclaredFrame as Frame, DeclaredSide as FrameSide,
+        };
 
         // Chrome consistent with the synthetic realized layout: a 80x157
         // plot at (10, 20) (margins), with legend containers sized to the

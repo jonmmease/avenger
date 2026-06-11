@@ -52,12 +52,12 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
+use super::declared_frame::DeclaredAxisSizing as FrameAxisSizing;
 use avenger_chart_core::{
     FrameDimensionSizing, FrameSizingPolicy, SerializableExpr,
     maybe::{Maybe, MaybeOptionalExpr},
 };
 use avenger_chart_scales::serialization::LogicalExprNodeExt;
-use avenger_layout::FrameAxisSizing;
 
 use crate::serialization::serializable_expr_from_expr;
 

@@ -24,7 +24,7 @@ use crate::{
     theme::Theme,
 };
 
-use avenger_layout::FrameAxisSizing;
+use super::declared_frame::{DeclaredAxisSizing as FrameAxisSizing, SolvedFrameView};
 
 use super::{
     chrome::{FrameChrome, FrameChromeBuilder, MIN_COMPONENT_SIZE},
@@ -167,7 +167,7 @@ fn project_layout_rects(
     chrome: &FrameChrome,
     legends_by_position: &IndexMap<LegendPosition, Vec<String>>,
     legend_measurements: &LegendMeasurements,
-) -> (FrameLayout, LegendLayoutInfo, avenger_layout::FrameSolution) {
+) -> (FrameLayout, LegendLayoutInfo, SolvedFrameView) {
     let solution = chrome.frame.solve();
     let h = &solution.horizontal;
     let v = &solution.vertical;
@@ -368,7 +368,7 @@ fn reproject_layout_rects(layout: &mut LayoutSolution, legend_measurements: &Leg
 /// container (the canvas span runs from the left overflow layer through the
 /// rightmost chrome component).
 fn title_band_bounds(
-    solution: &avenger_layout::FrameSolution,
+    solution: &SolvedFrameView,
     band_index: usize,
     span: TitleSpan,
     has_left_overflow: bool,
@@ -593,7 +593,12 @@ fn legend_cross_axis_extent(layout: &FrameLayout, side: AxisPosition) -> f32 {
 mod tests {
     use avenger_chart_core::{LayoutBounds, LegendPosition, Size2D, TitleSpan};
     use avenger_chart_legend::{LegendMeasurement, LegendMeasurements};
-    use avenger_layout::{Edges as LayoutEdges, Frame, FrameAxis, FrameAxisSizing, FrameSide};
+    use avenger_layout::Edges as LayoutEdges;
+
+    use crate::layout::declared_frame::{
+        DeclaredAxis as FrameAxis, DeclaredAxisSizing as FrameAxisSizing, DeclaredFrame as Frame,
+        DeclaredSide as FrameSide,
+    };
     use indexmap::IndexMap;
 
     use super::{
@@ -908,9 +913,9 @@ fn freeze_chrome_content_at_plot_size(layout: &mut LayoutSolution) {
 
 /// The chrome side a frame-side slab addresses.
 fn chrome_frame_side_mut(
-    frame: &mut avenger_layout::Frame,
+    frame: &mut super::declared_frame::DeclaredFrame,
     side: AxisPosition,
-) -> &mut avenger_layout::FrameSide {
+) -> &mut super::declared_frame::DeclaredSide {
     match side {
         AxisPosition::Top => &mut frame.vertical.leading,
         AxisPosition::Right => &mut frame.horizontal.trailing,

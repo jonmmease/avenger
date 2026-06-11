@@ -9,6 +9,7 @@
 mod band_position;
 mod chrome;
 mod content_solver;
+pub(crate) mod declared_frame;
 mod frame_solver;
 mod info;
 mod sizing;

@@ -20,7 +20,12 @@ use tracing::debug;
 use avenger_chart_core::{
     LegendPosition, Size2D, TitleSpan, evaluate_f32_expr, evaluate_string_expr, maybe::Maybe,
 };
-use avenger_layout::{Edges as LayoutEdges, Frame, FrameAxis, FrameAxisSizing, FrameSide};
+use avenger_layout::Edges as LayoutEdges;
+
+use super::declared_frame::{
+    DeclaredAxis as FrameAxis, DeclaredAxisSizing as FrameAxisSizing, DeclaredFrame as Frame,
+    DeclaredSide as FrameSide,
+};
 
 use crate::{
     error::AvengerChartError,
@@ -411,8 +416,8 @@ mod tests {
     use datafusion::prelude::SessionContext;
     use indexmap::IndexMap;
 
+    use crate::layout::declared_frame::DeclaredAxisSizing as FrameAxisSizing;
     use avenger_chart_core::TitleSpan;
-    use avenger_layout::FrameAxisSizing;
 
     use crate::{
         guide::OverflowSpaceRequirement,
