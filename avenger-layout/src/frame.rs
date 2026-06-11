@@ -1,9 +1,10 @@
 //! Leaf frame solver: one content rectangle surrounded by per-side chrome.
 //!
 //! A frame is the leaf geometry of the content-plus-overflow model: where
-//! [`crate::region::EdgeDemand`] describes how much chrome a region *demands*
-//! per side, a [`Frame`] solve turns declared chrome layers into concrete
-//! per-layer positions around a content rectangle.
+//! [`crate::region::EdgeDemand`] declares how much chrome a region demands
+//! per side (and [`crate::region::EdgeGrant`] is the solved counterpart), a
+//! [`Frame`] solve turns declared chrome layers into concrete per-layer
+//! positions around a content rectangle.
 //!
 //! Each side stacks the same layers, ordered outside-in:
 //!

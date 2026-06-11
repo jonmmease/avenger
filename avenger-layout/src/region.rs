@@ -1,4 +1,23 @@
-//! Edge demand layering.
+//! Edge declarations and solved edge values.
+//!
+//! Two types span the demand/grant split:
+//!
+//! - [`EdgeDemand`] is what callers *declare* on a leaf: either a layered
+//!   pair (interior `inner` chrome plus `outer` content stacking beyond
+//!   it) or an unlayered total. There is no lift and no stored total —
+//!   mixing layered and unlayered space on one side is unrepresentable,
+//!   and node-attached unlayered space is declared as chrome instead.
+//! - [`EdgeGrant`] is what the solver *produces*: requested/granted region
+//!   edges, envelope sides, grid track edge vectors. Grants carry
+//!   `(inner, outer, total)` under the lift law `total >= inner + outer`.
+//!
+//! The lift law is the merge law's companion. Layered grants merge by
+//! component-wise max, and a merged side must hold every member's layers
+//! at once: merging `(4, 11, 15)` with `(9, 3, 22)` must give
+//! `(9, 11, 22)` — the merged total (22) exceeds the merged layer sum
+//! (20), so the total is stored, not derived; and where a stored total
+//! falls below the layer sum, construction lifts it so independently
+//! coordinated layers stay representable.
 
 use crate::geometry::Edges;
 

@@ -14,11 +14,12 @@
 //! plus a per-axis [`SolveFor`] sizing mode. Chrome is structured overflow:
 //! the solver knows the individual slabs, returns their positioned
 //! rectangles in the solution, and repositions them itself when coordination
-//! resizes the node. Measured demands stay opaque totals.
+//! resizes the node. Measured demands stay opaque.
 //!
-//! Toward the parent, inner slabs extend the `inner` demand layer, outer
-//! slabs the `outer` layer, and bands and margins lift into `total` only
-//! (private envelope — never matched against a cousin's named layers).
+//! Toward the parent, inner slabs extend the `inner` layer of the node's
+//! solved edges ([`crate::region::EdgeGrant`]), outer slabs the `outer`
+//! layer, and bands and margins lift into `total` only (private envelope —
+//! never matched against a cousin's named layers).
 
 use crate::geometry::{Edges, Side, Size};
 use crate::grid::{GridError, GridShape, GridSlot};

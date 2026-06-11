@@ -87,7 +87,8 @@ pub struct Region<Id = usize> {
 }
 
 /// What the whole solved layout looks like from outside: its content extent
-/// plus per-side overflow, in both demand laws.
+/// plus per-side overflow, in both edge laws (layered grants and raw
+/// geometric totals).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Envelope {
     pub content_size: Size,

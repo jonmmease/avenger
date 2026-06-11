@@ -14,17 +14,19 @@
 //! named slabs per side (margin, repeatable bands, outer, inner) plus a
 //! per-axis [`SolveFor`] sizing mode. Chrome is structured overflow: the
 //! solver knows the individual slabs and returns their positioned
-//! rectangles ([`ChromeSlab`]); measured demands stay opaque totals. Inner
-//! slabs extend the `inner` demand layer toward the parent, outer slabs the
-//! `outer` layer; bands and margins lift into `total` only (private
-//! envelope, never matched against a cousin's named layers).
+//! rectangles ([`ChromeSlab`]); measured demands stay opaque. Inner slabs
+//! extend the `inner` layer of the node's solved edges ([`EdgeGrant`])
+//! toward the parent, outer slabs the `outer` layer; bands and margins
+//! lift into `total` only (private envelope, never matched against a
+//! cousin's named layers).
 //!
 //! # The laws
 //!
 //! - **Gap law**: `gap(i, i+1) = max(min_gap, trailing[i] + leading[i+1])`;
 //!   the first leading and last trailing edges are excluded from a grid's
 //!   content extent (they overlap the container's own edge overflow).
-//! - **Lift law**: a side's `total >= inner + outer`.
+//! - **Lift law**: a solved side's ([`EdgeGrant`]) `total >= inner +
+//!   outer`; declarations ([`EdgeDemand`]) carry no total of their own.
 //! - **Free-space precedence**: fixed → content → coordination → fr →
 //!   stretch/justify. Coordination ([`Layout::share`]) only raises floors;
 //!   on shared axes free space distributes in policy space under the
