@@ -119,6 +119,7 @@ impl<Id: Clone> BandSolution<Id> {
         items: &[BandItem<Id>],
         spacing: Spacing,
         cross_align: CrossAlign,
+        main_sizes: Option<&[avenger_layout::TrackSize]>,
     ) -> Self {
         let leaves = items.iter().map(|child| {
             let (size, before_side, after_side) = match orientation {
@@ -137,10 +138,16 @@ impl<Id: Clone> BandSolution<Id> {
                 .demand(before_side, EdgeDemand::total(child.boundary.before))
                 .demand(after_side, EdgeDemand::total(child.boundary.after))
         });
-        let band = match orientation {
+        let mut band = match orientation {
             Orientation::Horizontal => Layout::row(leaves).column_spacing(spacing),
             Orientation::Vertical => Layout::column(leaves).row_spacing(spacing),
         };
+        if let Some(sizes) = main_sizes {
+            band = match orientation {
+                Orientation::Horizontal => band.columns(sizes.iter().copied()),
+                Orientation::Vertical => band.rows(sizes.iter().copied()),
+            };
+        }
         let solved = band
             .solve(&SolveOptions::default())
             .expect("a band of leaves always solves");
@@ -287,6 +294,7 @@ mod tests {
                 min_gap: 10.0,
             },
             CrossAlign::default(),
+            None,
         );
 
         assert_eq!(placement.items[0].main_start, 5.0);
@@ -308,6 +316,7 @@ mod tests {
                 ..Default::default()
             },
             CrossAlign::default(),
+            None,
         );
 
         assert_eq!(placement.items[1].main_start, 35.0);
@@ -327,6 +336,7 @@ mod tests {
                 ..Default::default()
             },
             CrossAlign::Center,
+            None,
         );
 
         assert_eq!(placement.cross_extent, Some(80.0));

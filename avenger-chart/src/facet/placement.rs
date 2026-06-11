@@ -517,6 +517,7 @@ pub(crate) fn compute_explicit_facet_band_placement(
             min_gap: gap,
         },
         CrossAlign::default(),
+        None,
     );
     let main_axis_positions = band
         .items

@@ -180,6 +180,7 @@ pub(crate) async fn measure_coordinate_system_transform(
         return Box::pin(crate::concat::measure_concat_coord_system(
             crate::layout::Orientation::Horizontal,
             hconcat.spacing_px(),
+            hconcat.widths_config(),
             request.plot_width(),
             request.plot_height(),
             request.eval_ctx(),
@@ -194,6 +195,7 @@ pub(crate) async fn measure_coordinate_system_transform(
         return Box::pin(crate::concat::measure_concat_coord_system(
             crate::layout::Orientation::Vertical,
             vconcat.spacing_px(),
+            vconcat.heights_config(),
             request.plot_width(),
             request.plot_height(),
             request.eval_ctx(),

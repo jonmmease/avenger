@@ -159,8 +159,47 @@ impl Plot<crate::concat::GridConcat> {
         self
     }
 
+    /// Per-column plot-area sizing. See [`crate::concat::TrackSizing`].
+    pub fn column_widths(
+        mut self,
+        widths: impl IntoIterator<Item = crate::concat::TrackSizing>,
+    ) -> Self {
+        self.coord_system = self.coord_system.clone().column_widths(widths);
+        self
+    }
+
+    /// Per-row plot-area sizing. See [`crate::concat::TrackSizing`].
+    pub fn row_heights(
+        mut self,
+        heights: impl IntoIterator<Item = crate::concat::TrackSizing>,
+    ) -> Self {
+        self.coord_system = self.coord_system.clone().row_heights(heights);
+        self
+    }
+
     pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
         self.coord_system = self.coord_system.clone().axis_guide_visibility(policy);
+        self
+    }
+}
+
+impl Plot<crate::concat::HConcat> {
+    /// Per-column plot-area sizing, one entry per child. See
+    /// [`crate::concat::TrackSizing`].
+    pub fn widths(mut self, widths: impl IntoIterator<Item = crate::concat::TrackSizing>) -> Self {
+        self.coord_system = self.coord_system.clone().widths(widths);
+        self
+    }
+}
+
+impl Plot<crate::concat::VConcat> {
+    /// Per-row plot-area sizing, one entry per child. See
+    /// [`crate::concat::TrackSizing`].
+    pub fn heights(
+        mut self,
+        heights: impl IntoIterator<Item = crate::concat::TrackSizing>,
+    ) -> Self {
+        self.coord_system = self.coord_system.clone().heights(heights);
         self
     }
 }

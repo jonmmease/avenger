@@ -56,11 +56,112 @@ use subplot::GridPlacementConfig;
 
 pub use subplot::{CompiledConcatSubplot, compiled_subplot};
 
+/// Per-track sizing for concat rows/columns, CSS-grid style.
+///
+/// A track spans the subplots' **plot areas**; axis and legend chrome rides
+/// the gaps between tracks, so `Px(200.0)` pins a 200px plot area, not a
+/// 200px column including chrome.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum TrackSizing {
+    /// Content-sized (the default for every track).
+    Auto,
+    /// Rigid plot-area pixels: never stretched, never grown by content
+    /// (oversized subplots overflow the track honestly).
+    Px(f32),
+    /// A weighted share of the leftover space after `Px` and content are
+    /// paid (CSS `minmax(auto, fr)`).
+    Flex(f32),
+}
+
+impl TrackSizing {
+    fn to_track_size(self) -> avenger_layout::TrackSize {
+        match self {
+            TrackSizing::Auto => avenger_layout::TrackSize::Auto,
+            TrackSizing::Px(pixels) => avenger_layout::TrackSize::Fixed(pixels),
+            TrackSizing::Flex(weight) => avenger_layout::TrackSize::Flex(weight),
+        }
+    }
+}
+
+fn layout_track_sizes(sizes: Option<&[TrackSizing]>) -> Option<Vec<avenger_layout::TrackSize>> {
+    sizes.map(|sizes| sizes.iter().map(|size| size.to_track_size()).collect())
+}
+
+/// Validate a declared sizing vector against the resolved track count.
+fn validate_track_sizing(
+    sizes: Option<&[TrackSizing]>,
+    track_count: usize,
+    what: &str,
+) -> Result<(), AvengerChartError> {
+    let Some(sizes) = sizes else {
+        return Ok(());
+    };
+    if sizes.len() != track_count {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{what} declares {} track sizes but resolves to {track_count} tracks",
+            sizes.len()
+        )));
+    }
+    for size in sizes {
+        match size {
+            TrackSizing::Px(pixels) if *pixels < 0.0 => {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "{what} has a negative Px track size: {pixels}"
+                )));
+            }
+            TrackSizing::Flex(weight) if *weight <= 0.0 => {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "{what} has a non-positive Flex weight: {weight}"
+                )));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Per-track measurement budgets: the initial operating point children are
+/// measured at. `Px` tracks take their declared size; `Auto` and `Flex`
+/// split the remaining budget by weight (`Auto` counts as weight 1).
+fn seeded_track_budgets(
+    sizes: Option<&[TrackSizing]>,
+    track_count: usize,
+    budget: f32,
+) -> Vec<f32> {
+    let track_count = track_count.max(1);
+    let Some(sizes) = sizes else {
+        return vec![budget / track_count as f32; track_count];
+    };
+    let fixed_total: f32 = sizes
+        .iter()
+        .map(|size| match size {
+            TrackSizing::Px(pixels) => pixels.max(0.0),
+            _ => 0.0,
+        })
+        .sum();
+    let weight = |size: &TrackSizing| match size {
+        TrackSizing::Auto => 1.0,
+        TrackSizing::Flex(weight) => weight.max(0.0),
+        TrackSizing::Px(_) => 0.0,
+    };
+    let total_weight: f32 = sizes.iter().map(weight).sum();
+    let leftover = (budget - fixed_total).max(0.0);
+    (0..track_count)
+        .map(|index| match sizes.get(index) {
+            Some(TrackSizing::Px(pixels)) => pixels.max(0.0),
+            Some(size) if total_weight > 0.0 => leftover * weight(size) / total_weight,
+            _ => 0.0,
+        })
+        .collect()
+}
+
 /// Horizontal concatenation of `Subplot` marks.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct HConcat {
     #[serde(default)]
     spacing: Option<f32>,
+    #[serde(default)]
+    widths: Option<Vec<TrackSizing>>,
 }
 
 impl HConcat {
@@ -78,6 +179,16 @@ impl HConcat {
     pub(crate) fn spacing_px(&self) -> f32 {
         self.spacing.unwrap_or(0.0)
     }
+
+    /// Per-column plot-area sizing, one entry per child. See [`TrackSizing`].
+    pub fn widths(mut self, widths: impl IntoIterator<Item = TrackSizing>) -> Self {
+        self.widths = Some(widths.into_iter().collect());
+        self
+    }
+
+    pub(crate) fn widths_config(&self) -> Option<&[TrackSizing]> {
+        self.widths.as_deref()
+    }
 }
 
 /// Vertical concatenation of `Subplot` marks.
@@ -85,6 +196,8 @@ impl HConcat {
 pub struct VConcat {
     #[serde(default)]
     spacing: Option<f32>,
+    #[serde(default)]
+    heights: Option<Vec<TrackSizing>>,
 }
 
 impl VConcat {
@@ -102,6 +215,16 @@ impl VConcat {
     pub(crate) fn spacing_px(&self) -> f32 {
         self.spacing.unwrap_or(0.0)
     }
+
+    /// Per-row plot-area sizing, one entry per child. See [`TrackSizing`].
+    pub fn heights(mut self, heights: impl IntoIterator<Item = TrackSizing>) -> Self {
+        self.heights = Some(heights.into_iter().collect());
+        self
+    }
+
+    pub(crate) fn heights_config(&self) -> Option<&[TrackSizing]> {
+        self.heights.as_deref()
+    }
 }
 
 /// Explicit two-dimensional concatenation of `Subplot` marks.
@@ -111,6 +234,10 @@ pub struct GridConcat {
     columns: Option<usize>,
     #[serde(default)]
     spacing: Option<f32>,
+    #[serde(default)]
+    column_widths: Option<Vec<TrackSizing>>,
+    #[serde(default)]
+    row_heights: Option<Vec<TrackSizing>>,
     #[serde(default)]
     axis_guide_visibility: AxisGuideVisibilityConfig,
 }
@@ -210,6 +337,27 @@ impl GridConcat {
     pub fn columns(mut self, columns: usize) -> Self {
         self.columns = Some(columns);
         self
+    }
+
+    /// Per-column plot-area sizing, one entry per column. See
+    /// [`TrackSizing`].
+    pub fn column_widths(mut self, widths: impl IntoIterator<Item = TrackSizing>) -> Self {
+        self.column_widths = Some(widths.into_iter().collect());
+        self
+    }
+
+    /// Per-row plot-area sizing, one entry per row. See [`TrackSizing`].
+    pub fn row_heights(mut self, heights: impl IntoIterator<Item = TrackSizing>) -> Self {
+        self.row_heights = Some(heights.into_iter().collect());
+        self
+    }
+
+    pub(crate) fn column_widths_config(&self) -> Option<&[TrackSizing]> {
+        self.column_widths.as_deref()
+    }
+
+    pub(crate) fn row_heights_config(&self) -> Option<&[TrackSizing]> {
+        self.row_heights.as_deref()
     }
 
     pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
@@ -603,6 +751,9 @@ pub struct ConcatCoordMeasurement {
     pub(crate) fallback_content_size: Size,
     /// Configured minimum gap between adjacent children (0 when unset).
     pub(crate) min_gap: f32,
+    /// Declared per-track sizing (None = all Auto).
+    pub(crate) column_sizes: Option<Vec<avenger_layout::TrackSize>>,
+    pub(crate) row_sizes: Option<Vec<avenger_layout::TrackSize>>,
 }
 
 impl ConcatCoordMeasurement {
@@ -651,6 +802,8 @@ impl ConcatCoordMeasurement {
             base_child_content_size,
             retarget_plot_area_size,
             self.min_gap,
+            self.column_sizes.as_deref(),
+            self.row_sizes.as_deref(),
         )?;
         self.placement = ConcatChildPlacement::Grid {
             placement,
@@ -737,6 +890,8 @@ impl ConcatCoordMeasurement {
             &cells,
             spacing,
             spacing,
+            self.column_sizes.as_deref(),
+            self.row_sizes.as_deref(),
             true,
         )
         .map_err(AvengerChartError::InvalidArgument)?;
@@ -765,8 +920,14 @@ impl ConcatCoordMeasurement {
             self.fallback_content_size.height / shape.rows.max(1) as f32,
         );
         let cells = self.layout_coordination_grid_items()?;
-        let solution = solve_concat_grid_against(requirements, base_child_content_size, &cells)
-            .map_err(AvengerChartError::InternalError)?;
+        let solution = solve_concat_grid_against(
+            requirements,
+            base_child_content_size,
+            &cells,
+            self.column_sizes.as_deref(),
+            self.row_sizes.as_deref(),
+        )
+        .map_err(AvengerChartError::InternalError)?;
 
         let placement = match &self.placement {
             ConcatChildPlacement::Grid {
@@ -978,19 +1139,6 @@ fn concat_label_placement(concat: &ConcatCoordMeasurement) -> Option<ContainerLa
     match concat.band_direction()? {
         Orientation::Horizontal => Some(ContainerLabelPlacement::Top),
         Orientation::Vertical => Some(ContainerLabelPlacement::Left),
-    }
-}
-
-fn child_plot_area_size(
-    direction: Orientation,
-    plot_width: f32,
-    plot_height: f32,
-    child_count: usize,
-) -> Size {
-    let child_count = child_count.max(1) as f32;
-    match direction {
-        Orientation::Horizontal => Size::new(plot_width / child_count, plot_height),
-        Orientation::Vertical => Size::new(plot_width, plot_height / child_count),
     }
 }
 
@@ -1327,9 +1475,11 @@ async fn measure_prepared_concat_child(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn measure_concat_coord_system(
     direction: Orientation,
     spacing: f32,
+    main_sizes: Option<&[TrackSizing]>,
     plot_width: f32,
     plot_height: f32,
     eval_ctx: &EvaluationContext,
@@ -1341,7 +1491,19 @@ pub(crate) async fn measure_concat_coord_system(
         .iter()
         .filter_map(|mark| compiled_subplot(mark.as_ref()))
         .collect::<Vec<_>>();
-    let child_plot_area = child_plot_area_size(direction, plot_width, plot_height, subplots.len());
+    validate_track_sizing(
+        main_sizes,
+        subplots.len(),
+        match direction {
+            Orientation::Horizontal => "hconcat widths",
+            Orientation::Vertical => "vconcat heights",
+        },
+    )?;
+    let main_budget = match direction {
+        Orientation::Horizontal => plot_width,
+        Orientation::Vertical => plot_height,
+    };
+    let track_budgets = seeded_track_budgets(main_sizes, subplots.len(), main_budget);
 
     let mut prepared_children = Vec::with_capacity(subplots.len());
     for subplot in subplots {
@@ -1353,10 +1515,16 @@ pub(crate) async fn measure_concat_coord_system(
 
     let mut children = Vec::with_capacity(prepared_children.len());
     let child_count = prepared_children.len();
-    for (prepared, coordinated_extents) in prepared_children
+    for (index, (prepared, coordinated_extents)) in prepared_children
         .iter()
         .zip(coordinated_domain_extents.iter())
+        .enumerate()
     {
+        let track_budget = track_budgets.get(index).copied().unwrap_or(0.0);
+        let child_plot_area = match direction {
+            Orientation::Horizontal => Size::new(track_budget, plot_height),
+            Orientation::Vertical => Size::new(plot_width, track_budget),
+        };
         let facet_scoped_extents = eval_ctx
             .facet_scale_precompute_store()
             .coordinated_child_frame_domain_extents(
@@ -1381,6 +1549,7 @@ pub(crate) async fn measure_concat_coord_system(
         .iter()
         .map(|child| band_input_for_child(direction, child))
         .collect::<Vec<_>>();
+    let layout_sizes = layout_track_sizes(main_sizes);
     let child_band_layout = BandSolution::solve(
         direction,
         &inputs,
@@ -1389,13 +1558,20 @@ pub(crate) async fn measure_concat_coord_system(
             ..Default::default()
         },
         CrossAlign::default(),
+        layout_sizes.as_deref(),
     );
 
+    let (column_sizes, row_sizes) = match direction {
+        Orientation::Horizontal => (layout_sizes, None),
+        Orientation::Vertical => (None, layout_sizes),
+    };
     Ok(Box::new(ConcatCoordMeasurement {
         children,
         placement: ConcatChildPlacement::Band(child_band_layout),
         fallback_content_size: Size::new(plot_width, plot_height),
         min_gap: spacing,
+        column_sizes,
+        row_sizes,
     }))
 }
 
@@ -1413,6 +1589,19 @@ pub(crate) async fn measure_grid_concat_coord_system(
         .filter_map(|mark| compiled_subplot(mark.as_ref()))
         .collect::<Vec<_>>();
     let grid_shape = resolve_grid_shape(grid, &subplots)?;
+    validate_track_sizing(
+        grid.column_widths_config(),
+        grid_shape.columns,
+        "grid concat column_widths",
+    )?;
+    validate_track_sizing(
+        grid.row_heights_config(),
+        grid_shape.rows,
+        "grid concat row_heights",
+    )?;
+    let column_budgets =
+        seeded_track_budgets(grid.column_widths_config(), grid_shape.columns, plot_width);
+    let row_budgets = seeded_track_budgets(grid.row_heights_config(), grid_shape.rows, plot_height);
     let base_child_content_size = Size::new(
         plot_width / grid_shape.columns.max(1) as f32,
         plot_height / grid_shape.rows.max(1) as f32,
@@ -1460,9 +1649,12 @@ pub(crate) async fn measure_grid_concat_coord_system(
                 "GridConcat subplots require `.grid_cell(row, column)`".to_string(),
             )
         })?;
+        let span_budget = |budgets: &[f32], start: usize, span: usize| -> f32 {
+            budgets.iter().skip(start).take(span.max(1)).sum()
+        };
         let child_plot_area = Size::new(
-            base_child_content_size.width * placement.column_span as f32,
-            base_child_content_size.height * placement.row_span as f32,
+            span_budget(&column_budgets, placement.column, placement.column_span),
+            span_budget(&row_budgets, placement.row, placement.row_span),
         );
         let facet_scoped_extents = eval_ctx
             .facet_scale_precompute_store()
@@ -1494,12 +1686,16 @@ pub(crate) async fn measure_grid_concat_coord_system(
         );
     }
 
+    let column_sizes = layout_track_sizes(grid.column_widths_config());
+    let row_sizes = layout_track_sizes(grid.row_heights_config());
     let placement = grid_child_frame_placement(
         &children,
         grid_shape,
         base_child_content_size,
         true,
         grid.spacing_px(),
+        column_sizes.as_deref(),
+        row_sizes.as_deref(),
     )?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
@@ -1510,6 +1706,8 @@ pub(crate) async fn measure_grid_concat_coord_system(
         },
         fallback_content_size: Size::new(plot_width, plot_height),
         min_gap: grid.spacing_px(),
+        column_sizes,
+        row_sizes,
     }))
 }
 
@@ -1629,6 +1827,8 @@ pub(crate) async fn measure_wrap_concat_coord_system(
         child_plot_area,
         false,
         wrap.spacing_px(),
+        None,
+        None,
     )?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
@@ -1639,6 +1839,10 @@ pub(crate) async fn measure_wrap_concat_coord_system(
         },
         fallback_content_size: Size::new(plot_width, plot_height),
         min_gap: wrap.spacing_px(),
+        // Wrap columns are resolved dynamically; declared track sizing is
+        // not supported for wrap concats.
+        column_sizes: None,
+        row_sizes: None,
     }))
 }
 
@@ -2021,20 +2225,32 @@ fn grid_slot_from_placement(placement: GridPlacementConfig) -> GridSlot {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn grid_child_frame_placement(
     children: &[ConcatChildMeasurement],
     shape: GridShape,
     base_cell_size: Size,
     retarget_plot_area_size: bool,
     min_gap: f32,
+    column_sizes: Option<&[avenger_layout::TrackSize]>,
+    row_sizes: Option<&[avenger_layout::TrackSize]>,
 ) -> Result<PlacementSolution, AvengerChartError> {
     let cells = grid_child_items(children)?;
     let spacing = TrackSpacing {
         min_gap,
         ..Default::default()
     };
-    let solution = solve_concat_grid(shape, base_cell_size, &cells, spacing, spacing, false)
-        .map_err(AvengerChartError::InvalidArgument)?;
+    let solution = solve_concat_grid(
+        shape,
+        base_cell_size,
+        &cells,
+        spacing,
+        spacing,
+        column_sizes,
+        row_sizes,
+        false,
+    )
+    .map_err(AvengerChartError::InvalidArgument)?;
 
     let placements = children
         .iter()

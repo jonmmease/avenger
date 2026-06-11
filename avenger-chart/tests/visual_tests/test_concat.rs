@@ -1512,3 +1512,96 @@ async fn hconcat_components_debug() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn hconcat_widths_flex_split() {
+    // Three children: a fixed 140px plot-area column and a 2:1 flex split
+    // of the remainder.
+    let ctx = SessionContext::new();
+    let plot = Plot::<HConcat>::new()
+        .data(concat_numeric_data(&ctx).await)
+        .canvas_size(900.0, 300.0)
+        .widths([
+            TrackSizing::Px(140.0),
+            TrackSizing::Flex(2.0),
+            TrackSizing::Flex(1.0),
+        ])
+        .title("hconcat widths: Px(140) | Flex(2) | Flex(1)")
+        .mark(Subplot::new(numeric_cartesian_child()).key("fixed"))
+        .mark(Subplot::new(numeric_cartesian_child_alt()).key("wide"))
+        .mark(Subplot::new(numeric_cartesian_child()).key("narrow"));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile hconcat widths chart");
+    assert_visual_match_default(&compiled, &ctx, None, "concat", "hconcat_widths_flex_split").await;
+}
+
+#[tokio::test]
+async fn vconcat_heights_px_rows() {
+    // Pixel-pinned top row, flexible bottom row.
+    let ctx = SessionContext::new();
+    let plot = Plot::<VConcat>::new()
+        .data(concat_numeric_data(&ctx).await)
+        .canvas_size(420.0, 560.0)
+        .heights([TrackSizing::Px(120.0), TrackSizing::Flex(1.0)])
+        .title("vconcat heights: Px(120) | Flex(1)")
+        .mark(Subplot::new(numeric_cartesian_child()).key("pinned"))
+        .mark(Subplot::new(numeric_cartesian_child_alt()).key("flex"));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile vconcat heights chart");
+    assert_visual_match_default(&compiled, &ctx, None, "concat", "vconcat_heights_px_rows").await;
+}
+
+#[tokio::test]
+async fn grid_concat_fixed_sidebar_column() {
+    // A rigid 150px sidebar column beside flexible content columns; row
+    // heights split 1:2.
+    let ctx = SessionContext::new();
+    let plot = Plot::<GridConcat>::new()
+        .data(concat_facet_alignment_data(&ctx).await)
+        .canvas_size(900.0, 520.0)
+        .rows(2)
+        .columns(2)
+        .column_widths([TrackSizing::Px(150.0), TrackSizing::Flex(1.0)])
+        .row_heights([TrackSizing::Flex(1.0), TrackSizing::Flex(2.0)])
+        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .title("grid: Px(150) sidebar, rows Flex 1:2")
+        .mark(
+            Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8"))
+                .grid_cell(0, 0)
+                .key("side_top"),
+        )
+        .mark(
+            Subplot::new(alignment_grid_cell("x2", "y", "#8bbc21"))
+                .grid_cell(0, 1)
+                .key("main_top"),
+        )
+        .mark(
+            Subplot::new(alignment_grid_cell("x", "y2", "#f28f43"))
+                .grid_cell(1, 0)
+                .key("side_bottom"),
+        )
+        .mark(
+            Subplot::new(alignment_grid_cell("x2", "y2", "#910000"))
+                .grid_cell(1, 1)
+                .key("main_bottom"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile grid sidebar chart");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "concat",
+        "grid_concat_fixed_sidebar_column",
+    )
+    .await;
+}

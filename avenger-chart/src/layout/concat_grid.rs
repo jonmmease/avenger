@@ -23,7 +23,7 @@
 
 use avenger_layout::{
     EdgeDemand, Edges, GridShape, GridSlot, Layout, LayoutSolution, RegionDetail, Side, Size,
-    SolveOptions, Spacing,
+    SolveOptions, Spacing, TrackSize,
 };
 
 use super::placement::EdgeTargets;
@@ -133,18 +133,42 @@ fn cell_leaf(cell: &GridCell, export: bool) -> Layout<usize> {
     leaf
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cells_grid(
     shape: GridShape,
     base_cell_size: Size,
     cells: &[GridCell],
     column_spacing: Spacing,
     row_spacing: Spacing,
+    column_sizes: Option<&[TrackSize]>,
+    row_sizes: Option<&[TrackSize]>,
     export: bool,
 ) -> Layout<usize> {
+    // The base cell size is the equal-division floor for undeclared grids;
+    // an axis with declared track sizing must not be floored toward equal
+    // shares (Fixed pins, Flex floors at content).
+    let base_cell_size = Size::new(
+        if column_sizes.is_some() {
+            0.0
+        } else {
+            base_cell_size.width
+        },
+        if row_sizes.is_some() {
+            0.0
+        } else {
+            base_cell_size.height
+        },
+    );
     let mut grid = Layout::grid(shape.rows, shape.columns)
         .base_cell_size(base_cell_size)
         .column_spacing(column_spacing)
         .row_spacing(row_spacing);
+    if let Some(sizes) = column_sizes {
+        grid = grid.columns(sizes.iter().copied());
+    }
+    if let Some(sizes) = row_sizes {
+        grid = grid.rows(sizes.iter().copied());
+    }
     for cell in cells {
         grid = grid.cell_span(
             cell.slot.row,
@@ -214,12 +238,15 @@ fn extract(
 /// Solve one concat grid's own cells. `export = true` yields the pre-solve
 /// requirement fold (for the coordination payload); `export = false` yields
 /// the placed solution with span constraints applied.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn solve_concat_grid(
     shape: GridShape,
     base_cell_size: Size,
     cells: &[GridCell],
     column_spacing: Spacing,
     row_spacing: Spacing,
+    column_sizes: Option<&[TrackSize]>,
+    row_sizes: Option<&[TrackSize]>,
     export: bool,
 ) -> Result<SolvedConcatGrid, String> {
     let grid = cells_grid(
@@ -228,6 +255,8 @@ pub(crate) fn solve_concat_grid(
         cells,
         column_spacing,
         row_spacing,
+        column_sizes,
+        row_sizes,
         export,
     );
     let solved = grid
@@ -244,6 +273,8 @@ pub(crate) fn solve_concat_grid_against(
     merged: &ChartGridData,
     base_cell_size: Size,
     cells: &[GridCell],
+    column_sizes: Option<&[TrackSize]>,
+    row_sizes: Option<&[TrackSize]>,
 ) -> Result<SolvedConcatGrid, String> {
     let shape = merged.shape;
     let local = cells_grid(
@@ -252,6 +283,8 @@ pub(crate) fn solve_concat_grid_against(
         cells,
         merged.column_spacing,
         merged.row_spacing,
+        column_sizes,
+        row_sizes,
         false,
     )
     .share(0usize);
@@ -260,6 +293,12 @@ pub(crate) fn solve_concat_grid_against(
         .column_spacing(merged.column_spacing)
         .row_spacing(merged.row_spacing)
         .share(0usize);
+    if let Some(sizes) = column_sizes {
+        phantom = phantom.columns(sizes.iter().copied());
+    }
+    if let Some(sizes) = row_sizes {
+        phantom = phantom.rows(sizes.iter().copied());
+    }
     for row in 0..shape.rows {
         for column in 0..shape.columns {
             let mut leaf = Layout::leaf(Size::new(
@@ -338,8 +377,8 @@ mod tests {
             min_gap: 10.0,
             ..Default::default()
         };
-        let exported =
-            solve_concat_grid(shape, base, &cells, spacing, spacing, true).expect("solve");
+        let exported = solve_concat_grid(shape, base, &cells, spacing, spacing, None, None, true)
+            .expect("solve");
 
         // Span content does not reach the tracks; the hole keeps the base.
         assert_eq!(exported.data.column_widths, vec![100.0, 40.0, 120.0]);
@@ -368,7 +407,7 @@ mod tests {
             min_gap: 10.0,
             ..Default::default()
         };
-        let mut merged = solve_concat_grid(shape, base, &cells, spacing, spacing, true)
+        let mut merged = solve_concat_grid(shape, base, &cells, spacing, spacing, None, None, true)
             .expect("solve")
             .data;
         // A cousin was bigger: wider first column, taller second row, a
@@ -378,7 +417,7 @@ mod tests {
         merged.column_spacing.min_gap = 12.0;
         merged.row_spacing.min_gap = 12.0;
 
-        let applied = solve_concat_grid_against(&merged, base, &cells).expect("apply");
+        let applied = solve_concat_grid_against(&merged, base, &cells, None, None).expect("apply");
 
         // Span deficit: 120 + gap(12) + 40 = 172 against 200 -> +14 per
         // spanned track.
