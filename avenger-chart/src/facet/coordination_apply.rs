@@ -15,10 +15,7 @@ use crate::{
         },
         coordination_policy::{FacetBandMut, FacetBandRef, FacetCoordinationPolicy},
     },
-    layout::{
-        Edges, GridShape, GridSlot, LayoutItem, LayoutNode, LayoutSlotContent, Size as LayoutSize,
-        TrackSpacing,
-    },
+    layout::Size as LayoutSize,
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
 };
@@ -395,64 +392,32 @@ where
     I: Iterator<Item = &'a ComponentsMeasurement>,
 {
     let target = parent_cross_size_target?;
-    let items = child_measurements
-        .enumerate()
-        .map(|(idx, child)| {
-            let (row, column) = match axis {
-                FacetAxis::Column => (0, idx),
-                FacetAxis::Row => (idx, 0),
-            };
+    let leaves = child_measurements
+        .map(|child| {
             let content_size = match axis {
                 FacetAxis::Column => LayoutSize::new(target, child.plot_area_height),
                 FacetAxis::Row => LayoutSize::new(child.plot_area_width, target),
             };
-            LayoutItem {
-                id: idx,
-                slot: GridSlot {
-                    row,
-                    column,
-                    row_span: 1,
-                    column_span: 1,
-                },
-                content: LayoutSlotContent::Leaf {
-                    content_size,
-                    inner_edges: Edges::default(),
-                    outer_edges: Edges::default(),
-                    total_edges: Edges::default(),
-                },
-            }
+            avenger_layout::Layout::<usize>::leaf(content_size)
         })
         .collect::<Vec<_>>();
-    if items.is_empty() {
+    if leaves.is_empty() {
         return None;
     }
-    let shape = match axis {
-        FacetAxis::Column => GridShape {
-            rows: 1,
-            columns: items.len(),
-        },
-        FacetAxis::Row => GridShape {
-            rows: items.len(),
-            columns: 1,
-        },
+    let child_count = leaves.len();
+    let band = match axis {
+        FacetAxis::Column => avenger_layout::Layout::row(leaves),
+        FacetAxis::Row => avenger_layout::Layout::column(leaves),
     };
-    let node = LayoutNode {
-        shape,
-        column_spacing: TrackSpacing::default(),
-        row_spacing: TrackSpacing::default(),
-        base_cell_size: LayoutSize::default(),
-        stacked_inner_edges: Edges::default(),
-        stacked_outer_edges: Edges::default(),
-        items,
-    };
-    let solved = node.solve(None).ok()?;
+    let solved = band.solve(&avenger_layout::SolveOptions::default()).ok()?;
     Some(
-        solved
-            .regions
-            .iter()
-            .map(|region| match axis {
-                FacetAxis::Column => region.content_rect.width,
-                FacetAxis::Row => region.content_rect.height,
+        (0..child_count)
+            .map(|index| {
+                let region = solved.at_path(&[index]).expect("band child region exists");
+                match axis {
+                    FacetAxis::Column => region.slot.width,
+                    FacetAxis::Row => region.slot.height,
+                }
             })
             .collect(),
     )

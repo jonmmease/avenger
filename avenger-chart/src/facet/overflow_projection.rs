@@ -38,12 +38,12 @@ use crate::{
         renderable_for_empty_policy,
     },
     facet::layout_plan::effective_edge_indices,
-    layout::{
-        EdgeDemand, EdgeSlabs, Edges, FrameDemand, GridShape, GridSlot, LayoutItem, LayoutNode,
-        LayoutSlotContent, OwnedEdgeSlabs, Size as LayoutSize, TrackSpacing, TreeEnvelopeKind,
-    },
+    layout::{EdgeDemand, EdgeSlabs, Edges, FrameDemand, OwnedEdgeSlabs, Size as LayoutSize},
     plot::compiled::ComponentsMeasurement,
 };
+
+/// The unified layout type used for facet band overflow composition.
+pub(crate) type UnifiedLayout = avenger_layout::Layout<usize>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FacetOverflowProjection {
@@ -470,83 +470,87 @@ fn resolve_sibling_boundary_overflow(
     })
 }
 
-/// Build the 1xN (Column) / Nx1 (Row) layout-tree node for a facet band's
-/// overflow: cells as leaves (guide as inner, legend as outer), plus the
-/// band's own stacked chrome channels.
+/// Build the 1xN (Column) / Nx1 (Row) layout for a facet band's overflow:
+/// cells as measured leaves (guide as inner, legend as outer), plus the
+/// band's own chrome (labels/titles on the inner layer, band-level legends
+/// on the outer layer) declared on the band itself.
 pub(crate) fn band_overflow_node(
     axis: FacetAxis,
     cells: &[(OverflowSpaceRequirement, OverflowSpaceRequirement)],
     stacked_inner_edges: Edges<f32>,
     stacked_outer_edges: Edges<f32>,
-) -> LayoutNode {
-    let items = cells
-        .iter()
-        .enumerate()
-        .map(|(slot_index, (guide, total))| {
-            let (row, column) = match axis {
-                FacetAxis::Column => (0, slot_index),
-                FacetAxis::Row => (slot_index, 0),
-            };
-            LayoutItem {
-                id: slot_index,
-                slot: GridSlot {
-                    row,
-                    column,
-                    row_span: 1,
-                    column_span: 1,
-                },
-                content: LayoutSlotContent::Leaf {
-                    content_size: LayoutSize::default(),
-                    inner_edges: Edges::new(guide.top, guide.right, guide.bottom, guide.left),
-                    outer_edges: Edges::new(
-                        (total.top - guide.top).max(0.0),
-                        (total.right - guide.right).max(0.0),
-                        (total.bottom - guide.bottom).max(0.0),
-                        (total.left - guide.left).max(0.0),
-                    ),
-                    total_edges: Edges::new(total.top, total.right, total.bottom, total.left),
-                },
-            }
-        })
-        .collect::<Vec<_>>();
-    let shape = match axis {
-        FacetAxis::Column => GridShape {
-            rows: 1,
-            columns: cells.len(),
-        },
-        FacetAxis::Row => GridShape {
-            rows: cells.len(),
-            columns: 1,
-        },
+) -> UnifiedLayout {
+    use avenger_layout::Side;
+    let leaves = cells.iter().map(|(guide, total)| {
+        let mut leaf = UnifiedLayout::leaf(LayoutSize::default());
+        for (side, guide_value, total_value) in [
+            (Side::Top, guide.top, total.top),
+            (Side::Right, guide.right, total.right),
+            (Side::Bottom, guide.bottom, total.bottom),
+            (Side::Left, guide.left, total.left),
+        ] {
+            leaf = leaf.demand(
+                side,
+                EdgeDemand::new(
+                    guide_value,
+                    (total_value - guide_value).max(0.0),
+                    total_value,
+                ),
+            );
+        }
+        leaf
+    });
+    let mut band = match axis {
+        FacetAxis::Column => UnifiedLayout::row(leaves),
+        FacetAxis::Row => UnifiedLayout::column(leaves),
     };
-    LayoutNode {
-        shape,
-        column_spacing: TrackSpacing::default(),
-        row_spacing: TrackSpacing::default(),
-        base_cell_size: LayoutSize::default(),
-        stacked_inner_edges,
-        stacked_outer_edges,
-        items,
+    for (side, inner, outer) in [
+        (
+            avenger_layout::Side::Top,
+            stacked_inner_edges.top,
+            stacked_outer_edges.top,
+        ),
+        (
+            avenger_layout::Side::Right,
+            stacked_inner_edges.right,
+            stacked_outer_edges.right,
+        ),
+        (
+            avenger_layout::Side::Bottom,
+            stacked_inner_edges.bottom,
+            stacked_outer_edges.bottom,
+        ),
+        (
+            avenger_layout::Side::Left,
+            stacked_inner_edges.left,
+            stacked_outer_edges.left,
+        ),
+    ] {
+        band = band.inner(side, inner).outer(side, outer);
     }
+    band
 }
 
-/// Measured envelope of a band node as a coordinated overflow value.
-pub(crate) fn band_node_envelope(node: &LayoutNode) -> CoordinatedOverflow {
-    let envelope = node
-        .envelope(TreeEnvelopeKind::Geometric)
+/// Measured envelope of a band layout as a coordinated overflow value:
+/// guide from the layered inner layer, total from the geometric (raw
+/// rendered) view.
+pub(crate) fn band_node_envelope(node: &UnifiedLayout) -> CoordinatedOverflow {
+    let solved = node
+        .solve(&avenger_layout::SolveOptions::default())
         .expect("facet band leaves are single-span and indexed within the band shape");
+    let envelope = solved.envelope();
     CoordinatedOverflow {
         guide: OverflowSpaceRequirement {
-            top: envelope.inner_edges.top,
-            right: envelope.inner_edges.right,
-            bottom: envelope.inner_edges.bottom,
-            left: envelope.inner_edges.left,
+            top: envelope.layered.top.inner,
+            right: envelope.layered.right.inner,
+            bottom: envelope.layered.bottom.inner,
+            left: envelope.layered.left.inner,
         },
         total: OverflowSpaceRequirement {
-            top: envelope.total_edges.top,
-            right: envelope.total_edges.right,
-            bottom: envelope.total_edges.bottom,
-            left: envelope.total_edges.left,
+            top: envelope.geometric_total.top,
+            right: envelope.geometric_total.right,
+            bottom: envelope.geometric_total.bottom,
+            left: envelope.geometric_total.left,
         },
     }
 }
@@ -1110,7 +1114,6 @@ fn facet_measurement_overflow(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::{LayoutItem, LayoutNode, LayoutSlotContent, TreeEnvelopeKind};
 
     /// The aggregation IS the measured tree envelope (since Phase 9a), so
     /// equality must hold even in the mixed-dominance case where the
@@ -1173,8 +1176,6 @@ mod tests {
     /// cells physically occupy after overflow patches are applied.
     #[test]
     fn tree_envelope_matches_facet_band_overflow_aggregation() {
-        use crate::layout::{Edges, GridShape, GridSlot, Size, TrackSpacing};
-
         let cell_inputs = [
             FacetCellOverflowInput {
                 renderable: true,
@@ -1216,90 +1217,42 @@ mod tests {
             )
             .expect("non-empty cells should aggregate");
 
-            let items = cell_inputs
+            let cells = cell_inputs
                 .iter()
-                .enumerate()
-                .map(|(index, cell)| {
-                    let (row, column) = match axis {
-                        FacetAxis::Column => (0, index),
-                        FacetAxis::Row => (index, 0),
-                    };
-                    LayoutItem {
-                        id: index,
-                        slot: GridSlot {
-                            row,
-                            column,
-                            row_span: 1,
-                            column_span: 1,
-                        },
-                        content: LayoutSlotContent::Leaf {
-                            content_size: Size::new(100.0, 60.0),
-                            inner_edges: Edges::new(
-                                cell.guide.top,
-                                cell.guide.right,
-                                cell.guide.bottom,
-                                cell.guide.left,
-                            ),
-                            outer_edges: Edges::new(
-                                (cell.total.top - cell.guide.top).max(0.0),
-                                (cell.total.right - cell.guide.right).max(0.0),
-                                (cell.total.bottom - cell.guide.bottom).max(0.0),
-                                (cell.total.left - cell.guide.left).max(0.0),
-                            ),
-                            total_edges: Edges::new(
-                                cell.total.top,
-                                cell.total.right,
-                                cell.total.bottom,
-                                cell.total.left,
-                            ),
-                        },
-                    }
-                })
+                .map(|cell| (cell.guide.clone(), cell.total.clone()))
                 .collect::<Vec<_>>();
-            let shape = match axis {
-                FacetAxis::Column => GridShape {
-                    rows: 1,
-                    columns: cell_inputs.len(),
-                },
-                FacetAxis::Row => GridShape {
-                    rows: cell_inputs.len(),
-                    columns: 1,
-                },
-            };
-            let node = LayoutNode {
-                shape,
-                column_spacing: TrackSpacing::default(),
-                row_spacing: TrackSpacing::default(),
-                base_cell_size: Size::default(),
-                stacked_inner_edges: Edges::default(),
-                stacked_outer_edges: Edges::default(),
-                items,
-            };
+            let band = band_overflow_node(axis, &cells, Edges::default(), Edges::default());
+            let solved = band
+                .solve(&avenger_layout::SolveOptions::default())
+                .expect("facet band layout should solve");
+            let envelope = solved.envelope();
 
-            let envelope = node
-                .envelope(TreeEnvelopeKind::Layered)
-                .expect("facet band tree should collect");
-
-            assert_eq!(envelope.inner_edges.top, aggregated.guide.top, "{axis:?}");
+            assert_eq!(envelope.layered.top.inner, aggregated.guide.top, "{axis:?}");
             assert_eq!(
-                envelope.inner_edges.right, aggregated.guide.right,
+                envelope.layered.right.inner, aggregated.guide.right,
                 "{axis:?}"
             );
             assert_eq!(
-                envelope.inner_edges.bottom, aggregated.guide.bottom,
-                "{axis:?}"
-            );
-            assert_eq!(envelope.inner_edges.left, aggregated.guide.left, "{axis:?}");
-            assert_eq!(envelope.total_edges.top, aggregated.total.top, "{axis:?}");
-            assert_eq!(
-                envelope.total_edges.right, aggregated.total.right,
+                envelope.layered.bottom.inner, aggregated.guide.bottom,
                 "{axis:?}"
             );
             assert_eq!(
-                envelope.total_edges.bottom, aggregated.total.bottom,
+                envelope.layered.left.inner, aggregated.guide.left,
                 "{axis:?}"
             );
-            assert_eq!(envelope.total_edges.left, aggregated.total.left, "{axis:?}");
+            assert_eq!(envelope.layered.top.total, aggregated.total.top, "{axis:?}");
+            assert_eq!(
+                envelope.layered.right.total, aggregated.total.right,
+                "{axis:?}"
+            );
+            assert_eq!(
+                envelope.layered.bottom.total, aggregated.total.bottom,
+                "{axis:?}"
+            );
+            assert_eq!(
+                envelope.layered.left.total, aggregated.total.left,
+                "{axis:?}"
+            );
         }
     }
 

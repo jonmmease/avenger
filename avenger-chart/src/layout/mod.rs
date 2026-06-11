@@ -23,8 +23,8 @@ pub use avenger_chart_core::{
 };
 pub(crate) use avenger_layout::{
     AlignmentNode, ConvergenceTrace, EdgeDemand, EdgeTargets, Edges, GridItem, GridRequirements,
-    GridShape, GridSlot, LayoutItem, LayoutNode, LayoutSlotContent, Orientation, RoundDeltas,
-    SingletonPolicy, Size, SkippedGroupReason, TrackSpacing, TreeEnvelopeKind, align_by,
+    GridShape, GridSlot, Orientation, RoundDeltas, SingletonPolicy, Size, SkippedGroupReason,
+    TrackSpacing, align_by,
 };
 pub(crate) use band::{BandItem, BandSolution, BoundaryDemand, CrossAlign, PlacedBandItem};
 pub(crate) use uniform::UniformTracks;
