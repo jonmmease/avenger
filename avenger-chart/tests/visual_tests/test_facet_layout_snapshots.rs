@@ -285,7 +285,7 @@ async fn facet_layout_snapshot_coordinated_with_debug_overlay() {
         None,
         EvaluationOptions {
             layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                CoordinationCheckpoint::FinalPropagationComplete,
+                CoordinationCheckpoint::Adopted,
             )),
             debug_layout_overlay: LayoutDebugOverlayMode::Components,
             ..EvaluationOptions::default()
@@ -353,7 +353,7 @@ async fn facet_layout_snapshot_coordinated_with_allocation_debug_overlay() {
         None,
         EvaluationOptions {
             layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                CoordinationCheckpoint::FinalPropagationComplete,
+                CoordinationCheckpoint::Adopted,
             )),
             debug_layout_overlay: LayoutDebugOverlayMode::AllocationDemand,
             ..EvaluationOptions::default()

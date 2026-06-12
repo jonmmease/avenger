@@ -1,9 +1,9 @@
 //! Real-tree facet lowering: the production source of the coordination
 //! requirement channels (`tree_solved_round`), plus an env-gated shadow
 //! census (`AVENGER_SHADOW_TREE_SOLVE=1`) reporting slot-vs-live geometry
-//! deltas and the idempotence/snapshot-identity probes (the standing
-//! equilibrium check: applying the coordination targets must land the
-//! tree where settled slots equal live geometry).
+//! deltas plus the idempotence, adoption, and placement probes (the
+//! standing equilibrium check: adoption must land the tree where settled
+//! slots equal live geometry).
 //!
 //! Lowers the LIVE facet measurement tree — real nested topology, real cell
 //! plot sizes, epoch-frozen overflow envelopes — into one
@@ -43,7 +43,6 @@
 //! holds every member's layers at once).
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 
 use avenger_chart_core::{CoordinatedLayout, CoordinatedOverflow, FacetAxis};
 use avenger_layout::{
@@ -53,7 +52,6 @@ use tracing::{debug, info, warn};
 
 use crate::facet::coord::{FacetBandCoordMeasurement, renderable_for_empty_policy};
 use crate::facet::coordination_plans::CoordinationNodeKey;
-use crate::facet::coordination_policy::FacetCoordinationPolicy;
 use crate::plot::compiled::{ComponentsMeasurement, CoordinationScopeKey};
 use crate::render::context::FacetRuntimeSizingMode;
 
@@ -124,7 +122,7 @@ fn compute_band_folds(
         0,
         &mut walk_path,
         &mut |node_id, depth, facet_band| {
-            let base = facet_band.base();
+            let base = facet_band;
             let key = base.coordination_scope_key_for_depth(depth);
             let local_n = base.local_layout.n;
             let entry = group_n.entry(key.clone()).or_default();
@@ -214,8 +212,7 @@ pub(crate) fn lower_facet_tree(
     sizing: FacetRuntimeSizingMode,
     overrides: Option<&CellSizeOverrides>,
 ) -> Option<LoweredFacetTree> {
-    let root_band = FacetCoordinationPolicy::facet_band_ref(measurement)?;
-    let root_band = root_band.base();
+    let root_band = crate::facet::coord::facet_band_ref(measurement.coord_measurement.as_ref())?;
     let policy = sizing.policy();
 
     // Physical-axis mode: an axis is CONTENT-DRIVEN when any band whose
@@ -233,7 +230,7 @@ pub(crate) fn lower_facet_tree(
             0,
             &mut walk_path,
             &mut |_node_id, _depth, facet_band| {
-                let base = facet_band.base();
+                let base = facet_band;
                 if base.uses_explicit_placement() {
                     match base.axis {
                         FacetAxis::Column => x_explicit = true,
@@ -356,10 +353,10 @@ fn lower_band(
     let mut cell_nodes: Vec<Layout<CoordinationNodeKey, CoordinationScopeKey>> = Vec::new();
     for (idx, cell) in band.cells.iter().enumerate() {
         let cell_envelope = envelopes.get(idx).cloned().flatten();
-        let nested = FacetCoordinationPolicy::facet_band_ref(&cell.measurement);
-        let node = if let Some(nested) = nested {
+        let nested =
+            crate::facet::coord::facet_band_ref(cell.measurement.coord_measurement.as_ref());
+        let node = if let Some(nested_band) = nested {
             all_leaves = false;
-            let nested_band = nested.base();
             node_path.push(idx);
             let child = lower_band(
                 nested_band,
@@ -710,12 +707,11 @@ const SHADOW_EPS: f32 = 0.01;
 
 /// Env-gated shadow diagnostics for one coordination run: re-solve the
 /// tree from the settled measurement state and report leaf-slot-vs-live
-/// geometry deltas plus the idempotence and snapshot-identity probes
-/// (the equilibrium check on the coordination targets' fixed point).
+/// geometry deltas plus the idempotence, adoption, and placement probes
+/// (the equilibrium check on adoption's fixed point).
 pub(crate) fn run_shadow_census(
     measurement: &ComponentsMeasurement,
     sizing: FacetRuntimeSizingMode,
-    snapshot_hashes: &[u64],
 ) {
     let Some(lowered) = lower_facet_tree(measurement, sizing, None) else {
         return;
@@ -755,7 +751,7 @@ pub(crate) fn run_shadow_census(
             let Some(band_region) = solved.region(&band.node_id) else {
                 return;
             };
-            let base = facet_band.base();
+            let base = facet_band;
             for (idx, cell) in base.cells.iter().enumerate() {
                 let mut child_path = band_region.path.clone();
                 child_path.push(idx);
@@ -766,7 +762,9 @@ pub(crate) fn run_shadow_census(
                 // would need the child's own band extent; compare leaf
                 // cells only (nested geometry is the adoption substrate's
                 // re-solve domain, classified separately).
-                if FacetCoordinationPolicy::facet_band_ref(&cell.measurement).is_some() {
+                if crate::facet::coord::facet_band_ref(cell.measurement.coord_measurement.as_ref())
+                    .is_some()
+                {
                     continue;
                 }
                 geometry_cells += 1;
@@ -902,15 +900,12 @@ pub(crate) fn run_shadow_census(
         .map(|resolved| solved.content_delta(&resolved))
         .unwrap_or(f32::INFINITY);
 
-    let snapshots_identical = snapshot_hashes.windows(2).all(|pair| pair[0] == pair[1]);
-
     // Adoption probe: leaf-allotment delta between the round's RETAINED
     // solution (the install-time geometry) and the settled-state
     // re-solve — the per-run size of geometry adoption.
-    let adopt_delta =
-        crate::facet::coordination_policy::FacetCoordinationPolicy::facet_band_ref(measurement)
-            .and_then(|band| band.base().retained_solve().cloned())
-            .map(|retained| retained.solution.content_delta(&solved));
+    let adopt_delta = crate::facet::coord::facet_band_ref(measurement.coord_measurement.as_ref())
+        .and_then(|band| band.retained_solve().cloned())
+        .map(|retained| retained.solution.content_delta(&solved));
 
     info!(
         target: "avenger_chart::facet::tree_solve",
@@ -919,24 +914,12 @@ pub(crate) fn run_shadow_census(
         geometry_max,
         geometry_cells_over,
         idempotence_delta,
-        snapshots_identical,
-        snapshot_rounds = snapshot_hashes.len(),
         adopt_delta = adopt_delta.unwrap_or(f32::NAN),
         placement_bands,
         placement_max,
         placement_values_over,
         "shadow tree-solve census"
     );
-}
-
-/// Hash one requirement snapshot for the round-identity probe (fact 2:
-/// round-2 snapshots should be input-identical to round-1).
-pub(crate) fn snapshot_hash(
-    snapshot: &crate::facet::coordination_plans::RequirementSnapshot,
-) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    format!("{snapshot:?}").hash(&mut hasher);
-    hasher.finish()
 }
 
 #[cfg(test)]

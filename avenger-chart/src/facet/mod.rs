@@ -35,7 +35,6 @@ pub mod coord_row;
 pub mod coordination;
 pub(crate) mod coordination_apply;
 pub(crate) mod coordination_plans;
-pub(crate) mod coordination_policy;
 pub(crate) mod coordination_solution;
 pub(crate) mod data_scope;
 pub mod debug;

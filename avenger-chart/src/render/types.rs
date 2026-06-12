@@ -49,17 +49,16 @@ pub enum WholeChartSnapshot {
     },
 }
 
-/// Checkpoints inside the global facet coordination cycle.
+/// Checkpoints inside the global facet coordination cycle
+/// (snapshot -> solve -> install channels -> adopt geometry).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoordinationCheckpoint {
-    /// Initial layout requirements have been aggregated and distributed.
-    InitialRequirementsApplied,
-    /// Affected measurements have been retargeted.
-    RetargetComplete,
-    /// Retargeted overflow and layout requirements have been reconciled.
-    RetargetedRequirementsApplied,
-    /// Coordinated plot-area and scale-range updates have been propagated to descendants.
-    FinalPropagationComplete,
+    /// The coordination solution has been installed on every band
+    /// (channel values readable; geometry not yet adopted).
+    ChannelsInstalled,
+    /// The solve's implied geometry has been adopted: plot areas and
+    /// scale ranges moved, chrome frozen at its epoch measurements.
+    Adopted,
 }
 
 /// Checkpoints inside the final layout realization/refinement loop.

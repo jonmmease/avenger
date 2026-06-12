@@ -5340,7 +5340,7 @@ impl CompiledPlot {
                     coordinate_overflow_for_guides_until(
                         measurement,
                         eval_ctx,
-                        CoordinationCheckpoint::FinalPropagationComplete,
+                        CoordinationCheckpoint::Adopted,
                     )
                     .await?;
                 }
@@ -5879,7 +5879,7 @@ impl CompiledPlot {
                 FacetSubtreeCheckpoint::CoordinatedLayout => {
                     Box::pin(self.apply_layout_snapshot(
                         &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                            CoordinationCheckpoint::FinalPropagationComplete,
+                            CoordinationCheckpoint::Adopted,
                         )),
                         &mut measurement,
                         &eval_ctx,
@@ -8416,7 +8416,7 @@ mod tests {
         compiled
             .apply_layout_snapshot(
                 &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                    CoordinationCheckpoint::FinalPropagationComplete,
+                    CoordinationCheckpoint::Adopted,
                 )),
                 &mut measurement,
                 &eval_ctx,
@@ -8949,7 +8949,7 @@ mod tests {
                 None,
                 EvaluationOptions {
                     layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                        CoordinationCheckpoint::FinalPropagationComplete,
+                        CoordinationCheckpoint::Adopted,
                     )),
                     debug_layout_overlay: LayoutDebugOverlayMode::Off,
                     ..EvaluationOptions::default()
@@ -9554,7 +9554,7 @@ mod tests {
                 None,
                 EvaluationOptions {
                     layout_snapshot: LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                        CoordinationCheckpoint::FinalPropagationComplete,
+                        CoordinationCheckpoint::Adopted,
                     )),
                     debug_layout_overlay: LayoutDebugOverlayMode::Off,
                     ..EvaluationOptions::default()
@@ -9588,7 +9588,7 @@ mod tests {
         compiled
             .apply_layout_snapshot(
                 &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                    CoordinationCheckpoint::FinalPropagationComplete,
+                    CoordinationCheckpoint::Adopted,
                 )),
                 &mut coordinated_measurement,
                 &eval_ctx,
@@ -9952,7 +9952,7 @@ mod tests {
         compiled
             .apply_layout_snapshot(
                 &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                    CoordinationCheckpoint::FinalPropagationComplete,
+                    CoordinationCheckpoint::Adopted,
                 )),
                 &mut measurement,
                 &eval_ctx,

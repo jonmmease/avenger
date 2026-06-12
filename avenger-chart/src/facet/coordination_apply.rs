@@ -1,9 +1,11 @@
 use crate::{
     error::AvengerChartError,
     facet::{
-        coord::{FacetBandCoordMeasurement, facet_band_mut as facet_band_mut_from_coord},
+        coord::{
+            FacetBandCoordMeasurement, facet_band_mut as facet_band_mut_from_coord,
+            facet_band_ref as facet_band_ref_from_coord,
+        },
         coordination_plans::{CoordinationNodeKey, RequirementPass},
-        coordination_policy::{FacetBandMut, FacetBandRef, FacetCoordinationPolicy},
     },
     plot::compiled::ComponentsMeasurement,
     render::EvaluationContext,
@@ -15,12 +17,12 @@ pub(crate) fn visit_facet_bands_with_node_id<F>(
     node_path: &mut Vec<usize>,
     visit: &mut F,
 ) where
-    F: FnMut(&CoordinationNodeKey, usize, &FacetBandRef<'_>),
+    F: FnMut(&CoordinationNodeKey, usize, &FacetBandCoordMeasurement),
 {
-    if let Some(facet_band) = FacetCoordinationPolicy::facet_band_ref(measurement) {
+    if let Some(facet_band) = facet_band_ref_from_coord(measurement.coord_measurement.as_ref()) {
         let node_id = CoordinationNodeKey::new(node_path.clone());
-        visit(&node_id, depth, &facet_band);
-        for (idx, child) in facet_band.base().child_measurements_iter().enumerate() {
+        visit(&node_id, depth, facet_band);
+        for (idx, child) in facet_band.child_measurements_iter().enumerate() {
             node_path.push(idx);
             visit_facet_bands_with_node_id(child, depth + 1, node_path, visit);
             node_path.pop();
@@ -34,16 +36,12 @@ pub(crate) fn visit_facet_bands_with_node_id_mut<F>(
     node_path: &mut Vec<usize>,
     visit: &mut F,
 ) where
-    F: FnMut(&CoordinationNodeKey, usize, &mut FacetBandMut<'_>),
+    F: FnMut(&CoordinationNodeKey, usize, &mut FacetBandCoordMeasurement),
 {
-    if let Some(mut facet_band) = FacetCoordinationPolicy::facet_band_mut(measurement) {
+    if let Some(facet_band) = facet_band_mut_from_coord(measurement.coord_measurement.as_mut()) {
         let node_id = CoordinationNodeKey::new(node_path.clone());
-        visit(&node_id, depth, &mut facet_band);
-        for (idx, child) in facet_band
-            .base_mut()
-            .child_measurements_iter_mut()
-            .enumerate()
-        {
+        visit(&node_id, depth, facet_band);
+        for (idx, child) in facet_band.child_measurements_iter_mut().enumerate() {
             node_path.push(idx);
             visit_facet_bands_with_node_id_mut(child, depth + 1, node_path, visit);
             node_path.pop();
@@ -76,10 +74,8 @@ pub(crate) fn apply_requirement_pass(
                 )));
                 return;
             }
-            facet_band.base_mut().clear_realized_owned_legend_slabs();
-            facet_band
-                .base_mut()
-                .set_coordination_solution(std::sync::Arc::clone(solution), node_id.clone());
+            facet_band.clear_realized_owned_legend_slabs();
+            facet_band.set_coordination_solution(std::sync::Arc::clone(solution), node_id.clone());
         },
     );
 

@@ -7,9 +7,9 @@
 //! plot areas and scale ranges move, measured chrome stays frozen within
 //! the round (the staleness law).
 //!
-//! Immutable coordination plans are built in `coordination_plans`, bounded side
-//! effects are applied through `coordination_apply`, and sizing-mode differences
-//! are supplied by `coordination_policy`.
+//! Immutable coordination plans are built in `coordination_plans`; bounded
+//! side effects (channel install, geometry adoption) are applied through
+//! `coordination_apply`.
 
 use avenger_chart_core::AvengerChartError;
 use tracing::{debug, trace};
@@ -22,7 +22,6 @@ use crate::{
             CoordinationRunArtifacts, RequirementNodeSnapshot, RequirementSnapshot,
             build_requirement_pass_with_round,
         },
-        coordination_policy::FacetCoordinationPolicy,
         layout_plan::effective_edge_indices,
     },
     plot::compiled::ComponentsMeasurement,
@@ -54,7 +53,7 @@ where
         depth,
         &mut node_path,
         &mut |_, d, facet_band| {
-            visit(d, facet_band.base());
+            visit(d, facet_band);
         },
     );
 }
@@ -113,19 +112,13 @@ async fn run_facet_coordination(
     eval_ctx: &EvaluationContext,
     stop_at: Option<CoordinationCheckpoint>,
 ) -> Result<Option<CoordinationRunArtifacts>, AvengerChartError> {
-    let mut shadow_snapshot_hashes: Vec<u64> = Vec::new();
-
     let snapshot = collect_requirement_snapshot(measurement);
-    if crate::facet::tree_solve::shadow_enabled() {
-        shadow_snapshot_hashes.push(crate::facet::tree_solve::snapshot_hash(&snapshot));
-    }
     // ONE solve: real topology, pre-folded chart scalars, per-node
     // Region.coordinated channel reads, retained geometry.
     let sizing = eval_ctx.facet_runtime_sizing_mode();
     let solved = crate::facet::tree_solve::tree_solved_round(measurement, sizing)?;
     let requirement_pass = build_requirement_pass_with_round(snapshot, solved)?;
     debug!(
-        policy = FacetCoordinationPolicy::LABEL,
         overflow_groups = requirement_pass.diagnostics.overflow_groups,
         boundary_overflow_groups = requirement_pass.diagnostics.boundary_overflow_groups,
         layout_groups = requirement_pass.diagnostics.layout_groups,
@@ -137,34 +130,29 @@ async fn run_facet_coordination(
     );
     apply_requirement_pass(measurement, &requirement_pass)?;
 
-    if stop_at == Some(CoordinationCheckpoint::InitialRequirementsApplied) {
+    if stop_at == Some(CoordinationCheckpoint::ChannelsInstalled) {
         return Ok(None);
     }
 
-    // Adopt the solve's geometry. The mid-pipeline checkpoints map to the
-    // post-adopt point: there is no intermediate stage left to observe.
+    // Adopt the solve's geometry.
     let adopt_trace = run_adopt(measurement, eval_ctx)?;
     debug!(
-        policy = FacetCoordinationPolicy::LABEL,
         bands = adopt_trace.bands,
         cells_adopted = adopt_trace.cells_adopted,
         cells_unchanged = adopt_trace.cells_unchanged,
         "coordinate_facet_measurement_tree adopt complete"
     );
-    if stop_at == Some(CoordinationCheckpoint::RetargetComplete)
-        || stop_at == Some(CoordinationCheckpoint::RetargetedRequirementsApplied)
-    {
+    if stop_at == Some(CoordinationCheckpoint::Adopted) {
         return Ok(None);
     }
 
     // Env-gated shadow diagnostics: re-solve the tree from the settled
-    // state and report slot-vs-live geometry deltas plus the idempotence
-    // and snapshot-identity probes; behavior-neutral.
+    // state and report slot-vs-live geometry deltas plus the idempotence,
+    // adoption, and placement probes; behavior-neutral.
     if crate::facet::tree_solve::shadow_enabled() {
         crate::facet::tree_solve::run_shadow_census(
             measurement,
             eval_ctx.facet_runtime_sizing_mode(),
-            &shadow_snapshot_hashes,
         );
     }
 
@@ -184,7 +172,6 @@ pub(crate) fn collect_requirement_snapshot(
         0,
         &mut node_path,
         &mut |node_id, depth, facet_band| {
-            let facet_band = facet_band.base();
             let (first_edge_index, last_edge_index) = facet_band_edge_indices(facet_band);
             nodes.push(RequirementNodeSnapshot {
                 node_id: node_id.clone(),
