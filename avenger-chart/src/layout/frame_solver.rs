@@ -454,96 +454,104 @@ fn snap_rect_edges(bounds: LayoutBounds) -> LayoutBounds {
     }
 }
 
+/// Stack one position's legends inside their container slab through an
+/// `avenger_layout` solve: fixed legends are `Auto` tracks at their
+/// measured main-axis size; flexible legends (colorbars) are `Flex(1)`
+/// tracks floored at `MIN_COMPONENT_SIZE`, so they split the container's
+/// leftover equally and never shrink below the floor. `Distribute::Start`
+/// leaves any remainder trailing when no legend is flexible. Cross-axis
+/// extents stay each legend's own measured size (the container's cross
+/// extent is the slab, already reserved as chrome).
 fn layout_legend_group(
     position: LegendPosition,
     container: LayoutBounds,
     legend_keys: &[String],
     legend_measurements: &LegendMeasurements,
 ) -> IndexMap<String, LayoutBounds> {
-    let axis = match position {
-        LegendPosition::Top | LegendPosition::Bottom => LegendMainAxis::Horizontal,
-        LegendPosition::Left | LegendPosition::Right => LegendMainAxis::Vertical,
-    };
-    let container_main = legend_main_axis_span(&container, axis).max(0.0);
-    let mut fixed_total = 0.0f32;
-    let mut flexible_count = 0usize;
+    let vertical = matches!(position, LegendPosition::Left | LegendPosition::Right);
 
+    let mut keys = Vec::new();
+    let mut leaves = Vec::new();
+    let mut tracks = Vec::new();
     for key in legend_keys {
         let Some(measurement) = legend_measurements.get(key) else {
             continue;
         };
-        if measurement.flexible {
-            flexible_count += 1;
+        let main = if measurement.flexible {
+            MIN_COMPONENT_SIZE
         } else {
-            fixed_total += match axis {
-                LegendMainAxis::Horizontal => measurement.size.width,
-                LegendMainAxis::Vertical => measurement.size.height,
-            }
-            .max(0.0);
-        }
-    }
-
-    let flexible_span = flexible_legend_span(container_main, fixed_total, flexible_count);
-    let mut cursor = match axis {
-        LegendMainAxis::Horizontal => container.x,
-        LegendMainAxis::Vertical => container.y,
-    };
-    let mut result = IndexMap::new();
-
-    for key in legend_keys {
-        let Some(measurement) = legend_measurements.get(key) else {
-            continue;
+            (if vertical {
+                measurement.size.height
+            } else {
+                measurement.size.width
+            })
+            .max(0.0)
         };
-        let mut bounds = match position {
-            LegendPosition::Top | LegendPosition::Bottom => LayoutBounds {
-                x: cursor,
-                y: container.y,
-                width: if measurement.flexible {
-                    flexible_span
-                } else {
-                    measurement.size.width
-                },
-                height: measurement.size.height,
-            },
-            LegendPosition::Left | LegendPosition::Right => LayoutBounds {
-                x: container.x,
-                y: cursor,
-                width: measurement.size.width,
-                height: if measurement.flexible {
-                    flexible_span
-                } else {
-                    measurement.size.height
-                },
-            },
+        let size = if vertical {
+            avenger_layout::Size::new(measurement.size.width.max(0.0), main)
+        } else {
+            avenger_layout::Size::new(main, measurement.size.height.max(0.0))
         };
-        bounds.width = bounds.width.max(0.0);
-        bounds.height = bounds.height.max(0.0);
-        cursor += legend_main_axis_span(&bounds, axis);
-        result.insert(key.clone(), bounds);
+        keys.push((key.clone(), measurement.clone()));
+        leaves.push(avenger_layout::Layout::<usize>::leaf(size));
+        tracks.push(if measurement.flexible {
+            avenger_layout::TrackSize::Flex(1.0)
+        } else {
+            avenger_layout::TrackSize::Auto
+        });
+    }
+    if keys.is_empty() {
+        return IndexMap::new();
     }
 
-    result
-}
-
-#[derive(Clone, Copy)]
-enum LegendMainAxis {
-    Horizontal,
-    Vertical,
-}
-
-fn legend_main_axis_span(bounds: &LayoutBounds, axis: LegendMainAxis) -> f32 {
-    match axis {
-        LegendMainAxis::Horizontal => bounds.width,
-        LegendMainAxis::Vertical => bounds.height,
-    }
-}
-
-fn flexible_legend_span(container_main: f32, fixed_total: f32, flexible_count: usize) -> f32 {
-    if flexible_count == 0 {
-        0.0
+    let (stack, options) = if vertical {
+        (
+            avenger_layout::Layout::column(leaves)
+                .rows(tracks)
+                .distribute_y(avenger_layout::Distribute::Start),
+            avenger_layout::SolveOptions {
+                width: None,
+                height: Some(container.height.max(0.0)),
+            },
+        )
     } else {
-        ((container_main - fixed_total).max(0.0) / flexible_count as f32).max(MIN_COMPONENT_SIZE)
+        (
+            avenger_layout::Layout::row(leaves)
+                .columns(tracks)
+                .distribute_x(avenger_layout::Distribute::Start),
+            avenger_layout::SolveOptions {
+                width: Some(container.width.max(0.0)),
+                height: None,
+            },
+        )
+    };
+    let solved = stack
+        .solve(&options)
+        .expect("legend stack leaves are single-span and within shape");
+
+    let mut result = IndexMap::new();
+    for (index, (key, measurement)) in keys.into_iter().enumerate() {
+        let region = solved
+            .at_path(&[index])
+            .expect("every legend leaf has a region");
+        let bounds = if vertical {
+            LayoutBounds {
+                x: container.x,
+                y: container.y + region.slot.y,
+                width: measurement.size.width.max(0.0),
+                height: region.slot.height,
+            }
+        } else {
+            LayoutBounds {
+                x: container.x + region.slot.x,
+                y: container.y,
+                width: region.slot.width,
+                height: measurement.size.height.max(0.0),
+            }
+        };
+        result.insert(key, bounds);
     }
+    result
 }
 
 pub(crate) fn overflow_side_value(overflow: &OverflowSpaceRequirement, side: AxisPosition) -> f32 {
