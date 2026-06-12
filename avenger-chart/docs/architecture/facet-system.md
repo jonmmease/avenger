@@ -132,6 +132,16 @@ collect-and-install was always a byte-identical no-op):
   ranges to descendants (uniform child targets derive from a band
   solve).
 
+The retarget and final-propagation targets are the pipeline's
+state-TRANSITION law, not reads of solved geometry: the tree solve
+lowers cells at their live pre-retarget sizes, so its slot geometry
+describes the current state, while the targets (the bandwidth at the
+coordinated layout; the legend shrink inside a fixed plot area) are the
+next operating point. Applying them moves the tree to the solve's fixed
+point — at the settled state, solved slots equal live geometry and
+re-lowering changes nothing, which is what the env-gated shadow census
+(`AVENGER_SHADOW_TREE_SOLVE=1`) verifies.
+
 The public `CoordinationCheckpoint` variants map onto these stages
 (`RetargetedRequirementsApplied` is post-retarget: requirement snapshots
 read only epoch-frozen and construction-time values, so a re-collected
