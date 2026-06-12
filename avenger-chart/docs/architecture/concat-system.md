@@ -17,7 +17,7 @@ flowchart TD
     Prepare["prepare_concat_child\nChildFrameRuntime::prepare_plot"]
     Domains["coordinated_child_frame_domain_extents"]
     Children["ConcatChildMeasurement"]
-    Band["BandSolution / GridSolution\n(avenger-layout)"]
+    Band["ConcatChildPlacement\n(PlacementSolution from an avenger-layout solve)"]
     Guide["ConcatGuide\nlabels and overflow"]
     View["ChildFrameContainerView"]
     Render["child frame render placement"]
@@ -95,9 +95,9 @@ child, and builds `ConcatCoordMeasurement`.
 `ConcatCoordMeasurement` stores:
 
 - `ConcatChildMeasurement` values,
-- a `ConcatChildPlacement` (an `avenger_layout::BandSolution` or grid
-  `PlacementSolution`),
-- fallback content size for placement conversion.
+- a `ConcatChildPlacement` (a band or grid `PlacementSolution` plus its
+  arrangement metadata: band orientation, or grid shape and retarget mode),
+- fallback content size for grid member base-cell sizing.
 
 Each `ConcatChildMeasurement` stores the child index, optional key, optional
 label, grid/wrap placement metadata, container path, and measured
@@ -111,11 +111,12 @@ corresponding grid/wrap child-frame levels. Each child gets a
 `ChildFrameScopeKey` with `ChildFrameKey::ConcatChild` and a stable
 container-path segment.
 
-`avenger_layout::BandSolution::from_sized_children` positions children along
-the container axes using measured child plot sizes and sibling boundary
-demands (solved as a 1xN grid by the `avenger-layout` crate); grid concat uses
-the `avenger-layout` grid solver directly. The placement is converted to
-`PlacementSolution` for rendering and generic child-frame consumers.
+Horizontal and vertical concat lower their children onto a 1xN
+`avenger_layout::Layout` (leaves at measured child plot sizes, sibling
+boundary demands as edge demands) and read the solved track starts into a
+`PlacementSolution`; grid concat uses the `avenger-layout` grid solver
+directly. Rendering and generic child-frame consumers read the
+`PlacementSolution` as-is.
 
 Concat participates in the same child-frame domain, guide, legend, layout, and
 debug machinery as facet and positioned subplots. See

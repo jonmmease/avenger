@@ -52,8 +52,9 @@ Important runtime values:
 - `ChildFrameContainerView`: read-only projection over measured child frames,
 - `ChildFrameRenderPlacement`: render origin for one child frame.
 
-The lower-level placement utilities are `PlacementSolution` and
-`BandSolution` from the `avenger-layout` crate.
+The lower-level placement record is the chart's `PlacementSolution`
+(positioned children with chart metadata), built from `avenger-layout`
+solves.
 
 ## Container Producers
 

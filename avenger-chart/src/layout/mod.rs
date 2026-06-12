@@ -1,13 +1,12 @@
 //! Chart frame layout engine.
 //!
-//! Neutral layout primitives (geometry, band/grid solvers, requirement
+//! Neutral layout primitives (geometry, grid solving, requirement
 //! alignment) live in the `avenger-layout` crate and are re-exported here.
 //! This module keeps the chart-specific layers: frame chrome solving, content
 //! solving, sizing specs, and adapters between chart-core geometry and
 //! `avenger-layout` geometry.
 
 pub(crate) mod alignment;
-mod band;
 mod band_position;
 mod chrome;
 pub(crate) mod concat_grid;
@@ -30,8 +29,7 @@ pub use avenger_chart_core::{
 pub(crate) use avenger_layout::{
     EdgeDemand, EdgeGrant, Edges, GridShape, GridSlot, Size, Spacing as TrackSpacing,
 };
-pub(crate) use band::{BoundaryDemand, Orientation};
-pub(crate) use placement::EdgeTargets;
+pub(crate) use placement::{BoundaryDemand, EdgeTargets, Orientation};
 pub(crate) use uniform::UniformTracks;
 
 /// Chart placement metadata carried through the neutral handoff: the
