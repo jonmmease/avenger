@@ -456,8 +456,16 @@ impl DebugScene {
                             strip(granted.inner, asked.outer),
                             solid_fill(outer_shade(region.depth)),
                         ),
+                        // An unlayered ask can be CONTAINED by a layered
+                        // grant (granted total covers it inside the layer
+                        // bands); clamp to the granted residual so a
+                        // satisfied ask never draws past its grant.
                         (
-                            strip(granted_layers, unlayered_part(asked)),
+                            strip(
+                                granted_layers,
+                                unlayered_part(asked)
+                                    .min((granted.total - granted_layers).max(0.0)),
+                            ),
                             solid_fill(unlayered_shade(region.depth)),
                         ),
                     ] {

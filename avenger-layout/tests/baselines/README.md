@@ -55,6 +55,7 @@ AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines
 | `uniform_share_tolerates_ragged_counts` | uniform policy merge across cousins with different track counts |
 | `nested_facet_columns_coordinated` | the nested facet lowering: measured vs coordinated panels, granted chrome hatched, gaps absorbing it |
 | `shared_charts_coordinate_in_one_solve` | two chart-like groups under one root made congruent by a share key |
+| `edge_reservation_layered_vs_unlayered_vs_band` | three ways to reserve the same 18px against a layered cousin: `Layered` outer coexists (gaps lift to 32), `Unlayered` is contained by the cousin's 22, `band` chrome reserves the contained extent but gets a solver-positioned slab |
 | `min_slack_asymmetric_share` | the min-slack rule: asymmetric offers, congruent cousins, honest slack |
 | `share_group_shape_mismatch_diagnostics` | mismatched non-uniform group skipped and reported |
 | `aspect_contain_fit_slack` | the aspect-ratio recipe's terminal state: standing slot-vs-content slack |

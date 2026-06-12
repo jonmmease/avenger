@@ -699,6 +699,100 @@ fn min_slack_asymmetric_share() {
     assert_svg_baseline("min_slack_asymmetric_share", &solved.to_svg());
 }
 
+/// Three ways to reserve 18px on a cell's trailing edge, demonstrated
+/// against a share-key cousin whose matching edge carries layered chrome
+/// (inner 14 + outer 8, total 22). The mechanisms differ in which
+/// coordination contract the space signs:
+///
+/// - `Layered { inner: 0, outer: 18 }` joins the stratum-offset contract:
+///   the merged edge must hold the worst inner AND the worst outer at
+///   common offsets, so the coexistence lift takes both charts' gaps to
+///   14 + 18 = 32 — wider than either member's own ask.
+/// - `Unlayered(18.0)` signs only the extent clause: the merged edge is
+///   the max of totals, and the cousin's 22 CONTAINS the 18, so both gaps
+///   stay at 22. The hatched bands show the granted strata (red 14, green
+///   8) with no solid ask inside them — the opaque 18 was absorbed.
+/// - `.band(Side::Right, 18.0)` reserves the same contained extent
+///   (chrome lifts into the total only, the private envelope), but the
+///   space is a DECLARATION the solver owns: it returns a positioned slab
+///   (amber, visible through the hatched grant) for the caller to fill,
+///   where the demands only clear room for material the caller already
+///   placed.
+#[test]
+fn edge_reservation_layered_vs_unlayered_vs_band() {
+    let scene = |reserve: &dyn Fn(L) -> L| {
+        let cell = |id: &'static str| Layout::leaf(Size::new(110.0, 56.0)).id(id);
+        let reference: L = Layout::row(vec![
+            cell("a0").demand(
+                Side::Right,
+                EdgeDemand::Layered {
+                    inner: 14.0,
+                    outer: 8.0,
+                },
+            ),
+            cell("a1"),
+        ])
+        .min_gap(6.0)
+        .share("plots")
+        .id("reference");
+        let variant: L = Layout::row(vec![reserve(cell("b0")), cell("b1")])
+            .min_gap(6.0)
+            .share("plots")
+            .id("variant");
+        Layout::column(vec![reference, variant])
+            .min_gap(16.0)
+            .margin(8.0)
+            .solve(&natural())
+            .expect("solve")
+    };
+    let gap = |solved: &avenger_layout::LayoutSolution<&'static str>, left: &str, right: &str| {
+        let left = solved.region(&left).unwrap().slot;
+        solved.region(&right).unwrap().slot.x - (left.x + left.width)
+    };
+
+    let layered = scene(&|leaf| {
+        leaf.demand(
+            Side::Right,
+            EdgeDemand::Layered {
+                inner: 0.0,
+                outer: 18.0,
+            },
+        )
+    });
+    // Coexistence: merged edge (14, 18) lifts the total to 32; the lift
+    // exceeds every member's own ask (22 and 18), and cousins stay
+    // congruent.
+    assert_eq!(gap(&layered, "b0", "b1"), 32.0);
+    assert_eq!(gap(&layered, "a0", "a1"), 32.0);
+
+    let unlayered = scene(&|leaf| leaf.demand(Side::Right, EdgeDemand::Unlayered(18.0)));
+    // Containment: max of totals — the cousin's 22 already holds the 18.
+    assert_eq!(gap(&unlayered, "b0", "b1"), 22.0);
+    assert_eq!(gap(&unlayered, "a0", "a1"), 22.0);
+
+    let band = scene(&|leaf| leaf.band(Side::Right, 18.0));
+    // Same extent contract as unlayered, plus a solver-positioned slab.
+    assert_eq!(gap(&band, "b0", "b1"), 22.0);
+    let slabs = &band.region(&"b0").unwrap().slabs;
+    assert_eq!(slabs.len(), 1);
+    assert_eq!(slabs[0].rect.width, 18.0);
+
+    assert_svg_baseline(
+        "edge_reservation_layered_vs_unlayered_vs_band",
+        &svg_panels(&[
+            (
+                "layered outer 18 vs cousin 14+8: coexistence, gaps 32",
+                &layered,
+            ),
+            (
+                "unlayered 18: contained by the cousin's 22, gaps 22",
+                &unlayered,
+            ),
+            ("band 18: contained extent + solver-positioned slab", &band),
+        ]),
+    );
+}
+
 /// A non-uniform share group whose members have different shapes is
 /// skipped, reported in diagnostics, and rendered uncoordinated.
 #[test]
