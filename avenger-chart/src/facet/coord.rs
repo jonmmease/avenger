@@ -262,17 +262,18 @@ pub struct FacetBandCoordMeasurement {
     pub(crate) overflow_cells: Option<Vec<(OverflowSpaceRequirement, OverflowSpaceRequirement)>>,
     /// Handle to the coordination round this band last participated in,
     /// plus this band's traversal key within it. Coordinated values are
-    /// views into the solution; a band rebuilt during retargeting has no
-    /// handle until the next round installs one (reads fall back to local
+    /// views into the solution; a freshly (re)built band has no handle
+    /// until the next round installs one (reads fall back to local
     /// values).
     pub(crate) coordination: Option<(
         std::sync::Arc<crate::facet::coordination_solution::CoordinationSolution>,
         CoordinationNodeKey,
     )>,
-    /// Reference to compiled subplot for retargeting after coordination.
-    /// Used by retarget actions when coordinated layout changes child sizing.
+    /// Reference to compiled subplot for the no-remeasure substrate.
+    /// Used by adopt when the coordinated layout changes child sizing.
     pub compiled_subplot: Arc<CompiledPlot>,
-    /// Subplot cross-axis plot-area size for coordinated retargeting.
+    /// Subplot cross-axis plot-area size, adopted from the bandwidth of
+    /// the band scale at the active coordinated layout.
     pub subplot_cross_size: f32,
     /// Facet depth in the hierarchy (1 = outermost, 2 = nested, etc.)
     /// INVARIANT: facet_depth == full_cell_path.len() for any cell

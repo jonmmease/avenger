@@ -5414,7 +5414,7 @@ impl CompiledPlot {
             }
             ResolvedChartSizing::FacetBand(_) => {
                 // Facet content uses the global coordination cycle:
-                // initial requirements -> retarget -> retargeted requirements -> final propagation.
+                // snapshot -> solve -> install channels -> adopt geometry.
                 coordinate_overflow_for_guides(measurement, eval_ctx).await?;
                 let refinement = eval_ctx.facet_layout_refinement();
                 Box::pin(self.realize_policy_layout_after_coordination(
