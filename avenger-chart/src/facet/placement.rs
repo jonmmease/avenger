@@ -505,19 +505,6 @@ pub(crate) fn compute_explicit_facet_band_placement(
     FacetBandPlacement::new(axis, placed_cells, main_extent, Some(cross_extent))
 }
 
-#[cfg(test)]
-pub(crate) fn compute_explicit_main_axis_positions(
-    axis: FacetAxis,
-    cells: &[FacetCellRuntime],
-    layout: &CoordinatedLayout,
-) -> Vec<f32> {
-    compute_explicit_facet_band_placement(axis, cells, layout)
-        .cells
-        .iter()
-        .map(|cell| cell.main_start)
-        .collect()
-}
-
 /// Returns the main-axis extent of a cell for plot-area-sized positioning.
 ///
 /// For leaf cells, this is simply `plot_area_width` (or height for rows).

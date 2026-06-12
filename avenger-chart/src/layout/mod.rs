@@ -19,7 +19,7 @@ mod sizing;
 mod uniform;
 
 pub(crate) use alignment::{
-    AlignmentNode, ConvergenceTrace, RoundDeltas, SingletonPolicy, SkippedGroupReason, align_by,
+    AlignmentNode, RoundDeltas, SingletonPolicy, SkippedGroupReason, align_by,
 };
 pub use avenger_chart_core::BandPosition;
 pub use avenger_chart_core::{

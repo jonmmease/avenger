@@ -9,7 +9,6 @@
 //! coordination diagnostics. The merged values applied to containers come
 //! from that group solve — `Layout::solve`'s share-key coordination —
 //! while this engine's fold serves planning and delta reporting.
-//! [`ConvergenceTrace`] records per-round deltas for the driver logs.
 //!
 //! A round is ONE pure pass: callers own identity, traversal, group keys,
 //! and application.
@@ -161,49 +160,11 @@ where
     }
 }
 
-/// Per-round delta totals recorded by a multi-round driver.
+/// Per-round delta totals recorded by the coordination driver.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct RoundDeltas {
     pub content: f32,
     pub edge: f32,
-}
-
-impl RoundDeltas {
-    pub(crate) fn total(self) -> f32 {
-        self.content + self.edge
-    }
-}
-
-/// Cross-round convergence evidence for drivers that alternate alignment
-/// rounds with re-measurement.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct ConvergenceTrace {
-    rounds: Vec<RoundDeltas>,
-}
-
-impl ConvergenceTrace {
-    pub(crate) fn record_round(&mut self, content: f32, edge: f32) {
-        self.rounds.push(RoundDeltas { content, edge });
-    }
-
-    pub(crate) fn rounds(&self) -> &[RoundDeltas] {
-        &self.rounds
-    }
-
-    /// The last recorded round had no deltas beyond `epsilon`.
-    pub(crate) fn is_converged(&self, epsilon: f32) -> bool {
-        self.rounds
-            .last()
-            .is_some_and(|round| round.total() <= epsilon)
-    }
-
-    /// Two or more consecutive rounds with non-decreasing, non-zero deltas:
-    /// evidence the driver is cycling rather than converging.
-    pub(crate) fn is_non_converging(&self, epsilon: f32) -> bool {
-        self.rounds
-            .windows(2)
-            .any(|pair| pair[0].total() > epsilon && pair[1].total() >= pair[0].total())
-    }
 }
 
 /// Merge compatible grid requirements by component-wise maximum. `None`

@@ -125,10 +125,6 @@ impl FacetRuntimeSizingPolicy {
         self.width.is_canvas_constrained() && self.height.is_canvas_constrained()
     }
 
-    pub(crate) fn is_fully_leaf_plot_area_sized(self) -> bool {
-        self.width.is_leaf_plot_area_sized() && self.height.is_leaf_plot_area_sized()
-    }
-
     pub(crate) fn has_leaf_plot_area_sized_dimension(self) -> bool {
         self.width.is_leaf_plot_area_sized() || self.height.is_leaf_plot_area_sized()
     }

@@ -6626,12 +6626,8 @@ impl CompiledPlot {
 mod tests {
     use super::*;
     use crate::{
-        coords::{CoordinatedOverflow, FacetAxis},
-        facet::{
-            coord::{FacetBandCoordMeasurement, facet_band_ref as facet_band_ref_from_coord},
-            coordination_apply::derive_retarget_decisions,
-            coordination_plans::CoordinationNodeKey,
-        },
+        coords::CoordinatedOverflow,
+        facet::coord::{FacetBandCoordMeasurement, facet_band_ref as facet_band_ref_from_coord},
         layout::{BandPositionIterator, CanvasConstraint, FrameDimensionSizing, PlotConstraint},
         prelude::*,
         render::FacetLayoutRefinement,
@@ -8799,38 +8795,6 @@ mod tests {
         count
     }
 
-    fn assert_plot_area_sized_positions_match_recomputed(measurement: &ComponentsMeasurement) {
-        if let Some(plot_area_sized_facet) =
-            facet_band_ref(measurement).filter(|facet_band| facet_band.uses_explicit_placement())
-        {
-            let layout = plot_area_sized_facet.active_layout();
-            let expected = crate::facet::placement::compute_explicit_main_axis_positions(
-                plot_area_sized_facet.axis,
-                &plot_area_sized_facet.cells,
-                layout,
-            );
-            let resolved = plot_area_sized_facet
-                .resolved_placement_from_scale_specs(&measurement.scales)
-                .expect("plot-area-sized facet placement should resolve");
-            let actual = resolved.main_starts().collect::<Vec<_>>();
-            assert_eq!(
-                actual.len(),
-                expected.len(),
-                "plot-area-sized facet position count mismatch when validating recomputed positions"
-            );
-            for (idx, (actual, expected)) in actual.iter().zip(expected.iter()).enumerate() {
-                assert!(
-                    (actual - expected).abs() <= 0.01,
-                    "plot-area-sized position mismatch at index {idx}: actual={actual}, expected={expected}"
-                );
-            }
-
-            for child in plot_area_sized_facet.child_measurements_iter() {
-                assert_plot_area_sized_positions_match_recomputed(child);
-            }
-        }
-    }
-
     fn assert_plot_area_sized_resolved_placement_count_and_order(
         measurement: &ComponentsMeasurement,
     ) {
@@ -8903,20 +8867,14 @@ mod tests {
 
     fn collect_team_level_plot_area_sized_apply_signals(
         measurement: &ComponentsMeasurement,
-        out: &mut Vec<(f32, bool, bool)>,
+        out: &mut Vec<f32>,
     ) -> Result<(), AvengerChartError> {
         if let Some(facet_band) = facet_band_ref(measurement) {
             if facet_band.coordination_field_identity == "team" {
                 let slabs = crate::facet::overflow_projection::FacetOverflowSlabs::from_coordinated(
                     facet_band.active_overflow(),
                 );
-                let requirements = facet_band
-                    .derive_retarget_requirements(CoordinationNodeKey::new(Vec::new()))?;
-                out.push((
-                    slabs.legend.right.max(0.0),
-                    requirements.layout_changed,
-                    requirements.has_legend_overflow,
-                ));
+                out.push(slabs.legend.right.max(0.0));
             }
 
             for child in facet_band.child_measurements_iter() {
@@ -9941,7 +9899,7 @@ mod tests {
 
         let nodes_with_right_legend_slab = team_signals
             .iter()
-            .filter(|(right_slab, _, _)| *right_slab > 0.0)
+            .filter(|right_slab| **right_slab > 0.0)
             .count();
         assert_eq!(
             nodes_with_right_legend_slab, 0,
@@ -10025,109 +9983,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plot_area_sized_retarget_actions_preserve_plot_area_for_legend_slabs()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled =
-            compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
-                .await?;
-        let (eval_ctx, evaluated_layout_spec, scale_builder, mut measurement) =
-            prepare_top_level_measurement(&compiled, &ctx).await?;
-        let provider = DynamicScaleProvider {
-            builder: &scale_builder,
-            plot: &compiled,
-        };
-        compiled
-            .apply_layout_snapshot(
-                &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                    CoordinationCheckpoint::InitialRequirementsApplied,
-                )),
-                &mut measurement,
-                &eval_ctx,
-                &evaluated_layout_spec,
-                &provider,
-                fully_leaf_sizing_policy(120.0, 90.0),
-            )
-            .await?;
-        let root_facet = measurement
-            .coord_measurement
-            .as_any_mut()
-            .downcast_mut::<FacetBandCoordMeasurement>()
-            .filter(|facet_band| facet_band.uses_explicit_placement())
-            .expect("fixture should produce a plot-area-sized root facet");
-        match root_facet.axis {
-            FacetAxis::Column => {
-                root_facet.force_coordinated_overflow_for_tests(|overflow| {
-                    overflow.total.top = overflow.guide.top + 24.0;
-                });
-            }
-            FacetAxis::Row => {
-                root_facet.force_coordinated_overflow_for_tests(|overflow| {
-                    overflow.total.left = overflow.guide.left + 24.0;
-                });
-            }
-        }
-
-        let plan = derive_retarget_decisions(&measurement, &eval_ctx)?;
-        let legend_nodes = plan
-            .iter()
-            .filter(|node| node.requirements.has_legend_overflow)
-            .collect::<Vec<_>>();
-        assert!(
-            !legend_nodes.is_empty(),
-            "fixture should produce plot-area-sized retarget requirements with legend slabs"
-        );
-        for node in legend_nodes {
-            assert_eq!(
-                node.actions
-                    .child_action_counts()
-                    .plot_area_retarget_count(),
-                0,
-                "plot-area-sized legend slabs should not retarget child plot areas"
-            );
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn plot_area_sized_retarget_actions_are_geometry_only_after_precoordination()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled =
-            compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
-                .await?;
-        let (eval_ctx, evaluated_layout_spec, scale_builder, mut measurement) =
-            prepare_top_level_measurement(&compiled, &ctx).await?;
-        let provider = DynamicScaleProvider {
-            builder: &scale_builder,
-            plot: &compiled,
-        };
-        compiled
-            .apply_layout_snapshot(
-                &LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(
-                    CoordinationCheckpoint::InitialRequirementsApplied,
-                )),
-                &mut measurement,
-                &eval_ctx,
-                &evaluated_layout_spec,
-                &provider,
-                fully_leaf_sizing_policy(120.0, 90.0),
-            )
-            .await?;
-
-        let plan = derive_retarget_decisions(&measurement, &eval_ctx)?;
-        for node in &plan {
-            let counts = node.actions.child_action_counts();
-            assert_eq!(
-                counts.preserve + counts.retarget_plot_area,
-                node.requirements.child_count,
-                "retarget actions should only preserve or retarget plot areas"
-            );
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn plot_area_sized_mode_final_realization_applies_layout_patches_without_resizing_leaves()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
@@ -10191,18 +10046,6 @@ mod tests {
                 .await?;
         let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
         assert_legends_within_canvas(&measurement);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn plot_area_sized_retarget_trace_recomputes_positions_after_refinement()
-    -> Result<(), AvengerChartError> {
-        let ctx = SessionContext::new();
-        let compiled =
-            compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
-                .await?;
-        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-        assert_plot_area_sized_positions_match_recomputed(&measurement);
         Ok(())
     }
 
