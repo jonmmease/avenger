@@ -520,6 +520,16 @@ impl FacetBandCoordMeasurement {
             .and_then(|(solution, node_id)| solution.boundary_overflow(node_id))
     }
 
+    /// The round's retained solve (lowered tree + solution), when this
+    /// band holds a coordination handle from a real-tree round.
+    pub(crate) fn retained_solve(
+        &self,
+    ) -> Option<&std::sync::Arc<crate::facet::tree_solve::RetainedFacetSolve>> {
+        self.coordination
+            .as_ref()
+            .and_then(|(solution, _)| solution.retained.as_ref())
+    }
+
     pub(crate) fn active_layout(&self) -> &CoordinatedLayout {
         self.solution_layout().unwrap_or(&self.local_layout)
     }

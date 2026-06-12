@@ -59,14 +59,110 @@ use crate::render::context::FacetRuntimeSizingMode;
 
 /// Solved channel values for one coordination round: the group-merged
 /// layout per share key and per node, plus each node's own and
-/// group-equalized overflow envelopes. Produced by [`tree_solved_round`]
-/// (and hand-built by test fixture folds).
+/// group-equalized overflow envelopes, plus the retained solve the
+/// values were extracted from. Produced by [`tree_solved_round`] (and
+/// hand-built by test fixture folds, which retain nothing).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SolvedRound {
     pub(crate) merged_by_key: HashMap<CoordinationScopeKey, CoordinatedLayout>,
     pub(crate) merged_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
     pub(crate) own_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+    /// The lowered tree and its solution, retained for geometry adoption
+    /// and envelope remaps.
+    pub(crate) retained: Option<std::sync::Arc<RetainedFacetSolve>>,
+}
+
+/// One coordination round's solve, retained whole: the lowered tree
+/// (re-solvable at a new envelope — the remap law) and the solution the
+/// channel values were extracted from (the geometry adoption source).
+pub(crate) struct RetainedFacetSolve {
+    pub(crate) lowered: LoweredFacetTree,
+    pub(crate) solution: LayoutSolution<CoordinationNodeKey>,
+}
+
+impl std::fmt::Debug for RetainedFacetSolve {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RetainedFacetSolve")
+            .field("bands", &self.lowered.bands.len())
+            .field("size", &self.solution.size)
+            .finish()
+    }
+}
+
+/// Pre-solve chart-side folds consumed by the lowering: values decided
+/// across the share group (or by render law) rather than read per band.
+#[derive(Debug, Clone, Copy)]
+struct BandFold {
+    /// The coordinated slot count: group max of local counts over the
+    /// share key for shared bands; local (floored by the structural
+    /// minimum) for FREE slot sharing.
+    channel_n: usize,
+    /// The lowered track gap: raw `padding_inner_px` for scale-backed
+    /// bands, the placement gap floor for explicit bands.
+    min_gap: f32,
+}
+
+/// Compute the per-band folds from construction-time values (one walk,
+/// before lowering). Reading the snapshot-stable local values keeps the
+/// lowering identical across repeated coordination runs on one tree.
+fn compute_band_folds(
+    measurement: &ComponentsMeasurement,
+) -> HashMap<CoordinationNodeKey, BandFold> {
+    struct FoldInput {
+        key: CoordinationScopeKey,
+        local_n: usize,
+        min_slot_count: usize,
+        free: bool,
+        min_gap: f32,
+    }
+    let mut inputs: HashMap<CoordinationNodeKey, FoldInput> = HashMap::new();
+    let mut group_n: HashMap<CoordinationScopeKey, usize> = HashMap::new();
+    let mut walk_path = Vec::new();
+    crate::facet::coordination_apply::visit_facet_bands_with_node_id(
+        measurement,
+        0,
+        &mut walk_path,
+        &mut |node_id, depth, facet_band| {
+            let base = facet_band.base();
+            let key = base.coordination_scope_key_for_depth(depth);
+            let local_n = base.local_layout.n;
+            let entry = group_n.entry(key.clone()).or_default();
+            *entry = (*entry).max(local_n);
+            let padding = base.local_layout.padding_inner_px;
+            inputs.insert(
+                node_id.clone(),
+                FoldInput {
+                    key,
+                    local_n,
+                    min_slot_count: base.min_slot_count,
+                    free: base.slot_sharing.is_free(),
+                    min_gap: if base.uses_explicit_placement() {
+                        crate::facet::padding_policy::main_axis_gap(padding)
+                    } else {
+                        padding
+                    },
+                },
+            );
+        },
+    );
+    inputs
+        .into_iter()
+        .map(|(node_id, input)| {
+            let channel_n = if input.free {
+                input.local_n.max(input.min_slot_count)
+            } else {
+                group_n.get(&input.key).copied().unwrap_or(input.local_n)
+            };
+            (
+                node_id,
+                BandFold {
+                    channel_n,
+                    min_gap: input.min_gap,
+                },
+            )
+        })
+        .collect()
 }
 
 /// Whether the shadow census is enabled for this process.
@@ -84,7 +180,10 @@ pub(crate) struct LoweredBand {
     /// Real cell count (before ghost padding).
     pub(crate) cell_count: usize,
     pub(crate) guide_slot_gap_px: f32,
-    pub(crate) local_n: usize,
+    /// The pre-folded coordinated slot count (the fold the lowering's
+    /// ghost padding consumed — group max for shared bands, local for
+    /// free).
+    pub(crate) channel_n: usize,
     pub(crate) has_overflow_cells: bool,
 }
 
@@ -147,6 +246,7 @@ pub(crate) fn lower_facet_tree(
     let x_content_driven = x_explicit || policy.width.is_leaf_plot_area_sized();
     let y_content_driven = y_explicit || policy.height.is_leaf_plot_area_sized();
 
+    let folds = compute_band_folds(measurement);
     let mut bands = Vec::new();
     let mut node_path = Vec::new();
     let layout = lower_band(
@@ -155,6 +255,7 @@ pub(crate) fn lower_facet_tree(
         0,
         (x_content_driven, y_content_driven),
         overrides,
+        &folds,
         &mut bands,
     );
 
@@ -240,10 +341,15 @@ fn lower_band(
     depth: usize,
     content_driven: (bool, bool),
     overrides: Option<&CellSizeOverrides>,
+    folds: &HashMap<CoordinationNodeKey, BandFold>,
     bands: &mut Vec<LoweredBand>,
 ) -> Layout<CoordinationNodeKey, CoordinationScopeKey> {
     let node_id = CoordinationNodeKey::new(node_path.clone());
     let key = band.coordination_scope_key_for_depth(depth);
+    let fold = folds
+        .get(&node_id)
+        .copied()
+        .expect("every walked band has a fold");
     let envelopes = cell_envelopes_by_index(band);
 
     let mut all_leaves = true;
@@ -261,6 +367,7 @@ fn lower_band(
                 depth + 1,
                 content_driven,
                 overrides,
+                folds,
                 bands,
             );
             node_path.pop();
@@ -314,16 +421,15 @@ fn lower_band(
         cell_nodes.push(node);
     }
 
-    // Ghost slots pad to the active slot count (free bands keep local n
-    // through the active view) floored by the structural minimum —
-    // min_slot_count holds trailing wrap holes so a short chunk's cells
-    // stay uniform instead of stretching across the hole. The last ghost
-    // mirrors the trailing edge cell's demands so the band's structural
-    // trailing edge keeps the renderable-edge law.
+    // Ghost slots pad to the pre-folded coordinated slot count (group
+    // max for shared bands, local for FREE slot sharing) floored by the
+    // structural minimum — min_slot_count holds trailing wrap holes so a
+    // short chunk's cells stay uniform instead of stretching across the
+    // hole. The last ghost mirrors the trailing edge cell's demands so
+    // the band's structural trailing edge keeps the renderable-edge law.
     let cell_count = cell_nodes.len();
-    let slot_count = band
-        .active_layout()
-        .n
+    let slot_count = fold
+        .channel_n
         .max(band.min_slot_count)
         .max(cell_count)
         .max(1);
@@ -333,7 +439,7 @@ fn lower_band(
             node = ?node_id.path,
             cell_count,
             slot_count,
-            active_n = band.active_layout().n,
+            channel_n = fold.channel_n,
             local_n = band.local_layout.n,
             min_slot_count = band.min_slot_count,
             explicit = band.uses_explicit_placement(),
@@ -388,12 +494,13 @@ fn lower_band(
         cell_nodes.push(Layout::leaf(Size::default()));
     }
 
-    // Spacing lowers RAW local declarations; the share merge raises them
-    // across cousins.
+    // Spacing lowers the local declarations with the pre-folded track
+    // gap (raw padding for scale-backed bands, the placement gap floor
+    // for explicit bands); the share merge raises them across cousins.
     let spacing = Spacing {
         outer_start: band.local_layout.outer_start,
         outer_end: band.local_layout.outer_end,
-        min_gap: band.local_layout.padding_inner_px,
+        min_gap: fold.min_gap,
     };
 
     let mut grid = match band.axis {
@@ -435,7 +542,7 @@ fn lower_band(
         axis: band.axis,
         cell_count,
         guide_slot_gap_px: band.local_layout.guide_slot_gap_px,
-        local_n: band.local_layout.n,
+        channel_n: fold.channel_n,
         has_overflow_cells: band.overflow_cells.is_some(),
     });
 
@@ -461,12 +568,10 @@ pub(crate) fn extract_channels(
     lowered: &LoweredFacetTree,
     solution: &LayoutSolution<CoordinationNodeKey>,
 ) -> TreeChannels {
-    // Group scalar folds over share-key membership.
-    let mut group_n: HashMap<&CoordinationScopeKey, usize> = HashMap::new();
+    // Guide-gap scalar fold over share-key membership (slot counts were
+    // pre-folded into the lowering; the bands carry them).
     let mut group_gap: HashMap<&CoordinationScopeKey, f32> = HashMap::new();
     for band in &lowered.bands {
-        let n = group_n.entry(&band.key).or_default();
-        *n = (*n).max(band.local_n);
         let gap = group_gap.entry(&band.key).or_default();
         *gap = gap.max(band.guide_slot_gap_px);
     }
@@ -484,7 +589,6 @@ pub(crate) fn extract_channels(
             FacetAxis::Column => tracks.column_spacing,
             FacetAxis::Row => tracks.row_spacing,
         };
-        let n = group_n.get(&band.key).copied().unwrap_or(band.local_n);
         layout_by_node.insert(
             band.node_id.clone(),
             CoordinatedLayout {
@@ -495,7 +599,7 @@ pub(crate) fn extract_channels(
                     .unwrap_or(band.guide_slot_gap_px),
                 outer_start: spacing.outer_start,
                 outer_end: spacing.outer_end,
-                n,
+                n: band.channel_n,
             },
         );
         if band.has_overflow_cells {
@@ -552,11 +656,15 @@ pub(crate) fn tree_solved_round(
             "facet tree solve failed: {error}"
         ))
     })?;
-    let channels = extract_channels(&lowered, &solved);
+    let retained = RetainedFacetSolve {
+        lowered,
+        solution: solved,
+    };
+    let channels = extract_channels(&retained.lowered, &retained.solution);
 
     let mut own_overflow_by_node = HashMap::new();
     let mut merged_by_key = HashMap::new();
-    for band in &lowered.bands {
+    for band in &retained.lowered.bands {
         if let Some(layout) = channels.layout_by_node.get(&band.node_id) {
             merged_by_key.insert(
                 band.key
@@ -567,7 +675,7 @@ pub(crate) fn tree_solved_round(
         if !band.has_overflow_cells {
             continue;
         }
-        let Some(region) = solved.region(&band.node_id) else {
+        let Some(region) = retained.solution.region(&band.node_id) else {
             continue;
         };
         own_overflow_by_node.insert(
@@ -594,6 +702,7 @@ pub(crate) fn tree_solved_round(
         merged_by_node: channels.layout_by_node,
         own_overflow_by_node,
         overflow_by_node: channels.overflow_by_node,
+        retained: Some(std::sync::Arc::new(retained)),
     })
 }
 
@@ -729,6 +838,14 @@ pub(crate) fn run_shadow_census(
 
     let snapshots_identical = snapshot_hashes.windows(2).all(|pair| pair[0] == pair[1]);
 
+    // Adoption probe: leaf-allotment delta between the round's RETAINED
+    // solution (the install-time geometry) and the settled-state
+    // re-solve — the per-run size of geometry adoption.
+    let adopt_delta =
+        crate::facet::coordination_policy::FacetCoordinationPolicy::facet_band_ref(measurement)
+            .and_then(|band| band.base().retained_solve().cloned())
+            .map(|retained| retained.solution.content_delta(&solved));
+
     info!(
         target: "avenger_chart::facet::tree_solve",
         bands = lowered.bands.len(),
@@ -738,6 +855,7 @@ pub(crate) fn run_shadow_census(
         idempotence_delta,
         snapshots_identical,
         snapshot_rounds = snapshot_hashes.len(),
+        adopt_delta = adopt_delta.unwrap_or(f32::NAN),
         "shadow tree-solve census"
     );
 }

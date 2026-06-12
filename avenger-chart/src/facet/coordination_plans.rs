@@ -44,7 +44,12 @@ pub(crate) struct RequirementNodeSnapshot {
     pub(crate) node_id: CoordinationNodeKey,
     pub(crate) key: CoordinationScopeKey,
     pub(crate) axis: FacetAxis,
+    /// Snapshot of the slot-sharing law inputs; the production fold reads
+    /// the live bands (`compute_band_folds`), the test fixture fold reads
+    /// these.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) slot_sharing: SharingLevel,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) min_slot_count: usize,
     /// The renderable cells' (guide, total) overflow envelopes, lowered
     /// directly into the round solve. `None` for cell-less bands.
@@ -597,6 +602,12 @@ pub(crate) fn test_solved_round(
             merged.outer_end = merged.outer_end.max(local.outer_end);
             merged.n = merged.n.max(local.n);
         }
+        // The pre-fold slot-count law: FREE slot sharing keeps the local
+        // count (floored by the structural minimum) instead of adopting
+        // the group maximum.
+        if node.slot_sharing.is_free() {
+            merged.n = node.local_layout.n.max(node.min_slot_count);
+        }
         merged_by_key.insert(share_keys[index].clone(), merged.clone());
         merged_by_node.insert(node.node_id.clone(), merged);
 
@@ -651,6 +662,8 @@ pub(crate) fn test_solved_round(
         merged_by_node,
         own_overflow_by_node,
         overflow_by_node,
+        // Fixture folds retain no solve.
+        retained: None,
     }
 }
 
@@ -724,16 +737,17 @@ pub(crate) fn build_requirement_pass_with_round(
         layout_groups: solved.merged_by_key.len(),
     };
 
-    let solution = build_round_solution(
+    let mut solution = build_round_solution(
         nodes,
         &scopes,
         &grouped,
         &overflow_by_key,
         &guide_anchor_overflow_by_key,
         &boundary_overflow_by_key,
-        &solved.merged_by_key,
+        &solved.merged_by_node,
     );
     validate_round_solution_coverage(nodes, &solution)?;
+    solution.retained = solved.retained;
 
     Ok(RequirementPass {
         snapshot,
@@ -914,7 +928,7 @@ fn build_round_solution(
     merged_overflow_by_key: &HashMap<CoordinationScopeKey, CoordinatedOverflow>,
     merged_guide_anchor_overflow_by_key: &HashMap<CoordinationScopeKey, CoordinatedOverflow>,
     merged_boundary_overflow_by_key: &HashMap<CoordinationScopeKey, CoordinatedOverflow>,
-    merged_layout_by_key: &HashMap<CoordinationScopeKey, CoordinatedLayout>,
+    merged_layout_by_node: &HashMap<CoordinationNodeKey, CoordinatedLayout>,
 ) -> CoordinationSolution {
     let mut solution = CoordinationSolution::default();
     for node in nodes {
@@ -940,12 +954,11 @@ fn build_round_solution(
                 .boundary_overflow_by_node
                 .insert(node.node_id.clone(), boundary_overflow);
         }
-        let layout_key = node.key.with_kind(CoordinationKind::ChildSize);
-        if let Some(merged_layout) = merged_layout_by_key.get(&layout_key).cloned() {
+        if let Some(merged_layout) = merged_layout_by_node.get(&node.node_id).cloned() {
+            // The layout channel is per node (slot counts arrive
+            // pre-folded: free bands already local); no n write-back
+            // remains.
             let mut layout = merged_layout;
-            if node.slot_sharing.is_free() {
-                layout.n = node.local_layout.n.max(node.min_slot_count);
-            }
             if let Some(axis_group) = scopes.axis_lane_scope_by_node.get(&node.node_id)
                 && let Some(group_gap) = grouped.max_guide_slot_gap_by_axis_group.get(axis_group)
             {

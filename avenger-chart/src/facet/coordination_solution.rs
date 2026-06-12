@@ -24,6 +24,10 @@ pub(crate) struct CoordinationSolution {
     pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) guide_anchor_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) boundary_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+    /// The round's retained solve (lowered tree + solution): the
+    /// geometry-adoption source and the envelope-remap substrate. `None`
+    /// for fixture-built solutions.
+    pub(crate) retained: Option<std::sync::Arc<crate::facet::tree_solve::RetainedFacetSolve>>,
 }
 
 impl CoordinationSolution {
