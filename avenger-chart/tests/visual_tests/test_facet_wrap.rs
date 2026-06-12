@@ -1,5 +1,6 @@
 use super::helpers::{
-    DEFAULT_SCALE, VisualTestConfig, assert_visual_match_default, compare_images, get_baseline_path,
+    DEFAULT_SCALE, VisualTestConfig, assert_visual_match_default,
+    assert_visual_match_default_with_options, compare_images, get_baseline_path,
 };
 use avenger_chart::cartesian::CartesianGuide;
 use avenger_chart::plot::EvaluationRequest;
@@ -290,6 +291,32 @@ fn nested_column_wrap_plot(df: DataFrame) -> Plot<FacetColumn> {
         .data(df)
         .canvas_size(1420.0, 760.0)
         .mark(Subplot::new(wrap).column_with(col("region"), |c| c.guide(|g| g.title("Region"))))
+}
+
+/// The iteration knob, measure-once (the staleness law made visible):
+/// the same chart as `facet_wrap_auto_columns` rendered with
+/// `max_refinement_passes = 0`. Chrome stays frozen at its epoch
+/// measurements while geometry adopts the coordinated layout, so any
+/// label or strip mis-fit visible here relative to the
+/// `facet_wrap_auto_columns` baseline is exactly the residual the
+/// default refinement passes exist to re-measure away. Its own
+/// baseline, not a re-bless of the default rendering.
+#[tokio::test]
+async fn facet_wrap_auto_columns_measure_once() {
+    let ctx = SessionContext::new();
+    let plot = facet_wrap_plot(facet_wrap_data(&ctx).await, None, false, 1, 1, 1);
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let mut options = avenger_chart::render::EvaluationOptions::default();
+    options.facet_layout_refinement.max_refinement_passes = 0;
+    assert_visual_match_default_with_options(
+        &compiled,
+        &ctx,
+        None,
+        options,
+        BASELINE_CATEGORY,
+        "facet_wrap_auto_columns_measure_once",
+    )
+    .await;
 }
 
 #[tokio::test]
