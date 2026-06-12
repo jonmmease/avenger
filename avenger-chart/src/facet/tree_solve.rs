@@ -733,6 +733,12 @@ pub(crate) fn run_shadow_census(
     let mut geometry_max = 0.0f32;
     let mut geometry_cells_over = 0usize;
     let mut geometry_cells = 0usize;
+    // Placement probe (F3): explicit placement computed on read (the
+    // local strip solve) vs the settled re-solve's band tracks — the
+    // two evaluations of the placement law that D3 proposes to unify.
+    let mut placement_bands = 0usize;
+    let mut placement_max = 0.0f32;
+    let mut placement_values_over = 0usize;
     let mut walk_path = Vec::new();
     let mut band_index_by_id: HashMap<&CoordinationNodeKey, &LoweredBand> = HashMap::new();
     for band in &lowered.bands {
@@ -808,6 +814,66 @@ pub(crate) fn run_shadow_census(
                 }
                 geometry_max = geometry_max.max(delta);
             }
+
+            // Placement probe: explicit bands only (scale-backed
+            // placement keeps its verification-shadow role per the G5
+            // verdict). Compare per-cell main starts/sizes and the band
+            // extents between the on-read strip solve and the settled
+            // tree solve's band tracks.
+            if base.uses_explicit_placement() {
+                let placement = base.explicit_placement();
+                let RegionDetail::Grid { tracks } = &band_region.detail else {
+                    return;
+                };
+                placement_bands += 1;
+                let vertical = matches!(base.axis, crate::coords::FacetAxis::Row);
+                let (starts, sizes, cross_size, main_extent) = if vertical {
+                    (
+                        &tracks.row_starts,
+                        &tracks.row_sizes,
+                        tracks.column_sizes.first().copied().unwrap_or(0.0),
+                        band_region.content.height,
+                    )
+                } else {
+                    (
+                        &tracks.column_starts,
+                        &tracks.column_sizes,
+                        tracks.row_sizes.first().copied().unwrap_or(0.0),
+                        band_region.content.width,
+                    )
+                };
+                let mut band_max = 0.0f32;
+                let mut compare = |label: &'static str, idx: usize, ours: f32, solved: f32| {
+                    let delta = (ours - solved).abs();
+                    band_max = band_max.max(delta);
+                    if delta > SHADOW_EPS {
+                        placement_values_over += 1;
+                        debug!(
+                            target: "avenger_chart::facet::tree_solve",
+                            node = ?node_id.path,
+                            label,
+                            idx,
+                            placement = ours,
+                            solved,
+                            "placement probe divergence"
+                        );
+                    }
+                };
+                for (idx, cell) in placement.cells.iter().enumerate() {
+                    let start = starts.get(idx).copied().unwrap_or(f32::NAN);
+                    let size = sizes.get(idx).copied().unwrap_or(f32::NAN);
+                    compare("main_start", idx, cell.main_start, start);
+                    compare("main_size", idx, cell.main_size, size);
+                }
+                compare("main_extent", 0, placement.main_extent, main_extent);
+                compare(
+                    "cross_extent",
+                    0,
+                    placement.cross_extent.unwrap_or(0.0),
+                    cross_size,
+                );
+                placement_max = placement_max.max(band_max);
+            }
         },
     );
 
@@ -856,6 +922,9 @@ pub(crate) fn run_shadow_census(
         snapshots_identical,
         snapshot_rounds = snapshot_hashes.len(),
         adopt_delta = adopt_delta.unwrap_or(f32::NAN),
+        placement_bands,
+        placement_max,
+        placement_values_over,
         "shadow tree-solve census"
     );
 }
