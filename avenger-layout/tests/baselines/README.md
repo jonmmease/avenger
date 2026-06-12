@@ -23,11 +23,12 @@ AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines
   outside-in with vertical sides before horizontal (corners belong to the
   outer-more / vertical-first slab).
 - **Demand strips** beside each content rectangle encode three things:
-  **hue** is the layer (red = inner/guide-like, green = remainder up to the
-  total), **shade** is nesting depth (darker shallower), and **solid vs
-  hatched** is requested vs granted — where a hatched strip extends past the
-  solid one inside it, coordination granted that region more than it asked
-  for.
+  **hue** is the layer (red = inner/guide-like, green = outer/legend-like,
+  violet = the unlayered remainder up to the total — `Unlayered` demands
+  and lift-law slack carry no layer a cousin can coordinate against),
+  **shade** is nesting depth (darker shallower), and **solid vs hatched**
+  is requested vs granted — where a hatched strip extends past the solid
+  one inside it, coordination granted that region more than it asked for.
 - **Black frame**: the solved canvas (envelope). A color key row identifies
   every kind present in the scene.
 

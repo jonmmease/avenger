@@ -130,19 +130,6 @@ impl Edges<EdgeGrant> {
     }
 }
 
-/// Coordinated edge targets granted to a child region by its parent.
-///
-/// `inner` is the interior edge between the content rectangle and any outer
-/// content. `total` is the full rendered edge envelope. The difference is
-/// important for local outer-content anchoring: outer content should start
-/// after the coordinated inner edge, while sibling spacing uses the
-/// coordinated total edge.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct EdgeTargets {
-    pub inner: Edges<f32>,
-    pub total: Edges<f32>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
