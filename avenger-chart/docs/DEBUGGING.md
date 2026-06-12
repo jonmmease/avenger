@@ -150,6 +150,35 @@ The visual debug feature lives in:
 - `avenger-chart/src/facet/debug.rs` - Environment and option resolution
 - `avenger-chart/src/plot/compiled/rendering.rs` - Overlay mode wiring during evaluation/rendering
 
+## Facet Coordination Shadow Census
+
+`AVENGER_SHADOW_TREE_SOLVE=1` enables behavior-neutral diagnostics at the
+end of every facet coordination run: the settled measurement tree is
+re-lowered and re-solved, and one `INFO` line per run
+(`shadow tree-solve census`, target `avenger_chart::facet::tree_solve`)
+reports the equilibrium probes:
+
+- `geometry_max` / `geometry_cells_over` — settled solve slots vs live
+  leaf-cell plot areas (adoption must land on the solve's fixed point:
+  expect ≈ 0 / 0).
+- `idempotence_delta` — re-lowering at the shadow's own slots and
+  re-solving must change nothing (expect ≈ 0).
+- `adopt_delta` — the retained install-time solution vs the settled
+  re-solve: the size of the geometry transition this run adopted
+  (legitimately nonzero when coordination changed the layout).
+- `placement_bands` / `placement_max` / `placement_values_over` — the
+  on-read explicit placement strip vs the settled solve's band tracks
+  (one law, two evaluators; divergence beyond the documented
+  chrome-accounting boundary is a bug).
+
+Per-value divergences log at `DEBUG` on the same target
+(`placement probe divergence`, `shadow cell slot divergence`).
+
+```bash
+AVENGER_SHADOW_TREE_SOLVE=1 RUST_LOG=avenger_chart::facet::tree_solve=info \
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
+```
+
 ## Combining Both Approaches
 
 For comprehensive debugging, combine tracing logs with visual rectangles:

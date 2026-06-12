@@ -12,7 +12,7 @@ flowchart TD
     Tree["EvaluatedFacetTree\nPartitionNode hierarchy"]
     Band["FacetBandMeasurePipeline\nper-band measurement"]
     Domains["scale_precompute and domain_coordination"]
-    Coordination["coordinate_facet_measurement_tree\none round: tree solve + install, then retarget + final propagation"]
+    Coordination["coordinate_facet_measurement_tree\nfold -> solve -> install channels -> adopt geometry"]
     Placement["FacetBandPlacement\nfacet_child_frame_placement_from_band"]
     Render["render_facet_band_common\nchild plot groups"]
 
@@ -85,67 +85,89 @@ compiled child plot.
 ## Coordination And Placement
 
 `coordinate_facet_measurement_tree` runs the cross-band coordination
-pass. The driver is in `facet/coordination.rs`, the real-tree lowering
-and channel extraction live in `facet/tree_solve.rs`, pass construction
-and the chart-side folds live in `facet/coordination_plans.rs`, the
-decide-then-apply walkers live in `facet/coordination_apply.rs`, and
-sizing decisions live in `FacetCoordinationPolicy`.
+pass as fold → solve → install channels → adopt geometry. The driver is
+in `facet/coordination.rs`, the pre-solve folds plus the real-tree
+lowering and channel extraction live in `facet/tree_solve.rs`, pass
+construction lives in `facet/coordination_plans.rs`, and the install
+and adopt walks live in `facet/coordination_apply.rs`.
 
-The driver is linear — ONE round (the round-identity law: requirement
-snapshots read only epoch-frozen and construction values, so a second
-collect-and-install was always a byte-identical no-op):
-
-- collect a requirement snapshot from every facet band
-  (`collect_requirement_snapshot`),
-- solve the REAL facet tree (`tree_solve::tree_solved_round`): the live
-  measurement tree lowers into one `avenger_layout::Layout` — leaf
-  cells at their plot sizes carrying epoch overflow envelopes as
-  layered edge demands, nested-band cells behind the two-wrapper
-  boundary (a contained wrapper isolates the child's structural lift; a
-  full-epoch chrome wrapper presents the parent level's guide/legend
-  classification — a band's channel values are its OWN epoch cell
-  folds, including that classification), cousins sharing
-  `avenger_layout` keys, ghost slots padded to the coordinated slot
-  count. One solve yields the layout channel (solved track spacing;
-  slot counts and `guide_slot_gap_px` fold chart-side) and the
+- FOLD (`compute_band_folds`): chart scalars that shape the solve are
+  decided before lowering, from construction-time values — per-band
+  coordinated slot count (shared groups take the group max over the
+  share key; FREE slot sharing keeps local n floored by
+  `min_slot_count`) and the lowered track gap (raw `padding_inner_px`
+  for scale-backed bands, the placement `main_axis_gap` floor for
+  explicit bands). Reading snapshot-stable values keeps repeated runs
+  on one tree identical by construction.
+- SOLVE (`tree_solve::tree_solved_round`): the live measurement tree
+  lowers into one `avenger_layout::Layout` — leaf cells at their plot
+  sizes carrying epoch overflow envelopes as layered edge demands,
+  nested-band cells behind the two-wrapper boundary (a contained
+  wrapper isolates the child's structural lift; a full-epoch chrome
+  wrapper presents the parent level's guide/legend classification — a
+  band's channel values are its OWN epoch cell folds, including that
+  classification), cousins sharing `avenger_layout` keys, ghost slots
+  padded to the folded slot count. One solve yields the layout channel
+  (solved track spacing; `guide_slot_gap_px` folds chart-side), the
   full-overflow channel (each node's `Region.coordinated` edges — its
-  own post-share ask). Guide-anchor and boundary overflow remain
-  chart-side folds over their own scopes (`fold_overflow_entries`):
-  lanes split groups, and boundary strips global edges per node,
-- construct the pass's `CoordinationSolution`
-  (`build_requirement_pass_with_round`): the per-node channel values
-  with the write-back adjustments applied (free slot sharing keeps
-  local counts, lane gap folds, global-edge outer reversion, in
-  `build_round_solution`), coverage-validated at construction,
-- install the solution (`apply_requirement_pass`): per band, reset
-  realized legend-slab ownership and install the pass's `Arc` handle.
-  Bands read coordinated values as views into the installed solution
-  (`active_layout()` / `active_overflow()` / the `*_value()`
-  accessors), falling back to local values pre-coordination,
-- retarget frames at the written-back targets (`run_retarget`): derive
-  every node's decisions from pre-retarget state in one read-only pass,
-  then apply parent-first, propagating parent cross sizes to children
-  between apply and recurse. Coverage and trace alignment are by
-  construction (decide and apply share one traversal),
-- final propagation (`run_final_propagation`): the same
-  decide-then-apply shape pushes coordinated plot areas and band scale
-  ranges to descendants (uniform child targets derive from a band
-  solve).
+  own post-share ask), and the retained solve
+  (`RetainedFacetSolve`: the lowered tree plus its `LayoutSolution`,
+  re-solvable at a new envelope — the remap law). Guide-anchor and
+  boundary overflow remain chart-side folds over their own scopes
+  (`fold_overflow_entries`): lanes split groups, and boundary strips
+  global edges per node.
+- INSTALL (`build_requirement_pass_with_round` +
+  `apply_requirement_pass`): the per-node channel values (lane gap
+  folds and global-edge outer reversion applied in
+  `build_round_solution`), coverage-validated at construction; per
+  band, realized legend-slab ownership resets and the pass's `Arc`
+  handle installs. Bands read coordinated values as views into the
+  installed solution (`active_layout()` / `active_overflow()`),
+  falling back to local values pre-coordination.
+- ADOPT (`run_adopt`): one top-down walk moves every band to the
+  operating point its installed solution implies, through the
+  no-remeasure substrate
+  (`retarget_parent_plot_area_policy_no_remeasure`): the band scale
+  range follows the container's main extent, `subplot_cross_size`
+  becomes the bandwidth of the band scale at the active coordinated
+  layout (the division law — law values from the installed artifact),
+  each cell's plot area adopts the band-axis bandwidth plus the
+  legend-shrunk orthogonal extent, and scale ranges follow — all gated
+  by the sizing policy (content-driven axes keep their measured
+  sizes). The substrate recurses when a cell's size moves; the walk
+  covers layout-changed-but-size-unchanged bands. Ownership
+  realization runs per band after its subtree adopts; the
+  domain-recompute seam (`adopt_domain_recompute_seam`) is a named
+  no-op because domains are data-driven today.
 
-The retarget and final-propagation targets are the pipeline's
-state-transition law, not reads of solved geometry: the tree solve
-lowers cells at their live pre-retarget sizes, so its slot geometry
-describes the current state, while the targets (the bandwidth at the
-coordinated layout; the legend shrink inside a fixed plot area) are the
-next operating point. Applying them moves the tree to the solve's fixed
-point — at the settled state, solved slots equal live geometry and
-re-lowering changes nothing, which is what the env-gated shadow census
-(`AVENGER_SHADOW_TREE_SOLVE=1`) verifies.
+Adopt applies the pipeline's state-transition law, not a read of solved
+geometry: the solve lowers cells at their live sizes, so its slot
+geometry describes the current state, while the transition values (the
+bandwidth at the coordinated layout; the legend shrink inside a fixed
+plot area) are the next operating point. Adoption moves the tree to the
+solve's fixed point — at the settled state, solved slots equal live
+geometry and re-lowering changes nothing. The env-gated shadow census
+(`AVENGER_SHADOW_TREE_SOLVE=1`) verifies this equilibrium per run:
+geometry (settled slots vs live cells), idempotence (re-solve from the
+shadow's own slots), adoption (`adopt_delta`: retained install-time
+solution vs settled re-solve — the size of the transition the run
+applied), and placement (see below).
 
-The public `CoordinationCheckpoint` variants map onto these stages
-(`RetargetedRequirementsApplied` is post-retarget: requirement snapshots
-read only epoch-frozen and construction-time values, so a re-collected
-pass would be identical to the initial one).
+Within a coordination run, measured chrome and overflow stay FROZEN at
+their epoch measurements (the staleness law): adoption moves geometry,
+never re-measures, so chrome decisions made at estimate-phase geometry
+(tick density, label extents) can mis-fit the adopted geometry by the
+re-measure delta. The refinement loop owns shrinking that residual:
+`EvaluationOptions.facet_layout_refinement.max_refinement_passes`
+(default 2) re-measures at realized geometry and re-runs the
+coordination pipeline until overflow stops growing
+(`overflow_growth_epsilon`); the preview fast path runs measure-once
+(passes = 0). The `facet_wrap_auto_columns_measure_once` baseline pins
+what the epoch residual looks like.
+
+The public `CoordinationCheckpoint` variants map onto the stages:
+`ChannelsInstalled` stops after install (channel values readable,
+geometry not yet adopted) and `Adopted` stops after geometry adoption.
 
 Rendering resolves `FacetBandPlacement` through `facet/placement.rs`, converts
 that placement to child-frame render placements, and calls
@@ -158,6 +180,18 @@ and boundary demands, plus the boundary-overflow cross offset). There is no
 cached placement and nothing to refresh after mutating cells, scales, or
 coordinated values. Empty explicit bands derive their extent from the
 containing measurement's plot area at each consumer.
+
+Placement and the coordination solve are two evaluations of one law:
+after the pre-solve folds, the on-read band strip uses the same slot
+counts, gaps, and outer spacing as the lowered tree, so at the settled
+state the strip solve reproduces the retained solution's band tracks
+(the census placement probe pins this; 175/181 explicit-band runs are
+exact). The residual is the chrome-accounting boundary: the lowered
+tree keeps nested epoch chrome inside cell slots (the two-wrapper
+boundary), while the render model absorbs the same chrome into parent
+gaps (the overflow stacking model) — two consistent representations of
+the same totals, which is why placement reads stay compute-on-read
+rather than raw solution reads.
 
 ## Generic Layout Alignment Boundary
 
@@ -179,8 +213,8 @@ are already equalized by the coordination pass before alignment runs).
 The `concat_grid_facet_track_alignment` visual baseline pins the
 closest reachable boundary rendering.
 `coordinate_facet_measurement_tree` is the authoritative facet
-retarget/final-propagation path; concat containers are the only
-apply-capable alignment kinds.
+coordination path (fold–solve–install–adopt); concat containers are the
+only apply-capable alignment kinds.
 
 ## Coordination
 
