@@ -14,9 +14,14 @@
 //! (relative `SolvedTracks` starts, per-child granted edges) and never
 //! re-derives positions through float round trips.
 
-use avenger_layout::{
-    EdgeDemand, Layout, Orientation, RegionDetail, Side, Size, SolveOptions, Spacing,
-};
+use avenger_layout::{EdgeDemand, Layout, RegionDetail, Side, Size, SolveOptions, Spacing};
+
+/// Flow direction for a one-dimensional band arrangement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Orientation {
+    Horizontal,
+    Vertical,
+}
 
 use super::placement::{PlacedRegion, PlacementSolution};
 

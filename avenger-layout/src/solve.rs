@@ -748,7 +748,7 @@ fn place<Id: Clone, Key>(
         requested: requested.demands,
         coordinated: measured.demands,
         granted,
-        geometric: measured.geometric_total,
+        geometric_total: measured.geometric_total,
         detail: RegionDetail::Leaf, // patched below for grids
     });
 
@@ -1941,7 +1941,10 @@ mod tests {
         assert_eq!(region.requested.top.inner, 5.0);
         assert_eq!(region.requested.top.outer, 8.0);
         assert_eq!(region.requested.top.total, 13.0, "layered law lifts");
-        assert_eq!(region.geometric.top, 8.0, "geometric law keeps raw max");
+        assert_eq!(
+            region.geometric_total.top, 8.0,
+            "geometric law keeps raw max"
+        );
     }
 
     #[test]

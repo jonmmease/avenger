@@ -20,6 +20,14 @@
 //! solved edges ([`crate::region::EdgeGrant`]), outer slabs the `outer`
 //! layer, and bands and margins lift into `total` only (private envelope —
 //! never matched against a cousin's named layers).
+//!
+//! That privacy is deliberate, not a missing feature: bands and margins
+//! are caller *declarations*, so a caller who wants them equal across
+//! cousins can max its own declared sizes before building — no solver
+//! involvement required. The named `inner`/`outer` layers exist because
+//! *measured* demands vary per cousin and only merge inside the solve;
+//! a layer earns a coordination channel exactly when its sizes are
+//! measurements rather than declarations.
 
 use crate::geometry::{Edges, Side, Size};
 use crate::grid::{GridError, GridShape, GridSlot};

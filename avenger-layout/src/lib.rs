@@ -66,7 +66,7 @@ mod svg;
 pub use build::{
     CellAlign, Distribute, Layout, LayoutError, SolveFor, SolveOptions, Spacing, TrackSize,
 };
-pub use geometry::{Edges, Orientation, Rect, Side, Size};
+pub use geometry::{Edges, Rect, Side, Size};
 pub use grid::{GridShape, GridSlot};
 pub use region::{EdgeDemand, EdgeGrant};
 pub use solution::{

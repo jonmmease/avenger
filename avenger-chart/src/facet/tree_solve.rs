@@ -579,10 +579,10 @@ pub(crate) fn tree_solved_round(
                     left: region.requested.left.inner,
                 },
                 total: avenger_chart_core::OverflowSpaceRequirement {
-                    top: region.geometric.top,
-                    right: region.geometric.right,
-                    bottom: region.geometric.bottom,
-                    left: region.geometric.left,
+                    top: region.geometric_total.top,
+                    right: region.geometric_total.right,
+                    bottom: region.geometric_total.bottom,
+                    left: region.geometric_total.left,
                 },
             },
         );

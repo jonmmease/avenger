@@ -42,13 +42,6 @@ pub enum Side {
     Left,
 }
 
-/// Flow direction for a one-dimensional arrangement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Orientation {
-    Horizontal,
-    Vertical,
-}
-
 /// Per-side values around a rectangle.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Edges<T = f32> {

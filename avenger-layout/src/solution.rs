@@ -91,7 +91,7 @@ pub struct Region<Id = usize> {
     /// Geometric view of this node's own measured overflow: raw per-side
     /// maxima without the layered `inner + outer` lift (the node-level
     /// analogue of [`Envelope::geometric_total`]).
-    pub geometric: Edges<f32>,
+    pub geometric_total: Edges<f32>,
     pub detail: RegionDetail,
 }
 
