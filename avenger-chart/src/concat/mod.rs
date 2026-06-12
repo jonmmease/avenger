@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     container::{
-        BandSolution, BoundaryDemand, ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel,
+        BoundaryDemand, ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel,
         ContainerPathSegment, PlacedRegion, PlacementSolution,
     },
     coords::{
@@ -30,8 +30,8 @@ use crate::{
         CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
     },
     layout::{
-        ChartRegionMeta, EdgeDemand, Edges, GridShape, GridSlot, LayoutBounds, Orientation,
-        PlacedBandItem, Size, TrackSpacing, layout_edges,
+        ChartRegionMeta, EdgeDemand, Edges, GridShape, GridSlot, LayoutBounds, Orientation, Size,
+        TrackSpacing, layout_edges,
     },
     marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
@@ -711,7 +711,10 @@ use crate::layout::concat_grid::{
 
 #[derive(Clone, Debug)]
 pub(crate) enum ConcatChildPlacement {
-    Band(BandSolution),
+    Band {
+        placement: PlacementSolution,
+        orientation: Orientation,
+    },
     Grid {
         placement: PlacementSolution,
         shape: GridShape,
@@ -720,25 +723,23 @@ pub(crate) enum ConcatChildPlacement {
 }
 
 impl ConcatChildPlacement {
-    fn child_frame_placement(&self, fallback_content_size: Size) -> PlacementSolution {
+    fn child_frame_placement(&self) -> PlacementSolution {
         match self {
-            Self::Band(band) => band
-                .to_placement_solution([0.0, 0.0], fallback_content_size)
-                .map_meta(|()| ChartRegionMeta::default()),
+            Self::Band { placement, .. } => placement.clone(),
             Self::Grid { placement, .. } => placement.clone(),
         }
     }
 
     fn band_direction(&self) -> Option<Orientation> {
         match self {
-            Self::Band(band) => Some(band.orientation),
+            Self::Band { orientation, .. } => Some(*orientation),
             Self::Grid { .. } => None,
         }
     }
 
     fn grid_shape(&self) -> Option<GridShape> {
         match self {
-            Self::Band(_) => None,
+            Self::Band { .. } => None,
             Self::Grid { shape, .. } => Some(*shape),
         }
     }
@@ -773,8 +774,7 @@ impl ConcatCoordMeasurement {
     }
 
     pub(crate) fn child_frame_placement(&self) -> PlacementSolution {
-        self.placement
-            .child_frame_placement(self.fallback_content_size)
+        self.placement.child_frame_placement()
     }
 
     pub(crate) fn retarget_plot_area_size(
@@ -824,7 +824,7 @@ impl ConcatCoordMeasurement {
     pub(crate) fn layout_coordination_shape(&self) -> Option<GridShape> {
         match &self.placement {
             ConcatChildPlacement::Grid { shape, .. } => Some(*shape),
-            ConcatChildPlacement::Band(band) => match band.orientation {
+            ConcatChildPlacement::Band { orientation, .. } => match orientation {
                 Orientation::Horizontal => Some(GridShape {
                     rows: 1,
                     columns: self.children.len().max(1),
@@ -963,55 +963,32 @@ impl ConcatCoordMeasurement {
                     retarget_plot_area_size: *retarget_plot_area_size,
                 }
             }
-            ConcatChildPlacement::Band(band) => {
-                let direction = band.orientation;
-                let children = self
+            ConcatChildPlacement::Band { orientation, .. } => {
+                let direction = *orientation;
+                let placements = self
                     .children
                     .iter()
                     .enumerate()
                     .map(|(slot_index, child)| {
                         let slot = self.layout_coordination_slot_for_child(slot_index, child)?;
-                        let (main_start, main_size, cross_start, cross_size) = match direction {
-                            Orientation::Horizontal => (
-                                solution.column_starts[slot.column],
-                                solution.data.column_widths[slot.column],
-                                solution.row_starts[0],
-                                solution.data.row_heights[0],
-                            ),
-                            Orientation::Vertical => (
-                                solution.row_starts[slot.row],
-                                solution.data.row_heights[slot.row],
-                                solution.column_starts[0],
-                                solution.data.column_widths[0],
-                            ),
+                        let origin = match direction {
+                            Orientation::Horizontal => {
+                                [solution.column_starts[slot.column], solution.row_starts[0]]
+                            }
+                            Orientation::Vertical => {
+                                [solution.column_starts[0], solution.row_starts[slot.row]]
+                            }
                         };
-                        Ok(PlacedBandItem::with_cross_axis(
-                            child.child_index,
-                            main_start,
-                            main_size,
-                            cross_start,
-                            cross_size,
-                        ))
+                        Ok(PlacedRegion::new(child.child_index, origin))
                     })
                     .collect::<Result<Vec<_>, AvengerChartError>>()?;
-                let (main_extent, cross_extent) = match direction {
-                    Orientation::Horizontal => {
-                        (solution.content_size.width, solution.content_size.height)
-                    }
-                    Orientation::Vertical => {
-                        (solution.content_size.height, solution.content_size.width)
-                    }
-                };
-                ConcatChildPlacement::Band(BandSolution {
-                    boundaries: Vec::new(),
+                ConcatChildPlacement::Band {
+                    placement: PlacementSolution::new(solution.content_size, placements),
                     orientation: direction,
-                    items: children,
-                    main_extent,
-                    cross_extent: Some(cross_extent),
-                })
+                }
             }
         };
-        let placement_result = placement.child_frame_placement(self.fallback_content_size);
+        let placement_result = placement.child_frame_placement();
         let changed = placement_result != old_placement;
         if changed {
             self.placement = placement;
@@ -1605,40 +1582,37 @@ pub(crate) async fn measure_concat_coord_system(
     let avenger_layout::RegionDetail::Grid { tracks } = &root.detail else {
         unreachable!("a band root is a grid");
     };
-    let (main_starts, main_track_sizes, cross_extent, main_extent) = if vertical {
+    let (main_starts, cross_extent, main_extent) = if vertical {
         (
             &tracks.row_starts,
-            &tracks.row_sizes,
             tracks.column_sizes[0],
             root.content.height,
         )
     } else {
         (
             &tracks.column_starts,
-            &tracks.column_sizes,
             tracks.row_sizes[0],
             root.content.width,
         )
     };
-    let child_band_layout = BandSolution {
-        orientation: direction,
-        items: inputs
-            .iter()
-            .enumerate()
-            .map(|(slot_index, (id, _, cross, _))| {
-                PlacedBandItem::with_cross_axis(
-                    *id,
-                    main_starts[slot_index],
-                    main_track_sizes[slot_index],
-                    0.0,
-                    cross.max(0.0),
-                )
-            })
-            .collect(),
-        boundaries: Vec::new(),
-        main_extent,
-        cross_extent: Some(cross_extent),
+    let placements = inputs
+        .iter()
+        .enumerate()
+        .map(|(slot_index, (id, _, _, _))| {
+            let origin = if vertical {
+                [0.0, main_starts[slot_index]]
+            } else {
+                [main_starts[slot_index], 0.0]
+            };
+            PlacedRegion::new(*id, origin)
+        })
+        .collect();
+    let content_size = if vertical {
+        Size::new(cross_extent, main_extent)
+    } else {
+        Size::new(main_extent, cross_extent)
     };
+    let band_placement = PlacementSolution::new(content_size, placements);
 
     let (column_sizes, row_sizes) = match direction {
         Orientation::Horizontal => (layout_sizes, None),
@@ -1646,7 +1620,10 @@ pub(crate) async fn measure_concat_coord_system(
     };
     Ok(Box::new(ConcatCoordMeasurement {
         children,
-        placement: ConcatChildPlacement::Band(child_band_layout),
+        placement: ConcatChildPlacement::Band {
+            placement: band_placement,
+            orientation: direction,
+        },
         fallback_content_size: Size::new(plot_width, plot_height),
         min_gap: spacing,
         column_sizes,
@@ -3115,6 +3092,40 @@ mod tests {
 
         // A cousin whose second cell demands a wider left edge: the group
         // solve patches the local grid to the cousin's folds.
+        let local_spec = concat.grid_member_spec()?;
+        let mut cousin_spec = local_spec.clone();
+        cousin_spec.cells[1].edges.left = EdgeDemand::Unlayered(32.0);
+        let solutions =
+            crate::layout::concat_grid::solve_concat_grid_group(&[local_spec, cousin_spec])
+                .map_err(AvengerChartError::InternalError)?;
+        assert!(concat.install_grid_solution(&solutions[0])?);
+
+        let applied_placement = concat.child_frame_placement();
+        assert_eq!(applied_placement.placements()[0].origin, [0.0, 0.0]);
+        assert_eq!(applied_placement.placements()[1].origin, [132.0, 0.0]);
+        assert_eq!(applied_placement.content_size, Size::new(232.0, 100.0));
+        assert_ne!(applied_placement, old_placement);
+        assert!(!concat.install_grid_solution(&solutions[0])?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn hconcat_applies_merged_track_requirements_idempotently()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = keyed_hconcat("left", "right").compile(&ctx).await?;
+
+        let mut measurement = measurement_for_plot(&compiled, 200.0, 100.0, &ctx).await?;
+        let concat = measurement
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<ConcatCoordMeasurement>()
+            .expect("HConcat should measure as ConcatCoordMeasurement");
+        let old_placement = concat.child_frame_placement();
+        assert_eq!(old_placement.placements()[1].origin, [100.0, 0.0]);
+
+        // A cousin whose second cell demands a wider left edge: the group
+        // solve patches the local band to the cousin's folds.
         let local_spec = concat.grid_member_spec()?;
         let mut cousin_spec = local_spec.clone();
         cousin_spec.cells[1].edges.left = EdgeDemand::Unlayered(32.0);

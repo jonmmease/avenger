@@ -19,41 +19,12 @@ use crate::{
         padding_policy,
     },
     layout::{
-        BandPosition, BandPositionIterator, BandSolution, BoundaryDemand, ChartRegionMeta,
-        Orientation, PlacedBandItem, PlacementSolution, Size, TrackSpacing, UniformTracks,
+        BandPosition, BandPositionIterator, BoundaryDemand, PlacedRegion, PlacementSolution, Size,
+        TrackSpacing, UniformTracks,
     },
     plot::compiled::ComponentsMeasurement,
     scales::ConfiguredScaleWithSpec,
 };
-
-/// Assemble a band placement from already-positioned children, deriving the
-/// cross extent from the children when the caller does not know it.
-fn band_solution_from_children(
-    direction: Orientation,
-    children: Vec<PlacedBandItem>,
-    main_extent: f32,
-    cross_extent: Option<f32>,
-) -> BandSolution {
-    let cross_extent = cross_extent.or_else(|| {
-        if children.is_empty() {
-            None
-        } else {
-            Some(
-                children
-                    .iter()
-                    .map(|child| child.cross_start + child.cross_size)
-                    .fold(0.0f32, f32::max),
-            )
-        }
-    });
-    BandSolution {
-        boundaries: Vec::new(),
-        orientation: direction,
-        items: children,
-        main_extent,
-        cross_extent,
-    }
-}
 
 /// Resolved placement for a facet band, regardless of sizing mode.
 #[derive(Debug, Clone)]
@@ -101,13 +72,45 @@ impl FacetBandPlacement {
         }
     }
 
-    fn from_child_frame_band(axis: FacetAxis, band: BandSolution) -> Self {
-        let cells = band
-            .items
+    /// Convert main-axis cell placement into render-space origins
+    /// relative to the parent content rectangle.
+    ///
+    /// Cross-extent law: a resolved extent wins; a band with cells but no
+    /// resolved extent reads as zero (cells carry no cross extent of
+    /// their own); only a cell-less band takes the fallback content size.
+    pub(crate) fn to_placement_solution(
+        &self,
+        origin_offset: [f32; 2],
+        fallback_content_size: Size,
+    ) -> PlacementSolution {
+        let vertical = matches!(self.axis, FacetAxis::Row);
+        let placements = self
+            .cells
             .iter()
-            .map(FacetCellPlacement::from_placed_child)
+            .map(|cell| {
+                let origin = if vertical {
+                    [origin_offset[0], cell.main_start + origin_offset[1]]
+                } else {
+                    [cell.main_start + origin_offset[0], origin_offset[1]]
+                };
+                PlacedRegion::new(cell.cell_index, origin)
+            })
             .collect();
-        Self::new(axis, cells, band.main_extent, band.cross_extent)
+        let cross_extent = self
+            .cross_extent
+            .or((!self.cells.is_empty()).then_some(0.0));
+        let content_size = if vertical {
+            Size::new(
+                cross_extent.unwrap_or(fallback_content_size.width),
+                self.main_extent,
+            )
+        } else {
+            Size::new(
+                self.main_extent,
+                cross_extent.unwrap_or(fallback_content_size.height),
+            )
+        };
+        PlacementSolution::new(content_size, placements)
     }
 
     pub(crate) fn cell_count(&self) -> usize {
@@ -155,26 +158,7 @@ impl FacetBandPlacement {
     }
 }
 
-impl FacetCellPlacement {
-    fn from_placed_child(child: &PlacedBandItem) -> Self {
-        Self {
-            cell_index: child.id,
-            main_start: child.main_start,
-            main_size: child.main_size,
-        }
-    }
-
-    fn to_placed_child(&self) -> PlacedBandItem {
-        PlacedBandItem::new(self.cell_index, self.main_start, self.main_size)
-    }
-}
-
-fn band_direction(axis: FacetAxis) -> Orientation {
-    match axis {
-        FacetAxis::Column => Orientation::Horizontal,
-        FacetAxis::Row => Orientation::Vertical,
-    }
-}
+impl FacetCellPlacement {}
 
 pub(crate) fn resolve_scale_backed_facet_band_placement(
     axis: FacetAxis,
@@ -267,13 +251,20 @@ pub(crate) fn resolve_scale_backed_facet_band_placement(
                 bands[id].start(),
                 bands[id].bandwidth,
             );
-            PlacedBandItem::new(id, main_start, solved.track_size)
+            FacetCellPlacement {
+                cell_index: id,
+                main_start,
+                main_size: solved.track_size,
+            }
         })
         .collect();
-    let band =
-        band_solution_from_children(band_direction(axis), children, main_extent, cross_extent);
 
-    Ok(FacetBandPlacement::from_child_frame_band(axis, band))
+    Ok(FacetBandPlacement::new(
+        axis,
+        children,
+        main_extent,
+        cross_extent,
+    ))
 }
 
 pub(crate) fn resolve_facet_band_placement_from_configured_scales(
@@ -344,31 +335,17 @@ pub(crate) fn facet_child_frame_placement_from_band(
         )));
     }
 
-    let children = placement
-        .cells
-        .iter()
-        .enumerate()
-        .map(|(idx, cell_placement)| {
-            if cell_placement.cell_index != idx {
-                return Err(AvengerChartError::InternalError(format!(
-                    "Facet child-frame placement cell index mismatch: expected={idx}, actual={}",
-                    cell_placement.cell_index
-                )));
-            }
-            Ok(cell_placement.to_placed_child())
-        })
-        .collect::<Result<Vec<_>, AvengerChartError>>()?;
-    let band = band_solution_from_children(
-        band_direction(placement.axis),
-        children,
-        placement.main_extent,
-        placement.cross_extent,
-    );
+    for (idx, cell_placement) in placement.cells.iter().enumerate() {
+        if cell_placement.cell_index != idx {
+            return Err(AvengerChartError::InternalError(format!(
+                "Facet child-frame placement cell index mismatch: expected={idx}, actual={}",
+                cell_placement.cell_index
+            )));
+        }
+    }
 
     let (origin_offset_x, origin_offset_y) = facet_cell_main_start_offset(facet_band);
-    Ok(band
-        .to_placement_solution([origin_offset_x, origin_offset_y], fallback_content_size)
-        .map_meta(|()| ChartRegionMeta::default()))
+    Ok(placement.to_placement_solution([origin_offset_x, origin_offset_y], fallback_content_size))
 }
 
 pub(crate) fn resolve_facet_child_frame_placement_from_scale_specs(

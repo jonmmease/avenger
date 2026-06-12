@@ -25,10 +25,7 @@
 pub use crate::plot::compiled::ChildFrameContainerView;
 
 pub(crate) use crate::{
-    layout::{
-        BandSolution, BoundaryDemand, EdgeTargets, PlacedRegion, PlacementSolution,
-        project_child_rect,
-    },
+    layout::{BoundaryDemand, EdgeTargets, PlacedRegion, PlacementSolution, project_child_rect},
     plot::compiled::{
         ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel, ChildFrameSharingPath,
         ContainerPathSegment,
