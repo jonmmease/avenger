@@ -14,7 +14,7 @@
 //! (relative `SolvedTracks` starts, per-child granted edges) and never
 //! re-derives positions through float round trips.
 
-use avenger_layout::{EdgeDemand, Layout, RegionDetail, Side, Size, SolveOptions, Spacing};
+use avenger_layout::Size;
 
 /// Flow direction for a one-dimensional band arrangement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,35 +25,12 @@ pub enum Orientation {
 
 use super::placement::{PlacedRegion, PlacementSolution};
 
-/// Cross-axis alignment for children inside a one-dimensional band.
-///
-/// Production placements are all `Start` today; the other variants complete
-/// the policy (and are exercised by tests).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum CrossAlign {
-    #[default]
-    Start,
-    #[allow(dead_code)]
-    Center,
-    #[allow(dead_code)]
-    End,
-}
-
 /// Main-axis rendered demand outside one child boundary
 /// (leading/trailing edge totals projected onto the main axis).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct BoundaryDemand {
     pub before: f32,
     pub after: f32,
-}
-
-/// Sized child input for placement that owns its sibling gaps.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BandItem<Id = usize> {
-    pub id: Id,
-    pub main_size: f32,
-    pub cross_size: f32,
-    pub boundary: BoundaryDemand,
 }
 
 /// Positioned child in main/cross-axis coordinates.
@@ -117,108 +94,6 @@ pub struct BandSolution<Id = usize> {
 }
 
 impl<Id: Clone> BandSolution<Id> {
-    /// Build from child sizes, sibling boundary demands, and spacing policy
-    /// by solving a 1×N (or N×1) `Layout` row/column of measured leaves.
-    pub fn solve(
-        orientation: Orientation,
-        items: &[BandItem<Id>],
-        spacing: Spacing,
-        cross_align: CrossAlign,
-        main_sizes: Option<&[avenger_layout::TrackSize]>,
-    ) -> Self {
-        let leaves = items.iter().map(|child| {
-            let (size, before_side, after_side) = match orientation {
-                Orientation::Horizontal => (
-                    Size::new(child.main_size, child.cross_size),
-                    Side::Left,
-                    Side::Right,
-                ),
-                Orientation::Vertical => (
-                    Size::new(child.cross_size, child.main_size),
-                    Side::Top,
-                    Side::Bottom,
-                ),
-            };
-            Layout::<usize>::leaf(size)
-                .demand(before_side, EdgeDemand::Unlayered(child.boundary.before))
-                .demand(after_side, EdgeDemand::Unlayered(child.boundary.after))
-        });
-        let mut band = match orientation {
-            Orientation::Horizontal => Layout::row(leaves).column_spacing(spacing),
-            Orientation::Vertical => Layout::column(leaves).row_spacing(spacing),
-        };
-        if let Some(sizes) = main_sizes {
-            band = match orientation {
-                Orientation::Horizontal => band.columns(sizes.iter().copied()),
-                Orientation::Vertical => band.rows(sizes.iter().copied()),
-            };
-        }
-        let solved = band
-            .solve(&SolveOptions::default())
-            .expect("a band of leaves always solves");
-
-        let root = solved.at_path(&[]).expect("root region exists");
-        let RegionDetail::Grid { tracks } = &root.detail else {
-            unreachable!("a band root is a grid");
-        };
-        let (main_starts, main_sizes, cross_extent, main_extent) = match orientation {
-            Orientation::Horizontal => (
-                &tracks.column_starts,
-                &tracks.column_sizes,
-                tracks.row_sizes[0],
-                root.content.width,
-            ),
-            Orientation::Vertical => (
-                &tracks.row_starts,
-                &tracks.row_sizes,
-                tracks.column_sizes[0],
-                root.content.height,
-            ),
-        };
-
-        let placed_items = items
-            .iter()
-            .enumerate()
-            .map(|(slot_index, child)| {
-                let child_cross_size = child.cross_size.max(0.0);
-                PlacedBandItem::with_cross_axis(
-                    child.id.clone(),
-                    main_starts[slot_index],
-                    main_sizes[slot_index],
-                    cross_align.offset(cross_extent, child_cross_size),
-                    child_cross_size,
-                )
-            })
-            .collect();
-
-        let boundaries = items
-            .iter()
-            .enumerate()
-            .map(|(slot_index, child)| {
-                let granted = &solved
-                    .at_path(&[slot_index])
-                    .expect("band child region exists")
-                    .granted;
-                let (before, after) = match orientation {
-                    Orientation::Horizontal => (granted.left.total, granted.right.total),
-                    Orientation::Vertical => (granted.top.total, granted.bottom.total),
-                };
-                BandBoundary {
-                    requested: child.boundary,
-                    target: BoundaryDemand { before, after },
-                }
-            })
-            .collect();
-
-        Self {
-            orientation,
-            items: placed_items,
-            boundaries,
-            main_extent,
-            cross_extent: Some(cross_extent),
-        }
-    }
-
     /// Convert main/cross-axis child placement into render-space origins
     /// relative to the parent content rectangle.
     pub fn to_placement_solution(
@@ -256,101 +131,5 @@ impl<Id: Clone> BandSolution<Id> {
         };
 
         PlacementSolution::new(content_size, placements)
-    }
-}
-
-impl CrossAlign {
-    fn offset(self, available: f32, child: f32) -> f32 {
-        let extra = (available - child).max(0.0);
-        match self {
-            Self::Start => 0.0,
-            Self::Center => extra / 2.0,
-            Self::End => extra,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn input(id: usize, main_size: f32, cross_size: f32, before: f32, after: f32) -> BandItem {
-        BandItem {
-            id,
-            main_size,
-            cross_size,
-            boundary: BoundaryDemand { before, after },
-        }
-    }
-
-    /// Placed floats and boundary targets are contractual: byte-stable
-    /// consumers compare them by equality, so the expected values are
-    /// pinned literals.
-    #[test]
-    fn horizontal_fixed_size_children_compute_expected_starts() {
-        let placement = BandSolution::solve(
-            Orientation::Horizontal,
-            &[
-                input(0, 30.0, 80.0, 0.0, 0.0),
-                input(1, 40.0, 90.0, 0.0, 0.0),
-            ],
-            Spacing {
-                outer_start: 5.0,
-                outer_end: 7.0,
-                min_gap: 10.0,
-            },
-            CrossAlign::default(),
-            None,
-        );
-
-        assert_eq!(placement.items[0].main_start, 5.0);
-        assert_eq!(placement.items[1].main_start, 45.0);
-        assert_eq!(placement.main_extent, 92.0);
-        assert_eq!(placement.cross_extent, Some(90.0));
-    }
-
-    #[test]
-    fn boundary_demand_wins_when_larger_than_minimum_gap() {
-        let placement = BandSolution::solve(
-            Orientation::Horizontal,
-            &[
-                input(0, 20.0, 10.0, 0.0, 8.0),
-                input(1, 20.0, 10.0, 7.0, 0.0),
-            ],
-            Spacing {
-                min_gap: 4.0,
-                ..Default::default()
-            },
-            CrossAlign::default(),
-            None,
-        );
-
-        assert_eq!(placement.items[1].main_start, 35.0);
-        assert_eq!(placement.main_extent, 55.0);
-    }
-
-    #[test]
-    fn cross_alignment_offsets_smaller_children() {
-        let placement = BandSolution::solve(
-            Orientation::Horizontal,
-            &[
-                input(0, 30.0, 40.0, 0.0, 0.0),
-                input(1, 30.0, 80.0, 0.0, 0.0),
-            ],
-            Spacing {
-                min_gap: 5.0,
-                ..Default::default()
-            },
-            CrossAlign::Center,
-            None,
-        );
-
-        assert_eq!(placement.cross_extent, Some(80.0));
-        assert_eq!(placement.items[0].cross_start, 20.0);
-        assert_eq!(placement.items[1].cross_start, 0.0);
-
-        let result = placement.to_placement_solution([0.0, 10.0], Size::new(1.0, 2.0));
-        assert_eq!(result.child(0).unwrap().origin, [0.0, 30.0]);
-        assert_eq!(result.child(1).unwrap().origin, [35.0, 10.0]);
     }
 }

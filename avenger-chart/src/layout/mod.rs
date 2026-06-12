@@ -30,9 +30,7 @@ pub use avenger_chart_core::{
 pub(crate) use avenger_layout::{
     EdgeDemand, EdgeGrant, Edges, GridShape, GridSlot, Size, Spacing as TrackSpacing,
 };
-pub(crate) use band::{
-    BandItem, BandSolution, BoundaryDemand, CrossAlign, Orientation, PlacedBandItem,
-};
+pub(crate) use band::{BandSolution, BoundaryDemand, Orientation, PlacedBandItem};
 pub(crate) use placement::EdgeTargets;
 pub(crate) use uniform::UniformTracks;
 

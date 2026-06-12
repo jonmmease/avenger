@@ -19,9 +19,8 @@ use crate::{
         padding_policy,
     },
     layout::{
-        BandItem, BandPosition, BandPositionIterator, BandSolution, BoundaryDemand,
-        ChartRegionMeta, CrossAlign, Orientation, PlacedBandItem, PlacementSolution, Size,
-        TrackSpacing, UniformTracks,
+        BandPosition, BandPositionIterator, BandSolution, BoundaryDemand, ChartRegionMeta,
+        Orientation, PlacedBandItem, PlacementSolution, Size, TrackSpacing, UniformTracks,
     },
     plot::compiled::ComponentsMeasurement,
     scales::ConfiguredScaleWithSpec,
@@ -405,33 +404,31 @@ pub(crate) fn compute_explicit_facet_band_placement(
 
     let inputs = cells
         .iter()
-        .enumerate()
-        .map(|(child_index, cell)| {
+        .map(|cell| {
             let boundary = rendered_boundary_demand_for_measurement(axis, &cell.measurement);
-            BandItem {
-                id: child_index,
-                main_size: cell_main_plot_size(axis, &cell.measurement),
-                cross_size: cell_cross_plot_size(axis, &cell.measurement),
-                boundary: BoundaryDemand {
+            (
+                cell_main_plot_size(axis, &cell.measurement),
+                cell_cross_plot_size(axis, &cell.measurement),
+                BoundaryDemand {
                     before: boundary.before,
                     after: boundary.after,
                 },
-            }
+            )
         })
         .collect::<Vec<_>>();
 
-    // Trace-only: mirrors the gap rule BandSolution::solve applies from
-    // TrackSpacing { min_gap } and the raw boundaries below. Nothing
-    // computed here feeds the solve.
-    for window in inputs.windows(2) {
-        let current = &window[0];
-        let next = &window[1];
-        let after_current = current.boundary.after.max(0.0);
-        let before_next = next.boundary.before.max(0.0);
+    // Trace-only: mirrors the solver's gap rule
+    // `max(min_gap, after + before)` over the raw boundaries below.
+    // Nothing computed here feeds the solve.
+    for (cell_index, window) in inputs.windows(2).enumerate() {
+        let (_, _, current) = &window[0];
+        let (_, _, next) = &window[1];
+        let after_current = current.after.max(0.0);
+        let before_next = next.before.max(0.0);
         let gap_size = gap.max(after_current + before_next);
         trace!(
             axis = ?axis,
-            cell_index = current.id,
+            cell_index,
             base_gap = gap,
             after_current,
             before_next,
@@ -440,56 +437,95 @@ pub(crate) fn compute_explicit_facet_band_placement(
         );
     }
 
+    // Ghost slots pad the solve to the coordinated slot count at the
+    // largest real cell size, with no boundary demands.
     let slot_count = layout.n.max(inputs.len());
-    let band_inputs = if slot_count > inputs.len() {
-        let fallback_main_size = inputs
+    let mut band_inputs = inputs;
+    if slot_count > band_inputs.len() {
+        let fallback_main_size = band_inputs
             .iter()
-            .map(|input| input.main_size)
+            .map(|(main, _, _)| *main)
             .fold(0.0f32, f32::max);
-        let fallback_cross_size = inputs
+        let fallback_cross_size = band_inputs
             .iter()
-            .map(|input| input.cross_size)
+            .map(|(_, cross, _)| *cross)
             .fold(0.0f32, f32::max);
-        let mut band_inputs = inputs.clone();
-        for child_index in inputs.len()..slot_count {
-            band_inputs.push(BandItem {
-                id: child_index,
-                main_size: fallback_main_size,
-                cross_size: fallback_cross_size,
-                boundary: BoundaryDemand::default(),
-            });
+        for _ in band_inputs.len()..slot_count {
+            band_inputs.push((
+                fallback_main_size,
+                fallback_cross_size,
+                BoundaryDemand::default(),
+            ));
         }
-        band_inputs
+    }
+
+    // One track per slot: leaves at cell sizes, sibling boundaries as
+    // unlayered edge demands, the coordinated spacing as the track policy.
+    let vertical = matches!(axis, FacetAxis::Row);
+    let (before_side, after_side) = if vertical {
+        (avenger_layout::Side::Top, avenger_layout::Side::Bottom)
     } else {
-        inputs.clone()
+        (avenger_layout::Side::Left, avenger_layout::Side::Right)
+    };
+    let leaves = band_inputs.iter().map(|(main, cross, boundary)| {
+        let size = if vertical {
+            Size::new(*cross, *main)
+        } else {
+            Size::new(*main, *cross)
+        };
+        avenger_layout::Layout::<usize>::leaf(size)
+            .demand(
+                before_side,
+                avenger_layout::EdgeDemand::Unlayered(boundary.before),
+            )
+            .demand(
+                after_side,
+                avenger_layout::EdgeDemand::Unlayered(boundary.after),
+            )
+    });
+    let spacing = TrackSpacing {
+        outer_start: layout.outer_start,
+        outer_end: layout.outer_end,
+        min_gap: gap,
+    };
+    let stack = if vertical {
+        avenger_layout::Layout::column(leaves).row_spacing(spacing)
+    } else {
+        avenger_layout::Layout::row(leaves).column_spacing(spacing)
+    };
+    let solved = stack
+        .solve(&avenger_layout::SolveOptions::default())
+        .expect("a band of leaves always solves");
+    let root = solved.at_path(&[]).expect("root region exists");
+    let avenger_layout::RegionDetail::Grid { tracks } = &root.detail else {
+        unreachable!("a band root is a grid");
+    };
+    let (main_starts, main_sizes, cross_extent, main_extent) = if vertical {
+        (
+            &tracks.row_starts,
+            &tracks.row_sizes,
+            tracks.column_sizes[0],
+            root.content.height,
+        )
+    } else {
+        (
+            &tracks.column_starts,
+            &tracks.column_sizes,
+            tracks.row_sizes[0],
+            root.content.width,
+        )
     };
 
-    let band = BandSolution::solve(
-        band_direction(axis),
-        &band_inputs,
-        TrackSpacing {
-            outer_start: layout.outer_start,
-            outer_end: layout.outer_end,
-            min_gap: gap,
-        },
-        CrossAlign::default(),
-        None,
-    );
-    // Ghost slots pad the solve to the coordinated slot count; only the
-    // real cells become placements.
-    let placed_cells = band
-        .items
-        .iter()
-        .take(cells.len())
-        .map(FacetCellPlacement::from_placed_child)
+    // Only the real cells become placements; ghost tracks reserve space.
+    let placed_cells = (0..cells.len())
+        .map(|cell_index| FacetCellPlacement {
+            cell_index,
+            main_start: main_starts[cell_index],
+            main_size: main_sizes[cell_index],
+        })
         .collect();
 
-    FacetBandPlacement::new(
-        axis,
-        placed_cells,
-        band.main_extent,
-        Some(band.cross_extent.unwrap_or(0.0)),
-    )
+    FacetBandPlacement::new(axis, placed_cells, main_extent, Some(cross_extent))
 }
 
 #[cfg(test)]

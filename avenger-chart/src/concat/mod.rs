@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     container::{
-        BandItem, BandSolution, BoundaryDemand, ChildFrameKey, ChildFrameScopeKey,
-        ChildFrameSharingLevel, ContainerPathSegment, CrossAlign, PlacedRegion, PlacementSolution,
+        BandSolution, BoundaryDemand, ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel,
+        ContainerPathSegment, PlacedRegion, PlacementSolution,
     },
     coords::{
         CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
@@ -1163,7 +1163,12 @@ fn boundary_demand_for_child(
     }
 }
 
-fn band_input_for_child(direction: Orientation, child: &ConcatChildMeasurement) -> BandItem {
+/// (child id, main size, cross size, sibling boundary) for one concat
+/// child on the band axis.
+fn band_input_for_child(
+    direction: Orientation,
+    child: &ConcatChildMeasurement,
+) -> (usize, f32, f32, BoundaryDemand) {
     let main_size = match direction {
         Orientation::Horizontal => child.measurement.plot_area_width,
         Orientation::Vertical => child.measurement.plot_area_height,
@@ -1172,13 +1177,12 @@ fn band_input_for_child(direction: Orientation, child: &ConcatChildMeasurement) 
         Orientation::Horizontal => child.measurement.plot_area_height,
         Orientation::Vertical => child.measurement.plot_area_width,
     };
-
-    BandItem {
-        id: child.child_index,
+    (
+        child.child_index,
         main_size,
         cross_size,
-        boundary: boundary_demand_for_child(direction, &child.measurement),
-    }
+        boundary_demand_for_child(direction, &child.measurement),
+    )
 }
 
 struct PreparedConcatChild<'a> {
@@ -1549,21 +1553,92 @@ pub(crate) async fn measure_concat_coord_system(
         );
     }
 
+    // One track per child: leaves at plot-area sizes, sibling boundaries
+    // as unlayered edge demands, declared track sizes when given.
     let inputs = children
         .iter()
         .map(|child| band_input_for_child(direction, child))
         .collect::<Vec<_>>();
     let layout_sizes = layout_track_sizes(main_sizes);
-    let child_band_layout = BandSolution::solve(
-        direction,
-        &inputs,
-        TrackSpacing {
-            min_gap: spacing,
-            ..Default::default()
-        },
-        CrossAlign::default(),
-        layout_sizes.as_deref(),
-    );
+    let vertical = matches!(direction, Orientation::Vertical);
+    let (before_side, after_side) = if vertical {
+        (avenger_layout::Side::Top, avenger_layout::Side::Bottom)
+    } else {
+        (avenger_layout::Side::Left, avenger_layout::Side::Right)
+    };
+    let leaves = inputs.iter().map(|(_, main, cross, boundary)| {
+        let size = if vertical {
+            Size::new(*cross, *main)
+        } else {
+            Size::new(*main, *cross)
+        };
+        avenger_layout::Layout::<usize>::leaf(size)
+            .demand(
+                before_side,
+                avenger_layout::EdgeDemand::Unlayered(boundary.before),
+            )
+            .demand(
+                after_side,
+                avenger_layout::EdgeDemand::Unlayered(boundary.after),
+            )
+    });
+    let band_spacing = TrackSpacing {
+        min_gap: spacing,
+        ..Default::default()
+    };
+    let mut stack = if vertical {
+        avenger_layout::Layout::column(leaves).row_spacing(band_spacing)
+    } else {
+        avenger_layout::Layout::row(leaves).column_spacing(band_spacing)
+    };
+    if let Some(sizes) = layout_sizes.as_deref() {
+        stack = if vertical {
+            stack.rows(sizes.iter().copied())
+        } else {
+            stack.columns(sizes.iter().copied())
+        };
+    }
+    let solved = stack
+        .solve(&avenger_layout::SolveOptions::default())
+        .expect("a band of leaves always solves");
+    let root = solved.at_path(&[]).expect("root region exists");
+    let avenger_layout::RegionDetail::Grid { tracks } = &root.detail else {
+        unreachable!("a band root is a grid");
+    };
+    let (main_starts, main_track_sizes, cross_extent, main_extent) = if vertical {
+        (
+            &tracks.row_starts,
+            &tracks.row_sizes,
+            tracks.column_sizes[0],
+            root.content.height,
+        )
+    } else {
+        (
+            &tracks.column_starts,
+            &tracks.column_sizes,
+            tracks.row_sizes[0],
+            root.content.width,
+        )
+    };
+    let child_band_layout = BandSolution {
+        orientation: direction,
+        items: inputs
+            .iter()
+            .enumerate()
+            .map(|(slot_index, (id, _, cross, _))| {
+                PlacedBandItem::with_cross_axis(
+                    *id,
+                    main_starts[slot_index],
+                    main_track_sizes[slot_index],
+                    0.0,
+                    cross.max(0.0),
+                )
+            })
+            .collect(),
+        boundaries: Vec::new(),
+        main_extent,
+        cross_extent: Some(cross_extent),
+    };
 
     let (column_sizes, row_sizes) = match direction {
         Orientation::Horizontal => (layout_sizes, None),
