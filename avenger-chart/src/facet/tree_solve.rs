@@ -58,14 +58,17 @@ use crate::render::context::FacetRuntimeSizingMode;
 
 /// Solved channel values for one coordination round: the group-merged
 /// layout per share key and per node, plus each node's own and
-/// group-equalized overflow envelopes. Produced by [`tree_solved_round`]
-/// (and hand-built by test fixture folds).
+/// group-equalized overflow envelopes, plus each band's solved cell slot
+/// geometry. Produced by [`tree_solved_round`] (and hand-built by test
+/// fixture folds, which leave the geometry empty).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SolvedRound {
     pub(crate) merged_by_key: HashMap<CoordinationScopeKey, CoordinatedLayout>,
     pub(crate) merged_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
     pub(crate) own_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+    /// Per-band solved cell slot extents (real cells only, band order).
+    pub(crate) cell_slots_by_node: HashMap<CoordinationNodeKey, Vec<Size>>,
 }
 
 /// Whether the shadow census is enabled for this process.
@@ -73,6 +76,15 @@ pub(crate) fn shadow_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED
         .get_or_init(|| std::env::var("AVENGER_SHADOW_TREE_SOLVE").is_ok_and(|value| value == "1"))
+}
+
+/// Whether the decision-time slot-target probe is enabled: the
+/// retarget/final-propagation walks log policy-target-vs-solved-slot
+/// deltas (diagnostics only; values unchanged).
+pub(crate) fn slot_target_probe_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED
+        .get_or_init(|| std::env::var("AVENGER_SLOT_TARGET_PROBE").is_ok_and(|value| value == "1"))
 }
 
 /// One lowered facet band's bookkeeping (walk order).
@@ -555,6 +567,7 @@ pub(crate) fn tree_solved_round(
 
     let mut own_overflow_by_node = HashMap::new();
     let mut merged_by_key = HashMap::new();
+    let mut cell_slots_by_node = HashMap::new();
     for band in &lowered.bands {
         if let Some(layout) = channels.layout_by_node.get(&band.node_id) {
             merged_by_key.insert(
@@ -562,6 +575,9 @@ pub(crate) fn tree_solved_round(
                     .with_kind(crate::plot::compiled::CoordinationKind::ChildSize),
                 layout.clone(),
             );
+        }
+        if let Some(slots) = band_cell_slots(&solved, band) {
+            cell_slots_by_node.insert(band.node_id.clone(), slots);
         }
         if !band.has_overflow_cells {
             continue;
@@ -593,7 +609,26 @@ pub(crate) fn tree_solved_round(
         merged_by_node: channels.layout_by_node,
         own_overflow_by_node,
         overflow_by_node: channels.overflow_by_node,
+        cell_slots_by_node,
     })
+}
+
+/// One band's solved cell slot extents (real cells only): the allotment
+/// geometry at the band grid's child paths. The same lookup for leaf and
+/// nested (wrapper) cells — a wrapper's slot IS the cell slot.
+fn band_cell_slots(
+    solution: &LayoutSolution<CoordinationNodeKey>,
+    band: &LoweredBand,
+) -> Option<Vec<Size>> {
+    let band_region = solution.region(&band.node_id)?;
+    let mut slots = Vec::with_capacity(band.cell_count);
+    for idx in 0..band.cell_count {
+        let mut child_path = band_region.path.clone();
+        child_path.push(idx);
+        let cell_region = solution.at_path(&child_path)?;
+        slots.push(Size::new(cell_region.slot.width, cell_region.slot.height));
+    }
+    Some(slots)
 }
 
 const SHADOW_EPS: f32 = 0.01;

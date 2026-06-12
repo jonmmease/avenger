@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 
 use avenger_chart_core::{CoordinatedLayout, CoordinatedOverflow};
+use avenger_layout::Size;
 
 use crate::facet::coordination_plans::CoordinationNodeKey;
 
@@ -27,6 +28,12 @@ pub(crate) struct CoordinationSolution {
     pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) guide_anchor_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) boundary_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+    /// Each band's solved cell slot extents (real cells only, band order;
+    /// ghost slots excluded), from the round's tree solve. A cell's slot is
+    /// the allotment geometry its retarget/final-propagation targets
+    /// correspond to: the band-axis component is the cell's solved track
+    /// size, the cross component the band's cross-track extent.
+    pub(crate) cell_slots_by_node: HashMap<CoordinationNodeKey, Vec<Size>>,
 }
 
 impl CoordinationSolution {
@@ -50,5 +57,9 @@ impl CoordinationSolution {
         node: &CoordinationNodeKey,
     ) -> Option<&CoordinatedOverflow> {
         self.boundary_overflow_by_node.get(node)
+    }
+
+    pub(crate) fn cell_slots(&self, node: &CoordinationNodeKey) -> Option<&[Size]> {
+        self.cell_slots_by_node.get(node).map(Vec::as_slice)
     }
 }

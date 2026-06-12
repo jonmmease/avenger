@@ -118,7 +118,7 @@ impl FacetCoordinationPolicy {
     }
 
     pub(crate) fn build_retarget_actions(
-        _facet_band: FacetBandRef<'_>,
+        facet_band: FacetBandRef<'_>,
         requirements: &RetargetNodeRequirements,
         eval_ctx: &EvaluationContext,
     ) -> RetargetNodeActions {
@@ -141,10 +141,44 @@ impl FacetCoordinationPolicy {
             .facet_band_dimension(requirements.axis)
             .is_canvas_constrained();
         let legend_slab_total = requirements.legend_main_axis_slab.total();
+        // Decision-time slot-target probe (site b): the bandwidth-derived
+        // cross-size target vs each real cell's band-axis solved track
+        // size, tagged with whether the band action applies it.
+        // Diagnostics only.
+        if crate::facet::tree_solve::slot_target_probe_enabled()
+            && requirements.layout_changed
+            && let Some(slots) = facet_band.base().solution_cell_slots()
+        {
+            for (cell_index, slot) in slots.iter().enumerate() {
+                let slot_main = match requirements.axis {
+                    FacetAxis::Column => slot.width,
+                    FacetAxis::Row => slot.height,
+                };
+                let is_nested = facet_band.base().cells.get(cell_index).is_some_and(|cell| {
+                    crate::facet::coord::facet_band_ref(cell.measurement.coord_measurement.as_ref())
+                        .is_some()
+                });
+                tracing::info!(
+                    target: "avenger_chart::facet::slot_probe",
+                    site = "cross_size",
+                    node = ?requirements.node_id.path,
+                    axis = ?requirements.axis,
+                    explicit = facet_band.base().uses_explicit_placement(),
+                    nested = is_nested,
+                    applied = matches!(band_action, BandRetargetAction::ApplyCoordinatedLayout),
+                    cell = cell_index,
+                    policy = requirements.target_subplot_cross_size,
+                    slot = slot_main,
+                    delta = (requirements.target_subplot_cross_size - slot_main).abs(),
+                    "slot-target probe"
+                );
+            }
+        }
         let child_actions = requirements
             .child_plot_areas
             .iter()
-            .map(|plot_area| {
+            .enumerate()
+            .map(|(cell_index, plot_area)| {
                 let plot_area_target = facet_child_plot_area_target(
                     requirements.axis,
                     *plot_area,
@@ -153,6 +187,46 @@ impl FacetCoordinationPolicy {
                     shrink_for_legend,
                     legend_slab_total,
                 );
+                // Decision-time slot-target probe (site a): the emitted
+                // policy target vs the cell's solved slot extent.
+                // Diagnostics only.
+                if crate::facet::tree_solve::slot_target_probe_enabled()
+                    && let Some(target) = &plot_area_target
+                    && let Some(slot) = facet_band
+                        .base()
+                        .solution_cell_slots()
+                        .and_then(|slots| slots.get(cell_index))
+                {
+                    let is_nested = facet_band.base().cells.get(cell_index).is_some_and(|cell| {
+                        crate::facet::coord::facet_band_ref(
+                            cell.measurement.coord_measurement.as_ref(),
+                        )
+                        .is_some()
+                    });
+                    for (dimension, policy_value, slot_value) in [
+                        ("width", target.width, slot.width),
+                        ("height", target.height, slot.height),
+                    ] {
+                        if let Some(policy_value) = policy_value {
+                            tracing::info!(
+                                target: "avenger_chart::facet::slot_probe",
+                                site = "retarget_cell",
+                                node = ?requirements.node_id.path,
+                                axis = ?requirements.axis,
+                                explicit = facet_band.base().uses_explicit_placement(),
+                                nested = is_nested,
+                                band_dimension_canvas,
+                                shrink_for_legend,
+                                cell = cell_index,
+                                dimension,
+                                policy = policy_value,
+                                slot = slot_value,
+                                delta = (policy_value - slot_value).abs(),
+                                "slot-target probe"
+                            );
+                        }
+                    }
+                }
                 match plot_area_target {
                     None => CellRetargetAction::preserve(),
                     Some(target) => CellRetargetAction::retarget_plot_area(target),

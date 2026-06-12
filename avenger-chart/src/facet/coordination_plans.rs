@@ -651,6 +651,8 @@ pub(crate) fn test_solved_round(
         merged_by_node,
         own_overflow_by_node,
         overflow_by_node,
+        // Fixture folds carry no solve geometry.
+        cell_slots_by_node: HashMap::new(),
     }
 }
 
@@ -724,7 +726,7 @@ pub(crate) fn build_requirement_pass_with_round(
         layout_groups: solved.merged_by_key.len(),
     };
 
-    let solution = build_round_solution(
+    let mut solution = build_round_solution(
         nodes,
         &scopes,
         &grouped,
@@ -734,6 +736,7 @@ pub(crate) fn build_requirement_pass_with_round(
         &solved.merged_by_key,
     );
     validate_round_solution_coverage(nodes, &solution)?;
+    solution.cell_slots_by_node = solved.cell_slots_by_node;
 
     Ok(RequirementPass {
         snapshot,
