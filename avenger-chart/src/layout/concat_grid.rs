@@ -274,6 +274,14 @@ pub(crate) fn solve_concat_grid(
 /// every local fold by construction), then each member re-solves at the
 /// merged floors with its own span constraints. Returns one solved view per
 /// member, in input order.
+///
+/// Encoding note: the members ride a synthetic `Layout::row` purely as a
+/// shared solve context — the row's own geometry is never read, only each
+/// member's region (extracted by index). This is the one remaining
+/// synthetic-container cohort in the workspace; a dedicated
+/// `solve_cohort` API in avenger-layout was considered (solver
+/// unification P9) and declined while this is its only caller — the row
+/// wrapper is fifteen lines against a second public solving entry point.
 pub(crate) fn solve_concat_grid_group(
     members: &[GridMemberSpec],
 ) -> Result<Vec<SolvedConcatGrid>, String> {
