@@ -29,7 +29,7 @@ For the overall architecture, see `avenger-chart/docs/architecture/facet-system.
 |----------|-------|
 | **Invariant** | Bands sharing the same coordination scope (`CoordinationScopeKey::container_group(kind, depth, "{axis}:{field_identity}")`) must end coordination with identical `subplot_cross_size`, identical `padding_inner_px`, and consistent edge overflow. |
 | **Consequence if Violated** | Misaligned grids — adjacent facets at the same depth will visibly drift apart. |
-| **Current Enforcement** | The round solve (`facet/round_tree.rs::solve_round`) shares cousins on their scope key so the solver equalizes spacing and overflow grants; `build_round_solution` assembles the round's `CoordinationSolution` and every band reads the merged values as views into the installed handle. |
+| **Current Enforcement** | The real-tree solve (`facet/tree_solve.rs::tree_solved_round`) lowers the live measurement tree with cousins sharing their scope key, so the solver equalizes spacing and overflow asks (`Region.coordinated`); `build_round_solution` assembles the pass's `CoordinationSolution` and every band reads the merged values as views into the installed handle. |
 | **Location** | `avenger-chart/src/plot/compiled/coordination_scope.rs` (key), `coord.rs` `coordination_scope_key_for_depth` (key construction) |
 
 ### 4. Visibility Logic Must Match in Measure and Render

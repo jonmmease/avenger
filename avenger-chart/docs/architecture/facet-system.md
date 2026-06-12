@@ -12,7 +12,7 @@ flowchart TD
     Tree["EvaluatedFacetTree\nPartitionNode hierarchy"]
     Band["FacetBandMeasurePipeline\nper-band measurement"]
     Domains["scale_precompute and domain_coordination"]
-    Coordination["coordinate_facet_measurement_tree\nround loop: requirements + retarget, then final propagation"]
+    Coordination["coordinate_facet_measurement_tree\none round: tree solve + install, then retarget + final propagation"]
     Placement["FacetBandPlacement\nfacet_child_frame_placement_from_band"]
     Render["render_facet_band_common\nchild plot groups"]
 
@@ -84,48 +84,57 @@ compiled child plot.
 
 ## Coordination And Placement
 
-`coordinate_facet_measurement_tree` runs the cross-band coordination loop.
-The driver is in `facet/coordination.rs`, immutable plans live in
-`facet/coordination_plans.rs`, bounded mutation walkers live in
-`facet/coordination_apply.rs`, the share-keyed round solve lives in
-`facet/round_tree.rs`, and sizing decisions live in
-`FacetCoordinationPolicy`.
+`coordinate_facet_measurement_tree` runs the cross-band coordination
+pass. The driver is in `facet/coordination.rs`, the real-tree lowering
+and channel extraction live in `facet/tree_solve.rs`, pass construction
+and the chart-side folds live in `facet/coordination_plans.rs`, the
+decide-then-apply walkers live in `facet/coordination_apply.rs`, and
+sizing decisions live in `FacetCoordinationPolicy`.
 
-The driver (`run_facet_coordination_rounds`) loops over coordination
-rounds. Each round:
+The driver is linear — ONE round (the round-identity law: requirement
+snapshots read only epoch-frozen and construction values, so a second
+collect-and-install was always a byte-identical no-op):
 
-- collects a requirement snapshot from every facet band
+- collect a requirement snapshot from every facet band
   (`collect_requirement_snapshot`),
-- solves the round on share keys (`round_tree::solve_round`): every node
-  lowers to a uniform placeholder grid carrying its local spacing and its
-  measured whole-band overflow as edge demands; cousins — nodes with the
-  same coordination scope — share one `avenger_layout` key, so a single
-  solve merges both the layout channel (spacing via the solver's share
-  coordination; slot counts and the `guide_slot_gap_px` side-car fold
-  chart-side) and the full-overflow channel (each member's granted edges
-  are its group-equalized envelope). Guide-anchor and boundary overflow
-  remain chart-side folds over their own scopes
-  (`fold_overflow_entries`): lanes split groups, and boundary strips
-  global edges per node,
-- constructs the round's `CoordinationSolution`
-  (`build_requirement_pass`): the per-node channel values with the
-  write-back adjustments applied (free slot sharing keeps local counts,
-  lane gap folds, global-edge outer reversion, in
+- solve the REAL facet tree (`tree_solve::tree_solved_round`): the live
+  measurement tree lowers into one `avenger_layout::Layout` — leaf
+  cells at their plot sizes carrying epoch overflow envelopes as
+  layered edge demands, nested-band cells behind the two-wrapper
+  boundary (a contained wrapper isolates the child's structural lift; a
+  full-epoch chrome wrapper presents the parent level's guide/legend
+  classification — a band's channel values are its OWN epoch cell
+  folds, including that classification), cousins sharing
+  `avenger_layout` keys, ghost slots padded to the coordinated slot
+  count. One solve yields the layout channel (solved track spacing;
+  slot counts and `guide_slot_gap_px` fold chart-side) and the
+  full-overflow channel (each node's `Region.coordinated` edges — its
+  own post-share ask). Guide-anchor and boundary overflow remain
+  chart-side folds over their own scopes (`fold_overflow_entries`):
+  lanes split groups, and boundary strips global edges per node,
+- construct the pass's `CoordinationSolution`
+  (`build_requirement_pass_with_round`): the per-node channel values
+  with the write-back adjustments applied (free slot sharing keeps
+  local counts, lane gap folds, global-edge outer reversion, in
   `build_round_solution`), coverage-validated at construction,
-- installs the solution (`apply_requirement_pass`): per band, reset
-  realized legend-slab ownership, install the round's `Arc` handle, and
-  refresh placement. Bands read coordinated values as views into the
-  installed solution (`active_layout()` / `active_overflow()` / the
-  `*_value()` accessors), falling back to local values pre-coordination,
-- retargets frames at the written-back targets between rounds
-  (`build_retarget_plan` + `run_retarget_with_trace`; plans derive from
-  pre-execution state for all nodes, then execute top-down).
+- install the solution (`apply_requirement_pass`): per band, reset
+  realized legend-slab ownership and install the pass's `Arc` handle.
+  Bands read coordinated values as views into the installed solution
+  (`active_layout()` / `active_overflow()` / the `*_value()`
+  accessors), falling back to local values pre-coordination,
+- retarget frames at the written-back targets (`run_retarget`): derive
+  every node's decisions from pre-retarget state in one read-only pass,
+  then apply parent-first, propagating parent cross sizes to children
+  between apply and recurse. Coverage and trace alignment are by
+  construction (decide and apply share one traversal),
+- final propagation (`run_final_propagation`): the same
+  decide-then-apply shape pushes coordinated plot areas and band scale
+  ranges to descendants (uniform child targets derive from a band
+  solve).
 
-`COORDINATION_ROUNDS = 2` reproduces the historical
-Initial -> Retarget -> Retargeted reconciliation cadence; the public
-`CoordinationCheckpoint` variants map onto round boundaries. After the
-rounds settle, final propagation pushes coordinated plot areas and scale
-ranges to descendants.
+The public `CoordinationCheckpoint` variants map onto these stages
+(`RetargetedRequirementsApplied` is post-retarget; the historical second
+round it named carried no information).
 
 Rendering resolves `FacetBandPlacement` through `facet/placement.rs`, converts
 that placement to child-frame render placements, and calls
@@ -156,7 +165,7 @@ apply guard required explicit placement, which exists only under a
 leaf-plot-sized facet root — and a root cannot also be a concat child,
 so no multi-member alignment group could ever reach a band the guard
 admitted (in-chart facet cousins are already equalized by the
-coordination rounds before alignment runs). The
+coordination pass before alignment runs). The
 `concat_grid_facet_track_alignment` visual baseline pins the closest
 reachable boundary rendering. `coordinate_facet_measurement_tree`
 remains the authoritative facet retarget/final-propagation path; concat
