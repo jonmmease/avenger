@@ -718,6 +718,14 @@ fn min_slack_asymmetric_share() {
 ///   (amber, visible through the hatched grant) for the caller to fill,
 ///   where the demands only clear room for material the caller already
 ///   placed.
+///
+/// The flow-mode panels place band and unlayered identically — under
+/// `SolveFor::Envelope` both are exterior space, distinguished only by
+/// the returned slab. The fourth panel shows where their geometry
+/// genuinely diverges: under `SolveFor::Content` the band is part of the
+/// box (the contained leaf is 18 wider, slab inside), while the unlayered
+/// demand is overflow and is zeroed at the containment boundary — the 18
+/// vanishes from the solution entirely.
 #[test]
 fn edge_reservation_layered_vs_unlayered_vs_band() {
     let scene = |reserve: &dyn Fn(L) -> L| {
@@ -777,6 +785,32 @@ fn edge_reservation_layered_vs_unlayered_vs_band() {
     assert_eq!(slabs.len(), 1);
     assert_eq!(slabs[0].rect.width, 18.0);
 
+    // Containment: two `SolveFor::Content` leaves side by side. The band
+    // folds INTO the box (18 wider, slab inside); the unlayered demand is
+    // overflow, zeroed at the containment boundary — no reservation
+    // anywhere.
+    let containment = Layout::<&'static str, &'static str>::row(vec![
+        Layout::leaf(Size::new(110.0, 56.0))
+            .demand(Side::Right, EdgeDemand::Unlayered(18.0))
+            .sizing(SolveFor::Content)
+            .id("contained unlayered"),
+        Layout::leaf(Size::new(110.0, 56.0))
+            .band(Side::Right, 18.0)
+            .sizing(SolveFor::Content)
+            .id("contained band"),
+    ])
+    .min_gap(12.0)
+    .margin(8.0)
+    .solve(&natural())
+    .expect("solve");
+    let shed = containment.region(&"contained unlayered").unwrap();
+    let kept = containment.region(&"contained band").unwrap();
+    assert_eq!(shed.slot.width, 110.0, "the demand vanished");
+    assert_eq!(shed.requested.right.total, 0.0);
+    assert_eq!(kept.slot.width, 128.0, "the band is box structure");
+    assert_eq!(kept.slabs[0].rect.width, 18.0);
+    assert_eq!(kept.slot.x - (shed.slot.x + shed.slot.width), 12.0);
+
     assert_svg_baseline(
         "edge_reservation_layered_vs_unlayered_vs_band",
         &svg_panels(&[
@@ -788,7 +822,11 @@ fn edge_reservation_layered_vs_unlayered_vs_band() {
                 "unlayered 18: contained by the cousin's 22, gaps 22",
                 &unlayered,
             ),
-            ("band 18: contained extent + solver-positioned slab", &band),
+            ("band 18: same gaps, but a solver-positioned slab", &band),
+            (
+                "contained boxes: the unlayered 18 vanishes, the band 18 is box structure",
+                &containment,
+            ),
         ]),
     );
 }
