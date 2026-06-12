@@ -212,11 +212,11 @@ pub(crate) fn resolve_scale_backed_facet_band_placement(
             (end - start).abs()
         });
 
-    // Item 1 of the chart-layout consistency plan: positions come from the
-    // neutral uniform-tracks solve. Facet-written band scales are uniform by
-    // construction (range + band_n + padding_inner_px over default band
-    // options), so each scale-read band position is shadow-asserted against
-    // the solved arithmetic progression in debug builds.
+    // Positions come from the neutral uniform-tracks solve. Facet-written
+    // band scales are uniform by construction (range + band_n +
+    // padding_inner_px over default band options), so each scale-read band
+    // position is shadow-asserted against the solved arithmetic progression
+    // in debug builds.
     let track_size = bands.first().map(|band| band.bandwidth).unwrap_or(0.0);
     let outer_start = bands.first().map(BandPosition::start).unwrap_or(0.0);
     let min_gap = if bands.len() >= 2 {

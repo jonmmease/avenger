@@ -1101,9 +1101,9 @@ fn facet_measurement_overflow(
 mod tests {
     use super::*;
 
-    /// The aggregation IS the measured tree envelope (since Phase 9a), so
-    /// equality must hold even in the mixed-dominance case where the
-    /// layered law diverges.
+    /// The aggregation IS the measured tree envelope, so equality must
+    /// hold even in the mixed-dominance case where the layered law
+    /// diverges.
     #[test]
     fn aggregation_equals_measured_envelope_on_mixed_dominance() {
         // Cell 0 is all guide on top (total 10); cell 1 is all legend on

@@ -1,17 +1,18 @@
 //! Chart-owned requirement alignment: grouping, merging, and deltas for
 //! coordinating equivalent layout requirements measured independently.
 //!
-//! This is the chart coordination pipeline's grouping engine. Within
-//! avenger-layout the same semantics now live inside `Layout::solve`'s
-//! share-key coordination; the chart keeps this caller-side engine because
-//! its pipeline interleaves chart policy (padding floors, guide-gap
-//! side-cars, scale rebuilds) between merge rounds. Migrating the pipeline
-//! onto share-keyed `Layout` trees is the recorded follow-up in
-//! `scratch/avenger-layout-coordination-seam-plan.md` §(A).
+//! This engine plans the child-frame group solves and reports on them.
+//! `align_by` groups container requirements by alignment key (the merge
+//! closures carry chart payloads the solver does not model — the
+//! guide-gap side-car), the resulting plan selects which cousins enter
+//! one `solve_concat_grid_group`, and the local-vs-merged deltas feed the
+//! coordination diagnostics. The merged values applied to containers come
+//! from that group solve — `Layout::solve`'s share-key coordination —
+//! while this engine's fold serves planning and delta reporting.
+//! [`ConvergenceTrace`] records per-round deltas for the driver logs.
 //!
 //! A round is ONE pure pass: callers own identity, traversal, group keys,
-//! and application; [`ConvergenceTrace`] records per-round deltas for the
-//! re-measure loop drivers.
+//! and application.
 
 use std::collections::HashMap;
 use std::hash::Hash;

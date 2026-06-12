@@ -6907,7 +6907,7 @@ mod tests {
             replace_scoped_values: false,
         }]);
 
-        // Preview reuse exercises the per-cell override pass (C3).
+        // Preview reuse exercises the per-cell override pass.
         let (preview, metrics) = session
             .evaluate_with_metrics(EvaluationRequest::new().preview())
             .await?;
@@ -6924,7 +6924,7 @@ mod tests {
             "preview cell B (inferred)",
         );
 
-        // Exact re-eval exercises the fresh-measure per-cell injection (C2).
+        // Exact re-eval exercises the fresh-measure per-cell injection.
         let exact = session.evaluate(EvaluationRequest::new().exact()).await?;
         let exact_domains = cell_x_domains(&exact);
         assert_override(exact_domains["A"], (2.0, 8.0), "exact cell A (panned)");
@@ -7105,7 +7105,7 @@ mod tests {
             replace_scoped_values: false,
         }]);
 
-        // Assert via both the exact (fresh-measure, C2) and preview (reuse, C3)
+        // Assert via both the exact (fresh-measure) and preview (reuse)
         // paths that every Top-row cell moved and every Bottom-row cell did not.
         let assert_row_split = |evaluated: &EvaluatedPlot, label: &str| {
             for scope in &evaluated.interaction.scopes {

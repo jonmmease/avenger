@@ -3849,13 +3849,12 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             )
             .await?;
 
-        // Item 3 of the chart-layout consistency plan: the exported band
-        // envelope is the tree composition of the cell envelope plus the
-        // guide overlay's marginal chrome. Labels/titles stack on the inner
-        // (guide) layer, band-level legends on the outer layer; the
-        // composition law lives in avenger_layout::tree while the chrome
-        // measurement itself stays chart-side. Monotonicity (chrome only
-        // adds to the cell envelope) is asserted in debug builds.
+        // The exported band envelope is the tree composition of the cell
+        // envelope plus the guide overlay's marginal chrome. Labels/titles
+        // stack on the inner (guide) layer, band-level legends on the outer
+        // layer; the composition law lives in avenger_layout::tree while the
+        // chrome measurement itself stays chart-side. Monotonicity (chrome
+        // only adds to the cell envelope) is asserted in debug builds.
         let cell_envelope = probe_measurement.measured_overflow_value();
         let side = |req: &OverflowSpaceRequirement| [req.top, req.right, req.bottom, req.left];
         let stacked_inner_sides: Vec<f32> = side(&guide_overflow)

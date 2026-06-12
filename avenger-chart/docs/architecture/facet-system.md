@@ -133,7 +133,7 @@ collect-and-install was always a byte-identical no-op):
   solve).
 
 The retarget and final-propagation targets are the pipeline's
-state-TRANSITION law, not reads of solved geometry: the tree solve
+state-transition law, not reads of solved geometry: the tree solve
 lowers cells at their live pre-retarget sizes, so its slot geometry
 describes the current state, while the targets (the bandwidth at the
 coordinated layout; the legend shrink inside a fixed plot area) are the

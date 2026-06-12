@@ -761,7 +761,7 @@ mod tests {
             ));
             // The fixture's bands use the default FREE slot sharing, which
             // keeps slot counts local instead of adopting the group maximum:
-            // free nested facets must not reserve hidden slots (eb04e728).
+            // free nested facets must not reserve hidden slots.
             assert_eq!(coordinated.n, state.local_layout.n);
         }
 

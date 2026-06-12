@@ -6,13 +6,10 @@
 //! construction) plus the per-key aggregates and round deltas the driver
 //! logs. Bands hold an `Arc` handle to the round they last participated
 //! in and read their coordinated values as views into it, falling back to
-//! local values pre-coordination — replacing the four per-band mutable
-//! stores ("same stores, new producer" was the previous campaign's
-//! contract; this artifact dissolves the stores themselves).
+//! local values pre-coordination.
 //!
 //! A band rebuilt during retargeting briefly has no handle until the next
-//! round installs one; every read path keeps the local fallback, exactly
-//! as the stores' `Option` semantics worked.
+//! round installs one; every read path keeps the local fallback.
 
 use std::collections::HashMap;
 
