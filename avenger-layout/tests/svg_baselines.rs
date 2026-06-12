@@ -785,19 +785,32 @@ fn edge_reservation_layered_vs_unlayered_vs_band() {
     assert_eq!(slabs.len(), 1);
     assert_eq!(slabs[0].rect.width, 18.0);
 
-    // Containment: two `SolveFor::Content` leaves side by side. The band
-    // folds INTO the box (18 wider, slab inside); the unlayered demand is
-    // overflow, zeroed at the containment boundary — no reservation
-    // anywhere.
-    let containment = Layout::<&'static str, &'static str>::row(vec![
-        Layout::leaf(Size::new(110.0, 56.0))
-            .demand(Side::Right, EdgeDemand::Unlayered(18.0))
-            .sizing(SolveFor::Content)
-            .id("contained unlayered"),
-        Layout::leaf(Size::new(110.0, 56.0))
-            .band(Side::Right, 18.0)
-            .sizing(SolveFor::Content)
-            .id("contained band"),
+    // Containment: the same two reservations behind a `SolveFor::Content`
+    // boundary, one per row (the cousin pair can't show this — the
+    // reference chart's layered 22 would keep the merged gap reserved and
+    // mask the vanishing). The band folds INTO the box (18 wider, slab
+    // inside); the unlayered demand is overflow, zeroed at the boundary —
+    // no reservation anywhere.
+    // Each box sits in its own Start-distributed row: the column's shared
+    // track offers both rows the wider extent (a contained box ADOPTS its
+    // allocation as the box, so direct stretching would silently widen the
+    // shed one), and Start keeps each box honest — the slack shows as a
+    // dashed slot outline instead.
+    let contained_row =
+        |child: L| -> L { Layout::row(vec![child]).distribute_x(Distribute::Start) };
+    let containment = Layout::<&'static str, &'static str>::column(vec![
+        contained_row(
+            Layout::leaf(Size::new(110.0, 56.0))
+                .demand(Side::Right, EdgeDemand::Unlayered(18.0))
+                .sizing(SolveFor::Content)
+                .id("contained unlayered"),
+        ),
+        contained_row(
+            Layout::leaf(Size::new(110.0, 56.0))
+                .band(Side::Right, 18.0)
+                .sizing(SolveFor::Content)
+                .id("contained band"),
+        ),
     ])
     .min_gap(12.0)
     .margin(8.0)
@@ -809,7 +822,7 @@ fn edge_reservation_layered_vs_unlayered_vs_band() {
     assert_eq!(shed.requested.right.total, 0.0);
     assert_eq!(kept.slot.width, 128.0, "the band is box structure");
     assert_eq!(kept.slabs[0].rect.width, 18.0);
-    assert_eq!(kept.slot.x - (shed.slot.x + shed.slot.width), 12.0);
+    assert_eq!(kept.slot.y - (shed.slot.y + shed.slot.height), 12.0);
 
     assert_svg_baseline(
         "edge_reservation_layered_vs_unlayered_vs_band",
@@ -824,7 +837,7 @@ fn edge_reservation_layered_vs_unlayered_vs_band() {
             ),
             ("band 18: same gaps, but a solver-positioned slab", &band),
             (
-                "contained boxes: the unlayered 18 vanishes, the band 18 is box structure",
+                "containment, one box per row: unlayered 18 vanishes, band stays",
                 &containment,
             ),
         ]),
