@@ -520,15 +520,6 @@ impl FacetBandCoordMeasurement {
             .and_then(|(solution, node_id)| solution.boundary_overflow(node_id))
     }
 
-    /// This band's solved cell slot extents from the round's tree solve
-    /// (real cells only, band order). `None` before coordination or for a
-    /// band rebuilt without a handle.
-    pub(crate) fn solution_cell_slots(&self) -> Option<&[avenger_layout::Size]> {
-        self.coordination
-            .as_ref()
-            .and_then(|(solution, node_id)| solution.cell_slots(node_id))
-    }
-
     pub(crate) fn active_layout(&self) -> &CoordinatedLayout {
         self.solution_layout().unwrap_or(&self.local_layout)
     }
@@ -1301,6 +1292,10 @@ impl FacetBandCoordMeasurement {
         self.guide_padding_inner_px
     }
 
+    /// The coordinated cross-size target: the bandwidth of the band scale
+    /// rewritten at the coordinated layout. This is transition math — the
+    /// next per-cell size the coordinated layout implies — not a read of
+    /// solved track geometry, which reflects the live pre-retarget state.
     fn require_coordinated_layout_subplot_cross_size(
         &self,
         node_id: &CoordinationNodeKey,

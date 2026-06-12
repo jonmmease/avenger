@@ -358,41 +358,6 @@ fn derive_final_propagation_decisions_recursive(
             base.child_measurements_iter(),
             eval_ctx,
         );
-        // Decision-time slot-target probe (site c): each final-propagation
-        // target vs the cell's solved slot extent, tagged with whether the
-        // plan actually applies it. Diagnostics only.
-        if crate::facet::tree_solve::slot_target_probe_enabled()
-            && let (Some(targets), Some(slots)) =
-                (solved_targets.as_deref(), base.solution_cell_slots())
-        {
-            let node_id = CoordinationNodeKey::new(node_path.clone());
-            for (cell_index, (target, slot)) in targets.iter().zip(slots.iter()).enumerate() {
-                let slot_main = match base.axis {
-                    crate::coords::FacetAxis::Column => slot.width,
-                    crate::coords::FacetAxis::Row => slot.height,
-                };
-                let plan = child_plans.get(cell_index);
-                let is_nested = base.cells.get(cell_index).is_some_and(|cell| {
-                    crate::facet::coord::facet_band_ref(cell.measurement.coord_measurement.as_ref())
-                        .is_some()
-                });
-                tracing::info!(
-                    target: "avenger_chart::facet::slot_probe",
-                    site = "final_prop",
-                    node = ?node_id.path,
-                    axis = ?base.axis,
-                    explicit = base.uses_explicit_placement(),
-                    nested = is_nested,
-                    applied = plan.is_some_and(|plan| plan.adjust_plot_area),
-                    band_range = plan.is_some_and(|plan| plan.update_band_range),
-                    cell = cell_index,
-                    policy = target,
-                    slot = slot_main,
-                    delta = (target - slot_main).abs(),
-                    "slot-target probe"
-                );
-            }
-        }
         let expected_plot_area_adjustments_count = child_plans
             .iter()
             .filter(|child_plan| child_plan.adjust_plot_area)
