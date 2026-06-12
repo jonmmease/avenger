@@ -10,8 +10,6 @@
 //! effects are applied through `coordination_apply`, and sizing-mode differences
 //! are supplied by `coordination_policy`.
 
-use std::collections::HashSet;
-
 use avenger_chart_core::AvengerChartError;
 use tracing::{debug, trace};
 
@@ -19,13 +17,12 @@ use crate::{
     facet::{
         coord::renderable_for_empty_policy,
         coordination_apply::{
-            apply_requirement_pass, build_final_propagation_plan_for_eval,
-            run_final_propagation_with_trace, run_retarget, visit_facet_bands_with_node_id,
+            apply_requirement_pass, run_final_propagation, run_retarget,
+            visit_facet_bands_with_node_id,
         },
         coordination_plans::{
-            CoordinationNodeKey, CoordinationRunArtifacts, FinalPropagationPlan,
-            FinalPropagationTrace, RequirementNodeSnapshot, RequirementSnapshot, RequirementStage,
-            build_requirement_pass, build_requirement_pass_with_round,
+            CoordinationRunArtifacts, RequirementNodeSnapshot, RequirementSnapshot,
+            RequirementStage, build_requirement_pass, build_requirement_pass_with_round,
         },
         coordination_policy::FacetCoordinationPolicy,
         layout_plan::effective_edge_indices,
@@ -42,11 +39,15 @@ use crate::facet::coord::{
 };
 #[cfg(test)]
 use crate::facet::coordination_apply::{
-    apply_retarget_decisions, build_final_propagation_plan, derive_retarget_decisions,
-    visit_facet_bands_with_node_id_mut,
+    apply_final_propagation_decisions, apply_retarget_decisions, build_final_propagation_plan,
+    derive_retarget_decisions, visit_facet_bands_with_node_id_mut,
 };
 #[cfg(test)]
+use crate::facet::coordination_plans::CoordinationNodeKey;
+#[cfg(test)]
 use crate::render::context::{FacetRuntimeSizingMode, FacetRuntimeSizingPolicy};
+#[cfg(test)]
+use std::collections::HashSet;
 
 #[cfg(test)]
 fn facet_band_ref(measurement: &ComponentsMeasurement) -> Option<&FacetBandCoordMeasurement> {
@@ -265,11 +266,7 @@ async fn run_facet_coordination_rounds(
         "coordinate_facet_measurement_tree rounds complete"
     );
 
-    let final_propagation_plan = build_final_propagation_plan_for_eval(measurement, Some(eval_ctx));
-    validate_final_propagation_plan_coverage(measurement, &final_propagation_plan)?;
-    let final_propagation_trace =
-        run_final_propagation_with_trace(measurement, eval_ctx, &final_propagation_plan)?;
-    validate_final_propagation_trace_alignment(&final_propagation_plan, &final_propagation_trace)?;
+    let final_propagation_trace = run_final_propagation(measurement, eval_ctx)?;
     debug!(
         policy = FacetCoordinationPolicy::LABEL,
         scale_range_retargets = final_propagation_trace
@@ -350,6 +347,7 @@ fn facet_band_edge_indices(
     effective_edge_indices(&renderable_cells, facet_band.cells.len()).unwrap_or((0, 0))
 }
 
+#[cfg(test)]
 fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<CoordinationNodeKey> {
     let mut node_ids = Vec::new();
     let mut node_path = Vec::new();
@@ -364,6 +362,8 @@ fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<Coordination
     node_ids
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn validate_node_set_coverage(
     label: &str,
     actual: HashSet<CoordinationNodeKey>,
@@ -384,85 +384,6 @@ fn validate_node_set_coverage(
     Err(AvengerChartError::InternalError(format!(
         "{label} coverage mismatch: missing={missing:?}, unexpected={unexpected:?}"
     )))
-}
-
-pub(crate) fn validate_final_propagation_plan_coverage(
-    measurement: &ComponentsMeasurement,
-    plan: &FinalPropagationPlan,
-) -> Result<(), AvengerChartError> {
-    let expected_ids: HashSet<CoordinationNodeKey> =
-        measurement_node_ids(measurement).into_iter().collect();
-    let actual_ids: HashSet<CoordinationNodeKey> = plan
-        .node_plans
-        .iter()
-        .map(|node| node.node_id.clone())
-        .collect();
-
-    validate_node_set_coverage("final propagation plan node", actual_ids, expected_ids)
-}
-
-pub(crate) fn validate_final_propagation_trace_alignment(
-    plan: &FinalPropagationPlan,
-    trace: &FinalPropagationTrace,
-) -> Result<(), AvengerChartError> {
-    let derived_ids: Vec<CoordinationNodeKey> = plan
-        .node_plans
-        .iter()
-        .map(|node| node.node_id.clone())
-        .collect();
-    let trace_ids: Vec<CoordinationNodeKey> = trace
-        .node_results
-        .iter()
-        .map(|node| node.node_id.clone())
-        .collect();
-
-    if trace_ids != derived_ids {
-        return Err(AvengerChartError::InternalError(format!(
-            "final propagation execution trace nodes diverged from plan order: trace={:?}, plan={:?}",
-            trace_ids
-                .iter()
-                .map(|node| node.path.clone())
-                .collect::<Vec<_>>(),
-            derived_ids
-                .iter()
-                .map(|node| node.path.clone())
-                .collect::<Vec<_>>()
-        )));
-    }
-
-    for (planned, trace_result) in plan.node_plans.iter().zip(trace.node_results.iter()) {
-        if trace_result.node_id != planned.node_id
-            || trace_result.axis != planned.axis
-            || trace_result.planned_parent_cross_size_target != planned.parent_cross_size_target
-            || trace_result.planned_child_count != planned.child_count
-            || planned.child_plans.len() != planned.child_count
-        {
-            return Err(AvengerChartError::InternalError(format!(
-                "final propagation execution trace diverged from plan for node path {:?}",
-                planned.node_id.path
-            )));
-        }
-        for (idx, child_plan) in planned.child_plans.iter().enumerate() {
-            if child_plan.child_index != idx {
-                return Err(AvengerChartError::InternalError(format!(
-                    "final propagation child plans for node path {:?} are not in child-index order",
-                    planned.node_id.path
-                )));
-            }
-        }
-        if trace_result.planned_child_plan_count != planned.child_plans.len()
-            || trace_result.planned_plot_area_adjustments_count
-                != planned.expected_plot_area_adjustments_count
-            || trace_result.child_plot_area_adjustments_count
-                > planned.expected_plot_area_adjustments_count
-        {
-            return Err(AvengerChartError::InternalError(format!(
-                "final propagation counts diverged from plan for node path {:?}",
-                planned.node_id.path
-            )));
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -913,8 +834,11 @@ mod tests {
         };
 
         let final_propagation_plan = build_final_propagation_plan(&measurement);
-        let _final_propagation_trace =
-            run_final_propagation_with_trace(&mut measurement, &eval_ctx, &final_propagation_plan)?;
+        let _final_propagation_trace = apply_final_propagation_decisions(
+            &mut measurement,
+            &eval_ctx,
+            &final_propagation_plan,
+        )?;
 
         let root = facet_band_ref(&measurement)
             .expect("fixture should produce root facet-band measurement");
@@ -1045,8 +969,11 @@ mod tests {
         }
 
         let final_propagation_plan = build_final_propagation_plan(&measurement);
-        let final_propagation_trace =
-            run_final_propagation_with_trace(&mut measurement, &eval_ctx, &final_propagation_plan)?;
+        let final_propagation_trace = apply_final_propagation_decisions(
+            &mut measurement,
+            &eval_ctx,
+            &final_propagation_plan,
+        )?;
         assert!(!final_propagation_trace.node_results.is_empty());
         let root_result = final_propagation_trace
             .node_results
@@ -1054,7 +981,6 @@ mod tests {
             .find(|result| result.node_id.path.is_empty())
             .expect("final propagation should include a root node trace");
         let root_plan = final_propagation_plan
-            .node_plans
             .iter()
             .find(|node| node.node_id.path.is_empty())
             .expect("final propagation plan should include a root node");
@@ -1081,8 +1007,8 @@ mod tests {
     {
         let (measurement, _eval_ctx) = nested_fixture().await?;
         let plan = build_final_propagation_plan(&measurement);
-        assert!(!plan.node_plans.is_empty());
-        for node in &plan.node_plans {
+        assert!(!plan.is_empty());
+        for node in &plan {
             assert_eq!(node.child_plans.len(), node.child_count);
             let expected_adjustments = node
                 .child_plans
@@ -1105,13 +1031,12 @@ mod tests {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
         let mut plan = build_final_propagation_plan(&measurement);
         let root_idx = plan
-            .node_plans
             .iter()
             .position(|node| node.node_id.path.is_empty())
             .expect("final propagation plan should include a root node");
-        plan.node_plans.remove(root_idx);
+        plan.remove(root_idx);
 
-        let error = run_final_propagation_with_trace(&mut measurement, &eval_ctx, &plan)
+        let error = apply_final_propagation_decisions(&mut measurement, &eval_ctx, &plan)
             .expect_err("missing final propagation node plan should error");
         assert_internal_error_contains(error, "Missing final propagation plan");
         Ok(())
@@ -1123,7 +1048,6 @@ mod tests {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
         let mut plan = build_final_propagation_plan(&measurement);
         let root_plan = plan
-            .node_plans
             .iter_mut()
             .find(|node| node.node_id.path.is_empty())
             .expect("final propagation plan should include a root node");
@@ -1132,7 +1056,7 @@ mod tests {
             "fixture root should have at least one child plan"
         );
 
-        let error = run_final_propagation_with_trace(&mut measurement, &eval_ctx, &plan)
+        let error = apply_final_propagation_decisions(&mut measurement, &eval_ctx, &plan)
             .expect_err("final propagation child plan mismatch should error");
         assert_internal_error_contains(error, "Final propagation plan child count mismatch");
         Ok(())
@@ -1150,12 +1074,9 @@ mod tests {
 
         let plan = build_final_propagation_plan(&measurement);
         let final_propagation_trace =
-            run_final_propagation_with_trace(&mut measurement, &eval_ctx, &plan)?;
+            apply_final_propagation_decisions(&mut measurement, &eval_ctx, &plan)?;
 
-        for (planned, trace_result) in plan
-            .node_plans
-            .iter()
-            .zip(final_propagation_trace.node_results.iter())
+        for (planned, trace_result) in plan.iter().zip(final_propagation_trace.node_results.iter())
         {
             assert_eq!(trace_result.node_id, planned.node_id);
             assert_eq!(
@@ -1179,7 +1100,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let (measurement, _eval_ctx) = nested_fixture().await?;
         let plan = build_final_propagation_plan(&measurement);
-        for node in &plan.node_plans {
+        for node in &plan {
             match (node.axis, node.parent_cross_size_target) {
                 (FacetAxis::Column, Some(target_cross_size)) => {
                     for child_plan in &node.child_plans {
@@ -1395,8 +1316,7 @@ mod tests {
         assert_eq!(before_node_ids, after_node_ids);
         assert_eq!(before_cross_size, after_cross_size);
         assert_eq!(
-            plan.node_plans
-                .iter()
+            plan.iter()
                 .map(|node| node.node_id.clone())
                 .collect::<std::collections::HashSet<_>>(),
             before_node_ids
@@ -1418,8 +1338,7 @@ mod tests {
 
         let plan = build_final_propagation_plan(&measurement);
         let final_propagation_trace =
-            run_final_propagation_with_trace(&mut measurement, &eval_ctx, &plan)?;
-        validate_final_propagation_trace_alignment(&plan, &final_propagation_trace)?;
+            apply_final_propagation_decisions(&mut measurement, &eval_ctx, &plan)?;
 
         let root_result = final_propagation_trace
             .node_results
@@ -1520,8 +1439,11 @@ mod tests {
         apply_requirement_pass(&mut measurement, &retargeted_requirement_pass)?;
 
         let final_propagation_plan = build_final_propagation_plan(&measurement);
-        let final_propagation_trace =
-            run_final_propagation_with_trace(&mut measurement, &eval_ctx, &final_propagation_plan)?;
+        let final_propagation_trace = apply_final_propagation_decisions(
+            &mut measurement,
+            &eval_ctx,
+            &final_propagation_plan,
+        )?;
         assert_eq!(
             final_propagation_trace
                 .node_results
@@ -1529,7 +1451,6 @@ mod tests {
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>(),
             final_propagation_plan
-                .node_plans
                 .iter()
                 .map(|node| node.node_id.clone())
                 .collect::<Vec<_>>()
@@ -1537,7 +1458,7 @@ mod tests {
         for (planned, trace_result) in final_propagation_trace
             .node_results
             .iter()
-            .zip(final_propagation_plan.node_plans.iter())
+            .zip(final_propagation_plan.iter())
         {
             assert_eq!(planned.node_id, trace_result.node_id);
             assert_eq!(

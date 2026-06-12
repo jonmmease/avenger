@@ -6,8 +6,8 @@ use crate::{
     facet::{
         coordination_plans::{
             CoordinationNodeKey, FinalPropagationChildPlan, FinalPropagationNodePlan,
-            FinalPropagationNodeTrace, FinalPropagationPlan, FinalPropagationTrace,
-            RequirementPass, RetargetNodePlan, RetargetNodeTrace, RetargetTrace,
+            FinalPropagationNodeTrace, FinalPropagationTrace, RequirementPass, RetargetNodePlan,
+            RetargetNodeTrace, RetargetTrace,
         },
         coordination_policy::{FacetBandMut, FacetBandRef, FacetCoordinationPolicy},
     },
@@ -298,24 +298,44 @@ fn run_retarget_recursive<'a>(
     })
 }
 
+/// The final-propagation walk: derive every node's decisions from the
+/// pre-propagation state, then apply them. Coverage and trace alignment
+/// are by construction (decide and apply share one traversal), which is
+/// what retired the former plan/trace validators.
+pub(crate) fn run_final_propagation(
+    measurement: &mut ComponentsMeasurement,
+    eval_ctx: &EvaluationContext,
+) -> Result<FinalPropagationTrace, AvengerChartError> {
+    let decisions = derive_final_propagation_decisions(measurement, Some(eval_ctx));
+    apply_final_propagation_decisions(measurement, eval_ctx, &decisions)
+}
+
 #[cfg(test)]
 pub(crate) fn build_final_propagation_plan(
     measurement: &ComponentsMeasurement,
-) -> FinalPropagationPlan {
-    build_final_propagation_plan_for_eval(measurement, None)
+) -> Vec<FinalPropagationNodePlan> {
+    derive_final_propagation_decisions(measurement, None)
 }
 
-pub(crate) fn build_final_propagation_plan_for_eval(
+/// Derive every facet band's final-propagation decisions (uniform child
+/// plot-area targets from a band solve, plus band-range updates),
+/// children first, read-only.
+pub(crate) fn derive_final_propagation_decisions(
     measurement: &ComponentsMeasurement,
     eval_ctx: Option<&EvaluationContext>,
-) -> FinalPropagationPlan {
+) -> Vec<FinalPropagationNodePlan> {
     let mut node_plans = Vec::new();
     let mut node_path = Vec::new();
-    build_final_propagation_plan_recursive(measurement, eval_ctx, &mut node_path, &mut node_plans);
-    FinalPropagationPlan { node_plans }
+    derive_final_propagation_decisions_recursive(
+        measurement,
+        eval_ctx,
+        &mut node_path,
+        &mut node_plans,
+    );
+    node_plans
 }
 
-fn build_final_propagation_plan_recursive(
+fn derive_final_propagation_decisions_recursive(
     measurement: &ComponentsMeasurement,
     eval_ctx: Option<&EvaluationContext>,
     node_path: &mut Vec<usize>,
@@ -324,7 +344,7 @@ fn build_final_propagation_plan_recursive(
     if let Some(facet_band) = FacetCoordinationPolicy::facet_band_ref(measurement) {
         for (idx, child) in facet_band.base().child_measurements_iter().enumerate() {
             node_path.push(idx);
-            build_final_propagation_plan_recursive(child, eval_ctx, node_path, node_plans);
+            derive_final_propagation_decisions_recursive(child, eval_ctx, node_path, node_plans);
             node_path.pop();
         }
 
@@ -492,13 +512,14 @@ fn build_final_propagation_child_plan(
     }
 }
 
-pub(crate) fn run_final_propagation_with_trace(
+/// Apply derived final-propagation decisions, depth-first, refreshing
+/// coordinated scale adjustments along the way.
+pub(crate) fn apply_final_propagation_decisions(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
-    plan: &FinalPropagationPlan,
+    decisions: &[FinalPropagationNodePlan],
 ) -> Result<FinalPropagationTrace, AvengerChartError> {
-    let plan_by_node: HashMap<CoordinationNodeKey, FinalPropagationNodePlan> = plan
-        .node_plans
+    let plan_by_node: HashMap<CoordinationNodeKey, FinalPropagationNodePlan> = decisions
         .iter()
         .cloned()
         .map(|node| (node.node_id.clone(), node))

@@ -286,6 +286,7 @@ pub(crate) struct RetargetTrace {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FinalPropagationChildPlan {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) child_index: usize,
     pub(crate) target_plot_area_width: Option<f32>,
     pub(crate) target_plot_area_height: Option<f32>,
@@ -297,6 +298,7 @@ pub(crate) struct FinalPropagationChildPlan {
 #[derive(Debug, Clone)]
 pub(crate) struct FinalPropagationNodePlan {
     pub(crate) node_id: CoordinationNodeKey,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) axis: FacetAxis,
     pub(crate) parent_cross_size_target: Option<f32>,
     pub(crate) child_count: usize,
@@ -304,18 +306,19 @@ pub(crate) struct FinalPropagationNodePlan {
     pub(crate) expected_plot_area_adjustments_count: usize,
 }
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct FinalPropagationPlan {
-    pub(crate) node_plans: Vec<FinalPropagationNodePlan>,
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct FinalPropagationNodeTrace {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) node_id: CoordinationNodeKey,
+    #[allow(dead_code)]
     pub(crate) axis: FacetAxis,
+    #[allow(dead_code)]
     pub(crate) planned_parent_cross_size_target: Option<f32>,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) planned_child_count: usize,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) planned_child_plan_count: usize,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) planned_plot_area_adjustments_count: usize,
     pub(crate) child_plot_area_adjustments_count: usize,
     pub(crate) scale_range_retarget_count: usize,
