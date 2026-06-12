@@ -1,7 +1,8 @@
 //! Real-tree facet lowering: the production source of the coordination
-//! requirement channels (`tree_solved_round`), plus the env-gated shadow
-//! census (`AVENGER_SHADOW_TREE_SOLVE=1`) that compares the tree against
-//! the legacy diagonal solve for diagnostics.
+//! requirement channels (`tree_solved_round`), plus an env-gated shadow
+//! census (`AVENGER_SHADOW_TREE_SOLVE=1`) reporting slot-vs-live geometry
+//! deltas and the idempotence/snapshot-identity probes (groundwork for
+//! slot-sourced geometry adoption).
 //!
 //! Lowers the LIVE facet measurement tree — real nested topology, real cell
 //! plot sizes, epoch-frozen overflow envelopes — into one
@@ -54,6 +55,18 @@ use crate::facet::coordination_plans::CoordinationNodeKey;
 use crate::facet::coordination_policy::FacetCoordinationPolicy;
 use crate::plot::compiled::{ComponentsMeasurement, CoordinationScopeKey};
 use crate::render::context::FacetRuntimeSizingMode;
+
+/// Solved channel values for one coordination round: the group-merged
+/// layout per share key and per node, plus each node's own and
+/// group-equalized overflow envelopes. Produced by [`tree_solved_round`]
+/// (and hand-built by test fixture folds).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SolvedRound {
+    pub(crate) merged_by_key: HashMap<CoordinationScopeKey, CoordinatedLayout>,
+    pub(crate) merged_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
+    pub(crate) own_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+    pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
+}
 
 /// Whether the shadow census is enabled for this process.
 pub(crate) fn shadow_enabled() -> bool {
@@ -540,24 +553,20 @@ pub(crate) fn extract_channels(
 /// - `own_overflow_by_node` keeps the legacy own-envelope law: guide
 ///   from pass-1 `requested.inner`, total from the raw `geometric` view.
 ///
-/// Returns `None` when the measurement has no facet band or the solve
-/// fails (callers fall back to the legacy producer).
+/// Returns an empty round for band-less measurements; a solve failure is
+/// a hard error (the tree solve is the only channel producer).
 pub(crate) fn tree_solved_round(
     measurement: &ComponentsMeasurement,
     sizing: FacetRuntimeSizingMode,
-) -> Option<crate::facet::round_tree::SolvedRound> {
-    let lowered = lower_facet_tree(measurement, sizing, None)?;
-    let solved = match lowered.solve() {
-        Ok(solved) => solved,
-        Err(error) => {
-            warn!(
-                target: "avenger_chart::facet::tree_solve",
-                error,
-                "tree solve failed; falling back to the diagonal round"
-            );
-            return None;
-        }
+) -> Result<SolvedRound, avenger_chart_core::AvengerChartError> {
+    let Some(lowered) = lower_facet_tree(measurement, sizing, None) else {
+        return Ok(SolvedRound::default());
     };
+    let solved = lowered.solve().map_err(|error| {
+        avenger_chart_core::AvengerChartError::InternalError(format!(
+            "facet tree solve failed: {error}"
+        ))
+    })?;
     let channels = extract_channels(&lowered, &solved);
 
     let mut own_overflow_by_node = HashMap::new();
@@ -595,7 +604,7 @@ pub(crate) fn tree_solved_round(
         );
     }
 
-    Some(crate::facet::round_tree::SolvedRound {
+    Ok(SolvedRound {
         merged_by_key,
         merged_by_node: channels.layout_by_node,
         own_overflow_by_node,
@@ -604,27 +613,6 @@ pub(crate) fn tree_solved_round(
 }
 
 const SHADOW_EPS: f32 = 0.01;
-
-fn overflow_delta(a: &CoordinatedOverflow, b: &CoordinatedOverflow) -> f32 {
-    let side = |x: f32, y: f32| (x - y).abs();
-    side(a.guide.top, b.guide.top)
-        .max(side(a.guide.right, b.guide.right))
-        .max(side(a.guide.bottom, b.guide.bottom))
-        .max(side(a.guide.left, b.guide.left))
-        .max(side(a.total.top, b.total.top))
-        .max(side(a.total.right, b.total.right))
-        .max(side(a.total.bottom, b.total.bottom))
-        .max(side(a.total.left, b.total.left))
-}
-
-fn layout_delta(a: &CoordinatedLayout, b: &CoordinatedLayout) -> f32 {
-    (a.padding_inner_px - b.padding_inner_px)
-        .abs()
-        .max((a.outer_start - b.outer_start).abs())
-        .max((a.outer_end - b.outer_end).abs())
-        .max((a.guide_slot_gap_px - b.guide_slot_gap_px).abs())
-        .max(a.n.abs_diff(b.n) as f32)
-}
 
 /// Run the shadow census for one coordination run: solve the real tree
 /// from the post-everything measurement state and report channel +
@@ -637,12 +625,6 @@ pub(crate) fn run_shadow_census(
     let Some(lowered) = lower_facet_tree(measurement, sizing, None) else {
         return;
     };
-    // The legacy comparison target is the diagonal round solve's
-    // PRE-adjustment maps — the exact seam P6 replaces. A fresh snapshot
-    // here equals the rounds' snapshots (fact 2; the identity probe
-    // reports on it).
-    let snapshot = crate::facet::coordination::collect_requirement_snapshot(measurement);
-    let legacy = crate::facet::round_tree::solve_round(&snapshot.nodes);
     let solved = match lowered.solve() {
         Ok(solved) => solved,
         Err(error) => {
@@ -650,61 +632,6 @@ pub(crate) fn run_shadow_census(
             return;
         }
     };
-    let channels = extract_channels(&lowered, &solved);
-
-    // Channel comparison vs the installed (last-pass) legacy solution.
-    let mut layout_max = 0.0f32;
-    let mut layout_nodes_over = 0usize;
-    let mut overflow_max = 0.0f32;
-    let mut overflow_nodes_over = 0usize;
-    for band in &lowered.bands {
-        if let (Some(mine), Some(legacy)) = (
-            channels.layout_by_node.get(&band.node_id),
-            legacy.merged_by_node.get(&band.node_id),
-        ) {
-            let delta = layout_delta(mine, legacy);
-            if delta > SHADOW_EPS {
-                layout_nodes_over += 1;
-                debug!(
-                    target: "avenger_chart::facet::tree_solve",
-                    node = ?band.node_id.path,
-                    delta,
-                    mine = ?mine,
-                    legacy = ?legacy,
-                    "shadow layout channel divergence"
-                );
-            }
-            layout_max = layout_max.max(delta);
-        }
-        if let (Some(mine), Some(legacy)) = (
-            channels.overflow_by_node.get(&band.node_id),
-            legacy.overflow_by_node.get(&band.node_id),
-        ) {
-            let delta = overflow_delta(mine, legacy);
-            if delta > SHADOW_EPS {
-                overflow_nodes_over += 1;
-                debug!(
-                    target: "avenger_chart::facet::tree_solve",
-                    node = ?band.node_id.path,
-                    delta,
-                    mine = ?mine,
-                    legacy = ?legacy,
-                    "shadow overflow channel divergence"
-                );
-                if let Some(region) = solved.region(&band.node_id) {
-                    debug!(
-                        target: "avenger_chart::facet::tree_solve",
-                        node = ?band.node_id.path,
-                        requested_top = ?region.requested.top,
-                        coordinated_top = ?region.coordinated.top,
-                        granted_top = ?region.granted.top,
-                        "shadow overflow divergence detail"
-                    );
-                }
-            }
-            overflow_max = overflow_max.max(delta);
-        }
-    }
 
     // Geometry comparison: each band's cell slots vs the live
     // (post-retarget/final-prop) cell plot areas.
@@ -819,10 +746,6 @@ pub(crate) fn run_shadow_census(
     info!(
         target: "avenger_chart::facet::tree_solve",
         bands = lowered.bands.len(),
-        layout_max,
-        layout_nodes_over,
-        overflow_max,
-        overflow_nodes_over,
         geometry_cells,
         geometry_max,
         geometry_cells_over,

@@ -519,26 +519,168 @@ fn set_overflow_side(overflow: &mut OverflowSpaceRequirement, side: AxisPosition
     }
 }
 
-/// Build one coordination round: solve the share-keyed round, fold the
-/// chart-side channels, and construct the round's [`CoordinationSolution`]
-/// with the per-node write-back adjustments applied. Coverage of the
-/// solution against the snapshot is validated here, at construction.
+/// Test-fixture entry: build a pass from a snapshot alone, deriving the
+/// round with [`test_solved_round`]'s plain group-max folds. Production
+/// rounds come from the real-tree solve
+/// (`tree_solve::tree_solved_round`) via
+/// [`build_requirement_pass_with_round`].
+#[cfg(test)]
 pub(crate) fn build_requirement_pass(
     stage: RequirementStage,
     snapshot: RequirementSnapshot,
 ) -> Result<RequirementPass, AvengerChartError> {
-    let solved = crate::facet::round_tree::solve_round(&snapshot.nodes);
+    let solved = test_solved_round(&snapshot.nodes);
     build_requirement_pass_with_round(stage, snapshot, solved)
 }
 
-/// Build one requirement pass from an already-solved round: the legacy
-/// diagonal solve and the real-tree solve (`tree_solve::tree_solved_round`)
-/// both produce the `SolvedRound` shape; chart-side folds, write-back
-/// adjustments, and solution construction are identical from here.
+/// FIXTURE FOLD (tests only): a `SolvedRound` from plain group-max merges
+/// over snapshot nodes — the merge laws the production solve realizes
+/// through `avenger_layout` share coordination, computed directly. Layout
+/// scalars merge by max over the share group; each node's own envelope
+/// follows the within-band law (main-axis edges from the first/last
+/// renderable cell, cross edges by max, totals geometric); the merged
+/// overflow applies the cross-cousin lift (`max(total)` raised to
+/// `max(guide) + max(legend)`).
+#[cfg(test)]
+pub(crate) fn test_solved_round(
+    nodes: &[RequirementNodeSnapshot],
+) -> crate::facet::tree_solve::SolvedRound {
+    use crate::plot::compiled::CoordinationKind;
+
+    let mut groups: HashMap<CoordinationScopeKey, Vec<usize>> = HashMap::new();
+    let mut share_keys = Vec::with_capacity(nodes.len());
+    for (index, node) in nodes.iter().enumerate() {
+        let key = node.key.with_kind(CoordinationKind::ChildSize);
+        groups.entry(key.clone()).or_default().push(index);
+        share_keys.push(key);
+    }
+
+    let own_envelope = |node: &RequirementNodeSnapshot| -> Option<CoordinatedOverflow> {
+        let cells = node.overflow_cells.as_deref()?;
+        if cells.is_empty() {
+            return Some(CoordinatedOverflow::default());
+        }
+        let first = node.first_edge_index.min(cells.len() - 1);
+        let last = node.last_edge_index.min(cells.len() - 1);
+        let max_side = |pick: fn(&OverflowSpaceRequirement) -> f32, guide: bool| -> f32 {
+            cells
+                .iter()
+                .map(|(g, t)| pick(if guide { g } else { t }))
+                .fold(0.0f32, f32::max)
+        };
+        let (guide, total) = match node.axis {
+            FacetAxis::Column => (
+                OverflowSpaceRequirement {
+                    top: max_side(|s| s.top, true),
+                    bottom: max_side(|s| s.bottom, true),
+                    left: cells[first].0.left,
+                    right: cells[last].0.right,
+                },
+                OverflowSpaceRequirement {
+                    top: max_side(|s| s.top, false),
+                    bottom: max_side(|s| s.bottom, false),
+                    left: cells[first].1.left,
+                    right: cells[last].1.right,
+                },
+            ),
+            FacetAxis::Row => (
+                OverflowSpaceRequirement {
+                    left: max_side(|s| s.left, true),
+                    right: max_side(|s| s.right, true),
+                    top: cells[first].0.top,
+                    bottom: cells[last].0.bottom,
+                },
+                OverflowSpaceRequirement {
+                    left: max_side(|s| s.left, false),
+                    right: max_side(|s| s.right, false),
+                    top: cells[first].1.top,
+                    bottom: cells[last].1.bottom,
+                },
+            ),
+        };
+        Some(CoordinatedOverflow { guide, total })
+    };
+
+    let mut merged_by_key = HashMap::new();
+    let mut merged_by_node = HashMap::new();
+    let mut own_overflow_by_node = HashMap::new();
+    let mut overflow_by_node = HashMap::new();
+    for (index, node) in nodes.iter().enumerate() {
+        let group = &groups[&share_keys[index]];
+        let mut merged = CoordinatedLayout::default();
+        for &member in group {
+            let local = &nodes[member].local_layout;
+            merged.padding_inner_px = merged.padding_inner_px.max(local.padding_inner_px);
+            merged.guide_slot_gap_px = merged.guide_slot_gap_px.max(local.guide_slot_gap_px);
+            merged.outer_start = merged.outer_start.max(local.outer_start);
+            merged.outer_end = merged.outer_end.max(local.outer_end);
+            merged.n = merged.n.max(local.n);
+        }
+        merged_by_key.insert(share_keys[index].clone(), merged.clone());
+        merged_by_node.insert(node.node_id.clone(), merged);
+
+        let Some(own) = own_envelope(node) else {
+            continue;
+        };
+        let members_with_cells = group
+            .iter()
+            .copied()
+            .filter(|&member| nodes[member].overflow_cells.is_some())
+            .collect::<Vec<_>>();
+        let merged_side = |side: fn(&OverflowSpaceRequirement) -> f32| -> (f32, f32) {
+            let mut max_total = 0.0f32;
+            let mut max_guide = 0.0f32;
+            let mut max_legend = 0.0f32;
+            for &member in &members_with_cells {
+                let member_own = own_envelope(&nodes[member]).unwrap_or_default();
+                let guide = side(&member_own.guide);
+                let total = side(&member_own.total);
+                max_total = max_total.max(total);
+                max_guide = max_guide.max(guide);
+                max_legend = max_legend.max((total - guide).max(0.0));
+            }
+            (max_guide, max_total.max(max_guide + max_legend))
+        };
+        let (guide_top, total_top) = merged_side(|s| s.top);
+        let (guide_right, total_right) = merged_side(|s| s.right);
+        let (guide_bottom, total_bottom) = merged_side(|s| s.bottom);
+        let (guide_left, total_left) = merged_side(|s| s.left);
+        overflow_by_node.insert(
+            node.node_id.clone(),
+            CoordinatedOverflow {
+                guide: OverflowSpaceRequirement {
+                    top: guide_top,
+                    right: guide_right,
+                    bottom: guide_bottom,
+                    left: guide_left,
+                },
+                total: OverflowSpaceRequirement {
+                    top: total_top,
+                    right: total_right,
+                    bottom: total_bottom,
+                    left: total_left,
+                },
+            },
+        );
+        own_overflow_by_node.insert(node.node_id.clone(), own);
+    }
+
+    crate::facet::tree_solve::SolvedRound {
+        merged_by_key,
+        merged_by_node,
+        own_overflow_by_node,
+        overflow_by_node,
+    }
+}
+
+/// Build one requirement pass from a solved round (production rounds come
+/// from the real-tree solve, `tree_solve::tree_solved_round`); chart-side
+/// folds, write-back adjustments, and solution construction live here,
+/// with solution coverage validated at construction.
 pub(crate) fn build_requirement_pass_with_round(
     stage: RequirementStage,
     snapshot: RequirementSnapshot,
-    solved: crate::facet::round_tree::SolvedRound,
+    solved: crate::facet::tree_solve::SolvedRound,
 ) -> Result<RequirementPass, AvengerChartError> {
     let nodes = &snapshot.nodes;
     let scopes = RequirementScopeMetadata::collect(nodes);

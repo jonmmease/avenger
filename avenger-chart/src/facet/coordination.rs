@@ -22,7 +22,7 @@ use crate::{
         },
         coordination_plans::{
             CoordinationRunArtifacts, RequirementNodeSnapshot, RequirementSnapshot,
-            RequirementStage, build_requirement_pass, build_requirement_pass_with_round,
+            RequirementStage, build_requirement_pass_with_round,
         },
         coordination_policy::FacetCoordinationPolicy,
         layout_plan::effective_edge_indices,
@@ -43,7 +43,7 @@ use crate::facet::coordination_apply::{
     derive_retarget_decisions, visit_facet_bands_with_node_id_mut,
 };
 #[cfg(test)]
-use crate::facet::coordination_plans::CoordinationNodeKey;
+use crate::facet::coordination_plans::{CoordinationNodeKey, build_requirement_pass};
 #[cfg(test)]
 use crate::render::context::{FacetRuntimeSizingMode, FacetRuntimeSizingPolicy};
 #[cfg(test)]
@@ -170,23 +170,12 @@ async fn run_facet_coordination_rounds(
     if crate::facet::tree_solve::shadow_enabled() {
         shadow_snapshot_hashes.push(crate::facet::tree_solve::snapshot_hash(&snapshot));
     }
-    // The requirement channels come from the real-tree solve (one tree,
-    // real topology, per-node Region.coordinated reads); solve failures
-    // fall back to the legacy diagonal producer. AVENGER_TREE_CHANNELS=0
-    // forces the legacy producer (operational kill switch + A/B
-    // diagnostics).
+    // The requirement channels come from the real-tree solve: one tree,
+    // real topology, per-node Region.coordinated reads.
     let sizing = eval_ctx.facet_runtime_sizing_mode();
-    let tree_round = if std::env::var("AVENGER_TREE_CHANNELS").is_ok_and(|v| v == "0") {
-        None
-    } else {
-        crate::facet::tree_solve::tree_solved_round(measurement, sizing)
-    };
-    let requirement_pass = match tree_round {
-        Some(solved) => {
-            build_requirement_pass_with_round(RequirementStage::Initial, snapshot, solved)?
-        }
-        None => build_requirement_pass(RequirementStage::Initial, snapshot)?,
-    };
+    let solved = crate::facet::tree_solve::tree_solved_round(measurement, sizing)?;
+    let requirement_pass =
+        build_requirement_pass_with_round(RequirementStage::Initial, snapshot, solved)?;
     debug!(
         policy = FacetCoordinationPolicy::LABEL,
         stage = requirement_pass.stage.label(),
