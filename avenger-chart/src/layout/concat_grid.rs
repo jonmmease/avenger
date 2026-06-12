@@ -12,10 +12,9 @@
 //! diagnostics and delta gating: [`solve_concat_grid`] with `export = true`
 //! zeroes the spanned-axis content of multi-span cells so the extracted
 //! track sizes equal the pre-span-constraint requirement fold (span
-//! constraints re-apply per member in the group solve — the historical
-//! contract).
+//! constraints re-apply per member in the group solve).
 //!
-//! Per-slot reads mirror the historical grid solution: origins from track
+//! Per-slot reads come straight off the grid solution: origins from track
 //! starts (the solver's exact floats), edge targets from per-track demand
 //! vectors, span content sizes positionally from the tracks.
 
@@ -52,7 +51,7 @@ pub(crate) struct ChartGridData {
 }
 
 /// A solved concat grid: per-track geometry plus the requirement vectors,
-/// in grid-content coordinates (the historical solution view).
+/// in grid-content coordinates.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SolvedConcatGrid {
     pub data: ChartGridData,
@@ -277,11 +276,10 @@ pub(crate) fn solve_concat_grid(
 ///
 /// Encoding note: the members ride a synthetic `Layout::row` purely as a
 /// shared solve context — the row's own geometry is never read, only each
-/// member's region (extracted by index). This is the one remaining
-/// synthetic-container cohort in the workspace; a dedicated
-/// `solve_cohort` API in avenger-layout was considered (solver
-/// unification P9) and declined while this is its only caller — the row
-/// wrapper is fifteen lines against a second public solving entry point.
+/// member's region (extracted by index). A dedicated cohort-solving API
+/// in avenger-layout is deliberately absent while this is its only
+/// caller: the row wrapper is fifteen lines against a second public
+/// solving entry point.
 pub(crate) fn solve_concat_grid_group(
     members: &[GridMemberSpec],
 ) -> Result<Vec<SolvedConcatGrid>, String> {

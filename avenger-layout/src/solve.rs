@@ -1505,8 +1505,8 @@ mod tests {
 
     #[test]
     fn nested_grid_reproduces_the_tree_solver_values() {
-        // The historical nested-band case; expectations are the legacy tree
-        // solver's exact outputs, pinned as literals.
+        // Nested-band composition; expected values are exact solver
+        // outputs, pinned as literals.
         let new_root: Layout = Layout::row([
             Layout::leaf(Size::new(50.0, 60.0)),
             Layout::row([
@@ -1576,9 +1576,9 @@ mod tests {
 
     #[test]
     fn grid_chrome_reproduces_the_stacked_edges_law() {
-        // Chrome on the grid replaces the legacy stacked_inner_edges: a
-        // 15px child right demand plus a 35px inner header = a 50px
-        // envelope with the header on the inner (coordinated) layer.
+        // Grid chrome stacks onto child demands: a 15px child right demand
+        // plus a 35px inner header = a 50px envelope with the header on
+        // the inner (coordinated) layer.
         let new: Layout =
             Layout::row([Layout::leaf(Size::new(100.0, 60.0))
                 .demand(Side::Right, EdgeDemand::Unlayered(15.0))])

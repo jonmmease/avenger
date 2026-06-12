@@ -22,7 +22,7 @@ use crate::{
         },
         coordination_plans::{
             CoordinationRunArtifacts, RequirementNodeSnapshot, RequirementSnapshot,
-            RequirementStage, build_requirement_pass_with_round,
+            build_requirement_pass_with_round,
         },
         coordination_policy::FacetCoordinationPolicy,
         layout_plan::effective_edge_indices,
@@ -46,8 +46,6 @@ use crate::facet::coordination_apply::{
 use crate::facet::coordination_plans::{CoordinationNodeKey, build_requirement_pass};
 #[cfg(test)]
 use crate::render::context::{FacetRuntimeSizingMode, FacetRuntimeSizingPolicy};
-#[cfg(test)]
-use std::collections::HashSet;
 
 #[cfg(test)]
 fn facet_band_ref(measurement: &ComponentsMeasurement) -> Option<&FacetBandCoordMeasurement> {
@@ -131,7 +129,7 @@ pub(crate) async fn run_facet_coordination_pipeline(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
 ) -> Result<CoordinationRunArtifacts, AvengerChartError> {
-    let artifacts = run_facet_coordination_rounds(measurement, eval_ctx, None).await?;
+    let artifacts = run_facet_coordination(measurement, eval_ctx, None).await?;
     Ok(artifacts.expect("a full coordination run always produces artifacts"))
 }
 
@@ -140,18 +138,18 @@ async fn run_facet_coordination_until(
     eval_ctx: &EvaluationContext,
     checkpoint: CoordinationCheckpoint,
 ) -> Result<(), AvengerChartError> {
-    run_facet_coordination_rounds(measurement, eval_ctx, Some(checkpoint))
+    run_facet_coordination(measurement, eval_ctx, Some(checkpoint))
         .await
         .map(|_| ())
 }
 
-/// The coordination loop: per round, collect a requirement snapshot, solve
-/// the round on share keys, apply the patches, and (between rounds)
-/// retarget frames at the written-back targets; final propagation pushes
-/// coordinated plot areas and scale ranges to descendants once the rounds
-/// settle. `stop_at` maps the public checkpoints onto round boundaries and
-/// returns `None` when the run stops early.
-async fn run_facet_coordination_rounds(
+/// The coordination pass: collect a requirement snapshot, solve the real
+/// facet tree for the channel values, install the solution on every band,
+/// retarget frames at the written-back targets, and propagate final plot
+/// areas and scale ranges to descendants. `stop_at` maps the public
+/// checkpoints onto these stages and returns `None` when the run stops
+/// early.
+async fn run_facet_coordination(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
     stop_at: Option<CoordinationCheckpoint>,
@@ -160,12 +158,10 @@ async fn run_facet_coordination_rounds(
     let mut overflow_convergence = ConvergenceTrace::default();
     let mut shadow_snapshot_hashes: Vec<u64> = Vec::new();
 
-    // ONE round. The round-identity law (P5 census across the full suite:
-    // round-2 snapshots hash-identical to round-1 in 961/961 coordination
-    // runs, idempotence delta 0.0) makes a second collect + install a
-    // byte-identical no-op, so the driver is linear: pass -> install ->
-    // retarget -> final propagation. The retargeted artifact is the
-    // initial pass (they were always input-identical).
+    // One round. Requirement snapshots read only epoch-frozen and
+    // construction-time values, so consecutive collect-and-install passes
+    // are byte-identical no-ops; the driver is linear: pass -> install ->
+    // retarget -> final propagation.
     let snapshot = collect_requirement_snapshot(measurement);
     if crate::facet::tree_solve::shadow_enabled() {
         shadow_snapshot_hashes.push(crate::facet::tree_solve::snapshot_hash(&snapshot));
@@ -174,11 +170,9 @@ async fn run_facet_coordination_rounds(
     // real topology, per-node Region.coordinated reads.
     let sizing = eval_ctx.facet_runtime_sizing_mode();
     let solved = crate::facet::tree_solve::tree_solved_round(measurement, sizing)?;
-    let requirement_pass =
-        build_requirement_pass_with_round(RequirementStage::Initial, snapshot, solved)?;
+    let requirement_pass = build_requirement_pass_with_round(snapshot, solved)?;
     debug!(
         policy = FacetCoordinationPolicy::LABEL,
-        stage = requirement_pass.stage.label(),
         overflow_groups = requirement_pass.diagnostics.overflow_groups,
         boundary_overflow_groups = requirement_pass.diagnostics.boundary_overflow_groups,
         layout_groups = requirement_pass.diagnostics.layout_groups,
@@ -271,9 +265,9 @@ async fn run_facet_coordination_rounds(
         "coordinate_facet_measurement_tree final propagation complete"
     );
 
-    // Shadow census (P5): solve the real tree from the post-everything
-    // state and report channel + geometry deltas against the legacy
-    // pipeline; behavior-neutral, env-gated.
+    // Env-gated shadow diagnostics: re-solve the tree from the settled
+    // state and report slot-vs-live geometry deltas plus the idempotence
+    // and snapshot-identity probes; behavior-neutral.
     if crate::facet::tree_solve::shadow_enabled() {
         crate::facet::tree_solve::run_shadow_census(
             measurement,
@@ -282,9 +276,9 @@ async fn run_facet_coordination_rounds(
         );
     }
 
-    // The retargeted artifact IS the initial pass: round-2 snapshots were
-    // always input-identical to round-1 (the round-identity law), so the
-    // historical second pass carried no new information.
+    // The retargeted artifact IS the initial pass: snapshots are
+    // input-identical across the run (they read only epoch-frozen and
+    // construction-time values).
     let retargeted_requirement_pass = requirement_pass.clone();
     Ok(Some(CoordinationRunArtifacts {
         initial_requirement_pass: requirement_pass,
@@ -349,30 +343,6 @@ fn measurement_node_ids(measurement: &ComponentsMeasurement) -> Vec<Coordination
         },
     );
     node_ids
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn validate_node_set_coverage(
-    label: &str,
-    actual: HashSet<CoordinationNodeKey>,
-    expected: HashSet<CoordinationNodeKey>,
-) -> Result<(), AvengerChartError> {
-    if actual == expected {
-        return Ok(());
-    }
-
-    let missing = expected
-        .difference(&actual)
-        .map(|node| node.path.clone())
-        .collect::<Vec<_>>();
-    let unexpected = actual
-        .difference(&expected)
-        .map(|node| node.path.clone())
-        .collect::<Vec<_>>();
-    Err(AvengerChartError::InternalError(format!(
-        "{label} coverage mismatch: missing={missing:?}, unexpected={unexpected:?}"
-    )))
 }
 
 #[cfg(test)]
@@ -673,10 +643,8 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let (mut measurement, _) = nested_fixture().await?;
 
-        let initial_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let initial_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
 
         let states = depth1_states(&measurement);
@@ -738,10 +706,8 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
 
-        let initial_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let initial_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
         let _retarget_trace = run_retarget(&mut measurement, &eval_ctx).await?;
 
@@ -773,10 +739,8 @@ mod tests {
             "perturbation should make depth-1 local slot counts diverge"
         );
 
-        let retargeted_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let retargeted_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         apply_requirement_pass(&mut measurement, &retargeted_requirement_pass)?;
 
         let states = depth1_states(&measurement);
@@ -860,10 +824,8 @@ mod tests {
     async fn initial_requirement_pass_contains_expected_group_counts_and_node_targets()
     -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
-        let initial_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let initial_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         assert!(!initial_requirement_pass.snapshot.nodes.is_empty());
         assert!(initial_requirement_pass.diagnostics.layout_groups > 0);
         assert_eq!(
@@ -881,10 +843,8 @@ mod tests {
     async fn retarget_trace_records_cell_retarget_and_parent_cross_propagation()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = col_col_fixture().await?;
-        let initial_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let initial_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
         force_root_top_legend_slab(&mut measurement, 18.0);
 
@@ -910,17 +870,13 @@ mod tests {
     async fn retargeted_requirement_pass_distribution_stabilizes_layout_values()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let initial_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let initial_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
         let _retarget_trace = run_retarget(&mut measurement, &eval_ctx).await?;
 
-        let retargeted_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let retargeted_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         assert!(
             !retargeted_requirement_pass
                 .solution
@@ -1264,10 +1220,8 @@ mod tests {
     async fn retarget_trace_node_identity_stable_between_plan_and_execution()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let initial_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let initial_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
 
         let decisions = derive_retarget_decisions(&measurement, &eval_ctx)?;
@@ -1348,10 +1302,8 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
         // Coverage is validated at construction; the `?` exercises it.
-        let initial_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let initial_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         let snapshot_nodes: std::collections::HashSet<CoordinationNodeKey> =
             initial_requirement_pass
                 .snapshot
@@ -1375,10 +1327,8 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let (measurement, _) = nested_fixture().await?;
         // Coverage is validated at construction; the `?` exercises it.
-        let retargeted_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let retargeted_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         let snapshot_nodes: std::collections::HashSet<CoordinationNodeKey> =
             retargeted_requirement_pass
                 .snapshot
@@ -1401,10 +1351,8 @@ mod tests {
     async fn retarget_and_final_propagation_node_identity_stable_across_plan_and_execution()
     -> Result<(), AvengerChartError> {
         let (mut measurement, eval_ctx) = nested_fixture().await?;
-        let initial_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let initial_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         apply_requirement_pass(&mut measurement, &initial_requirement_pass)?;
 
         let decisions = derive_retarget_decisions(&measurement, &eval_ctx)?;
@@ -1421,10 +1369,8 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        let retargeted_requirement_pass = build_requirement_pass(
-            RequirementStage::Initial,
-            collect_requirement_snapshot(&measurement),
-        )?;
+        let retargeted_requirement_pass =
+            build_requirement_pass(collect_requirement_snapshot(&measurement))?;
         apply_requirement_pass(&mut measurement, &retargeted_requirement_pass)?;
 
         let final_propagation_plan = build_final_propagation_plan(&measurement);

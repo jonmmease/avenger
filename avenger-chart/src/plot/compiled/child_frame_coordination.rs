@@ -478,14 +478,12 @@ fn facet_grid_requirements_from_placement(
 }
 
 // Facet bands export layout coordination nodes for alignment DIAGNOSTICS
-// only. The value-apply adapter that once pushed merged grid requirements
-// back into a band (`apply_facet_band_grid_requirements` and friends) was
-// unreachable from any end-to-end chart spec — explicit placement exists
-// only under a leaf-plot-sized facet root, which cannot also be a concat
-// child, and in-chart facet cousins are equalized by the coordination
-// rounds before alignment runs — so it was deleted with the coordinated
-// value stores. The `concat_grid_facet_track_alignment` visual baseline
-// pins the boundary rendering.
+// only — there is no facet value-apply adapter, because none would ever
+// run: applying requires explicit placement, which exists only under a
+// leaf-plot-sized facet root, and a root cannot also be a concat child;
+// in-chart facet cousins are already equalized by facet coordination
+// before alignment runs. The `concat_grid_facet_track_alignment` visual
+// baseline pins the boundary rendering.
 
 pub(crate) fn collect_child_frame_layout_coordination_nodes(
     measurement: &ComponentsMeasurement,

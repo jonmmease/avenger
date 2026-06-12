@@ -716,9 +716,9 @@ impl<C: CoordinateSystem> Plot<C> {
 
     /// Add a parameter that can be used in plot expressions.
     ///
-    /// The parameter is globally shared (`CoordinationScope::Shared`), matching the
-    /// historical single-value behavior. Use [`Plot::add_param_with_sharing`] to
-    /// register a parameter with a finer-grained facet sharing scope.
+    /// The parameter is globally shared (`CoordinationScope::Shared`): one
+    /// value across every facet cell. Use [`Plot::add_param_with_sharing`]
+    /// to register a parameter with a finer-grained facet sharing scope.
     pub fn add_param(mut self, param: Param) -> Self {
         self.param_specs.push(CompiledParamSpec::shared(&param));
         self

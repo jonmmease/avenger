@@ -78,8 +78,7 @@ pub(crate) fn apply_requirement_pass(
             // not in the pass's snapshot.
             if !solution.layout_by_node.contains_key(node_id) {
                 error = Some(AvengerChartError::InternalError(format!(
-                    "{} pass did not include node path {:?}",
-                    requirement_pass.stage.label(),
+                    "requirement pass did not include node path {:?}",
                     node_id.path
                 )));
                 return;
@@ -100,9 +99,8 @@ pub(crate) fn apply_requirement_pass(
 
 /// The retarget walk: derive every node's decisions from the
 /// PRE-retarget state in one read-only pass, then apply them
-/// parent-first. Node coverage and trace alignment are by construction
-/// (the apply walk visits exactly the derive walk's nodes), which is what
-/// retired the former plan/trace validators.
+/// parent-first. Node coverage and trace alignment are by construction:
+/// the apply walk visits exactly the derive walk's nodes.
 pub(crate) async fn run_retarget(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
@@ -143,9 +141,8 @@ fn derive_retarget_decisions_recursive(
         let requirements = base.derive_retarget_requirements(node_id.clone())?;
         let actions =
             FacetCoordinationPolicy::build_retarget_actions(facet_band, &requirements, eval_ctx);
-        // Derivation-coherence invariants (formerly the plan-coverage
-        // validator's per-node checks; node-set coverage itself is by
-        // construction now that decide and apply share one walk).
+        // Derivation-coherence invariants: a decision must be internally
+        // consistent before anything applies it.
         if requirements.child_count != requirements.child_plot_areas.len() {
             return Err(AvengerChartError::InternalError(format!(
                 "retarget requirements for node path {:?} have child_count={} but {} child plot-area sizes",
@@ -300,8 +297,7 @@ fn run_retarget_recursive<'a>(
 
 /// The final-propagation walk: derive every node's decisions from the
 /// pre-propagation state, then apply them. Coverage and trace alignment
-/// are by construction (decide and apply share one traversal), which is
-/// what retired the former plan/trace validators.
+/// are by construction: decide and apply share one traversal.
 pub(crate) fn run_final_propagation(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
@@ -559,7 +555,6 @@ fn run_final_propagation_recursive(
             ))
         })?;
         let child_plans = &planned.child_plans;
-        let planned_parent_cross_size_target = planned.parent_cross_size_target;
         let planned_child_count = planned.child_count;
         let planned_plot_area_adjustments_count = planned.expected_plot_area_adjustments_count;
         let actual_child_count = facet_band.base().child_measurements_iter().count();
@@ -611,8 +606,6 @@ fn run_final_propagation_recursive(
 
         node_results.push(FinalPropagationNodeTrace {
             node_id,
-            axis,
-            planned_parent_cross_size_target,
             planned_child_count,
             planned_child_plan_count: child_plans.len(),
             planned_plot_area_adjustments_count,

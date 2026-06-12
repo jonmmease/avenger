@@ -617,7 +617,7 @@ mod tests {
 
     #[test]
     fn title_band_spans_plot_content_or_full_canvas_chrome() {
-        // Mirrors the legacy column structure
+        // Column structure under test:
         // [margin 10][overflow-left 35][plot 338][overflow-right 7][legend 57][margin 10]
         // with a 21px title band after a 10px top margin.
         let solution = Frame {

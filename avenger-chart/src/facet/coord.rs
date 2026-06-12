@@ -480,7 +480,7 @@ impl FacetBandProbeMeasurement {
 }
 
 /// The zero envelope an uncoordinated band reads as its whole-band
-/// overflow (the law the legacy non-`Option` store encoded).
+/// overflow.
 fn default_overflow() -> &'static CoordinatedOverflow {
     use std::sync::OnceLock;
     static DEFAULT: OnceLock<CoordinatedOverflow> = OnceLock::new();
@@ -525,7 +525,7 @@ impl FacetBandCoordMeasurement {
     }
 
     /// The coordinated whole-band overflow (the zero envelope before
-    /// coordination — the law the legacy non-`Option` store encoded).
+    /// coordination).
     pub(crate) fn active_overflow(&self) -> &CoordinatedOverflow {
         self.solution_overflow().unwrap_or(default_overflow())
     }
@@ -637,8 +637,9 @@ impl FacetBandCoordMeasurement {
         });
     }
 
-    /// Reset realized legend-slab ownership when coordinated values change
-    /// (the law every legacy value setter applied).
+    /// Reset realized legend-slab ownership when coordinated values
+    /// change (realized slabs derive from the active values, so any
+    /// coordinated-value write invalidates them).
     pub(crate) fn clear_realized_owned_legend_slabs(&mut self) {
         self.allocation_ownership = self
             .allocation_ownership

@@ -278,8 +278,9 @@ mod tests {
         }
     }
 
-    /// The Layout-backed solve is byte-identical to the legacy band solver
-    /// for every placed float and boundary target.
+    /// Placed floats and boundary targets are contractual: byte-stable
+    /// consumers compare them by equality, so the expected values are
+    /// pinned literals.
     #[test]
     fn horizontal_fixed_size_children_compute_expected_starts() {
         let placement = BandSolution::solve(

@@ -237,8 +237,8 @@ mod tests {
         }
     }
 
-    /// Pinned frame-solver values across the three sizing modes (these are
-    /// the legacy solver's exact outputs, kept as literals).
+    /// Pinned frame-solver values across the three sizing modes (exact
+    /// expected outputs, kept as literals).
     #[test]
     fn declared_frame_solves_all_modes() {
         let view = chart(

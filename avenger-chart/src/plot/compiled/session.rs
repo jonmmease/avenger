@@ -370,8 +370,8 @@ impl ScopedParamStore {
                 .unwrap_or_else(|| spec.default.clone());
             result.insert(name.clone(), value);
         }
-        // Preserve any root values for names that are not registered specs so the
-        // historical flat `set_params` behavior (which kept extra keys) holds.
+        // Preserve root values for names without registered specs: flat
+        // `set_params` keeps extra keys.
         for (key, value) in &self.values {
             if key.owner_path.is_empty() && !self.specs.contains_key(&key.name) {
                 result.insert(key.name.clone(), value.clone());

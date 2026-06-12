@@ -133,8 +133,9 @@ collect-and-install was always a byte-identical no-op):
   solve).
 
 The public `CoordinationCheckpoint` variants map onto these stages
-(`RetargetedRequirementsApplied` is post-retarget; the historical second
-round it named carried no information).
+(`RetargetedRequirementsApplied` is post-retarget: requirement snapshots
+read only epoch-frozen and construction-time values, so a re-collected
+pass would be identical to the initial one).
 
 Rendering resolves `FacetBandPlacement` through `facet/placement.rs`, converts
 that placement to child-frame render placements, and calls
@@ -159,17 +160,17 @@ manual or repeat-generated container siblings without grouping unrelated
 facet fields.
 
 Facet nodes participate in the generic pass for DIAGNOSTICS only (group
-membership, merged requirements, deltas). The value-apply adapter that
-once pushed merged grid requirements back into a band was deleted: its
-apply guard required explicit placement, which exists only under a
-leaf-plot-sized facet root — and a root cannot also be a concat child,
-so no multi-member alignment group could ever reach a band the guard
-admitted (in-chart facet cousins are already equalized by the
-coordination pass before alignment runs). The
-`concat_grid_facet_track_alignment` visual baseline pins the closest
-reachable boundary rendering. `coordinate_facet_measurement_tree`
-remains the authoritative facet retarget/final-propagation path; concat
-containers are the only apply-capable alignment kinds.
+membership, merged requirements, deltas) — there is no facet
+value-apply adapter, because none would ever run: applying requires
+explicit placement, which exists only under a leaf-plot-sized facet
+root, and a root cannot also be a concat child, so no multi-member
+alignment group can reach an applicable band (in-chart facet cousins
+are already equalized by the coordination pass before alignment runs).
+The `concat_grid_facet_track_alignment` visual baseline pins the
+closest reachable boundary rendering.
+`coordinate_facet_measurement_tree` is the authoritative facet
+retarget/final-propagation path; concat containers are the only
+apply-capable alignment kinds.
 
 ## Coordination
 

@@ -39,19 +39,6 @@ impl CoordinationNodeKey {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RequirementStage {
-    Initial,
-}
-
-impl RequirementStage {
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::Initial => "initial requirements",
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct RequirementNodeSnapshot {
     pub(crate) node_id: CoordinationNodeKey,
@@ -84,7 +71,6 @@ pub(crate) struct RoundDiagnostics {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RequirementPass {
-    pub(crate) stage: RequirementStage,
     pub(crate) snapshot: RequirementSnapshot,
     /// The round's product: post-adjustment per-node channel values. The
     /// apply walk installs this Arc on every band.
@@ -248,10 +234,9 @@ pub(crate) struct RetargetNodePlan {
     pub(crate) actions: RetargetNodeActions,
 }
 
-/// Per-node summary of one applied retarget decision. The `planned_*`
-/// mirror fields died with the trace-alignment validator (alignment is by
-/// construction in the fused walk); `node_id`, `axis`, and the decision
-/// counts remain for test assertions.
+/// Per-node summary of one applied retarget decision. `node_id`, `axis`,
+/// and the decision counts exist for test assertions; the rest feeds the
+/// driver's run-level logging.
 #[derive(Debug, Clone)]
 pub(crate) struct RetargetNodeTrace {
     #[cfg_attr(not(test), allow(dead_code))]
@@ -300,6 +285,7 @@ pub(crate) struct FinalPropagationNodePlan {
     pub(crate) node_id: CoordinationNodeKey,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) axis: FacetAxis,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) parent_cross_size_target: Option<f32>,
     pub(crate) child_count: usize,
     pub(crate) child_plans: Vec<FinalPropagationChildPlan>,
@@ -310,10 +296,6 @@ pub(crate) struct FinalPropagationNodePlan {
 pub(crate) struct FinalPropagationNodeTrace {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) node_id: CoordinationNodeKey,
-    #[allow(dead_code)]
-    pub(crate) axis: FacetAxis,
-    #[allow(dead_code)]
-    pub(crate) planned_parent_cross_size_target: Option<f32>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) planned_child_count: usize,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -526,11 +508,10 @@ fn set_overflow_side(overflow: &mut OverflowSpaceRequirement, side: AxisPosition
 /// [`build_requirement_pass_with_round`].
 #[cfg(test)]
 pub(crate) fn build_requirement_pass(
-    stage: RequirementStage,
     snapshot: RequirementSnapshot,
 ) -> Result<RequirementPass, AvengerChartError> {
     let solved = test_solved_round(&snapshot.nodes);
-    build_requirement_pass_with_round(stage, snapshot, solved)
+    build_requirement_pass_with_round(snapshot, solved)
 }
 
 /// FIXTURE FOLD (tests only): a `SolvedRound` from plain group-max merges
@@ -678,7 +659,6 @@ pub(crate) fn test_solved_round(
 /// folds, write-back adjustments, and solution construction live here,
 /// with solution coverage validated at construction.
 pub(crate) fn build_requirement_pass_with_round(
-    stage: RequirementStage,
     snapshot: RequirementSnapshot,
     solved: crate::facet::tree_solve::SolvedRound,
 ) -> Result<RequirementPass, AvengerChartError> {
@@ -705,7 +685,7 @@ pub(crate) fn build_requirement_pass_with_round(
 
     // Full-overflow channel: each measured node's group-equalized envelope
     // from the solved round (the keyed map hands the value to overflow-less
-    // cousins through the solution lookup, as the legacy merge did).
+    // cousins through the solution lookup).
     let mut overflow_by_key = HashMap::new();
     let mut full_overflow_deltas = RoundDeltas::default();
     for node in nodes {
@@ -753,10 +733,9 @@ pub(crate) fn build_requirement_pass_with_round(
         &boundary_overflow_by_key,
         &solved.merged_by_key,
     );
-    validate_round_solution_coverage(stage, nodes, &solution)?;
+    validate_round_solution_coverage(nodes, &solution)?;
 
     Ok(RequirementPass {
-        stage,
         snapshot,
         solution: Arc::new(solution),
         layout_round_deltas,
@@ -767,13 +746,11 @@ pub(crate) fn build_requirement_pass_with_round(
 
 /// Construction-time coverage law: the layout channel covers every snapshot
 /// node, and the three overflow channels cover exactly the overflow-bearing
-/// nodes (formerly `validate_requirement_coverage` over the patch maps).
+/// nodes.
 fn validate_round_solution_coverage(
-    stage: RequirementStage,
     nodes: &[RequirementNodeSnapshot],
     solution: &CoordinationSolution,
 ) -> Result<(), AvengerChartError> {
-    let stage_label = stage.label();
     let validate = |label: &str,
                     actual: HashSet<&CoordinationNodeKey>,
                     expected: HashSet<&CoordinationNodeKey>|
@@ -790,7 +767,7 @@ fn validate_round_solution_coverage(
             .map(|node| node.path.clone())
             .collect::<Vec<_>>();
         Err(AvengerChartError::InternalError(format!(
-            "{stage_label} {label} coverage mismatch: missing={missing:?}, unexpected={unexpected:?}"
+            "requirement {label} coverage mismatch: missing={missing:?}, unexpected={unexpected:?}"
         )))
     };
 
@@ -1044,8 +1021,8 @@ mod tests {
         CoordinationScopeKey::container_group(CoordinationKind::ChildSize, depth, identity)
     }
 
-    fn build_pass(stage: RequirementStage, snapshot: RequirementSnapshot) -> RequirementPass {
-        build_requirement_pass(stage, snapshot).expect("requirement pass builds")
+    fn build_pass(snapshot: RequirementSnapshot) -> RequirementPass {
+        build_requirement_pass(snapshot).expect("requirement pass builds")
     }
 
     #[test]
@@ -1094,7 +1071,7 @@ mod tests {
             ],
         };
 
-        let pass = build_pass(RequirementStage::Initial, snapshot);
+        let pass = build_pass(snapshot);
         assert_eq!(pass.snapshot.nodes.len(), 2);
         assert_eq!(pass.diagnostics.overflow_groups, 1);
         assert_eq!(pass.diagnostics.layout_groups, 1);
@@ -1107,43 +1084,40 @@ mod tests {
         let key = scope_key(2, "col:team");
         let left_node = CoordinationNodeKey::new(vec![0, 0]);
         let right_node = CoordinationNodeKey::new(vec![1, 0]);
-        let pass = build_pass(
-            RequirementStage::Initial,
-            RequirementSnapshot {
-                nodes: vec![
-                    RequirementNodeSnapshot {
-                        node_id: left_node.clone(),
-                        key: key.clone(),
-                        axis: FacetAxis::Column,
-                        slot_sharing: SharingLevel::FREE,
-                        min_slot_count: 0,
-                        overflow_cells: None,
-                        local_layout: CoordinatedLayout {
-                            n: 1,
-                            ..Default::default()
-                        },
-                        guide_padding_inner_px: 0.0,
-                        first_edge_index: 0,
-                        last_edge_index: 0,
+        let pass = build_pass(RequirementSnapshot {
+            nodes: vec![
+                RequirementNodeSnapshot {
+                    node_id: left_node.clone(),
+                    key: key.clone(),
+                    axis: FacetAxis::Column,
+                    slot_sharing: SharingLevel::FREE,
+                    min_slot_count: 0,
+                    overflow_cells: None,
+                    local_layout: CoordinatedLayout {
+                        n: 1,
+                        ..Default::default()
                     },
-                    RequirementNodeSnapshot {
-                        node_id: right_node.clone(),
-                        key,
-                        axis: FacetAxis::Column,
-                        slot_sharing: SharingLevel::FREE,
-                        min_slot_count: 0,
-                        overflow_cells: None,
-                        local_layout: CoordinatedLayout {
-                            n: 3,
-                            ..Default::default()
-                        },
-                        guide_padding_inner_px: 0.0,
-                        first_edge_index: 0,
-                        last_edge_index: 2,
+                    guide_padding_inner_px: 0.0,
+                    first_edge_index: 0,
+                    last_edge_index: 0,
+                },
+                RequirementNodeSnapshot {
+                    node_id: right_node.clone(),
+                    key,
+                    axis: FacetAxis::Column,
+                    slot_sharing: SharingLevel::FREE,
+                    min_slot_count: 0,
+                    overflow_cells: None,
+                    local_layout: CoordinatedLayout {
+                        n: 3,
+                        ..Default::default()
                     },
-                ],
-            },
-        );
+                    guide_padding_inner_px: 0.0,
+                    first_edge_index: 0,
+                    last_edge_index: 2,
+                },
+            ],
+        });
 
         assert_eq!(pass.solution.layout_by_node.get(&left_node).unwrap().n, 1);
         assert_eq!(pass.solution.layout_by_node.get(&right_node).unwrap().n, 3);
@@ -1153,26 +1127,23 @@ mod tests {
     fn free_slot_requirement_patches_preserve_minimum_physical_slot_count() {
         let key = scope_key(2, "col:wrap_row");
         let ragged_row = CoordinationNodeKey::new(vec![1]);
-        let pass = build_pass(
-            RequirementStage::Initial,
-            RequirementSnapshot {
-                nodes: vec![RequirementNodeSnapshot {
-                    node_id: ragged_row.clone(),
-                    key,
-                    axis: FacetAxis::Column,
-                    slot_sharing: SharingLevel::FREE,
-                    min_slot_count: 5,
-                    overflow_cells: None,
-                    local_layout: CoordinatedLayout {
-                        n: 2,
-                        ..Default::default()
-                    },
-                    guide_padding_inner_px: 0.0,
-                    first_edge_index: 0,
-                    last_edge_index: 1,
-                }],
-            },
-        );
+        let pass = build_pass(RequirementSnapshot {
+            nodes: vec![RequirementNodeSnapshot {
+                node_id: ragged_row.clone(),
+                key,
+                axis: FacetAxis::Column,
+                slot_sharing: SharingLevel::FREE,
+                min_slot_count: 5,
+                overflow_cells: None,
+                local_layout: CoordinatedLayout {
+                    n: 2,
+                    ..Default::default()
+                },
+                guide_padding_inner_px: 0.0,
+                first_edge_index: 0,
+                last_edge_index: 1,
+            }],
+        });
 
         assert_eq!(pass.solution.layout_by_node.get(&ragged_row).unwrap().n, 5);
     }
@@ -1182,43 +1153,40 @@ mod tests {
         let key = scope_key(2, "col:team");
         let left_node = CoordinationNodeKey::new(vec![0, 0]);
         let right_node = CoordinationNodeKey::new(vec![1, 0]);
-        let pass = build_pass(
-            RequirementStage::Initial,
-            RequirementSnapshot {
-                nodes: vec![
-                    RequirementNodeSnapshot {
-                        node_id: left_node.clone(),
-                        key: key.clone(),
-                        axis: FacetAxis::Column,
-                        slot_sharing: SharingLevel::GLOBAL,
-                        min_slot_count: 0,
-                        overflow_cells: None,
-                        local_layout: CoordinatedLayout {
-                            n: 1,
-                            ..Default::default()
-                        },
-                        guide_padding_inner_px: 0.0,
-                        first_edge_index: 0,
-                        last_edge_index: 0,
+        let pass = build_pass(RequirementSnapshot {
+            nodes: vec![
+                RequirementNodeSnapshot {
+                    node_id: left_node.clone(),
+                    key: key.clone(),
+                    axis: FacetAxis::Column,
+                    slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
+                    overflow_cells: None,
+                    local_layout: CoordinatedLayout {
+                        n: 1,
+                        ..Default::default()
                     },
-                    RequirementNodeSnapshot {
-                        node_id: right_node.clone(),
-                        key,
-                        axis: FacetAxis::Column,
-                        slot_sharing: SharingLevel::GLOBAL,
-                        min_slot_count: 0,
-                        overflow_cells: None,
-                        local_layout: CoordinatedLayout {
-                            n: 3,
-                            ..Default::default()
-                        },
-                        guide_padding_inner_px: 0.0,
-                        first_edge_index: 0,
-                        last_edge_index: 2,
+                    guide_padding_inner_px: 0.0,
+                    first_edge_index: 0,
+                    last_edge_index: 0,
+                },
+                RequirementNodeSnapshot {
+                    node_id: right_node.clone(),
+                    key,
+                    axis: FacetAxis::Column,
+                    slot_sharing: SharingLevel::GLOBAL,
+                    min_slot_count: 0,
+                    overflow_cells: None,
+                    local_layout: CoordinatedLayout {
+                        n: 3,
+                        ..Default::default()
                     },
-                ],
-            },
-        );
+                    guide_padding_inner_px: 0.0,
+                    first_edge_index: 0,
+                    last_edge_index: 2,
+                },
+            ],
+        });
 
         assert_eq!(pass.solution.layout_by_node.get(&left_node).unwrap().n, 3);
         assert_eq!(pass.solution.layout_by_node.get(&right_node).unwrap().n, 3);
@@ -1233,34 +1201,31 @@ mod tests {
         let right_top_team = CoordinationNodeKey::new(vec![1, 0]);
         let left_bottom_team = CoordinationNodeKey::new(vec![0, 1]);
 
-        let pass = build_pass(
-            RequirementStage::Initial,
-            RequirementSnapshot {
-                nodes: vec![
-                    snapshot_node(&[], &outer_col_key, FacetAxis::Column, None),
-                    snapshot_node(&[0], &row_key, FacetAxis::Row, None),
-                    snapshot_node(&[1], &row_key, FacetAxis::Row, None),
-                    snapshot_node(
-                        &[0, 0],
-                        &team_key,
-                        FacetAxis::Column,
-                        Some(overflow(11.0, 0.0, 0.0, 0.0)),
-                    ),
-                    snapshot_node(
-                        &[1, 0],
-                        &team_key,
-                        FacetAxis::Column,
-                        Some(overflow(29.0, 0.0, 0.0, 0.0)),
-                    ),
-                    snapshot_node(
-                        &[0, 1],
-                        &team_key,
-                        FacetAxis::Column,
-                        Some(overflow(43.0, 0.0, 0.0, 0.0)),
-                    ),
-                ],
-            },
-        );
+        let pass = build_pass(RequirementSnapshot {
+            nodes: vec![
+                snapshot_node(&[], &outer_col_key, FacetAxis::Column, None),
+                snapshot_node(&[0], &row_key, FacetAxis::Row, None),
+                snapshot_node(&[1], &row_key, FacetAxis::Row, None),
+                snapshot_node(
+                    &[0, 0],
+                    &team_key,
+                    FacetAxis::Column,
+                    Some(overflow(11.0, 0.0, 0.0, 0.0)),
+                ),
+                snapshot_node(
+                    &[1, 0],
+                    &team_key,
+                    FacetAxis::Column,
+                    Some(overflow(29.0, 0.0, 0.0, 0.0)),
+                ),
+                snapshot_node(
+                    &[0, 1],
+                    &team_key,
+                    FacetAxis::Column,
+                    Some(overflow(43.0, 0.0, 0.0, 0.0)),
+                ),
+            ],
+        });
 
         assert_eq!(
             pass.solution
@@ -1300,34 +1265,31 @@ mod tests {
         let bottom_left_team = CoordinationNodeKey::new(vec![1, 0]);
         let top_right_team = CoordinationNodeKey::new(vec![0, 1]);
 
-        let pass = build_pass(
-            RequirementStage::Initial,
-            RequirementSnapshot {
-                nodes: vec![
-                    snapshot_node(&[], &outer_row_key, FacetAxis::Row, None),
-                    snapshot_node(&[0], &col_key, FacetAxis::Column, None),
-                    snapshot_node(&[1], &col_key, FacetAxis::Column, None),
-                    snapshot_node(
-                        &[0, 0],
-                        &team_key,
-                        FacetAxis::Row,
-                        Some(overflow(0.0, 17.0, 0.0, 0.0)),
-                    ),
-                    snapshot_node(
-                        &[1, 0],
-                        &team_key,
-                        FacetAxis::Row,
-                        Some(overflow(0.0, 31.0, 0.0, 0.0)),
-                    ),
-                    snapshot_node(
-                        &[0, 1],
-                        &team_key,
-                        FacetAxis::Row,
-                        Some(overflow(0.0, 47.0, 0.0, 0.0)),
-                    ),
-                ],
-            },
-        );
+        let pass = build_pass(RequirementSnapshot {
+            nodes: vec![
+                snapshot_node(&[], &outer_row_key, FacetAxis::Row, None),
+                snapshot_node(&[0], &col_key, FacetAxis::Column, None),
+                snapshot_node(&[1], &col_key, FacetAxis::Column, None),
+                snapshot_node(
+                    &[0, 0],
+                    &team_key,
+                    FacetAxis::Row,
+                    Some(overflow(0.0, 17.0, 0.0, 0.0)),
+                ),
+                snapshot_node(
+                    &[1, 0],
+                    &team_key,
+                    FacetAxis::Row,
+                    Some(overflow(0.0, 31.0, 0.0, 0.0)),
+                ),
+                snapshot_node(
+                    &[0, 1],
+                    &team_key,
+                    FacetAxis::Row,
+                    Some(overflow(0.0, 47.0, 0.0, 0.0)),
+                ),
+            ],
+        });
 
         assert_eq!(
             pass.solution
@@ -1365,26 +1327,23 @@ mod tests {
         let left_team = CoordinationNodeKey::new(vec![0]);
         let right_team = CoordinationNodeKey::new(vec![1]);
 
-        let pass = build_pass(
-            RequirementStage::Initial,
-            RequirementSnapshot {
-                nodes: vec![
-                    snapshot_node(&[], &division_key, FacetAxis::Column, None),
-                    snapshot_node(
-                        &[0],
-                        &team_key,
-                        FacetAxis::Column,
-                        Some(overflow(13.0, 0.0, 0.0, 0.0)),
-                    ),
-                    snapshot_node(
-                        &[1],
-                        &team_key,
-                        FacetAxis::Column,
-                        Some(overflow(37.0, 0.0, 0.0, 0.0)),
-                    ),
-                ],
-            },
-        );
+        let pass = build_pass(RequirementSnapshot {
+            nodes: vec![
+                snapshot_node(&[], &division_key, FacetAxis::Column, None),
+                snapshot_node(
+                    &[0],
+                    &team_key,
+                    FacetAxis::Column,
+                    Some(overflow(13.0, 0.0, 0.0, 0.0)),
+                ),
+                snapshot_node(
+                    &[1],
+                    &team_key,
+                    FacetAxis::Column,
+                    Some(overflow(37.0, 0.0, 0.0, 0.0)),
+                ),
+            ],
+        });
 
         assert_eq!(
             pass.solution
@@ -1474,7 +1433,7 @@ mod tests {
             ],
         };
 
-        let pass = build_pass(RequirementStage::Initial, snapshot);
+        let pass = build_pass(snapshot);
 
         // The lane fold raises the inner column's guide gap to the lane max
         // (36 from the outer column) while padding keeps the inner group's
@@ -1589,7 +1548,7 @@ mod tests {
             ],
         };
 
-        let pass = build_pass(RequirementStage::Initial, snapshot);
+        let pass = build_pass(snapshot);
 
         assert_eq!(
             pass.solution
@@ -1655,7 +1614,7 @@ mod tests {
             ],
         };
 
-        let pass = build_pass(RequirementStage::Initial, snapshot);
+        let pass = build_pass(snapshot);
 
         assert_eq!(
             pass.solution
@@ -1739,7 +1698,7 @@ mod tests {
             ],
         };
 
-        let pass = build_pass(RequirementStage::Initial, snapshot);
+        let pass = build_pass(snapshot);
         let full = pass
             .solution
             .overflow_by_node
@@ -1819,7 +1778,7 @@ mod tests {
             ],
         };
 
-        let pass = build_pass(RequirementStage::Initial, snapshot);
+        let pass = build_pass(snapshot);
         assert_eq!(pass.snapshot.nodes.len(), 2);
         assert_eq!(pass.diagnostics.overflow_groups, 1);
         assert_eq!(pass.diagnostics.layout_groups, 1);

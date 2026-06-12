@@ -14,24 +14,23 @@
 //!   `EdgeDemand::from_inner_and_envelope` per side from the epoch
 //!   envelopes (renderable-index aligned, like the band envelope fold).
 //! - Nested-band cells lower behind a TWO-WRAPPER boundary (the channel
-//!   contract law, locked in 2026-06-11; see
+//!   contract law, pinned by
 //!   `nested_boundary_two_wrapper_overrides_child_classification`): a
 //!   band's channel edges are its OWN epoch cell folds, INCLUDING the
 //!   parent level's guide/legend classification, which legitimately
 //!   differs from the child's structural layering. A CONTAINED
 //!   (`SolveFor::Content`) wrapper zeroes the child's structural lift
 //!   toward the parent, and an Envelope wrapper around it declares the
-//!   cell's FULL epoch envelope as layered chrome. Per-layer residual
-//!   chrome double-counts reclassified space and is wrong.
+//!   cell's FULL epoch envelope as layered chrome — per-layer residual
+//!   chrome would double-count reclassified space.
 //! - Cross-band cousins share `coordination_scope_key_for_depth` keys in
 //!   ONE tree; `uniform_*` is set per band axis iff every cell is a leaf
 //!   (uniform equalization is a no-op there and buys the ragged-tolerant
 //!   spacing merge); ghost slots pad to the active slot count, floored by
 //!   `min_slot_count`, with the trailing edge cell's demand mirrored onto
 //!   the last ghost (renderable-edge law).
-//! - Spacing lowers RAW (`padding_inner_px` as `min_gap`, like the legacy
-//!   round lowering); the placement-time `main_axis_gap` floor stays a
-//!   render-side concern.
+//! - Spacing lowers RAW (`padding_inner_px` as `min_gap`); the
+//!   placement-time `main_axis_gap` floor stays a render-side concern.
 //! - Physical axes are content-driven when any band with that main axis
 //!   uses explicit placement (else by sizing policy); constrained axes
 //!   pin the root `SolveOptions` at the facet root's plot area and
@@ -39,7 +38,8 @@
 //!
 //! Channel reads use `Region.coordinated` (the node's own post-share ask;
 //! `granted` would fold in unrelated siblings) — guide from `.inner`,
-//! total from `.total`, which reproduces the legacy cross-cousin lift.
+//! total from `.total`, carrying the cross-cousin lift (a merged side
+//! holds every member's layers at once).
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -148,11 +148,9 @@ pub(crate) fn lower_facet_tree(
 
     let mut bands = Vec::new();
     let mut node_path = Vec::new();
-    let mut layout_path = Vec::new();
     let layout = lower_band(
         root_band,
         &mut node_path,
-        &mut layout_path,
         0,
         (x_content_driven, y_content_driven),
         overrides,
@@ -238,7 +236,6 @@ fn apply_demands(
 fn lower_band(
     band: &FacetBandCoordMeasurement,
     node_path: &mut Vec<usize>,
-    layout_path: &mut Vec<usize>,
     depth: usize,
     content_driven: (bool, bool),
     overrides: Option<&CellSizeOverrides>,
@@ -257,20 +254,15 @@ fn lower_band(
             all_leaves = false;
             let nested_band = nested.base();
             node_path.push(idx);
-            layout_path.push(idx);
-            layout_path.push(0);
             let child = lower_band(
                 nested_band,
                 node_path,
-                layout_path,
                 depth + 1,
                 content_driven,
                 overrides,
                 bands,
             );
             node_path.pop();
-            layout_path.pop();
-            layout_path.pop();
             // Two-wrapper boundary. Channel contract: a band's coordinated
             // edges are its OWN epoch cell folds — including each level's
             // guide/legend classification, which can legitimately differ
@@ -279,8 +271,8 @@ fn lower_band(
             // is CONTAINED (SolveFor::Content zeroes the child's boundary
             // lift toward the parent), and the outer wrapper declares the
             // cell's FULL epoch envelope as layered chrome — the parent
-            // sees exactly what the legacy per-band fold saw, while the
-            // real nested structure still solves inside for geometry.
+            // sees exactly the cell's epoch envelope, while the real
+            // nested structure still solves inside for geometry.
             let contained = Layout::row(vec![child]).sizing(avenger_layout::SolveFor::Content);
             let mut wrapper = Layout::row(vec![contained]);
             if let Some((cell_guide, cell_total)) = &cell_envelope {
@@ -391,12 +383,12 @@ fn lower_band(
     }
     if cell_nodes.is_empty() {
         // Cell-less bands keep one zero placeholder leaf (the zero
-        // envelope), as the legacy round lowering did.
+        // envelope).
         cell_nodes.push(Layout::leaf(Size::default()));
     }
 
     // Spacing lowers RAW local declarations; the share merge raises them
-    // across cousins exactly like the legacy round solve.
+    // across cousins.
     let spacing = Spacing {
         outer_start: band.local_layout.outer_start,
         outer_end: band.local_layout.outer_end,
@@ -422,7 +414,8 @@ fn lower_band(
     // Free space follows the physical axis mode: a constrained axis
     // distributes it across tracks (the equal-share law); a
     // content-driven axis keeps natural track sizes and lets free space
-    // trail (the legacy never stretches content-realized extents).
+    // trail (content-realized extents are measured facts — stretching
+    // them would falsify the measurement).
     let distribute_for = |is_content_driven: bool| {
         if is_content_driven {
             avenger_layout::Distribute::Start
@@ -448,8 +441,7 @@ fn lower_band(
     grid
 }
 
-/// Channel values extracted from one real-tree solve, shaped like the
-/// legacy `SolvedRound` maps for comparison (and, in P6, replacement).
+/// Per-node channel values extracted from one real-tree solve.
 pub(crate) struct TreeChannels {
     pub(crate) layout_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
     pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
@@ -459,10 +451,9 @@ pub(crate) struct TreeChannels {
 ///
 /// - Spacing comes from the band grid's solved tracks (post share-merge);
 ///   the `n` and `guide_slot_gap_px` scalars fold chart-side over the
-///   share group exactly like the legacy round's PRE-adjustment merge
-///   (`SolvedRound.merged_by_node`). The write-back adjustments (free-n
-///   reversion, lane-gap fold, global-edge outer reversion) stay in
-///   `build_round_solution`, which in P6 runs on top of these values.
+///   share group. These are PRE-adjustment values: the write-back
+///   adjustments (free-n reversion, lane-gap fold, global-edge outer
+///   reversion) apply in `build_round_solution` on top of them.
 /// - Overflow comes from the band's `Region.coordinated` edges: guide
 ///   from `.inner`, total from `.total` (the cross-cousin lift).
 pub(crate) fn extract_channels(
@@ -507,11 +498,6 @@ pub(crate) fn extract_channels(
             },
         );
         if band.has_overflow_cells {
-            let (main_lead, main_trail) = match band.axis {
-                FacetAxis::Column => (Side::Left, Side::Right),
-                FacetAxis::Row => (Side::Top, Side::Bottom),
-            };
-            let _ = (main_lead, main_trail);
             let coordinated = &region.coordinated;
             overflow_by_node.insert(
                 band.node_id.clone(),
@@ -538,20 +524,18 @@ pub(crate) fn extract_channels(
     }
 }
 
-/// Produce the legacy `SolvedRound` shape from one real-tree solve — the
-/// P6 channel seam: `build_requirement_pass_with_round` consumes this in
-/// place of the diagonal `round_tree::solve_round`, and everything
-/// downstream (chart-side folds, write-back adjustments, solution
-/// construction) is unchanged.
+/// Produce one coordination round's channel values from a real-tree
+/// solve. `build_requirement_pass_with_round` consumes the result;
+/// chart-side folds, write-back adjustments, and solution construction
+/// follow from there.
 ///
 /// - `merged_by_node` spacing comes from solved tracks (share-merged);
 ///   `n`/`guide_slot_gap_px` fold over share groups (pre-adjustment
-///   values, like the legacy).
+///   values — `build_round_solution` applies the write-backs).
 /// - `overflow_by_node` reads `Region.coordinated` (guide = inner,
-///   total = total): each node's own post-share ask, which in a real
-///   tree also carries ancestor-honest growth from nested members.
-/// - `own_overflow_by_node` keeps the legacy own-envelope law: guide
-///   from pass-1 `requested.inner`, total from the raw `geometric` view.
+///   total = total): each node's own post-share ask.
+/// - `own_overflow_by_node` is the own-envelope law: guide from pass-1
+///   `requested.inner`, total from the raw `geometric` view.
 ///
 /// Returns an empty round for band-less measurements; a solve failure is
 /// a hard error (the tree solve is the only channel producer).
@@ -614,9 +598,10 @@ pub(crate) fn tree_solved_round(
 
 const SHADOW_EPS: f32 = 0.01;
 
-/// Run the shadow census for one coordination run: solve the real tree
-/// from the post-everything measurement state and report channel +
-/// geometry deltas against the legacy pipeline's settled values.
+/// Env-gated shadow diagnostics for one coordination run: re-solve the
+/// tree from the settled measurement state and report leaf-slot-vs-live
+/// geometry deltas plus the idempotence and snapshot-identity probes
+/// (the readiness instrument for slot-sourced geometry adoption).
 pub(crate) fn run_shadow_census(
     measurement: &ComponentsMeasurement,
     sizing: FacetRuntimeSizingMode,
@@ -770,19 +755,17 @@ pub(crate) fn snapshot_hash(
 mod tests {
     use avenger_layout::{EdgeDemand, EdgeGrant, Layout, Side, Size, SolveFor, SolveOptions};
 
-    /// The nested-boundary channel contract (confirmed by Jon 2026-06-11:
-    /// the `51fd7a27` baselines are the desired behavior): a parent
-    /// band's channel edges are its OWN epoch cell folds, INCLUDING the
-    /// parent level's guide/legend classification — not the child band's
-    /// structural layering (a chunk-level legend legitimately folds as
-    /// guide at the wrap-row level). The lowering encodes this as the
-    /// two-wrapper boundary; this test pins the mechanism it relies on:
-    /// a CONTAINED (`SolveFor::Content`) wrapper zeroes the child's
-    /// structural lift toward the parent, so the outer wrapper's
-    /// full-epoch chrome alone defines the parent-visible edge. Naive
-    /// per-layer residual chrome double-counts reclassified space
-    /// (42 guide + 42 legend = 84 for the SAME 42px legend) — the bug
-    /// behind the retracted P6a blesses.
+    /// The nested-boundary channel contract: a parent band's channel
+    /// edges are its OWN epoch cell folds, INCLUDING the parent level's
+    /// guide/legend classification — not the child band's structural
+    /// layering (a chunk-level legend legitimately folds as guide at the
+    /// wrap-row level). The lowering encodes this as the two-wrapper
+    /// boundary; this test pins the mechanism it relies on: a CONTAINED
+    /// (`SolveFor::Content`) wrapper zeroes the child's structural lift
+    /// toward the parent, so the outer wrapper's full-epoch chrome alone
+    /// defines the parent-visible edge. Naive per-layer residual chrome
+    /// would double-count reclassified space (42 guide + 42 legend = 84
+    /// for the SAME 42px legend).
     #[test]
     fn nested_boundary_two_wrapper_overrides_child_classification() {
         // Child band: one cell whose 42px right edge is structurally
