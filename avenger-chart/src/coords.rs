@@ -39,13 +39,10 @@ pub struct CellDomainInfo {
     pub extent: DomainExtent,
 }
 
-/// This is the main entry point for overflow coordination. It:
-/// 1. Collects overflow values by nesting depth
-/// 2. Computes max overflow at each depth level
-/// 3. Distributes coordinated values to all facets
-/// 4. Coordinates layout parameters (padding, cell count) by depth
-/// 5. Retargets subplot geometry and scale ranges affected by legend overflow
-///    or layout coordination
+/// This is the main entry point for overflow coordination: one
+/// fold -> solve -> install -> adopt pass over the facet measurement
+/// tree (snapshot the bands, solve the real tree once, install the
+/// channel solution, adopt the implied geometry).
 ///
 /// Shared plot-scale domains are coordinated before facet overflow measurement,
 /// so this pass only reconciles measured layout requirements.

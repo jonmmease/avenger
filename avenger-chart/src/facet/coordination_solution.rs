@@ -1,15 +1,15 @@
 //! The durable artifact of one facet coordination run.
 //!
 //! Each coordination round produces one [`CoordinationSolution`]: the
-//! post-adjustment per-node channel values (the free-slot, lane-gap, and
-//! global-edge adjustments are solution properties applied at
-//! construction) plus the per-key aggregates and round deltas the driver
-//! logs. Bands hold an `Arc` handle to the round they last participated
-//! in and read their coordinated values as views into it, falling back to
-//! local values pre-coordination.
+//! per-node channel values, with the lane-gap fold and global-edge outer
+//! reversion applied at construction (slot counts arrive pre-folded —
+//! the free-slot law lives in the pre-solve fold, `compute_band_folds`).
+//! Bands hold an `Arc` handle to the round they last participated in and
+//! read their coordinated values as views into it, falling back to local
+//! values pre-coordination.
 //!
-//! A band rebuilt during retargeting briefly has no handle until the next
-//! round installs one; every read path keeps the local fallback.
+//! A freshly (re)built band briefly has no handle until the next round
+//! installs one; every read path keeps the local fallback.
 
 use std::collections::HashMap;
 
@@ -24,9 +24,11 @@ pub(crate) struct CoordinationSolution {
     pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) guide_anchor_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) boundary_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
-    /// The round's retained solve (lowered tree + solution): the
-    /// geometry-adoption source and the envelope-remap substrate. `None`
-    /// for fixture-built solutions.
+    /// The round's retained solve (lowered tree + solution), kept only
+    /// for the shadow census (`AVENGER_SHADOW_TREE_SOLVE=1`), whose
+    /// adoption probe compares this install-time geometry against the
+    /// settled re-solve. `None` in normal runs and for fixture-built
+    /// solutions.
     pub(crate) retained: Option<std::sync::Arc<crate::facet::tree_solve::RetainedFacetSolve>>,
 }
 

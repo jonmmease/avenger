@@ -358,7 +358,6 @@ pub(crate) fn test_solved_round(
         Some(CoordinatedOverflow { guide, total })
     };
 
-    let mut merged_by_key = HashMap::new();
     let mut merged_by_node = HashMap::new();
     let mut own_overflow_by_node = HashMap::new();
     let mut overflow_by_node = HashMap::new();
@@ -379,7 +378,6 @@ pub(crate) fn test_solved_round(
         if node.slot_sharing.is_free() {
             merged.n = node.local_layout.n.max(node.min_slot_count);
         }
-        merged_by_key.insert(share_keys[index].clone(), merged.clone());
         merged_by_node.insert(node.node_id.clone(), merged);
 
         let Some(own) = own_envelope(node) else {
@@ -429,7 +427,6 @@ pub(crate) fn test_solved_round(
     }
 
     crate::facet::tree_solve::SolvedRound {
-        merged_by_key,
         merged_by_node,
         own_overflow_by_node,
         overflow_by_node,
@@ -440,8 +437,8 @@ pub(crate) fn test_solved_round(
 
 /// Build one requirement pass from a solved round (production rounds come
 /// from the real-tree solve, `tree_solve::tree_solved_round`); chart-side
-/// folds, write-back adjustments, and solution construction live here,
-/// with solution coverage validated at construction.
+/// folds, per-node construction adjustments, and solution assembly live
+/// here, with solution coverage validated at construction.
 pub(crate) fn build_requirement_pass_with_round(
     snapshot: RequirementSnapshot,
     solved: crate::facet::tree_solve::SolvedRound,
@@ -505,7 +502,11 @@ pub(crate) fn build_requirement_pass_with_round(
     let diagnostics = RoundDiagnostics {
         overflow_groups: overflow_by_key.len(),
         boundary_overflow_groups: boundary_overflow_by_key.len(),
-        layout_groups: solved.merged_by_key.len(),
+        layout_groups: nodes
+            .iter()
+            .map(|node| node.key.with_kind(CoordinationKind::ChildSize))
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
     };
 
     let mut solution = build_round_solution(
@@ -689,9 +690,10 @@ fn coordinated_layout_delta(local: &CoordinatedLayout, merged: &CoordinatedLayou
     (content, edge)
 }
 
-/// Apply the per-node write-back adjustments (free-n reversion, lane-gap
-/// fold, global-edge outer reversion) and assemble the round's solution
-/// maps from the merged per-key channel values.
+/// Apply the per-node construction adjustments (lane-gap fold,
+/// global-edge outer reversion) and assemble the round's solution maps
+/// from the merged per-node channel values (slot counts arrive
+/// pre-folded — the free-slot law lives in the pre-solve fold).
 fn build_round_solution(
     nodes: &[RequirementNodeSnapshot],
     scopes: &RequirementScopeMetadata,

@@ -158,8 +158,6 @@ impl FacetBandPlacement {
     }
 }
 
-impl FacetCellPlacement {}
-
 pub(crate) fn resolve_scale_backed_facet_band_placement(
     axis: FacetAxis,
     configured: &ConfiguredScale,

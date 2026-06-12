@@ -108,14 +108,13 @@ and adopt walks live in `facet/coordination_apply.rs`.
   band's channel values are its OWN epoch cell folds, including that
   classification), cousins sharing `avenger_layout` keys, ghost slots
   padded to the folded slot count. One solve yields the layout channel
-  (solved track spacing; `guide_slot_gap_px` folds chart-side), the
+  (solved track spacing; `guide_slot_gap_px` folds chart-side) and the
   full-overflow channel (each node's `Region.coordinated` edges — its
-  own post-share ask), and the retained solve
-  (`RetainedFacetSolve`: the lowered tree plus its `LayoutSolution`,
-  re-solvable at a new envelope — the remap law). Guide-anchor and
-  boundary overflow remain chart-side folds over their own scopes
-  (`fold_overflow_entries`): lanes split groups, and boundary strips
-  global edges per node.
+  own post-share ask). When the shadow census is enabled the solve is
+  also retained whole (`RetainedFacetSolve`) for the census's adoption
+  probe. Guide-anchor and boundary overflow remain chart-side folds
+  over their own scopes (`fold_overflow_entries`): lanes split groups,
+  and boundary strips global edges per node.
 - INSTALL (`build_requirement_pass_with_round` +
   `apply_requirement_pass`): the per-node channel values (lane gap
   folds and global-edge outer reversion applied in

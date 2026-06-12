@@ -62,18 +62,19 @@ use crate::render::context::FacetRuntimeSizingMode;
 /// hand-built by test fixture folds, which retain nothing).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SolvedRound {
-    pub(crate) merged_by_key: HashMap<CoordinationScopeKey, CoordinatedLayout>,
     pub(crate) merged_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
     pub(crate) own_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
-    /// The lowered tree and its solution, retained for geometry adoption
-    /// and envelope remaps.
+    /// The lowered tree and its solution, retained only when the shadow
+    /// census is enabled (its adoption probe needs the install-time
+    /// geometry). `None` in normal runs and for fixture folds.
     pub(crate) retained: Option<std::sync::Arc<RetainedFacetSolve>>,
 }
 
-/// One coordination round's solve, retained whole: the lowered tree
-/// (re-solvable at a new envelope — the remap law) and the solution the
-/// channel values were extracted from (the geometry adoption source).
+/// One coordination round's solve, retained whole when the shadow census
+/// is enabled: the lowered tree and the solution the channel values were
+/// extracted from. The census's adoption probe compares this install-time
+/// geometry against the settled re-solve.
 pub(crate) struct RetainedFacetSolve {
     pub(crate) lowered: LoweredFacetTree,
     pub(crate) solution: LayoutSolution<CoordinationNodeKey>,
@@ -556,9 +557,9 @@ pub(crate) struct TreeChannels {
 ///
 /// - Spacing comes from the band grid's solved tracks (post share-merge);
 ///   the `n` and `guide_slot_gap_px` scalars fold chart-side over the
-///   share group. These are PRE-adjustment values: the write-back
-///   adjustments (free-n reversion, lane-gap fold, global-edge outer
-///   reversion) apply in `build_round_solution` on top of them.
+///   share group. These are pre-construction values:
+///   `build_round_solution` applies the remaining per-node adjustments
+///   (lane-gap fold, global-edge outer reversion) on top of them.
 /// - Overflow comes from the band's `Region.coordinated` edges: guide
 ///   from `.inner`, total from `.total` (the cross-cousin lift).
 pub(crate) fn extract_channels(
@@ -628,12 +629,12 @@ pub(crate) fn extract_channels(
 
 /// Produce one coordination round's channel values from a real-tree
 /// solve. `build_requirement_pass_with_round` consumes the result;
-/// chart-side folds, write-back adjustments, and solution construction
-/// follow from there.
+/// chart-side folds and solution construction follow from there.
 ///
 /// - `merged_by_node` spacing comes from solved tracks (share-merged);
-///   `n`/`guide_slot_gap_px` fold over share groups (pre-adjustment
-///   values — `build_round_solution` applies the write-backs).
+///   `n`/`guide_slot_gap_px` fold over share groups
+///   (`build_round_solution` applies the lane-gap and global-edge
+///   adjustments).
 /// - `overflow_by_node` reads `Region.coordinated` (guide = inner,
 ///   total = total): each node's own post-share ask.
 /// - `own_overflow_by_node` is the own-envelope law: guide from pass-1
@@ -653,26 +654,14 @@ pub(crate) fn tree_solved_round(
             "facet tree solve failed: {error}"
         ))
     })?;
-    let retained = RetainedFacetSolve {
-        lowered,
-        solution: solved,
-    };
-    let channels = extract_channels(&retained.lowered, &retained.solution);
+    let channels = extract_channels(&lowered, &solved);
 
     let mut own_overflow_by_node = HashMap::new();
-    let mut merged_by_key = HashMap::new();
-    for band in &retained.lowered.bands {
-        if let Some(layout) = channels.layout_by_node.get(&band.node_id) {
-            merged_by_key.insert(
-                band.key
-                    .with_kind(crate::plot::compiled::CoordinationKind::ChildSize),
-                layout.clone(),
-            );
-        }
+    for band in &lowered.bands {
         if !band.has_overflow_cells {
             continue;
         }
-        let Some(region) = retained.solution.region(&band.node_id) else {
+        let Some(region) = solved.region(&band.node_id) else {
             continue;
         };
         own_overflow_by_node.insert(
@@ -694,12 +683,20 @@ pub(crate) fn tree_solved_round(
         );
     }
 
+    // Retention exists for the census's adoption probe alone; normal
+    // runs drop the lowered tree and solution with this frame.
+    let retained = shadow_enabled().then(|| {
+        std::sync::Arc::new(RetainedFacetSolve {
+            lowered,
+            solution: solved,
+        })
+    });
+
     Ok(SolvedRound {
-        merged_by_key,
         merged_by_node: channels.layout_by_node,
         own_overflow_by_node,
         overflow_by_node: channels.overflow_by_node,
-        retained: Some(std::sync::Arc::new(retained)),
+        retained,
     })
 }
 

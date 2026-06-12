@@ -280,7 +280,8 @@ pub struct FacetBandCoordMeasurement {
     /// Used for channel-domain sharing comparison: sharing >= facet_depth means global.
     pub facet_depth: u8,
     /// Original facet band scale before local or coordinated layout rewrites.
-    /// Used to recompute subplot size when coordinated layout differs from local layout.
+    /// Every layout rewrite (scale adjustments, adopt's range and
+    /// bandwidth derivation) starts from this pristine copy.
     pub original_band_scale: ConfiguredScale,
     /// Local layout values (pre-coordination).
     pub local_layout: CoordinatedLayout,
@@ -516,8 +517,9 @@ impl FacetBandCoordMeasurement {
             .and_then(|(solution, node_id)| solution.boundary_overflow(node_id))
     }
 
-    /// The round's retained solve (lowered tree + solution), when this
-    /// band holds a coordination handle from a real-tree round.
+    /// The round's retained solve (lowered tree + solution), present only
+    /// when the shadow census is enabled (`AVENGER_SHADOW_TREE_SOLVE=1`)
+    /// and this band holds a coordination handle from a real-tree round.
     pub(crate) fn retained_solve(
         &self,
     ) -> Option<&std::sync::Arc<crate::facet::tree_solve::RetainedFacetSolve>> {
@@ -710,20 +712,6 @@ impl FacetBandCoordMeasurement {
             Some(self.subplot_cross_size)
         } else {
             None
-        }
-    }
-
-    pub fn set_parent_bandwidth_value(&mut self, bandwidth: f32) {
-        if bandwidth > 0.0 {
-            self.original_band_scale = self
-                .original_band_scale
-                .clone()
-                .with_range_interval((0.0, bandwidth));
-
-            debug!(
-                bandwidth,
-                "FacetBand set_parent_bandwidth updated original band scale range"
-            );
         }
     }
 
@@ -3316,7 +3304,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
         .await?;
         let probe_elapsed = probe_start.elapsed();
 
-        // Step 6: Build local layout -- finalize band layout and retarget cells.
+        // Step 6: Build local layout -- finalize band layout and size cells at it.
         let layout_start = Instant::now();
         let (local_layout, measured_runtime) =
             Box::pin(self.build_local_layout(&overflow_probe, overflow_runtime, &prepared_runtime))

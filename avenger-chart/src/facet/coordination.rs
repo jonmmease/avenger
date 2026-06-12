@@ -114,7 +114,7 @@ async fn run_facet_coordination(
 ) -> Result<Option<CoordinationRunArtifacts>, AvengerChartError> {
     let snapshot = collect_requirement_snapshot(measurement);
     // ONE solve: real topology, pre-folded chart scalars, per-node
-    // Region.coordinated channel reads, retained geometry.
+    // Region.coordinated channel reads.
     let sizing = eval_ctx.facet_runtime_sizing_mode();
     let solved = crate::facet::tree_solve::tree_solved_round(measurement, sizing)?;
     let requirement_pass = build_requirement_pass_with_round(snapshot, solved)?;
