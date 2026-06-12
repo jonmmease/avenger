@@ -1,10 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 438 434" font-family="monospace" font-size="10">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 396 434" font-family="monospace" font-size="10">
   <defs>
     <pattern id="hatch-i1" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#e98080" stroke-width="1.6"/></pattern>
     <pattern id="hatch-i2" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#f7bcbc" stroke-width="1.6"/></pattern>
-    <pattern id="hatch-u2" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#d5c6ef" stroke-width="1.6"/></pattern>
   </defs>
-  <rect x="-10" y="-10" width="438" height="434" fill="#ffffff"/>
+  <rect x="-10" y="-10" width="396" height="434" fill="#ffffff"/>
   <rect x="0" y="0" width="0" height="0" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="0" y="11" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">measured</text>
   <rect x="26" y="16" width="298" height="12" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
@@ -16,8 +15,8 @@
   <rect x="12" y="28" width="26" height="138" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="38" y="28" width="110" height="138" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="41" y="52" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">col a</text>
-  <rect x="38" y="78" width="110" height="18" fill="url(#hatch-u2)" stroke="#d5c6ef" stroke-width="1"/>
-  <rect x="38" y="78" width="110" height="18" fill="#d5c6ef" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="38" y="78" width="110" height="18" fill="url(#hatch-i2)" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="38" y="78" width="110" height="18" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="12" y="28" width="26" height="50" fill="url(#hatch-i2)" stroke="#f7bcbc" stroke-width="1"/>
   <rect x="12" y="28" width="26" height="50" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="38" y="28" width="110" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
@@ -31,8 +30,8 @@
   <rect x="162" y="28" width="150" height="138" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="165" y="52" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">col b</text>
   <rect x="162" y="28" width="150" height="74" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
-  <rect x="162" y="92" width="150" height="5" fill="url(#hatch-u2)" stroke="#d5c6ef" stroke-width="1"/>
-  <rect x="162" y="92" width="150" height="5" fill="#d5c6ef" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="162" y="92" width="150" height="5" fill="url(#hatch-i2)" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="162" y="92" width="150" height="5" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="153" y="28" width="9" height="64" fill="url(#hatch-i2)" stroke="#f7bcbc" stroke-width="1"/>
   <rect x="153" y="28" width="9" height="64" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="162" y="28" width="150" height="64" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
@@ -55,8 +54,8 @@
   <rect x="38" y="226" width="150" height="152" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="41" y="250" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">col a</text>
   <rect x="38" y="226" width="150" height="64" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
-  <rect x="38" y="276" width="110" height="18" fill="url(#hatch-u2)" stroke="#d5c6ef" stroke-width="1"/>
-  <rect x="38" y="276" width="110" height="18" fill="#d5c6ef" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="38" y="276" width="110" height="18" fill="url(#hatch-i2)" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="38" y="276" width="110" height="18" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="12" y="226" width="26" height="50" fill="url(#hatch-i2)" stroke="#f7bcbc" stroke-width="1"/>
   <rect x="12" y="226" width="26" height="50" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="38" y="226" width="110" height="50" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
@@ -70,8 +69,8 @@
   <rect x="205" y="226" width="9" height="152" fill="#e98080" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="214" y="226" width="150" height="152" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <text x="217" y="250" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">col b</text>
-  <rect x="214" y="290" width="150" height="18" fill="url(#hatch-u2)" stroke="#d5c6ef" stroke-width="1"/>
-  <rect x="214" y="290" width="150" height="5" fill="#d5c6ef" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
+  <rect x="214" y="290" width="150" height="18" fill="url(#hatch-i2)" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="214" y="290" width="150" height="5" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="188" y="226" width="26" height="64" fill="url(#hatch-i2)" stroke="#f7bcbc" stroke-width="1"/>
   <rect x="205" y="226" width="9" height="64" fill="#f7bcbc" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
   <rect x="214" y="226" width="150" height="64" fill="#dbeafe" fill-opacity="0.6" stroke="#9ca3af" stroke-width="0.5" stroke-opacity="0.7"/>
@@ -94,8 +93,5 @@
   <rect x="258" y="400" width="5" height="10" fill="#f7bcbc" stroke="#f7bcbc" stroke-width="1"/>
   <rect x="263" y="400" width="5" height="10" fill="url(#hatch-i2)" stroke="#f7bcbc" stroke-width="1"/>
   <text x="271" y="409" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">inner d2</text>
-  <rect x="333" y="400" width="5" height="10" fill="#d5c6ef" stroke="#d5c6ef" stroke-width="1"/>
-  <rect x="338" y="400" width="5" height="10" fill="url(#hatch-u2)" stroke="#d5c6ef" stroke-width="1"/>
-  <text x="346" y="409" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">unlayered d2</text>
-  <line x1="-10" y1="188" x2="428" y2="188" stroke="#111111" stroke-width="0.5"/>
+  <line x1="-10" y1="188" x2="386" y2="188" stroke="#111111" stroke-width="0.5"/>
 </svg>

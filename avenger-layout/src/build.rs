@@ -544,12 +544,18 @@ mod tests {
         let cell: Layout<&str> = Layout::leaf(Size::new(110.0, 50.0))
             .demand(
                 Side::Left,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 26.0,
                     outer: 0.0,
                 },
             )
-            .demand(Side::Bottom, EdgeDemand::Unlayered(18.0))
+            .demand(
+                Side::Bottom,
+                EdgeDemand {
+                    inner: 18.0,
+                    outer: 0.0,
+                },
+            )
             .id("a0");
         match &cell.kind {
             LayoutKind::Leaf {
@@ -559,12 +565,18 @@ mod tests {
                 assert_eq!(*content_size, Size::new(110.0, 50.0));
                 assert_eq!(
                     demands.left,
-                    EdgeDemand::Layered {
+                    EdgeDemand {
                         inner: 26.0,
                         outer: 0.0
                     }
                 );
-                assert_eq!(demands.bottom, EdgeDemand::Unlayered(18.0));
+                assert_eq!(
+                    demands.bottom,
+                    EdgeDemand {
+                        inner: 18.0,
+                        outer: 0.0
+                    }
+                );
             }
             LayoutKind::Grid(_) => panic!("leaf expected"),
         }
@@ -660,6 +672,12 @@ mod tests {
     #[test]
     #[should_panic(expected = "applies to leaf nodes only")]
     fn leaf_methods_panic_on_grids() {
-        let _ = Layout::<usize, usize>::grid(1, 1).demand(Side::Top, EdgeDemand::Unlayered(1.0));
+        let _ = Layout::<usize, usize>::grid(1, 1).demand(
+            Side::Top,
+            EdgeDemand {
+                inner: 1.0,
+                outer: 0.0,
+            },
+        );
     }
 }

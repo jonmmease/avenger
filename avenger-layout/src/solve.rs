@@ -1577,12 +1577,17 @@ mod tests {
     #[test]
     fn grid_chrome_reproduces_the_stacked_edges_law() {
         // Grid chrome stacks onto child demands: a 15px child right demand
+        // (outer: content stacking, distinct from the header's stratum)
         // plus a 35px inner header = a 50px envelope with the header on
         // the inner (coordinated) layer.
-        let new: Layout =
-            Layout::row([Layout::leaf(Size::new(100.0, 60.0))
-                .demand(Side::Right, EdgeDemand::Unlayered(15.0))])
-            .inner(Side::Right, 35.0);
+        let new: Layout = Layout::row([Layout::leaf(Size::new(100.0, 60.0)).demand(
+            Side::Right,
+            EdgeDemand {
+                inner: 0.0,
+                outer: 15.0,
+            },
+        )])
+        .inner(Side::Right, 35.0);
         let solved = new.solve(&SolveOptions::default()).expect("solve");
 
         assert_eq!(solved.envelope().layered.right.total, 50.0);
@@ -1596,14 +1601,14 @@ mod tests {
         let root: Layout = Layout::row([
             Layout::leaf(Size::new(100.0, 60.0)).demand(
                 Side::Top,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 10.0,
                     outer: 0.0,
                 },
             ),
             Layout::leaf(Size::new(100.0, 60.0)).demand(
                 Side::Top,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 0.0,
                     outer: 8.0,
                 },
@@ -1655,14 +1660,14 @@ mod tests {
         let root: Layout = Layout::row([
             Layout::leaf(Size::new(100.0, 60.0)).demand(
                 Side::Top,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 20.0,
                     outer: 0.0,
                 },
             ),
             Layout::leaf(Size::new(100.0, 60.0)).demand(
                 Side::Top,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 8.0,
                     outer: 0.0,
                 },
@@ -1847,12 +1852,18 @@ mod tests {
         Layout::leaf(Size::new(width, height))
             .demand(
                 Side::Left,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: left,
                     outer: 0.0,
                 },
             )
-            .demand(Side::Bottom, EdgeDemand::Unlayered(bottom))
+            .demand(
+                Side::Bottom,
+                EdgeDemand {
+                    inner: bottom,
+                    outer: 0.0,
+                },
+            )
     }
 
     #[test]
@@ -1922,14 +1933,14 @@ mod tests {
         let band: Layout<&str> = Layout::row(vec![
             Layout::leaf(Size::new(40.0, 30.0)).demand(
                 Side::Top,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 5.0,
                     outer: 0.0,
                 },
             ),
             Layout::leaf(Size::new(40.0, 30.0)).demand(
                 Side::Top,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 0.0,
                     outer: 8.0,
                 },
@@ -2266,7 +2277,13 @@ mod tests {
             member(5.0, 5.0).id("guide-heavy"),
             member(0.0, 8.0).id("legend-heavy"),
             Layout::leaf(Size::new(40.0, 30.0))
-                .demand(Side::Top, EdgeDemand::Unlayered(20.0))
+                .demand(
+                    Side::Top,
+                    EdgeDemand {
+                        inner: 20.0,
+                        outer: 0.0,
+                    },
+                )
                 .id("fat"),
         ]);
         let solved = root.solve(&SolveOptions::default()).expect("solve");
@@ -2278,13 +2295,15 @@ mod tests {
         // guide layer and the other's legend layer coexist.
         assert_eq!(a.coordinated.top, EdgeGrant::new(5.0, 8.0, 13.0));
         // Parent allocation: the row's top track edge also folds in the
-        // unshared sibling's bigger total.
-        assert_eq!(a.granted.top, EdgeGrant::new(5.0, 8.0, 20.0));
+        // unshared sibling's layers per stratum (its 20px guide layer
+        // joins the merged inner; the lift law raises the total to the
+        // stratum sum).
+        assert_eq!(a.granted.top, EdgeGrant::new(20.0, 8.0, 28.0));
 
         let b = solved.region(&"legend-heavy").expect("member region");
         assert_eq!(b.requested.top, EdgeGrant::new(0.0, 8.0, 8.0));
         assert_eq!(b.coordinated.top, EdgeGrant::new(5.0, 8.0, 13.0));
-        assert_eq!(b.granted.top, EdgeGrant::new(5.0, 8.0, 20.0));
+        assert_eq!(b.granted.top, EdgeGrant::new(20.0, 8.0, 28.0));
 
         // Nodes no share patch touches keep coordinated == requested.
         let fat = solved.region(&"fat").expect("leaf region");

@@ -2,11 +2,11 @@
 //!
 //! Two types span the demand/grant split:
 //!
-//! - [`EdgeDemand`] is what callers *declare* on a leaf: either a layered
-//!   pair (interior `inner` chrome plus `outer` content stacking beyond
-//!   it) or an unlayered total. There is no lift and no stored total —
-//!   mixing layered and unlayered space on one side is unrepresentable,
-//!   and node-attached unlayered space is declared as chrome instead.
+//! - [`EdgeDemand`] is what callers *declare* on a leaf: a layered pair
+//!   (interior `inner` chrome plus `outer` content stacking beyond it).
+//!   There is no lift and no stored total — the granted total is always
+//!   the layer sum, and node-attached space is declared as chrome
+//!   instead.
 //! - [`EdgeGrant`] is what the solver *produces*: requested/granted region
 //!   edges, envelope sides, grid track edge vectors. Grants carry
 //!   `(inner, outer, total)` under the lift law `total >= inner + outer`.
@@ -25,18 +25,17 @@ use crate::geometry::Edges;
 ///
 /// This is the *declaration* type consumed by
 /// [`Layout::demand`](crate::build::Layout::demand); the solver's outputs
-/// (requested/granted edges, envelopes) are [`EdgeGrant`]. A side is either
-/// layered (interior chrome plus content stacking beyond it) or a bare
-/// total — mixing layered and unlayered space on one side is
-/// unrepresentable by design. Node-attached unlayered space is declared as
-/// chrome, not as a demand.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum EdgeDemand {
-    /// Interior chrome (`inner`, e.g. guides) plus content stacking beyond
-    /// it (`outer`, e.g. legends). The granted total is `inner + outer`.
-    Layered { inner: f32, outer: f32 },
-    /// A total-only envelope with no layer structure.
-    Unlayered(f32),
+/// (requested/granted edges, envelopes) are [`EdgeGrant`]. A demand is
+/// always layered: interior chrome (`inner`, e.g. guides) plus content
+/// stacking beyond it (`outer`, e.g. legends); the granted total is
+/// `inner + outer`. Extent-only clearance asks put their value in one
+/// stratum and zero in the other. Total-only space exists only as
+/// [`EdgeGrant`] values constructed directly (e.g. exported requirement
+/// folds) — a solve never produces a total beyond the layer sum.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EdgeDemand {
+    pub inner: f32,
+    pub outer: f32,
 }
 
 impl EdgeDemand {
@@ -45,16 +44,10 @@ impl EdgeDemand {
     /// granted total is `max(envelope, inner)`.
     pub fn from_inner_and_envelope(inner: f32, envelope: f32) -> Self {
         let inner = inner.max(0.0);
-        Self::Layered {
+        Self {
             inner,
             outer: (envelope - inner).max(0.0),
         }
-    }
-}
-
-impl Default for EdgeDemand {
-    fn default() -> Self {
-        Self::Unlayered(0.0)
     }
 }
 
@@ -108,10 +101,7 @@ impl EdgeGrant {
 
 impl From<EdgeDemand> for EdgeGrant {
     fn from(demand: EdgeDemand) -> Self {
-        match demand {
-            EdgeDemand::Layered { inner, outer } => Self::new(inner, outer, inner + outer),
-            EdgeDemand::Unlayered(total) => Self::total_only(total),
-        }
+        Self::new(demand.inner, demand.outer, demand.inner + demand.outer)
     }
 }
 

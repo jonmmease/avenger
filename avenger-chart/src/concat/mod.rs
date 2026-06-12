@@ -1531,7 +1531,7 @@ pub(crate) async fn measure_concat_coord_system(
     }
 
     // One track per child: leaves at plot-area sizes, sibling boundaries
-    // as unlayered edge demands, declared track sizes when given.
+    // as inner-stratum edge demands, declared track sizes when given.
     let inputs = children
         .iter()
         .map(|child| band_input_for_child(direction, child))
@@ -1552,11 +1552,17 @@ pub(crate) async fn measure_concat_coord_system(
         avenger_layout::Layout::<usize>::leaf(size)
             .demand(
                 before_side,
-                avenger_layout::EdgeDemand::Unlayered(boundary.before),
+                avenger_layout::EdgeDemand {
+                    inner: boundary.before,
+                    outer: 0.0,
+                },
             )
             .demand(
                 after_side,
-                avenger_layout::EdgeDemand::Unlayered(boundary.after),
+                avenger_layout::EdgeDemand {
+                    inner: boundary.after,
+                    outer: 0.0,
+                },
             )
     });
     let band_spacing = TrackSpacing {
@@ -2365,19 +2371,19 @@ fn grid_child_items(
 /// covers the cell's rendered edge.
 fn layered_cell_edges(guide: Edges<f32>, legend: Edges<f32>) -> Edges<EdgeDemand> {
     Edges::new(
-        EdgeDemand::Layered {
+        EdgeDemand {
             inner: guide.top,
             outer: legend.top,
         },
-        EdgeDemand::Layered {
+        EdgeDemand {
             inner: guide.right,
             outer: legend.right,
         },
-        EdgeDemand::Layered {
+        EdgeDemand {
             inner: guide.bottom,
             outer: legend.bottom,
         },
-        EdgeDemand::Layered {
+        EdgeDemand {
             inner: guide.left,
             outer: legend.left,
         },
@@ -3094,7 +3100,10 @@ mod tests {
         // solve patches the local grid to the cousin's folds.
         let local_spec = concat.grid_member_spec()?;
         let mut cousin_spec = local_spec.clone();
-        cousin_spec.cells[1].edges.left = EdgeDemand::Unlayered(32.0);
+        cousin_spec.cells[1].edges.left = EdgeDemand {
+            inner: 32.0,
+            outer: 0.0,
+        };
         let solutions =
             crate::layout::concat_grid::solve_concat_grid_group(&[local_spec, cousin_spec])
                 .map_err(AvengerChartError::InternalError)?;
@@ -3128,7 +3137,10 @@ mod tests {
         // solve patches the local band to the cousin's folds.
         let local_spec = concat.grid_member_spec()?;
         let mut cousin_spec = local_spec.clone();
-        cousin_spec.cells[1].edges.left = EdgeDemand::Unlayered(32.0);
+        cousin_spec.cells[1].edges.left = EdgeDemand {
+            inner: 32.0,
+            outer: 0.0,
+        };
         let solutions =
             crate::layout::concat_grid::solve_concat_grid_group(&[local_spec, cousin_spec])
                 .map_err(AvengerChartError::InternalError)?;

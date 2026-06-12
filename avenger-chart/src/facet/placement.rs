@@ -435,7 +435,8 @@ pub(crate) fn compute_explicit_facet_band_placement(
     }
 
     // One track per slot: leaves at cell sizes, sibling boundaries as
-    // unlayered edge demands, the coordinated spacing as the track policy.
+    // inner-stratum edge demands, the coordinated spacing as the track
+    // policy.
     let vertical = matches!(axis, FacetAxis::Row);
     let (before_side, after_side) = if vertical {
         (avenger_layout::Side::Top, avenger_layout::Side::Bottom)
@@ -451,11 +452,17 @@ pub(crate) fn compute_explicit_facet_band_placement(
         avenger_layout::Layout::<usize>::leaf(size)
             .demand(
                 before_side,
-                avenger_layout::EdgeDemand::Unlayered(boundary.before),
+                avenger_layout::EdgeDemand {
+                    inner: boundary.before,
+                    outer: 0.0,
+                },
             )
             .demand(
                 after_side,
-                avenger_layout::EdgeDemand::Unlayered(boundary.after),
+                avenger_layout::EdgeDemand {
+                    inner: boundary.after,
+                    outer: 0.0,
+                },
             )
     });
     let spacing = TrackSpacing {

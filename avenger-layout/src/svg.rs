@@ -9,7 +9,7 @@
 //! outlines where granted space exceeds honest content; chrome slabs behind
 //! (gray margins, amber bands, dark green outer, dark red inner); demand
 //! strips beside each content rectangle where **hue** is the layer (red =
-//! inner/guide-like, green = outer/legend-like, violet = the unlayered
+//! inner/guide-like, green = outer/legend-like
 //! remainder up to the total — total-only demands and lift-law slack),
 //! **shade** is nesting depth, and **solid vs hatched** is requested vs
 //! granted. A color key row identifies every kind present; the black frame
@@ -71,8 +71,7 @@ pub struct DebugRegion {
     pub requested: Option<Edges<EdgeGrant>>,
     /// The coordinated overflow the solve produced for this region, when
     /// known. Drawn as hatched strips: red for the inner layer, green for
-    /// the outer layer, violet for the unlayered remainder up to the
-    /// total.
+    /// the outer layer.
     pub target: Option<Edges<EdgeGrant>>,
     /// Where to draw the label. Defaults to just inside the content
     /// rectangle's top-left corner; frame scenes anchor strip labels inside
@@ -236,23 +235,19 @@ impl DebugScene {
             (DebugRegionKind::Slot, "slot"),
         ];
         const KEY_HEIGHT: f32 = 24.0;
-        // Demand strips encode three things: hue = layer (red inner, green
-        // outer, violet for the unlayered remainder up to the total —
-        // total-only demands and lift-law slack), shade = nesting depth
-        // (dark at the base layer, lighter as nesting deepens; a frame's
-        // own chrome strips are the darkest step of the same ramps), and
-        // solid vs hatched = requested vs coordinated. Fills are opaque:
-        // nested regions draw overlapping strips, and translucency would
-        // invent in-between shades where they stack.
+        // Demand strips encode three things: hue = layer (red inner,
+        // green outer), shade = nesting depth (dark at the base layer,
+        // lighter as nesting deepens; a frame's own chrome strips are the
+        // darkest step of the same ramps), and solid vs hatched =
+        // requested vs coordinated. Fills are opaque: nested regions draw
+        // overlapping strips, and translucency would invent in-between
+        // shades where they stack.
         const STRIP_BORDER: &str = "stroke=\"#9ca3af\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"";
         let inner_shade = |depth: usize| INNER_SHADES[(depth + 1).min(INNER_SHADES.len() - 1)];
         let outer_shade = |depth: usize| OUTER_SHADES[(depth + 1).min(OUTER_SHADES.len() - 1)];
-        let unlayered_shade =
-            |depth: usize| UNLAYERED_SHADES[(depth + 1).min(UNLAYERED_SHADES.len() - 1)];
         let layer_shade = |layer: char, depth: usize| match layer {
             'i' => inner_shade(depth),
-            'o' => outer_shade(depth),
-            _ => unlayered_shade(depth),
+            _ => outer_shade(depth),
         };
         let solid_fill = |shade: &str| format!("fill=\"{shade}\" {STRIP_BORDER}");
         let hatch_fill = |layer: char, depth: usize| {
@@ -297,12 +292,10 @@ impl DebugScene {
                 || component(sides.bottom) > 0.0
                 || component(sides.left) > 0.0
         };
-        let unlayered_part = |grant: EdgeGrant| (grant.total - grant.inner - grant.outer).max(0.0);
         // Which (layer, depth) demand combinations the scene contains; each
         // gets a shade, a hatch pattern, and a key entry.
         let mut inner_depths = std::collections::BTreeSet::new();
         let mut outer_depths = std::collections::BTreeSet::new();
-        let mut unlayered_depths = std::collections::BTreeSet::new();
         for region in &self.regions {
             for targets in [region.target, region.requested].into_iter().flatten() {
                 if any_side(targets, |grant| grant.inner) {
@@ -311,17 +304,12 @@ impl DebugScene {
                 if any_side(targets, |grant| grant.outer) {
                     outer_depths.insert(region.depth);
                 }
-                if any_side(targets, unlayered_part) {
-                    unlayered_depths.insert(region.depth);
-                }
             }
         }
-        let has_demands =
-            !inner_depths.is_empty() || !outer_depths.is_empty() || !unlayered_depths.is_empty();
+        let has_demands = !inner_depths.is_empty() || !outer_depths.is_empty();
         let multi_depth = inner_depths
             .iter()
             .chain(outer_depths.iter())
-            .chain(unlayered_depths.iter())
             .any(|&depth| depth > 0);
         let key_entries: Vec<(char, usize, String)> = inner_depths
             .iter()
@@ -330,11 +318,6 @@ impl DebugScene {
                 outer_depths
                     .iter()
                     .map(|&depth| ('o', depth, String::from("outer"))),
-            )
-            .chain(
-                unlayered_depths
-                    .iter()
-                    .map(|&depth| ('u', depth, String::from("unlayered"))),
             )
             .map(|(layer, depth, label)| {
                 let label = if multi_depth {
@@ -399,9 +382,6 @@ impl DebugScene {
             for &depth in &outer_depths {
                 emit_pattern('o', depth, outer_shade(depth));
             }
-            for &depth in &unlayered_depths {
-                emit_pattern('u', depth, unlayered_shade(depth));
-            }
             svg.push_str("  </defs>\n");
         }
         // White background covering the viewBox: the scenes are unreadable
@@ -422,9 +402,8 @@ impl DebugScene {
         for region in &self.regions {
             // Coordinated (hatched) bands first, then the requested (solid)
             // demand inside them. Per side, layers stack outward from the
-            // content edge: red inner, green outer, violet for the
-            // unlayered remainder up to the total. Solid strips draw at
-            // the granted layer offsets so requested space nests inside
+            // content edge: red inner, then green outer. Solid strips draw
+            // at the granted layer offsets so requested space nests inside
             // its coordinated band.
             if let Some(target) = region.target {
                 let requested = region.requested.unwrap_or_default();
@@ -437,16 +416,11 @@ impl DebugScene {
                     let strip = |offset: f32, thickness: f32| {
                         edge_strip(region.content, side, offset, thickness)
                     };
-                    let granted_layers = granted.inner + granted.outer;
                     for (rect, fill) in [
                         (strip(0.0, granted.inner), hatch_fill('i', region.depth)),
                         (
                             strip(granted.inner, granted.outer),
                             hatch_fill('o', region.depth),
-                        ),
-                        (
-                            strip(granted_layers, (granted.total - granted_layers).max(0.0)),
-                            hatch_fill('u', region.depth),
                         ),
                         (
                             strip(0.0, asked.inner.min(granted.inner)),
@@ -455,18 +429,6 @@ impl DebugScene {
                         (
                             strip(granted.inner, asked.outer),
                             solid_fill(outer_shade(region.depth)),
-                        ),
-                        // An unlayered ask can be CONTAINED by a layered
-                        // grant (granted total covers it inside the layer
-                        // bands); clamp to the granted residual so a
-                        // satisfied ask never draws past its grant.
-                        (
-                            strip(
-                                granted_layers,
-                                unlayered_part(asked)
-                                    .min((granted.total - granted_layers).max(0.0)),
-                            ),
-                            solid_fill(unlayered_shade(region.depth)),
                         ),
                     ] {
                         if rect.width > 0.0 && rect.height > 0.0 {
@@ -746,7 +708,6 @@ fn union(a: Rect, b: Rect) -> Rect {
 /// lighter as nesting deepens (clamped).
 const INNER_SHADES: [&str; 4] = ["#9f2222", "#cf4444", "#e98080", "#f7bcbc"];
 const OUTER_SHADES: [&str; 4] = ["#14602f", "#2f9c5c", "#6cc795", "#b2e6c9"];
-const UNLAYERED_SHADES: [&str; 4] = ["#4c2a85", "#7e4fc4", "#ab8add", "#d5c6ef"];
 
 /// Rendered style per region kind.
 fn kind_style(kind: DebugRegionKind) -> &'static str {
@@ -801,7 +762,7 @@ mod tests {
             Layout::leaf(Size::new(100.0, 60.0))
                 .demand(
                     Side::Top,
-                    Demand::Layered {
+                    Demand {
                         inner: 20.0,
                         outer: 0.0,
                     },
@@ -810,7 +771,7 @@ mod tests {
             Layout::leaf(Size::new(60.0, 60.0))
                 .demand(
                     Side::Top,
-                    Demand::Layered {
+                    Demand {
                         inner: 8.0,
                         outer: 0.0,
                     },

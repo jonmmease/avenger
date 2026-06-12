@@ -31,7 +31,7 @@ pub(crate) struct GridCell {
     pub slot: GridSlot,
     pub content_size: Size,
     /// Per-side edge demand declarations (layered guide/legend pairs at
-    /// production sites; unlayered totals in fixtures).
+    /// production sites; inner-stratum totals in fixtures).
     pub edges: Edges<EdgeDemand>,
 }
 
@@ -336,10 +336,22 @@ mod tests {
             },
             content_size: Size::new(width, height),
             edges: Edges::new(
-                EdgeDemand::Unlayered(edges.top),
-                EdgeDemand::Unlayered(edges.right),
-                EdgeDemand::Unlayered(edges.bottom),
-                EdgeDemand::Unlayered(edges.left),
+                EdgeDemand {
+                    inner: edges.top,
+                    outer: 0.0,
+                },
+                EdgeDemand {
+                    inner: edges.right,
+                    outer: 0.0,
+                },
+                EdgeDemand {
+                    inner: edges.bottom,
+                    outer: 0.0,
+                },
+                EdgeDemand {
+                    inner: edges.left,
+                    outer: 0.0,
+                },
             ),
         }
     }

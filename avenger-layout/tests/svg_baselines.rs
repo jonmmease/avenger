@@ -104,15 +104,45 @@ fn allocated(width: f32, height: f32) -> SolveOptions {
 fn row_gaps_and_min_gap_floor() {
     let root: L = Layout::row(vec![
         Layout::leaf(Size::new(60.0, 80.0))
-            .demand(Side::Left, EdgeDemand::Unlayered(5.0))
-            .demand(Side::Right, EdgeDemand::Unlayered(8.0))
+            .demand(
+                Side::Left,
+                EdgeDemand {
+                    inner: 5.0,
+                    outer: 0.0,
+                },
+            )
+            .demand(
+                Side::Right,
+                EdgeDemand {
+                    inner: 8.0,
+                    outer: 0.0,
+                },
+            )
             .id("a"),
         Layout::leaf(Size::new(90.0, 80.0))
-            .demand(Side::Left, EdgeDemand::Unlayered(14.0))
-            .demand(Side::Right, EdgeDemand::Unlayered(2.0))
+            .demand(
+                Side::Left,
+                EdgeDemand {
+                    inner: 14.0,
+                    outer: 0.0,
+                },
+            )
+            .demand(
+                Side::Right,
+                EdgeDemand {
+                    inner: 2.0,
+                    outer: 0.0,
+                },
+            )
             .id("b"),
         Layout::leaf(Size::new(45.0, 80.0))
-            .demand(Side::Left, EdgeDemand::Unlayered(1.0))
+            .demand(
+                Side::Left,
+                EdgeDemand {
+                    inner: 1.0,
+                    outer: 0.0,
+                },
+            )
             .id("c"),
     ])
     .column_spacing(Spacing {
@@ -211,14 +241,14 @@ fn grid_edge_demand_layers_and_gap_law() {
         Layout::leaf(Size::new(100.0, 60.0))
             .demand(
                 Side::Right,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 6.0,
                     outer: 20.0,
                 },
             )
             .demand(
                 Side::Left,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 9.0,
                     outer: 0.0,
                 },
@@ -227,14 +257,14 @@ fn grid_edge_demand_layers_and_gap_law() {
         Layout::leaf(Size::new(100.0, 60.0))
             .demand(
                 Side::Left,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 0.0,
                     outer: 3.0,
                 },
             )
             .demand(
                 Side::Top,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 7.0,
                     outer: 11.0,
                 },
@@ -399,7 +429,13 @@ fn bands_all_four_sides_corner_rule() {
 fn nested_grid_with_chrome() {
     let nested: L = Layout::column(vec![
         Layout::leaf(Size::new(90.0, 50.0))
-            .demand(Side::Right, EdgeDemand::Unlayered(15.0))
+            .demand(
+                Side::Right,
+                EdgeDemand {
+                    inner: 15.0,
+                    outer: 0.0,
+                },
+            )
             .id("c0"),
         Layout::leaf(Size::new(90.0, 56.0)).id("c1"),
     ])
@@ -580,12 +616,18 @@ fn nested_facet_columns_coordinated() {
         Layout::leaf(Size::new(width, height))
             .demand(
                 Side::Left,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: left,
                     outer: 0.0,
                 },
             )
-            .demand(Side::Bottom, EdgeDemand::Unlayered(bottom))
+            .demand(
+                Side::Bottom,
+                EdgeDemand {
+                    inner: bottom,
+                    outer: 0.0,
+                },
+            )
     };
     let build = |share: bool| -> L {
         let with_key = |grid: L| if share { grid.share("cols") } else { grid };
@@ -636,14 +678,25 @@ fn shared_charts_coordinate_in_one_solve() {
             Layout::leaf(Size::new(width, 90.0))
                 .demand(
                     Side::Left,
-                    EdgeDemand::Layered {
+                    EdgeDemand {
                         inner: left,
                         outer: 0.0,
                     },
                 )
-                .demand(Side::Bottom, EdgeDemand::Unlayered(bottom)),
-            Layout::leaf(Size::new(width, 90.0))
-                .demand(Side::Bottom, EdgeDemand::Unlayered(bottom)),
+                .demand(
+                    Side::Bottom,
+                    EdgeDemand {
+                        inner: bottom,
+                        outer: 0.0,
+                    },
+                ),
+            Layout::leaf(Size::new(width, 90.0)).demand(
+                Side::Bottom,
+                EdgeDemand {
+                    inner: bottom,
+                    outer: 0.0,
+                },
+            ),
         ])
         .min_gap(12.0)
         .share("plots")
@@ -699,41 +752,39 @@ fn min_slack_asymmetric_share() {
     assert_svg_baseline("min_slack_asymmetric_share", &solved.to_svg());
 }
 
-/// Three ways to reserve 18px on a cell's trailing edge, demonstrated
-/// against a share-key cousin whose matching edge carries layered chrome
+/// Ways to reserve 18px on a cell's trailing edge, demonstrated against
+/// a share-key cousin whose matching edge carries layered chrome
 /// (inner 14 + outer 8, total 22). The mechanisms differ in which
 /// coordination contract the space signs:
 ///
-/// - `Layered { inner: 0, outer: 18 }` joins the stratum-offset contract:
-///   the merged edge must hold the worst inner AND the worst outer at
-///   common offsets, so the coexistence lift takes both charts' gaps to
-///   14 + 18 = 32 — wider than either member's own ask.
-/// - `Unlayered(18.0)` signs only the extent clause: the merged edge is
-///   the max of totals, and the cousin's 22 CONTAINS the 18, so both gaps
-///   stay at 22. The hatched bands show the granted strata (red 14, green
-///   8) with no solid ask inside them — the opaque 18 was absorbed.
-/// - `.band(Side::Right, 18.0)` reserves the same contained extent
-///   (chrome lifts into the total only, the private envelope), but the
-///   space is a DECLARATION the solver owns: it returns a positioned slab
-///   (amber, visible through the hatched grant) for the caller to fill,
-///   where the demands only clear room for material the caller already
-///   placed.
+/// - `EdgeDemand { inner: 0, outer: 18 }` meets the cousin in DIFFERENT
+///   strata: the merged edge must hold the worst inner AND the worst
+///   outer at common offsets, so the coexistence lift takes both charts'
+///   gaps to 14 + 18 = 32 — wider than either member's own ask.
+/// - `EdgeDemand { inner: 18, outer: 0 }` meets the cousin's inner layer
+///   in the SAME stratum, where coordination is containment: the merged
+///   inner is max(18, 14) = 18, the cousin's outer 8 still stacks, and
+///   both gaps settle at 26.
+/// - `.band(Side::Right, 18.0)` signs only the extent clause (chrome
+///   lifts into the total, the private envelope): the cousin's 22
+///   CONTAINS the 18 and the gaps stay at 22. The space is a DECLARATION
+///   the solver owns: it returns a positioned slab (amber, visible
+///   through the hatched grant) for the caller to fill, where demands
+///   only clear room for material the caller already placed.
 ///
-/// The flow-mode panels place band and unlayered identically — under
-/// `SolveFor::Envelope` both are exterior space, distinguished only by
-/// the returned slab. The fourth panel shows where their geometry
-/// genuinely diverges: under `SolveFor::Content` the band is part of the
-/// box (the contained leaf is 18 wider, slab inside), while the unlayered
-/// demand is overflow and is zeroed at the containment boundary — the 18
-/// vanishes from the solution entirely.
+/// The fourth panel shows where demand and band geometry genuinely
+/// diverge: under `SolveFor::Content` the band is part of the box (the
+/// contained leaf is 18 wider, slab inside), while the demand is
+/// overflow and is zeroed at the containment boundary — the 18 vanishes
+/// from the solution entirely.
 #[test]
-fn edge_reservation_layered_vs_unlayered_vs_band() {
+fn edge_reservation_layered_vs_band() {
     let scene = |reserve: &dyn Fn(L) -> L| {
         let cell = |id: &'static str| Layout::leaf(Size::new(110.0, 56.0)).id(id);
         let reference: L = Layout::row(vec![
             cell("a0").demand(
                 Side::Right,
-                EdgeDemand::Layered {
+                EdgeDemand {
                     inner: 14.0,
                     outer: 8.0,
                 },
@@ -761,7 +812,7 @@ fn edge_reservation_layered_vs_unlayered_vs_band() {
     let layered = scene(&|leaf| {
         leaf.demand(
             Side::Right,
-            EdgeDemand::Layered {
+            EdgeDemand {
                 inner: 0.0,
                 outer: 18.0,
             },
@@ -773,13 +824,23 @@ fn edge_reservation_layered_vs_unlayered_vs_band() {
     assert_eq!(gap(&layered, "b0", "b1"), 32.0);
     assert_eq!(gap(&layered, "a0", "a1"), 32.0);
 
-    let unlayered = scene(&|leaf| leaf.demand(Side::Right, EdgeDemand::Unlayered(18.0)));
-    // Containment: max of totals — the cousin's 22 already holds the 18.
-    assert_eq!(gap(&unlayered, "b0", "b1"), 22.0);
-    assert_eq!(gap(&unlayered, "a0", "a1"), 22.0);
+    let inner_stratum = scene(&|leaf| {
+        leaf.demand(
+            Side::Right,
+            EdgeDemand {
+                inner: 18.0,
+                outer: 0.0,
+            },
+        )
+    });
+    // Same-stratum containment: merged inner max(18, 14) = 18 holds the
+    // cousin's 14; the cousin's outer 8 still stacks on top.
+    assert_eq!(gap(&inner_stratum, "b0", "b1"), 26.0);
+    assert_eq!(gap(&inner_stratum, "a0", "a1"), 26.0);
 
     let band = scene(&|leaf| leaf.band(Side::Right, 18.0));
-    // Same extent contract as unlayered, plus a solver-positioned slab.
+    // Extent-only contract: the cousin's 22 contains the 18, plus a
+    // solver-positioned slab.
     assert_eq!(gap(&band, "b0", "b1"), 22.0);
     let slabs = &band.region(&"b0").unwrap().slabs;
     assert_eq!(slabs.len(), 1);
@@ -789,8 +850,8 @@ fn edge_reservation_layered_vs_unlayered_vs_band() {
     // boundary, one per row (the cousin pair can't show this — the
     // reference chart's layered 22 would keep the merged gap reserved and
     // mask the vanishing). The band folds INTO the box (18 wider, slab
-    // inside); the unlayered demand is overflow, zeroed at the boundary —
-    // no reservation anywhere.
+    // inside); the demand is overflow, zeroed at the boundary — no
+    // reservation anywhere.
     // Each box sits in its own Start-distributed row: the column's shared
     // track offers both rows the wider extent (a contained box ADOPTS its
     // allocation as the box, so direct stretching would silently widen the
@@ -801,9 +862,15 @@ fn edge_reservation_layered_vs_unlayered_vs_band() {
     let containment = Layout::<&'static str, &'static str>::column(vec![
         contained_row(
             Layout::leaf(Size::new(110.0, 56.0))
-                .demand(Side::Right, EdgeDemand::Unlayered(18.0))
+                .demand(
+                    Side::Right,
+                    EdgeDemand {
+                        inner: 18.0,
+                        outer: 0.0,
+                    },
+                )
                 .sizing(SolveFor::Content)
-                .id("contained unlayered"),
+                .id("contained demand"),
         ),
         contained_row(
             Layout::leaf(Size::new(110.0, 56.0))
@@ -816,7 +883,7 @@ fn edge_reservation_layered_vs_unlayered_vs_band() {
     .margin(8.0)
     .solve(&natural())
     .expect("solve");
-    let shed = containment.region(&"contained unlayered").unwrap();
+    let shed = containment.region(&"contained demand").unwrap();
     let kept = containment.region(&"contained band").unwrap();
     assert_eq!(shed.slot.width, 110.0, "the demand vanished");
     assert_eq!(shed.requested.right.total, 0.0);
@@ -825,19 +892,19 @@ fn edge_reservation_layered_vs_unlayered_vs_band() {
     assert_eq!(kept.slot.y - (shed.slot.y + shed.slot.height), 12.0);
 
     assert_svg_baseline(
-        "edge_reservation_layered_vs_unlayered_vs_band",
+        "edge_reservation_layered_vs_band",
         &svg_panels(&[
+            ("outer 18 vs cousin 14+8: strata coexist, gaps 32", &layered),
             (
-                "layered outer 18 vs cousin 14+8: coexistence, gaps 32",
-                &layered,
+                "inner 18 vs cousin 14+8: same stratum contains, gaps 26",
+                &inner_stratum,
             ),
             (
-                "unlayered 18: contained by the cousin's 22, gaps 22",
-                &unlayered,
+                "band 18: extent-only, contained by the cousin's 22, gaps 22",
+                &band,
             ),
-            ("band 18: same gaps, but a solver-positioned slab", &band),
             (
-                "containment, one box per row: unlayered 18 vanishes, band stays",
+                "containment, one box per row: demand 18 vanishes, band stays",
                 &containment,
             ),
         ]),
