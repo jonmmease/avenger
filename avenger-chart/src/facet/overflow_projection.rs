@@ -530,8 +530,8 @@ pub(crate) fn band_overflow_node(
 }
 
 /// Measured envelope of a band layout as a coordinated overflow value:
-/// guide from the layered inner layer, total from the geometric (raw
-/// rendered) view.
+/// guide from the coordinated guide stratum, total from the geometric
+/// (raw rendered) view.
 pub(crate) fn band_node_envelope(node: &UnifiedLayout) -> CoordinatedOverflow {
     let solved = node
         .solve(&avenger_layout::SolveOptions::default())
@@ -539,10 +539,10 @@ pub(crate) fn band_node_envelope(node: &UnifiedLayout) -> CoordinatedOverflow {
     let envelope = solved.envelope();
     CoordinatedOverflow {
         guide: OverflowSpaceRequirement {
-            top: envelope.layered.top.guide,
-            right: envelope.layered.right.guide,
-            bottom: envelope.layered.bottom.guide,
-            left: envelope.layered.left.guide,
+            top: envelope.coordinated.top.guide,
+            right: envelope.coordinated.right.guide,
+            bottom: envelope.coordinated.bottom.guide,
+            left: envelope.coordinated.left.guide,
         },
         total: OverflowSpaceRequirement {
             top: envelope.geometric_total.top,
@@ -602,8 +602,8 @@ pub(crate) fn aggregate_facet_band_overflow_with_policy(
     Some(band_node_envelope(&node))
 }
 
-/// Per-side layered demand view of a coordinated overflow: guide chrome is
-/// `inner`, legend chrome is `outer`.
+/// Per-side layered demand view of a coordinated overflow: the guide
+/// stratum carries guide chrome, the legend stratum carries legend chrome.
 pub(crate) fn overflow_edge_demands(overflow: &CoordinatedOverflow) -> Edges<EdgeGrant> {
     let side = |guide: f32, total: f32| EdgeGrant::new(guide, (total - guide).max(0.0), total);
     Edges::new(
@@ -1158,7 +1158,7 @@ mod tests {
     /// guide and legend layers (as here). In the mixed case the two computed
     /// values intentionally diverge: this aggregation reports the measured
     /// envelope (max of per-cell totals), while the tree envelope reports
-    /// the layered coordination view (max guide + max legend), which is what
+    /// the coordinated view (max guide + max legend), which is what
     /// cells physically occupy after overflow patches are applied.
     #[test]
     fn tree_envelope_matches_facet_band_overflow_aggregation() {
@@ -1213,30 +1213,36 @@ mod tests {
                 .expect("facet band layout should solve");
             let envelope = solved.envelope();
 
-            assert_eq!(envelope.layered.top.guide, aggregated.guide.top, "{axis:?}");
             assert_eq!(
-                envelope.layered.right.guide, aggregated.guide.right,
+                envelope.coordinated.top.guide, aggregated.guide.top,
                 "{axis:?}"
             );
             assert_eq!(
-                envelope.layered.bottom.guide, aggregated.guide.bottom,
+                envelope.coordinated.right.guide, aggregated.guide.right,
                 "{axis:?}"
             );
             assert_eq!(
-                envelope.layered.left.guide, aggregated.guide.left,
-                "{axis:?}"
-            );
-            assert_eq!(envelope.layered.top.total, aggregated.total.top, "{axis:?}");
-            assert_eq!(
-                envelope.layered.right.total, aggregated.total.right,
+                envelope.coordinated.bottom.guide, aggregated.guide.bottom,
                 "{axis:?}"
             );
             assert_eq!(
-                envelope.layered.bottom.total, aggregated.total.bottom,
+                envelope.coordinated.left.guide, aggregated.guide.left,
                 "{axis:?}"
             );
             assert_eq!(
-                envelope.layered.left.total, aggregated.total.left,
+                envelope.coordinated.top.total, aggregated.total.top,
+                "{axis:?}"
+            );
+            assert_eq!(
+                envelope.coordinated.right.total, aggregated.total.right,
+                "{axis:?}"
+            );
+            assert_eq!(
+                envelope.coordinated.bottom.total, aggregated.total.bottom,
+                "{axis:?}"
+            );
+            assert_eq!(
+                envelope.coordinated.left.total, aggregated.total.left,
                 "{axis:?}"
             );
         }

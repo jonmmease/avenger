@@ -89,23 +89,26 @@ pub struct Region<Id = usize> {
     /// demand within its parent; equals `requested` at the root).
     pub granted: Edges<EdgeGrant>,
     /// Geometric view of this node's own measured overflow: raw per-side
-    /// maxima without the layered `guide + legend` lift (the node-level
+    /// maxima without the `guide + legend` lift (the node-level
     /// analogue of [`Envelope::geometric_total`]).
     pub geometric_total: Edges<f32>,
     pub detail: RegionDetail,
 }
 
 /// What the whole solved layout looks like from outside: its content extent
-/// plus per-side overflow, in both edge laws (layered grants and raw
+/// plus per-side overflow, in both edge laws (coordinated grants and raw
 /// geometric totals).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Envelope {
     pub content_size: Size,
-    /// Layered view: per-side totals lifted to `>= guide + legend` (the
-    /// coordination law).
-    pub layered: Edges<EdgeGrant>,
-    /// Geometric view: raw per-side maxima without the lift (the rendered
-    /// envelope).
+    /// Coordinated view: per-side grants whose totals are lifted to
+    /// `>= guide + legend` (the coordination law), so independently
+    /// coordinated strata stay representable — the space the layout
+    /// reserves once cousins align, which can exceed any single rendered
+    /// total. Carries the strata (`guide`/`legend`), not just the total.
+    pub coordinated: Edges<EdgeGrant>,
+    /// Geometric view: raw per-side maxima without the lift — the honestly
+    /// rendered envelope (no coordination reservation).
     pub geometric_total: Edges<f32>,
 }
 

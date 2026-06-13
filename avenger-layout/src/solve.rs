@@ -1288,7 +1288,7 @@ impl<Id: Clone + Eq + Hash, Key: Eq + Hash> Layout<Id, Key> {
             size,
             envelope: Envelope {
                 content_size: Size::new(root_content.width, root_content.height),
-                layered: measured.demands,
+                coordinated: measured.demands,
                 geometric_total: measured.geometric_total,
             },
             regions,
@@ -1590,8 +1590,8 @@ mod tests {
         .guide(Side::Right, 35.0);
         let solved = new.solve(&SolveOptions::default()).expect("solve");
 
-        assert_eq!(solved.envelope().layered.right.total, 50.0);
-        assert_eq!(solved.envelope().layered.right.guide, 35.0);
+        assert_eq!(solved.envelope().coordinated.right.total, 50.0);
+        assert_eq!(solved.envelope().coordinated.right.guide, 35.0);
     }
 
     #[test]
@@ -1616,7 +1616,7 @@ mod tests {
         ]);
         let solved = root.solve(&SolveOptions::default()).expect("solve");
 
-        assert_eq!(solved.envelope().layered.top.total, 18.0);
+        assert_eq!(solved.envelope().coordinated.top.total, 18.0);
         assert_eq!(solved.envelope().geometric_total.top, 10.0);
     }
 
@@ -1680,7 +1680,7 @@ mod tests {
         assert_eq!(first.content.y, second.content.y);
         assert_eq!(second.requested.top.guide, 8.0);
         assert_eq!(second.granted.top.guide, 20.0, "track-level grant");
-        assert_eq!(solved.envelope().layered.top.guide, 20.0);
+        assert_eq!(solved.envelope().coordinated.top.guide, 20.0);
     }
 
     #[test]

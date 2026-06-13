@@ -276,8 +276,8 @@ fn grid_edge_demand_layers_and_gap_law() {
     let a = solved.region(&"a").unwrap();
     let b = solved.region(&"b").unwrap();
     assert_eq!(b.slot.x - a.slot.x, 129.0); // 100 + gap (26 + 3)
-    assert_eq!(solved.envelope().layered.left.guide, 9.0);
-    assert_eq!(solved.envelope().layered.top.total, 18.0);
+    assert_eq!(solved.envelope().coordinated.left.guide, 9.0);
+    assert_eq!(solved.envelope().coordinated.top.total, 18.0);
 
     assert_svg_baseline("grid_edge_demand_layers_and_gap_law", &solved.to_svg());
 }
