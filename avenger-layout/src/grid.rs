@@ -236,6 +236,54 @@ impl GridRequirements {
         requirements
     }
 
+    /// Merge compatible grid requirements by component-wise maximum.
+    /// Returns `None` for empty input or mismatched shapes.
+    pub fn merge_max<'a, I>(requirements: I) -> Option<Self>
+    where
+        I: IntoIterator<Item = &'a Self>,
+        Self: 'a,
+    {
+        let mut iter = requirements.into_iter();
+        let first = iter.next()?.clone();
+        iter.try_fold(first, |mut merged, next| {
+            merged.merge_max_assign(next).then_some(merged)
+        })
+    }
+
+    /// Merge another requirement payload into this one by component-wise
+    /// maximum. Returns `false` when the shapes are incompatible.
+    pub fn merge_max_assign(&mut self, other: &Self) -> bool {
+        if self.shape != other.shape {
+            return false;
+        }
+
+        self.column_spacing = self.column_spacing.merge_max(other.column_spacing);
+        self.row_spacing = self.row_spacing.merge_max(other.row_spacing);
+        max_assign_each(&mut self.column_widths, &other.column_widths);
+        max_assign_each(&mut self.row_heights, &other.row_heights);
+        max_assign_edge_each(&mut self.column_left, &other.column_left);
+        max_assign_edge_each(&mut self.column_right, &other.column_right);
+        max_assign_edge_each(&mut self.row_top, &other.row_top);
+        max_assign_edge_each(&mut self.row_bottom, &other.row_bottom);
+        true
+    }
+
+    /// Total absolute track-size difference against another requirement set.
+    pub fn content_delta(&self, other: &Self) -> f32 {
+        abs_delta_sum(&self.column_widths, &other.column_widths)
+            + abs_delta_sum(&self.row_heights, &other.row_heights)
+    }
+
+    /// Total absolute edge/spacing difference against another requirement set.
+    pub fn edge_delta(&self, other: &Self) -> f32 {
+        abs_edge_delta_sum(&self.column_left, &other.column_left)
+            + abs_edge_delta_sum(&self.column_right, &other.column_right)
+            + abs_edge_delta_sum(&self.row_top, &other.row_top)
+            + abs_edge_delta_sum(&self.row_bottom, &other.row_bottom)
+            + self.column_spacing.abs_delta(other.column_spacing)
+            + self.row_spacing.abs_delta(other.row_spacing)
+    }
+
     /// Solve track starts, span constraints, and content size for one grid,
     /// with optional per-track growth kinds: span deficits distribute to
     /// `Auto` tracks first, then `Flex`, never `Fixed`. `None` treats every
@@ -315,6 +363,38 @@ impl GridRequirements {
             content_size: Size::new(content_width, content_height),
         }
     }
+}
+
+fn max_assign_each(target: &mut [f32], source: &[f32]) {
+    debug_assert_eq!(target.len(), source.len());
+    for (target, source) in target.iter_mut().zip(source.iter()) {
+        *target = (*target).max(*source);
+    }
+}
+
+fn max_assign_edge_each(target: &mut [EdgeGrant], source: &[EdgeGrant]) {
+    debug_assert_eq!(target.len(), source.len());
+    for (target, source) in target.iter_mut().zip(source.iter()) {
+        *target = target.max_components(*source);
+    }
+}
+
+fn abs_delta_sum(local: &[f32], other: &[f32]) -> f32 {
+    debug_assert_eq!(local.len(), other.len());
+    local
+        .iter()
+        .zip(other.iter())
+        .map(|(local, other)| (other - local).abs())
+        .sum()
+}
+
+fn abs_edge_delta_sum(local: &[EdgeGrant], other: &[EdgeGrant]) -> f32 {
+    debug_assert_eq!(local.len(), other.len());
+    local
+        .iter()
+        .zip(other.iter())
+        .map(|(local, other)| (other.total - local.total).abs())
+        .sum()
 }
 
 /// Collect the `total` component of each edge demand.
@@ -480,6 +560,56 @@ mod tests {
             legend_edges,
             total_edges,
         }
+    }
+
+    #[test]
+    fn grid_requirements_merge_max_and_delta_helpers() -> Result<(), GridError> {
+        let shape = GridShape {
+            rows: 1,
+            columns: 1,
+        };
+        let demands = vec![grid_item(
+            0,
+            0,
+            0,
+            1,
+            1,
+            Size::new(100.0, 50.0),
+            Edges::default(),
+        )];
+        let first = GridRequirements::from_items(shape, Size::new(100.0, 50.0), &demands)?;
+        let mut second = first.clone();
+        second.column_widths[0] = 150.0;
+        second.row_heights[0] = 70.0;
+        second.column_spacing.min_gap = 8.0;
+        second.column_left[0] = EdgeGrant::total_only(9.0);
+
+        let merged = GridRequirements::merge_max([&first, &second]).expect("compatible");
+
+        assert_eq!(merged.column_widths, vec![150.0]);
+        assert_eq!(merged.row_heights, vec![70.0]);
+        assert_eq!(merged.column_spacing.min_gap, 8.0);
+        assert_eq!(merged.column_left, vec![EdgeGrant::total_only(9.0)]);
+        assert_eq!(first.content_delta(&merged), 70.0);
+        assert_eq!(first.edge_delta(&merged), 17.0);
+
+        let other_shape = GridRequirements {
+            shape: GridShape {
+                rows: 1,
+                columns: 2,
+            },
+            column_spacing: TrackSpacing::default(),
+            row_spacing: TrackSpacing::default(),
+            column_widths: vec![1.0, 1.0],
+            row_heights: vec![1.0],
+            column_left: vec![EdgeGrant::default(); 2],
+            column_right: vec![EdgeGrant::default(); 2],
+            row_top: vec![EdgeGrant::default(); 1],
+            row_bottom: vec![EdgeGrant::default(); 1],
+        };
+        assert!(GridRequirements::merge_max([&first, &other_shape]).is_none());
+        assert!(GridRequirements::merge_max(std::iter::empty::<&GridRequirements>()).is_none());
+        Ok(())
     }
 
     #[test]

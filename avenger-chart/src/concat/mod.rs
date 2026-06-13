@@ -9,6 +9,7 @@ mod subplot;
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use avenger_layout::GridRequirements;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
@@ -706,7 +707,8 @@ impl CoordinateSystemTransform for WrapConcat {
 }
 
 use crate::layout::concat_grid::{
-    ChartGridData, GridCell, GridMemberSpec, SolvedConcatGrid, solve_concat_grid,
+    GridCell, GridMemberSpec, SolvedLayoutMember, export_concat_grid_requirements,
+    solve_concat_layout,
 };
 
 #[derive(Clone, Debug)]
@@ -896,9 +898,9 @@ impl ConcatCoordMeasurement {
         })
     }
 
-    pub(crate) fn grid_requirements(&self) -> Result<ChartGridData, AvengerChartError> {
+    pub(crate) fn grid_requirements(&self) -> Result<GridRequirements, AvengerChartError> {
         let spec = self.grid_member_spec()?;
-        let exported = solve_concat_grid(
+        export_concat_grid_requirements(
             spec.shape,
             spec.base_cell_size,
             &spec.cells,
@@ -906,10 +908,8 @@ impl ConcatCoordMeasurement {
             spec.row_spacing,
             spec.column_sizes.as_deref(),
             spec.row_sizes.as_deref(),
-            true,
         )
-        .map_err(AvengerChartError::InvalidArgument)?;
-        Ok(exported.data)
+        .map_err(AvengerChartError::InvalidArgument)
     }
 
     /// Install a solved grid produced by a coordination group solve for this
@@ -917,21 +917,25 @@ impl ConcatCoordMeasurement {
     /// with change detection, no solving.
     pub(crate) fn install_grid_solution(
         &mut self,
-        solution: &SolvedConcatGrid,
+        solution: &SolvedLayoutMember,
     ) -> Result<bool, AvengerChartError> {
         let shape = self.layout_coordination_shape().ok_or_else(|| {
             AvengerChartError::InternalError(
                 "Grid solution applied to non-child-frame concat measurement".to_string(),
             )
         })?;
-        if solution.data.shape != shape {
+        if solution.shape() != shape {
             return Err(AvengerChartError::InternalError(format!(
                 "Grid solution shape {:?} did not match concat coordination shape {:?}",
-                solution.data.shape, shape
+                solution.shape(),
+                shape
             )));
         }
 
         let old_placement = self.child_frame_placement();
+        let content_size = solution
+            .content_size()
+            .map_err(AvengerChartError::InternalError)?;
         let placement = match &self.placement {
             ConcatChildPlacement::Grid {
                 retarget_plot_area_size,
@@ -942,11 +946,16 @@ impl ConcatCoordMeasurement {
                     .iter()
                     .enumerate()
                     .map(|(slot_index, child)| {
-                        let slot = self.layout_coordination_slot_for_child(slot_index, child)?;
-                        let origin = solution.content_origin_for_slot(slot);
-                        let edge_targets = solution.edge_targets_for_slot(slot);
-                        let content_size_override =
-                            retarget_plot_area_size.then(|| solution.content_size_for_slot(slot));
+                        let origin = solution
+                            .child_origin_relative_to_member(slot_index)
+                            .map_err(AvengerChartError::InternalError)?;
+                        let edge_targets = solution
+                            .child_edge_targets(slot_index)
+                            .map_err(AvengerChartError::InternalError)?;
+                        let content_size_override = retarget_plot_area_size
+                            .then(|| solution.child_slot_size(slot_index))
+                            .transpose()
+                            .map_err(AvengerChartError::InternalError)?;
                         Ok(PlacedRegion::with_meta(
                             child.child_index,
                             origin,
@@ -958,7 +967,7 @@ impl ConcatCoordMeasurement {
                     })
                     .collect::<Result<Vec<_>, AvengerChartError>>()?;
                 ConcatChildPlacement::Grid {
-                    placement: PlacementSolution::new(solution.content_size, placements),
+                    placement: PlacementSolution::new(content_size, placements),
                     shape,
                     retarget_plot_area_size: *retarget_plot_area_size,
                 }
@@ -970,20 +979,14 @@ impl ConcatCoordMeasurement {
                     .iter()
                     .enumerate()
                     .map(|(slot_index, child)| {
-                        let slot = self.layout_coordination_slot_for_child(slot_index, child)?;
-                        let origin = match direction {
-                            Orientation::Horizontal => {
-                                [solution.column_starts[slot.column], solution.row_starts[0]]
-                            }
-                            Orientation::Vertical => {
-                                [solution.column_starts[0], solution.row_starts[slot.row]]
-                            }
-                        };
+                        let origin = solution
+                            .child_origin_relative_to_member(slot_index)
+                            .map_err(AvengerChartError::InternalError)?;
                         Ok(PlacedRegion::new(child.child_index, origin))
                     })
                     .collect::<Result<Vec<_>, AvengerChartError>>()?;
                 ConcatChildPlacement::Band {
-                    placement: PlacementSolution::new(solution.content_size, placements),
+                    placement: PlacementSolution::new(content_size, placements),
                     orientation: direction,
                 }
             }
@@ -2302,7 +2305,7 @@ fn grid_child_frame_placement(
         min_gap,
         ..Default::default()
     };
-    let solution = solve_concat_grid(
+    let solution = solve_concat_layout(
         shape,
         base_cell_size,
         &cells,
@@ -2310,31 +2313,38 @@ fn grid_child_frame_placement(
         spacing,
         column_sizes,
         row_sizes,
-        false,
     )
     .map_err(AvengerChartError::InvalidArgument)?;
+    let content_size = solution
+        .content_size()
+        .map_err(AvengerChartError::InternalError)?;
 
     let placements = children
         .iter()
-        .map(|child| {
-            let placement = child.grid_placement.expect("validated above");
-            let slot = grid_slot_from_placement(placement);
-            let origin = solution.content_origin_for_slot(slot);
-            let edge_targets = solution.edge_targets_for_slot(slot);
-            let content_size_override =
-                retarget_plot_area_size.then(|| solution.content_size_for_slot(slot));
-            PlacedRegion::with_meta(
+        .enumerate()
+        .map(|(slot_index, child)| {
+            let origin = solution
+                .child_origin_relative_to_member(slot_index)
+                .map_err(AvengerChartError::InternalError)?;
+            let edge_targets = solution
+                .child_edge_targets(slot_index)
+                .map_err(AvengerChartError::InternalError)?;
+            let content_size_override = retarget_plot_area_size
+                .then(|| solution.child_slot_size(slot_index))
+                .transpose()
+                .map_err(AvengerChartError::InternalError)?;
+            Ok(PlacedRegion::with_meta(
                 child.child_index,
                 origin,
                 ChartRegionMeta {
                     content_size_override,
                     edge_targets: Some(edge_targets),
                 },
-            )
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
 
-    Ok(PlacementSolution::new(solution.content_size, placements))
+    Ok(PlacementSolution::new(content_size, placements))
 }
 
 fn grid_child_items(
@@ -2764,7 +2774,7 @@ mod tests {
             },
             slots,
             requirements: ChildFrameLayoutRequirements::Grid(ChartGridRequirements {
-                grid: ChartGridData {
+                grid: GridRequirements {
                     shape,
                     column_spacing: TrackSpacing::default(),
                     row_spacing: TrackSpacing::default(),
@@ -2830,7 +2840,7 @@ mod tests {
             },
             slots,
             requirements: ChildFrameLayoutRequirements::Grid(ChartGridRequirements {
-                grid: ChartGridData {
+                grid: GridRequirements {
                     shape,
                     column_spacing: TrackSpacing::default(),
                     row_spacing: TrackSpacing::default(),
@@ -3105,7 +3115,7 @@ mod tests {
             legend: 0.0,
         };
         let solutions =
-            crate::layout::concat_grid::solve_concat_grid_group(&[local_spec, cousin_spec])
+            crate::layout::concat_grid::solve_concat_layout_group(&[local_spec, cousin_spec])
                 .map_err(AvengerChartError::InternalError)?;
         assert!(concat.install_grid_solution(&solutions[0])?);
 
@@ -3142,7 +3152,7 @@ mod tests {
             legend: 0.0,
         };
         let solutions =
-            crate::layout::concat_grid::solve_concat_grid_group(&[local_spec, cousin_spec])
+            crate::layout::concat_grid::solve_concat_layout_group(&[local_spec, cousin_spec])
                 .map_err(AvengerChartError::InternalError)?;
         assert!(concat.install_grid_solution(&solutions[0])?);
 

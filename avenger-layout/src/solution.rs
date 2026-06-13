@@ -3,6 +3,7 @@
 
 use crate::build::Spacing;
 use crate::geometry::{Edges, Rect, Side, Size};
+use crate::grid::GridSlot;
 use crate::region::EdgeGrant;
 
 /// The chrome layer a positioned slab belongs to.
@@ -41,11 +42,139 @@ pub struct SolvedTracks {
     pub row_spacing: Spacing,
 }
 
+impl SolvedTracks {
+    /// Content rectangle covered by a grid slot, relative to the containing
+    /// region's content rectangle.
+    pub fn content_rect_for_slot(&self, slot: GridSlot) -> Option<Rect> {
+        if slot.row_span == 0 || slot.column_span == 0 {
+            return None;
+        }
+
+        let row_end = slot.row_end();
+        let column_end = slot.column_end();
+        if row_end > self.row_starts.len()
+            || row_end > self.row_sizes.len()
+            || column_end > self.column_starts.len()
+            || column_end > self.column_sizes.len()
+        {
+            return None;
+        }
+
+        let last_row = row_end - 1;
+        let last_column = column_end - 1;
+        let x = self.column_starts[slot.column];
+        let y = self.row_starts[slot.row];
+        Some(Rect::new(
+            x,
+            y,
+            self.column_starts[last_column] + self.column_sizes[last_column] - x,
+            self.row_starts[last_row] + self.row_sizes[last_row] - y,
+        ))
+    }
+
+    /// Content origin covered by a grid slot, relative to the containing
+    /// region's content rectangle.
+    pub fn content_origin_for_slot(&self, slot: GridSlot) -> Option<[f32; 2]> {
+        self.content_rect_for_slot(slot)
+            .map(|rect| [rect.x, rect.y])
+    }
+
+    /// Content size covered by a grid slot.
+    pub fn content_size_for_slot(&self, slot: GridSlot) -> Option<Size> {
+        self.content_rect_for_slot(slot)
+            .map(|rect| Size::new(rect.width, rect.height))
+    }
+}
+
 /// Kind-specific detail of one solved region.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RegionDetail {
     Leaf,
     Grid { tracks: SolvedTracks },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_tracks() -> SolvedTracks {
+        SolvedTracks {
+            column_starts: vec![0.0, 50.0, 125.0],
+            column_sizes: vec![40.0, 60.0, 30.0],
+            row_starts: vec![0.0, 90.0],
+            row_sizes: vec![70.0, 20.0],
+            column_spacing: Spacing::default(),
+            row_spacing: Spacing::default(),
+        }
+    }
+
+    #[test]
+    fn solved_tracks_reports_slot_rects_for_spans_and_holes() {
+        let tracks = sample_tracks();
+        let slot = GridSlot {
+            row: 0,
+            column: 1,
+            row_span: 2,
+            column_span: 2,
+        };
+
+        assert_eq!(
+            tracks.content_rect_for_slot(slot),
+            Some(Rect::new(50.0, 0.0, 105.0, 110.0))
+        );
+        assert_eq!(tracks.content_origin_for_slot(slot), Some([50.0, 0.0]));
+        assert_eq!(
+            tracks.content_size_for_slot(slot),
+            Some(Size::new(105.0, 110.0))
+        );
+    }
+
+    #[test]
+    fn solved_tracks_rejects_invalid_slots() {
+        let tracks = sample_tracks();
+        for slot in [
+            GridSlot {
+                row: 0,
+                column: 0,
+                row_span: 0,
+                column_span: 1,
+            },
+            GridSlot {
+                row: 0,
+                column: 0,
+                row_span: 1,
+                column_span: 0,
+            },
+            GridSlot {
+                row: 2,
+                column: 0,
+                row_span: 1,
+                column_span: 1,
+            },
+            GridSlot {
+                row: 0,
+                column: 3,
+                row_span: 1,
+                column_span: 1,
+            },
+            GridSlot {
+                row: 1,
+                column: 1,
+                row_span: 2,
+                column_span: 1,
+            },
+            GridSlot {
+                row: 1,
+                column: 2,
+                row_span: 1,
+                column_span: 2,
+            },
+        ] {
+            assert_eq!(tracks.content_rect_for_slot(slot), None);
+            assert_eq!(tracks.content_origin_for_slot(slot), None);
+            assert_eq!(tracks.content_size_for_slot(slot), None);
+        }
+    }
 }
 
 /// One solved node, in root coordinates (the root envelope's top-left corner

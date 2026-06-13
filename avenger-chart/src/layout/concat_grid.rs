@@ -1,26 +1,27 @@
-//! Chart-owned concat/wrap grid solving through the unified
+//! Chart-owned concat/wrap grid lowering through the unified
 //! `avenger_layout::Layout` API.
 //!
 //! Concat coordination solves cousin grids together on a real share key
-//! ([`solve_concat_grid_group`]): every member is rebuilt from its own
+//! ([`solve_concat_layout_group`]): every member is rebuilt from its own
 //! measured cells ([`GridMemberSpec`]), the solver merges the per-track
-//! requirement folds across the group, and each member's solved region is
-//! extracted as its own [`SolvedConcatGrid`] (merged floors plus that
-//! member's span constraints).
+//! requirement folds across the group, and each member reads placement
+//! directly from the shared [`LayoutSolution`].
 //!
-//! [`ChartGridData`] remains the exported requirement payload for
-//! diagnostics and delta gating: [`solve_concat_grid`] with `export = true`
-//! zeroes the spanned-axis content of multi-span cells so the extracted
-//! track sizes equal the pre-span-constraint requirement fold (span
-//! constraints re-apply per member in the group solve).
+//! [`GridRequirements`] remains the exported requirement payload for
+//! diagnostics and delta gating: [`export_concat_grid_requirements`] zeroes
+//! the spanned-axis content of multi-span cells so the extracted track sizes
+//! equal the pre-span-constraint requirement fold (span constraints re-apply
+//! per member in the group solve).
 //!
-//! Per-slot reads come straight off the grid solution: origins from track
-//! starts (the solver's exact floats), edge targets from per-track demand
-//! vectors, span content sizes positionally from the tracks.
+//! Placement reads come straight off `LayoutSolution`: child slots give
+//! origins/span sizes relative to the member content rect, and child granted
+//! edges give coordinated edge targets.
+
+use std::sync::Arc;
 
 use avenger_layout::{
-    EdgeDemand, EdgeGrant, Edges, GridShape, GridSlot, Layout, LayoutSolution, RegionDetail, Side,
-    Size, SolveOptions, Spacing, TrackSize,
+    EdgeDemand, EdgeGrant, Edges, GridRequirements, GridShape, GridSlot, Layout, LayoutSolution,
+    RegionDetail, Side, Size, SolveOptions, Spacing, TrackSize,
 };
 
 use super::placement::EdgeTargets;
@@ -33,74 +34,6 @@ pub(crate) struct GridCell {
     /// Per-side edge demand declarations (layered guide/legend pairs at
     /// production sites; guide-stratum totals in fixtures).
     pub edges: Edges<EdgeDemand>,
-}
-
-/// Per-track requirement data for one measured grid: the chart's
-/// coordination payload (exported, merged across cousins, applied back).
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ChartGridData {
-    pub shape: GridShape,
-    pub column_spacing: Spacing,
-    pub row_spacing: Spacing,
-    pub column_widths: Vec<f32>,
-    pub row_heights: Vec<f32>,
-    pub column_left: Vec<EdgeGrant>,
-    pub column_right: Vec<EdgeGrant>,
-    pub row_top: Vec<EdgeGrant>,
-    pub row_bottom: Vec<EdgeGrant>,
-}
-
-/// A solved concat grid: per-track geometry plus the requirement vectors,
-/// in grid-content coordinates.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SolvedConcatGrid {
-    pub data: ChartGridData,
-    pub column_starts: Vec<f32>,
-    pub row_starts: Vec<f32>,
-    pub content_size: Size,
-}
-
-impl SolvedConcatGrid {
-    pub(crate) fn content_origin_for_slot(&self, slot: GridSlot) -> [f32; 2] {
-        [self.column_starts[slot.column], self.row_starts[slot.row]]
-    }
-
-    pub(crate) fn edge_targets_for_slot(&self, slot: GridSlot) -> EdgeTargets {
-        let last_row = slot.row_end() - 1;
-        let last_column = slot.column_end() - 1;
-        let top = self.data.row_top[slot.row];
-        let right = self.data.column_right[last_column];
-        let bottom = self.data.row_bottom[last_row];
-        let left = self.data.column_left[slot.column];
-
-        EdgeTargets {
-            guide: Edges {
-                top: top.guide,
-                right: right.guide,
-                bottom: bottom.guide,
-                left: left.guide,
-            },
-            total: Edges {
-                top: top.total,
-                right: right.total,
-                bottom: bottom.total,
-                left: left.total,
-            },
-        }
-    }
-
-    /// Span extent of a slot, positional (track starts are the solver's
-    /// exact floats; both sides of placement change detection use this same
-    /// computation).
-    pub(crate) fn content_size_for_slot(&self, slot: GridSlot) -> Size {
-        let last_column = slot.column_end() - 1;
-        let last_row = slot.row_end() - 1;
-        Size::new(
-            self.column_starts[last_column] + self.data.column_widths[last_column]
-                - self.column_starts[slot.column],
-            self.row_starts[last_row] + self.data.row_heights[last_row] - self.row_starts[slot.row],
-        )
-    }
 }
 
 fn cell_leaf(cell: &GridCell, export: bool) -> Layout<usize> {
@@ -184,15 +117,111 @@ pub(crate) struct GridMemberSpec {
     pub row_sizes: Option<Vec<TrackSize>>,
 }
 
-/// Extract the solved per-track view from a grid member region. Spacing
+/// A solved layout member read directly from the public `LayoutSolution`.
+#[derive(Clone, Debug)]
+pub(crate) struct SolvedLayoutMember {
+    solution: Arc<LayoutSolution<usize>>,
+    member_path: Vec<usize>,
+    shape: GridShape,
+}
+
+impl SolvedLayoutMember {
+    fn new(
+        solution: Arc<LayoutSolution<usize>>,
+        member_path: Vec<usize>,
+        shape: GridShape,
+    ) -> Self {
+        Self {
+            solution,
+            member_path,
+            shape,
+        }
+    }
+
+    pub(crate) fn shape(&self) -> GridShape {
+        self.shape
+    }
+
+    fn child_path(&self, child_position: usize) -> Vec<usize> {
+        let mut path = self.member_path.clone();
+        path.push(child_position);
+        path
+    }
+
+    fn member_region(&self) -> Result<&avenger_layout::Region<usize>, String> {
+        self.solution
+            .at_path(&self.member_path)
+            .ok_or_else(|| "missing grid member region".to_string())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tracks(&self) -> Result<&avenger_layout::SolvedTracks, String> {
+        let member = self.member_region()?;
+        let RegionDetail::Grid { tracks } = &member.detail else {
+            return Err("grid member is not a grid".to_string());
+        };
+        Ok(tracks)
+    }
+
+    fn child_region(
+        &self,
+        child_position: usize,
+    ) -> Result<&avenger_layout::Region<usize>, String> {
+        self.solution
+            .at_path(&self.child_path(child_position))
+            .ok_or_else(|| "missing grid child region".to_string())
+    }
+
+    pub(crate) fn content_size(&self) -> Result<Size, String> {
+        let content = self.member_region()?.content;
+        Ok(Size::new(content.width, content.height))
+    }
+
+    pub(crate) fn child_origin_relative_to_member(
+        &self,
+        child_position: usize,
+    ) -> Result<[f32; 2], String> {
+        let member = self.member_region()?;
+        let child = self.child_region(child_position)?;
+        Ok([
+            child.slot.x - member.content.x,
+            child.slot.y - member.content.y,
+        ])
+    }
+
+    pub(crate) fn child_slot_size(&self, child_position: usize) -> Result<Size, String> {
+        let slot = self.child_region(child_position)?.slot;
+        Ok(Size::new(slot.width, slot.height))
+    }
+
+    pub(crate) fn child_edge_targets(&self, child_position: usize) -> Result<EdgeTargets, String> {
+        let granted = self.child_region(child_position)?.granted;
+        Ok(EdgeTargets {
+            guide: Edges {
+                top: granted.top.guide,
+                right: granted.right.guide,
+                bottom: granted.bottom.guide,
+                left: granted.left.guide,
+            },
+            total: Edges {
+                top: granted.top.total,
+                right: granted.right.total,
+                bottom: granted.bottom.total,
+                left: granted.left.total,
+            },
+        })
+    }
+}
+
+/// Extract the solved per-track requirement view for diagnostics. Spacing
 /// comes from the solved tracks: the values the solve actually used,
 /// post-merge for share-group members.
-fn extract(
+fn extract_grid_requirements(
     solution: &LayoutSolution<usize>,
     member_path: &[usize],
     shape: GridShape,
     cells: &[GridCell],
-) -> Result<SolvedConcatGrid, String> {
+) -> Result<GridRequirements, String> {
     let member = solution
         .at_path(member_path)
         .ok_or_else(|| "missing grid member region".to_string())?;
@@ -220,29 +249,23 @@ fn extract(
         row_bottom[cell.slot.row_end() - 1] = granted.bottom;
     }
 
-    Ok(SolvedConcatGrid {
-        data: ChartGridData {
-            shape,
-            column_spacing: tracks.column_spacing,
-            row_spacing: tracks.row_spacing,
-            column_widths: tracks.column_sizes.clone(),
-            row_heights: tracks.row_sizes.clone(),
-            column_left,
-            column_right,
-            row_top,
-            row_bottom,
-        },
-        column_starts: tracks.column_starts.clone(),
-        row_starts: tracks.row_starts.clone(),
-        content_size: Size::new(member.content.width, member.content.height),
+    Ok(GridRequirements {
+        shape,
+        column_spacing: tracks.column_spacing,
+        row_spacing: tracks.row_spacing,
+        column_widths: tracks.column_sizes.clone(),
+        row_heights: tracks.row_sizes.clone(),
+        column_left,
+        column_right,
+        row_top,
+        row_bottom,
     })
 }
 
-/// Solve one concat grid's own cells. `export = true` yields the pre-solve
-/// requirement fold (for the coordination payload); `export = false` yields
-/// the placed solution with span constraints applied.
+/// Export one concat grid's pre-solve requirement fold for diagnostics.
+/// Span items contribute edge demands but not spanned-axis content.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn solve_concat_grid(
+pub(crate) fn export_concat_grid_requirements(
     shape: GridShape,
     base_cell_size: Size,
     cells: &[GridCell],
@@ -250,8 +273,7 @@ pub(crate) fn solve_concat_grid(
     row_spacing: Spacing,
     column_sizes: Option<&[TrackSize]>,
     row_sizes: Option<&[TrackSize]>,
-    export: bool,
-) -> Result<SolvedConcatGrid, String> {
+) -> Result<GridRequirements, String> {
     let grid = cells_grid(
         shape,
         base_cell_size,
@@ -260,12 +282,41 @@ pub(crate) fn solve_concat_grid(
         row_spacing,
         column_sizes,
         row_sizes,
-        export,
+        true,
     );
     let solved = grid
         .solve(&SolveOptions::default())
         .map_err(|err| err.to_string())?;
-    extract(&solved, &[], shape, cells)
+    extract_grid_requirements(&solved, &[], shape, cells)
+}
+
+/// Solve one concat grid's own cells and keep the public `LayoutSolution`
+/// as the placement readback source.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn solve_concat_layout(
+    shape: GridShape,
+    base_cell_size: Size,
+    cells: &[GridCell],
+    column_spacing: Spacing,
+    row_spacing: Spacing,
+    column_sizes: Option<&[TrackSize]>,
+    row_sizes: Option<&[TrackSize]>,
+) -> Result<SolvedLayoutMember, String> {
+    let grid = cells_grid(
+        shape,
+        base_cell_size,
+        cells,
+        column_spacing,
+        row_spacing,
+        column_sizes,
+        row_sizes,
+        false,
+    );
+    let solved = Arc::new(
+        grid.solve(&SolveOptions::default())
+            .map_err(|err| err.to_string())?,
+    );
+    Ok(SolvedLayoutMember::new(solved, Vec::new(), shape))
 }
 
 /// Solve a coordination group of cousin grids together on one share key.
@@ -280,9 +331,9 @@ pub(crate) fn solve_concat_grid(
 /// in avenger-layout is deliberately absent while this is its only
 /// caller: the row wrapper is fifteen lines against a second public
 /// solving entry point.
-pub(crate) fn solve_concat_grid_group(
+pub(crate) fn solve_concat_layout_group(
     members: &[GridMemberSpec],
-) -> Result<Vec<SolvedConcatGrid>, String> {
+) -> Result<Vec<SolvedLayoutMember>, String> {
     let root: Layout<usize> = Layout::row(
         members
             .iter()
@@ -301,17 +352,20 @@ pub(crate) fn solve_concat_grid_group(
             })
             .collect::<Vec<_>>(),
     );
-    let solved = root
-        .solve(&SolveOptions::default())
-        .map_err(|err| err.to_string())?;
+    let solved = Arc::new(
+        root.solve(&SolveOptions::default())
+            .map_err(|err| err.to_string())?,
+    );
     if !solved.diagnostics().skipped_groups.is_empty() {
         return Err("concat coordination group members had incompatible shapes".to_string());
     }
-    members
+    Ok(members
         .iter()
         .enumerate()
-        .map(|(index, member)| extract(&solved, &[index], member.shape, &member.cells))
-        .collect()
+        .map(|(index, member)| {
+            SolvedLayoutMember::new(Arc::clone(&solved), vec![index], member.shape)
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -375,16 +429,17 @@ mod tests {
             min_gap: 10.0,
             ..Default::default()
         };
-        let exported = solve_concat_grid(shape, base, &cells, spacing, spacing, None, None, true)
-            .expect("solve");
+        let exported =
+            export_concat_grid_requirements(shape, base, &cells, spacing, spacing, None, None)
+                .expect("solve");
 
         // Span content does not reach the tracks; the hole keeps the base.
-        assert_eq!(exported.data.column_widths, vec![100.0, 40.0, 120.0]);
-        assert_eq!(exported.data.row_heights, vec![50.0, 60.0]);
+        assert_eq!(exported.column_widths, vec![100.0, 40.0, 120.0]);
+        assert_eq!(exported.row_heights, vec![50.0, 60.0]);
         // Span edges land on the first/last spanned tracks.
         let totals = |edges: &[EdgeGrant]| edges.iter().map(|edge| edge.total).collect::<Vec<_>>();
-        assert_eq!(totals(&exported.data.column_left), vec![3.0, 0.0, 7.0]);
-        assert_eq!(totals(&exported.data.column_right), vec![5.0, 6.0, 4.0]);
+        assert_eq!(totals(&exported.column_left), vec![3.0, 0.0, 7.0]);
+        assert_eq!(totals(&exported.column_right), vec![5.0, 6.0, 4.0]);
     }
 
     /// The group solve on a real share key: the bigger cousin's folds become
@@ -435,28 +490,51 @@ mod tests {
             },
         ];
 
-        let solved = solve_concat_grid_group(&members).expect("group solve");
+        let solved = solve_concat_layout_group(&members).expect("group solve");
         let applied = &solved[0];
+        let applied_tracks = applied.tracks().expect("applied grid tracks");
 
         // Merged spacing reported on every member.
-        assert_eq!(applied.data.column_spacing.min_gap, 12.0);
-        assert_eq!(applied.data.row_spacing.min_gap, 12.0);
+        assert_eq!(applied_tracks.column_spacing.min_gap, 12.0);
+        assert_eq!(applied_tracks.row_spacing.min_gap, 12.0);
         // Span deficit: 120 + gap(12) + 40 = 172 against 200 -> +14 per
         // spanned track.
-        assert_eq!(applied.data.column_widths, vec![134.0, 54.0, 120.0]);
-        assert_eq!(applied.data.row_heights, vec![50.0, 70.0]);
+        assert_eq!(applied_tracks.column_sizes, vec![134.0, 54.0, 120.0]);
+        assert_eq!(applied_tracks.row_sizes, vec![50.0, 70.0]);
         // Gaps: max(12, 5+0) = 12 and max(12, 6+7) = 13.
-        assert_eq!(applied.column_starts, vec![0.0, 146.0, 213.0]);
-        assert_eq!(applied.row_starts, vec![0.0, 62.0]);
-        assert_eq!(applied.content_size, Size::new(333.0, 132.0));
+        assert_eq!(applied_tracks.column_starts, vec![0.0, 146.0, 213.0]);
+        assert_eq!(applied_tracks.row_starts, vec![0.0, 62.0]);
+        assert_eq!(
+            applied.content_size().expect("content size"),
+            Size::new(333.0, 132.0)
+        );
         // The span slot's positional extent meets its constraint exactly.
-        let span_slot = cells[2].slot;
-        assert_eq!(applied.content_size_for_slot(span_slot).width, 200.0);
-        assert_eq!(applied.content_origin_for_slot(span_slot), [0.0, 62.0]);
+        let span_index = 2;
+        assert_eq!(
+            applied
+                .child_slot_size(span_index)
+                .expect("span child slot")
+                .width,
+            200.0
+        );
+        assert_eq!(
+            applied
+                .child_origin_relative_to_member(span_index)
+                .expect("span origin"),
+            [0.0, 62.0]
+        );
         // Per-track fold: max(cell00's left 3.0, the span's left 2.0).
-        assert_eq!(applied.edge_targets_for_slot(span_slot).total.left, 3.0);
+        assert_eq!(
+            applied
+                .child_edge_targets(span_index)
+                .expect("span edge targets")
+                .total
+                .left,
+            3.0
+        );
         // The cousin holds the merged floors without span growth.
-        assert_eq!(solved[1].data.column_widths, vec![120.0, 40.0, 120.0]);
-        assert_eq!(solved[1].data.row_heights, vec![50.0, 70.0]);
+        let cousin_tracks = solved[1].tracks().expect("cousin grid tracks");
+        assert_eq!(cousin_tracks.column_sizes, vec![120.0, 40.0, 120.0]);
+        assert_eq!(cousin_tracks.row_sizes, vec![50.0, 70.0]);
     }
 }

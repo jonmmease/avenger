@@ -24,6 +24,7 @@ use crate::{
 };
 
 use avenger_chart_core::AvengerChartError;
+use avenger_layout::GridRequirements;
 
 /// One physical measured occurrence of a child-frame container.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -194,13 +195,11 @@ impl ChildFrameLayoutCoordinationNode {
 }
 
 /// Neutral grid requirements plus chart-only side-car state.
-use crate::layout::concat_grid::{
-    ChartGridData, GridMemberSpec, SolvedConcatGrid, solve_concat_grid_group,
-};
+use crate::layout::concat_grid::{GridMemberSpec, SolvedLayoutMember, solve_concat_layout_group};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ChartGridRequirements {
-    pub(crate) grid: ChartGridData,
+    pub(crate) grid: GridRequirements,
     /// Chart-adapter facet guide slot gap needed when generic grid
     /// requirements are projected back into `CoordinatedLayout`.
     ///
@@ -406,8 +405,8 @@ fn facet_grid_requirements_from_placement(
     placement: &FacetBandPlacement,
     min_gap: f32,
     cell_boundaries: &[FacetBoundaryDemand],
-) -> Result<ChartGridData, AvengerChartError> {
-    let mut requirements = ChartGridData {
+) -> Result<GridRequirements, AvengerChartError> {
+    let mut requirements = GridRequirements {
         shape,
         column_spacing: TrackSpacing::default(),
         row_spacing: TrackSpacing::default(),
@@ -660,9 +659,7 @@ pub(crate) fn build_child_frame_layout_alignment_diagnostics(
         &alignment_nodes,
         SingletonPolicy::Skip,
         |members: &[&ChartGridRequirements]| {
-            let grid = crate::layout::alignment::merged_grid_requirements(
-                members.iter().map(|member| &member.grid),
-            )?;
+            let grid = GridRequirements::merge_max(members.iter().map(|member| &member.grid))?;
             let guide_slot_gap_px = members
                 .iter()
                 .map(|member| member.guide_slot_gap_px)
@@ -674,8 +671,8 @@ pub(crate) fn build_child_frame_layout_alignment_diagnostics(
         },
         |local, merged| {
             (
-                crate::layout::alignment::grid_content_delta(&local.grid, &merged.grid),
-                crate::layout::alignment::grid_edge_delta(&local.grid, &merged.grid)
+                local.grid.content_delta(&merged.grid),
+                local.grid.edge_delta(&merged.grid)
                     + (merged.guide_slot_gap_px - local.guide_slot_gap_px).abs(),
             )
         },
@@ -737,7 +734,7 @@ pub(crate) fn build_child_frame_layout_alignment_diagnostics(
 fn solve_planned_concat_groups(
     nodes: &[ChildFrameLayoutCoordinationNode],
     plans: &IndexMap<LayoutAlignmentKey, ChildFrameLayoutRequirements>,
-) -> Result<IndexMap<ChildFrameContainerInstanceKey, SolvedConcatGrid>, AvengerChartError> {
+) -> Result<IndexMap<ChildFrameContainerInstanceKey, SolvedLayoutMember>, AvengerChartError> {
     let mut solutions = IndexMap::new();
     for key in plans.keys() {
         if !matches!(
@@ -762,7 +759,7 @@ fn solve_planned_concat_groups(
                 })
             })
             .collect::<Result<Vec<_>, AvengerChartError>>()?;
-        let solved = solve_concat_grid_group(&specs).map_err(AvengerChartError::InternalError)?;
+        let solved = solve_concat_layout_group(&specs).map_err(AvengerChartError::InternalError)?;
         for (node, solution) in members.iter().zip(solved) {
             solutions.insert(node.instance_key.clone(), solution);
         }
@@ -836,7 +833,7 @@ fn collect_child_frame_layout_coordination_nodes_into(
 fn apply_child_frame_layout_alignment_recursive(
     measurement: &mut ComponentsMeasurement,
     plans: &IndexMap<LayoutAlignmentKey, ChildFrameLayoutRequirements>,
-    concat_solutions: &IndexMap<ChildFrameContainerInstanceKey, SolvedConcatGrid>,
+    concat_solutions: &IndexMap<ChildFrameContainerInstanceKey, SolvedLayoutMember>,
     trace: &mut ChildFrameLayoutAlignmentApplyTrace,
 ) -> Result<(), AvengerChartError> {
     if let Some(instance_key) = measurement
@@ -935,7 +932,7 @@ mod tests {
 
     fn test_requirements(width: f32) -> ChildFrameLayoutRequirements {
         ChildFrameLayoutRequirements::Grid(ChartGridRequirements {
-            grid: ChartGridData {
+            grid: GridRequirements {
                 shape: GridShape {
                     rows: 1,
                     columns: 1,
@@ -1160,8 +1157,8 @@ mod tests {
         let second =
             facet_grid_requirements_from_placement(shape, &placement, 8.0, &wide_boundaries)?;
 
-        let merged = crate::layout::alignment::merged_grid_requirements([&first, &second])
-            .expect("compatible facet grids");
+        let merged =
+            GridRequirements::merge_max([&first, &second]).expect("compatible facet grids");
 
         assert_eq!(
             merged.column_spacing.min_gap, 14.0,
