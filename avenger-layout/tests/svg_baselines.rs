@@ -107,15 +107,15 @@ fn row_gaps_and_min_gap_floor() {
             .demand(
                 Side::Left,
                 EdgeDemand {
-                    inner: 5.0,
-                    outer: 0.0,
+                    guide: 5.0,
+                    legend: 0.0,
                 },
             )
             .demand(
                 Side::Right,
                 EdgeDemand {
-                    inner: 8.0,
-                    outer: 0.0,
+                    guide: 8.0,
+                    legend: 0.0,
                 },
             )
             .id("a"),
@@ -123,15 +123,15 @@ fn row_gaps_and_min_gap_floor() {
             .demand(
                 Side::Left,
                 EdgeDemand {
-                    inner: 14.0,
-                    outer: 0.0,
+                    guide: 14.0,
+                    legend: 0.0,
                 },
             )
             .demand(
                 Side::Right,
                 EdgeDemand {
-                    inner: 2.0,
-                    outer: 0.0,
+                    guide: 2.0,
+                    legend: 0.0,
                 },
             )
             .id("b"),
@@ -139,8 +139,8 @@ fn row_gaps_and_min_gap_floor() {
             .demand(
                 Side::Left,
                 EdgeDemand {
-                    inner: 1.0,
-                    outer: 0.0,
+                    guide: 1.0,
+                    legend: 0.0,
                 },
             )
             .id("c"),
@@ -231,7 +231,7 @@ fn grid_spans_holes_and_base_cell_size() {
     assert_svg_baseline("grid_spans_holes_and_base_cell_size", &solved.to_svg());
 }
 
-/// Layered demand and the gap law: each side carries inner (red) and outer
+/// Layered demand and the gap law: each side carries guide (red) and legend
 /// (green) layers; interior boundary edges become gaps via
 /// `max(min_gap, after + before)` while first/last edges overlap the
 /// container's envelope.
@@ -242,15 +242,15 @@ fn grid_edge_demand_layers_and_gap_law() {
             .demand(
                 Side::Right,
                 EdgeDemand {
-                    inner: 6.0,
-                    outer: 20.0,
+                    guide: 6.0,
+                    legend: 20.0,
                 },
             )
             .demand(
                 Side::Left,
                 EdgeDemand {
-                    inner: 9.0,
-                    outer: 0.0,
+                    guide: 9.0,
+                    legend: 0.0,
                 },
             )
             .id("a"),
@@ -258,15 +258,15 @@ fn grid_edge_demand_layers_and_gap_law() {
             .demand(
                 Side::Left,
                 EdgeDemand {
-                    inner: 0.0,
-                    outer: 3.0,
+                    guide: 0.0,
+                    legend: 3.0,
                 },
             )
             .demand(
                 Side::Top,
                 EdgeDemand {
-                    inner: 7.0,
-                    outer: 11.0,
+                    guide: 7.0,
+                    legend: 11.0,
                 },
             )
             .id("b"),
@@ -276,7 +276,7 @@ fn grid_edge_demand_layers_and_gap_law() {
     let a = solved.region(&"a").unwrap();
     let b = solved.region(&"b").unwrap();
     assert_eq!(b.slot.x - a.slot.x, 129.0); // 100 + gap (26 + 3)
-    assert_eq!(solved.envelope().layered.left.inner, 9.0);
+    assert_eq!(solved.envelope().layered.left.guide, 9.0);
     assert_eq!(solved.envelope().layered.top.total, 18.0);
 
     assert_svg_baseline("grid_edge_demand_layers_and_gap_law", &solved.to_svg());
@@ -289,17 +289,17 @@ fn chart_canvas() -> L {
         .margin(10.0)
         .band(Side::Top, 18.0)
         .band(Side::Top, 12.0)
-        .outer(Side::Right, 40.0)
-        .outer(Side::Bottom, 26.0)
-        .inner(Side::Left, 30.0)
-        .inner(Side::Bottom, 16.0)
+        .legend(Side::Right, 40.0)
+        .legend(Side::Bottom, 26.0)
+        .guide(Side::Left, 30.0)
+        .guide(Side::Bottom, 16.0)
         .content_min(Size::new(50.0, 40.0))
         .id("chart")
 }
 
 /// Canvas-style sizing: the envelope is given (`SolveFor::Content`) and the
 /// chrome is subtracted from it — title and subtitle bands, a legend column
-/// and caption row (outer), and axis strips (inner).
+/// and caption row (legend), and axis strips (guide).
 #[test]
 fn chromed_leaf_solve_for_content() {
     let solved = chart_canvas()
@@ -322,15 +322,15 @@ fn chromed_leaf_solve_for_envelope() {
     let chart: L = Layout::leaf(Size::new(220.0, 140.0))
         .margin(10.0)
         .band(Side::Top, 18.0)
-        .outer(Side::Right, 40.0)
-        .inner(Side::Left, 30.0)
-        .inner(Side::Bottom, 16.0)
+        .legend(Side::Right, 40.0)
+        .guide(Side::Left, 30.0)
+        .guide(Side::Bottom, 16.0)
         .id("chart");
     let solved = chart.solve(&natural()).expect("solve");
 
     assert_eq!(solved.size, Size::new(310.0, 194.0));
     let chart = solved.region(&"chart").unwrap();
-    assert_eq!(chart.content.x, 40.0); // margin 10 + inner 30
+    assert_eq!(chart.content.x, 40.0); // margin 10 + guide 30
 
     assert_svg_baseline("chromed_leaf_solve_for_envelope", &solved.to_svg());
 }
@@ -341,8 +341,8 @@ fn chromed_leaf_solve_for_envelope() {
 fn chromed_leaf_solve_for_margins() {
     let chart: L = Layout::leaf(Size::new(180.0, 110.0))
         .margin(5.0) // declared, but ignored: margins are the flexible layer
-        .inner(Side::Left, 30.0)
-        .inner(Side::Bottom, 16.0)
+        .guide(Side::Left, 30.0)
+        .guide(Side::Bottom, 16.0)
         .id("chart")
         .sizing(SolveFor::Margins);
     let solved = chart.solve(&allocated(340.0, 200.0)).expect("solve");
@@ -382,8 +382,8 @@ fn chromed_leaf_content_min_overflows_envelope() {
 fn per_axis_allocation_plot_sized_height() {
     let chart: L = Layout::leaf(Size::new(0.0, 150.0))
         .margin(8.0)
-        .inner(Side::Left, 30.0)
-        .inner(Side::Bottom, 16.0)
+        .guide(Side::Left, 30.0)
+        .guide(Side::Bottom, 16.0)
         .sizing_x(SolveFor::Content)
         .id("chart");
     let solved = chart
@@ -410,7 +410,7 @@ fn bands_all_four_sides_corner_rule() {
         .band(Side::Left, 26.0)
         .band(Side::Bottom, 14.0)
         .band(Side::Right, 18.0)
-        .inner(Side::Left, 12.0)
+        .guide(Side::Left, 12.0)
         .sizing(SolveFor::Content)
         .id("boxed")
         .solve(&allocated(320.0, 200.0))
@@ -422,8 +422,8 @@ fn bands_all_four_sides_corner_rule() {
 // --- nested grids with chrome -------------------------------------------------
 
 /// A nested column inside a row, where the nested grid carries its own
-/// chrome: a header strip on the inner layer (extends the guide layer, so
-/// cousins would coordinate it) and a legend strip on the outer layer.
+/// chrome: a header strip on the guide stratum (so cousins would
+/// coordinate it) and a legend strip on the legend stratum.
 /// Chrome on the grid replaces the old `stacked_inner/outer_edges`.
 #[test]
 fn nested_grid_with_chrome() {
@@ -432,16 +432,16 @@ fn nested_grid_with_chrome() {
             .demand(
                 Side::Right,
                 EdgeDemand {
-                    inner: 15.0,
-                    outer: 0.0,
+                    guide: 15.0,
+                    legend: 0.0,
                 },
             )
             .id("c0"),
         Layout::leaf(Size::new(90.0, 56.0)).id("c1"),
     ])
     .min_gap(10.0)
-    .inner(Side::Top, 16.0)
-    .outer(Side::Right, 22.0)
+    .guide(Side::Top, 16.0)
+    .legend(Side::Right, 22.0)
     .id("group");
     let root: L = Layout::row(vec![
         Layout::leaf(Size::new(70.0, 120.0)).id("solo"),
@@ -452,7 +452,7 @@ fn nested_grid_with_chrome() {
     let solved = root.solve(&natural()).expect("solve");
 
     let group = solved.region(&"group").unwrap();
-    assert_eq!(group.requested.top.inner, 16.0);
+    assert_eq!(group.requested.top.guide, 16.0);
     assert_eq!(group.requested.right.total, 15.0 + 22.0);
 
     assert_svg_baseline("nested_grid_with_chrome", &solved.to_svg());
@@ -463,12 +463,12 @@ fn nested_grid_with_chrome() {
 /// honest leaf content shows the slack as dashed slot outlines.
 #[test]
 fn allocation_stretches_tracks_evenly() {
-    let inner: L = Layout::row(vec![
+    let nested: L = Layout::row(vec![
         Layout::leaf(Size::new(60.0, 60.0)).id("i0"),
         Layout::leaf(Size::new(60.0, 60.0)).id("i1"),
     ])
     .min_gap(6.0);
-    let root: L = Layout::row(vec![Layout::leaf(Size::new(50.0, 60.0)).id("solo"), inner])
+    let root: L = Layout::row(vec![Layout::leaf(Size::new(50.0, 60.0)).id("solo"), nested])
         .min_gap(10.0)
         .margin(10.0)
         .sizing(SolveFor::Content);
@@ -617,15 +617,15 @@ fn nested_facet_columns_coordinated() {
             .demand(
                 Side::Left,
                 EdgeDemand {
-                    inner: left,
-                    outer: 0.0,
+                    guide: left,
+                    legend: 0.0,
                 },
             )
             .demand(
                 Side::Bottom,
                 EdgeDemand {
-                    inner: bottom,
-                    outer: 0.0,
+                    guide: bottom,
+                    legend: 0.0,
                 },
             )
     };
@@ -679,22 +679,22 @@ fn shared_charts_coordinate_in_one_solve() {
                 .demand(
                     Side::Left,
                     EdgeDemand {
-                        inner: left,
-                        outer: 0.0,
+                        guide: left,
+                        legend: 0.0,
                     },
                 )
                 .demand(
                     Side::Bottom,
                     EdgeDemand {
-                        inner: bottom,
-                        outer: 0.0,
+                        guide: bottom,
+                        legend: 0.0,
                     },
                 ),
             Layout::leaf(Size::new(width, 90.0)).demand(
                 Side::Bottom,
                 EdgeDemand {
-                    inner: bottom,
-                    outer: 0.0,
+                    guide: bottom,
+                    legend: 0.0,
                 },
             ),
         ])
@@ -754,16 +754,16 @@ fn min_slack_asymmetric_share() {
 
 /// Ways to reserve 18px on a cell's trailing edge, demonstrated against
 /// a share-key cousin whose matching edge carries layered chrome
-/// (inner 14 + outer 8, total 22). The mechanisms differ in which
+/// (guide 14 + legend 8, total 22). The mechanisms differ in which
 /// coordination contract the space signs:
 ///
-/// - `EdgeDemand { inner: 0, outer: 18 }` meets the cousin in DIFFERENT
-///   strata: the merged edge must hold the worst inner AND the worst
-///   outer at common offsets, so the coexistence lift takes both charts'
+/// - `EdgeDemand { guide: 0, legend: 18 }` meets the cousin in DIFFERENT
+///   strata: the merged edge must hold the worst guide AND the worst
+///   legend at common offsets, so the coexistence lift takes both charts'
 ///   gaps to 14 + 18 = 32 — wider than either member's own ask.
-/// - `EdgeDemand { inner: 18, outer: 0 }` meets the cousin's inner layer
+/// - `EdgeDemand { guide: 18, legend: 0 }` meets the cousin's guide layer
 ///   in the SAME stratum, where coordination is containment: the merged
-///   inner is max(18, 14) = 18, the cousin's outer 8 still stacks, and
+///   guide is max(18, 14) = 18, the cousin's legend 8 still stacks, and
 ///   both gaps settle at 26.
 /// - `.band(Side::Right, 18.0)` signs only the extent clause (chrome
 ///   lifts into the total, the private envelope): the cousin's 22
@@ -785,8 +785,8 @@ fn edge_reservation_layered_vs_band() {
             cell("a0").demand(
                 Side::Right,
                 EdgeDemand {
-                    inner: 14.0,
-                    outer: 8.0,
+                    guide: 14.0,
+                    legend: 8.0,
                 },
             ),
             cell("a1"),
@@ -813,8 +813,8 @@ fn edge_reservation_layered_vs_band() {
         leaf.demand(
             Side::Right,
             EdgeDemand {
-                inner: 0.0,
-                outer: 18.0,
+                guide: 0.0,
+                legend: 18.0,
             },
         )
     });
@@ -828,13 +828,13 @@ fn edge_reservation_layered_vs_band() {
         leaf.demand(
             Side::Right,
             EdgeDemand {
-                inner: 18.0,
-                outer: 0.0,
+                guide: 18.0,
+                legend: 0.0,
             },
         )
     });
-    // Same-stratum containment: merged inner max(18, 14) = 18 holds the
-    // cousin's 14; the cousin's outer 8 still stacks on top.
+    // Same-stratum containment: merged guide max(18, 14) = 18 holds the
+    // cousin's 14; the cousin's legend 8 still stacks on top.
     assert_eq!(gap(&inner_stratum, "b0", "b1"), 26.0);
     assert_eq!(gap(&inner_stratum, "a0", "a1"), 26.0);
 
@@ -865,8 +865,8 @@ fn edge_reservation_layered_vs_band() {
                 .demand(
                     Side::Right,
                     EdgeDemand {
-                        inner: 18.0,
-                        outer: 0.0,
+                        guide: 18.0,
+                        legend: 0.0,
                     },
                 )
                 .sizing(SolveFor::Content)
@@ -894,9 +894,12 @@ fn edge_reservation_layered_vs_band() {
     assert_svg_baseline(
         "edge_reservation_layered_vs_band",
         &svg_panels(&[
-            ("outer 18 vs cousin 14+8: strata coexist, gaps 32", &layered),
             (
-                "inner 18 vs cousin 14+8: same stratum contains, gaps 26",
+                "legend 18 vs cousin 14+8: strata coexist, gaps 32",
+                &layered,
+            ),
+            (
+                "guide 18 vs cousin 14+8: same stratum contains, gaps 26",
                 &inner_stratum,
             ),
             (

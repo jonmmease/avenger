@@ -7,9 +7,9 @@
 //!
 //! Visual language: blue content rectangles; dashed gray slot (allotment)
 //! outlines where granted space exceeds honest content; chrome slabs behind
-//! (gray margins, amber bands, dark green outer, dark red inner); demand
+//! (gray margins, amber bands, dark green legend, dark red guide); demand
 //! strips beside each content rectangle where **hue** is the layer (red =
-//! inner/guide-like, green = outer/legend-like
+//! guide strata, green = legend strata
 //! remainder up to the total — total-only demands and lift-law slack),
 //! **shade** is nesting depth, and **solid vs hatched** is requested vs
 //! granted. A color key row identifies every kind present; the black frame
@@ -46,10 +46,10 @@ pub enum DebugRegionKind {
     Margin,
     /// A frame band strip, e.g. a title row (amber).
     Band,
-    /// A frame outer (legend-like) strip (green).
-    Outer,
-    /// A frame inner (guide-like) strip (red).
-    Inner,
+    /// A frame legend strip (green).
+    Legend,
+    /// A frame guide strip (red).
+    Guide,
     /// A slot (allotment) outline where it differs from the honest content
     /// rectangle (dashed gray) — granted space the content does not fill.
     Slot,
@@ -70,8 +70,8 @@ pub struct DebugRegion {
     /// known. Drawn as solid strips inside the granted bands.
     pub requested: Option<Edges<EdgeGrant>>,
     /// The coordinated overflow the solve produced for this region, when
-    /// known. Drawn as hatched strips: red for the inner layer, green for
-    /// the outer layer.
+    /// known. Drawn as hatched strips: red for the guide stratum, green
+    /// for the legend stratum.
     pub target: Option<Edges<EdgeGrant>>,
     /// Where to draw the label. Defaults to just inside the content
     /// rectangle's top-left corner; frame scenes anchor strip labels inside
@@ -124,8 +124,8 @@ impl DebugScene {
                     kind: match slab.layer {
                         ChromeLayer::Margin => DebugRegionKind::Margin,
                         ChromeLayer::Band => DebugRegionKind::Band,
-                        ChromeLayer::Outer => DebugRegionKind::Outer,
-                        ChromeLayer::Inner => DebugRegionKind::Inner,
+                        ChromeLayer::Legend => DebugRegionKind::Legend,
+                        ChromeLayer::Guide => DebugRegionKind::Guide,
                     },
                     content: slab.rect,
                     requested: None,
@@ -230,24 +230,24 @@ impl DebugScene {
             (DebugRegionKind::Content, "content"),
             (DebugRegionKind::Margin, "margin"),
             (DebugRegionKind::Band, "band"),
-            (DebugRegionKind::Outer, "outer"),
-            (DebugRegionKind::Inner, "inner"),
+            (DebugRegionKind::Legend, "legend"),
+            (DebugRegionKind::Guide, "guide"),
             (DebugRegionKind::Slot, "slot"),
         ];
         const KEY_HEIGHT: f32 = 24.0;
-        // Demand strips encode three things: hue = layer (red inner,
-        // green outer), shade = nesting depth (dark at the base layer,
+        // Demand strips encode three things: hue = stratum (red guide,
+        // green legend), shade = nesting depth (dark at the base layer,
         // lighter as nesting deepens; a frame's own chrome strips are the
         // darkest step of the same ramps), and solid vs hatched =
         // requested vs coordinated. Fills are opaque: nested regions draw
         // overlapping strips, and translucency would invent in-between
         // shades where they stack.
         const STRIP_BORDER: &str = "stroke=\"#9ca3af\" stroke-width=\"0.5\" stroke-opacity=\"0.7\"";
-        let inner_shade = |depth: usize| INNER_SHADES[(depth + 1).min(INNER_SHADES.len() - 1)];
-        let outer_shade = |depth: usize| OUTER_SHADES[(depth + 1).min(OUTER_SHADES.len() - 1)];
+        let guide_shade = |depth: usize| GUIDE_SHADES[(depth + 1).min(GUIDE_SHADES.len() - 1)];
+        let legend_shade = |depth: usize| LEGEND_SHADES[(depth + 1).min(LEGEND_SHADES.len() - 1)];
         let layer_shade = |layer: char, depth: usize| match layer {
-            'i' => inner_shade(depth),
-            _ => outer_shade(depth),
+            'g' => guide_shade(depth),
+            _ => legend_shade(depth),
         };
         let solid_fill = |shade: &str| format!("fill=\"{shade}\" {STRIP_BORDER}");
         let hatch_fill = |layer: char, depth: usize| {
@@ -298,10 +298,10 @@ impl DebugScene {
         let mut outer_depths = std::collections::BTreeSet::new();
         for region in &self.regions {
             for targets in [region.target, region.requested].into_iter().flatten() {
-                if any_side(targets, |grant| grant.inner) {
+                if any_side(targets, |grant| grant.guide) {
                     inner_depths.insert(region.depth);
                 }
-                if any_side(targets, |grant| grant.outer) {
+                if any_side(targets, |grant| grant.legend) {
                     outer_depths.insert(region.depth);
                 }
             }
@@ -313,11 +313,11 @@ impl DebugScene {
             .any(|&depth| depth > 0);
         let key_entries: Vec<(char, usize, String)> = inner_depths
             .iter()
-            .map(|&depth| ('i', depth, String::from("inner")))
+            .map(|&depth| ('g', depth, String::from("guide")))
             .chain(
                 outer_depths
                     .iter()
-                    .map(|&depth| ('o', depth, String::from("outer"))),
+                    .map(|&depth| ('l', depth, String::from("legend"))),
             )
             .map(|(layer, depth, label)| {
                 let label = if multi_depth {
@@ -377,10 +377,10 @@ impl DebugScene {
                 );
             };
             for &depth in &inner_depths {
-                emit_pattern('i', depth, inner_shade(depth));
+                emit_pattern('g', depth, guide_shade(depth));
             }
             for &depth in &outer_depths {
-                emit_pattern('o', depth, outer_shade(depth));
+                emit_pattern('l', depth, legend_shade(depth));
             }
             svg.push_str("  </defs>\n");
         }
@@ -402,7 +402,7 @@ impl DebugScene {
         for region in &self.regions {
             // Coordinated (hatched) bands first, then the requested (solid)
             // demand inside them. Per side, layers stack outward from the
-            // content edge: red inner, then green outer. Solid strips draw
+            // content edge: red guide, then green legend. Solid strips draw
             // at the granted layer offsets so requested space nests inside
             // its coordinated band.
             if let Some(target) = region.target {
@@ -417,18 +417,18 @@ impl DebugScene {
                         edge_strip(region.content, side, offset, thickness)
                     };
                     for (rect, fill) in [
-                        (strip(0.0, granted.inner), hatch_fill('i', region.depth)),
+                        (strip(0.0, granted.guide), hatch_fill('g', region.depth)),
                         (
-                            strip(granted.inner, granted.outer),
-                            hatch_fill('o', region.depth),
+                            strip(granted.guide, granted.legend),
+                            hatch_fill('l', region.depth),
                         ),
                         (
-                            strip(0.0, asked.inner.min(granted.inner)),
-                            solid_fill(inner_shade(region.depth)),
+                            strip(0.0, asked.guide.min(granted.guide)),
+                            solid_fill(guide_shade(region.depth)),
                         ),
                         (
-                            strip(granted.inner, asked.outer),
-                            solid_fill(outer_shade(region.depth)),
+                            strip(granted.guide, asked.legend),
+                            solid_fill(legend_shade(region.depth)),
                         ),
                     ] {
                         if rect.width > 0.0 && rect.height > 0.0 {
@@ -706,8 +706,8 @@ fn union(a: Rect, b: Rect) -> Rect {
 /// Shade ramps shared by frame chrome and demand strips: index 0 is the
 /// base (frame) layer, tree depth `d` uses index `d + 1`; dark at the base,
 /// lighter as nesting deepens (clamped).
-const INNER_SHADES: [&str; 4] = ["#9f2222", "#cf4444", "#e98080", "#f7bcbc"];
-const OUTER_SHADES: [&str; 4] = ["#14602f", "#2f9c5c", "#6cc795", "#b2e6c9"];
+const GUIDE_SHADES: [&str; 4] = ["#9f2222", "#cf4444", "#e98080", "#f7bcbc"];
+const LEGEND_SHADES: [&str; 4] = ["#14602f", "#2f9c5c", "#6cc795", "#b2e6c9"];
 
 /// Rendered style per region kind.
 fn kind_style(kind: DebugRegionKind) -> &'static str {
@@ -721,10 +721,10 @@ fn kind_style(kind: DebugRegionKind) -> &'static str {
         DebugRegionKind::Band => {
             "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#fde68a\" stroke-width=\"0.5\" stroke-opacity=\"0.6\""
         }
-        // OUTER_SHADES[0]: the base step of the outer ramp.
-        DebugRegionKind::Outer => "fill=\"#14602f\" stroke=\"#14602f\" stroke-width=\"0.5\"",
-        // INNER_SHADES[0]: the base step of the inner ramp.
-        DebugRegionKind::Inner => "fill=\"#9f2222\" stroke=\"#9f2222\" stroke-width=\"0.5\"",
+        // LEGEND_SHADES[0]: the base step of the legend ramp.
+        DebugRegionKind::Legend => "fill=\"#14602f\" stroke=\"#14602f\" stroke-width=\"0.5\"",
+        // GUIDE_SHADES[0]: the base step of the guide ramp.
+        DebugRegionKind::Guide => "fill=\"#9f2222\" stroke=\"#9f2222\" stroke-width=\"0.5\"",
         DebugRegionKind::Slot => {
             "fill=\"none\" stroke=\"#6b7280\" stroke-width=\"0.7\" stroke-dasharray=\"3 2\""
         }
@@ -763,8 +763,8 @@ mod tests {
                 .demand(
                     Side::Top,
                     Demand {
-                        inner: 20.0,
-                        outer: 0.0,
+                        guide: 20.0,
+                        legend: 0.0,
                     },
                 )
                 .id("a"),
@@ -772,14 +772,14 @@ mod tests {
                 .demand(
                     Side::Top,
                     Demand {
-                        inner: 8.0,
-                        outer: 0.0,
+                        guide: 8.0,
+                        legend: 0.0,
                     },
                 )
                 .id("b"),
         ])
         .margin(8.0)
-        .inner(Side::Left, 30.0)
+        .guide(Side::Left, 30.0)
         .sizing(SolveFor::Content)
         .id("fig");
         let solved = root
@@ -791,7 +791,7 @@ mod tests {
 
         let svg = solved.to_svg();
         assert!(svg.starts_with("<svg "));
-        assert!(svg.contains("url(#hatch-i1)"), "granted strips hatch");
+        assert!(svg.contains("url(#hatch-g1)"), "granted strips hatch");
         assert!(svg.contains("stroke-dasharray=\"3 2\""), "slot outline");
         assert!(svg.contains(">a</text>"), "id labels render");
         assert!(svg.contains(">slot</text>"), "key explains the slot");

@@ -10,23 +10,23 @@
 //! alignment). `row`/`column` are 1×N conveniences.
 //!
 //! On top of that, every node — leaf or grid — can carry **declared
-//! chrome**: named slabs per side (margin, repeatable bands, outer, inner)
+//! chrome**: named slabs per side (margin, repeatable bands, legend, guide)
 //! plus a per-axis [`SolveFor`] sizing mode. Chrome is structured overflow:
 //! the solver knows the individual slabs, returns their positioned
 //! rectangles in the solution, and repositions them itself when coordination
 //! resizes the node. Measured demands stay opaque.
 //!
-//! Toward the parent, inner slabs extend the `inner` layer of the node's
-//! solved edges ([`crate::region::EdgeGrant`]), outer slabs the `outer`
-//! layer, and bands and margins lift into `total` only (private envelope —
-//! never matched against a cousin's named layers).
+//! Toward the parent, guide slabs extend the `guide` stratum of the node's
+//! solved edges ([`crate::region::EdgeGrant`]), legend slabs the `legend`
+//! stratum, and bands and margins lift into `total` only (private envelope —
+//! never matched against a cousin's strata).
 //!
 //! That privacy is deliberate, not a missing feature: bands and margins
 //! are caller *declarations*, so a caller who wants them equal across
 //! cousins can max its own declared sizes before building — no solver
-//! involvement required. The named `inner`/`outer` layers exist because
+//! involvement required. The `guide`/`legend` strata exist because
 //! *measured* demands vary per cousin and only merge inside the solve;
-//! a layer earns a coordination channel exactly when its sizes are
+//! a stratum earns a coordination channel exactly when its sizes are
 //! measurements rather than declarations.
 
 use crate::geometry::{Edges, Side, Size};
@@ -174,8 +174,8 @@ impl From<GridError> for LayoutError {
 pub(crate) struct ChromeSide {
     pub(crate) margin: f32,
     pub(crate) bands: Vec<f32>,
-    pub(crate) outer: f32,
-    pub(crate) inner: f32,
+    pub(crate) legend: f32,
+    pub(crate) guide: f32,
 }
 
 /// Declared chrome and sizing for one node.
@@ -357,17 +357,17 @@ impl<Id, Key> Layout<Id, Key> {
         self
     }
 
-    /// The outer chrome slab on one side (for charts: the legend layer).
-    /// Lifts into the `outer` demand layer.
-    pub fn outer(mut self, side: Side, size: f32) -> Self {
-        self.chrome.sides.side_mut(side).outer = size;
+    /// The legend chrome slab on one side (content stacking beyond the
+    /// guide stratum). Lifts into the `legend` demand stratum.
+    pub fn legend(mut self, side: Side, size: f32) -> Self {
+        self.chrome.sides.side_mut(side).legend = size;
         self
     }
 
-    /// The inner chrome slab on one side (for charts: axis ticks/labels,
-    /// facet headers). Lifts into the `inner` demand layer.
-    pub fn inner(mut self, side: Side, size: f32) -> Self {
-        self.chrome.sides.side_mut(side).inner = size;
+    /// The guide chrome slab on one side (axis ticks/labels, facet
+    /// headers). Lifts into the `guide` demand stratum.
+    pub fn guide(mut self, side: Side, size: f32) -> Self {
+        self.chrome.sides.side_mut(side).guide = size;
         self
     }
 
@@ -545,15 +545,15 @@ mod tests {
             .demand(
                 Side::Left,
                 EdgeDemand {
-                    inner: 26.0,
-                    outer: 0.0,
+                    guide: 26.0,
+                    legend: 0.0,
                 },
             )
             .demand(
                 Side::Bottom,
                 EdgeDemand {
-                    inner: 18.0,
-                    outer: 0.0,
+                    guide: 18.0,
+                    legend: 0.0,
                 },
             )
             .id("a0");
@@ -566,15 +566,15 @@ mod tests {
                 assert_eq!(
                     demands.left,
                     EdgeDemand {
-                        inner: 26.0,
-                        outer: 0.0
+                        guide: 26.0,
+                        legend: 0.0
                     }
                 );
                 assert_eq!(
                     demands.bottom,
                     EdgeDemand {
-                        inner: 18.0,
-                        outer: 0.0
+                        guide: 18.0,
+                        legend: 0.0
                     }
                 );
             }
@@ -586,12 +586,12 @@ mod tests {
             .margin(8.0)
             .band(Side::Top, 18.0)
             .band(Side::Top, 12.0)
-            .outer(Side::Right, 64.0)
-            .inner(Side::Left, 38.0)
+            .legend(Side::Right, 64.0)
+            .guide(Side::Left, 38.0)
             .sizing(SolveFor::Content);
         assert_eq!(chart.chrome.sides.top.bands, vec![18.0, 12.0]);
-        assert_eq!(chart.chrome.sides.right.outer, 64.0);
-        assert_eq!(chart.chrome.sides.left.inner, 38.0);
+        assert_eq!(chart.chrome.sides.right.legend, 64.0);
+        assert_eq!(chart.chrome.sides.left.guide, 38.0);
         assert_eq!(chart.chrome.sides.left.margin, 8.0);
         assert_eq!(chart.chrome.sizing_x, SolveFor::Content);
         assert_eq!(chart.chrome.sizing_y, SolveFor::Content);
@@ -603,7 +603,7 @@ mod tests {
         .min_gap(14.0)
         .uniform_rows()
         .share("facet-cells")
-        .inner(Side::Top, 16.0);
+        .guide(Side::Top, 16.0);
         match &group.kind {
             LayoutKind::Grid(grid) => {
                 assert_eq!(
@@ -620,7 +620,7 @@ mod tests {
             }
             LayoutKind::Leaf { .. } => panic!("grid expected"),
         }
-        assert_eq!(group.chrome.sides.top.inner, 16.0);
+        assert_eq!(group.chrome.sides.top.guide, 16.0);
 
         let grid: Layout = Layout::grid(2, 3)
             .cell(0, 0, Layout::leaf(Size::default()))
@@ -675,8 +675,8 @@ mod tests {
         let _ = Layout::<usize, usize>::grid(1, 1).demand(
             Side::Top,
             EdgeDemand {
-                inner: 1.0,
-                outer: 0.0,
+                guide: 1.0,
+                legend: 0.0,
             },
         );
     }

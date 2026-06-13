@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 303 176" font-family="monospace" font-size="10">
-  <rect x="-10" y="-10" width="303" height="176" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 309 176" font-family="monospace" font-size="10">
+  <rect x="-10" y="-10" width="309" height="176" fill="#ffffff"/>
   <rect x="0" y="0" width="140" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
   <rect x="0" y="122" width="140" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
   <rect x="0" y="10" width="10" height="112" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
@@ -19,8 +19,8 @@
   <rect x="132" y="142" width="10" height="10" fill="#fde68a" fill-opacity="0.6" stroke="#fde68a" stroke-width="0.5" stroke-opacity="0.6"/>
   <text x="145" y="151" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">band</text>
   <rect x="183" y="142" width="10" height="10" fill="#14602f" stroke="#14602f" stroke-width="0.5"/>
-  <text x="196" y="151" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">outer</text>
-  <rect x="240" y="142" width="10" height="10" fill="#9f2222" stroke="#9f2222" stroke-width="0.5"/>
-  <text x="253" y="151" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">inner</text>
+  <text x="196" y="151" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">legend</text>
+  <rect x="246" y="142" width="10" height="10" fill="#9f2222" stroke="#9f2222" stroke-width="0.5"/>
+  <text x="259" y="151" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">guide</text>
   <rect x="0" y="0" width="140" height="132" fill="none" stroke="#111111" stroke-width="1"/>
 </svg>

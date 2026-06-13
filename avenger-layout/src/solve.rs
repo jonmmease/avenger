@@ -83,12 +83,12 @@ fn pin_fixed_tracks(sizes: &mut [f32], declared: &[TrackSize]) {
 }
 
 /// Stack one side's declared chrome onto the content's own demand
-/// (the `stacked_inner/outer_edges` law: additive per layer; bands and
+/// (the `stacked_inner/legend_edges` law: additive per layer; bands and
 /// margins extend `total` only).
 fn lift_chrome(demand: EdgeGrant, chrome: &ChromeSide) -> EdgeGrant {
     EdgeGrant::new(
-        demand.inner + chrome.inner.max(0.0),
-        demand.outer + chrome.outer.max(0.0),
+        demand.guide + chrome.guide.max(0.0),
+        demand.legend + chrome.legend.max(0.0),
         demand.total + chrome_total(chrome),
     )
 }
@@ -98,7 +98,7 @@ fn chrome_total(side: &ChromeSide) -> f32 {
     for band in &side.bands {
         total += band.max(0.0);
     }
-    total + side.outer.max(0.0) + side.inner.max(0.0)
+    total + side.legend.max(0.0) + side.guide.max(0.0)
 }
 
 /// Fixed (non-margin) chrome on one side: what `Margins` mode keeps rigid.
@@ -227,17 +227,17 @@ pub(crate) fn measure_with<Id: Clone, Key>(
                     id: index,
                     slot: child.slot,
                     content_size: measured.item_size,
-                    inner_edges: Edges::new(
-                        measured.demands.top.inner,
-                        measured.demands.right.inner,
-                        measured.demands.bottom.inner,
-                        measured.demands.left.inner,
+                    guide_edges: Edges::new(
+                        measured.demands.top.guide,
+                        measured.demands.right.guide,
+                        measured.demands.bottom.guide,
+                        measured.demands.left.guide,
                     ),
-                    outer_edges: Edges::new(
-                        measured.demands.top.outer,
-                        measured.demands.right.outer,
-                        measured.demands.bottom.outer,
-                        measured.demands.left.outer,
+                    legend_edges: Edges::new(
+                        measured.demands.top.legend,
+                        measured.demands.right.legend,
+                        measured.demands.bottom.legend,
+                        measured.demands.left.legend,
                     ),
                     total_edges: Edges::new(
                         measured.demands.top.total,
@@ -494,7 +494,7 @@ fn place_axis(
 
 /// Carve 2D slab rectangles from the per-axis chrome solutions.
 ///
-/// Layers carve from the outside in (margin → bands → outer → inner); within
+/// Layers carve from the outside in (margin → bands → legend → guide); within
 /// one layer, vertical sides (top/bottom) carve before horizontal
 /// (left/right), so a top band runs wider than a left band of the same layer
 /// and corners belong to the outer-more / vertical-first slab. The innermost
@@ -596,21 +596,21 @@ fn carve_slabs(
         );
     }
     step(
-        ChromeLayer::Outer,
+        ChromeLayer::Legend,
         0,
-        top.outer.size,
-        right.outer.size,
-        bottom.outer.size,
-        left.outer.size,
+        top.legend.size,
+        right.legend.size,
+        bottom.legend.size,
+        left.legend.size,
         slabs,
     );
     step(
-        ChromeLayer::Inner,
+        ChromeLayer::Guide,
         0,
-        top.inner.size,
-        right.inner.size,
-        bottom.inner.size,
-        left.inner.size,
+        top.guide.size,
+        right.guide.size,
+        bottom.guide.size,
+        left.guide.size,
         slabs,
     );
 }
@@ -619,8 +619,8 @@ fn frame_side(side: &ChromeSide) -> FrameSide {
     FrameSide {
         margin: side.margin,
         bands: side.bands.clone(),
-        outer: side.outer,
-        inner: side.inner,
+        legend: side.legend,
+        guide: side.guide,
     }
 }
 
@@ -1350,9 +1350,9 @@ mod tests {
         Layout::leaf(Size::default())
             .margin(8.0)
             .band(Side::Top, 18.0)
-            .outer(Side::Right, 64.0)
-            .inner(Side::Left, 38.0)
-            .inner(Side::Bottom, 22.0)
+            .legend(Side::Right, 64.0)
+            .guide(Side::Left, 38.0)
+            .guide(Side::Bottom, 22.0)
             .content_min(Size::new(50.0, 40.0))
             .id("chart")
     }
@@ -1366,11 +1366,11 @@ mod tests {
         crate::frame::FrameAxisSolution,
         crate::frame::FrameAxisSolution,
     ) {
-        let side = |margin: f32, bands: &[f32], outer: f32, inner: f32| FrameSide {
+        let side = |margin: f32, bands: &[f32], legend: f32, guide: f32| FrameSide {
             margin,
             bands: bands.to_vec(),
-            outer,
-            inner,
+            legend,
+            guide,
         };
         let horizontal = FrameAxis {
             sizing: sizing_x,
@@ -1429,9 +1429,9 @@ mod tests {
         let solved = Layout::<&str>::leaf(Size::new(200.0, 150.0))
             .margin(8.0)
             .band(Side::Top, 18.0)
-            .outer(Side::Right, 64.0)
-            .inner(Side::Left, 38.0)
-            .inner(Side::Bottom, 22.0)
+            .legend(Side::Right, 64.0)
+            .guide(Side::Left, 38.0)
+            .guide(Side::Bottom, 22.0)
             .id("chart")
             .solve(&SolveOptions::default())
             .expect("solve");
@@ -1450,9 +1450,9 @@ mod tests {
         let solved = Layout::<&str>::leaf(Size::new(200.0, 150.0))
             .margin(8.0)
             .band(Side::Top, 18.0)
-            .outer(Side::Right, 64.0)
-            .inner(Side::Left, 38.0)
-            .inner(Side::Bottom, 22.0)
+            .legend(Side::Right, 64.0)
+            .guide(Side::Left, 38.0)
+            .guide(Side::Bottom, 22.0)
             .id("chart")
             .sizing(SolveFor::Margins)
             .solve(&SolveOptions {
@@ -1482,8 +1482,8 @@ mod tests {
         // plot-area-sized (content given, envelope derived).
         let solved = Layout::<&str>::leaf(Size::new(0.0, 150.0))
             .margin(8.0)
-            .inner(Side::Left, 38.0)
-            .inner(Side::Bottom, 22.0)
+            .guide(Side::Left, 38.0)
+            .guide(Side::Bottom, 22.0)
             .sizing_x(SolveFor::Content)
             .id("chart")
             .solve(&SolveOptions {
@@ -1577,21 +1577,21 @@ mod tests {
     #[test]
     fn grid_chrome_reproduces_the_stacked_edges_law() {
         // Grid chrome stacks onto child demands: a 15px child right demand
-        // (outer: content stacking, distinct from the header's stratum)
-        // plus a 35px inner header = a 50px envelope with the header on
-        // the inner (coordinated) layer.
+        // (legend: content stacking, distinct from the header's stratum)
+        // plus a 35px guide header = a 50px envelope with the header on
+        // the guide (coordinated) stratum.
         let new: Layout = Layout::row([Layout::leaf(Size::new(100.0, 60.0)).demand(
             Side::Right,
             EdgeDemand {
-                inner: 0.0,
-                outer: 15.0,
+                guide: 0.0,
+                legend: 15.0,
             },
         )])
-        .inner(Side::Right, 35.0);
+        .guide(Side::Right, 35.0);
         let solved = new.solve(&SolveOptions::default()).expect("solve");
 
         assert_eq!(solved.envelope().layered.right.total, 50.0);
-        assert_eq!(solved.envelope().layered.right.inner, 35.0);
+        assert_eq!(solved.envelope().layered.right.guide, 35.0);
     }
 
     #[test]
@@ -1602,15 +1602,15 @@ mod tests {
             Layout::leaf(Size::new(100.0, 60.0)).demand(
                 Side::Top,
                 EdgeDemand {
-                    inner: 10.0,
-                    outer: 0.0,
+                    guide: 10.0,
+                    legend: 0.0,
                 },
             ),
             Layout::leaf(Size::new(100.0, 60.0)).demand(
                 Side::Top,
                 EdgeDemand {
-                    inner: 0.0,
-                    outer: 8.0,
+                    guide: 0.0,
+                    legend: 8.0,
                 },
             ),
         ]);
@@ -1654,22 +1654,22 @@ mod tests {
 
     #[test]
     fn within_grid_top_demands_aggregate_per_track() {
-        // Two plots in a row with different top inner demands: the shared
+        // Two plots in a row with different top guide demands: the shared
         // row reserves the max; both contents align by sharing the track;
         // granted reports the track-level demand.
         let root: Layout = Layout::row([
             Layout::leaf(Size::new(100.0, 60.0)).demand(
                 Side::Top,
                 EdgeDemand {
-                    inner: 20.0,
-                    outer: 0.0,
+                    guide: 20.0,
+                    legend: 0.0,
                 },
             ),
             Layout::leaf(Size::new(100.0, 60.0)).demand(
                 Side::Top,
                 EdgeDemand {
-                    inner: 8.0,
-                    outer: 0.0,
+                    guide: 8.0,
+                    legend: 0.0,
                 },
             ),
         ]);
@@ -1678,9 +1678,9 @@ mod tests {
         let first = solved.at_path(&[0]).unwrap();
         let second = solved.at_path(&[1]).unwrap();
         assert_eq!(first.content.y, second.content.y);
-        assert_eq!(second.requested.top.inner, 8.0);
-        assert_eq!(second.granted.top.inner, 20.0, "track-level grant");
-        assert_eq!(solved.envelope().layered.top.inner, 20.0);
+        assert_eq!(second.requested.top.guide, 8.0);
+        assert_eq!(second.granted.top.guide, 20.0, "track-level grant");
+        assert_eq!(solved.envelope().layered.top.guide, 20.0);
     }
 
     #[test]
@@ -1764,8 +1764,8 @@ mod tests {
         use crate::solution::ChromeLayer;
         let solved = Layout::<&str>::leaf(Size::default())
             .margin(8.0)
-            .inner(Side::Left, 38.0)
-            .inner(Side::Bottom, 22.0)
+            .guide(Side::Left, 38.0)
+            .guide(Side::Bottom, 22.0)
             .sizing(SolveFor::Content)
             .id("chart")
             .solve(&SolveOptions {
@@ -1778,7 +1778,7 @@ mod tests {
         let left_inner = region
             .slabs
             .iter()
-            .find(|slab| slab.layer == ChromeLayer::Inner && slab.side == Side::Left)
+            .find(|slab| slab.layer == ChromeLayer::Guide && slab.side == Side::Left)
             .expect("left inner");
         assert_eq!(left_inner.rect.y, region.content.y);
         assert_eq!(left_inner.rect.height, region.content.height);
@@ -1790,7 +1790,7 @@ mod tests {
         use crate::solution::ChromeLayer;
         let solved = Layout::<&str>::leaf(Size::new(200.0, 150.0))
             .margin(8.0)
-            .inner(Side::Left, 38.0)
+            .guide(Side::Left, 38.0)
             .id("chart")
             .solve(&SolveOptions::default())
             .expect("solve");
@@ -1800,7 +1800,7 @@ mod tests {
         let left_inner = region
             .slabs
             .iter()
-            .find(|slab| slab.layer == ChromeLayer::Inner && slab.side == Side::Left)
+            .find(|slab| slab.layer == ChromeLayer::Guide && slab.side == Side::Left)
             .expect("left inner");
         assert_eq!(left_inner.rect, Rect::new(8.0, 8.0, 38.0, 150.0));
         let left_margin = region
@@ -1853,15 +1853,15 @@ mod tests {
             .demand(
                 Side::Left,
                 EdgeDemand {
-                    inner: left,
-                    outer: 0.0,
+                    guide: left,
+                    legend: 0.0,
                 },
             )
             .demand(
                 Side::Bottom,
                 EdgeDemand {
-                    inner: bottom,
-                    outer: 0.0,
+                    guide: bottom,
+                    legend: 0.0,
                 },
             )
     }
@@ -1927,30 +1927,30 @@ mod tests {
 
     #[test]
     fn region_geometric_reports_raw_totals_without_lift() {
-        // One side with a guide-heavy cell (inner 5) and a legend-heavy
-        // cell (outer 8): the layered demand lifts total to inner + outer,
+        // One side with a guide-heavy cell (guide 5) and a legend-heavy
+        // cell (legend 8): the layered demand lifts total to guide + legend,
         // while the geometric view keeps the raw per-side maximum.
         let band: Layout<&str> = Layout::row(vec![
             Layout::leaf(Size::new(40.0, 30.0)).demand(
                 Side::Top,
                 EdgeDemand {
-                    inner: 5.0,
-                    outer: 0.0,
+                    guide: 5.0,
+                    legend: 0.0,
                 },
             ),
             Layout::leaf(Size::new(40.0, 30.0)).demand(
                 Side::Top,
                 EdgeDemand {
-                    inner: 0.0,
-                    outer: 8.0,
+                    guide: 0.0,
+                    legend: 8.0,
                 },
             ),
         ])
         .id("band");
         let solved = band.solve(&SolveOptions::default()).expect("solve");
         let region = solved.region(&"band").expect("band region");
-        assert_eq!(region.requested.top.inner, 5.0);
-        assert_eq!(region.requested.top.outer, 8.0);
+        assert_eq!(region.requested.top.guide, 5.0);
+        assert_eq!(region.requested.top.legend, 8.0);
         assert_eq!(region.requested.top.total, 13.0, "layered law lifts");
         assert_eq!(
             region.geometric_total.top, 8.0,
@@ -2259,17 +2259,17 @@ mod tests {
     /// parent's track allocation (which also folds in unshared siblings).
     ///
     /// The numbers mirror the chart's envelope-laws fixture: a guide-heavy
-    /// member (inner 5 within envelope 5) shares a key with a legend-heavy
-    /// member (inner 0 within envelope 8); the coordinated side must hold
+    /// member (guide 5 within envelope 5) shares a key with a legend-heavy
+    /// member (guide 0 within envelope 8); the coordinated side must hold
     /// both layers at once (total 13 = 5 + 8 — the cross-cousin lift).
     #[test]
     fn region_edges_pin_pass_provenance() {
         use crate::region::EdgeGrant;
 
-        let member = |inner: f32, envelope: f32| -> Layout<&'static str, &'static str> {
+        let member = |guide: f32, envelope: f32| -> Layout<&'static str, &'static str> {
             Layout::row(vec![Layout::leaf(Size::new(40.0, 30.0)).demand(
                 Side::Top,
-                EdgeDemand::from_inner_and_envelope(inner, envelope),
+                EdgeDemand::from_guide_and_envelope(guide, envelope),
             )])
             .share("k")
         };
@@ -2280,8 +2280,8 @@ mod tests {
                 .demand(
                     Side::Top,
                     EdgeDemand {
-                        inner: 20.0,
-                        outer: 0.0,
+                        guide: 20.0,
+                        legend: 0.0,
                     },
                 )
                 .id("fat"),
@@ -2296,7 +2296,7 @@ mod tests {
         assert_eq!(a.coordinated.top, EdgeGrant::new(5.0, 8.0, 13.0));
         // Parent allocation: the row's top track edge also folds in the
         // unshared sibling's layers per stratum (its 20px guide layer
-        // joins the merged inner; the lift law raises the total to the
+        // joins the merged guide; the lift law raises the total to the
         // stratum sum).
         assert_eq!(a.granted.top, EdgeGrant::new(20.0, 8.0, 28.0));
 

@@ -199,18 +199,18 @@ fn project_layout_rects(
             chrome.guide_overflow.top,
             LayoutBounds {
                 x: h.content.start,
-                y: v.leading.inner.start,
+                y: v.leading.guide.start,
                 width: h.content.size,
-                height: v.leading.inner.size,
+                height: v.leading.guide.size,
             },
         ),
         (
             AxisPosition::Right,
             chrome.guide_overflow.right,
             LayoutBounds {
-                x: h.trailing.inner.start,
+                x: h.trailing.guide.start,
                 y: v.content.start,
-                width: h.trailing.inner.size,
+                width: h.trailing.guide.size,
                 height: v.content.size,
             },
         ),
@@ -219,18 +219,18 @@ fn project_layout_rects(
             chrome.guide_overflow.bottom,
             LayoutBounds {
                 x: h.content.start,
-                y: v.trailing.inner.start,
+                y: v.trailing.guide.start,
                 width: h.content.size,
-                height: v.trailing.inner.size,
+                height: v.trailing.guide.size,
             },
         ),
         (
             AxisPosition::Left,
             chrome.guide_overflow.left,
             LayoutBounds {
-                x: h.leading.inner.start,
+                x: h.leading.guide.start,
                 y: v.content.start,
-                width: h.leading.inner.size,
+                width: h.leading.guide.size,
                 height: v.content.size,
             },
         ),
@@ -280,28 +280,28 @@ fn project_layout_rects(
     for (position, legend_keys) in legends_by_position {
         let container = match position {
             LegendPosition::Left => LayoutBounds {
-                x: h.leading.outer.start,
+                x: h.leading.legend.start,
                 y: v.content.start,
-                width: h.leading.outer.size,
+                width: h.leading.legend.size,
                 height: v.content.size,
             },
             LegendPosition::Right => LayoutBounds {
-                x: h.trailing.outer.start,
+                x: h.trailing.legend.start,
                 y: v.content.start,
-                width: h.trailing.outer.size,
+                width: h.trailing.legend.size,
                 height: v.content.size,
             },
             LegendPosition::Top => LayoutBounds {
                 x: h.content.start,
-                y: v.leading.outer.start,
+                y: v.leading.legend.start,
                 width: h.content.size,
-                height: v.leading.outer.size,
+                height: v.leading.legend.size,
             },
             LegendPosition::Bottom => LayoutBounds {
                 x: h.content.start,
-                y: v.trailing.outer.start,
+                y: v.trailing.legend.start,
                 width: h.content.size,
-                height: v.trailing.outer.size,
+                height: v.trailing.legend.size,
             },
         };
         for (key, bounds) in
@@ -381,20 +381,20 @@ fn title_band_bounds(
         TitleSpan::PlotArea => (h.content.start, h.content.size),
         TitleSpan::Canvas => {
             let x = if has_left_overflow {
-                h.leading.inner.start
+                h.leading.guide.start
             } else {
                 h.content.start
             };
             let mut width = 0.0f32;
             if has_left_overflow {
-                width += h.leading.inner.size;
+                width += h.leading.guide.size;
             }
             width += h.content.size;
             if has_right_overflow {
-                width += h.trailing.inner.size;
+                width += h.trailing.guide.size;
             }
             if has_right_legend {
-                width += h.trailing.outer.size;
+                width += h.trailing.legend.size;
             }
             (x, width)
         }
@@ -614,12 +614,12 @@ mod tests {
         solve_native_frame_layout, title_band_bounds,
     };
 
-    fn frame_side(margin: f32, bands: &[f32], outer: f32, inner: f32) -> FrameSide {
+    fn frame_side(margin: f32, bands: &[f32], legend: f32, guide: f32) -> FrameSide {
         FrameSide {
             margin,
             bands: bands.to_vec(),
-            outer,
-            inner,
+            legend,
+            guide,
         }
     }
 
@@ -765,14 +765,14 @@ mod tests {
                     leading: FrameSide {
                         margin: 10.0,
                         bands: Vec::new(),
-                        outer: 0.0,
-                        inner: 5.0,
+                        legend: 0.0,
+                        guide: 5.0,
                     },
                     trailing: FrameSide {
                         margin: 10.0,
                         bands: Vec::new(),
-                        outer: 0.0,
-                        inner: 7.0,
+                        legend: 0.0,
+                        guide: 7.0,
                     },
                     content_min: MIN_COMPONENT_SIZE,
                 },
@@ -781,14 +781,14 @@ mod tests {
                     leading: FrameSide {
                         margin: 10.0,
                         bands: Vec::new(),
-                        outer: 0.0,
-                        inner: 6.0,
+                        legend: 0.0,
+                        guide: 6.0,
                     },
                     trailing: FrameSide {
                         margin: 10.0,
                         bands: Vec::new(),
-                        outer: 0.0,
-                        inner: 8.0,
+                        legend: 0.0,
+                        guide: 8.0,
                     },
                     content_min: MIN_COMPONENT_SIZE,
                 },
@@ -873,8 +873,8 @@ pub(crate) fn apply_frame_side_slab(
 
     freeze_chrome_content_at_plot_size(layout);
     let frame_side = chrome_frame_side_mut(&mut layout.chrome.frame, side);
-    frame_side.inner = guide;
-    frame_side.outer = (total - guide).max(0.0);
+    frame_side.guide = guide;
+    frame_side.legend = (total - guide).max(0.0);
     // The realized-layout threshold for an existing guide layer (the
     // initial measurement gate is MIN_GUIDE_OVERFLOW_SIZE).
     let guide_exists = guide > 0.01;

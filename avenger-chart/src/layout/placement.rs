@@ -27,7 +27,7 @@ pub struct BoundaryDemand {
 /// coordinated inner edge, while sibling spacing uses the coordinated total.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct EdgeTargets {
-    pub inner: Edges<f32>,
+    pub guide: Edges<f32>,
     pub total: Edges<f32>,
 }
 

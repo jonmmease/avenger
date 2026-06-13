@@ -12,7 +12,7 @@
 //! solved track spacing) and every cell's slot geometry. Lowering rules:
 //!
 //! - Leaf cells lower at their live plot sizes with
-//!   `EdgeDemand::from_inner_and_envelope` per side from the epoch
+//!   `EdgeDemand::from_guide_and_envelope` per side from the epoch
 //!   envelopes (renderable-index aligned, like the band envelope fold).
 //! - Nested-band cells lower behind a TWO-WRAPPER boundary (the channel
 //!   contract law, pinned by
@@ -38,7 +38,7 @@
 //!   distribute free space, content-driven axes keep natural tracks.
 //!
 //! Channel reads use `Region.coordinated` (the node's own post-share ask;
-//! `granted` would fold in unrelated siblings) — guide from `.inner`,
+//! `granted` would fold in unrelated siblings) — guide from `.guide`,
 //! total from `.total`, carrying the cross-cousin lift (a merged side
 //! holds every member's layers at once).
 
@@ -316,10 +316,10 @@ fn demand_edges_from_envelope(
     total: &avenger_chart_core::OverflowSpaceRequirement,
 ) -> Edges<EdgeDemand> {
     Edges::new(
-        EdgeDemand::from_inner_and_envelope(guide.top, total.top),
-        EdgeDemand::from_inner_and_envelope(guide.right, total.right),
-        EdgeDemand::from_inner_and_envelope(guide.bottom, total.bottom),
-        EdgeDemand::from_inner_and_envelope(guide.left, total.left),
+        EdgeDemand::from_guide_and_envelope(guide.top, total.top),
+        EdgeDemand::from_guide_and_envelope(guide.right, total.right),
+        EdgeDemand::from_guide_and_envelope(guide.bottom, total.bottom),
+        EdgeDemand::from_guide_and_envelope(guide.left, total.left),
     )
 }
 
@@ -391,10 +391,10 @@ fn lower_band(
                     let guide = cell_g.max(0.0);
                     let legend = (cell_t - cell_g).max(0.0);
                     if guide > 0.0 {
-                        wrapper = wrapper.inner(side, guide);
+                        wrapper = wrapper.guide(side, guide);
                     }
                     if legend > 0.0 {
-                        wrapper = wrapper.outer(side, legend);
+                        wrapper = wrapper.legend(side, legend);
                     }
                 }
             }
@@ -470,7 +470,7 @@ fn lower_band(
                     };
                     ghost = ghost.demand(
                         trailing_side,
-                        EdgeDemand::from_inner_and_envelope(
+                        EdgeDemand::from_guide_and_envelope(
                             *match band.axis {
                                 FacetAxis::Column => &guide.right,
                                 FacetAxis::Row => &guide.bottom,
@@ -561,7 +561,7 @@ pub(crate) struct TreeChannels {
 ///   `build_round_solution` applies the remaining per-node adjustments
 ///   (lane-gap fold, global-edge outer reversion) on top of them.
 /// - Overflow comes from the band's `Region.coordinated` edges: guide
-///   from `.inner`, total from `.total` (the cross-cousin lift).
+///   from `.guide`, total from `.total` (the cross-cousin lift).
 pub(crate) fn extract_channels(
     lowered: &LoweredFacetTree,
     solution: &LayoutSolution<CoordinationNodeKey>,
@@ -606,10 +606,10 @@ pub(crate) fn extract_channels(
                 band.node_id.clone(),
                 CoordinatedOverflow {
                     guide: avenger_chart_core::OverflowSpaceRequirement {
-                        top: coordinated.top.inner,
-                        right: coordinated.right.inner,
-                        bottom: coordinated.bottom.inner,
-                        left: coordinated.left.inner,
+                        top: coordinated.top.guide,
+                        right: coordinated.right.guide,
+                        bottom: coordinated.bottom.guide,
+                        left: coordinated.left.guide,
                     },
                     total: avenger_chart_core::OverflowSpaceRequirement {
                         top: coordinated.top.total,
@@ -635,10 +635,10 @@ pub(crate) fn extract_channels(
 ///   `n`/`guide_slot_gap_px` fold over share groups
 ///   (`build_round_solution` applies the lane-gap and global-edge
 ///   adjustments).
-/// - `overflow_by_node` reads `Region.coordinated` (guide = inner,
+/// - `overflow_by_node` reads `Region.coordinated` (guide stratum,
 ///   total = total): each node's own post-share ask.
 /// - `own_overflow_by_node` is the own-envelope law: guide from pass-1
-///   `requested.inner`, total from the raw `geometric` view.
+///   `requested.guide`, total from the raw `geometric` view.
 ///
 /// Returns an empty round for band-less measurements; a solve failure is
 /// a hard error (the tree solve is the only channel producer).
@@ -668,10 +668,10 @@ pub(crate) fn tree_solved_round(
             band.node_id.clone(),
             CoordinatedOverflow {
                 guide: avenger_chart_core::OverflowSpaceRequirement {
-                    top: region.requested.top.inner,
-                    right: region.requested.right.inner,
-                    bottom: region.requested.bottom.inner,
-                    left: region.requested.left.inner,
+                    top: region.requested.top.guide,
+                    right: region.requested.right.guide,
+                    bottom: region.requested.bottom.guide,
+                    left: region.requested.left.guide,
                 },
                 total: avenger_chart_core::OverflowSpaceRequirement {
                     top: region.geometric_total.top,
@@ -991,14 +991,14 @@ mod tests {
         let child: Layout =
             Layout::row(vec![Layout::leaf(Size::new(100.0, 50.0)).demand(
                 Side::Right,
-                EdgeDemand::from_inner_and_envelope(0.0, 42.0),
+                EdgeDemand::from_guide_and_envelope(0.0, 42.0),
             )])
             .id(1);
         // Two-wrapper boundary: the contained wrapper zeroes the child's
         // structural lift; the outer wrapper declares the parent's epoch
         // view of the SAME 42px, which classifies it as GUIDE (inner).
         let contained = Layout::row(vec![child]).sizing(SolveFor::Content);
-        let wrapper = Layout::row(vec![contained]).inner(Side::Right, 42.0).id(0);
+        let wrapper = Layout::row(vec![contained]).guide(Side::Right, 42.0).id(0);
         let parent: Layout = Layout::row(vec![wrapper]);
         let solved = parent.solve(&SolveOptions::default()).expect("solve");
 

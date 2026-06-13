@@ -371,14 +371,14 @@ impl FrameChromeBuilder {
                 leading: FrameSide {
                     margin: margins.left,
                     bands: Vec::new(),
-                    outer: legend_container_width(LegendPosition::Left),
-                    inner: inner(guide_overflow.left, overflow.left),
+                    legend: legend_container_width(LegendPosition::Left),
+                    guide: inner(guide_overflow.left, overflow.left),
                 },
                 trailing: FrameSide {
                     margin: margins.right,
                     bands: Vec::new(),
-                    outer: legend_container_width(LegendPosition::Right),
-                    inner: inner(guide_overflow.right, overflow.right),
+                    legend: legend_container_width(LegendPosition::Right),
+                    guide: inner(guide_overflow.right, overflow.right),
                 },
                 content_min: MIN_COMPONENT_SIZE,
             },
@@ -387,14 +387,14 @@ impl FrameChromeBuilder {
                 leading: FrameSide {
                     margin: margins.top,
                     bands: top_bands,
-                    outer: legend_container_height(LegendPosition::Top),
-                    inner: inner(guide_overflow.top, overflow.top),
+                    legend: legend_container_height(LegendPosition::Top),
+                    guide: inner(guide_overflow.top, overflow.top),
                 },
                 trailing: FrameSide {
                     margin: margins.bottom,
                     bands: Vec::new(),
-                    outer: legend_container_height(LegendPosition::Bottom),
-                    inner: inner(guide_overflow.bottom, overflow.bottom),
+                    legend: legend_container_height(LegendPosition::Bottom),
+                    guide: inner(guide_overflow.bottom, overflow.bottom),
                 },
                 content_min: MIN_COMPONENT_SIZE,
             },
@@ -477,8 +477,8 @@ mod tests {
         assert!(!below_threshold.guide_overflow.right);
         assert!(!below_threshold.guide_overflow.top);
         assert!(!below_threshold.guide_overflow.bottom);
-        assert_eq!(below_threshold.frame.horizontal.leading.inner, 0.0);
-        assert_eq!(below_threshold.frame.vertical.leading.inner, 0.0);
+        assert_eq!(below_threshold.frame.horizontal.leading.guide, 0.0);
+        assert_eq!(below_threshold.frame.vertical.leading.guide, 0.0);
 
         let above_threshold = builder
             .build_frame_chrome(
@@ -509,10 +509,10 @@ mod tests {
         assert!(above_threshold.guide_overflow.top);
         assert!(above_threshold.guide_overflow.bottom);
         // Existing overflow layers pixel-align by ceiling.
-        assert_eq!(above_threshold.frame.horizontal.leading.inner, 3.0);
-        assert_eq!(above_threshold.frame.horizontal.trailing.inner, 4.0);
-        assert_eq!(above_threshold.frame.vertical.leading.inner, 3.0);
-        assert_eq!(above_threshold.frame.vertical.trailing.inner, 4.0);
+        assert_eq!(above_threshold.frame.horizontal.leading.guide, 3.0);
+        assert_eq!(above_threshold.frame.horizontal.trailing.guide, 4.0);
+        assert_eq!(above_threshold.frame.vertical.leading.guide, 3.0);
+        assert_eq!(above_threshold.frame.vertical.trailing.guide, 4.0);
         assert_eq!(above_threshold.frame.horizontal.leading.margin, 10.0);
         assert!(!above_threshold.has_title_band);
         assert!(!above_threshold.has_subtitle_band);

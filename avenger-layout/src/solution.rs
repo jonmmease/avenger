@@ -10,8 +10,8 @@ use crate::region::EdgeGrant;
 pub enum ChromeLayer {
     Margin,
     Band,
-    Outer,
-    Inner,
+    Legend,
+    Guide,
 }
 
 /// One positioned chrome slab of a chromed node, in root coordinates.
@@ -89,7 +89,7 @@ pub struct Region<Id = usize> {
     /// demand within its parent; equals `requested` at the root).
     pub granted: Edges<EdgeGrant>,
     /// Geometric view of this node's own measured overflow: raw per-side
-    /// maxima without the layered `inner + outer` lift (the node-level
+    /// maxima without the layered `guide + legend` lift (the node-level
     /// analogue of [`Envelope::geometric_total`]).
     pub geometric_total: Edges<f32>,
     pub detail: RegionDetail,
@@ -101,7 +101,7 @@ pub struct Region<Id = usize> {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Envelope {
     pub content_size: Size,
-    /// Layered view: per-side totals lifted to `>= inner + outer` (the
+    /// Layered view: per-side totals lifted to `>= guide + legend` (the
     /// coordination law).
     pub layered: Edges<EdgeGrant>,
     /// Geometric view: raw per-side maxima without the lift (the rendered

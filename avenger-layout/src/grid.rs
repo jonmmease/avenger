@@ -41,8 +41,8 @@ pub struct GridItem<Id = usize> {
     pub id: Id,
     pub slot: GridSlot,
     pub content_size: Size,
-    pub inner_edges: Edges<f32>,
-    pub outer_edges: Edges<f32>,
+    pub guide_edges: Edges<f32>,
+    pub legend_edges: Edges<f32>,
     pub total_edges: Edges<f32>,
 }
 
@@ -137,23 +137,23 @@ fn grid_edge_demand<Id>(demand: &GridItem<Id>, side: crate::geometry::Side) -> E
     use crate::geometry::Side;
     match side {
         Side::Top => EdgeGrant::new(
-            demand.inner_edges.top,
-            demand.outer_edges.top,
+            demand.guide_edges.top,
+            demand.legend_edges.top,
             demand.total_edges.top,
         ),
         Side::Right => EdgeGrant::new(
-            demand.inner_edges.right,
-            demand.outer_edges.right,
+            demand.guide_edges.right,
+            demand.legend_edges.right,
             demand.total_edges.right,
         ),
         Side::Bottom => EdgeGrant::new(
-            demand.inner_edges.bottom,
-            demand.outer_edges.bottom,
+            demand.guide_edges.bottom,
+            demand.legend_edges.bottom,
             demand.total_edges.bottom,
         ),
         Side::Left => EdgeGrant::new(
-            demand.inner_edges.left,
-            demand.outer_edges.left,
+            demand.guide_edges.left,
+            demand.legend_edges.left,
             demand.total_edges.left,
         ),
     }
@@ -463,8 +463,8 @@ mod tests {
         row_span: usize,
         column_span: usize,
         content_size: Size,
-        inner_edges: Edges<f32>,
-        outer_edges: Edges<f32>,
+        guide_edges: Edges<f32>,
+        legend_edges: Edges<f32>,
         total_edges: Edges<f32>,
     ) -> GridItem {
         GridItem {
@@ -476,8 +476,8 @@ mod tests {
                 column_span,
             },
             content_size,
-            inner_edges,
-            outer_edges,
+            guide_edges,
+            legend_edges,
             total_edges,
         }
     }

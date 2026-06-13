@@ -31,7 +31,7 @@ pub(crate) struct GridCell {
     pub slot: GridSlot,
     pub content_size: Size,
     /// Per-side edge demand declarations (layered guide/legend pairs at
-    /// production sites; inner-stratum totals in fixtures).
+    /// production sites; guide-stratum totals in fixtures).
     pub edges: Edges<EdgeDemand>,
 }
 
@@ -74,11 +74,11 @@ impl SolvedConcatGrid {
         let left = self.data.column_left[slot.column];
 
         EdgeTargets {
-            inner: Edges {
-                top: top.inner,
-                right: right.inner,
-                bottom: bottom.inner,
-                left: left.inner,
+            guide: Edges {
+                top: top.guide,
+                right: right.guide,
+                bottom: bottom.guide,
+                left: left.guide,
             },
             total: Edges {
                 top: top.total,
@@ -337,20 +337,20 @@ mod tests {
             content_size: Size::new(width, height),
             edges: Edges::new(
                 EdgeDemand {
-                    inner: edges.top,
-                    outer: 0.0,
+                    guide: edges.top,
+                    legend: 0.0,
                 },
                 EdgeDemand {
-                    inner: edges.right,
-                    outer: 0.0,
+                    guide: edges.right,
+                    legend: 0.0,
                 },
                 EdgeDemand {
-                    inner: edges.bottom,
-                    outer: 0.0,
+                    guide: edges.bottom,
+                    legend: 0.0,
                 },
                 EdgeDemand {
-                    inner: edges.left,
-                    outer: 0.0,
+                    guide: edges.left,
+                    legend: 0.0,
                 },
             ),
         }

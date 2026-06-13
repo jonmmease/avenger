@@ -1553,15 +1553,15 @@ pub(crate) async fn measure_concat_coord_system(
             .demand(
                 before_side,
                 avenger_layout::EdgeDemand {
-                    inner: boundary.before,
-                    outer: 0.0,
+                    guide: boundary.before,
+                    legend: 0.0,
                 },
             )
             .demand(
                 after_side,
                 avenger_layout::EdgeDemand {
-                    inner: boundary.after,
-                    outer: 0.0,
+                    guide: boundary.after,
+                    legend: 0.0,
                 },
             )
     });
@@ -2372,20 +2372,20 @@ fn grid_child_items(
 fn layered_cell_edges(guide: Edges<f32>, legend: Edges<f32>) -> Edges<EdgeDemand> {
     Edges::new(
         EdgeDemand {
-            inner: guide.top,
-            outer: legend.top,
+            guide: guide.top,
+            legend: legend.top,
         },
         EdgeDemand {
-            inner: guide.right,
-            outer: legend.right,
+            guide: guide.right,
+            legend: legend.right,
         },
         EdgeDemand {
-            inner: guide.bottom,
-            outer: legend.bottom,
+            guide: guide.bottom,
+            legend: legend.bottom,
         },
         EdgeDemand {
-            inner: guide.left,
-            outer: legend.left,
+            guide: guide.left,
+            legend: legend.left,
         },
     )
 }
@@ -3101,8 +3101,8 @@ mod tests {
         let local_spec = concat.grid_member_spec()?;
         let mut cousin_spec = local_spec.clone();
         cousin_spec.cells[1].edges.left = EdgeDemand {
-            inner: 32.0,
-            outer: 0.0,
+            guide: 32.0,
+            legend: 0.0,
         };
         let solutions =
             crate::layout::concat_grid::solve_concat_grid_group(&[local_spec, cousin_spec])
@@ -3138,8 +3138,8 @@ mod tests {
         let local_spec = concat.grid_member_spec()?;
         let mut cousin_spec = local_spec.clone();
         cousin_spec.cells[1].edges.left = EdgeDemand {
-            inner: 32.0,
-            outer: 0.0,
+            guide: 32.0,
+            legend: 0.0,
         };
         let solutions =
             crate::layout::concat_grid::solve_concat_grid_group(&[local_spec, cousin_spec])

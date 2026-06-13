@@ -493,7 +493,7 @@ pub(crate) fn band_overflow_node(
         ] {
             leaf = leaf.demand(
                 side,
-                EdgeDemand::from_inner_and_envelope(guide_value, total_value),
+                EdgeDemand::from_guide_and_envelope(guide_value, total_value),
             );
         }
         leaf
@@ -524,7 +524,7 @@ pub(crate) fn band_overflow_node(
             stacked_outer_edges.left,
         ),
     ] {
-        band = band.inner(side, inner).outer(side, outer);
+        band = band.guide(side, inner).legend(side, outer);
     }
     band
 }
@@ -539,10 +539,10 @@ pub(crate) fn band_node_envelope(node: &UnifiedLayout) -> CoordinatedOverflow {
     let envelope = solved.envelope();
     CoordinatedOverflow {
         guide: OverflowSpaceRequirement {
-            top: envelope.layered.top.inner,
-            right: envelope.layered.right.inner,
-            bottom: envelope.layered.bottom.inner,
-            left: envelope.layered.left.inner,
+            top: envelope.layered.top.guide,
+            right: envelope.layered.right.guide,
+            bottom: envelope.layered.bottom.guide,
+            left: envelope.layered.left.guide,
         },
         total: OverflowSpaceRequirement {
             top: envelope.geometric_total.top,
@@ -617,10 +617,10 @@ pub(crate) fn overflow_edge_demands(overflow: &CoordinatedOverflow) -> Edges<Edg
 pub(crate) fn overflow_from_edge_demands(demands: Edges<EdgeGrant>) -> CoordinatedOverflow {
     CoordinatedOverflow {
         guide: OverflowSpaceRequirement {
-            top: demands.top.inner,
-            right: demands.right.inner,
-            bottom: demands.bottom.inner,
-            left: demands.left.inner,
+            top: demands.top.guide,
+            right: demands.right.guide,
+            bottom: demands.bottom.guide,
+            left: demands.left.guide,
         },
         total: OverflowSpaceRequirement {
             top: demands.top.total,
@@ -1213,17 +1213,17 @@ mod tests {
                 .expect("facet band layout should solve");
             let envelope = solved.envelope();
 
-            assert_eq!(envelope.layered.top.inner, aggregated.guide.top, "{axis:?}");
+            assert_eq!(envelope.layered.top.guide, aggregated.guide.top, "{axis:?}");
             assert_eq!(
-                envelope.layered.right.inner, aggregated.guide.right,
+                envelope.layered.right.guide, aggregated.guide.right,
                 "{axis:?}"
             );
             assert_eq!(
-                envelope.layered.bottom.inner, aggregated.guide.bottom,
+                envelope.layered.bottom.guide, aggregated.guide.bottom,
                 "{axis:?}"
             );
             assert_eq!(
-                envelope.layered.left.inner, aggregated.guide.left,
+                envelope.layered.left.guide, aggregated.guide.left,
                 "{axis:?}"
             );
             assert_eq!(envelope.layered.top.total, aggregated.total.top, "{axis:?}");

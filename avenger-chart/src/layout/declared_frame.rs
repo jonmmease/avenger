@@ -27,8 +27,8 @@ pub(crate) enum DeclaredAxisSizing {
 pub(crate) struct DeclaredSide {
     pub margin: f32,
     pub bands: Vec<f32>,
-    pub outer: f32,
-    pub inner: f32,
+    pub legend: f32,
+    pub guide: f32,
 }
 
 /// One axis of the declared frame.
@@ -61,8 +61,8 @@ pub(crate) struct Slab {
 pub(crate) struct SolvedSideView {
     pub margin: Slab,
     pub bands: Vec<Slab>,
-    pub outer: Slab,
-    pub inner: Slab,
+    pub legend: Slab,
+    pub guide: Slab,
 }
 
 /// One solved axis: leading chrome, content, trailing chrome, extent.
@@ -106,14 +106,14 @@ impl DeclaredFrame {
                 self.vertical.trailing.margin,
                 self.horizontal.leading.margin,
             ))
-            .outer(Side::Top, self.vertical.leading.outer)
-            .outer(Side::Right, self.horizontal.trailing.outer)
-            .outer(Side::Bottom, self.vertical.trailing.outer)
-            .outer(Side::Left, self.horizontal.leading.outer)
-            .inner(Side::Top, self.vertical.leading.inner)
-            .inner(Side::Right, self.horizontal.trailing.inner)
-            .inner(Side::Bottom, self.vertical.trailing.inner)
-            .inner(Side::Left, self.horizontal.leading.inner)
+            .legend(Side::Top, self.vertical.leading.legend)
+            .legend(Side::Right, self.horizontal.trailing.legend)
+            .legend(Side::Bottom, self.vertical.trailing.legend)
+            .legend(Side::Left, self.horizontal.leading.legend)
+            .guide(Side::Top, self.vertical.leading.guide)
+            .guide(Side::Right, self.horizontal.trailing.guide)
+            .guide(Side::Bottom, self.vertical.trailing.guide)
+            .guide(Side::Left, self.horizontal.leading.guide)
             .sizing_x(sizing_x)
             .sizing_y(sizing_y)
             .content_min(LayoutSize::new(
@@ -179,8 +179,8 @@ impl DeclaredFrame {
                 bands: (0..declared.bands.len())
                     .map(|index| find(ChromeLayer::Band, side, index).unwrap_or(absent))
                     .collect(),
-                outer: find(ChromeLayer::Outer, side, 0).unwrap_or(absent),
-                inner: find(ChromeLayer::Inner, side, 0).unwrap_or(absent),
+                legend: find(ChromeLayer::Legend, side, 0).unwrap_or(absent),
+                guide: find(ChromeLayer::Guide, side, 0).unwrap_or(absent),
             }
         };
 
@@ -211,12 +211,12 @@ impl DeclaredFrame {
 mod tests {
     use super::*;
 
-    fn declared_side(margin: f32, bands: &[f32], outer: f32, inner: f32) -> DeclaredSide {
+    fn declared_side(margin: f32, bands: &[f32], legend: f32, guide: f32) -> DeclaredSide {
         DeclaredSide {
             margin,
             bands: bands.to_vec(),
-            outer,
-            inner,
+            legend,
+            guide,
         }
     }
 
@@ -251,9 +251,9 @@ mod tests {
         assert_eq!(view.horizontal.content.size, 281.0);
         assert_eq!(view.horizontal.extent, 400.0);
         assert_eq!(view.horizontal.leading.margin.start, 0.0);
-        assert_eq!(view.horizontal.leading.inner.start, 10.0);
-        assert_eq!(view.horizontal.trailing.inner.start, 326.0);
-        assert_eq!(view.horizontal.trailing.outer.start, 333.0);
+        assert_eq!(view.horizontal.leading.guide.start, 10.0);
+        assert_eq!(view.horizontal.trailing.guide.start, 326.0);
+        assert_eq!(view.horizontal.trailing.legend.start, 333.0);
         // Vertical: 10 + 21 + 13 + 16 | content 194 | 12 + 24 + 10 = 300.
         assert_eq!(view.vertical.content.start, 60.0);
         assert_eq!(view.vertical.content.size, 194.0);

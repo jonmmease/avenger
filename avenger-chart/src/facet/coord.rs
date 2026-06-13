@@ -1402,25 +1402,25 @@ pub(crate) fn apply_measurement_edge_targets(
     apply_measurement_side_slab(
         measurement,
         AxisPosition::Top,
-        targets.inner.top,
+        targets.guide.top,
         targets.total.top,
     );
     apply_measurement_side_slab(
         measurement,
         AxisPosition::Right,
-        targets.inner.right,
+        targets.guide.right,
         targets.total.right,
     );
     apply_measurement_side_slab(
         measurement,
         AxisPosition::Bottom,
-        targets.inner.bottom,
+        targets.guide.bottom,
         targets.total.bottom,
     );
     apply_measurement_side_slab(
         measurement,
         AxisPosition::Left,
-        targets.inner.left,
+        targets.guide.left,
         targets.total.left,
     );
 }
@@ -4672,14 +4672,14 @@ mod tests {
                     leading: FrameSide {
                         margin: 10.0,
                         bands: Vec::new(),
-                        outer: container_extent(LegendPosition::Left, true),
-                        inner: 0.0,
+                        legend: container_extent(LegendPosition::Left, true),
+                        guide: 0.0,
                     },
                     trailing: FrameSide {
                         margin: 0.0,
                         bands: Vec::new(),
-                        outer: container_extent(LegendPosition::Right, true),
-                        inner: 0.0,
+                        legend: container_extent(LegendPosition::Right, true),
+                        guide: 0.0,
                     },
                     content_min: 50.0,
                 },
@@ -4688,14 +4688,14 @@ mod tests {
                     leading: FrameSide {
                         margin: 20.0,
                         bands: Vec::new(),
-                        outer: container_extent(LegendPosition::Top, false),
-                        inner: 0.0,
+                        legend: container_extent(LegendPosition::Top, false),
+                        guide: 0.0,
                     },
                     trailing: FrameSide {
                         margin: 0.0,
                         bands: Vec::new(),
-                        outer: container_extent(LegendPosition::Bottom, false),
-                        inner: 0.0,
+                        legend: container_extent(LegendPosition::Bottom, false),
+                        guide: 0.0,
                     },
                     content_min: 50.0,
                 },

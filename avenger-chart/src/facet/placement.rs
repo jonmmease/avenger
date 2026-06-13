@@ -453,15 +453,15 @@ pub(crate) fn compute_explicit_facet_band_placement(
             .demand(
                 before_side,
                 avenger_layout::EdgeDemand {
-                    inner: boundary.before,
-                    outer: 0.0,
+                    guide: boundary.before,
+                    legend: 0.0,
                 },
             )
             .demand(
                 after_side,
                 avenger_layout::EdgeDemand {
-                    inner: boundary.after,
-                    outer: 0.0,
+                    guide: boundary.after,
+                    legend: 0.0,
                 },
             )
     });

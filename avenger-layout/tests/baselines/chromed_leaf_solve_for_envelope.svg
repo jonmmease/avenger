@@ -17,8 +17,8 @@
   <rect x="132" y="204" width="10" height="10" fill="#fde68a" fill-opacity="0.6" stroke="#fde68a" stroke-width="0.5" stroke-opacity="0.6"/>
   <text x="145" y="213" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">band</text>
   <rect x="183" y="204" width="10" height="10" fill="#14602f" stroke="#14602f" stroke-width="0.5"/>
-  <text x="196" y="213" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">outer</text>
-  <rect x="240" y="204" width="10" height="10" fill="#9f2222" stroke="#9f2222" stroke-width="0.5"/>
-  <text x="253" y="213" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">inner</text>
+  <text x="196" y="213" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">legend</text>
+  <rect x="246" y="204" width="10" height="10" fill="#9f2222" stroke="#9f2222" stroke-width="0.5"/>
+  <text x="259" y="213" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">guide</text>
   <rect x="0" y="0" width="310" height="194" fill="none" stroke="#111111" stroke-width="1"/>
 </svg>

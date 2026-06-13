@@ -9,13 +9,13 @@
 //! Each side stacks the same layers, ordered outside-in:
 //!
 //! ```text
-//! margin → bands… → outer → inner → content
+//! margin → bands… → legend → guide → content
 //! ```
 //!
-//! - `inner` is the guide-like layer adjacent to the content (for charts:
+//! - `guide` is the stratum adjacent to the content (for charts:
 //!   axis ticks and labels overflowing the plot),
-//! - `outer` is the legend-like layer outside it,
-//! - `bands` are zero or more discrete strips outside the outer layer (for
+//! - `legend` is the stratum outside it,
+//! - `bands` are zero or more discrete strips outside the legend stratum (for
 //!   charts: title and subtitle rows on the top side),
 //! - `margin` is the outermost strip.
 //!
@@ -38,7 +38,7 @@ pub enum FrameAxisSizing {
     /// Both the envelope extent and the content extent are given; the two
     /// margins absorb the slack, half each. The margins' declared sizes are
     /// **ignored** in this mode — each margin becomes exactly half of
-    /// `max(extent - (bands + outer + inner + content), 0)`.
+    /// `max(extent - (bands + legend + guide + content), 0)`.
     EnvelopeAndContentFixed { extent: f32, content: f32 },
     /// The content extent is given; the envelope is the sum of all layers.
     ContentFixed { content: f32 },
@@ -47,14 +47,14 @@ pub enum FrameAxisSizing {
 /// One side's declared chrome, ordered outside-in.
 ///
 /// `bands` run from the margin inward: `bands[0]` is adjacent to the margin,
-/// the last band is adjacent to the `outer` layer. A slab of zero occupies
+/// the last band is adjacent to the `legend` stratum. A slab of zero occupies
 /// no space; absence and zero are equivalent to the solver.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FrameSide {
     pub margin: f32,
     pub bands: Vec<f32>,
-    pub outer: f32,
-    pub inner: f32,
+    pub legend: f32,
+    pub guide: f32,
 }
 
 /// One axis of a frame: sizing mode, the two sides, and the content floor.
@@ -84,8 +84,8 @@ pub struct SolvedSlab {
 pub struct SolvedFrameSide {
     pub margin: SolvedSlab,
     pub bands: Vec<SolvedSlab>,
-    pub outer: SolvedSlab,
-    pub inner: SolvedSlab,
+    pub legend: SolvedSlab,
+    pub guide: SolvedSlab,
 }
 
 /// A solved frame axis: leading chrome, content, trailing chrome, and the
@@ -184,15 +184,15 @@ impl FrameAxis {
             leading: SolvedFrameSide {
                 margin: lead_margin,
                 bands: lead_bands,
-                outer: lead_outer,
-                inner: lead_inner,
+                legend: lead_outer,
+                guide: lead_inner,
             },
             content,
             trailing: SolvedFrameSide {
                 margin: trail_margin,
                 bands: trail_bands,
-                outer: trail_outer,
-                inner: trail_inner,
+                legend: trail_outer,
+                guide: trail_inner,
             },
             extent: cursor,
         }
@@ -200,15 +200,15 @@ impl FrameAxis {
 }
 
 /// One side's clamped slab sizes in outside-in order:
-/// `[margin, bands…, outer, inner]`. Always at least three entries.
+/// `[margin, bands…, legend, guide]`. Always at least three entries.
 fn side_sizes_outside_in(side: &FrameSide) -> Vec<f32> {
     let mut sizes = Vec::with_capacity(side.bands.len() + 3);
     sizes.push(side.margin.max(0.0));
     for band in &side.bands {
         sizes.push(band.max(0.0));
     }
-    sizes.push(side.outer.max(0.0));
-    sizes.push(side.inner.max(0.0));
+    sizes.push(side.legend.max(0.0));
+    sizes.push(side.guide.max(0.0));
     sizes
 }
 
@@ -216,12 +216,12 @@ fn side_sizes_outside_in(side: &FrameSide) -> Vec<f32> {
 mod tests {
     use super::*;
 
-    fn side(margin: f32, bands: &[f32], outer: f32, inner: f32) -> FrameSide {
+    fn side(margin: f32, bands: &[f32], legend: f32, guide: f32) -> FrameSide {
         FrameSide {
             margin,
             bands: bands.to_vec(),
-            outer,
-            inner,
+            legend,
+            guide,
         }
     }
 
@@ -338,13 +338,13 @@ mod tests {
         assert_eq!(solution.leading.margin.start, 0.0);
         assert_eq!(solution.leading.bands[0].start, 10.0);
         assert_eq!(solution.leading.bands[1].start, 30.0);
-        assert_eq!(solution.leading.outer.start, 45.0);
-        assert_eq!(solution.leading.inner.start, 75.0);
+        assert_eq!(solution.leading.legend.start, 45.0);
+        assert_eq!(solution.leading.guide.start, 75.0);
         assert_eq!(solution.content.start, 80.0);
-        assert_eq!(solution.trailing.inner.start, 180.0);
-        assert_eq!(solution.trailing.outer.start, 186.0);
+        assert_eq!(solution.trailing.guide.start, 180.0);
+        assert_eq!(solution.trailing.legend.start, 186.0);
         // Trailing bands stay outside-in like the input: bands[0] is
-        // adjacent to the margin, so spatially it comes after outer.
+        // adjacent to the margin, so spatially it comes after legend.
         assert_eq!(solution.trailing.bands[0].start, 211.0);
         assert_eq!(solution.trailing.margin.start, 219.0);
         assert_eq!(solution.extent, 259.0);
@@ -367,8 +367,8 @@ mod tests {
         assert_eq!(solution.extent, 0.0);
         assert_eq!(
             solution.leading.margin.size
-                + solution.leading.outer.size
-                + solution.leading.inner.size,
+                + solution.leading.legend.size
+                + solution.leading.guide.size,
             0.0
         );
     }
