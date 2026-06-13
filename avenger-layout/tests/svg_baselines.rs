@@ -297,7 +297,7 @@ fn chart_canvas() -> L {
         .id("chart")
 }
 
-/// Canvas-style sizing: the envelope is given (`SolveFor::Content`) and the
+/// Canvas-style sizing: the canvas is given (`SolveFor::Content`) and the
 /// chrome is subtracted from it — title and subtitle strips, a legend column
 /// and caption row (legend), and axis strips (guide).
 #[test]
@@ -315,10 +315,10 @@ fn chromed_leaf_solve_for_content() {
     assert_svg_baseline("chromed_leaf_solve_for_content", &solved.to_svg());
 }
 
-/// Content-first sizing: the plot area is given and the envelope is the sum
-/// of all layers (`SolveFor::Envelope`, the default).
+/// Content-first sizing: the plot area is given and the canvas is the sum
+/// of all layers (`SolveFor::Canvas`, the default).
 #[test]
-fn chromed_leaf_solve_for_envelope() {
+fn chromed_leaf_solve_for_canvas() {
     let chart: L = Layout::leaf(Size::new(220.0, 140.0))
         .margin(10.0)
         .strip(Side::Top, 18.0)
@@ -332,10 +332,10 @@ fn chromed_leaf_solve_for_envelope() {
     let chart = solved.region(&"chart").unwrap();
     assert_eq!(chart.content.x, 40.0); // margin 10 + guide 30
 
-    assert_svg_baseline("chromed_leaf_solve_for_envelope", &solved.to_svg());
+    assert_svg_baseline("chromed_leaf_solve_for_canvas", &solved.to_svg());
 }
 
-/// Both envelope and content given: the margins absorb the slack
+/// Both canvas and content given: the margins absorb the slack
 /// (`SolveFor::Margins`), centering the content.
 #[test]
 fn chromed_leaf_solve_for_margins() {

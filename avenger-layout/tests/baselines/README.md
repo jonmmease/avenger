@@ -18,17 +18,15 @@ AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines
 - **Dashed gray outline**: the **slot** (allotment) where it differs from
   the content — granted space the content does not fill (stretch slack,
   ragged cousins, fixed-track overflow).
-- **Chrome slabs** (drawn behind): gray margins, amber bands, dark green
-  outer, dark red inner — declared chrome positioned by the solver, carved
+- **Chrome slabs** (drawn behind): gray margins, amber strips, dark green
+  legend, dark red guide — declared chrome positioned by the solver, carved
   outside-in with vertical sides before horizontal (corners belong to the
   outer-more / vertical-first slab).
 - **Demand strips** beside each content rectangle encode three things:
-  **hue** is the layer (red = inner/guide-like, green = outer/legend-like,
-  violet = the unlayered remainder up to the total — `Unlayered` demands
-  and lift-law slack carry no layer a cousin can coordinate against),
-  **shade** is nesting depth (darker shallower), and **solid vs hatched**
-  is requested vs granted — where a hatched strip extends past the solid
-  one inside it, coordination granted that region more than it asked for.
+  **hue** is the stratum (red = guide, green = legend), **shade** is nesting
+  depth (darker shallower), and **solid vs hatched** is requested vs granted
+  — where a hatched strip extends past the solid one inside it, coordination
+  granted that region more than it asked for.
 - **Black frame**: the solved canvas (envelope). A color key row identifies
   every kind present in the scene.
 
@@ -40,14 +38,14 @@ AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines
 | `column_cell_align_ragged_children` | ragged children positioned by per-child `CellAlign`; slack as dashed slots |
 | `solution_query_by_id_and_path` | regions queryable by caller id and structural path; slot vs content distinct |
 | `grid_spans_holes_and_base_cell_size` | column span, empty slot, per-track base size floor |
-| `grid_edge_demand_layers_and_gap_law` | layered inner/outer demands and the gap law |
-| `chromed_leaf_solve_for_content` | canvas-style chart: envelope given, chrome carved, content gets the remainder |
-| `chromed_leaf_solve_for_envelope` | plot-area-sized chart: content given, envelope derived (the default mode) |
+| `grid_edge_demand_layers_and_gap_law` | layered guide/legend demands and the gap law |
+| `chromed_leaf_solve_for_content` | canvas-style chart: canvas given, chrome carved, content gets the remainder |
+| `chromed_leaf_solve_for_canvas` | plot-area-sized chart: content given, canvas derived (the default mode) |
 | `chromed_leaf_solve_for_margins` | both given: flexible margins absorb the slack |
-| `chromed_leaf_content_min_overflows_envelope` | the content floor wins over a too-small envelope |
+| `chromed_leaf_content_min_overflows_envelope` | the content floor wins over a too-small canvas |
 | `per_axis_allocation_plot_sized_height` | width figure-sized + height plot-area-sized in one solve |
-| `bands_all_four_sides_corner_rule` | repeatable bands on every side; corner-ownership carving |
-| `nested_grid_with_chrome` | chrome on a grid node (header = inner, legend = outer) replacing stacked edges |
+| `strips_all_four_sides_corner_rule` | repeatable strips on every side; corner-ownership carving |
+| `nested_grid_with_chrome` | chrome on a grid node (header on the guide stratum, legend on the legend stratum) replacing stacked edges |
 | `allocation_stretches_tracks_evenly` | default `StretchTracks`: slots grow, leaf content stays honest |
 | `track_size_fixed_and_flex` | CSS-style tracks: rigid `Fixed`, weighted `Flex` leftover split, content `Auto` |
 | `distribute_space_between` | free space into gaps when no `Flex` track exists |
@@ -55,7 +53,7 @@ AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines
 | `uniform_share_tolerates_ragged_counts` | uniform policy merge across cousins with different track counts |
 | `nested_facet_columns_coordinated` | the nested facet lowering: measured vs coordinated panels, granted chrome hatched, gaps absorbing it |
 | `shared_charts_coordinate_in_one_solve` | two chart-like groups under one root made congruent by a share key |
-| `edge_reservation_layered_vs_unlayered_vs_band` | three ways to reserve the same 18px against a layered cousin: `Layered` outer coexists (gaps lift to 32), `Unlayered` is contained by the cousin's 22, `band` chrome reserves the contained extent but gets a solver-positioned slab |
+| `edge_reservation_layered_vs_strip` | ways to reserve the same 18px against a layered cousin (guide 14 + legend 8): a `legend` stratum coexists (gaps lift to 32), a `guide` stratum is contained in the same stratum (26), a `strip` reserves the contained extent with a solver-positioned slab (22) |
 | `min_slack_asymmetric_share` | the min-slack rule: asymmetric offers, congruent cousins, honest slack |
 | `share_group_shape_mismatch_diagnostics` | mismatched non-uniform group skipped and reported |
 | `aspect_contain_fit_slack` | the aspect-ratio recipe's terminal state: standing slot-vs-content slack |

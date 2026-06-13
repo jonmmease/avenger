@@ -46,19 +46,20 @@ pub use crate::grid::TrackSpacing as Spacing;
 /// content — and exactly one of them is computed from the others:
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SolveFor {
-    /// Envelope is given (root allocation, or the slot when nested); the
-    /// content gets the remainder, floored by
+    /// The canvas (this node's box: the root allocation, or the slot when
+    /// nested) is given; the content gets the remainder, floored by
     /// [`Layout::content_min`]. Chrome is **contained**: carved inside the
-    /// envelope, not lifted as overflow.
+    /// canvas, not lifted as overflow.
     Content,
     /// Content is given (the leaf's measured size or the grid's natural
-    /// extent); the envelope is the sum of content plus chrome. Chrome is
+    /// extent); the canvas is the sum of content plus chrome. Chrome is
     /// **overflow**: it lifts into the node's edge demands and shares gap
     /// and container-edge space exactly like measured overflow. This is the
-    /// default — it matches the behavior of an un-chromed node.
+    /// default — it matches the behavior of an un-chromed node. (The solved
+    /// outer extent is read back as the [`crate::Envelope`].)
     #[default]
-    Envelope,
-    /// Both envelope and content are given; the two margins absorb the
+    Canvas,
+    /// Both canvas and content are given; the two margins absorb the
     /// slack, half each (declared margins are ignored on this axis). Like
     /// `Content`, chrome is contained.
     Margins,
@@ -650,7 +651,7 @@ mod tests {
     #[test]
     fn defaults_are_the_documented_ones() {
         let leaf: Layout = Layout::leaf(Size::default());
-        assert_eq!(leaf.chrome.sizing_x, SolveFor::Envelope);
+        assert_eq!(leaf.chrome.sizing_x, SolveFor::Canvas);
         assert_eq!(leaf.align, (CellAlign::Start, CellAlign::Start));
         assert_eq!(
             SolveOptions::default(),
