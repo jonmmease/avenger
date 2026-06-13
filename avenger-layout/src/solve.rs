@@ -346,7 +346,7 @@ pub(crate) fn measure_with<Id: Clone, Key>(
     let mut demands = content_demands;
 
     match chrome.sizing_x {
-        SolveFor::Canvas => {
+        SolveFor::Envelope => {
             demands.left = lift_chrome(demands.left, &chrome.sides.left);
             demands.right = lift_chrome(demands.right, &chrome.sides.right);
             geometric_total.left += chrome_total(&chrome.sides.left);
@@ -372,7 +372,7 @@ pub(crate) fn measure_with<Id: Clone, Key>(
         }
     }
     match chrome.sizing_y {
-        SolveFor::Canvas => {
+        SolveFor::Envelope => {
             demands.top = lift_chrome(demands.top, &chrome.sides.top);
             demands.bottom = lift_chrome(demands.bottom, &chrome.sides.bottom);
             geometric_total.top += chrome_total(&chrome.sides.top);
@@ -445,7 +445,7 @@ fn place_axis(
     slot_extent: f32,
 ) -> AxisPlacement {
     match sizing {
-        SolveFor::Canvas => {
+        SolveFor::Envelope => {
             let content_extent = content_target;
             let offset = align.offset(slot_extent, content_extent);
             let content_start = slot_start + offset;
@@ -834,7 +834,7 @@ fn place<Id: Clone, Key>(
 /// `Envelope` axes, the frame-solved content on contained axes.
 fn content_avail(placement: &AxisPlacement, sizing: SolveFor, slot_extent: f32) -> f32 {
     match sizing {
-        SolveFor::Canvas => slot_extent,
+        SolveFor::Envelope => slot_extent,
         SolveFor::Content | SolveFor::Margins => placement.chrome.content.size,
     }
 }
@@ -1311,7 +1311,7 @@ fn root_axis(
             let extent = allocation.unwrap_or(item_extent).max(0.0);
             (0.0, extent, extent)
         }
-        SolveFor::Canvas => {
+        SolveFor::Envelope => {
             let content = match allocation {
                 Some(extent) => (extent - leading_total - trailing_total).max(0.0),
                 None => item_extent,
@@ -1817,7 +1817,7 @@ mod tests {
         let solved = Layout::<&str>::leaf(Size::new(200.0, 150.0))
             .margin_edges(Edges::new(0.0, 13.0, 0.0, 7.0))
             .sizing_x(SolveFor::Margins)
-            .sizing_y(SolveFor::Canvas)
+            .sizing_y(SolveFor::Envelope)
             .id("box")
             .solve(&SolveOptions {
                 width: Some(400.0),

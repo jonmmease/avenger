@@ -40,9 +40,9 @@ AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines
 | `grid_spans_holes_and_base_cell_size` | column span, empty slot, per-track base size floor |
 | `grid_edge_demand_layers_and_gap_law` | layered guide/legend demands and the gap law |
 | `chromed_leaf_solve_for_content` | canvas-style chart: canvas given, chrome carved, content gets the remainder |
-| `chromed_leaf_solve_for_canvas` | plot-area-sized chart: content given, canvas derived (the default mode) |
+| `chromed_leaf_solve_for_envelope` | plot-area-sized chart: content given, envelope derived (the default mode) |
 | `chromed_leaf_solve_for_margins` | both given: flexible margins absorb the slack |
-| `chromed_leaf_content_min_overflows_envelope` | the content floor wins over a too-small canvas |
+| `chromed_leaf_content_min_overflows_envelope` | the content floor wins over a too-small envelope |
 | `per_axis_allocation_plot_sized_height` | width figure-sized + height plot-area-sized in one solve |
 | `strips_all_four_sides_corner_rule` | repeatable strips on every side; corner-ownership carving |
 | `nested_grid_with_chrome` | chrome on a grid node (header on the guide stratum, legend on the legend stratum) replacing stacked edges |

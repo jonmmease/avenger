@@ -93,7 +93,7 @@ impl DeclaredFrame {
                 DeclaredAxisSizing::EnvelopeAndContentFixed { extent, content } => {
                     (SolveFor::Margins, Some(extent), content)
                 }
-                DeclaredAxisSizing::ContentFixed { content } => (SolveFor::Canvas, None, content),
+                DeclaredAxisSizing::ContentFixed { content } => (SolveFor::Envelope, None, content),
             }
         };
         let (sizing_x, width, content_w) = axis_inputs(&self.horizontal);

@@ -43,23 +43,28 @@ pub use crate::grid::TrackSpacing as Spacing;
 /// Which size layer the solver computes on one axis of a chromed node.
 ///
 /// Every chromed axis has three size layers — envelope, chrome stack,
-/// content — and exactly one of them is computed from the others:
+/// content — and exactly one is computed from the others. The
+/// **envelope** is this node's own outer box (content + chrome); it
+/// exists at every nesting level, and at the root that outer box is the
+/// **canvas** — the whole image ([`crate::LayoutSolution::size`]). So
+/// `SolveFor` is recursive: each node picks which of its own layers the
+/// solver derives.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SolveFor {
-    /// The canvas (this node's box: the root allocation, or the slot when
-    /// nested) is given; the content gets the remainder, floored by
-    /// [`Layout::content_min`]. Chrome is **contained**: carved inside the
-    /// canvas, not lifted as overflow.
+    /// The envelope (this node's outer box: the root allocation/canvas,
+    /// or the slot when nested) is given; the content gets the remainder,
+    /// floored by [`Layout::content_min`]. Chrome is **contained**:
+    /// carved inside the envelope, not lifted as overflow.
     Content,
     /// Content is given (the leaf's measured size or the grid's natural
-    /// extent); the canvas is the sum of content plus chrome. Chrome is
+    /// extent); the envelope is the sum of content plus chrome. Chrome is
     /// **overflow**: it lifts into the node's edge demands and shares gap
     /// and container-edge space exactly like measured overflow. This is the
     /// default — it matches the behavior of an un-chromed node. (The solved
-    /// outer extent is read back as the [`crate::Envelope`].)
+    /// envelope is read back as the [`crate::Envelope`].)
     #[default]
-    Canvas,
-    /// Both canvas and content are given; the two margins absorb the
+    Envelope,
+    /// Both envelope and content are given; the two margins absorb the
     /// slack, half each (declared margins are ignored on this axis). Like
     /// `Content`, chrome is contained.
     Margins,
@@ -125,11 +130,12 @@ impl CellAlign {
     }
 }
 
-/// Per-axis root constraints for one solve.
+/// The canvas constraints for one solve: per-axis size of the root
+/// envelope (the whole image).
 ///
-/// `Some` constrains the root envelope on that axis; `None` derives it from
-/// content (natural sizing). All-`None` IS measurement: the solution's
-/// envelope is the natural envelope.
+/// `Some` fixes the canvas on that axis; `None` derives it from content
+/// (natural sizing). All-`None` IS measurement: the canvas is the natural
+/// envelope of the content.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SolveOptions {
     pub width: Option<f32>,
@@ -651,7 +657,7 @@ mod tests {
     #[test]
     fn defaults_are_the_documented_ones() {
         let leaf: Layout = Layout::leaf(Size::default());
-        assert_eq!(leaf.chrome.sizing_x, SolveFor::Canvas);
+        assert_eq!(leaf.chrome.sizing_x, SolveFor::Envelope);
         assert_eq!(leaf.align, (CellAlign::Start, CellAlign::Start));
         assert_eq!(
             SolveOptions::default(),
