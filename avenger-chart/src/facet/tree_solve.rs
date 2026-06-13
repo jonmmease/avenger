@@ -732,6 +732,18 @@ pub(crate) fn run_shadow_census(
     let mut placement_bands = 0usize;
     let mut placement_max = 0.0f32;
     let mut placement_values_over = 0usize;
+    // Stratum-heterogeneity probe (named-strata study): counts share
+    // groups whose members carry unequal epoch envelopes — the
+    // coordination-active cohort, where cross-cousin merging changes
+    // values at all. NOT a bound on the named-strata semantic round:
+    // equal envelopes with different internal level splits would still
+    // diverge under independent per-stratum coordination; the exact
+    // budget needs per-stratum epoch measurement (the campaign's
+    // instrumentation phase).
+    let mut strata_groups: HashMap<
+        crate::plot::compiled::CoordinationScopeKey,
+        Vec<CoordinatedOverflow>,
+    > = HashMap::new();
     let mut walk_path = Vec::new();
     let mut band_index_by_id: HashMap<&CoordinationNodeKey, &LoweredBand> = HashMap::new();
     for band in &lowered.bands {
@@ -741,7 +753,13 @@ pub(crate) fn run_shadow_census(
         measurement,
         0,
         &mut walk_path,
-        &mut |node_id, _depth, facet_band| {
+        &mut |node_id, depth, facet_band| {
+            if let Some(envelope) = facet_band.measured_overflow.as_ref() {
+                strata_groups
+                    .entry(facet_band.coordination_scope_key_for_depth(depth))
+                    .or_default()
+                    .push(envelope.clone());
+            }
             let Some(band) = band_index_by_id.get(node_id) else {
                 return;
             };
@@ -872,6 +890,35 @@ pub(crate) fn run_shadow_census(
         },
     );
 
+    // Stratum-heterogeneity tally: a group is heterogeneous on a side
+    // when members' epoch envelopes disagree there (guide or total).
+    let mut strata_groups_shared = 0usize;
+    let mut strata_groups_hetero = 0usize;
+    let mut strata_spread_max = 0.0f32;
+    for members in strata_groups.values() {
+        if members.len() < 2 {
+            continue;
+        }
+        strata_groups_shared += 1;
+        let mut spread = 0.0f32;
+        let sides: [fn(&crate::coords::OverflowSpaceRequirement) -> f32; 4] =
+            [|s| s.top, |s| s.right, |s| s.bottom, |s| s.left];
+        for side in sides {
+            for guide_view in [true, false] {
+                let values = members
+                    .iter()
+                    .map(|env| side(if guide_view { &env.guide } else { &env.total }));
+                let max = values.clone().fold(f32::MIN, f32::max);
+                let min = values.fold(f32::MAX, f32::min);
+                spread = spread.max(max - min);
+            }
+        }
+        if spread > SHADOW_EPS {
+            strata_groups_hetero += 1;
+        }
+        strata_spread_max = strata_spread_max.max(spread);
+    }
+
     // Idempotence probe: re-lower with the shadow's own leaf slots as
     // cell sizes and re-solve; a converged lowering changes nothing.
     let mut overrides: CellSizeOverrides = HashMap::new();
@@ -915,6 +962,9 @@ pub(crate) fn run_shadow_census(
         placement_bands,
         placement_max,
         placement_values_over,
+        strata_groups_shared,
+        strata_groups_hetero,
+        strata_spread_max,
         "shadow tree-solve census"
     );
 }
