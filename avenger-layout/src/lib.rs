@@ -11,12 +11,12 @@
 //! alignment). [`Layout::row`]/[`Layout::column`] are 1×N conveniences.
 //!
 //! Every node — leaf or grid — can additionally carry **declared chrome**:
-//! named slabs per side (margin, repeatable bands, legend, guide) plus a
+//! named slabs per side (margin, repeatable strips, legend, guide) plus a
 //! per-axis [`SolveFor`] sizing mode. Chrome is structured overflow: the
 //! solver knows the individual slabs and returns their positioned
 //! rectangles ([`ChromeSlab`]); measured demands stay opaque. Guide slabs
 //! extend the `guide` stratum of the node's solved edges ([`EdgeGrant`])
-//! toward the parent, legend slabs the `legend` stratum; bands and margins
+//! toward the parent, legend slabs the `legend` stratum; strips and margins
 //! lift into `total` only (private envelope, never matched against a
 //! cousin's strata).
 //!

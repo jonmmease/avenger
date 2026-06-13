@@ -83,7 +83,7 @@ fn pin_fixed_tracks(sizes: &mut [f32], declared: &[TrackSize]) {
 }
 
 /// Stack one side's declared chrome onto the content's own demand
-/// (the `stacked_inner/legend_edges` law: additive per layer; bands and
+/// (the `stacked_guide/legend_edges` law: additive per layer; strips and
 /// margins extend `total` only).
 fn lift_chrome(demand: EdgeGrant, chrome: &ChromeSide) -> EdgeGrant {
     EdgeGrant::new(
@@ -95,8 +95,8 @@ fn lift_chrome(demand: EdgeGrant, chrome: &ChromeSide) -> EdgeGrant {
 
 fn chrome_total(side: &ChromeSide) -> f32 {
     let mut total = side.margin.max(0.0);
-    for band in &side.bands {
-        total += band.max(0.0);
+    for strip in &side.strips {
+        total += strip.max(0.0);
     }
     total + side.legend.max(0.0) + side.guide.max(0.0)
 }
@@ -494,9 +494,9 @@ fn place_axis(
 
 /// Carve 2D slab rectangles from the per-axis chrome solutions.
 ///
-/// Layers carve from the outside in (margin → bands → legend → guide); within
+/// Layers carve from the outside in (margin → strips → legend → guide); within
 /// one layer, vertical sides (top/bottom) carve before horizontal
-/// (left/right), so a top band runs wider than a left band of the same layer
+/// (left/right), so a top strip runs wider than a left strip of the same layer
 /// and corners belong to the outer-more / vertical-first slab. The innermost
 /// slabs end up exactly content-sized on their cross axis.
 fn carve_slabs(
@@ -518,17 +518,17 @@ fn carve_slabs(
     let left = &horizontal.chrome.leading;
     let right = &horizontal.chrome.trailing;
 
-    let band_steps = top
-        .bands
+    let strip_steps = top
+        .strips
         .len()
-        .max(bottom.bands.len())
-        .max(left.bands.len())
-        .max(right.bands.len());
+        .max(bottom.strips.len())
+        .max(left.strips.len())
+        .max(right.strips.len());
 
     // One carving step: sizes per side for this layer, in vertical-first
     // order. Emits non-empty slabs and shrinks the remaining rect.
     let mut step = |layer: ChromeLayer,
-                    band_index: usize,
+                    strip_index: usize,
                     top_size: f32,
                     right_size: f32,
                     bottom_size: f32,
@@ -538,7 +538,7 @@ fn carve_slabs(
             slabs.push(ChromeSlab {
                 layer,
                 side: Side::Top,
-                band_index,
+                strip_index,
                 rect: Rect::new(x0, y0, x1 - x0, top_size),
             });
         }
@@ -547,7 +547,7 @@ fn carve_slabs(
             slabs.push(ChromeSlab {
                 layer,
                 side: Side::Bottom,
-                band_index,
+                strip_index,
                 rect: Rect::new(x0, y1 - bottom_size, x1 - x0, bottom_size),
             });
         }
@@ -556,7 +556,7 @@ fn carve_slabs(
             slabs.push(ChromeSlab {
                 layer,
                 side: Side::Left,
-                band_index,
+                strip_index,
                 rect: Rect::new(x0, y0, left_size, y1 - y0),
             });
         }
@@ -565,7 +565,7 @@ fn carve_slabs(
             slabs.push(ChromeSlab {
                 layer,
                 side: Side::Right,
-                band_index,
+                strip_index,
                 rect: Rect::new(x1 - right_size, y0, right_size, y1 - y0),
             });
         }
@@ -581,17 +581,17 @@ fn carve_slabs(
         left.margin.size,
         slabs,
     );
-    for index in 0..band_steps {
-        let band = |side: &crate::frame::SolvedFrameSide| {
-            side.bands.get(index).map(|slab| slab.size).unwrap_or(0.0)
+    for index in 0..strip_steps {
+        let strip = |side: &crate::frame::SolvedFrameSide| {
+            side.strips.get(index).map(|slab| slab.size).unwrap_or(0.0)
         };
         step(
-            ChromeLayer::Band,
+            ChromeLayer::Strip,
             index,
-            band(top),
-            band(right),
-            band(bottom),
-            band(left),
+            strip(top),
+            strip(right),
+            strip(bottom),
+            strip(left),
             slabs,
         );
     }
@@ -618,7 +618,7 @@ fn carve_slabs(
 fn frame_side(side: &ChromeSide) -> FrameSide {
     FrameSide {
         margin: side.margin,
-        bands: side.bands.clone(),
+        strips: side.strips.clone(),
         legend: side.legend,
         guide: side.guide,
     }
@@ -1349,7 +1349,7 @@ mod tests {
     fn chart_leaf() -> Layout<&'static str> {
         Layout::leaf(Size::default())
             .margin(8.0)
-            .band(Side::Top, 18.0)
+            .strip(Side::Top, 18.0)
             .legend(Side::Right, 64.0)
             .guide(Side::Left, 38.0)
             .guide(Side::Bottom, 22.0)
@@ -1366,9 +1366,9 @@ mod tests {
         crate::frame::FrameAxisSolution,
         crate::frame::FrameAxisSolution,
     ) {
-        let side = |margin: f32, bands: &[f32], legend: f32, guide: f32| FrameSide {
+        let side = |margin: f32, strips: &[f32], legend: f32, guide: f32| FrameSide {
             margin,
-            bands: bands.to_vec(),
+            strips: strips.to_vec(),
             legend,
             guide,
         };
@@ -1428,7 +1428,7 @@ mod tests {
         // starts after the leading chrome totals.
         let solved = Layout::<&str>::leaf(Size::new(200.0, 150.0))
             .margin(8.0)
-            .band(Side::Top, 18.0)
+            .strip(Side::Top, 18.0)
             .legend(Side::Right, 64.0)
             .guide(Side::Left, 38.0)
             .guide(Side::Bottom, 22.0)
@@ -1449,7 +1449,7 @@ mod tests {
     fn margins_mode_matches_frame_both_fixed() {
         let solved = Layout::<&str>::leaf(Size::new(200.0, 150.0))
             .margin(8.0)
-            .band(Side::Top, 18.0)
+            .strip(Side::Top, 18.0)
             .legend(Side::Right, 64.0)
             .guide(Side::Left, 38.0)
             .guide(Side::Bottom, 22.0)
@@ -1505,8 +1505,8 @@ mod tests {
 
     #[test]
     fn nested_grid_reproduces_the_tree_solver_values() {
-        // Nested-band composition; expected values are exact solver
-        // outputs, pinned as literals.
+        // Nested-grid composition; expected values are exact solver
+        // outputs, pinned as literals (a grid nesting a grid).
         let new_root: Layout = Layout::row([
             Layout::leaf(Size::new(50.0, 60.0)),
             Layout::row([
@@ -1684,12 +1684,12 @@ mod tests {
     }
 
     #[test]
-    fn bands_on_all_four_sides_carve_with_corner_rule() {
+    fn strips_on_all_four_sides_carve_with_corner_rule() {
         use crate::solution::{ChromeLayer, ChromeSlab};
         let solved = Layout::<&str>::leaf(Size::default())
             .margin(10.0)
-            .band(Side::Top, 20.0)
-            .band(Side::Left, 30.0)
+            .strip(Side::Top, 20.0)
+            .strip(Side::Left, 30.0)
             .sizing(SolveFor::Content)
             .id("box")
             .solve(&SolveOptions {
@@ -1718,26 +1718,26 @@ mod tests {
             slab(ChromeLayer::Margin, Side::Left).rect,
             Rect::new(0.0, 10.0, 10.0, 280.0)
         );
-        // Band layer: the top band runs wider than the left band of the
-        // same layer; the left band starts below the top band.
+        // Strip layer: the top strip runs wider than the left strip of
+        // the same layer; the left strip starts below the top strip.
         assert_eq!(
-            slab(ChromeLayer::Band, Side::Top).rect,
+            slab(ChromeLayer::Strip, Side::Top).rect,
             Rect::new(10.0, 10.0, 380.0, 20.0)
         );
         assert_eq!(
-            slab(ChromeLayer::Band, Side::Left).rect,
+            slab(ChromeLayer::Strip, Side::Left).rect,
             Rect::new(10.0, 30.0, 30.0, 260.0)
         );
         assert_eq!(region.content, Rect::new(40.0, 30.0, 350.0, 260.0));
     }
 
     #[test]
-    fn repeated_bands_stack_outside_in() {
+    fn repeated_strips_stack_outside_in() {
         use crate::solution::{ChromeLayer, ChromeSlab};
         let solved = Layout::<&str>::leaf(Size::default())
             .margin(8.0)
-            .band(Side::Top, 18.0) // title (outermost)
-            .band(Side::Top, 12.0) // subtitle (inside the title)
+            .strip(Side::Top, 18.0) // title (outermost)
+            .strip(Side::Top, 12.0) // subtitle (inside the title)
             .sizing(SolveFor::Content)
             .id("chart")
             .solve(&SolveOptions {
@@ -1747,16 +1747,16 @@ mod tests {
             .expect("solve");
 
         let region = solved.region(&"chart").expect("region");
-        let bands: Vec<&ChromeSlab> = region
+        let strips: Vec<&ChromeSlab> = region
             .slabs
             .iter()
-            .filter(|slab| slab.layer == ChromeLayer::Band)
+            .filter(|slab| slab.layer == ChromeLayer::Strip)
             .collect();
-        assert_eq!(bands.len(), 2);
-        assert_eq!(bands[0].band_index, 0);
-        assert_eq!(bands[0].rect, Rect::new(8.0, 8.0, 184.0, 18.0));
-        assert_eq!(bands[1].band_index, 1);
-        assert_eq!(bands[1].rect, Rect::new(8.0, 26.0, 184.0, 12.0));
+        assert_eq!(strips.len(), 2);
+        assert_eq!(strips[0].strip_index, 0);
+        assert_eq!(strips[0].rect, Rect::new(8.0, 8.0, 184.0, 18.0));
+        assert_eq!(strips[1].strip_index, 1);
+        assert_eq!(strips[1].rect, Rect::new(8.0, 26.0, 184.0, 12.0));
     }
 
     #[test]

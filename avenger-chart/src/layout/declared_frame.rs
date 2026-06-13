@@ -26,7 +26,7 @@ pub(crate) enum DeclaredAxisSizing {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct DeclaredSide {
     pub margin: f32,
-    pub bands: Vec<f32>,
+    pub strips: Vec<f32>,
     pub legend: f32,
     pub guide: f32,
 }
@@ -60,7 +60,7 @@ pub(crate) struct Slab {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct SolvedSideView {
     pub margin: Slab,
-    pub bands: Vec<Slab>,
+    pub strips: Vec<Slab>,
     pub legend: Slab,
     pub guide: Slab,
 }
@@ -126,8 +126,8 @@ impl DeclaredFrame {
             (Side::Bottom, &self.vertical.trailing),
             (Side::Left, &self.horizontal.leading),
         ] {
-            for band in &declared.bands {
-                leaf = leaf.band(side, *band);
+            for strip in &declared.strips {
+                leaf = leaf.strip(side, *strip);
             }
         }
 
@@ -150,13 +150,13 @@ impl DeclaredFrame {
                 }
             }
         };
-        let find = |layer: ChromeLayer, side: Side, band_index: usize| -> Option<Slab> {
+        let find = |layer: ChromeLayer, side: Side, strip_index: usize| -> Option<Slab> {
             let vertical = matches!(side, Side::Top | Side::Bottom);
             region
                 .slabs
                 .iter()
                 .find(|slab| {
-                    slab.layer == layer && slab.side == side && slab.band_index == band_index
+                    slab.layer == layer && slab.side == side && slab.strip_index == strip_index
                 })
                 .map(|slab| slab_1d(slab.rect, vertical))
         };
@@ -176,8 +176,8 @@ impl DeclaredFrame {
             };
             SolvedSideView {
                 margin: find(ChromeLayer::Margin, side, 0).unwrap_or(absent),
-                bands: (0..declared.bands.len())
-                    .map(|index| find(ChromeLayer::Band, side, index).unwrap_or(absent))
+                strips: (0..declared.strips.len())
+                    .map(|index| find(ChromeLayer::Strip, side, index).unwrap_or(absent))
                     .collect(),
                 legend: find(ChromeLayer::Legend, side, 0).unwrap_or(absent),
                 guide: find(ChromeLayer::Guide, side, 0).unwrap_or(absent),
@@ -211,10 +211,10 @@ impl DeclaredFrame {
 mod tests {
     use super::*;
 
-    fn declared_side(margin: f32, bands: &[f32], legend: f32, guide: f32) -> DeclaredSide {
+    fn declared_side(margin: f32, strips: &[f32], legend: f32, guide: f32) -> DeclaredSide {
         DeclaredSide {
             margin,
-            bands: bands.to_vec(),
+            strips: strips.to_vec(),
             legend,
             guide,
         }
@@ -257,9 +257,9 @@ mod tests {
         // Vertical: 10 + 21 + 13 + 16 | content 194 | 12 + 24 + 10 = 300.
         assert_eq!(view.vertical.content.start, 60.0);
         assert_eq!(view.vertical.content.size, 194.0);
-        assert_eq!(view.vertical.leading.bands[0].start, 10.0);
-        assert_eq!(view.vertical.leading.bands[0].size, 21.0);
-        assert_eq!(view.vertical.leading.bands[1].start, 31.0);
+        assert_eq!(view.vertical.leading.strips[0].start, 10.0);
+        assert_eq!(view.vertical.leading.strips[0].size, 21.0);
+        assert_eq!(view.vertical.leading.strips[1].start, 31.0);
         assert_eq!(view.vertical.extent, 300.0);
 
         let plot_sized = chart(

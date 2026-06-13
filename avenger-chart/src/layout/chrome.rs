@@ -54,7 +54,7 @@ pub(crate) const MIN_COMPONENT_SIZE: f32 = 50.0;
 #[derive(Clone, Debug)]
 pub(crate) struct FrameChrome {
     pub frame: Frame,
-    /// A measured title band exists (`frame.vertical.leading.bands[0]`).
+    /// A measured title band exists (`frame.vertical.leading.strips[0]`).
     pub has_title_band: bool,
     /// A measured subtitle band exists (the band after the title, if any).
     pub has_subtitle_band: bool,
@@ -356,12 +356,12 @@ impl FrameChromeBuilder {
         // Existing overflow layers are pixel-aligned by ceiling.
         let inner = |present: bool, value: f32| if present { value.ceil() } else { 0.0 };
 
-        let mut top_bands = Vec::new();
+        let mut top_strips = Vec::new();
         if let Some(height) = title_height {
-            top_bands.push(height);
+            top_strips.push(height);
         }
         if let Some(height) = subtitle_height {
-            top_bands.push(height);
+            top_strips.push(height);
         }
 
         let margins = &layout_spec.margins;
@@ -370,13 +370,13 @@ impl FrameChromeBuilder {
                 sizing: sizing_horizontal,
                 leading: FrameSide {
                     margin: margins.left,
-                    bands: Vec::new(),
+                    strips: Vec::new(),
                     legend: legend_container_width(LegendPosition::Left),
                     guide: inner(guide_overflow.left, overflow.left),
                 },
                 trailing: FrameSide {
                     margin: margins.right,
-                    bands: Vec::new(),
+                    strips: Vec::new(),
                     legend: legend_container_width(LegendPosition::Right),
                     guide: inner(guide_overflow.right, overflow.right),
                 },
@@ -386,13 +386,13 @@ impl FrameChromeBuilder {
                 sizing: sizing_vertical,
                 leading: FrameSide {
                     margin: margins.top,
-                    bands: top_bands,
+                    strips: top_strips,
                     legend: legend_container_height(LegendPosition::Top),
                     guide: inner(guide_overflow.top, overflow.top),
                 },
                 trailing: FrameSide {
                     margin: margins.bottom,
-                    bands: Vec::new(),
+                    strips: Vec::new(),
                     legend: legend_container_height(LegendPosition::Bottom),
                     guide: inner(guide_overflow.bottom, overflow.bottom),
                 },

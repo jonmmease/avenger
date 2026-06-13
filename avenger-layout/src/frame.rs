@@ -9,13 +9,13 @@
 //! Each side stacks the same layers, ordered outside-in:
 //!
 //! ```text
-//! margin → bands… → legend → guide → content
+//! margin → strips… → legend → guide → content
 //! ```
 //!
 //! - `guide` is the stratum adjacent to the content (for charts:
 //!   axis ticks and labels overflowing the plot),
 //! - `legend` is the stratum outside it,
-//! - `bands` are zero or more discrete strips outside the legend stratum (for
+//! - `strips` are zero or more discrete strips outside the legend stratum (for
 //!   charts: title and subtitle rows on the top side),
 //! - `margin` is the outermost strip.
 //!
@@ -38,7 +38,7 @@ pub enum FrameAxisSizing {
     /// Both the envelope extent and the content extent are given; the two
     /// margins absorb the slack, half each. The margins' declared sizes are
     /// **ignored** in this mode — each margin becomes exactly half of
-    /// `max(extent - (bands + legend + guide + content), 0)`.
+    /// `max(extent - (strips + legend + guide + content), 0)`.
     EnvelopeAndContentFixed { extent: f32, content: f32 },
     /// The content extent is given; the envelope is the sum of all layers.
     ContentFixed { content: f32 },
@@ -46,13 +46,13 @@ pub enum FrameAxisSizing {
 
 /// One side's declared chrome, ordered outside-in.
 ///
-/// `bands` run from the margin inward: `bands[0]` is adjacent to the margin,
-/// the last band is adjacent to the `legend` stratum. A slab of zero occupies
+/// `strips` run from the margin inward: `strips[0]` is adjacent to the margin,
+/// the last strip is adjacent to the `legend` stratum. A slab of zero occupies
 /// no space; absence and zero are equivalent to the solver.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FrameSide {
     pub margin: f32,
-    pub bands: Vec<f32>,
+    pub strips: Vec<f32>,
     pub legend: f32,
     pub guide: f32,
 }
@@ -83,7 +83,7 @@ pub struct SolvedSlab {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SolvedFrameSide {
     pub margin: SolvedSlab,
-    pub bands: Vec<SolvedSlab>,
+    pub strips: Vec<SolvedSlab>,
     pub legend: SolvedSlab,
     pub guide: SolvedSlab,
 }
@@ -162,7 +162,7 @@ impl FrameAxis {
         };
 
         let lead_margin = place(margin_override.unwrap_or(lead_sizes[0]));
-        let lead_bands: Vec<SolvedSlab> = lead_sizes[1..lead_sizes.len() - 2]
+        let lead_strips: Vec<SolvedSlab> = lead_sizes[1..lead_sizes.len() - 2]
             .iter()
             .map(|size| place(*size))
             .collect();
@@ -171,26 +171,26 @@ impl FrameAxis {
         let content = place(content_size);
         let trail_inner = place(trail_sizes[trail_sizes.len() - 1]);
         let trail_outer = place(trail_sizes[trail_sizes.len() - 2]);
-        let mut trail_bands: Vec<SolvedSlab> = trail_sizes[1..trail_sizes.len() - 2]
+        let mut trail_strips: Vec<SolvedSlab> = trail_sizes[1..trail_sizes.len() - 2]
             .iter()
             .rev()
             .map(|size| place(*size))
             .collect();
         // Walked spatially (inside-out); store outside-in to mirror inputs.
-        trail_bands.reverse();
+        trail_strips.reverse();
         let trail_margin = place(margin_override.unwrap_or(trail_sizes[0]));
 
         FrameAxisSolution {
             leading: SolvedFrameSide {
                 margin: lead_margin,
-                bands: lead_bands,
+                strips: lead_strips,
                 legend: lead_outer,
                 guide: lead_inner,
             },
             content,
             trailing: SolvedFrameSide {
                 margin: trail_margin,
-                bands: trail_bands,
+                strips: trail_strips,
                 legend: trail_outer,
                 guide: trail_inner,
             },
@@ -200,12 +200,12 @@ impl FrameAxis {
 }
 
 /// One side's clamped slab sizes in outside-in order:
-/// `[margin, bands…, legend, guide]`. Always at least three entries.
+/// `[margin, strips…, legend, guide]`. Always at least three entries.
 fn side_sizes_outside_in(side: &FrameSide) -> Vec<f32> {
-    let mut sizes = Vec::with_capacity(side.bands.len() + 3);
+    let mut sizes = Vec::with_capacity(side.strips.len() + 3);
     sizes.push(side.margin.max(0.0));
-    for band in &side.bands {
-        sizes.push(band.max(0.0));
+    for strip in &side.strips {
+        sizes.push(strip.max(0.0));
     }
     sizes.push(side.legend.max(0.0));
     sizes.push(side.guide.max(0.0));
@@ -216,10 +216,10 @@ fn side_sizes_outside_in(side: &FrameSide) -> Vec<f32> {
 mod tests {
     use super::*;
 
-    fn side(margin: f32, bands: &[f32], legend: f32, guide: f32) -> FrameSide {
+    fn side(margin: f32, strips: &[f32], legend: f32, guide: f32) -> FrameSide {
         FrameSide {
             margin,
-            bands: bands.to_vec(),
+            strips: strips.to_vec(),
             legend,
             guide,
         }
@@ -336,16 +336,16 @@ mod tests {
         .solve();
 
         assert_eq!(solution.leading.margin.start, 0.0);
-        assert_eq!(solution.leading.bands[0].start, 10.0);
-        assert_eq!(solution.leading.bands[1].start, 30.0);
+        assert_eq!(solution.leading.strips[0].start, 10.0);
+        assert_eq!(solution.leading.strips[1].start, 30.0);
         assert_eq!(solution.leading.legend.start, 45.0);
         assert_eq!(solution.leading.guide.start, 75.0);
         assert_eq!(solution.content.start, 80.0);
         assert_eq!(solution.trailing.guide.start, 180.0);
         assert_eq!(solution.trailing.legend.start, 186.0);
-        // Trailing bands stay outside-in like the input: bands[0] is
+        // Trailing strips stay outside-in like the input: strips[0] is
         // adjacent to the margin, so spatially it comes after legend.
-        assert_eq!(solution.trailing.bands[0].start, 211.0);
+        assert_eq!(solution.trailing.strips[0].start, 211.0);
         assert_eq!(solution.trailing.margin.start, 219.0);
         assert_eq!(solution.extent, 259.0);
         assert_eq!(

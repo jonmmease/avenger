@@ -7,7 +7,7 @@
 //!
 //! Visual language: blue content rectangles; dashed gray slot (allotment)
 //! outlines where granted space exceeds honest content; chrome slabs behind
-//! (gray margins, amber bands, dark green legend, dark red guide); demand
+//! (gray margins, amber strips, dark green legend, dark red guide); demand
 //! strips beside each content rectangle where **hue** is the layer (red =
 //! guide strata, green = legend strata
 //! remainder up to the total — total-only demands and lift-law slack),
@@ -44,8 +44,8 @@ pub enum DebugRegionKind {
     Content,
     /// A frame margin strip (gray).
     Margin,
-    /// A frame band strip, e.g. a title row (amber).
-    Band,
+    /// A frame chrome strip, e.g. a title row (amber).
+    Strip,
     /// A frame legend strip (green).
     Legend,
     /// A frame guide strip (red).
@@ -67,7 +67,7 @@ pub struct DebugRegion {
     pub kind: DebugRegionKind,
     pub content: Rect,
     /// The overflow this region asked for (its own measured demand), when
-    /// known. Drawn as solid strips inside the granted bands.
+    /// known. Drawn as solid strips inside the granted regions.
     pub requested: Option<Edges<EdgeGrant>>,
     /// The coordinated overflow the solve produced for this region, when
     /// known. Drawn as hatched strips: red for the guide stratum, green
@@ -123,7 +123,7 @@ impl DebugScene {
                     label: String::new(),
                     kind: match slab.layer {
                         ChromeLayer::Margin => DebugRegionKind::Margin,
-                        ChromeLayer::Band => DebugRegionKind::Band,
+                        ChromeLayer::Strip => DebugRegionKind::Strip,
                         ChromeLayer::Legend => DebugRegionKind::Legend,
                         ChromeLayer::Guide => DebugRegionKind::Guide,
                     },
@@ -229,7 +229,7 @@ impl DebugScene {
         const KEY_KINDS: [(DebugRegionKind, &str); 6] = [
             (DebugRegionKind::Content, "content"),
             (DebugRegionKind::Margin, "margin"),
-            (DebugRegionKind::Band, "band"),
+            (DebugRegionKind::Strip, "strip"),
             (DebugRegionKind::Legend, "legend"),
             (DebugRegionKind::Guide, "guide"),
             (DebugRegionKind::Slot, "slot"),
@@ -400,11 +400,11 @@ impl DebugScene {
             )
         );
         for region in &self.regions {
-            // Coordinated (hatched) bands first, then the requested (solid)
+            // Coordinated (hatched) regions first, then the requested (solid)
             // demand inside them. Per side, layers stack outward from the
             // content edge: red guide, then green legend. Solid strips draw
             // at the granted layer offsets so requested space nests inside
-            // its coordinated band.
+            // its coordinated region.
             if let Some(target) = region.target {
                 let requested = region.requested.unwrap_or_default();
                 for (granted, asked, side) in [
@@ -718,7 +718,7 @@ fn kind_style(kind: DebugRegionKind) -> &'static str {
         DebugRegionKind::Margin => {
             "fill=\"#e5e7eb\" fill-opacity=\"0.6\" stroke=\"#e5e7eb\" stroke-width=\"0.5\" stroke-opacity=\"0.6\""
         }
-        DebugRegionKind::Band => {
+        DebugRegionKind::Strip => {
             "fill=\"#fde68a\" fill-opacity=\"0.6\" stroke=\"#fde68a\" stroke-width=\"0.5\" stroke-opacity=\"0.6\""
         }
         // LEGEND_SHADES[0]: the base step of the legend ramp.

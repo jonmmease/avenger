@@ -287,8 +287,8 @@ fn grid_edge_demand_layers_and_gap_law() {
 fn chart_canvas() -> L {
     Layout::leaf(Size::default())
         .margin(10.0)
-        .band(Side::Top, 18.0)
-        .band(Side::Top, 12.0)
+        .strip(Side::Top, 18.0)
+        .strip(Side::Top, 12.0)
         .legend(Side::Right, 40.0)
         .legend(Side::Bottom, 26.0)
         .guide(Side::Left, 30.0)
@@ -298,7 +298,7 @@ fn chart_canvas() -> L {
 }
 
 /// Canvas-style sizing: the envelope is given (`SolveFor::Content`) and the
-/// chrome is subtracted from it — title and subtitle bands, a legend column
+/// chrome is subtracted from it — title and subtitle strips, a legend column
 /// and caption row (legend), and axis strips (guide).
 #[test]
 fn chromed_leaf_solve_for_content() {
@@ -321,7 +321,7 @@ fn chromed_leaf_solve_for_content() {
 fn chromed_leaf_solve_for_envelope() {
     let chart: L = Layout::leaf(Size::new(220.0, 140.0))
         .margin(10.0)
-        .band(Side::Top, 18.0)
+        .strip(Side::Top, 18.0)
         .legend(Side::Right, 40.0)
         .guide(Side::Left, 30.0)
         .guide(Side::Bottom, 16.0)
@@ -400,23 +400,23 @@ fn per_axis_allocation_plot_sized_height() {
 }
 
 /// Bands on all four sides carve with the corner-ownership rule: layers
-/// carve outside-in, vertical sides before horizontal, so the top band runs
-/// wider than the left band of the same layer.
+/// carve outside-in, vertical sides before horizontal, so the top strip runs
+/// wider than the left strip of the same layer.
 #[test]
-fn bands_all_four_sides_corner_rule() {
+fn strips_all_four_sides_corner_rule() {
     let solved = Layout::<&str>::leaf(Size::default())
         .margin(10.0)
-        .band(Side::Top, 20.0)
-        .band(Side::Left, 26.0)
-        .band(Side::Bottom, 14.0)
-        .band(Side::Right, 18.0)
+        .strip(Side::Top, 20.0)
+        .strip(Side::Left, 26.0)
+        .strip(Side::Bottom, 14.0)
+        .strip(Side::Right, 18.0)
         .guide(Side::Left, 12.0)
         .sizing(SolveFor::Content)
         .id("boxed")
         .solve(&allocated(320.0, 200.0))
         .expect("solve");
 
-    assert_svg_baseline("bands_all_four_sides_corner_rule", &solved.to_svg());
+    assert_svg_baseline("strips_all_four_sides_corner_rule", &solved.to_svg());
 }
 
 // --- nested grids with chrome -------------------------------------------------
@@ -701,7 +701,7 @@ fn shared_charts_coordinate_in_one_solve() {
         .min_gap(12.0)
         .share("plots")
         .margin(10.0)
-        .band(Side::Top, 14.0)
+        .strip(Side::Top, 14.0)
         .id(id)
     };
     let root: L = Layout::row(vec![
@@ -765,20 +765,20 @@ fn min_slack_asymmetric_share() {
 ///   in the SAME stratum, where coordination is containment: the merged
 ///   guide is max(18, 14) = 18, the cousin's legend 8 still stacks, and
 ///   both gaps settle at 26.
-/// - `.band(Side::Right, 18.0)` signs only the extent clause (chrome
+/// - `.strip(Side::Right, 18.0)` signs only the extent clause (chrome
 ///   lifts into the total, the private envelope): the cousin's 22
 ///   CONTAINS the 18 and the gaps stay at 22. The space is a DECLARATION
 ///   the solver owns: it returns a positioned slab (amber, visible
 ///   through the hatched grant) for the caller to fill, where demands
 ///   only clear room for material the caller already placed.
 ///
-/// The fourth panel shows where demand and band geometry genuinely
-/// diverge: under `SolveFor::Content` the band is part of the box (the
+/// The fourth panel shows where demand and strip geometry genuinely
+/// diverge: under `SolveFor::Content` the strip is part of the box (the
 /// contained leaf is 18 wider, slab inside), while the demand is
 /// overflow and is zeroed at the containment boundary — the 18 vanishes
 /// from the solution entirely.
 #[test]
-fn edge_reservation_layered_vs_band() {
+fn edge_reservation_layered_vs_strip() {
     let scene = |reserve: &dyn Fn(L) -> L| {
         let cell = |id: &'static str| Layout::leaf(Size::new(110.0, 56.0)).id(id);
         let reference: L = Layout::row(vec![
@@ -838,18 +838,18 @@ fn edge_reservation_layered_vs_band() {
     assert_eq!(gap(&inner_stratum, "b0", "b1"), 26.0);
     assert_eq!(gap(&inner_stratum, "a0", "a1"), 26.0);
 
-    let band = scene(&|leaf| leaf.band(Side::Right, 18.0));
+    let strip = scene(&|leaf| leaf.strip(Side::Right, 18.0));
     // Extent-only contract: the cousin's 22 contains the 18, plus a
     // solver-positioned slab.
-    assert_eq!(gap(&band, "b0", "b1"), 22.0);
-    let slabs = &band.region(&"b0").unwrap().slabs;
+    assert_eq!(gap(&strip, "b0", "b1"), 22.0);
+    let slabs = &strip.region(&"b0").unwrap().slabs;
     assert_eq!(slabs.len(), 1);
     assert_eq!(slabs[0].rect.width, 18.0);
 
     // Containment: the same two reservations behind a `SolveFor::Content`
     // boundary, one per row (the cousin pair can't show this — the
     // reference chart's layered 22 would keep the merged gap reserved and
-    // mask the vanishing). The band folds INTO the box (18 wider, slab
+    // mask the vanishing). The strip folds INTO the box (18 wider, slab
     // inside); the demand is overflow, zeroed at the boundary — no
     // reservation anywhere.
     // Each box sits in its own Start-distributed row: the column's shared
@@ -874,9 +874,9 @@ fn edge_reservation_layered_vs_band() {
         ),
         contained_row(
             Layout::leaf(Size::new(110.0, 56.0))
-                .band(Side::Right, 18.0)
+                .strip(Side::Right, 18.0)
                 .sizing(SolveFor::Content)
-                .id("contained band"),
+                .id("contained strip"),
         ),
     ])
     .min_gap(12.0)
@@ -884,15 +884,15 @@ fn edge_reservation_layered_vs_band() {
     .solve(&natural())
     .expect("solve");
     let shed = containment.region(&"contained demand").unwrap();
-    let kept = containment.region(&"contained band").unwrap();
+    let kept = containment.region(&"contained strip").unwrap();
     assert_eq!(shed.slot.width, 110.0, "the demand vanished");
     assert_eq!(shed.requested.right.total, 0.0);
-    assert_eq!(kept.slot.width, 128.0, "the band is box structure");
+    assert_eq!(kept.slot.width, 128.0, "the strip is box structure");
     assert_eq!(kept.slabs[0].rect.width, 18.0);
     assert_eq!(kept.slot.y - (shed.slot.y + shed.slot.height), 12.0);
 
     assert_svg_baseline(
-        "edge_reservation_layered_vs_band",
+        "edge_reservation_layered_vs_strip",
         &svg_panels(&[
             (
                 "legend 18 vs cousin 14+8: strata coexist, gaps 32",
@@ -903,11 +903,11 @@ fn edge_reservation_layered_vs_band() {
                 &inner_stratum,
             ),
             (
-                "band 18: extent-only, contained by the cousin's 22, gaps 22",
-                &band,
+                "strip 18: extent-only, contained by the cousin's 22, gaps 22",
+                &strip,
             ),
             (
-                "containment, one box per row: demand 18 vanishes, band stays",
+                "containment, one box per row: demand 18 vanishes, strip stays",
                 &containment,
             ),
         ]),

@@ -4671,13 +4671,13 @@ mod tests {
                     sizing: FrameAxisSizing::ContentFixed { content: 80.0 },
                     leading: FrameSide {
                         margin: 10.0,
-                        bands: Vec::new(),
+                        strips: Vec::new(),
                         legend: container_extent(LegendPosition::Left, true),
                         guide: 0.0,
                     },
                     trailing: FrameSide {
                         margin: 0.0,
-                        bands: Vec::new(),
+                        strips: Vec::new(),
                         legend: container_extent(LegendPosition::Right, true),
                         guide: 0.0,
                     },
@@ -4687,13 +4687,13 @@ mod tests {
                     sizing: FrameAxisSizing::ContentFixed { content: 157.0 },
                     leading: FrameSide {
                         margin: 20.0,
-                        bands: Vec::new(),
+                        strips: Vec::new(),
                         legend: container_extent(LegendPosition::Top, false),
                         guide: 0.0,
                     },
                     trailing: FrameSide {
                         margin: 0.0,
-                        bands: Vec::new(),
+                        strips: Vec::new(),
                         legend: container_extent(LegendPosition::Bottom, false),
                         guide: 0.0,
                     },

@@ -54,14 +54,14 @@
   <rect x="69" y="152" width="10" height="10" fill="#e5e7eb" fill-opacity="0.6" stroke="#e5e7eb" stroke-width="0.5" stroke-opacity="0.6"/>
   <text x="82" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">margin</text>
   <rect x="132" y="152" width="10" height="10" fill="#fde68a" fill-opacity="0.6" stroke="#fde68a" stroke-width="0.5" stroke-opacity="0.6"/>
-  <text x="145" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">band</text>
-  <rect x="183" y="152" width="10" height="10" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
-  <text x="196" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">slot</text>
-  <rect x="234" y="152" width="5" height="10" fill="#e98080" stroke="#e98080" stroke-width="1"/>
-  <rect x="239" y="152" width="5" height="10" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
-  <text x="247" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">guide d1</text>
-  <rect x="309" y="152" width="5" height="10" fill="#f7bcbc" stroke="#f7bcbc" stroke-width="1"/>
-  <rect x="314" y="152" width="5" height="10" fill="url(#hatch-g2)" stroke="#f7bcbc" stroke-width="1"/>
-  <text x="322" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">guide d2</text>
+  <text x="145" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">strip</text>
+  <rect x="189" y="152" width="10" height="10" fill="none" stroke="#6b7280" stroke-width="0.7" stroke-dasharray="3 2"/>
+  <text x="202" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">slot</text>
+  <rect x="240" y="152" width="5" height="10" fill="#e98080" stroke="#e98080" stroke-width="1"/>
+  <rect x="245" y="152" width="5" height="10" fill="url(#hatch-g1)" stroke="#e98080" stroke-width="1"/>
+  <text x="253" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">guide d1</text>
+  <rect x="315" y="152" width="5" height="10" fill="#f7bcbc" stroke="#f7bcbc" stroke-width="1"/>
+  <rect x="320" y="152" width="5" height="10" fill="url(#hatch-g2)" stroke="#f7bcbc" stroke-width="1"/>
+  <text x="328" y="161" fill="#111111" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">guide d2</text>
   <rect x="0" y="0" width="552" height="142" fill="none" stroke="#111111" stroke-width="1"/>
 </svg>

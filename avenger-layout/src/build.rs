@@ -10,7 +10,7 @@
 //! alignment). `row`/`column` are 1×N conveniences.
 //!
 //! On top of that, every node — leaf or grid — can carry **declared
-//! chrome**: named slabs per side (margin, repeatable bands, legend, guide)
+//! chrome**: named slabs per side (margin, repeatable strips, legend, guide)
 //! plus a per-axis [`SolveFor`] sizing mode. Chrome is structured overflow:
 //! the solver knows the individual slabs, returns their positioned
 //! rectangles in the solution, and repositions them itself when coordination
@@ -18,10 +18,10 @@
 //!
 //! Toward the parent, guide slabs extend the `guide` stratum of the node's
 //! solved edges ([`crate::region::EdgeGrant`]), legend slabs the `legend`
-//! stratum, and bands and margins lift into `total` only (private envelope —
+//! stratum, and strips and margins lift into `total` only (private envelope —
 //! never matched against a cousin's strata).
 //!
-//! That privacy is deliberate, not a missing feature: bands and margins
+//! That privacy is deliberate, not a missing feature: strips and margins
 //! are caller *declarations*, so a caller who wants them equal across
 //! cousins can max its own declared sizes before building — no solver
 //! involvement required. The `guide`/`legend` strata exist because
@@ -173,7 +173,7 @@ impl From<GridError> for LayoutError {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ChromeSide {
     pub(crate) margin: f32,
-    pub(crate) bands: Vec<f32>,
+    pub(crate) strips: Vec<f32>,
     pub(crate) legend: f32,
     pub(crate) guide: f32,
 }
@@ -349,11 +349,11 @@ impl<Id, Key> Layout<Id, Key> {
         self
     }
 
-    /// A discrete chrome band on one side (for charts: title/subtitle rows).
-    /// Repeatable; bands stack outside-in in call order. Lifts into `total`
+    /// A discrete chrome strip on one side (for charts: title/subtitle rows).
+    /// Repeatable; strips stack outside-in in call order. Lifts into `total`
     /// only.
-    pub fn band(mut self, side: Side, size: f32) -> Self {
-        self.chrome.sides.side_mut(side).bands.push(size);
+    pub fn strip(mut self, side: Side, size: f32) -> Self {
+        self.chrome.sides.side_mut(side).strips.push(size);
         self
     }
 
@@ -584,12 +584,12 @@ mod tests {
 
         let chart: Layout = Layout::leaf(Size::default())
             .margin(8.0)
-            .band(Side::Top, 18.0)
-            .band(Side::Top, 12.0)
+            .strip(Side::Top, 18.0)
+            .strip(Side::Top, 12.0)
             .legend(Side::Right, 64.0)
             .guide(Side::Left, 38.0)
             .sizing(SolveFor::Content);
-        assert_eq!(chart.chrome.sides.top.bands, vec![18.0, 12.0]);
+        assert_eq!(chart.chrome.sides.top.strips, vec![18.0, 12.0]);
         assert_eq!(chart.chrome.sides.right.legend, 64.0);
         assert_eq!(chart.chrome.sides.left.guide, 38.0);
         assert_eq!(chart.chrome.sides.left.margin, 8.0);

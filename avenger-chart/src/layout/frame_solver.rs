@@ -254,22 +254,22 @@ fn project_layout_rects(
     }
 
     let has_right_legend = legends_by_position.contains_key(&LegendPosition::Right);
-    let mut band_index = 0;
+    let mut strip_index = 0;
     if chrome.has_title_band {
         frame_layout.title = Some(title_band_bounds(
             &solution,
-            band_index,
+            strip_index,
             chrome.title_span,
             chrome.guide_overflow.left,
             chrome.guide_overflow.right,
             has_right_legend,
         ));
-        band_index += 1;
+        strip_index += 1;
     }
     if chrome.has_subtitle_band {
         frame_layout.subtitle = Some(title_band_bounds(
             &solution,
-            band_index,
+            strip_index,
             chrome.subtitle_span,
             chrome.guide_overflow.left,
             chrome.guide_overflow.right,
@@ -362,21 +362,21 @@ fn reproject_layout_rects(layout: &mut LayoutSolution, legend_measurements: &Leg
 
 /// Compute the rect of one title/subtitle band from the solved frame.
 ///
-/// The band's vertical strip is `vertical.leading.bands[band_index]`. The
+/// The title band's vertical strip is `vertical.leading.strips[strip_index]`. The
 /// horizontal span follows the span policy: the plot content alone, or the
 /// content plus the existing guide-overflow layers and a right legend
 /// container (the canvas span runs from the left overflow layer through the
 /// rightmost chrome component).
 fn title_band_bounds(
     solution: &SolvedFrameView,
-    band_index: usize,
+    strip_index: usize,
     span: TitleSpan,
     has_left_overflow: bool,
     has_right_overflow: bool,
     has_right_legend: bool,
 ) -> LayoutBounds {
     let h = &solution.horizontal;
-    let band = solution.vertical.leading.bands[band_index];
+    let strip = solution.vertical.leading.strips[strip_index];
     let (x, width) = match span {
         TitleSpan::PlotArea => (h.content.start, h.content.size),
         TitleSpan::Canvas => {
@@ -401,9 +401,9 @@ fn title_band_bounds(
     };
     snap_rect_edges(LayoutBounds {
         x,
-        y: band.start,
+        y: strip.start,
         width,
-        height: band.size,
+        height: strip.size,
     })
 }
 
@@ -614,10 +614,10 @@ mod tests {
         solve_native_frame_layout, title_band_bounds,
     };
 
-    fn frame_side(margin: f32, bands: &[f32], legend: f32, guide: f32) -> FrameSide {
+    fn frame_side(margin: f32, strips: &[f32], legend: f32, guide: f32) -> FrameSide {
         FrameSide {
             margin,
-            bands: bands.to_vec(),
+            strips: strips.to_vec(),
             legend,
             guide,
         }
@@ -764,13 +764,13 @@ mod tests {
                     sizing: FrameAxisSizing::EnvelopeFixed { extent: 400.0 },
                     leading: FrameSide {
                         margin: 10.0,
-                        bands: Vec::new(),
+                        strips: Vec::new(),
                         legend: 0.0,
                         guide: 5.0,
                     },
                     trailing: FrameSide {
                         margin: 10.0,
-                        bands: Vec::new(),
+                        strips: Vec::new(),
                         legend: 0.0,
                         guide: 7.0,
                     },
@@ -780,13 +780,13 @@ mod tests {
                     sizing: FrameAxisSizing::EnvelopeFixed { extent: 300.0 },
                     leading: FrameSide {
                         margin: 10.0,
-                        bands: Vec::new(),
+                        strips: Vec::new(),
                         legend: 0.0,
                         guide: 6.0,
                     },
                     trailing: FrameSide {
                         margin: 10.0,
-                        bands: Vec::new(),
+                        strips: Vec::new(),
                         legend: 0.0,
                         guide: 8.0,
                     },

@@ -9,7 +9,7 @@ use crate::region::EdgeGrant;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChromeLayer {
     Margin,
-    Band,
+    Strip,
     Legend,
     Guide,
 }
@@ -19,9 +19,9 @@ pub enum ChromeLayer {
 pub struct ChromeSlab {
     pub layer: ChromeLayer,
     pub side: Side,
-    /// Index among this side's bands (outside-in declaration order); zero
+    /// Index among this side's strips (outside-in declaration order); zero
     /// for the other layers.
-    pub band_index: usize,
+    pub strip_index: usize,
     pub rect: Rect,
 }
 
