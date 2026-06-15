@@ -51,7 +51,7 @@
 //! - `pi` (π): approximately 3.14159
 //! - `e`: Euler's number, approximately 2.71828
 //!
-//! ## Relative Color Syntax (Phase 9)
+//! ## Relative Color Syntax
 //! Channel keywords for deriving colors from existing colors:
 //! ```ignore
 //! // Darken a color by reducing lightness
@@ -123,7 +123,7 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::color::types::{AbsoluteColor, ColorSpace};
+use avenger_color::{AbsoluteColor, ColorChannel};
 
 use super::value::{AngleUnit, LengthUnit};
 
@@ -285,68 +285,8 @@ pub enum CalcLeaf {
     Variable(String),
 
     /// Channel keyword for relative color syntax (CSS Color Level 5)
-    /// CSS: oklch(from blue l c h) => ChannelKeyword(L), ChannelKeyword(C), ChannelKeyword(H)
-    ChannelKeyword(ChannelKeyword),
-}
-
-/// Channel keywords for relative color syntax (CSS Color Level 5)
-///
-/// These represent components of the origin color in relative color functions:
-/// - oklch(from blue L C H) - L/C/H refer to blue's components in Oklch space
-/// - rgb(from red R G B) - R/G/B refer to red's components in sRGB space
-///
-/// # Examples
-///
-/// ```ignore
-/// // Darken a color by reducing lightness
-/// oklch(from var(--primary) calc(l - 0.2) c h)
-///
-/// // Adjust saturation
-/// hsl(from blue h calc(s * 0.5) l)
-///
-/// // Rotate hue for complementary color
-/// oklch(from blue l c calc(h + 180deg))
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ChannelKeyword {
-    /// Lightness/Luminance (Lab, Lch, Oklab, Oklch, Hsl)
-    L,
-
-    /// Red component (RGB, sRGB)
-    R,
-    /// Green component (RGB, sRGB)
-    G,
-    /// Blue component (RGB, sRGB)
-    B,
-
-    /// Chroma (Oklch, Lch)
-    C,
-
-    /// Hue (Hsl, Hwb, Oklch, Lch) - in degrees
-    H,
-
-    /// Saturation (Hsl)
-    S,
-
-    /// Whiteness (Hwb)
-    W,
-    /// Blackness (Hwb) - note: 'b' conflicts with blue, so named BlacknessB
-    BlacknessB,
-
-    /// A axis (Lab, Oklab)
-    A,
-    /// B axis (Lab, Oklab) - note: conflicts with blue, so named LabB
-    LabB,
-
-    /// X component (XYZ color space)
-    X,
-    /// Y component (XYZ color space)
-    Y,
-    /// Z component (XYZ color space)
-    Z,
-
-    /// Alpha channel (all color spaces)
-    Alpha,
+    /// CSS: oklch(from blue l c h) stores the `l`, `c`, and `h` color channels.
+    ColorChannel(ColorChannel),
 }
 
 /// Unit categories for type checking
@@ -375,52 +315,6 @@ pub enum CalcUnits {
     Unknown,
 }
 
-impl ChannelKeyword {
-    /// Parse from CSS identifier
-    ///
-    /// Returns None if the identifier is not a valid channel keyword.
-    pub fn from_ident(ident: &str) -> Option<Self> {
-        match ident.to_lowercase().as_str() {
-            "l" => Some(Self::L),
-            "r" => Some(Self::R),
-            "g" => Some(Self::G),
-            "b" => Some(Self::B),
-            "c" => Some(Self::C),
-            "h" => Some(Self::H),
-            "s" => Some(Self::S),
-            "w" => Some(Self::W),
-            "a" => Some(Self::A),
-            "x" => Some(Self::X),
-            "y" => Some(Self::Y),
-            "z" => Some(Self::Z),
-            "alpha" => Some(Self::Alpha),
-            _ => None,
-        }
-    }
-
-    /// Parse a channel keyword with color space context
-    ///
-    /// This disambiguates between:
-    /// - 'b' as RGB blue vs Lab/Oklab b-axis
-    /// - 'a' as Lab/Oklab a-axis vs alpha (though 'a' defaults to a-axis in Lab/Oklab)
-    pub fn from_ident_with_color_space(
-        ident: &str,
-        color_space: Option<ColorSpace>,
-    ) -> Option<Self> {
-        let lower = ident.to_lowercase();
-        match (lower.as_str(), color_space) {
-            // In Lab/Oklab contexts, 'b' refers to the b-axis, not blue
-            ("b", Some(ColorSpace::Lab | ColorSpace::Oklab)) => Some(Self::LabB),
-
-            // In HWB context, 'b' refers to blackness, not blue
-            ("b", Some(ColorSpace::Hwb)) => Some(Self::BlacknessB),
-
-            // Otherwise use the generic parser
-            _ => Self::from_ident(ident),
-        }
-    }
-}
-
 impl CalcLeaf {
     /// Get the unit type of this leaf
     pub fn units(&self) -> CalcUnits {
@@ -430,7 +324,7 @@ impl CalcLeaf {
             CalcLeaf::Percentage(_) => CalcUnits::Percentage,
             CalcLeaf::Angle(_, _) => CalcUnits::Angle,
             CalcLeaf::Variable(_) => CalcUnits::Unknown,
-            CalcLeaf::ChannelKeyword(_) => CalcUnits::Unknown, // Depends on color space context
+            CalcLeaf::ColorChannel(_) => CalcUnits::Unknown, // Depends on color space context
         }
     }
 
@@ -444,7 +338,7 @@ impl CalcLeaf {
             CalcLeaf::Variable(_) => {
                 unreachable!("Variables should be substituted before negation")
             }
-            CalcLeaf::ChannelKeyword(_) => {
+            CalcLeaf::ColorChannel(_) => {
                 unreachable!("Channel keywords should be substituted before negation")
             }
         }
@@ -458,7 +352,7 @@ impl CalcLeaf {
             CalcLeaf::Percentage(n) => CalcLeaf::Percentage(n.abs()),
             CalcLeaf::Angle(n, unit) => CalcLeaf::Angle(n.abs(), *unit),
             CalcLeaf::Variable(_) => unreachable!("Variables should be substituted before abs"),
-            CalcLeaf::ChannelKeyword(_) => {
+            CalcLeaf::ColorChannel(_) => {
                 unreachable!("Channel keywords should be substituted before abs")
             }
         }
@@ -473,7 +367,7 @@ impl CalcLeaf {
             CalcLeaf::Percentage(n) => *n,
             CalcLeaf::Angle(n, _) => *n,
             CalcLeaf::Variable(_) => unreachable!("Variables should be substituted before sign"),
-            CalcLeaf::ChannelKeyword(_) => {
+            CalcLeaf::ColorChannel(_) => {
                 unreachable!("Channel keywords should be substituted before sign")
             }
         };
@@ -565,7 +459,7 @@ impl CalcLeaf {
             CalcLeaf::Percentage(_) => None,        // Need context
             CalcLeaf::Angle(_, _) => None,
             CalcLeaf::Variable(_) => None,
-            CalcLeaf::ChannelKeyword(_) => None,
+            CalcLeaf::ColorChannel(_) => None,
         }
     }
 
@@ -872,18 +766,16 @@ impl CalcNode {
         self.resolve_with_params_and_origin(params, base_font_size, None)
     }
 
-    /// Resolve to concrete value with runtime parameter substitution AND channel keyword substitution
+    /// Resolve to a concrete value with runtime parameter and color channel substitution.
     ///
-    /// This is the ENHANCED ENTRY POINT for calc resolution in relative color contexts.
-    /// It:
     /// 1. Substitutes CSS variables from runtime parameters
-    /// 2. Substitutes channel keywords from origin color
+    /// 2. Substitutes color channels from the origin color
     /// 3. Resolves the expression to a final value
     ///
     /// # Arguments
     /// * `params` - Runtime parameter values (var(--name) => params["name"])
     /// * `base_font_size` - Base font size for rem conversion
-    /// * `origin_color` - Origin color for channel keyword substitution (optional)
+    /// * `origin_color` - Origin color for relative color channel substitution
     pub fn resolve_with_params_and_origin(
         &self,
         params: &IndexMap<String, f64>,
@@ -893,9 +785,9 @@ impl CalcNode {
         // First, substitute variables
         let mut substituted = self.substitute_variables(params)?;
 
-        // Then substitute channel keywords if we have an origin color
+        // Then substitute color channels if we have an origin color
         if let Some(origin) = origin_color {
-            substituted = substituted.substitute_channel_keywords(Some(origin))?;
+            substituted = substituted.substitute_color_channels(Some(origin))?;
         }
 
         // Simplify after substitution
@@ -912,10 +804,10 @@ impl CalcNode {
     fn resolve_internal(&self, base_font_size: f32) -> Result<CalcLeaf, String> {
         match self {
             CalcNode::Leaf(leaf) => {
-                // Variables and channel keywords should have been substituted
+                // Variables and color channels should have been substituted
                 match leaf {
                     CalcLeaf::Variable(name) => Err(format!("Unsubstituted variable: {}", name)),
-                    CalcLeaf::ChannelKeyword(keyword) => Err(format!(
+                    CalcLeaf::ColorChannel(keyword) => Err(format!(
                         "Channel keyword {:?} requires color context (relative color syntax)",
                         keyword
                     )),
@@ -1253,23 +1145,23 @@ impl CalcNode {
         }
     }
 
-    /// Substitute channel keywords with values from origin color
+    /// Substitute color channels with values from origin color
     ///
     /// This is used during relative color syntax resolution to replace
-    /// channel keywords (l, c, h, r, g, b, etc.) with actual component values
+    /// channel keywords such as `l`, `c`, `h`, `r`, `g`, and `b` with component values
     /// from the origin color.
     ///
     /// # Arguments
-    /// * `origin_color` - Optional origin color for channel keyword resolution
+    /// * `origin_color` - Optional origin color for color channel resolution
     ///
     /// # Returns
-    /// A new CalcNode with channel keywords replaced by concrete values
-    pub fn substitute_channel_keywords(
+    /// A new CalcNode with color channels replaced by concrete values
+    pub fn substitute_color_channels(
         &self,
         origin_color: Option<&AbsoluteColor>,
     ) -> Result<CalcNode, String> {
         match self {
-            CalcNode::Leaf(CalcLeaf::ChannelKeyword(keyword)) => {
+            CalcNode::Leaf(CalcLeaf::ColorChannel(keyword)) => {
                 let origin = origin_color.ok_or_else(|| {
                     format!(
                         "Channel keyword {:?} requires origin color context",
@@ -1279,7 +1171,7 @@ impl CalcNode {
 
                 let value = origin.get_component_by_channel_keyword(*keyword)?;
 
-                // All channel keywords become unitless numbers in relative color context
+                // All color channels become unitless numbers in relative color context
                 // Even hue values are represented as numbers (in degrees)
                 let leaf = CalcLeaf::Number(value as f64);
 
@@ -1291,53 +1183,53 @@ impl CalcNode {
 
             // Recursively process tree
             CalcNode::Negate(node) => Ok(CalcNode::Negate(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Sum(nodes) => Ok(CalcNode::Sum(
                 nodes
                     .iter()
-                    .map(|n| n.substitute_channel_keywords(origin_color))
+                    .map(|n| n.substitute_color_channels(origin_color))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
 
             CalcNode::Product(nodes) => Ok(CalcNode::Product(
                 nodes
                     .iter()
-                    .map(|n| n.substitute_channel_keywords(origin_color))
+                    .map(|n| n.substitute_color_channels(origin_color))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
 
             CalcNode::Invert(node) => Ok(CalcNode::Invert(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Min(nodes) => Ok(CalcNode::Min(
                 nodes
                     .iter()
-                    .map(|n| n.substitute_channel_keywords(origin_color))
+                    .map(|n| n.substitute_color_channels(origin_color))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
 
             CalcNode::Max(nodes) => Ok(CalcNode::Max(
                 nodes
                     .iter()
-                    .map(|n| n.substitute_channel_keywords(origin_color))
+                    .map(|n| n.substitute_color_channels(origin_color))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
 
             CalcNode::Clamp { min, center, max } => Ok(CalcNode::Clamp {
-                min: Box::new(min.substitute_channel_keywords(origin_color)?),
-                center: Box::new(center.substitute_channel_keywords(origin_color)?),
-                max: Box::new(max.substitute_channel_keywords(origin_color)?),
+                min: Box::new(min.substitute_color_channels(origin_color)?),
+                center: Box::new(center.substitute_color_channels(origin_color)?),
+                max: Box::new(max.substitute_color_channels(origin_color)?),
             }),
 
             CalcNode::Abs(node) => Ok(CalcNode::Abs(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Sign(node) => Ok(CalcNode::Sign(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Round {
@@ -1346,74 +1238,74 @@ impl CalcNode {
                 step,
             } => Ok(CalcNode::Round {
                 strategy: *strategy,
-                value: Box::new(value.substitute_channel_keywords(origin_color)?),
-                step: Box::new(step.substitute_channel_keywords(origin_color)?),
+                value: Box::new(value.substitute_color_channels(origin_color)?),
+                step: Box::new(step.substitute_color_channels(origin_color)?),
             }),
 
             CalcNode::Mod { dividend, divisor } => Ok(CalcNode::Mod {
-                dividend: Box::new(dividend.substitute_channel_keywords(origin_color)?),
-                divisor: Box::new(divisor.substitute_channel_keywords(origin_color)?),
+                dividend: Box::new(dividend.substitute_color_channels(origin_color)?),
+                divisor: Box::new(divisor.substitute_color_channels(origin_color)?),
             }),
 
             CalcNode::Rem { dividend, divisor } => Ok(CalcNode::Rem {
-                dividend: Box::new(dividend.substitute_channel_keywords(origin_color)?),
-                divisor: Box::new(divisor.substitute_channel_keywords(origin_color)?),
+                dividend: Box::new(dividend.substitute_color_channels(origin_color)?),
+                divisor: Box::new(divisor.substitute_color_channels(origin_color)?),
             }),
 
             CalcNode::Hypot(nodes) => Ok(CalcNode::Hypot(
                 nodes
                     .iter()
-                    .map(|n| n.substitute_channel_keywords(origin_color))
+                    .map(|n| n.substitute_color_channels(origin_color))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
 
             CalcNode::Sin(node) => Ok(CalcNode::Sin(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Cos(node) => Ok(CalcNode::Cos(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Tan(node) => Ok(CalcNode::Tan(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Asin(node) => Ok(CalcNode::Asin(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Acos(node) => Ok(CalcNode::Acos(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Atan(node) => Ok(CalcNode::Atan(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Atan2 { y, x } => Ok(CalcNode::Atan2 {
-                y: Box::new(y.substitute_channel_keywords(origin_color)?),
-                x: Box::new(x.substitute_channel_keywords(origin_color)?),
+                y: Box::new(y.substitute_color_channels(origin_color)?),
+                x: Box::new(x.substitute_color_channels(origin_color)?),
             }),
 
             CalcNode::Pow { base, exponent } => Ok(CalcNode::Pow {
-                base: Box::new(base.substitute_channel_keywords(origin_color)?),
-                exponent: Box::new(exponent.substitute_channel_keywords(origin_color)?),
+                base: Box::new(base.substitute_color_channels(origin_color)?),
+                exponent: Box::new(exponent.substitute_color_channels(origin_color)?),
             }),
 
             CalcNode::Sqrt(node) => Ok(CalcNode::Sqrt(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Exp(node) => Ok(CalcNode::Exp(Box::new(
-                node.substitute_channel_keywords(origin_color)?,
+                node.substitute_color_channels(origin_color)?,
             ))),
 
             CalcNode::Log { value, base } => Ok(CalcNode::Log {
-                value: Box::new(value.substitute_channel_keywords(origin_color)?),
+                value: Box::new(value.substitute_color_channels(origin_color)?),
                 base: base
                     .as_ref()
-                    .map(|b| b.substitute_channel_keywords(origin_color))
+                    .map(|b| b.substitute_color_channels(origin_color))
                     .transpose()?
                     .map(Box::new),
             }),
@@ -1775,14 +1667,11 @@ mod tests {
 
     #[test]
     fn test_channel_keyword_from_ident() {
-        assert_eq!(ChannelKeyword::from_ident("l"), Some(ChannelKeyword::L));
-        assert_eq!(ChannelKeyword::from_ident("L"), Some(ChannelKeyword::L));
-        assert_eq!(ChannelKeyword::from_ident("r"), Some(ChannelKeyword::R));
-        assert_eq!(
-            ChannelKeyword::from_ident("alpha"),
-            Some(ChannelKeyword::Alpha)
-        );
-        assert_eq!(ChannelKeyword::from_ident("invalid"), None);
+        assert_eq!(ColorChannel::from_ident("l"), Some(ColorChannel::L));
+        assert_eq!(ColorChannel::from_ident("L"), Some(ColorChannel::L));
+        assert_eq!(ColorChannel::from_ident("r"), Some(ColorChannel::R));
+        assert_eq!(ColorChannel::from_ident("alpha"), Some(ColorChannel::Alpha));
+        assert_eq!(ColorChannel::from_ident("invalid"), None);
     }
 
     #[test]

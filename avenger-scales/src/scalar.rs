@@ -9,7 +9,7 @@ use arrow::{
     compute::kernels::cast,
     datatypes::{DataType, Float32Type},
 };
-use css_color_parser::Color;
+use avenger_color::parse_color_string;
 
 /// A scalar value wrapper around a single-element Arrow array
 #[derive(Debug, Clone)]
@@ -372,17 +372,11 @@ impl Scalar {
         match self.0.data_type() {
             DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
                 let color_str = self.as_string()?;
-                match color_str.parse::<Color>() {
-                    Ok(color) => Ok([
-                        color.r as f32 / 255.0,
-                        color.g as f32 / 255.0,
-                        color.b as f32 / 255.0,
-                        color.a,
-                    ]),
-                    Err(e) => Err(AvengerScaleError::InternalError(format!(
-                        "Scalar string is not a valid color: {color_str}\n{e:?}"
-                    ))),
-                }
+                parse_color_string(&color_str).ok_or_else(|| {
+                    AvengerScaleError::InternalError(format!(
+                        "Scalar string is not a valid color: {color_str}"
+                    ))
+                })
             }
             _ => Err(AvengerScaleError::InternalError(format!(
                 "Scalar is not convertable to RGBA color: {:?}",

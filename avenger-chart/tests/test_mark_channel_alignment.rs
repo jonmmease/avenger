@@ -1,8 +1,6 @@
 use avenger_chart::prelude::*;
-use avenger_common::{
-    types::ColorOrGradient,
-    value::{ScalarOrArray, ScalarOrArrayValue},
-};
+use avenger_color::ColorOrGradient;
+use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scenegraph::marks::mark::SceneMarkType;
 use avenger_scenegraph::marks::{
     area::SceneAreaMark, image::SceneImageMark, mark::SceneMark, path::ScenePathMark,

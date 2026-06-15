@@ -30,6 +30,7 @@
 //!     legend_config: None,
 //!     axis_config: None,
 //!     domain_coordination: None,
+//!     transform_scope: None,
 //! });
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
 //!     expr: LogicalExprNode::from_expr(col(":y") + lit(10.0)).expect("Failed to serialize expr"),  // References y channel
@@ -39,6 +40,7 @@
 //!     legend_config: None,
 //!     axis_config: None,
 //!     domain_coordination: None,
+//!     transform_scope: None,
 //! });
 //!
 //! // Resolve references (function would be imported from this module)

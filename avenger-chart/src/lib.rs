@@ -10,7 +10,6 @@
 pub mod axis;
 pub mod cartesian;
 pub mod channel;
-pub mod color;
 pub mod concat;
 #[doc(hidden)]
 pub mod container;
@@ -23,6 +22,7 @@ pub mod guide;
 pub mod layout;
 pub mod legend;
 pub mod marks;
+pub mod maybe;
 pub mod param;
 pub(crate) mod partition;
 pub mod plot;
@@ -30,8 +30,6 @@ pub mod polar;
 pub(crate) mod positioned_subplot;
 pub mod prelude;
 pub mod render;
-// render_context moved to render/context
-pub mod maybe;
 pub mod repeat;
 pub mod scales;
 pub mod scene_query;

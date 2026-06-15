@@ -1290,7 +1290,7 @@ impl Theme {
                     let colors: Vec<Srgba> = values
                         .iter()
                         .filter_map(|v| {
-                            avenger_scales::color::parse_color_string(v)
+                            avenger_color::parse_color_string(v)
                                 .map(|rgba| Srgba::new(rgba[0], rgba[1], rgba[2], rgba[3]))
                         })
                         .collect();

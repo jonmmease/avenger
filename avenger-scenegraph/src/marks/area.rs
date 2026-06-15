@@ -1,5 +1,6 @@
+use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::{
-    types::{AreaOrientation, ColorOrGradient, Gradient, StrokeCap, StrokeJoin},
+    types::{AreaOrientation, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
 use itertools::izip;

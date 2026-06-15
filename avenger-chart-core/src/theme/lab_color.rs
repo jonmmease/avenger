@@ -12,8 +12,8 @@
 //! - https://drafts.csswg.org/css-color-4/#ok-lab
 //! - https://drafts.csswg.org/css-color-4/#ok-lch
 
-use crate::color::types::{AbsoluteColor, ColorSpace};
 use crate::theme::{AngleUnit, CssRgba, ThemeValue};
+use avenger_color::{AbsoluteColor, ColorSpace};
 
 /// Parse an oklab() function
 ///
@@ -38,7 +38,7 @@ pub fn parse_oklab_function(args: &[ThemeValue]) -> Option<CssRgba> {
     };
 
     let color = AbsoluteColor::new(ColorSpace::Oklab, lightness, a, b, alpha);
-    Some(color.to_css_rgba())
+    Some(CssRgba::from_rgba8(color.to_rgba8()))
 }
 
 /// Parse an oklch() function
@@ -64,7 +64,7 @@ pub fn parse_oklch_function(args: &[ThemeValue]) -> Option<CssRgba> {
     };
 
     let color = AbsoluteColor::new(ColorSpace::Oklch, lightness, chroma, hue, alpha);
-    Some(color.to_css_rgba())
+    Some(CssRgba::from_rgba8(color.to_rgba8()))
 }
 
 /// Parse a lab() function
@@ -90,7 +90,7 @@ pub fn parse_lab_function(args: &[ThemeValue]) -> Option<CssRgba> {
     };
 
     let color = AbsoluteColor::new(ColorSpace::Lab, lightness, a, b, alpha);
-    Some(color.to_css_rgba())
+    Some(CssRgba::from_rgba8(color.to_rgba8()))
 }
 
 /// Parse an lch() function
@@ -116,7 +116,7 @@ pub fn parse_lch_function(args: &[ThemeValue]) -> Option<CssRgba> {
     };
 
     let color = AbsoluteColor::new(ColorSpace::Lch, lightness, chroma, hue, alpha);
-    Some(color.to_css_rgba())
+    Some(CssRgba::from_rgba8(color.to_rgba8()))
 }
 
 /// Extract a number from a ThemeValue

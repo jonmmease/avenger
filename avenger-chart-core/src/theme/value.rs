@@ -3,6 +3,8 @@
 use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
 
+use avenger_color::{AbsoluteColor, ColorSpace};
+
 /// Value types that themes can return
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ThemeValue {
@@ -49,7 +51,7 @@ pub enum ThemeValue {
     /// Example: oklch(from blue calc(l - 0.2) c h)
     /// Syntax: <color-function>(from <origin> <components>)
     RelativeColor {
-        space: crate::color::types::ColorSpace,
+        space: ColorSpace,
         origin: Box<ThemeValue>,
         lightness: super::color_component::ColorComponent,
         component1: super::color_component::ColorComponent,
@@ -80,6 +82,15 @@ pub struct CssRgba {
 }
 
 impl CssRgba {
+    pub fn from_rgba8([red, green, blue, alpha]: [u8; 4]) -> Self {
+        Self {
+            red,
+            green,
+            blue,
+            alpha,
+        }
+    }
+
     /// Convert to normalized RGBA array [0.0-1.0] for use with ColorOrGradient
     pub fn to_array(&self) -> [f32; 4] {
         [
@@ -256,11 +267,9 @@ impl ThemeValue {
                 component2,
                 alpha,
             } => {
-                use crate::color::types::AbsoluteColor;
-
                 // 1. Resolve origin color recursively
                 let origin_rgba = origin.as_color_with_params(params, base_font_size)?;
-                let mut origin_abs = AbsoluteColor::from_css_rgba(&origin_rgba);
+                let mut origin_abs = AbsoluteColor::from_rgba(origin_rgba.to_array());
 
                 // 2. Convert origin to target color space
                 origin_abs = origin_abs.to_color_space(*space);
@@ -286,7 +295,7 @@ impl ThemeValue {
                 let derived = AbsoluteColor::new(*space, c0, c1, c2, a);
 
                 // 6. Convert to CssRgba
-                Some(derived.to_css_rgba())
+                Some(CssRgba::from_rgba8(derived.to_rgba8()))
             }
 
             // Handle light-dark() function - resolve based on color-scheme param
@@ -467,8 +476,6 @@ impl ThemeValue {
                 component2,
                 alpha,
             } => {
-                use crate::color::types::AbsoluteColor;
-
                 // 1. Resolve origin color recursively
                 let origin_rgba =
                     origin
@@ -477,7 +484,7 @@ impl ThemeValue {
                             error: format!("Failed to resolve origin color: {}", e),
                         })?;
 
-                let mut origin_abs = AbsoluteColor::from_css_rgba(&origin_rgba);
+                let mut origin_abs = AbsoluteColor::from_rgba(origin_rgba.to_array());
 
                 // 2. Convert origin to target color space
                 origin_abs = origin_abs.to_color_space(*space);
@@ -514,7 +521,7 @@ impl ThemeValue {
                 let derived = AbsoluteColor::new(*space, c0, c1, c2, a);
 
                 // 6. Convert to CssRgba
-                Ok(derived.to_css_rgba())
+                Ok(CssRgba::from_rgba8(derived.to_rgba8()))
             }
 
             // Calc expressions that might evaluate to color strings
@@ -829,7 +836,7 @@ impl ThemeValue {
 /// Parse a color string using avenger-scales color parser (internal use only)
 /// Supports hex colors, rgb/rgba, hsl/hsla, and all CSS named colors
 pub(crate) fn parse_color_string(color_str: &str) -> Option<CssRgba> {
-    avenger_scales::color::parse_color_string(color_str).map(|[r, g, b, a]| CssRgba {
+    avenger_color::parse_color_string(color_str).map(|[r, g, b, a]| CssRgba {
         red: (r * 255.0) as u8,
         green: (g * 255.0) as u8,
         blue: (b * 255.0) as u8,

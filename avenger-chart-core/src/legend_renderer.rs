@@ -314,7 +314,7 @@ pub fn normalize_expression(expr: &Expr) -> String {
 pub mod helpers {
     use std::collections::HashMap;
 
-    use avenger_common::types::ColorOrGradient;
+    use avenger_color::ColorOrGradient;
     use datafusion::{common::ScalarValue, prelude::SessionContext};
 
     use crate::{ChannelValue, ScalarValueHelpers, simplify_to_scalar_sync};

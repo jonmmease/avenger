@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use avenger_common::{
-    types::{ColorOrGradient, Gradient, StrokeCap},
-    value::ScalarOrArray,
-};
+use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::{types::StrokeCap, value::ScalarOrArray};
 use avenger_scenegraph::marks::{mark::SceneMark, rule::SceneRuleMark};
 use serde::{Deserialize, Serialize};
 

@@ -5,10 +5,8 @@ use avenger_app::{
     app::{AvengerApp, SceneGraphBuilder},
     error::AvengerAppError,
 };
-use avenger_common::{
-    types::{ColorOrGradient, SymbolShape},
-    value::ScalarOrArray,
-};
+use avenger_color::ColorOrGradient;
+use avenger_common::{types::SymbolShape, value::ScalarOrArray};
 use avenger_eventstream::{
     manager::EventStreamHandler,
     scene::{SceneGraphEvent, SceneGraphEventType},

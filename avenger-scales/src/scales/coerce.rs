@@ -5,10 +5,11 @@ use arrow::{
     compute::{is_not_null, kernels::cast, kernels::zip::zip},
     datatypes::{DataType, Field, Float32Type, UInt32Type, UInt8Type},
 };
+use avenger_color::{parse_color_string, ColorOrGradient};
 use avenger_common::{
     types::{
-        AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, PathTransform, StrokeCap,
-        StrokeJoin, SymbolShape,
+        AreaOrientation, ImageAlign, ImageBaseline, PathTransform, StrokeCap, StrokeJoin,
+        SymbolShape,
     },
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
@@ -21,8 +22,7 @@ use strum::VariantNames;
 use svgtypes::Transform;
 
 use crate::{
-    color::parse_color_string, error::AvengerScaleError, formatter::Formatters, scalar::Scalar,
-    scales::ordinal::OrdinalScale,
+    error::AvengerScaleError, formatter::Formatters, scalar::Scalar, scales::ordinal::OrdinalScale,
 };
 
 pub trait ColorCoercer: Debug + Send + Sync + 'static {
@@ -890,7 +890,7 @@ mod tests {
     use arrow::array::{Float32Array, ListArray, StringArray};
     use arrow::buffer::OffsetBuffer;
     use arrow::datatypes::Field;
-    use avenger_common::types::ColorOrGradient;
+    use avenger_color::ColorOrGradient;
     use svgtypes::Transform;
 
     fn assert_color_approx_eq(actual: [f32; 4], expected: [f32; 4], tolerance: f32) {

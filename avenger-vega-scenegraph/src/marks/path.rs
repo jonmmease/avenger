@@ -1,8 +1,9 @@
 use std::{collections::HashSet, sync::Arc};
 
+use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::{
     lyon::parse_svg_path,
-    types::{ColorOrGradient, Gradient, PathTransform, StrokeCap, StrokeJoin},
+    types::{PathTransform, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
 use avenger_scenegraph::marks::{mark::SceneMark, path::ScenePathMark};

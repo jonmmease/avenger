@@ -4,11 +4,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, Legend, LegendRenderItem, LegendRenderOutput, Theme,
-    color::parse_color_string_strict, evaluate_f32_expr, evaluate_string_expr,
+    evaluate_f32_expr, evaluate_string_expr,
 };
 use avenger_chart_core::{ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, DomainValues};
+use avenger_color::{ColorOrGradient, parse_color_string_strict};
 use avenger_common::{
-    types::{ColorOrGradient, StrokeCap, StrokeJoin},
+    types::{StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
 use avenger_guides::legend::line::{LineLegendConfig, make_line_legend_itemized};
@@ -22,7 +23,7 @@ use datafusion::{
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use super::{LegendChannel, LegendRenderer, helpers};
+use super::{LegendChannel, LegendRenderer, helpers, parse_color_or_gradient_strict};
 
 /// Line legend renderer for stroke properties on line marks
 #[derive(Serialize, Deserialize)]
@@ -271,7 +272,7 @@ impl LegendRenderer for CompiledLineLegend {
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_fill = Some(parse_color_string_strict(&fill_str)?);
+            legend_config.background_fill = Some(parse_color_or_gradient_strict(&fill_str)?);
         }
         if let Some(node) = config
             .background_stroke
@@ -280,37 +281,19 @@ impl LegendRenderer for CompiledLineLegend {
         {
             let expr = node.to_expr(ctx)?;
             let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_stroke = Some(parse_color_string_strict(&stroke_str)?);
+            legend_config.background_stroke = Some(parse_color_or_gradient_strict(&stroke_str)?);
         }
 
         // Set text colors from legend config - fail if colors cannot be parsed
         if let Some(node) = config.title_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let title_color = evaluate_string_expr(&expr, ctx, params).await?;
-            let color = parse_color_string_strict(&title_color)?;
-            legend_config.title_color = Some(match color {
-                ColorOrGradient::Color(c) => c,
-                _ => {
-                    return Err(AvengerChartError::InternalError(format!(
-                        "Legend title color '{}' parsed to gradient, expected solid color",
-                        title_color
-                    )));
-                }
-            });
+            legend_config.title_color = Some(parse_color_string_strict(&title_color)?);
         }
         if let Some(node) = config.label_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let label_color = evaluate_string_expr(&expr, ctx, params).await?;
-            let color = parse_color_string_strict(&label_color)?;
-            legend_config.label_color = Some(match color {
-                ColorOrGradient::Color(c) => c,
-                _ => {
-                    return Err(AvengerChartError::InternalError(format!(
-                        "Legend label color '{}' parsed to gradient, expected solid color",
-                        label_color
-                    )));
-                }
-            });
+            legend_config.label_color = Some(parse_color_string_strict(&label_color)?);
         }
 
         // Set typography from legend config

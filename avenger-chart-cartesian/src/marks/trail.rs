@@ -11,7 +11,8 @@ use avenger_chart_core::{
 use avenger_chart_marks::{
     Trail, TrailPartitionKey, ensure_dictionary_array, trail_channel_defaults,
 };
-use avenger_common::{types::ColorOrGradient, value::ScalarOrArrayValue};
+use avenger_color::ColorOrGradient;
+use avenger_common::value::ScalarOrArrayValue;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl, coerce::Coercer};
 use avenger_scenegraph::marks::{mark::SceneMark, trail::SceneTrailMark};
 use datafusion::{

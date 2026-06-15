@@ -9,7 +9,7 @@
 //! ## Using Built-in Themes
 //!
 //! ```rust,no_run
-//! use avenger_chart::theme::Theme;
+//! use avenger_chart_core::theme::Theme;
 //!
 //! // Use a specific built-in theme
 //! let theme = Theme::light();
@@ -19,7 +19,7 @@
 //! ## Creating Custom Themes
 //!
 //! ```rust,no_run
-//! use avenger_chart::theme::Theme;
+//! use avenger_chart_core::theme::Theme;
 //!
 //! let css = r#"
 //!     mark[type="symbol"] {
@@ -39,7 +39,7 @@
 //! ## Combining Themes
 //!
 //! ```rust,no_run
-//! use avenger_chart::theme::Theme;
+//! use avenger_chart_core::theme::Theme;
 //!
 //! // Start with a base theme
 //! let mut theme = Theme::dark();

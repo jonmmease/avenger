@@ -13,7 +13,7 @@ pub fn normalize_hue(hue: f32) -> f32 {
 
 /// Convert from orthogonal (rectangular) to polar (cylindrical) coordinates
 ///
-/// Used for Lab → LCH and Oklab → Oklch conversions
+/// Used for Lab -> LCH and Oklab -> Oklch conversions
 ///
 /// # Arguments
 /// * `components` - [L, a, b] in orthogonal space
@@ -44,7 +44,7 @@ pub fn orthogonal_to_polar(components: &[f32; 3], epsilon: f32) -> [f32; 3] {
 
 /// Convert from polar (cylindrical) to orthogonal (rectangular) coordinates
 ///
-/// Used for LCH → Lab and Oklch → Oklab conversions
+/// Used for LCH -> Lab and Oklch -> Oklab conversions
 ///
 /// # Arguments
 /// * `components` - [L, C, H] in polar space where H is in degrees
@@ -80,7 +80,7 @@ fn matrix_multiply(matrix: &[[f32; 3]; 3], vector: &[f32; 3]) -> [f32; 3] {
 }
 
 // ============================================================================
-// sRGB ↔ XYZ Conversion
+// sRGB <-> XYZ Conversion
 // ============================================================================
 
 /// sRGB to XYZ-D65 transformation matrix
@@ -146,7 +146,7 @@ fn xyz_to_srgb(xyz: &[f32; 3]) -> [f32; 3] {
 }
 
 // ============================================================================
-// Oklab ↔ XYZ Conversion
+// Oklab <-> XYZ Conversion
 // ============================================================================
 
 /// XYZ-D65 to LMS transformation matrix
@@ -179,25 +179,25 @@ const OKLAB_TO_LMS: [[f32; 3]; 3] = [
 
 /// Convert Oklab to XYZ-D65
 fn oklab_to_xyz(oklab: &[f32; 3]) -> [f32; 3] {
-    // Oklab → LMS
+    // Oklab -> LMS
     let lms = matrix_multiply(&OKLAB_TO_LMS, oklab);
 
     // Cube each component
     let lms = [lms[0].powi(3), lms[1].powi(3), lms[2].powi(3)];
 
-    // LMS → XYZ
+    // LMS -> XYZ
     matrix_multiply(&LMS_TO_XYZ, &lms)
 }
 
 /// Convert XYZ-D65 to Oklab
 fn xyz_to_oklab(xyz: &[f32; 3]) -> [f32; 3] {
-    // XYZ → LMS
+    // XYZ -> LMS
     let lms = matrix_multiply(&XYZ_TO_LMS, xyz);
 
     // Cube root each component
     let lms = [lms[0].cbrt(), lms[1].cbrt(), lms[2].cbrt()];
 
-    // LMS → Oklab
+    // LMS -> Oklab
     matrix_multiply(&LMS_TO_OKLAB, &lms)
 }
 
@@ -216,18 +216,18 @@ pub fn convert_color_space(components: &[f32; 3], from: ColorSpace, to: ColorSpa
     use ColorSpace::*;
 
     match (from, to) {
-        // Direct conversions: sRGB ↔ HSL
+        // Direct conversions: sRGB <-> HSL
         (Srgb, Hsl) => hsl::rgb_to_hsl(components),
         (Hsl, Srgb) => hsl::hsl_to_rgb(components),
 
-        // Polar ↔ Orthogonal conversions
+        // Polar <-> Orthogonal conversions
         (Lab, Lch) => orthogonal_to_polar(components, 0.0001),
         (Lch, Lab) => polar_to_orthogonal(components),
         (Oklab, Oklch) => orthogonal_to_polar(components, 0.0001),
         (Oklch, Oklab) => polar_to_orthogonal(components),
 
         // Via XYZ conversions
-        // sRGB → other
+        // sRGB -> other
         (Srgb, Lab) => xyz_to_lab(&srgb_to_xyz(components)),
         (Srgb, Lch) => {
             let lab = xyz_to_lab(&srgb_to_xyz(components));
@@ -239,7 +239,7 @@ pub fn convert_color_space(components: &[f32; 3], from: ColorSpace, to: ColorSpa
             orthogonal_to_polar(&oklab, 0.0001)
         }
 
-        // other → sRGB
+        // other -> sRGB
         (Lab, Srgb) => xyz_to_srgb(&lab_to_xyz(components)),
         (Lch, Srgb) => {
             let lab = polar_to_orthogonal(components);
@@ -251,13 +251,13 @@ pub fn convert_color_space(components: &[f32; 3], from: ColorSpace, to: ColorSpa
             xyz_to_srgb(&oklab_to_xyz(&oklab))
         }
 
-        // HSL → other (via sRGB)
+        // HSL -> other (via sRGB)
         (Hsl, Lab) | (Hsl, Lch) | (Hsl, Oklab) | (Hsl, Oklch) | (Hsl, Hwb) => {
             let srgb = hsl::hsl_to_rgb(components);
             convert_color_space(&srgb, Srgb, to)
         }
 
-        // other → HSL (via sRGB)
+        // other -> HSL (via sRGB)
         (Lab, Hsl) | (Lch, Hsl) | (Oklab, Hsl) | (Oklch, Hsl) | (Hwb, Hsl) => {
             let srgb = convert_color_space(components, from, Srgb);
             hsl::rgb_to_hsl(&srgb)
@@ -275,7 +275,7 @@ pub fn convert_color_space(components: &[f32; 3], from: ColorSpace, to: ColorSpa
             rgb_to_hwb(&srgb)
         }
 
-        // Lab/Lch ↔ Oklab/Oklch (via XYZ)
+        // Lab/Lch <-> Oklab/Oklch (via XYZ)
         (Lab, Oklab) | (Lab, Oklch) => {
             let xyz = lab_to_xyz(components);
             let oklab = xyz_to_oklab(&xyz);
@@ -321,7 +321,7 @@ pub fn convert_color_space(components: &[f32; 3], from: ColorSpace, to: ColorSpa
 }
 
 // ============================================================================
-// Lab ↔ XYZ Conversion (CIE Lab)
+// Lab <-> XYZ Conversion (CIE Lab)
 // ============================================================================
 
 const LAB_KAPPA: f32 = 24389.0 / 27.0; // 903.3
@@ -418,7 +418,7 @@ fn xyz_d50_to_d65(xyz: &[f32; 3]) -> [f32; 3] {
 }
 
 // ============================================================================
-// HWB ↔ sRGB Conversion
+// HWB <-> sRGB Conversion
 // ============================================================================
 
 /// Convert sRGB to HWB
@@ -460,7 +460,7 @@ pub fn hwb_to_rgb(hwb: &[f32; 3]) -> [f32; 3] {
 }
 
 // ============================================================================
-// HSL ↔ sRGB Conversion
+// HSL <-> sRGB Conversion
 // ============================================================================
 
 /// Calculate the hue from RGB components and return it along with the min and max RGB values.

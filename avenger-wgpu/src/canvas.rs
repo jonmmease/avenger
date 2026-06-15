@@ -1,9 +1,8 @@
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
+use avenger_color::ColorOrGradient;
 use avenger_common::{
-    canvas::CanvasDimensions,
-    types::{ColorOrGradient, LinearScaleAdjustment},
-    value::ScalarOrArray,
+    canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
 };
 use avenger_scenegraph::{
     marks::{
@@ -459,7 +458,7 @@ fn symbol_mark_is_instanced_eligible(mark: &SceneSymbolMark, group_clip: &Clip) 
 
 #[cfg(test)]
 mod tests {
-    use avenger_common::types::{Gradient, GradientStop, LinearGradient};
+    use avenger_color::{Gradient, GradientStop, LinearGradient};
     use avenger_scenegraph::marks::{group::Clip, symbol::SceneSymbolMark};
 
     use super::symbol_mark_is_instanced_eligible;

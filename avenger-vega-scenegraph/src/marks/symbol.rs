@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::{
-    types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin, SymbolShape},
+    types::{StrokeCap, StrokeJoin, SymbolShape},
     value::ScalarOrArray,
 };
 use avenger_scenegraph::marks::{
@@ -91,6 +92,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
             }
             return Ok(SceneMark::Group(SceneGroup {
                 name: "symbol_line_legend".to_string(),
+                interactive: self.interactive,
                 origin: [0.0, 0.0],
                 clip: Clip::None,
                 marks: line_marks,

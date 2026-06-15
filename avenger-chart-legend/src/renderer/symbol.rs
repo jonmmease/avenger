@@ -4,12 +4,13 @@ use std::collections::HashMap;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, Legend, LegendRenderItem, LegendRenderOutput,
-    ScalarValueHelpers, ScaleRange, SerializableScalarMap, Theme, color::parse_color_string_strict,
-    evaluate_f32_expr, evaluate_string_expr,
+    ScalarValueHelpers, ScaleRange, SerializableScalarMap, Theme, evaluate_f32_expr,
+    evaluate_string_expr,
 };
 use avenger_chart_core::{ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, DomainValues};
+use avenger_color::{ColorOrGradient, parse_color_string_strict};
 use avenger_common::{
-    types::{ColorOrGradient, SymbolShape},
+    types::SymbolShape,
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend_itemized};
@@ -20,7 +21,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
-use super::{LegendChannel, LegendRenderer, helpers};
+use super::{LegendChannel, LegendRenderer, helpers, parse_color_or_gradient_strict};
 
 /// Default symbol size for legends
 const DEFAULT_SYMBOL_SIZE: f32 = 64.0;
@@ -262,30 +263,12 @@ impl LegendRenderer for CompiledSymbolLegend {
         if let Some(node) = config.title_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let title_color = evaluate_string_expr(&expr, ctx, params).await?;
-            let color = parse_color_string_strict(&title_color)?;
-            legend_config.title_color = Some(match color {
-                ColorOrGradient::Color(c) => c,
-                _ => {
-                    return Err(AvengerChartError::InternalError(format!(
-                        "Legend title color '{}' parsed to gradient, expected solid color",
-                        title_color
-                    )));
-                }
-            });
+            legend_config.title_color = Some(parse_color_string_strict(&title_color)?);
         }
         if let Some(node) = config.label_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let label_color = evaluate_string_expr(&expr, ctx, params).await?;
-            let color = parse_color_string_strict(&label_color)?;
-            legend_config.label_color = Some(match color {
-                ColorOrGradient::Color(c) => c,
-                _ => {
-                    return Err(AvengerChartError::InternalError(format!(
-                        "Legend label color '{}' parsed to gradient, expected solid color",
-                        label_color
-                    )));
-                }
-            });
+            legend_config.label_color = Some(parse_color_string_strict(&label_color)?);
         }
 
         // Evaluate and set typography from legend config
@@ -370,7 +353,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_fill = Some(parse_color_string_strict(&fill_str)?);
+            legend_config.background_fill = Some(parse_color_or_gradient_strict(&fill_str)?);
         }
         if let Some(node) = config
             .background_stroke
@@ -379,7 +362,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         {
             let expr = node.to_expr(ctx)?;
             let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
-            legend_config.background_stroke = Some(parse_color_string_strict(&stroke_str)?);
+            legend_config.background_stroke = Some(parse_color_or_gradient_strict(&stroke_str)?);
         }
 
         // Evaluate symbol size (from expression, theme, or mark defaults)
@@ -402,9 +385,10 @@ impl LegendRenderer for CompiledSymbolLegend {
 
         // Start with defaults
         legend_config.shape = ScalarOrArray::new_scalar(parse_shape(&default_shape)?);
-        legend_config.fill = ScalarOrArray::new_scalar(parse_color_string_strict(&default_fill)?);
+        legend_config.fill =
+            ScalarOrArray::new_scalar(parse_color_or_gradient_strict(&default_fill)?);
         legend_config.stroke =
-            ScalarOrArray::new_scalar(parse_color_string_strict(&default_stroke)?);
+            ScalarOrArray::new_scalar(parse_color_or_gradient_strict(&default_stroke)?);
         legend_config.size = ScalarOrArray::new_scalar(symbol_size);
         legend_config.angle = ScalarOrArray::new_scalar(default_angle);
         legend_config.stroke_width = Some(default_stroke_width);

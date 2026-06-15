@@ -1,3 +1,4 @@
+use avenger_color::ColorParseError;
 use avenger_guides::error::AvengerGuidesError;
 use avenger_scales::error::AvengerScaleError;
 use avenger_scenegraph::error::AvengerSceneGraphError;
@@ -52,6 +53,9 @@ pub enum AvengerChartError {
 
     #[error("Arrow error: `{0}`")]
     ArrowError(#[from] ArrowError),
+
+    #[error("Color parse error: `{0}`")]
+    ColorParseError(#[from] ColorParseError),
 
     #[error("Layout error: `{0}`")]
     LayoutError(String),

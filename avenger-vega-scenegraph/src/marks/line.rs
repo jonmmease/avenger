@@ -1,5 +1,6 @@
+use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::{
-    types::{ColorOrGradient, Gradient, StrokeCap, StrokeJoin},
+    types::{StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
 use avenger_scenegraph::marks::{line::SceneLineMark, mark::SceneMark};

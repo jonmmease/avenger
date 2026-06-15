@@ -2,12 +2,11 @@
 
 use avenger_chart_core::{
     AvengerChartError, LayoutBounds, Legend, LegendContinuousOrientation, LegendContinuousSurface,
-    LegendPosition, LegendRenderOutput, LegendSurfaceKind, Theme,
-    color::{parse_color_string, parse_color_string_strict},
-    evaluate_f32_expr, evaluate_f64_expr, evaluate_legend_position_expr, evaluate_string_expr,
+    LegendPosition, LegendRenderOutput, LegendSurfaceKind, Theme, evaluate_f32_expr,
+    evaluate_f64_expr, evaluate_legend_position_expr, evaluate_string_expr,
 };
 use avenger_chart_core::{ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, DomainValues};
-use avenger_common::types::ColorOrGradient;
+use avenger_color::parse_color_string_strict;
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_guides::legend::{
     GuideLegendContinuousOrientation,
@@ -20,7 +19,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
-use super::{LegendChannel, LegendRenderer};
+use super::{LegendChannel, LegendRenderer, parse_color_or_gradient};
 
 /// Colorbar legend renderer for continuous color scales
 #[derive(Default, Serialize, Deserialize)]
@@ -203,7 +202,7 @@ impl LegendRenderer for CompiledColorbar {
         if let Some(node) = config.title_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let title_color_str = evaluate_string_expr(&expr, ctx, params).await?;
-            if let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(&title_color_str) {
+            if let Ok(c) = parse_color_string_strict(&title_color_str) {
                 legend_config.title_color = Some(c);
             }
         } else {
@@ -211,7 +210,7 @@ impl LegendRenderer for CompiledColorbar {
             let title_ctx = legend_ctx.child("title");
             if let Some(color_value) = theme.query(&title_ctx, "color")
                 && let Some(color_str) = color_value.as_string()
-                && let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(color_str)
+                && let Ok(c) = parse_color_string_strict(color_str)
             {
                 legend_config.title_color = Some(c);
             }
@@ -221,7 +220,7 @@ impl LegendRenderer for CompiledColorbar {
         if let Some(node) = config.tick_color.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let tick_color_str = evaluate_string_expr(&expr, ctx, params).await?;
-            if let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(&tick_color_str) {
+            if let Ok(c) = parse_color_string_strict(&tick_color_str) {
                 legend_config.label_color = Some(c);
             }
         } else {
@@ -229,7 +228,7 @@ impl LegendRenderer for CompiledColorbar {
             let tick_ctx = legend_ctx.child("tick");
             if let Some(color_value) = theme.query(&tick_ctx, "color")
                 && let Some(color_str) = color_value.as_string()
-                && let Ok(ColorOrGradient::Color(c)) = parse_color_string_strict(color_str)
+                && let Ok(c) = parse_color_string_strict(color_str)
             {
                 legend_config.label_color = Some(c);
             }
@@ -361,7 +360,7 @@ impl LegendRenderer for CompiledColorbar {
         if let Some(node) = config.background_fill.as_option().and_then(|o| o.as_ref()) {
             let expr = node.to_expr(ctx)?;
             let fill_str = evaluate_string_expr(&expr, ctx, params).await?;
-            if let Some(color) = parse_color_string(&fill_str) {
+            if let Some(color) = parse_color_or_gradient(&fill_str) {
                 legend_config.background_fill = Some(color);
             }
         } else {
@@ -369,7 +368,7 @@ impl LegendRenderer for CompiledColorbar {
             let background_ctx = legend_ctx.child("background");
             if let Some(fill_value) = theme.query(&background_ctx, "fill")
                 && let Some(fill_str) = fill_value.as_string()
-                && let Some(color) = parse_color_string(fill_str)
+                && let Some(color) = parse_color_or_gradient(fill_str)
             {
                 legend_config.background_fill = Some(color);
             }
@@ -383,7 +382,7 @@ impl LegendRenderer for CompiledColorbar {
         {
             let expr = node.to_expr(ctx)?;
             let stroke_str = evaluate_string_expr(&expr, ctx, params).await?;
-            if let Some(color) = parse_color_string(&stroke_str) {
+            if let Some(color) = parse_color_or_gradient(&stroke_str) {
                 legend_config.background_stroke = Some(color);
             }
         } else {
@@ -391,7 +390,7 @@ impl LegendRenderer for CompiledColorbar {
             let background_ctx = legend_ctx.child("background");
             if let Some(stroke_value) = theme.query(&background_ctx, "stroke")
                 && let Some(stroke_str) = stroke_value.as_string()
-                && let Some(color) = parse_color_string(stroke_str)
+                && let Some(color) = parse_color_or_gradient(stroke_str)
             {
                 legend_config.background_stroke = Some(color);
             }

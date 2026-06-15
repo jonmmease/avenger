@@ -525,6 +525,7 @@ dependencies = [
  "avenger-chart-scales",
  "avenger-chart-tools",
  "avenger-chart-transforms",
+ "avenger-color",
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
@@ -595,6 +596,7 @@ dependencies = [
  "async-trait",
  "avenger-chart-core",
  "avenger-chart-marks",
+ "avenger-color",
  "avenger-common",
  "avenger-geometry",
  "avenger-guides",
@@ -616,6 +618,7 @@ name = "avenger-chart-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "avenger-color",
  "avenger-common",
  "avenger-geometry",
  "avenger-guides",
@@ -674,6 +677,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "avenger-chart-core",
+ "avenger-color",
  "avenger-common",
  "avenger-geometry",
  "avenger-guides",
@@ -732,6 +736,7 @@ dependencies = [
  "async-trait",
  "avenger-chart-core",
  "avenger-chart-marks",
+ "avenger-color",
  "avenger-common",
  "avenger-geometry",
  "avenger-scales",
@@ -799,9 +804,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-color"
+version = "0.1.0"
+dependencies = [
+ "css-color-parser",
+ "ordered-float 5.0.0",
+ "palette",
+ "serde",
+]
+
+[[package]]
 name = "avenger-common"
 version = "0.0.8"
 dependencies = [
+ "avenger-color",
  "avenger-image",
  "avenger-text",
  "lyon_extra",
@@ -849,6 +865,7 @@ name = "avenger-guides"
 version = "0.1.0"
 dependencies = [
  "arrow",
+ "avenger-color",
  "avenger-common",
  "avenger-geometry",
  "avenger-scales",
@@ -882,6 +899,7 @@ dependencies = [
 name = "avenger-layout"
 version = "0.1.0"
 dependencies = [
+ "avenger-color",
  "avenger-common",
  "avenger-geometry",
  "avenger-guides",
@@ -901,12 +919,12 @@ name = "avenger-scales"
 version = "0.1.0"
 dependencies = [
  "arrow",
+ "avenger-color",
  "avenger-common",
  "avenger-image",
  "avenger-text",
  "chrono",
  "chrono-tz",
- "css-color-parser",
  "float-cmp 0.10.0",
  "indexmap 2.9.0",
  "lazy_static 1.5.0",
@@ -927,6 +945,7 @@ dependencies = [
 name = "avenger-scenegraph"
 version = "0.0.8"
 dependencies = [
+ "avenger-color",
  "avenger-common",
  "avenger-geometry",
  "avenger-image",
@@ -966,12 +985,12 @@ dependencies = [
 name = "avenger-vega-scenegraph"
 version = "0.0.8"
 dependencies = [
+ "avenger-color",
  "avenger-common",
  "avenger-image",
  "avenger-scenegraph",
  "avenger-text",
  "cfg-if",
- "csscolorparser",
  "image",
  "lazy_static 1.5.0",
  "lyon_extra",
@@ -991,6 +1010,7 @@ dependencies = [
 name = "avenger-wgpu"
 version = "0.0.8"
 dependencies = [
+ "avenger-color",
  "avenger-common",
  "avenger-scenegraph",
  "avenger-text",
@@ -4006,6 +4026,7 @@ dependencies = [
  "arrow",
  "async-trait",
  "avenger-app",
+ "avenger-color",
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
@@ -8113,6 +8134,7 @@ name = "wgpu-scales"
 version = "0.1.0"
 dependencies = [
  "arrow",
+ "avenger-color",
  "avenger-common",
  "avenger-geometry",
  "avenger-guides",

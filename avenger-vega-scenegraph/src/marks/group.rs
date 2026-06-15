@@ -1,4 +1,4 @@
-use avenger_common::types::Gradient;
+use avenger_color::Gradient;
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
     mark::SceneMark,
@@ -151,6 +151,7 @@ impl VegaMarkContainer<VegaGroupItem> {
 
             groups.push(SceneMark::Group(SceneGroup {
                 name: self.name.clone().unwrap_or("group_mark".to_string()),
+                interactive: self.interactive,
                 zindex: self.zindex,
                 origin: [group_item.x.unwrap_or(0.0), group_item.y.unwrap_or(0.0)],
                 clip,

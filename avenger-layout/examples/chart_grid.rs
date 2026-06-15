@@ -23,8 +23,8 @@
 //!
 //! Run with: `cargo run -p avenger-layout --example chart_grid`
 
+use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;
-use avenger_common::types::ColorOrGradient;
 use avenger_common::types::SymbolShape;
 use avenger_common::value::ScalarOrArray;
 use avenger_geometry::marks::MarkGeometryUtils;

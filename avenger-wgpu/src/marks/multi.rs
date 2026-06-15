@@ -3,9 +3,10 @@ use std::{
     time::Instant,
 };
 
+use avenger_color::ColorOrGradient;
 use avenger_common::{
     canvas::CanvasDimensions,
-    types::{ColorOrGradient, PathTransform, StrokeCap, StrokeJoin},
+    types::{PathTransform, StrokeCap, StrokeJoin},
 };
 use avenger_scenegraph::marks::{
     arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,

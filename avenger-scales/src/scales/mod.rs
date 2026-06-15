@@ -20,10 +20,10 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use arrow::array::{Array, ArrayRef, AsArray, Float32Array};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, Float32Type};
+use avenger_color::{ColorOrGradient, GradientStop};
 use avenger_common::{
     types::{
-        AreaOrientation, ColorOrGradient, GradientStop, ImageAlign, ImageBaseline,
-        LinearScaleAdjustment, StrokeCap, StrokeJoin,
+        AreaOrientation, ImageAlign, ImageBaseline, LinearScaleAdjustment, StrokeCap, StrokeJoin,
     },
     value::ScalarOrArray,
 };

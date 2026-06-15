@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use avenger_common::{
-    types::{ColorOrGradient, SymbolShape},
-    value::ScalarOrArray,
-};
+use avenger_color::ColorOrGradient;
+use avenger_common::{types::SymbolShape, value::ScalarOrArray};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scenegraph::marks::{
     group::SceneGroup, mark::SceneMark, rect::SceneRectMark, symbol::SceneSymbolMark,

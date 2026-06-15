@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use avenger_color::ColorOrGradient;
 use avenger_scenegraph::marks::mark::SceneMark;
 
 use avenger_chart_core::{
@@ -109,7 +110,7 @@ impl CompiledPlot {
             text: text_value.into(),
             x: x.into(),
             y: y.into(),
-            color: avenger_common::types::ColorOrGradient::Color(
+            color: ColorOrGradient::Color(
                 theme
                     .text_color(&title_ctx)
                     .unwrap_or(Self::DEFAULT_TEXT_COLOR),
@@ -221,7 +222,7 @@ impl CompiledPlot {
             text: text_value.into(),
             x: x.into(),
             y: y.into(),
-            color: avenger_common::types::ColorOrGradient::Color(
+            color: ColorOrGradient::Color(
                 theme
                     .text_color(&subtitle_ctx)
                     .unwrap_or(Self::DEFAULT_TEXT_COLOR),

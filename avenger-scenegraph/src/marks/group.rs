@@ -1,10 +1,7 @@
 use std::hash::{DefaultHasher, Hasher};
 
-use avenger_common::{
-    lyon::hash_lyon_path,
-    types::{ColorOrGradient, Gradient, PathTransform},
-    value::ScalarOrArray,
-};
+use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::{lyon::hash_lyon_path, types::PathTransform, value::ScalarOrArray};
 use lyon_path::{
     geom::{euclid::Point2D, Box2D},
     Winding,

@@ -1,6 +1,33 @@
 //! Color parsing utilities
 
+use std::fmt;
+
 use css_color_parser::Color as CssColor;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColorParseError {
+    input: String,
+}
+
+impl ColorParseError {
+    pub fn new(input: impl Into<String>) -> Self {
+        Self {
+            input: input.into(),
+        }
+    }
+
+    pub fn input(&self) -> &str {
+        &self.input
+    }
+}
+
+impl fmt::Display for ColorParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid color string '{}'", self.input)
+    }
+}
+
+impl std::error::Error for ColorParseError {}
 
 /// Parse a color string using css-color-parser
 /// Supports hex colors, rgb/rgba, hsl/hsla, and all CSS named colors
@@ -30,6 +57,11 @@ pub fn parse_color_string(color_str: &str) -> Option<[f32; 4]> {
             css_color.a,
         ]
     })
+}
+
+/// Strict color parser that returns an error if the color string cannot be parsed.
+pub fn parse_color_string_strict(color_str: &str) -> Result<[f32; 4], ColorParseError> {
+    parse_color_string(color_str).ok_or_else(|| ColorParseError::new(color_str))
 }
 
 #[cfg(test)]
@@ -91,5 +123,12 @@ mod tests {
     fn test_parse_invalid_color() {
         assert!(parse_color_string("notacolor").is_none());
         assert!(parse_color_string("#gg00ff").is_none());
+    }
+
+    #[test]
+    fn test_parse_color_string_strict_error() {
+        let err = parse_color_string_strict("notacolor").unwrap_err();
+        assert_eq!(err.input(), "notacolor");
+        assert_eq!(err.to_string(), "invalid color string 'notacolor'");
     }
 }

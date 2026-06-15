@@ -505,7 +505,7 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
 
 /// Parse a color string (hex or named) to RGBA array
 fn parse_color_to_rgba(color_str: &str) -> Option<[f32; 4]> {
-    use avenger_common::types::ColorOrGradient;
+    use avenger_color::ColorOrGradient;
     use avenger_scales::scales::coerce::Coercer;
     use datafusion_common::ScalarValue;
 

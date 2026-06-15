@@ -1,7 +1,7 @@
 //! CSS value parsing utilities
 
-use crate::color::convert::{hsl_to_rgb, hwb_to_rgb};
 use crate::theme::{CssRgba, ThemeValue};
+use avenger_color::convert::{hsl_to_rgb, hwb_to_rgb};
 
 /// Extract an RGB component value from a ThemeValue
 /// Supports both numbers (0-255) and percentages (0%-100%)

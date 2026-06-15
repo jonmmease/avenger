@@ -5,10 +5,8 @@ use avenger_chart_core::{
     Theme, ThemeContext, eval_to_scalars, evaluate_bool_expr, evaluate_string_expr,
     params_to_datafusion, serialization::DefaultLogicalExprNodeExt,
 };
-use avenger_common::{
-    types::{ColorOrGradient, StrokeCap},
-    value::ScalarOrArray,
-};
+use avenger_color::ColorOrGradient;
+use avenger_common::{types::StrokeCap, value::ScalarOrArray};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{
     arc::SceneArcMark, mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark,

@@ -5,7 +5,8 @@ use arrow::{
     compute::cast,
     datatypes::{DataType, Float32Type},
 };
-use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_color::ColorOrGradient;
+use avenger_common::value::ScalarOrArray;
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};

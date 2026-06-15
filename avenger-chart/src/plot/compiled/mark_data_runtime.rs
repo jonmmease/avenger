@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use avenger_common::types::ColorOrGradient;
+use avenger_color::parse_color_string;
 use datafusion::{
     arrow::{
         array::Int32Array,
@@ -29,7 +29,7 @@ use indexmap::IndexMap;
 use avenger_chart_core::{
     CompiledSelectionSpec, DataTransformExecutionContext, DataTransformStage, DerivedScalarMap,
     FacetDataScope, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
-    SharingLevel, color::parse_color_string, contains_aggregate, params_to_datafusion,
+    SharingLevel, contains_aggregate, params_to_datafusion,
     selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
 };
 
@@ -943,8 +943,7 @@ pub(crate) fn apply_channel_scale(
             let convert_color_literal = |expr: &Expr| -> Expr {
                 if let Expr::Literal(scalar_value, _) = expr
                     && let ScalarValue::Utf8(Some(s)) = scalar_value
-                    && let Some(color_or_gradient) = parse_color_string(s)
-                    && let ColorOrGradient::Color(rgba) = color_or_gradient
+                    && let Some(rgba) = parse_color_string(s)
                 {
                     let values: Vec<ScalarValue> = rgba
                         .into_iter()

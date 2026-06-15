@@ -5,11 +5,11 @@ use avenger_chart_core::{
     AvengerChartError, AxisPosition, CompiledGuide, CompiledMarkCore, CoordMeasurement,
     CoordinateGuide, DefaultLogicalExprNodeExt, EmptyCoordMeasurement, GuideOverflowPhase,
     GuideSharingContext, GuideUpdate, IntoExpr, LayoutBounds, Maybe, MaybeOptionalExpr,
-    OverflowSpaceRequirement, SharingLevel, Theme, ThemeContext,
-    color::parse_color_to_array_strict, evaluate_string_expr, extract_channel_title_from_marks,
-    strip_trailing_numbers,
+    OverflowSpaceRequirement, SharingLevel, Theme, ThemeContext, evaluate_string_expr,
+    extract_channel_title_from_marks, strip_trailing_numbers,
 };
-use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_color::{ColorOrGradient, parse_color_string_strict};
+use avenger_common::value::ScalarOrArray;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark, rect::SceneRectMark};
@@ -113,7 +113,7 @@ impl CartesianGuide {
             // Evaluate the expression to get color string
             if let Ok(color_str) = evaluate_string_expr(&color_expr, ctx, params).await {
                 // Parse the color string
-                if let Ok(color) = parse_color_to_array_strict(&color_str) {
+                if let Ok(color) = parse_color_string_strict(&color_str) {
                     return Some(color);
                 }
             }

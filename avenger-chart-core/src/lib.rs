@@ -7,7 +7,6 @@ pub mod channel_configs;
 pub mod channel_resolution;
 pub mod channel_resolution_error;
 pub mod channel_value;
-pub mod color;
 pub mod compiled_data_context;
 pub mod compiled_mark;
 pub mod configured_scale_legend;

@@ -38,6 +38,9 @@ workspace = true
 [dependencies.avenger-common]
 path = "../avenger-common"
 
+[dependencies.avenger-color]
+path = "../avenger-color"
+
 [dependencies.avenger-image]
 path = "../avenger-image"
 default-features = false

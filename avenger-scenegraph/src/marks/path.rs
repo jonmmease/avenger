@@ -3,9 +3,10 @@ use std::{
     sync::Arc,
 };
 
+use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::{
     lyon::hash_lyon_path,
-    types::{ColorOrGradient, Gradient, PathTransform, StrokeCap, StrokeJoin},
+    types::{PathTransform, StrokeCap, StrokeJoin},
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use itertools::izip;

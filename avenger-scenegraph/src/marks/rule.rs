@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use avenger_common::{
-    types::{ColorOrGradient, Gradient, StrokeCap},
-    value::ScalarOrArray,
-};
+use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::{types::StrokeCap, value::ScalarOrArray};
 use itertools::izip;
 use lyon_path::{geom::Point, Path};
 use serde::{Deserialize, Serialize};

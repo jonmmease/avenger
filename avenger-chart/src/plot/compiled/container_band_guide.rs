@@ -9,7 +9,7 @@ use std::{
     sync::{Arc as StdArc, Mutex, OnceLock},
 };
 
-use avenger_common::types::ColorOrGradient;
+use avenger_color::ColorOrGradient;
 use avenger_scenegraph::marks::{mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::{
     measurement::{TextMeasurementConfig, TextMeasurer, default_text_measurer},

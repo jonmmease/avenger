@@ -12,7 +12,7 @@ svg = [ "resvg", "usvg", "tiny-skia",]
 
 [dependencies]
 cfg-if = "1"
-csscolorparser = "0.7.0"
+avenger-color = { path = "../avenger-color" }
 
 [dependencies.resvg]
 workspace = true

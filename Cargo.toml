@@ -4,6 +4,7 @@ members = [
     "avenger-vega-scenegraph",
     "avenger-wgpu",
     "avenger-scales",
+    "avenger-color",
     "avenger-guides",
     "avenger-common",
     "avenger-geometry",

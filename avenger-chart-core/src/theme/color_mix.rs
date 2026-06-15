@@ -6,11 +6,8 @@
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 
-use crate::color::{
-    mix::{HueInterpolationMethod, mix_colors},
-    types::{AbsoluteColor, ColorSpace},
-};
 use crate::theme::{CssRgba, ThemeValue};
+use avenger_color::{AbsoluteColor, ColorSpace, HueInterpolationMethod, mix_colors};
 
 /// Parse a color space name
 fn parse_color_space(value: &ThemeValue) -> Option<ColorSpace> {
@@ -121,7 +118,7 @@ pub fn resolve_color_mix_with_params(
     let mixed = mix_colors(color_space, &color1, w1, &color2, w2, hue_method);
 
     // Convert to CssRgba
-    Some(mixed.to_css_rgba())
+    Some(CssRgba::from_rgba8(mixed.to_rgba8()))
 }
 
 /// Parse a color and optional percentage from argument list with runtime parameter resolution
@@ -162,7 +159,7 @@ fn parse_color_value_with_params(
     // Use as_color_with_params to recursively resolve colors, variables, and nested functions
     value
         .as_color_with_params(params, base_font_size)
-        .map(|rgba| AbsoluteColor::from_css_rgba(&rgba))
+        .map(|rgba| AbsoluteColor::from_rgba(rgba.to_array()))
 }
 
 /// Normalize percentages to weights that sum to 1.0

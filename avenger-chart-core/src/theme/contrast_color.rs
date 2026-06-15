@@ -35,9 +35,8 @@
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 
-use crate::color::contrast::{choose_best_contrast, choose_contrast_color};
-use crate::color::types::AbsoluteColor;
 use crate::theme::{CssRgba, ThemeValue};
+use avenger_color::{AbsoluteColor, choose_best_contrast, choose_contrast_color};
 
 /// Resolve contrast-color() function with runtime parameter support
 ///
@@ -100,31 +99,31 @@ pub fn resolve_contrast_color_with_params(
 
     // Recursively resolve the base color argument (handles variables!)
     let base_color_rgba = args[0].as_color_with_params(params, base_font_size)?;
-    let base_color = AbsoluteColor::from_css_rgba(&base_color_rgba);
+    let base_color = AbsoluteColor::from_rgba(base_color_rgba.to_array());
 
     if args.len() == 1 {
         // Basic form: choose black or white
         let contrast_color = choose_contrast_color(&base_color);
-        Some(contrast_color.to_css_rgba())
+        Some(CssRgba::from_rgba8(contrast_color.to_rgba8()))
     } else {
         // Extended form: resolve all candidate colors (handles variables!)
         let candidates: Vec<AbsoluteColor> = args[1..]
             .iter()
             .filter_map(|arg| {
                 arg.as_color_with_params(params, base_font_size)
-                    .map(|rgba| AbsoluteColor::from_css_rgba(&rgba))
+                    .map(|rgba| AbsoluteColor::from_rgba(rgba.to_array()))
             })
             .collect();
 
         // If no valid candidates were parsed, fall back to black/white
         if candidates.is_empty() {
             let contrast_color = choose_contrast_color(&base_color);
-            return Some(contrast_color.to_css_rgba());
+            return Some(CssRgba::from_rgba8(contrast_color.to_rgba8()));
         }
 
         // Use WCAG AA threshold (4.5:1) as default
         let contrast_color = choose_best_contrast(&base_color, &candidates, 4.5);
-        Some(contrast_color.to_css_rgba())
+        Some(CssRgba::from_rgba8(contrast_color.to_rgba8()))
     }
 }
 

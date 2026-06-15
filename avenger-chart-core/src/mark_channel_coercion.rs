@@ -3,8 +3,9 @@
 //! This module provides functions to coerce channel values from DataFusion RecordBatches
 //! into typed values using the avenger-scales Coercer system.
 
+use avenger_color::ColorOrGradient;
 use avenger_common::{
-    types::{AreaOrientation, ColorOrGradient, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
+    types::{AreaOrientation, ImageAlign, ImageBaseline, StrokeCap, StrokeJoin},
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use avenger_scales::scales::coerce::Coercer;
@@ -319,14 +320,7 @@ where
 /// not represented independently in the scenegraph, so gradient references are
 /// passed through unchanged.
 pub fn apply_opacity_to_color(color: &ColorOrGradient, opacity: f32) -> ColorOrGradient {
-    match color {
-        ColorOrGradient::Color(color) => {
-            let mut color = *color;
-            color[3] *= opacity.clamp(0.0, 1.0);
-            ColorOrGradient::Color(color)
-        }
-        ColorOrGradient::GradientIndex(_) => color.clone(),
-    }
+    avenger_color::apply_opacity_to_color(color, opacity)
 }
 
 /// Apply scalar or array opacity to scalar or array colors.
@@ -359,10 +353,8 @@ pub fn apply_opacity_to_color_channel(
 #[cfg(test)]
 mod tests {
     use super::{apply_opacity_to_color, apply_opacity_to_color_channel};
-    use avenger_common::{
-        types::ColorOrGradient,
-        value::{ScalarOrArray, ScalarOrArrayValue},
-    };
+    use avenger_color::ColorOrGradient;
+    use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 
     #[test]
     fn apply_opacity_to_color_multiplies_existing_alpha() {

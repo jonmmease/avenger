@@ -1,7 +1,8 @@
 use std::borrow::Cow;
 
-use avenger_common::types::{
-    ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient,
+use avenger_color::{
+    parse_color_string_strict, ColorOrGradient, Gradient, GradientStop, LinearGradient,
+    RadialGradient,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -49,13 +50,8 @@ impl CssColorOrGradient {
     ) -> Result<ColorOrGradient, AvengerVegaError> {
         match self {
             CssColorOrGradient::Color(c) => {
-                let c = csscolorparser::parse(c)?;
-                Ok(ColorOrGradient::Color([
-                    c.r as f32,
-                    c.g as f32,
-                    c.b as f32,
-                    c.a as f32 * opacity,
-                ]))
+                let [r, g, b, a] = parse_color_string_strict(c)?;
+                Ok(ColorOrGradient::Color([r, g, b, a * opacity]))
             }
             CssColorOrGradient::Gradient(grad) => {
                 // Build gradient
@@ -130,10 +126,10 @@ pub struct CssGradientStop {
 
 impl CssGradientStop {
     pub fn to_grad_stop(&self, opacity: f32) -> Result<GradientStop, AvengerVegaError> {
-        let c = csscolorparser::parse(&self.color)?;
+        let [r, g, b, a] = parse_color_string_strict(&self.color)?;
         Ok(GradientStop {
             offset: self.offset,
-            color: [c.r as f32, c.g as f32, c.b as f32, c.a as f32 * opacity],
+            color: [r, g, b, a * opacity],
         })
     }
 }

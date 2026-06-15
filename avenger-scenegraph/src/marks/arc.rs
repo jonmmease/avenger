@@ -3,10 +3,8 @@ use std::{
     sync::Arc,
 };
 
-use avenger_common::{
-    types::{ColorOrGradient, Gradient, PathTransform},
-    value::ScalarOrArray,
-};
+use avenger_color::{ColorOrGradient, Gradient};
+use avenger_common::{types::PathTransform, value::ScalarOrArray};
 use itertools::izip;
 use lyon_path::{
     geom::{euclid::Vector2D, Angle, Point, Vector},

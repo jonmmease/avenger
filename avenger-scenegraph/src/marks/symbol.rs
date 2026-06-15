@@ -3,8 +3,9 @@ use std::{
     sync::Arc,
 };
 
+use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::{
-    types::{ColorOrGradient, Gradient, LinearScaleAdjustment, PathTransform, SymbolShape},
+    types::{LinearScaleAdjustment, PathTransform, SymbolShape},
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use itertools::izip;

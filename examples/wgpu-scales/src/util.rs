@@ -1,7 +1,8 @@
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use arrow::array::{ArrayRef, Float32Array, StringArray};
-use avenger_common::{canvas::CanvasDimensions, types::ColorOrGradient};
+use avenger_color::ColorOrGradient;
+use avenger_common::canvas::CanvasDimensions;
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_guides::{
     axis::{

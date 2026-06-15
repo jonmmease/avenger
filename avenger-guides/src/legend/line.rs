@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use avenger_color::ColorOrGradient;
 use avenger_common::{
-    types::{ColorOrGradient, StrokeCap, StrokeJoin},
+    types::{StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};

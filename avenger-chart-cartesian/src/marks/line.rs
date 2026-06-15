@@ -9,7 +9,8 @@ use avenger_chart_core::{
     impl_mark_trait_common, is_continuous_scale, serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_chart_marks::{Line, PartitionKey, ensure_dictionary_array, line_channel_defaults};
-use avenger_common::{types::ColorOrGradient, value::ScalarOrArrayValue};
+use avenger_color::ColorOrGradient;
+use avenger_common::value::ScalarOrArrayValue;
 use avenger_scales::scales::coerce::Coercer;
 use avenger_scenegraph::marks::{line::SceneLineMark, mark::SceneMark};
 use datafusion::{

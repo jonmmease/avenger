@@ -16,7 +16,18 @@ pub use symbol::CompiledSymbolLegend;
 
 use std::sync::Arc;
 
-use avenger_chart_core::LegendRendererKind;
+use avenger_chart_core::{AvengerChartError, LegendRendererKind};
+use avenger_color::ColorOrGradient;
+
+fn parse_color_or_gradient_strict(color: &str) -> Result<ColorOrGradient, AvengerChartError> {
+    Ok(ColorOrGradient::Color(
+        avenger_color::parse_color_string_strict(color)?,
+    ))
+}
+
+fn parse_color_or_gradient(color: &str) -> Option<ColorOrGradient> {
+    avenger_color::parse_color_string(color).map(ColorOrGradient::Color)
+}
 
 pub fn renderer_for_kind(kind: LegendRendererKind) -> Arc<dyn LegendRenderer> {
     match kind {

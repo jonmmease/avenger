@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-color = { path = "../../avenger-color" }
 avenger-common = { path = "../../avenger-common" }
 avenger-scales = { path = "../../avenger-scales" }
 avenger-guides = { path = "../../avenger-guides" }

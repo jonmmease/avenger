@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use avenger_common::types::ColorOrGradient;
+use avenger_color::ColorOrGradient;
 use avenger_scenegraph::marks::{mark::SceneMark, text::SceneTextMark};
 use avenger_text::{
     measurement::{TextBounds, TextMeasurementConfig, TextMeasurer, default_text_measurer},

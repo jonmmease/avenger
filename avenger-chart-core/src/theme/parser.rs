@@ -12,17 +12,16 @@ use indexmap::IndexMap;
 use selectors::parser::{ParseRelative, Parser as SelectorParser, SelectorList};
 use tracing::warn;
 
-use crate::{
-    color::types::ColorSpace,
-    theme::{
-        AngleUnit, CssRgba, LengthUnit, ThemeValue,
-        calc::{CalcLeaf, CalcNode, ChannelKeyword, RoundingStrategy},
-        color_component::ColorComponent,
-        css_value, lab_color,
-        selector_impl::{ChartPseudoClass, ChartSelectors},
-        theme::CompiledRule,
-        value::parse_color_string,
-    },
+use avenger_color::{ColorChannel, ColorSpace};
+
+use crate::theme::{
+    AngleUnit, CssRgba, LengthUnit, ThemeValue,
+    calc::{CalcLeaf, CalcNode, RoundingStrategy},
+    color_component::ColorComponent,
+    css_value, lab_color,
+    selector_impl::{ChartPseudoClass, ChartSelectors},
+    theme::CompiledRule,
+    value::parse_color_string,
 };
 
 /// Parse a CSS stylesheet into rules
@@ -833,8 +832,8 @@ fn parse_calc_value<'i, 't>(
                 "nan" => Ok(CalcNode::Leaf(CalcLeaf::Number(f64::NAN))),
                 // Check for channel keywords (for relative color syntax)
                 _ => {
-                    if let Some(keyword) = ChannelKeyword::from_ident(ident.as_ref()) {
-                        Ok(CalcNode::Leaf(CalcLeaf::ChannelKeyword(keyword)))
+                    if let Some(keyword) = ColorChannel::from_ident(ident.as_ref()) {
+                        Ok(CalcNode::Leaf(CalcLeaf::ColorChannel(keyword)))
                     } else {
                         Err(parser.new_custom_error(()))
                     }
@@ -1154,8 +1153,8 @@ fn parse_color_component_with_space<'i, 't>(
             if s.eq_ignore_ascii_case("none") {
                 return Ok(ColorComponent::None);
             }
-            if let Some(keyword) = ChannelKeyword::from_ident_with_color_space(s, color_space) {
-                return Ok(ColorComponent::ChannelKeyword(keyword));
+            if let Some(keyword) = ColorChannel::from_ident_with_color_space(s, color_space) {
+                return Ok(ColorComponent::ColorChannel(keyword));
             }
             // Fall through to normal conversion
             ColorComponent::from_theme_value(&value).map_err(|_| parser.new_custom_error(()))
@@ -1184,7 +1183,7 @@ fn parse_oklch_with_origin<'i, 't>(
                 parse_color_component(p, unsupported_units)?
             } else {
                 // Default: inherit alpha from origin
-                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+                ColorComponent::ColorChannel(ColorChannel::Alpha)
             };
 
             Ok(ThemeValue::RelativeColor {
@@ -1249,7 +1248,7 @@ fn parse_oklab_with_origin<'i, 't>(
             let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
                 parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Oklab))?
             } else {
-                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+                ColorComponent::ColorChannel(ColorChannel::Alpha)
             };
 
             Ok(ThemeValue::RelativeColor {
@@ -1306,7 +1305,7 @@ fn parse_lch_with_origin<'i, 't>(
             let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
                 parse_color_component(p, unsupported_units)?
             } else {
-                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+                ColorComponent::ColorChannel(ColorChannel::Alpha)
             };
 
             Ok(ThemeValue::RelativeColor {
@@ -1366,7 +1365,7 @@ fn parse_lab_with_origin<'i, 't>(
             let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
                 parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Lab))?
             } else {
-                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+                ColorComponent::ColorChannel(ColorChannel::Alpha)
             };
 
             Ok(ThemeValue::RelativeColor {
@@ -1423,7 +1422,7 @@ fn parse_hsl_with_origin<'i, 't>(
             let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
                 parse_color_component(p, unsupported_units)?
             } else {
-                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+                ColorComponent::ColorChannel(ColorChannel::Alpha)
             };
 
             Ok(ThemeValue::RelativeColor {
@@ -1489,7 +1488,7 @@ fn parse_hwb_with_origin<'i, 't>(
             let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
                 parse_color_component_with_space(p, unsupported_units, Some(ColorSpace::Hwb))?
             } else {
-                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+                ColorComponent::ColorChannel(ColorChannel::Alpha)
             };
 
             Ok(ThemeValue::RelativeColor {
@@ -1547,7 +1546,7 @@ fn parse_rgb_with_origin<'i, 't>(
             let alpha = if p.try_parse(|p| p.expect_delim('/')).is_ok() {
                 parse_color_component(p, unsupported_units)?
             } else {
-                ColorComponent::ChannelKeyword(super::calc::ChannelKeyword::Alpha)
+                ColorComponent::ColorChannel(ColorChannel::Alpha)
             };
 
             Ok(ThemeValue::RelativeColor {

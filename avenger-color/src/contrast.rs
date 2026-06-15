@@ -21,11 +21,11 @@
 //!
 //! Relative luminance is calculated by:
 //! 1. Converting sRGB components to linear RGB (gamma correction)
-//! 2. Applying weighted sum: 0.2126×R + 0.7152×G + 0.0722×B
+//! 2. Applying weighted sum: 0.2126xR + 0.7152xG + 0.0722xB
 //!
 //! # Limitations
 //!
-//! ⚠️ **WARNING**: The WCAG 2.1 contrast algorithm has known limitations:
+//! **WARNING**: The WCAG 2.1 contrast algorithm has known limitations:
 //!
 //! - Poor performance with mid-tone colors (30-70% brightness)
 //! - Unreliable results on dark backgrounds
@@ -37,8 +37,8 @@
 //! # Examples
 //!
 //! ```ignore
-//! use avenger_chart::color::contrast::{contrast_ratio, choose_contrast_color};
-//! use avenger_chart::color::AbsoluteColor;
+//! use avenger_color::contrast::{contrast_ratio, choose_contrast_color};
+//! use avenger_color::AbsoluteColor;
 //!
 //! // Calculate contrast between black and white
 //! let black = AbsoluteColor::from_srgb(0.0, 0.0, 0.0, 1.0);
@@ -100,7 +100,7 @@ fn srgb_to_linear(component: f32) -> f32 {
 /// # Algorithm
 ///
 /// 1. Convert each sRGB component to linear RGB (gamma correction)
-/// 2. Apply weighted sum: `0.2126×R + 0.7152×G + 0.0722×B`
+/// 2. Apply weighted sum: `0.2126xR + 0.7152xG + 0.0722xB`
 ///
 /// The weights are derived from the CIE 1931 color space and represent human
 /// visual sensitivity:
@@ -121,7 +121,7 @@ fn srgb_to_linear(component: f32) -> f32 {
 /// # Examples
 ///
 /// ```ignore
-/// use avenger_chart::color::contrast::relative_luminance_srgb;
+/// use avenger_color::contrast::relative_luminance_srgb;
 ///
 /// // Pure white has maximum luminance
 /// let white_lum = relative_luminance_srgb(1.0, 1.0, 1.0);
@@ -131,7 +131,7 @@ fn srgb_to_linear(component: f32) -> f32 {
 /// let black_lum = relative_luminance_srgb(0.0, 0.0, 0.0);
 /// assert_eq!(black_lum, 0.0);
 ///
-/// // Pure red has luminance ≈ 0.2126
+/// // Pure red has luminance ~ 0.2126
 /// let red_lum = relative_luminance_srgb(1.0, 0.0, 0.0);
 /// assert!((red_lum - 0.2126).abs() < 0.001);
 /// ```
@@ -178,8 +178,8 @@ pub fn relative_luminance_srgb(r: f32, g: f32, b: f32) -> f32 {
 /// # Examples
 ///
 /// ```ignore
-/// use avenger_chart::color::contrast::contrast_ratio;
-/// use avenger_chart::color::AbsoluteColor;
+/// use avenger_color::contrast::contrast_ratio;
+/// use avenger_color::AbsoluteColor;
 ///
 /// let white = AbsoluteColor::from_srgb(1.0, 1.0, 1.0, 1.0);
 /// let black = AbsoluteColor::from_srgb(0.0, 0.0, 0.0, 1.0);
@@ -249,7 +249,7 @@ pub fn contrast_ratio(color1: &AbsoluteColor, color2: &AbsoluteColor) -> f32 {
 ///
 /// # Limitations
 ///
-/// ⚠️ **WARNING**: This function has known limitations inherited from WCAG 2.1:
+/// WARNING: **WARNING**: This function has known limitations inherited from WCAG 2.1:
 ///
 /// - Best results with very light or very dark base colors
 /// - Poor results with mid-tone colors (30-70% brightness)
@@ -259,8 +259,8 @@ pub fn contrast_ratio(color1: &AbsoluteColor, color2: &AbsoluteColor) -> f32 {
 /// # Examples
 ///
 /// ```ignore
-/// use avenger_chart::color::contrast::choose_contrast_color;
-/// use avenger_chart::color::AbsoluteColor;
+/// use avenger_color::contrast::choose_contrast_color;
+/// use avenger_color::AbsoluteColor;
 ///
 /// // Dark background gets white text
 /// let dark_bg = AbsoluteColor::from_srgb(0.1, 0.1, 0.1, 1.0);
@@ -325,8 +325,8 @@ pub fn choose_contrast_color(base_color: &AbsoluteColor) -> AbsoluteColor {
 /// # Examples
 ///
 /// ```ignore
-/// use avenger_chart::color::contrast::choose_best_contrast;
-/// use avenger_chart::color::AbsoluteColor;
+/// use avenger_color::contrast::choose_best_contrast;
+/// use avenger_color::AbsoluteColor;
 ///
 /// let bg = AbsoluteColor::from_srgb(0.5, 0.5, 0.5, 1.0);
 /// let candidates = vec![
@@ -504,7 +504,7 @@ mod tests {
         let yellow = AbsoluteColor::from_srgb(1.0, 1.0, 0.0, 1.0);
         let contrast = choose_contrast_color(&yellow);
 
-        // Should be black (yellow has high luminance: 0.2126 + 0.7152 ≈ 0.93)
+        // Should be black (yellow has high luminance: 0.2126 + 0.7152 ~ 0.93)
         assert_eq!(contrast.components[0], 0.0);
         assert_eq!(contrast.components[1], 0.0);
         assert_eq!(contrast.components[2], 0.0);

@@ -3,8 +3,7 @@
 use std::sync::Arc;
 
 use avenger_chart_core::AxisPosition;
-use avenger_common::types::ColorOrGradient;
-use avenger_scales::color::parse_color_string;
+use avenger_color::{ColorOrGradient, parse_color_string};
 use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark, text::SceneTextMark};
 use avenger_text::types::{TextAlign, TextBaseline};
 

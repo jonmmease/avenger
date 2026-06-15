@@ -13,9 +13,10 @@ use avenger_chart_core::{
     AvengerChartError, CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide,
     DefaultLogicalExprNodeExt, EmptyCoordMeasurement, GuideSharingContext, GuideUpdate, IntoExpr,
     LayoutBounds, Maybe, MaybeOptionalExpr, OverflowSpaceRequirement, Theme, ThemeContext,
-    color::parse_color_to_array_strict, evaluate_string_expr, extract_channel_title_from_marks,
+    evaluate_string_expr, extract_channel_title_from_marks,
 };
-use avenger_common::{types::ColorOrGradient, value::ScalarOrArray};
+use avenger_color::{ColorOrGradient, parse_color_string_strict};
+use avenger_common::value::ScalarOrArray;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{arc::SceneArcMark, group::Clip, mark::SceneMark};
@@ -265,7 +266,7 @@ impl CompiledGuide for PolarGuide {
                 // Evaluate the expression to get color string
                 if let Ok(color_str) = evaluate_string_expr(&color_expr, ctx, params).await {
                     // Parse the color string
-                    parse_color_to_array_strict(&color_str).ok()
+                    parse_color_string_strict(&color_str).ok()
                 } else {
                     None
                 }

@@ -11,8 +11,9 @@ use avenger_chart_core::{
     default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
 };
 use avenger_chart_marks::{Area, AreaPartitionKey, area_channel_defaults, ensure_dictionary_array};
+use avenger_color::ColorOrGradient;
 use avenger_common::{
-    types::{AreaOrientation, ColorOrGradient, StrokeCap, StrokeJoin},
+    types::{AreaOrientation, StrokeCap, StrokeJoin},
     value::ScalarOrArrayValue,
 };
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl, coerce::Coercer};
