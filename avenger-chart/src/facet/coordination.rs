@@ -17,7 +17,10 @@ use tracing::{debug, trace};
 use crate::{
     facet::{
         coord::renderable_for_empty_policy,
-        coordination_apply::{apply_requirement_pass, run_adopt, visit_facet_bands_with_node_id},
+        coordination_apply::{
+            apply_requirement_pass, refresh_retained_geometry_after_adopt, run_adopt,
+            visit_facet_bands_with_node_id,
+        },
         coordination_plans::{
             CoordinationRunArtifacts, RequirementNodeSnapshot, RequirementSnapshot,
             build_requirement_pass_with_round,
@@ -136,6 +139,7 @@ async fn run_facet_coordination(
 
     // Adopt the solve's geometry.
     let adopt_trace = run_adopt(measurement, eval_ctx)?;
+    refresh_retained_geometry_after_adopt(measurement, sizing)?;
     debug!(
         bands = adopt_trace.bands,
         cells_adopted = adopt_trace.cells_adopted,

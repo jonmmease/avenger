@@ -816,11 +816,11 @@ fn collect_child_frame_layout_coordination_nodes_into(
     }
 
     if let Some(container) = measurement.child_frame_container_view()? {
-        for placement in container.placement().placements() {
-            let child = container.child_measurement(placement.id).ok_or_else(|| {
+        for region in container.child_regions() {
+            let child = container.child_measurement(region.child_index).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Missing child-frame measurement for child index {} while collecting layout coordination nodes",
-                    placement.id
+                    region.child_index
                 ))
             })?;
             collect_child_frame_layout_coordination_nodes_into(child, nodes)?;

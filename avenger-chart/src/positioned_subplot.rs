@@ -19,10 +19,7 @@ use datafusion::{
 };
 
 use crate::{
-    container::{
-        ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel, ContainerPathSegment,
-        PlacedRegion, PlacementSolution,
-    },
+    container::{ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel, ContainerPathSegment},
     coords::{CoordMeasurement, OverflowSpaceRequirement},
     error::AvengerChartError,
     layout::Size,
@@ -41,6 +38,50 @@ use crate::{
 
 fn positioned_subplot_child_plot(subplot: &dyn PositionedSubplotMarkCore) -> &CompiledPlot {
     compiled_subplot_payload_child_plot(subplot.payload())
+}
+
+/// One coordinate-positioned child frame inside the parent plot area.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PositionedChildPlacement {
+    pub(crate) child_index: usize,
+    pub(crate) origin: [f32; 2],
+}
+
+impl PositionedChildPlacement {
+    fn new(child_index: usize, origin: [f32; 2]) -> Self {
+        Self {
+            child_index,
+            origin,
+        }
+    }
+}
+
+/// Manual child-frame placement produced by coordinate-positioned subplot
+/// marks. Normal concat/facet containers read geometry from `LayoutSolution`
+/// instead.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PositionedPlacementSolution {
+    pub(crate) content_size: Size,
+    placements: Vec<PositionedChildPlacement>,
+}
+
+impl PositionedPlacementSolution {
+    fn new(content_size: Size, placements: Vec<PositionedChildPlacement>) -> Self {
+        Self {
+            content_size,
+            placements,
+        }
+    }
+
+    pub(crate) fn placements(&self) -> &[PositionedChildPlacement] {
+        &self.placements
+    }
+
+    pub(crate) fn child(&self, child_index: usize) -> Option<&PositionedChildPlacement> {
+        self.placements
+            .iter()
+            .find(|placement| placement.child_index == child_index)
+    }
 }
 
 pub(crate) async fn render_positioned_subplot_with_context(
@@ -145,7 +186,7 @@ pub(crate) async fn render_positioned_subplot_with_context(
 #[derive(Clone, Debug)]
 pub(crate) struct PositionedCoordMeasurement {
     pub(crate) children: Vec<PositionedChildMeasurement>,
-    pub(crate) placement: PlacementSolution,
+    pub(crate) placement: PositionedPlacementSolution,
 }
 
 impl PositionedCoordMeasurement {
@@ -173,7 +214,7 @@ impl PositionedCoordMeasurement {
             .map(PositionedChildMeasurement::scope_key)
     }
 
-    pub(crate) fn child_frame_placement(&self) -> PlacementSolution {
+    pub(crate) fn child_frame_placement(&self) -> PositionedPlacementSolution {
         self.placement.clone()
     }
 }
@@ -943,7 +984,7 @@ pub(crate) async fn measure_positioned_subplots(
                 ))
                 .await?,
             );
-            placements.push(PlacedRegion::new(
+            placements.push(PositionedChildPlacement::new(
                 spec.child_index,
                 positioned_render_origin(spec, prepared.subplot),
             ));
@@ -953,6 +994,6 @@ pub(crate) async fn measure_positioned_subplots(
 
     Ok(Some(Box::new(PositionedCoordMeasurement {
         children,
-        placement: PlacementSolution::new(Size::new(plot_width, plot_height), placements),
+        placement: PositionedPlacementSolution::new(Size::new(plot_width, plot_height), placements),
     })))
 }

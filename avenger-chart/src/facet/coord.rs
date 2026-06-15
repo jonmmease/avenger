@@ -18,8 +18,8 @@ use avenger_chart_core::{
     AvengerChartError, AxisPosition, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
     CoordinateSystemTransform, CoordinateSystemTransformCore, CoordinatedLayout,
     CoordinatedOverflow, DomainCoordination, FacetAxis, FacetDimensionConfig, FacetEmptyCellPolicy,
-    NoGuide, OverflowSpaceRequirement, PlotGeometry, RowDimensionConfig, SharingLevel,
-    SubplotGeometry, SubplotRect,
+    LayoutBounds, NoGuide, OverflowSpaceRequirement, PlotGeometry, RowDimensionConfig,
+    SharingLevel, SubplotGeometry, SubplotRect,
 };
 #[cfg(test)]
 use avenger_chart_core::{DerivedScalarsByChannel, GuideSharingContext};
@@ -65,13 +65,14 @@ use crate::{
         subtree_plot_area::{LeafPlotAreaSize, estimate_path_plot_area_from_leaf_size},
     },
     layout::{
-        EdgeSlabs, EvaluatedLayoutSpec, OwnedEdgeSlabs, apply_frame_side_slab, overflow_side_value,
-        retarget_frame_layout_for_plot_area,
+        EdgeSlabs, Edges, EvaluatedLayoutSpec, OwnedEdgeSlabs, Size, apply_frame_side_slab,
+        overflow_side_value, retarget_frame_layout_for_plot_area,
     },
     marks::CompiledMark,
     plot::compiled::{
-        CompiledPlot, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey,
-        fixed_child_plot_area_layout_spec, measure_child_frame_plot_with_builder,
+        ChildFrameRegion, CompiledPlot, ComponentsMeasurement, CoordinationKind,
+        CoordinationScopeKey, fixed_child_plot_area_layout_spec,
+        measure_child_frame_plot_with_builder,
         scales::build_scale_builder_from_marks_with_facet_scope, union_domain_extents,
     },
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
@@ -484,6 +485,41 @@ fn default_overflow() -> &'static CoordinatedOverflow {
     DEFAULT.get_or_init(CoordinatedOverflow::default)
 }
 
+fn layout_bounds_from_rect(rect: avenger_layout::Rect) -> LayoutBounds {
+    LayoutBounds {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    }
+}
+
+fn full_tracks_rect(tracks: &avenger_layout::SolvedTracks) -> Option<avenger_layout::Rect> {
+    tracks.content_rect_for_slot(avenger_layout::GridSlot {
+        row: 0,
+        column: 0,
+        row_span: tracks.row_sizes.len(),
+        column_span: tracks.column_sizes.len(),
+    })
+}
+
+fn facet_cell_grid_slot(axis: FacetAxis, cell_index: usize) -> avenger_layout::GridSlot {
+    match axis {
+        FacetAxis::Column => avenger_layout::GridSlot {
+            row: 0,
+            column: cell_index,
+            row_span: 1,
+            column_span: 1,
+        },
+        FacetAxis::Row => avenger_layout::GridSlot {
+            row: cell_index,
+            column: 0,
+            row_span: 1,
+            column_span: 1,
+        },
+    }
+}
+
 impl FacetBandCoordMeasurement {
     pub(crate) fn set_coordination_solution(
         &mut self,
@@ -491,6 +527,17 @@ impl FacetBandCoordMeasurement {
         node_id: CoordinationNodeKey,
     ) {
         self.coordination = Some((solution, node_id));
+    }
+
+    pub(crate) fn coordination_solution_handle(
+        &self,
+    ) -> Option<(
+        std::sync::Arc<crate::facet::coordination_solution::CoordinationSolution>,
+        CoordinationNodeKey,
+    )> {
+        self.coordination
+            .as_ref()
+            .map(|(solution, node_id)| (std::sync::Arc::clone(solution), node_id.clone()))
     }
 
     fn solution_layout(&self) -> Option<&CoordinatedLayout> {
@@ -517,15 +564,93 @@ impl FacetBandCoordMeasurement {
             .and_then(|(solution, node_id)| solution.boundary_overflow(node_id))
     }
 
-    /// The round's retained solve (lowered tree + solution), present only
-    /// when the shadow census is enabled (`AVENGER_SHADOW_TREE_SOLVE=1`)
-    /// and this band holds a coordination handle from a real-tree round.
+    /// The round's retained solve (lowered tree + solution), present when
+    /// this band holds a coordination handle from a real-tree round.
     pub(crate) fn retained_solve(
         &self,
     ) -> Option<&std::sync::Arc<crate::facet::tree_solve::RetainedFacetSolve>> {
         self.coordination
             .as_ref()
             .and_then(|(solution, _)| solution.retained.as_ref())
+    }
+
+    pub(crate) fn solved_band_region(
+        &self,
+    ) -> Option<&avenger_layout::Region<CoordinationNodeKey>> {
+        let (solution, node_id) = self.coordination.as_ref()?;
+        solution.retained.as_ref()?.band_region(node_id)
+    }
+
+    pub(crate) fn solved_child_region(
+        &self,
+        cell_index: usize,
+    ) -> Option<&avenger_layout::Region<CoordinationNodeKey>> {
+        let (solution, node_id) = self.coordination.as_ref()?;
+        solution
+            .retained
+            .as_ref()?
+            .child_region(node_id, cell_index)
+    }
+
+    pub(crate) fn solved_child_frame_regions(
+        &self,
+    ) -> Result<Option<(Size, Vec<ChildFrameRegion>)>, AvengerChartError> {
+        let Some(band_region) = self.solved_band_region() else {
+            return Ok(None);
+        };
+        let avenger_layout::RegionDetail::Grid { tracks } = &band_region.detail else {
+            return Err(AvengerChartError::InternalError(
+                "Facet retained solve band region was not a grid".into(),
+            ));
+        };
+        let content_rect = full_tracks_rect(tracks).unwrap_or_else(|| {
+            avenger_layout::Rect::new(
+                0.0,
+                0.0,
+                band_region.content.width,
+                band_region.content.height,
+            )
+        });
+        let content_size = Size::new(content_rect.width, content_rect.height);
+        let mut regions = Vec::with_capacity(self.cells.len());
+        for cell_index in 0..self.cells.len() {
+            let child = self.solved_child_region(cell_index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Facet retained solve missing child region for cell {}",
+                    cell_index
+                ))
+            })?;
+            let cell_rect = tracks
+                .content_rect_for_slot(facet_cell_grid_slot(self.axis, cell_index))
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Facet retained solve missing track rect for cell {}",
+                        cell_index
+                    ))
+                })?;
+            let granted = child.granted;
+            regions.push(ChildFrameRegion {
+                child_index: cell_index,
+                content: layout_bounds_from_rect(cell_rect),
+                slot: layout_bounds_from_rect(cell_rect),
+                content_size_override: None,
+                edge_targets: Some(EdgeTargets {
+                    guide: Edges::new(
+                        granted.top.guide,
+                        granted.right.guide,
+                        granted.bottom.guide,
+                        granted.left.guide,
+                    ),
+                    total: Edges::new(
+                        granted.top.total,
+                        granted.right.total,
+                        granted.bottom.total,
+                        granted.left.total,
+                    ),
+                }),
+            });
+        }
+        Ok(Some((content_size, regions)))
     }
 
     pub(crate) fn active_layout(&self) -> &CoordinatedLayout {

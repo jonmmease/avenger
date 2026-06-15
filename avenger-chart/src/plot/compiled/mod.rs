@@ -55,7 +55,7 @@ use crate::{
 
 pub use self::child_frame_container::ChildFrameContainerView;
 pub(crate) use self::child_frame_container::{
-    child_frame_container_overflow, child_frame_container_view_from_concat,
+    ChildFrameRegion, child_frame_container_overflow, child_frame_container_view_from_concat,
     child_frame_container_view_from_positioned,
 };
 pub(crate) use self::child_frame_coordination::ChildFrameLayoutSlot;

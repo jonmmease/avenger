@@ -10,10 +10,10 @@ use crate::facet::ownership_policy::{
     cell_requires_invalid_path_axis_fallback_hidden, has_holes_from_cells,
     resolve_facet_ownership_policy,
 };
-use crate::facet::placement::{FacetBandPlacement, facet_child_frame_placement_from_band};
+use crate::facet::placement::{FacetBandPlacement, facet_child_frame_regions_from_band_layout};
 use crate::plot::CompiledPlot;
 use crate::plot::compiled::{
-    ComponentsMeasurement, PlotComponents, compiled_subplot_payload_child_plot,
+    ChildFrameRegion, ComponentsMeasurement, PlotComponents, compiled_subplot_payload_child_plot,
     compiled_subplot_payload_child_plot_arc,
 };
 use crate::render::{EvaluationContext, EvaluationMetrics, RenderContext};
@@ -378,6 +378,19 @@ enum FacetCellPlanKind {
     Built,
 }
 
+fn facet_child_regions_for_render(
+    facet_measurement: &FacetBandCoordMeasurement,
+    placement: &FacetBandPlacement,
+    context: &RenderContext<'_>,
+) -> Result<(crate::layout::Size, Vec<ChildFrameRegion>), AvengerChartError> {
+    facet_child_frame_regions_from_band_layout(
+        facet_measurement,
+        placement,
+        context.plot_width(),
+        context.plot_height(),
+    )
+}
+
 async fn render_facet_band_with_placement(
     ops: FacetBandRenderOps,
     compiled_subplot: &CompiledPlot,
@@ -406,17 +419,14 @@ async fn render_facet_band_with_placement(
         ownership_policy.axis_owner_ignore_empty_cells,
     );
 
-    let child_frame_placement = facet_child_frame_placement_from_band(
-        facet_measurement,
-        &placement,
-        crate::layout::Size::new(context.plot_width(), context.plot_height()),
-    )?;
+    let (child_content_size, child_regions) =
+        facet_child_regions_for_render(facet_measurement, &placement, context)?;
     trace!(
         axis = ?placement.axis,
         main_extent = placement.main_extent,
         cross_extent = ?placement.cross_extent,
-        child_content_width = child_frame_placement.content_size.width,
-        child_content_height = child_frame_placement.content_size.height,
+        child_content_width = child_content_size.width,
+        child_content_height = child_content_size.height,
         cell_count = placement.cell_count(),
         "{} render placement resolved",
         ops.label
@@ -434,13 +444,16 @@ async fn render_facet_band_with_placement(
                 "Missing facet render placement for cell index {idx}"
             ))
         })?;
-        let child_render_placement = child_frame_placement.child(idx).ok_or_else(|| {
-            AvengerChartError::InternalError(format!(
-                "Missing facet child-frame placement for cell index {idx}"
-            ))
-        })?;
+        let child_region = child_regions
+            .iter()
+            .find(|region| region.child_index == idx)
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing facet child-frame region for cell index {idx}"
+                ))
+            })?;
         let position = cell_placement.main_start;
-        let subplot_origin = child_render_placement.origin;
+        let subplot_origin = child_region.plot_origin();
         let is_empty_cell = cell.plan.is_empty;
         let band_size = cell_placement.main_size;
         let plot_area_target = match placement.axis {
@@ -493,7 +506,7 @@ async fn render_facet_band_with_placement(
             full_path: cell.plan.full_path.clone(),
             is_terminal_cell,
             plot_area_target: Some(plot_area_target),
-            edge_targets: child_render_placement.meta.edge_targets,
+            edge_targets: child_region.edge_targets,
         });
         plans.push(FacetCellPlan {
             idx,

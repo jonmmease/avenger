@@ -32,7 +32,8 @@ use crate::{
             resolve_facet_overflow,
         },
         placement::{
-            resolve_facet_band_placement, resolve_facet_band_placement_from_configured_scales,
+            facet_band_positions_from_band_layout, resolve_facet_band_placement,
+            resolve_facet_band_placement_from_configured_scales,
         },
     },
     layout::{BandPosition, BandPositionIterator},
@@ -457,7 +458,8 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         ))
         .await?
     };
-    let (_band_positions, labels) = band_positions_and_labels::<O>(scales, coord_measurement)?;
+    let (_band_positions, labels) =
+        band_positions_and_labels::<O>(scales, coord_measurement, None)?;
     let place_at_end = O::place_at_end(state.position.as_deref());
     let axis_position = O::axis_position(place_at_end);
     if !state.visible {
@@ -572,7 +574,11 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     }
 
     let positions_start = Instant::now();
-    let (band_positions, labels) = band_positions_and_labels::<O>(scales, Some(coord_measurement))?;
+    let (band_positions, labels) = band_positions_and_labels::<O>(
+        scales,
+        Some(coord_measurement),
+        Some((plot_width, plot_height)),
+    )?;
     if band_positions.is_empty() {
         return Ok(vec![]);
     }
@@ -1037,6 +1043,7 @@ fn measure_facet_guide_slab(
 fn band_positions_and_labels<O: FacetGuideAxisOps>(
     scales: &HashMap<String, ConfiguredScale>,
     coord_measurement: Option<&dyn CoordMeasurement>,
+    layout_size: Option<(f32, f32)>,
 ) -> Result<(Vec<BandPosition>, Vec<String>), AvengerChartError> {
     if let Some(coord_measurement) = coord_measurement
         && let Some(facet_measurement) = facet_band_from_coord(coord_measurement)
@@ -1045,7 +1052,16 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
         && let Some(placement) =
             resolve_facet_band_placement_from_configured_scales(coord_measurement, scales)?
     {
-        let band_positions = placement.band_positions(&facet_measurement.cells)?;
+        let band_positions = if let Some((plot_width, plot_height)) = layout_size {
+            facet_band_positions_from_band_layout(
+                facet_measurement,
+                &placement,
+                plot_width,
+                plot_height,
+            )?
+        } else {
+            placement.band_positions(&facet_measurement.cells)?
+        };
         let labels = band_positions
             .iter()
             .map(|position| format_scalar_value(&position.value))
@@ -1215,7 +1231,13 @@ fn column_band_positions_for_measurement(
     if !child_facet.cells.is_empty()
         && let Some(placement) = resolve_facet_band_placement(measurement).ok().flatten()
     {
-        return placement.band_positions(&child_facet.cells).ok();
+        return facet_band_positions_from_band_layout(
+            child_facet,
+            &placement,
+            measurement.plot_area_width,
+            measurement.plot_area_height,
+        )
+        .ok();
     }
 
     let child_col_scale = measurement.scales.get("column")?;

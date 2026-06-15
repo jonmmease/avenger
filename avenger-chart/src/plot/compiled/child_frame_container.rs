@@ -7,15 +7,18 @@
 use std::collections::HashSet;
 
 use avenger_chart_core::{
-    AvengerChartError, CoordMeasurement, FrameAllocation, OverflowSpaceRequirement,
+    AvengerChartError, CoordMeasurement, FrameAllocation, LayoutBounds, OverflowSpaceRequirement,
 };
+use tracing::debug;
 
 use crate::{
     concat::ConcatCoordMeasurement,
-    container::{PlacementSolution, project_child_rect},
-    facet::{coord::FacetBandCoordMeasurement, placement::resolve_facet_child_frame_placement},
+    facet::{
+        coord::FacetBandCoordMeasurement, placement::facet_child_frame_regions_from_band_layout,
+    },
+    layout::Size,
     partition::format_partition_value,
-    positioned_subplot::PositionedCoordMeasurement,
+    positioned_subplot::{PositionedCoordMeasurement, PositionedPlacementSolution},
 };
 
 use super::{ChildFrameScopeKey, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey};
@@ -29,27 +32,105 @@ struct ChildFrameChildView<'a> {
     measurement: &'a ComponentsMeasurement,
 }
 
+/// Solved readback for one child frame in parent plot-area coordinates.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ChildFrameRegion {
+    pub(crate) child_index: usize,
+    /// Child plot/content rectangle in parent plot-area coordinates.
+    pub(crate) content: LayoutBounds,
+    /// Parent-granted slot in parent plot-area coordinates.
+    pub(crate) slot: LayoutBounds,
+    /// Optional plot-area size adopted by the child at render time.
+    pub(crate) content_size_override: Option<Size>,
+    /// Optional coordinated edge targets adopted by the child at render time.
+    pub(crate) edge_targets: Option<crate::layout::EdgeTargets>,
+}
+
+impl ChildFrameRegion {
+    pub(crate) fn plot_origin(&self) -> [f32; 2] {
+        [self.content.x, self.content.y]
+    }
+
+    pub(crate) fn project_child_bounds(
+        &self,
+        child_plot_bounds: LayoutBounds,
+        child_bounds: LayoutBounds,
+    ) -> LayoutBounds {
+        project_child_local_rect(self.content, child_plot_bounds, child_bounds)
+    }
+}
+
 /// Read-only child-frame container projection for generic layout consumers.
 ///
-/// A view is valid only when child indices and render placements form a
-/// one-to-one mapping. Render origins are frame origins in the parent content
-/// coordinate space; they are not child plot-area origins.
+/// A view is valid only when child indices and solved regions form a
+/// one-to-one mapping. Region coordinates are expressed in the parent plot
+/// area's coordinate space; child-local bounds project from the child's
+/// solved content rectangle.
 #[derive(Debug)]
 pub struct ChildFrameContainerView<'a> {
     children: Vec<ChildFrameChildView<'a>>,
-    placement: PlacementSolution,
+    regions: Vec<ChildFrameRegion>,
+    content_size: Size,
 }
 
 impl<'a> ChildFrameContainerView<'a> {
-    fn new(children: Vec<ChildFrameChildView<'a>>, placement: PlacementSolution) -> Self {
+    fn new(
+        children: Vec<ChildFrameChildView<'a>>,
+        content_size: Size,
+        regions: Vec<ChildFrameRegion>,
+    ) -> Self {
         Self {
             children,
-            placement,
+            regions,
+            content_size,
         }
     }
 
-    pub(crate) fn placement(&self) -> &PlacementSolution {
-        &self.placement
+    fn from_placement(
+        children: Vec<ChildFrameChildView<'a>>,
+        placement: PositionedPlacementSolution,
+    ) -> Result<Self, AvengerChartError> {
+        let regions = child_regions_from_placement(&children, &placement)?;
+        let content_size = placement.content_size;
+        Ok(Self {
+            children,
+            regions,
+            content_size,
+        })
+    }
+
+    pub(crate) fn content_size(&self) -> Size {
+        self.content_size
+    }
+
+    pub(crate) fn child_regions(&self) -> &[ChildFrameRegion] {
+        &self.regions
+    }
+
+    pub(crate) fn child_region(&self, child_index: usize) -> Option<&ChildFrameRegion> {
+        self.regions
+            .iter()
+            .find(|region| region.child_index == child_index)
+    }
+
+    pub(crate) fn project_child_bounds(
+        &self,
+        child_index: usize,
+        child_bounds: LayoutBounds,
+    ) -> Result<LayoutBounds, AvengerChartError> {
+        let region = self.child_region(child_index).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Missing child-frame region for child index {}",
+                child_index
+            ))
+        })?;
+        let child = self.child_measurement(child_index).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Missing child-frame measurement for child index {}",
+                child_index
+            ))
+        })?;
+        Ok(region.project_child_bounds(*child.layout.plot_area_bounds(), child_bounds))
     }
 
     pub(crate) fn child_measurement(
@@ -83,6 +164,19 @@ impl<'a> ChildFrameContainerView<'a> {
         self.children
             .iter()
             .find(|child| child.child_index == child_index)
+    }
+}
+
+pub(crate) fn project_child_local_rect(
+    child_content: LayoutBounds,
+    child_plot_bounds: LayoutBounds,
+    child_bounds: LayoutBounds,
+) -> LayoutBounds {
+    LayoutBounds {
+        x: child_content.x + child_bounds.x - child_plot_bounds.x,
+        y: child_content.y + child_bounds.y - child_plot_bounds.y,
+        width: child_bounds.width,
+        height: child_bounds.height,
     }
 }
 
@@ -130,7 +224,6 @@ pub(crate) fn child_frame_container_view_for_coord_measurement<'a>(
 pub(crate) fn child_frame_container_view_from_concat(
     concat: &ConcatCoordMeasurement,
 ) -> Result<ChildFrameContainerView<'_>, AvengerChartError> {
-    let placement = concat.child_frame_placement();
     let child_debug_labels = concat
         .children()
         .iter()
@@ -154,9 +247,12 @@ pub(crate) fn child_frame_container_view_from_concat(
             })
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
-    validate_container_placements(&placement, &children, Some(&child_debug_labels))?;
-    let view = ChildFrameContainerView::new(children, placement);
+    let regions = concat.child_frame_regions()?;
+    validate_child_regions(&regions, &children, Some(&child_debug_labels))?;
+    let content_size = concat.child_frame_content_size()?;
+    let view = ChildFrameContainerView::new(children, content_size, regions);
     view.validate_scope_keys()?;
+    view.validate_child_regions(Some(&child_debug_labels))?;
     Ok(view)
 }
 
@@ -185,8 +281,9 @@ pub(crate) fn child_frame_container_view_from_positioned(
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
     validate_container_placements(&placement, &children, None)?;
-    let view = ChildFrameContainerView::new(children, placement);
+    let view = ChildFrameContainerView::from_placement(children, placement)?;
     view.validate_scope_keys()?;
+    view.validate_child_regions(None)?;
     Ok(view)
 }
 
@@ -194,7 +291,6 @@ pub(crate) fn child_frame_container_view_from_facet<'a>(
     measurement: &'a ComponentsMeasurement,
     facet_band: &'a FacetBandCoordMeasurement,
 ) -> Result<ChildFrameContainerView<'a>, AvengerChartError> {
-    let placement = resolve_facet_child_frame_placement(measurement, facet_band)?;
     let children = facet_band
         .cells
         .iter()
@@ -214,10 +310,77 @@ pub(crate) fn child_frame_container_view_from_facet<'a>(
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
 
-    validate_container_placements(&placement, &children, None)?;
-    let view = ChildFrameContainerView::new(children, placement);
+    let placement = facet_band.resolved_placement_from_scale_specs(&measurement.scales)?;
+    let (content_size, regions) = facet_child_frame_regions_from_band_layout(
+        facet_band,
+        &placement,
+        measurement.plot_area_width,
+        measurement.plot_area_height,
+    )?;
+    validate_child_regions(&regions, &children, None)?;
+    if facet_region_shadow_enabled()
+        && let Some((retained_content_size, retained_regions)) =
+            facet_band.solved_child_frame_regions()?
+    {
+        shadow_compare_facet_regions(
+            content_size,
+            &regions,
+            retained_content_size,
+            &retained_regions,
+        );
+    }
+    let view = ChildFrameContainerView::new(children, content_size, regions);
     view.validate_scope_keys()?;
+    view.validate_child_regions(None)?;
     Ok(view)
+}
+
+fn facet_region_shadow_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("AVENGER_LAYOUTSOLUTION_PLACEMENT_SHADOW").is_ok_and(|value| value == "1")
+    })
+}
+
+fn shadow_compare_facet_regions(
+    placement_content_size: Size,
+    placement_regions: &[ChildFrameRegion],
+    solved_content_size: Size,
+    solved_regions: &[ChildFrameRegion],
+) {
+    if !facet_region_shadow_enabled() {
+        return;
+    }
+    let content_delta = (placement_content_size.width - solved_content_size.width)
+        .abs()
+        .max((placement_content_size.height - solved_content_size.height).abs());
+    let mut max_origin_delta = content_delta;
+    for placement_region in placement_regions {
+        let Some(solved_region) = solved_regions
+            .iter()
+            .find(|region| region.child_index == placement_region.child_index)
+        else {
+            debug!(
+                target: "avenger_chart::facet::layoutsolution_shadow",
+                child_index = placement_region.child_index,
+                "facet solved readback missing placement child"
+            );
+            continue;
+        };
+        max_origin_delta = max_origin_delta
+            .max((placement_region.content.x - solved_region.content.x).abs())
+            .max((placement_region.content.y - solved_region.content.y).abs())
+            .max((placement_region.content.width - solved_region.content.width).abs())
+            .max((placement_region.content.height - solved_region.content.height).abs());
+    }
+    debug!(
+        target: "avenger_chart::facet::layoutsolution_shadow",
+        placement_count = placement_regions.len(),
+        solved_count = solved_regions.len(),
+        content_delta,
+        max_origin_delta,
+        "facet placement-vs-layoutsolution child-region shadow"
+    );
 }
 
 impl ChildFrameContainerView<'_> {
@@ -266,6 +429,51 @@ impl ChildFrameContainerView<'_> {
         }
         Ok(())
     }
+
+    fn validate_child_regions(
+        &self,
+        child_debug_labels: Option<&[String]>,
+    ) -> Result<(), AvengerChartError> {
+        validate_child_regions(&self.regions, &self.children, child_debug_labels)
+    }
+}
+
+fn child_regions_from_placement(
+    children: &[ChildFrameChildView<'_>],
+    placement: &PositionedPlacementSolution,
+) -> Result<Vec<ChildFrameRegion>, AvengerChartError> {
+    placement
+        .placements()
+        .iter()
+        .map(|render_placement| {
+            let child = children
+                .iter()
+                .find(|child| child.child_index == render_placement.child_index)
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Child-frame placement index {} did not resolve to a child measurement",
+                        render_placement.child_index
+                    ))
+                })?;
+            let content_size = Size::new(
+                child.measurement.plot_area_width,
+                child.measurement.plot_area_height,
+            );
+            let content = LayoutBounds {
+                x: render_placement.origin[0],
+                y: render_placement.origin[1],
+                width: content_size.width,
+                height: content_size.height,
+            };
+            Ok(ChildFrameRegion {
+                child_index: render_placement.child_index,
+                content,
+                slot: content,
+                content_size_override: None,
+                edge_targets: None,
+            })
+        })
+        .collect()
 }
 
 /// Compute parent-frame overflow required by already measured child frames in a
@@ -275,10 +483,11 @@ pub(crate) fn child_frame_container_overflow(
     plot_height: f32,
     container: &ChildFrameContainerView<'_>,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-    child_frame_container_overflow_from_placements(
+    child_frame_container_overflow_from_regions(
         plot_width,
         plot_height,
-        container.placement(),
+        container.content_size(),
+        container.child_regions(),
         |child_index| {
             container.child_measurement(child_index).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
@@ -291,26 +500,23 @@ pub(crate) fn child_frame_container_overflow(
 }
 
 /// Compute parent-frame overflow required by already measured child frames.
-pub(crate) fn child_frame_container_overflow_from_placements<'a>(
+pub(crate) fn child_frame_container_overflow_from_regions<'a>(
     plot_width: f32,
     plot_height: f32,
-    placement: &PlacementSolution,
+    content_size: Size,
+    regions: &[ChildFrameRegion],
     mut child_measurement: impl FnMut(usize) -> Result<&'a ComponentsMeasurement, AvengerChartError>,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
     let mut min_x = 0.0f32;
     let mut min_y = 0.0f32;
-    let mut max_x = placement.content_size.width.max(plot_width);
-    let mut max_y = placement.content_size.height.max(plot_height);
+    let mut max_x = content_size.width.max(plot_width);
+    let mut max_y = content_size.height.max(plot_height);
 
-    for render_placement in placement.placements() {
-        let child_measurement = child_measurement(render_placement.id)?;
+    for region in regions {
+        let child_measurement = child_measurement(region.child_index)?;
         let child_plot_bounds = *child_measurement.layout.plot_area_bounds();
-        let frame_bounds = project_child_rect(
-            [0.0, 0.0],
-            render_placement.origin,
-            child_plot_bounds,
-            child_measurement.frame_allocation.rect,
-        );
+        let frame_bounds =
+            region.project_child_bounds(child_plot_bounds, child_measurement.frame_allocation.rect);
 
         min_x = min_x.min(frame_bounds.x);
         min_y = min_y.min(frame_bounds.y);
@@ -326,8 +532,63 @@ pub(crate) fn child_frame_container_overflow_from_placements<'a>(
     })
 }
 
+fn validate_child_regions(
+    regions: &[ChildFrameRegion],
+    children: &[ChildFrameChildView<'_>],
+    child_debug_labels: Option<&[String]>,
+) -> Result<(), AvengerChartError> {
+    if regions.len() != children.len() {
+        return Err(AvengerChartError::InternalError(format!(
+            "Child-frame container region count mismatch: regions={}, children={}",
+            regions.len(),
+            children.len()
+        )));
+    }
+
+    let mut seen_regions = HashSet::with_capacity(regions.len());
+    for region in regions {
+        if !seen_regions.insert(region.child_index) {
+            return Err(AvengerChartError::InternalError(format!(
+                "Duplicate child-frame container region for child index {}",
+                region.child_index
+            )));
+        }
+
+        if !children
+            .iter()
+            .any(|child| child.child_index == region.child_index)
+        {
+            let available = child_debug_labels
+                .map(|labels| labels.join(", "))
+                .unwrap_or_else(|| {
+                    children
+                        .iter()
+                        .map(|child| child.child_index.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                });
+            return Err(AvengerChartError::InternalError(format!(
+                "Child-frame container region index {} did not resolve to a child measurement; available children: {}",
+                region.child_index, available
+            )));
+        }
+    }
+
+    for child in children {
+        if !seen_regions.contains(&child.child_index) {
+            let label = child.label.as_deref().unwrap_or("<unlabeled>");
+            return Err(AvengerChartError::InternalError(format!(
+                "Missing child-frame region for child index {} ({label})",
+                child.child_index
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_container_placements(
-    placement: &PlacementSolution,
+    placement: &PositionedPlacementSolution,
     children: &[ChildFrameChildView<'_>],
     child_debug_labels: Option<&[String]>,
 ) -> Result<(), AvengerChartError> {
@@ -341,16 +602,16 @@ fn validate_container_placements(
 
     let mut seen_placements = HashSet::with_capacity(placement.placements().len());
     for render_placement in placement.placements() {
-        if !seen_placements.insert(render_placement.id) {
+        if !seen_placements.insert(render_placement.child_index) {
             return Err(AvengerChartError::InternalError(format!(
                 "Duplicate child-frame container placement for child index {}",
-                render_placement.id
+                render_placement.child_index
             )));
         }
 
         if !children
             .iter()
-            .any(|child| child.child_index == render_placement.id)
+            .any(|child| child.child_index == render_placement.child_index)
         {
             let available = child_debug_labels
                 .map(|labels| labels.join(", "))
@@ -363,7 +624,7 @@ fn validate_container_placements(
                 });
             return Err(AvengerChartError::InternalError(format!(
                 "Child-frame container placement index {} did not resolve to a child measurement; available children: {}",
-                render_placement.id, available
+                render_placement.child_index, available
             )));
         }
     }
@@ -379,4 +640,87 @@ fn validate_container_placements(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_child_local_rect_uses_solved_content_as_reference() {
+        let solved_child_content = LayoutBounds {
+            x: 120.0,
+            y: 80.0,
+            width: 200.0,
+            height: 100.0,
+        };
+        let child_plot_bounds = LayoutBounds {
+            x: 10.0,
+            y: 20.0,
+            width: 200.0,
+            height: 100.0,
+        };
+        let child_legend_bounds = LayoutBounds {
+            x: 225.0,
+            y: 35.0,
+            width: 40.0,
+            height: 30.0,
+        };
+
+        assert_eq!(
+            project_child_local_rect(solved_child_content, child_plot_bounds, child_legend_bounds),
+            LayoutBounds {
+                x: 335.0,
+                y: 95.0,
+                width: 40.0,
+                height: 30.0,
+            }
+        );
+    }
+
+    #[test]
+    fn child_frame_region_projects_from_content_rect() {
+        let region = ChildFrameRegion {
+            child_index: 7,
+            content: LayoutBounds {
+                x: 50.0,
+                y: 60.0,
+                width: 150.0,
+                height: 90.0,
+            },
+            slot: LayoutBounds {
+                x: 40.0,
+                y: 55.0,
+                width: 170.0,
+                height: 100.0,
+            },
+            content_size_override: None,
+            edge_targets: None,
+        };
+
+        let projected = region.project_child_bounds(
+            LayoutBounds {
+                x: -5.0,
+                y: 10.0,
+                width: 150.0,
+                height: 90.0,
+            },
+            LayoutBounds {
+                x: -15.0,
+                y: 0.0,
+                width: 20.0,
+                height: 12.0,
+            },
+        );
+
+        assert_eq!(
+            projected,
+            LayoutBounds {
+                x: 40.0,
+                y: 50.0,
+                width: 20.0,
+                height: 12.0,
+            }
+        );
+    }
 }

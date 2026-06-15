@@ -29,9 +29,11 @@ impl fmt::Display for ColorParseError {
 
 impl std::error::Error for ColorParseError {}
 
-/// Parse a color string using css-color-parser
-/// Supports hex colors, rgb/rgba, hsl/hsla, and all CSS named colors
-/// Also includes special case for rebeccapurple which isn't in css-color-parser 0.1.2
+/// Parse a color string using css-color-parser.
+///
+/// Supports CSS hex colors, rgb/rgba, hsl/hsla, and CSS named colors. Hex
+/// alpha forms are handled here because css-color-parser 0.1.2 accepts
+/// `#rgb`/`#rrggbb` but not `#rgba`/`#rrggbbaa`.
 pub fn parse_color_string(color_str: &str) -> Option<[f32; 4]> {
     // Special case for rebeccapurple which isn't in css-color-parser 0.1.2
     // but is an official CSS color (added in CSS Color Module Level 4)
@@ -44,8 +46,12 @@ pub fn parse_color_string(color_str: &str) -> Option<[f32; 4]> {
         ]);
     }
 
+    if let Some(rgba) = parse_hex_alpha_color(color_str) {
+        return Some(rgba);
+    }
+
     // Try parsing with css-color-parser which supports:
-    // - Hex colors (#fff, #ffffff, #ffffff80)
+    // - Hex colors (#fff, #ffffff)
     // - rgb/rgba functions
     // - hsl/hsla functions
     // - Most CSS named colors
@@ -57,6 +63,37 @@ pub fn parse_color_string(color_str: &str) -> Option<[f32; 4]> {
             css_color.a,
         ]
     })
+}
+
+fn parse_hex_alpha_color(color_str: &str) -> Option<[f32; 4]> {
+    let hex = color_str.strip_prefix('#')?;
+    match hex.len() {
+        4 => {
+            let mut chars = hex.chars();
+            Some([
+                repeated_hex_digit(chars.next()?)? as f32 / 255.0,
+                repeated_hex_digit(chars.next()?)? as f32 / 255.0,
+                repeated_hex_digit(chars.next()?)? as f32 / 255.0,
+                repeated_hex_digit(chars.next()?)? as f32 / 255.0,
+            ])
+        }
+        8 => Some([
+            hex_byte(&hex[0..2])? as f32 / 255.0,
+            hex_byte(&hex[2..4])? as f32 / 255.0,
+            hex_byte(&hex[4..6])? as f32 / 255.0,
+            hex_byte(&hex[6..8])? as f32 / 255.0,
+        ]),
+        _ => None,
+    }
+}
+
+fn repeated_hex_digit(ch: char) -> Option<u8> {
+    let digit = ch.to_digit(16)? as u8;
+    Some(digit * 17)
+}
+
+fn hex_byte(hex: &str) -> Option<u8> {
+    u8::from_str_radix(hex, 16).ok()
 }
 
 /// Strict color parser that returns an error if the color string cannot be parsed.
@@ -83,6 +120,21 @@ mod tests {
         assert_eq!(g, 0.0);
         assert!((b - 170.0 / 255.0).abs() < 0.001);
         assert_eq!(a, 1.0);
+    }
+
+    #[test]
+    fn test_parse_color_string_hex_alpha() {
+        let [r, g, b, a] = parse_color_string("#f0a8").unwrap();
+        assert_eq!(r, 1.0);
+        assert_eq!(g, 0.0);
+        assert!((b - 170.0 / 255.0).abs() < 0.001);
+        assert!((a - 136.0 / 255.0).abs() < 0.001);
+
+        let [r, g, b, a] = parse_color_string("#ff00aa80").unwrap();
+        assert_eq!(r, 1.0);
+        assert_eq!(g, 0.0);
+        assert!((b - 170.0 / 255.0).abs() < 0.001);
+        assert!((a - 128.0 / 255.0).abs() < 0.001);
     }
 
     #[test]

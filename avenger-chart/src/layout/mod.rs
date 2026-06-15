@@ -29,20 +29,6 @@ pub use avenger_chart_core::{
 pub(crate) use avenger_layout::{
     EdgeDemand, EdgeGrant, Edges, GridShape, GridSlot, Size, Spacing as TrackSpacing,
 };
-pub(crate) use placement::{BoundaryDemand, EdgeTargets, Orientation};
-pub(crate) use uniform::UniformTracks;
-
-/// Chart placement metadata carried through the neutral handoff: the
-/// concat retarget protocol state. `avenger-layout` never reads it.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct ChartRegionMeta {
-    pub(crate) content_size_override: Option<Size>,
-    pub(crate) edge_targets: Option<EdgeTargets>,
-}
-
-/// The chart's placement handoff: positioned children with chart metadata.
-pub type PlacementSolution = placement::PlacementSolution<usize, ChartRegionMeta>;
-pub type PlacedRegion = placement::PlacedRegion<usize, ChartRegionMeta>;
 pub use band_position::BandPositionIterator;
 pub(crate) use chrome::FrameChrome;
 pub use content_solver::{
@@ -55,40 +41,16 @@ pub(crate) use frame_solver::{
     retarget_frame_layout_for_plot_area,
 };
 pub use info::LegendLayoutInfo;
+pub(crate) use placement::{BoundaryDemand, EdgeTargets, Orientation};
 pub use sizing::{
     CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, LayoutSpec, Margins, PlotConstraint,
 };
 pub(crate) use sizing::{
     EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, ResolvedLayoutDimensions, SizeMode,
 };
+pub(crate) use uniform::UniformTracks;
 
 /// Convert chart-core edge slabs into neutral layout edges.
 pub(crate) fn layout_edges(slabs: EdgeSlabs) -> Edges<f32> {
     Edges::new(slabs.top, slabs.right, slabs.bottom, slabs.left)
-}
-
-fn layout_rect(bounds: LayoutBounds) -> avenger_layout::Rect {
-    avenger_layout::Rect::new(bounds.x, bounds.y, bounds.width, bounds.height)
-}
-
-/// Project a child-local component bound into the parent frame's coordinate
-/// space.
-pub(crate) fn project_child_rect(
-    parent_content_origin: [f32; 2],
-    child_render_origin: [f32; 2],
-    child_plot_bounds: LayoutBounds,
-    child_bounds: LayoutBounds,
-) -> LayoutBounds {
-    let rect = placement::project_rect(
-        parent_content_origin,
-        child_render_origin,
-        layout_rect(child_plot_bounds),
-        layout_rect(child_bounds),
-    );
-    LayoutBounds {
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-    }
 }

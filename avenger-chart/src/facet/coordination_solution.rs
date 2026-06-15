@@ -24,11 +24,9 @@ pub(crate) struct CoordinationSolution {
     pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) guide_anchor_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) boundary_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
-    /// The round's retained solve (lowered tree + solution), kept only
-    /// for the shadow census (`AVENGER_SHADOW_TREE_SOLVE=1`), whose
-    /// adoption probe compares this install-time geometry against the
-    /// settled re-solve. `None` in normal runs and for fixture-built
-    /// solutions.
+    /// The round's retained solve (lowered tree + solution), used as the
+    /// durable geometry readback source. `None` only for fixture-built
+    /// solutions and band-less measurements.
     pub(crate) retained: Option<std::sync::Arc<crate::facet::tree_solve::RetainedFacetSolve>>,
 }
 

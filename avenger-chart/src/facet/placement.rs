@@ -6,6 +6,8 @@
 
 use std::collections::HashMap;
 
+use avenger_chart_core::LayoutBounds;
+use avenger_layout::{Distribute, Layout, RegionDetail, SolveOptions, Spacing, TrackSize};
 use avenger_scales::scales::ConfiguredScale;
 use datafusion_common::ScalarValue;
 use tracing::trace;
@@ -19,10 +21,9 @@ use crate::{
         padding_policy,
     },
     layout::{
-        BandPosition, BandPositionIterator, BoundaryDemand, PlacedRegion, PlacementSolution, Size,
-        TrackSpacing, UniformTracks,
+        BandPosition, BandPositionIterator, BoundaryDemand, Size, TrackSpacing, UniformTracks,
     },
-    plot::compiled::ComponentsMeasurement,
+    plot::compiled::{ChildFrameRegion, ComponentsMeasurement},
     scales::ConfiguredScaleWithSpec,
 };
 
@@ -70,47 +71,6 @@ impl FacetBandPlacement {
             main_extent,
             cross_extent,
         }
-    }
-
-    /// Convert main-axis cell placement into render-space origins
-    /// relative to the parent content rectangle.
-    ///
-    /// Cross-extent law: a resolved extent wins; a band with cells but no
-    /// resolved extent reads as zero (cells carry no cross extent of
-    /// their own); only a cell-less band takes the fallback content size.
-    pub(crate) fn to_placement_solution(
-        &self,
-        origin_offset: [f32; 2],
-        fallback_content_size: Size,
-    ) -> PlacementSolution {
-        let vertical = matches!(self.axis, FacetAxis::Row);
-        let placements = self
-            .cells
-            .iter()
-            .map(|cell| {
-                let origin = if vertical {
-                    [origin_offset[0], cell.main_start + origin_offset[1]]
-                } else {
-                    [cell.main_start + origin_offset[0], origin_offset[1]]
-                };
-                PlacedRegion::new(cell.cell_index, origin)
-            })
-            .collect();
-        let cross_extent = self
-            .cross_extent
-            .or((!self.cells.is_empty()).then_some(0.0));
-        let content_size = if vertical {
-            Size::new(
-                cross_extent.unwrap_or(fallback_content_size.width),
-                self.main_extent,
-            )
-        } else {
-            Size::new(
-                self.main_extent,
-                cross_extent.unwrap_or(fallback_content_size.height),
-            )
-        };
-        PlacementSolution::new(content_size, placements)
     }
 
     pub(crate) fn cell_count(&self) -> usize {
@@ -306,7 +266,50 @@ pub(crate) fn resolve_facet_band_placement(
     )
 }
 
-fn facet_cell_main_start_offset(facet_band: &FacetBandCoordMeasurement) -> (f32, f32) {
+fn facet_render_cell_size(
+    axis: FacetAxis,
+    band_size: f32,
+    cell: &FacetCellRuntime,
+) -> avenger_layout::Size {
+    match axis {
+        FacetAxis::Column => avenger_layout::Size::new(
+            band_size.max(0.0),
+            cell.measurement.plot_area_height.max(0.0),
+        ),
+        FacetAxis::Row => avenger_layout::Size::new(
+            cell.measurement.plot_area_width.max(0.0),
+            band_size.max(0.0),
+        ),
+    }
+}
+
+fn tracks_full_rect(tracks: &avenger_layout::SolvedTracks) -> Option<avenger_layout::Rect> {
+    tracks.content_rect_for_slot(avenger_layout::GridSlot {
+        row: 0,
+        column: 0,
+        row_span: tracks.row_sizes.len(),
+        column_span: tracks.column_sizes.len(),
+    })
+}
+
+fn facet_render_cell_slot(axis: FacetAxis, index: usize) -> avenger_layout::GridSlot {
+    match axis {
+        FacetAxis::Column => avenger_layout::GridSlot {
+            row: 0,
+            column: index,
+            row_span: 1,
+            column_span: 1,
+        },
+        FacetAxis::Row => avenger_layout::GridSlot {
+            row: index,
+            column: 0,
+            row_span: 1,
+            column_span: 1,
+        },
+    }
+}
+
+fn facet_cell_cross_axis_offset(facet_band: &FacetBandCoordMeasurement) -> (f32, f32) {
     let slabs = FacetOverflowSlabs::from_coordinated(facet_band.active_overflow());
     match facet_band.axis {
         FacetAxis::Column => (0.0, slabs.legend.top),
@@ -314,56 +317,142 @@ fn facet_cell_main_start_offset(facet_band: &FacetBandCoordMeasurement) -> (f32,
     }
 }
 
-pub(crate) fn facet_child_frame_placement_from_band(
+pub(crate) fn facet_child_frame_regions_from_band_layout(
     facet_band: &FacetBandCoordMeasurement,
     placement: &FacetBandPlacement,
-    fallback_content_size: Size,
-) -> Result<PlacementSolution, AvengerChartError> {
+    plot_width: f32,
+    plot_height: f32,
+) -> Result<(Size, Vec<ChildFrameRegion>), AvengerChartError> {
     if placement.axis != facet_band.axis {
         return Err(AvengerChartError::InternalError(format!(
-            "Facet child-frame placement axis mismatch: placement={:?}, measurement={:?}",
+            "Facet child-frame layout axis mismatch: placement={:?}, measurement={:?}",
             placement.axis, facet_band.axis
         )));
     }
     if placement.cell_count() != facet_band.cells.len() {
         return Err(AvengerChartError::InternalError(format!(
-            "Facet child-frame placement count mismatch: placement={}, cells={}",
+            "Facet child-frame layout count mismatch: placement={}, cells={}",
             placement.cell_count(),
             facet_band.cells.len()
         )));
     }
 
+    let mut children = Vec::with_capacity(facet_band.cells.len());
+    let mut main_sizes = Vec::with_capacity(facet_band.cells.len());
     for (idx, cell_placement) in placement.cells.iter().enumerate() {
         if cell_placement.cell_index != idx {
             return Err(AvengerChartError::InternalError(format!(
-                "Facet child-frame placement cell index mismatch: expected={idx}, actual={}",
+                "Facet child-frame layout cell index mismatch: expected={idx}, actual={}",
                 cell_placement.cell_index
             )));
         }
+        let cell = facet_band.cells.get(idx).ok_or_else(|| {
+            AvengerChartError::InternalError(format!("Missing facet cell for index {idx}"))
+        })?;
+        main_sizes.push(cell_placement.main_size.max(0.0));
+        children.push(Layout::<usize, ()>::leaf(facet_render_cell_size(
+            facet_band.axis,
+            cell_placement.main_size,
+            cell,
+        )));
     }
 
-    let (origin_offset_x, origin_offset_y) = facet_cell_main_start_offset(facet_band);
-    Ok(placement.to_placement_solution([origin_offset_x, origin_offset_y], fallback_content_size))
+    let layout = facet_band.active_layout();
+    let spacing = Spacing {
+        outer_start: layout.outer_start,
+        outer_end: layout.outer_end,
+        min_gap: layout.padding_inner_px,
+    };
+    let fixed_tracks = main_sizes
+        .iter()
+        .copied()
+        .map(TrackSize::Fixed)
+        .collect::<Vec<_>>();
+    let render_layout = match facet_band.axis {
+        FacetAxis::Column => Layout::row(children)
+            .column_spacing(spacing)
+            .columns(fixed_tracks)
+            .distribute_x(Distribute::Start),
+        FacetAxis::Row => Layout::column(children)
+            .row_spacing(spacing)
+            .rows(fixed_tracks)
+            .distribute_y(Distribute::Start),
+    };
+    let solution = render_layout
+        .solve(&SolveOptions {
+            width: Some(plot_width.max(0.0)),
+            height: Some(plot_height.max(0.0)),
+        })
+        .map_err(|error| {
+            AvengerChartError::InternalError(format!(
+                "Facet child-frame layout solve failed: {error}"
+            ))
+        })?;
+    let root = solution.regions().next().ok_or_else(|| {
+        AvengerChartError::InternalError("Facet child-frame layout produced no root region".into())
+    })?;
+    let RegionDetail::Grid { tracks } = &root.detail else {
+        return Err(AvengerChartError::InternalError(
+            "Facet child-frame layout root was not a grid".into(),
+        ));
+    };
+    let full_rect = tracks_full_rect(tracks).unwrap_or(root.content);
+    let (offset_x, offset_y) = facet_cell_cross_axis_offset(facet_band);
+    let regions = (0..facet_band.cells.len())
+        .map(|idx| {
+            let rect = tracks
+                .content_rect_for_slot(facet_render_cell_slot(facet_band.axis, idx))
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Facet child-frame layout missing track rect for cell index {idx}"
+                    ))
+                })?;
+            Ok(ChildFrameRegion {
+                child_index: idx,
+                content: LayoutBounds {
+                    x: rect.x + offset_x,
+                    y: rect.y + offset_y,
+                    width: rect.width,
+                    height: rect.height,
+                },
+                slot: LayoutBounds {
+                    x: rect.x + offset_x,
+                    y: rect.y + offset_y,
+                    width: rect.width,
+                    height: rect.height,
+                },
+                content_size_override: None,
+                edge_targets: None,
+            })
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+    Ok((Size::new(full_rect.width, full_rect.height), regions))
 }
 
-pub(crate) fn resolve_facet_child_frame_placement_from_scale_specs(
+pub(crate) fn facet_band_positions_from_band_layout(
     facet_band: &FacetBandCoordMeasurement,
-    scales: &HashMap<String, ConfiguredScaleWithSpec>,
-    fallback_content_size: Size,
-) -> Result<PlacementSolution, AvengerChartError> {
-    let placement = facet_band.resolved_placement_from_scale_specs(scales)?;
-    facet_child_frame_placement_from_band(facet_band, &placement, fallback_content_size)
-}
-
-pub(crate) fn resolve_facet_child_frame_placement(
-    measurement: &ComponentsMeasurement,
-    facet_band: &FacetBandCoordMeasurement,
-) -> Result<PlacementSolution, AvengerChartError> {
-    resolve_facet_child_frame_placement_from_scale_specs(
-        facet_band,
-        &measurement.scales,
-        Size::new(measurement.plot_area_width, measurement.plot_area_height),
-    )
+    placement: &FacetBandPlacement,
+    plot_width: f32,
+    plot_height: f32,
+) -> Result<Vec<BandPosition>, AvengerChartError> {
+    let (_, regions) =
+        facet_child_frame_regions_from_band_layout(facet_band, placement, plot_width, plot_height)?;
+    regions
+        .into_iter()
+        .map(|region| {
+            let cell = facet_band.cells.get(region.child_index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Facet child-frame layout missing cell for band position {}",
+                    region.child_index
+                ))
+            })?;
+            let (start, bandwidth) = match facet_band.axis {
+                FacetAxis::Column => (region.content.x, region.content.width),
+                FacetAxis::Row => (region.content.y, region.content.height),
+            };
+            Ok(BandPosition::new(cell.plan.value.clone(), start, bandwidth))
+        })
+        .collect()
 }
 
 pub(crate) fn compute_explicit_facet_band_placement(

@@ -63,7 +63,6 @@ use crate::{
         AvengerFrameLayoutSolver, EdgeSlabs, EvaluatedLayoutSpec, EvaluatedMargins,
         EvaluatedSizeMode, FrameAllocation, FrameDimensionSizing, FrameLayout, FrameLayoutInput,
         LayoutBounds, LayoutSpec, Margins, ResolvedLayoutDimensions, Size2D, SizeMode,
-        project_child_rect,
     },
     marks::CompiledMark,
     positioned_subplot::{PositionedCoordMeasurement, render_positioned_subplot_with_context},
@@ -884,22 +883,20 @@ fn projected_child_frame_container_plot_area_envelope(
     let parent_content_origin = [layout.plot_area.x, layout.plot_area.y];
     let mut envelope = None;
 
-    for child_render_placement in container.placement().placements() {
+    for child_region in container.child_regions() {
         let child_measurement = container
-            .child_measurement(child_render_placement.id)
+            .child_measurement(child_region.child_index)
             .ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Missing child-frame container child for index {}",
-                    child_render_placement.id
+                    child_region.child_index
                 ))
             })?;
         let child_plot_bounds = *child_measurement.layout.plot_area_bounds();
-        let projected_plot_bounds = project_child_rect(
-            parent_content_origin,
-            child_render_placement.origin,
-            child_plot_bounds,
-            child_plot_bounds,
-        );
+        let mut projected_plot_bounds =
+            container.project_child_bounds(child_region.child_index, child_plot_bounds)?;
+        projected_plot_bounds.x += parent_content_origin[0];
+        projected_plot_bounds.y += parent_content_origin[1];
         union_layout_bounds(&mut envelope, projected_plot_bounds);
     }
 
@@ -927,16 +924,15 @@ fn child_frame_container_component_debug_side_extents(
 
     let parent_content_origin = [layout.plot_area.x, layout.plot_area.y];
 
-    for child_render_placement in container.placement().placements() {
+    for child_region in container.child_regions() {
         let child_measurement = container
-            .child_measurement(child_render_placement.id)
+            .child_measurement(child_region.child_index)
             .ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Missing child-frame container child for index {}",
-                    child_render_placement.id
+                    child_region.child_index
                 ))
             })?;
-        let child_plot_bounds = child_measurement.layout.plot_area_bounds();
 
         for position in [
             LegendPosition::Top,
@@ -958,12 +954,10 @@ fn child_frame_container_component_debug_side_extents(
                 else {
                     continue;
                 };
-                let projected = project_child_rect(
-                    parent_content_origin,
-                    child_render_placement.origin,
-                    *child_plot_bounds,
-                    *bounds,
-                );
+                let mut projected =
+                    container.project_child_bounds(child_region.child_index, *bounds)?;
+                projected.x += parent_content_origin[0];
+                projected.y += parent_content_origin[1];
                 add_debug_side_extent(&mut extents, side, content, projected);
             }
         }
@@ -3971,26 +3965,22 @@ impl CompiledPlot {
             return Ok(None);
         };
 
-        let parent_content_origin = [content_rect.x, content_rect.y];
-
-        let mut rects = Vec::with_capacity(container.placement().placements().len());
-        for child_render_placement in container.placement().placements() {
+        let mut rects = Vec::with_capacity(container.child_regions().len());
+        for child_region in container.child_regions() {
             let child_measurement = container
-                .child_measurement(child_render_placement.id)
+                .child_measurement(child_region.child_index)
                 .ok_or_else(|| {
                     AvengerChartError::InternalError(format!(
                         "Missing debug child frame for child index {}",
-                        child_render_placement.id
+                        child_region.child_index
                     ))
                 })?;
             let child_rect = child_measurement.frame_allocation.rect;
-            let child_plot_bounds = child_measurement.layout.plot_area_bounds();
-            rects.push(project_child_rect(
-                parent_content_origin,
-                child_render_placement.origin,
-                *child_plot_bounds,
-                child_rect,
-            ));
+            let mut projected =
+                container.project_child_bounds(child_region.child_index, child_rect)?;
+            projected.x += content_rect.x;
+            projected.y += content_rect.y;
+            rects.push(projected);
         }
 
         Ok(Some(rects))
@@ -5367,7 +5357,7 @@ impl CompiledPlot {
             ));
         }
         if let Some(container) = measurement.child_frame_container_view()? {
-            let expected_count = container.placement().placements().len();
+            let expected_count = container.child_regions().len();
             if content_layout.child_frame_allocations.len() != expected_count {
                 return Err(AvengerChartError::InternalError(format!(
                     "root child-frame allocation count mismatch: expected {}, got {}",
@@ -8463,17 +8453,14 @@ mod tests {
             .child_frame_container_view()?
             .expect("facet measurement should expose a child-frame container view");
 
-        assert_eq!(
-            container.placement().placements().len(),
-            facet_band.cells.len()
-        );
-        for child_render_placement in container.placement().placements() {
+        assert_eq!(container.child_regions().len(), facet_band.cells.len());
+        for child_region in container.child_regions() {
             let child_measurement = container
-                .child_measurement(child_render_placement.id)
-                .expect("render placement should resolve to a child measurement");
+                .child_measurement(child_region.child_index)
+                .expect("child region should resolve to a child measurement");
             assert_eq!(
                 child_measurement.frame_allocation,
-                facet_band.cells[child_render_placement.id]
+                facet_band.cells[child_region.child_index]
                     .measurement
                     .frame_allocation
             );
@@ -8764,19 +8751,15 @@ mod tests {
         }
 
         if let Some(facet_band) = facet_band_ref(measurement) {
-            let child_frame_placement =
-                crate::facet::placement::resolve_facet_child_frame_placement(
-                    measurement,
-                    facet_band,
-                )
-                .expect("resolve facet child-frame placement");
+            let container = measurement
+                .child_frame_container_view()
+                .expect("resolve child-frame container")
+                .expect("facet child-frame container");
             for (idx, child) in facet_band.child_measurements_iter().enumerate() {
-                let child_render_placement = child_frame_placement
-                    .child(idx)
-                    .expect("child-frame placement");
+                let child_region = container.child_region(idx).expect("child-frame region");
                 let child_origin = (
-                    origin.0 + child_render_placement.origin[0],
-                    origin.1 + child_render_placement.origin[1],
+                    origin.0 + child_region.content.x,
+                    origin.1 + child_region.content.y,
                 );
                 assert_legends_within_root_canvas(child, root_canvas, child_origin);
             }

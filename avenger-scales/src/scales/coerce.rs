@@ -972,8 +972,7 @@ mod tests {
         }
 
         if let ColorOrGradient::Color(red_8) = &colors_vec[2] {
-            // 8-digit hex colors are not supported by css_color_parser, falls back to transparent
-            assert_color_approx_eq(*red_8, [0.0, 0.0, 0.0, 0.0], 0.01);
+            assert_color_approx_eq(*red_8, [1.0, 0.0, 0.0, 128.0 / 255.0], 0.001);
         } else {
             panic!("Expected Color variant");
         }

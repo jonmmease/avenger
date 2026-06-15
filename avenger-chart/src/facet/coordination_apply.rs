@@ -8,7 +8,7 @@ use crate::{
         coordination_plans::{CoordinationNodeKey, RequirementPass},
     },
     plot::compiled::ComponentsMeasurement,
-    render::EvaluationContext,
+    render::{EvaluationContext, context::FacetRuntimeSizingMode},
 };
 
 pub(crate) fn visit_facet_bands_with_node_id<F>(
@@ -83,6 +83,81 @@ pub(crate) fn apply_requirement_pass(
         return Err(error);
     }
 
+    Ok(())
+}
+
+/// Replace the installed coordination solution's retained geometry with a
+/// solve from the post-adoption measurement state.
+///
+/// The channel values remain the requirement pass values installed before
+/// adoption; only the retained `LayoutSolution` used for geometry readback is
+/// refreshed. This keeps render readback aligned with the scales and child
+/// plot areas that adoption just retargeted.
+pub(crate) fn refresh_retained_geometry_after_adopt(
+    measurement: &mut ComponentsMeasurement,
+    sizing: FacetRuntimeSizingMode,
+) -> Result<(), AvengerChartError> {
+    let Some(lowered) = crate::facet::tree_solve::lower_settled_facet_tree(measurement, sizing)
+    else {
+        return Ok(());
+    };
+    let solved = lowered.solve().map_err(|error| {
+        AvengerChartError::InternalError(format!("facet settled geometry solve failed: {error}"))
+    })?;
+    let retained = std::sync::Arc::new(crate::facet::tree_solve::RetainedFacetSolve {
+        lowered,
+        solution: solved,
+    });
+
+    let mut base_solution = None;
+    let mut node_path = Vec::new();
+    visit_facet_bands_with_node_id(
+        measurement,
+        0,
+        &mut node_path,
+        &mut |_node_id, _depth, facet_band| {
+            if base_solution.is_none()
+                && let Some((solution, _)) = facet_band.coordination_solution_handle()
+            {
+                base_solution = Some(solution);
+            }
+        },
+    );
+
+    let Some(base_solution) = base_solution else {
+        return Ok(());
+    };
+    let mut updated_solution = (*base_solution).clone();
+    updated_solution.retained = Some(retained);
+    let updated_solution = std::sync::Arc::new(updated_solution);
+
+    let mut error = None;
+    let mut node_path = Vec::new();
+    visit_facet_bands_with_node_id_mut(
+        measurement,
+        0,
+        &mut node_path,
+        &mut |node_id, _depth, facet_band| {
+            if error.is_some() {
+                return;
+            }
+            if !updated_solution.layout_by_node.contains_key(node_id) {
+                error = Some(AvengerChartError::InternalError(format!(
+                    "settled geometry solution did not include node path {:?}",
+                    node_id.path
+                )));
+                return;
+            }
+            facet_band.set_coordination_solution(
+                std::sync::Arc::clone(&updated_solution),
+                node_id.clone(),
+            );
+        },
+    );
+
+    if let Some(error) = error {
+        return Err(error);
+    }
     Ok(())
 }
 

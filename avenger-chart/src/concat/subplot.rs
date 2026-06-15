@@ -473,16 +473,7 @@ impl CompiledConcatSubplot {
                         self.child_index()
                     ))
                 })?;
-            let child_frame_placement = concat_measurement.child_frame_placement();
-            let render_placement =
-                child_frame_placement
-                    .child(self.child_index())
-                    .ok_or_else(|| {
-                        AvengerChartError::InternalError(format!(
-                            "Missing concat child-frame placement for subplot child index {}",
-                            self.child_index()
-                        ))
-                    })?;
+            let child_frame_region = concat_measurement.child_frame_region(self.child_index())?;
 
             let mut params = self.compiled_subplot().get_default_params().clone();
             params.extend(context.eval.params.clone());
@@ -513,7 +504,7 @@ impl CompiledConcatSubplot {
             let data_override = self.inherited_data_override(data, context)?;
             let mut child_measurement = child.measurement.clone();
             refresh_measurement_params_for_child(&mut child_measurement, &child_eval_ctx);
-            if let Some(content_size_override) = render_placement.meta.content_size_override {
+            if let Some(content_size_override) = child_frame_region.content_size_override {
                 retarget_measurement_plot_area_no_remeasure(
                     &mut child_measurement,
                     self.compiled_subplot(),
@@ -523,7 +514,7 @@ impl CompiledConcatSubplot {
                     content_size_override.height,
                 )?;
             }
-            if let Some(edge_targets) = render_placement.meta.edge_targets {
+            if let Some(edge_targets) = child_frame_region.edge_targets {
                 apply_measurement_edge_targets(&mut child_measurement, edge_targets);
             }
             if has_raw_domain_scale(self.compiled_subplot()) {
@@ -558,8 +549,8 @@ impl CompiledConcatSubplot {
                     scope.prepend_coord_node_path(self.child_index());
                     scope.prepend_subplot_id(self.compiled_state().id.as_deref());
                     scope.prepend_child_frame_segment(child_frame_segment.clone());
-                    scope.bounds.x += render_placement.origin[0];
-                    scope.bounds.y += render_placement.origin[1];
+                    scope.bounds.x += child_frame_region.content.x;
+                    scope.bounds.y += child_frame_region.content.y;
                     scope
                 });
                 context.eval.push_interaction_scopes(translated);
@@ -606,7 +597,7 @@ impl CompiledConcatSubplot {
 
             Ok(vec![SceneMark::Group(SceneGroup {
                 name: self.group_name(),
-                origin: render_placement.origin,
+                origin: child_frame_region.plot_origin(),
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 marks: all_marks,
                 gradients: Vec::new(),

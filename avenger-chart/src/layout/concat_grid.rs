@@ -13,9 +13,10 @@
 //! equal the pre-span-constraint requirement fold (span constraints re-apply
 //! per member in the group solve).
 //!
-//! Placement reads come straight off `LayoutSolution`: child slots give
-//! origins/span sizes relative to the member content rect, and child granted
-//! edges give coordinated edge targets.
+//! Placement reads come straight off `LayoutSolution`: child content/slot
+//! rectangles give origins and span sizes relative to the member content rect.
+//! Track-level granted edges stay in the diagnostic requirement view rather
+//! than becoming a second render-placement handoff.
 
 use std::sync::Arc;
 
@@ -177,21 +178,32 @@ impl SolvedLayoutMember {
         Ok(Size::new(content.width, content.height))
     }
 
-    pub(crate) fn child_origin_relative_to_member(
+    pub(crate) fn child_content_rect_relative_to_member(
         &self,
         child_position: usize,
-    ) -> Result<[f32; 2], String> {
+    ) -> Result<avenger_layout::Rect, String> {
         let member = self.member_region()?;
         let child = self.child_region(child_position)?;
-        Ok([
-            child.slot.x - member.content.x,
-            child.slot.y - member.content.y,
-        ])
+        Ok(avenger_layout::Rect::new(
+            child.content.x - member.content.x,
+            child.content.y - member.content.y,
+            child.content.width,
+            child.content.height,
+        ))
     }
 
-    pub(crate) fn child_slot_size(&self, child_position: usize) -> Result<Size, String> {
-        let slot = self.child_region(child_position)?.slot;
-        Ok(Size::new(slot.width, slot.height))
+    pub(crate) fn child_slot_rect_relative_to_member(
+        &self,
+        child_position: usize,
+    ) -> Result<avenger_layout::Rect, String> {
+        let member = self.member_region()?;
+        let child = self.child_region(child_position)?;
+        Ok(avenger_layout::Rect::new(
+            child.slot.x - member.content.x,
+            child.slot.y - member.content.y,
+            child.slot.width,
+            child.slot.height,
+        ))
     }
 
     pub(crate) fn child_edge_targets(&self, child_position: usize) -> Result<EdgeTargets, String> {
@@ -512,16 +524,17 @@ mod tests {
         let span_index = 2;
         assert_eq!(
             applied
-                .child_slot_size(span_index)
+                .child_slot_rect_relative_to_member(span_index)
                 .expect("span child slot")
                 .width,
             200.0
         );
         assert_eq!(
             applied
-                .child_origin_relative_to_member(span_index)
-                .expect("span origin"),
-            [0.0, 62.0]
+                .child_content_rect_relative_to_member(span_index)
+                .expect("span content")
+                .y,
+            62.0
         );
         // Per-track fold: max(cell00's left 3.0, the span's left 2.0).
         assert_eq!(
