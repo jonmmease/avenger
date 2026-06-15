@@ -430,8 +430,6 @@ pub(crate) fn test_solved_round(
         merged_by_node,
         own_overflow_by_node,
         overflow_by_node,
-        // Fixture folds retain no solve.
-        retained: None,
     }
 }
 
@@ -509,7 +507,7 @@ pub(crate) fn build_requirement_pass_with_round(
             .len(),
     };
 
-    let mut solution = build_round_solution(
+    let solution = build_round_solution(
         nodes,
         &scopes,
         &grouped,
@@ -519,7 +517,6 @@ pub(crate) fn build_requirement_pass_with_round(
         &solved.merged_by_node,
     );
     validate_round_solution_coverage(nodes, &solution)?;
-    solution.retained = solved.retained;
 
     Ok(RequirementPass {
         snapshot,

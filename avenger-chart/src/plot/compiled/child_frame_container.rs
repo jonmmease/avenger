@@ -6,19 +6,15 @@
 
 use std::collections::HashSet;
 
-use avenger_chart_core::{
-    AvengerChartError, CoordMeasurement, FrameAllocation, LayoutBounds, OverflowSpaceRequirement,
-};
-use tracing::debug;
-
 use crate::{
     concat::ConcatCoordMeasurement,
-    facet::{
-        coord::FacetBandCoordMeasurement, placement::facet_child_frame_regions_from_band_layout,
-    },
+    facet::coord::FacetBandCoordMeasurement,
     layout::Size,
     partition::format_partition_value,
     positioned_subplot::{PositionedCoordMeasurement, PositionedPlacementSolution},
+};
+use avenger_chart_core::{
+    AvengerChartError, CoordMeasurement, FrameAllocation, LayoutBounds, OverflowSpaceRequirement,
 };
 
 use super::{ChildFrameScopeKey, ComponentsMeasurement, CoordinationKind, CoordinationScopeKey};
@@ -288,7 +284,7 @@ pub(crate) fn child_frame_container_view_from_positioned(
 }
 
 pub(crate) fn child_frame_container_view_from_facet<'a>(
-    measurement: &'a ComponentsMeasurement,
+    _measurement: &'a ComponentsMeasurement,
     facet_band: &'a FacetBandCoordMeasurement,
 ) -> Result<ChildFrameContainerView<'a>, AvengerChartError> {
     let children = facet_band
@@ -310,77 +306,12 @@ pub(crate) fn child_frame_container_view_from_facet<'a>(
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
 
-    let placement = facet_band.resolved_placement_from_scale_specs(&measurement.scales)?;
-    let (content_size, regions) = facet_child_frame_regions_from_band_layout(
-        facet_band,
-        &placement,
-        measurement.plot_area_width,
-        measurement.plot_area_height,
-    )?;
+    let (content_size, regions) = facet_band.current_child_frame_regions()?;
     validate_child_regions(&regions, &children, None)?;
-    if facet_region_shadow_enabled()
-        && let Some((retained_content_size, retained_regions)) =
-            facet_band.solved_child_frame_regions()?
-    {
-        shadow_compare_facet_regions(
-            content_size,
-            &regions,
-            retained_content_size,
-            &retained_regions,
-        );
-    }
     let view = ChildFrameContainerView::new(children, content_size, regions);
     view.validate_scope_keys()?;
     view.validate_child_regions(None)?;
     Ok(view)
-}
-
-fn facet_region_shadow_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        std::env::var("AVENGER_LAYOUTSOLUTION_PLACEMENT_SHADOW").is_ok_and(|value| value == "1")
-    })
-}
-
-fn shadow_compare_facet_regions(
-    placement_content_size: Size,
-    placement_regions: &[ChildFrameRegion],
-    solved_content_size: Size,
-    solved_regions: &[ChildFrameRegion],
-) {
-    if !facet_region_shadow_enabled() {
-        return;
-    }
-    let content_delta = (placement_content_size.width - solved_content_size.width)
-        .abs()
-        .max((placement_content_size.height - solved_content_size.height).abs());
-    let mut max_origin_delta = content_delta;
-    for placement_region in placement_regions {
-        let Some(solved_region) = solved_regions
-            .iter()
-            .find(|region| region.child_index == placement_region.child_index)
-        else {
-            debug!(
-                target: "avenger_chart::facet::layoutsolution_shadow",
-                child_index = placement_region.child_index,
-                "facet solved readback missing placement child"
-            );
-            continue;
-        };
-        max_origin_delta = max_origin_delta
-            .max((placement_region.content.x - solved_region.content.x).abs())
-            .max((placement_region.content.y - solved_region.content.y).abs())
-            .max((placement_region.content.width - solved_region.content.width).abs())
-            .max((placement_region.content.height - solved_region.content.height).abs());
-    }
-    debug!(
-        target: "avenger_chart::facet::layoutsolution_shadow",
-        placement_count = placement_regions.len(),
-        solved_count = solved_regions.len(),
-        content_delta,
-        max_origin_delta,
-        "facet placement-vs-layoutsolution child-region shadow"
-    );
 }
 
 impl ChildFrameContainerView<'_> {

@@ -17,17 +17,13 @@ use avenger_chart_core::{CoordinatedLayout, CoordinatedOverflow};
 
 use crate::facet::coordination_plans::CoordinationNodeKey;
 
-/// Solved coordination values for one round, keyed by traversal node.
+/// Solved coordination channel values for one round, keyed by traversal node.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CoordinationSolution {
     pub(crate) layout_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
     pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) guide_anchor_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) boundary_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
-    /// The round's retained solve (lowered tree + solution), used as the
-    /// durable geometry readback source. `None` only for fixture-built
-    /// solutions and band-less measurements.
-    pub(crate) retained: Option<std::sync::Arc<crate::facet::tree_solve::RetainedFacetSolve>>,
 }
 
 impl CoordinationSolution {

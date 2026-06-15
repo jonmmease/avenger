@@ -2787,6 +2787,10 @@ impl CompiledPlot {
         ))
         .await?;
         sync_measurement_owned_slabs_from_coord(measurement);
+        crate::facet::coordination_apply::refresh_current_facet_geometry(
+            measurement,
+            eval_ctx.facet_runtime_sizing_mode(),
+        )?;
         let refresh_elapsed = refresh_start.elapsed();
         eval_ctx.record_refresh_reused_profile_layout_duration(refresh_elapsed);
         tracing::debug!(
@@ -2846,6 +2850,10 @@ impl CompiledPlot {
             plot_area_height,
         );
         measurement.legend_plan.retarget_scales(&measurement.scales);
+        crate::facet::coordination_apply::refresh_current_facet_geometry(
+            measurement,
+            eval_ctx.facet_runtime_sizing_mode(),
+        )?;
 
         Ok(())
     }
@@ -3489,7 +3497,7 @@ impl CompiledPlot {
         if policy.height.is_canvas_constrained() {
             plot_area_height = plot_bounds.height.max(1.0);
         }
-        if (measurement.plot_area_width - plot_area_width).abs() > 0.01
+        let retargeted = if (measurement.plot_area_width - plot_area_width).abs() > 0.01
             || (measurement.plot_area_height - plot_area_height).abs() > 0.01
         {
             retarget_measurement_plot_area_policy_no_remeasure(
@@ -3500,6 +3508,7 @@ impl CompiledPlot {
                 plot_area_width,
                 plot_area_height,
             )?;
+            true
         } else {
             measurement.clip = self.resolved_clip_region(
                 eval_ctx,
@@ -3509,7 +3518,8 @@ impl CompiledPlot {
                 plot_area_height,
             );
             measurement.legend_plan.retarget_scales(&measurement.scales);
-        }
+            false
+        };
 
         trace!(
             facet_path = ?facet_path,
@@ -3519,6 +3529,13 @@ impl CompiledPlot {
             canvas_height = measurement.canvas_size.1,
             "policy realization computed facet extent"
         );
+
+        if !retargeted {
+            crate::facet::coordination_apply::refresh_current_facet_geometry(
+                measurement,
+                eval_ctx.facet_runtime_sizing_mode(),
+            )?;
+        }
 
         Ok(())
     }
@@ -4347,7 +4364,7 @@ impl CompiledPlot {
             owned_slabs: EdgeSlabs::default(),
         };
 
-        let measurement = ComponentsMeasurement {
+        let mut measurement = ComponentsMeasurement {
             coord_measurement,
             scales: final_scales,
             plot_area_width,
@@ -4359,6 +4376,10 @@ impl CompiledPlot {
             params: merged_params,
             legend_plan,
         };
+        crate::facet::coordination_apply::refresh_current_facet_geometry(
+            &mut measurement,
+            eval_ctx.facet_runtime_sizing_mode(),
+        )?;
         if tracing::enabled!(target: "avenger_chart::layout_coordination", tracing::Level::DEBUG) {
             let _ = diagnose_child_frame_layout_alignment(&measurement)?;
         }
@@ -6615,7 +6636,10 @@ mod tests {
     use super::*;
     use crate::{
         coords::CoordinatedOverflow,
-        facet::coord::{FacetBandCoordMeasurement, facet_band_ref as facet_band_ref_from_coord},
+        facet::{
+            coord::{FacetBandCoordMeasurement, facet_band_ref as facet_band_ref_from_coord},
+            coordination::coordinate_facet_measurement_tree,
+        },
         layout::{BandPositionIterator, CanvasConstraint, FrameDimensionSizing, PlotConstraint},
         prelude::*,
         render::FacetLayoutRefinement,
@@ -8446,7 +8470,9 @@ mod tests {
     async fn child_frame_container_view_exposes_facet_children() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = compile_simple_facet_plot_with_plot_size(&ctx).await?;
-        let (_, _, _, measurement) = prepare_top_level_measurement(&compiled, &ctx).await?;
+        let (eval_ctx, _, _, mut measurement) =
+            prepare_top_level_measurement(&compiled, &ctx).await?;
+        coordinate_facet_measurement_tree(&mut measurement, &eval_ctx).await?;
         let facet_band = facet_band_ref(&measurement)
             .expect("fixture should produce a top-level facet measurement");
         let container = measurement

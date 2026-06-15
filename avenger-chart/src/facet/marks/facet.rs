@@ -10,7 +10,6 @@ use crate::facet::ownership_policy::{
     cell_requires_invalid_path_axis_fallback_hidden, has_holes_from_cells,
     resolve_facet_ownership_policy,
 };
-use crate::facet::placement::{FacetBandPlacement, facet_child_frame_regions_from_band_layout};
 use crate::plot::CompiledPlot;
 use crate::plot::compiled::{
     ChildFrameRegion, ComponentsMeasurement, PlotComponents, compiled_subplot_payload_child_plot,
@@ -380,25 +379,17 @@ enum FacetCellPlanKind {
 
 fn facet_child_regions_for_render(
     facet_measurement: &FacetBandCoordMeasurement,
-    placement: &FacetBandPlacement,
-    context: &RenderContext<'_>,
 ) -> Result<(crate::layout::Size, Vec<ChildFrameRegion>), AvengerChartError> {
-    facet_child_frame_regions_from_band_layout(
-        facet_measurement,
-        placement,
-        context.plot_width(),
-        context.plot_height(),
-    )
+    facet_measurement.current_child_frame_regions()
 }
 
-async fn render_facet_band_with_placement(
+async fn render_facet_band_with_current_geometry(
     ops: FacetBandRenderOps,
     compiled_subplot: &CompiledPlot,
     subplot_id: Option<&str>,
     facet_empty_cell_policy: FacetEmptyCellPolicy,
     context: &RenderContext<'_>,
     facet_measurement: &FacetBandCoordMeasurement,
-    placement: FacetBandPlacement,
 ) -> Result<Vec<SceneMark>, AvengerChartError> {
     if facet_measurement.cells.is_empty() {
         return Ok(Vec::new());
@@ -419,16 +410,13 @@ async fn render_facet_band_with_placement(
         ownership_policy.axis_owner_ignore_empty_cells,
     );
 
-    let (child_content_size, child_regions) =
-        facet_child_regions_for_render(facet_measurement, &placement, context)?;
+    let (child_content_size, child_regions) = facet_child_regions_for_render(facet_measurement)?;
     trace!(
-        axis = ?placement.axis,
-        main_extent = placement.main_extent,
-        cross_extent = ?placement.cross_extent,
+        axis = ?facet_measurement.axis,
         child_content_width = child_content_size.width,
         child_content_height = child_content_size.height,
-        cell_count = placement.cell_count(),
-        "{} render placement resolved",
+        cell_count = facet_measurement.cells.len(),
+        "{} render geometry resolved",
         ops.label
     );
 
@@ -439,11 +427,6 @@ async fn render_facet_band_with_placement(
     let mut plans: Vec<FacetCellPlan> = Vec::with_capacity(facet_measurement.cells.len());
     let mut build_tasks: Vec<FacetCellBuildTask> = Vec::new();
     for (idx, cell) in facet_measurement.cells.iter().enumerate() {
-        let cell_placement = placement.cell(idx).ok_or_else(|| {
-            AvengerChartError::InternalError(format!(
-                "Missing facet render placement for cell index {idx}"
-            ))
-        })?;
         let child_region = child_regions
             .iter()
             .find(|region| region.child_index == idx)
@@ -452,11 +435,13 @@ async fn render_facet_band_with_placement(
                     "Missing facet child-frame region for cell index {idx}"
                 ))
             })?;
-        let position = cell_placement.main_start;
+        let (position, band_size) = match facet_measurement.axis {
+            FacetAxis::Column => (child_region.content.x, child_region.content.width),
+            FacetAxis::Row => (child_region.content.y, child_region.content.height),
+        };
         let subplot_origin = child_region.plot_origin();
         let is_empty_cell = cell.plan.is_empty;
-        let band_size = cell_placement.main_size;
-        let plot_area_target = match placement.axis {
+        let plot_area_target = match facet_measurement.axis {
             FacetAxis::Column => Size2D::new(band_size, cell.measurement.plot_area_height),
             FacetAxis::Row => Size2D::new(cell.measurement.plot_area_width, band_size),
         };
@@ -506,7 +491,7 @@ async fn render_facet_band_with_placement(
             full_path: cell.plan.full_path.clone(),
             is_terminal_cell,
             plot_area_target: Some(plot_area_target),
-            edge_targets: child_region.edge_targets,
+            edge_targets: None,
         });
         plans.push(FacetCellPlan {
             idx,
@@ -654,15 +639,13 @@ async fn render_facet_band_common(
         return Ok(Vec::new());
     }
 
-    let placement = facet_measurement.resolved_placement_from_scale_specs(context.scales())?;
-    render_facet_band_with_placement(
+    render_facet_band_with_current_geometry(
         ops,
         compiled_subplot,
         subplot_id,
         facet_empty_cell_policy,
         context,
         facet_measurement,
-        placement,
     )
     .await
 }

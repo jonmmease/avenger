@@ -1,6 +1,6 @@
 //! Real-tree facet lowering: the production source of the coordination
-//! requirement channels and retained child-frame geometry
-//! (`tree_solved_round`), plus an env-gated shadow census
+//! requirement channels (`tree_solved_round`) and current child-frame
+//! geometry (`CurrentFacetGeometry`), plus an env-gated shadow census
 //! (`AVENGER_SHADOW_TREE_SOLVE=1`) reporting slot-vs-live geometry deltas
 //! plus the idempotence, adoption, and placement probes (the standing
 //! equilibrium check: adoption must land the tree where settled slots equal
@@ -58,39 +58,49 @@ use crate::plot::compiled::{ComponentsMeasurement, CoordinationScopeKey};
 use crate::render::context::FacetRuntimeSizingMode;
 
 /// Solved channel values for one coordination round: the group-merged layout
-/// per share key and per node, each node's own and group-equalized overflow
-/// envelopes, and the retained solve the values were extracted from. Produced
-/// by [`tree_solved_round`] (and hand-built by test fixture folds, which
-/// retain nothing).
+/// per share key and per node, plus each node's own and group-equalized
+/// overflow envelopes. Produced by [`tree_solved_round`] and hand-built by
+/// test fixture folds.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SolvedRound {
     pub(crate) merged_by_node: HashMap<CoordinationNodeKey, CoordinatedLayout>,
     pub(crate) own_overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
     pub(crate) overflow_by_node: HashMap<CoordinationNodeKey, CoordinatedOverflow>,
-    /// The lowered tree and its solution. `None` only for fixture folds and
-    /// band-less measurements.
-    pub(crate) retained: Option<std::sync::Arc<RetainedFacetSolve>>,
 }
 
-/// One coordination round's solve: the lowered tree and the solution the
-/// channel values and child-frame geometry were extracted from. The shadow
-/// census's adoption probe compares this install-time geometry against the
-/// settled re-solve.
-pub(crate) struct RetainedFacetSolve {
+/// Solved geometry for the current measured facet tree.
+///
+/// Coordination owns immutable channel values; this artifact owns the latest
+/// settled layout solve used by render, guide, and child-frame readback.
+pub(crate) struct CurrentFacetGeometry {
     pub(crate) lowered: LoweredFacetTree,
     pub(crate) solution: LayoutSolution<CoordinationNodeKey>,
+    pub(crate) child_frames_by_node: HashMap<CoordinationNodeKey, CurrentFacetBandFrames>,
 }
 
-impl std::fmt::Debug for RetainedFacetSolve {
+#[derive(Debug, Clone)]
+pub(crate) struct CurrentFacetBandFrames {
+    pub(crate) content_size: Size,
+    pub(crate) children: Vec<CurrentFacetChildFrame>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CurrentFacetChildFrame {
+    pub(crate) child_index: usize,
+    pub(crate) rect: avenger_layout::Rect,
+}
+
+impl std::fmt::Debug for CurrentFacetGeometry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RetainedFacetSolve")
+        f.debug_struct("CurrentFacetGeometry")
             .field("bands", &self.lowered.bands.len())
+            .field("frame_bands", &self.child_frames_by_node.len())
             .field("size", &self.solution.size)
             .finish()
     }
 }
 
-impl RetainedFacetSolve {
+impl CurrentFacetGeometry {
     pub(crate) fn lowered_band(&self, node_id: &CoordinationNodeKey) -> Option<&LoweredBand> {
         self.lowered
             .bands
@@ -117,6 +127,13 @@ impl RetainedFacetSolve {
         let mut child_path = self.band_region(node_id)?.path.clone();
         child_path.push(cell_index);
         self.solution.at_path(&child_path)
+    }
+
+    pub(crate) fn child_frames(
+        &self,
+        node_id: &CoordinationNodeKey,
+    ) -> Option<&CurrentFacetBandFrames> {
+        self.child_frames_by_node.get(node_id)
     }
 }
 
@@ -229,8 +246,7 @@ pub(crate) struct LoweredBand {
     pub(crate) has_overflow_cells: bool,
 }
 
-/// The retained lowering: the tree (re-solvable at new envelopes — the
-/// remap law) plus per-band records for channel extraction.
+/// The lowered tree plus per-band records for channel and geometry extraction.
 pub(crate) struct LoweredFacetTree {
     pub(crate) layout: Layout<CoordinationNodeKey, CoordinationScopeKey>,
     pub(crate) root_options: SolveOptions,
@@ -264,20 +280,21 @@ pub(crate) fn lower_facet_tree(
     )
 }
 
-/// Lower the post-adoption facet tree for retained render/readback geometry.
+/// Lower the current settled facet tree for render/readback geometry.
 ///
 /// Nested facet bands are already bounded by their adopted child-frame plot
-/// areas. Treating nested bands as content-driven prevents the retained solve
+/// areas. Treating nested bands as content-driven prevents the geometry solve
 /// from stretching their internal tracks to a parent slot that the render
 /// context does not use.
-pub(crate) fn lower_settled_facet_tree(
+pub(crate) fn lower_settled_facet_tree_with_overrides(
     measurement: &ComponentsMeasurement,
     sizing: FacetRuntimeSizingMode,
+    overrides: Option<&CellSizeOverrides>,
 ) -> Option<LoweredFacetTree> {
     lower_facet_tree_with_options(
         measurement,
         sizing,
-        None,
+        overrides,
         FacetLoweringMode::SettledGeometry,
     )
 }
@@ -409,14 +426,6 @@ fn apply_demands(
     node
 }
 
-fn measurement_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> f32 {
-    match axis {
-        FacetAxis::Column => measurement.plot_area_width,
-        FacetAxis::Row => measurement.plot_area_height,
-    }
-    .max(0.0)
-}
-
 fn measurement_main_plot_size_for_size(axis: FacetAxis, size: Size) -> f32 {
     match axis {
         FacetAxis::Column => size.width,
@@ -446,8 +455,25 @@ fn lower_band(
     let mut all_leaves = true;
     let mut cell_nodes: Vec<Layout<CoordinationNodeKey, CoordinationScopeKey>> = Vec::new();
     let mut main_track_sizes = Vec::new();
+    let cell_sizes = band
+        .cells
+        .iter()
+        .enumerate()
+        .map(|(idx, cell)| {
+            overrides
+                .and_then(|map| map.get(&(node_id.clone(), idx)).copied())
+                .unwrap_or_else(|| {
+                    Size::new(
+                        cell.measurement.plot_area_width.max(0.0),
+                        cell.measurement.plot_area_height.max(0.0),
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
     for (idx, cell) in band.cells.iter().enumerate() {
-        main_track_sizes.push(measurement_main_plot_size(band.axis, &cell.measurement));
+        let cell_size = cell_sizes[idx];
+        let main_plot_size = measurement_main_plot_size_for_size(band.axis, cell_size);
+        main_track_sizes.push(main_plot_size);
         let cell_envelope = envelopes.get(idx).cloned().flatten();
         let nested =
             crate::facet::coord::facet_band_ref(cell.measurement.coord_measurement.as_ref());
@@ -496,14 +522,7 @@ fn lower_band(
             }
             wrapper
         } else {
-            let size = overrides
-                .and_then(|map| map.get(&(node_id.clone(), idx)).copied())
-                .unwrap_or_else(|| {
-                    Size::new(
-                        cell.measurement.plot_area_width.max(0.0),
-                        cell.measurement.plot_area_height.max(0.0),
-                    )
-                });
+            let size = cell_size;
             let leaf = Layout::leaf(size);
             match &cell_envelope {
                 Some((guide, total)) => {
@@ -522,11 +541,14 @@ fn lower_band(
     // hole. The last ghost mirrors the trailing edge cell's demands so
     // the band's structural trailing edge keeps the renderable-edge law.
     let cell_count = cell_nodes.len();
-    let slot_count = fold
-        .channel_n
-        .max(band.min_slot_count)
-        .max(cell_count)
-        .max(1);
+    let slot_count = match mode {
+        FacetLoweringMode::Coordination => fold
+            .channel_n
+            .max(band.min_slot_count)
+            .max(cell_count)
+            .max(1),
+        FacetLoweringMode::SettledGeometry => cell_count.max(1),
+    };
     if shadow_enabled() {
         debug!(
             target: "avenger_chart::facet::tree_solve",
@@ -544,14 +566,14 @@ fn lower_band(
     }
     if slot_count > cell_count && cell_count > 0 {
         let fallback = Size::new(
-            band.cells
+            cell_sizes
                 .iter()
-                .map(|cell| cell.measurement.plot_area_width)
+                .map(|size| size.width)
                 .fold(0.0f32, f32::max)
                 .max(0.0),
-            band.cells
+            cell_sizes
                 .iter()
-                .map(|cell| cell.measurement.plot_area_height)
+                .map(|size| size.height)
                 .fold(0.0f32, f32::max)
                 .max(0.0),
         );
@@ -811,16 +833,10 @@ pub(crate) fn tree_solved_round(
         );
     }
 
-    let retained = Some(std::sync::Arc::new(RetainedFacetSolve {
-        lowered,
-        solution: solved,
-    }));
-
     Ok(SolvedRound {
         merged_by_node: channels.layout_by_node,
         own_overflow_by_node,
         overflow_by_node: channels.overflow_by_node,
-        retained,
     })
 }
 
@@ -1068,12 +1084,11 @@ pub(crate) fn run_shadow_census(
         .map(|resolved| solved.content_delta(&resolved))
         .unwrap_or(f32::INFINITY);
 
-    // Adoption probe: leaf-allotment delta between the round's RETAINED
-    // solution (the install-time geometry) and the settled-state
-    // re-solve — the per-run size of geometry adoption.
-    let adopt_delta = crate::facet::coord::facet_band_ref(measurement.coord_measurement.as_ref())
-        .and_then(|band| band.retained_solve().cloned())
-        .map(|retained| retained.solution.content_delta(&solved));
+    // Current-geometry probe: the installed current geometry should match the
+    // settled-state re-solve.
+    let current_delta = crate::facet::coord::facet_band_ref(measurement.coord_measurement.as_ref())
+        .and_then(|band| band.current_geometry_handle().map(|(geometry, _)| geometry))
+        .map(|geometry| geometry.solution.content_delta(&solved));
 
     info!(
         target: "avenger_chart::facet::tree_solve",
@@ -1082,7 +1097,7 @@ pub(crate) fn run_shadow_census(
         geometry_max,
         geometry_cells_over,
         idempotence_delta,
-        adopt_delta = adopt_delta.unwrap_or(f32::NAN),
+        current_delta = current_delta.unwrap_or(f32::NAN),
         placement_bands,
         placement_max,
         placement_values_over,

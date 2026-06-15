@@ -65,8 +65,8 @@ use crate::{
         subtree_plot_area::{LeafPlotAreaSize, estimate_path_plot_area_from_leaf_size},
     },
     layout::{
-        EdgeSlabs, Edges, EvaluatedLayoutSpec, OwnedEdgeSlabs, Size, apply_frame_side_slab,
-        overflow_side_value, retarget_frame_layout_for_plot_area,
+        BandPosition, EdgeSlabs, Edges, EvaluatedLayoutSpec, OwnedEdgeSlabs, Size,
+        apply_frame_side_slab, overflow_side_value, retarget_frame_layout_for_plot_area,
     },
     marks::CompiledMark,
     plot::compiled::{
@@ -268,6 +268,15 @@ pub struct FacetBandCoordMeasurement {
     /// values).
     pub(crate) coordination: Option<(
         std::sync::Arc<crate::facet::coordination_solution::CoordinationSolution>,
+        CoordinationNodeKey,
+    )>,
+    /// Current settled geometry for this facet band.
+    ///
+    /// Coordination stores immutable channel values. This handle stores the
+    /// latest no-remeasure layout solve for render/readback after adoption or
+    /// retargeting changes plot areas and scales.
+    pub(crate) current_geometry: Option<(
+        std::sync::Arc<crate::facet::tree_solve::CurrentFacetGeometry>,
         CoordinationNodeKey,
     )>,
     /// Reference to compiled subplot for the no-remeasure substrate.
@@ -485,41 +494,6 @@ fn default_overflow() -> &'static CoordinatedOverflow {
     DEFAULT.get_or_init(CoordinatedOverflow::default)
 }
 
-fn layout_bounds_from_rect(rect: avenger_layout::Rect) -> LayoutBounds {
-    LayoutBounds {
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-    }
-}
-
-fn full_tracks_rect(tracks: &avenger_layout::SolvedTracks) -> Option<avenger_layout::Rect> {
-    tracks.content_rect_for_slot(avenger_layout::GridSlot {
-        row: 0,
-        column: 0,
-        row_span: tracks.row_sizes.len(),
-        column_span: tracks.column_sizes.len(),
-    })
-}
-
-fn facet_cell_grid_slot(axis: FacetAxis, cell_index: usize) -> avenger_layout::GridSlot {
-    match axis {
-        FacetAxis::Column => avenger_layout::GridSlot {
-            row: 0,
-            column: cell_index,
-            row_span: 1,
-            column_span: 1,
-        },
-        FacetAxis::Row => avenger_layout::GridSlot {
-            row: cell_index,
-            column: 0,
-            row_span: 1,
-            column_span: 1,
-        },
-    }
-}
-
 impl FacetBandCoordMeasurement {
     pub(crate) fn set_coordination_solution(
         &mut self,
@@ -529,15 +503,34 @@ impl FacetBandCoordMeasurement {
         self.coordination = Some((solution, node_id));
     }
 
-    pub(crate) fn coordination_solution_handle(
+    pub(crate) fn set_current_geometry(
+        &mut self,
+        geometry: std::sync::Arc<crate::facet::tree_solve::CurrentFacetGeometry>,
+        node_id: CoordinationNodeKey,
+    ) {
+        self.current_geometry = Some((geometry, node_id));
+    }
+
+    pub(crate) fn current_geometry_handle(
         &self,
     ) -> Option<(
-        std::sync::Arc<crate::facet::coordination_solution::CoordinationSolution>,
+        std::sync::Arc<crate::facet::tree_solve::CurrentFacetGeometry>,
         CoordinationNodeKey,
     )> {
-        self.coordination
+        self.current_geometry
             .as_ref()
-            .map(|(solution, node_id)| (std::sync::Arc::clone(solution), node_id.clone()))
+            .map(|(geometry, node_id)| (std::sync::Arc::clone(geometry), node_id.clone()))
+    }
+
+    fn current_geometry_ref(
+        &self,
+    ) -> Option<(
+        &crate::facet::tree_solve::CurrentFacetGeometry,
+        &CoordinationNodeKey,
+    )> {
+        self.current_geometry
+            .as_ref()
+            .map(|(geometry, node_id)| (geometry.as_ref(), node_id))
     }
 
     fn solution_layout(&self) -> Option<&CoordinatedLayout> {
@@ -564,75 +557,51 @@ impl FacetBandCoordMeasurement {
             .and_then(|(solution, node_id)| solution.boundary_overflow(node_id))
     }
 
-    /// The round's retained solve (lowered tree + solution), present when
-    /// this band holds a coordination handle from a real-tree round.
-    pub(crate) fn retained_solve(
-        &self,
-    ) -> Option<&std::sync::Arc<crate::facet::tree_solve::RetainedFacetSolve>> {
-        self.coordination
-            .as_ref()
-            .and_then(|(solution, _)| solution.retained.as_ref())
-    }
-
-    pub(crate) fn solved_band_region(
-        &self,
-    ) -> Option<&avenger_layout::Region<CoordinationNodeKey>> {
-        let (solution, node_id) = self.coordination.as_ref()?;
-        solution.retained.as_ref()?.band_region(node_id)
-    }
-
-    pub(crate) fn solved_child_region(
+    pub(crate) fn current_child_region(
         &self,
         cell_index: usize,
-    ) -> Option<&avenger_layout::Region<CoordinationNodeKey>> {
-        let (solution, node_id) = self.coordination.as_ref()?;
-        solution
-            .retained
-            .as_ref()?
-            .child_region(node_id, cell_index)
+    ) -> Result<&avenger_layout::Region<CoordinationNodeKey>, AvengerChartError> {
+        let (geometry, node_id) = self.current_geometry_ref().ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Facet current geometry was not available for render/readback".into(),
+            )
+        })?;
+        geometry.child_region(node_id, cell_index).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Facet current geometry missing child region for node path {:?}, cell {}",
+                node_id.path, cell_index
+            ))
+        })
     }
 
-    pub(crate) fn solved_child_frame_regions(
+    pub(crate) fn current_child_frame_regions(
         &self,
-    ) -> Result<Option<(Size, Vec<ChildFrameRegion>)>, AvengerChartError> {
-        let Some(band_region) = self.solved_band_region() else {
-            return Ok(None);
-        };
-        let avenger_layout::RegionDetail::Grid { tracks } = &band_region.detail else {
-            return Err(AvengerChartError::InternalError(
-                "Facet retained solve band region was not a grid".into(),
-            ));
-        };
-        let content_rect = full_tracks_rect(tracks).unwrap_or_else(|| {
-            avenger_layout::Rect::new(
-                0.0,
-                0.0,
-                band_region.content.width,
-                band_region.content.height,
+    ) -> Result<(Size, Vec<ChildFrameRegion>), AvengerChartError> {
+        let (geometry, node_id) = self.current_geometry_ref().ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Facet current geometry was not available for render/readback".into(),
             )
-        });
-        let content_size = Size::new(content_rect.width, content_rect.height);
-        let mut regions = Vec::with_capacity(self.cells.len());
-        for cell_index in 0..self.cells.len() {
-            let child = self.solved_child_region(cell_index).ok_or_else(|| {
-                AvengerChartError::InternalError(format!(
-                    "Facet retained solve missing child region for cell {}",
-                    cell_index
-                ))
-            })?;
-            let cell_rect = tracks
-                .content_rect_for_slot(facet_cell_grid_slot(self.axis, cell_index))
-                .ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Facet retained solve missing track rect for cell {}",
-                        cell_index
-                    ))
-                })?;
+        })?;
+        let frames = geometry.child_frames(node_id).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Facet current geometry missing child frames for node path {:?}",
+                node_id.path
+            ))
+        })?;
+        let mut regions = Vec::with_capacity(frames.children.len());
+        for child_frame in &frames.children {
+            let child = self.current_child_region(child_frame.child_index)?;
             let granted = child.granted;
+            let content = LayoutBounds {
+                x: child_frame.rect.x,
+                y: child_frame.rect.y,
+                width: child_frame.rect.width,
+                height: child_frame.rect.height,
+            };
             regions.push(ChildFrameRegion {
-                child_index: cell_index,
-                content: layout_bounds_from_rect(cell_rect),
-                slot: layout_bounds_from_rect(cell_rect),
+                child_index: child_frame.child_index,
+                content,
+                slot: content,
                 content_size_override: None,
                 edge_targets: Some(EdgeTargets {
                     guide: Edges::new(
@@ -650,7 +619,27 @@ impl FacetBandCoordMeasurement {
                 }),
             });
         }
-        Ok(Some((content_size, regions)))
+        Ok((frames.content_size, regions))
+    }
+
+    pub(crate) fn current_band_positions(&self) -> Result<Vec<BandPosition>, AvengerChartError> {
+        let (_, regions) = self.current_child_frame_regions()?;
+        regions
+            .into_iter()
+            .map(|region| {
+                let cell = self.cells.get(region.child_index).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Facet current geometry missing cell for band position {}",
+                        region.child_index
+                    ))
+                })?;
+                let (start, bandwidth) = match self.axis {
+                    FacetAxis::Column => (region.content.x, region.content.width),
+                    FacetAxis::Row => (region.content.y, region.content.height),
+                };
+                Ok(BandPosition::new(cell.plan.value.clone(), start, bandwidth))
+            })
+            .collect()
     }
 
     pub(crate) fn active_layout(&self) -> &CoordinatedLayout {
@@ -893,13 +882,14 @@ impl FacetBandCoordMeasurement {
         };
         let compiled_subplot = self.compiled_subplot.clone();
         for cell in &mut self.cells {
-            retarget_measurement_plot_area_no_remeasure(
+            retarget_measurement_plot_area_no_remeasure_inner(
                 &mut cell.measurement,
                 compiled_subplot.as_ref(),
                 eval_ctx,
                 &cell.plan.full_path,
                 target_plot_area_width,
                 target_plot_area_height,
+                false,
             )?;
         }
         self.realize_coordinated_child_frame_allocations();
@@ -1007,13 +997,14 @@ impl FacetBandCoordMeasurement {
                     }
                 }
             }
-            retarget_measurement_plot_area_policy_no_remeasure(
+            retarget_measurement_plot_area_policy_no_remeasure_inner(
                 &mut cell.measurement,
                 compiled_subplot.as_ref(),
                 eval_ctx,
                 &cell.plan.full_path,
                 target_plot_area_width,
                 target_plot_area_height,
+                false,
             )?;
         }
         self.realize_coordinated_child_frame_allocations();
@@ -1751,6 +1742,26 @@ pub(crate) fn retarget_measurement_plot_area_no_remeasure(
     new_plot_area_width: f32,
     new_plot_area_height: f32,
 ) -> Result<(), AvengerChartError> {
+    retarget_measurement_plot_area_no_remeasure_inner(
+        measurement,
+        compiled_plot,
+        eval_ctx,
+        facet_path,
+        new_plot_area_width,
+        new_plot_area_height,
+        true,
+    )
+}
+
+fn retarget_measurement_plot_area_no_remeasure_inner(
+    measurement: &mut ComponentsMeasurement,
+    compiled_plot: &CompiledPlot,
+    eval_ctx: &EvaluationContext,
+    facet_path: &[ScalarValue],
+    new_plot_area_width: f32,
+    new_plot_area_height: f32,
+    refresh_geometry: bool,
+) -> Result<(), AvengerChartError> {
     let old_plot_area_width = measurement.plot_area_width;
     let old_plot_area_height = measurement.plot_area_height;
     if (old_plot_area_width - new_plot_area_width).abs() <= 0.01
@@ -1803,6 +1814,12 @@ pub(crate) fn retarget_measurement_plot_area_no_remeasure(
         new_plot_area_height,
     );
     measurement.legend_plan.retarget_scales(&measurement.scales);
+    if refresh_geometry {
+        crate::facet::coordination_apply::refresh_current_facet_geometry(
+            measurement,
+            eval_ctx.facet_runtime_sizing_mode(),
+        )?;
+    }
     Ok(())
 }
 
@@ -1813,6 +1830,26 @@ pub(crate) fn retarget_measurement_plot_area_policy_no_remeasure(
     facet_path: &[ScalarValue],
     new_plot_area_width: f32,
     new_plot_area_height: f32,
+) -> Result<(), AvengerChartError> {
+    retarget_measurement_plot_area_policy_no_remeasure_inner(
+        measurement,
+        compiled_plot,
+        eval_ctx,
+        facet_path,
+        new_plot_area_width,
+        new_plot_area_height,
+        true,
+    )
+}
+
+fn retarget_measurement_plot_area_policy_no_remeasure_inner(
+    measurement: &mut ComponentsMeasurement,
+    compiled_plot: &CompiledPlot,
+    eval_ctx: &EvaluationContext,
+    facet_path: &[ScalarValue],
+    new_plot_area_width: f32,
+    new_plot_area_height: f32,
+    refresh_geometry: bool,
 ) -> Result<(), AvengerChartError> {
     let old_plot_area_width = measurement.plot_area_width;
     let old_plot_area_height = measurement.plot_area_height;
@@ -1863,6 +1900,12 @@ pub(crate) fn retarget_measurement_plot_area_policy_no_remeasure(
         new_plot_area_height,
     );
     measurement.legend_plan.retarget_scales(&measurement.scales);
+    if refresh_geometry {
+        crate::facet::coordination_apply::refresh_current_facet_geometry(
+            measurement,
+            eval_ctx.facet_runtime_sizing_mode(),
+        )?;
+    }
     Ok(())
 }
 
@@ -1996,6 +2039,7 @@ fn empty_facet_band_measurement(
         measured_overflow: None,
         overflow_cells: None,
         coordination: None,
+        current_geometry: None,
         compiled_subplot: compiled_subplot.clone(),
         subplot_cross_size: 0.0,
         facet_depth: facet_path.len() as u8 + 1,
@@ -4360,6 +4404,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
             measured_overflow,
             overflow_cells,
             coordination: None,
+            current_geometry: None,
             compiled_subplot: prepared_runtime.compiled_subplot.clone(),
             subplot_cross_size: final_subplot_cross_size,
             facet_depth,

@@ -2,10 +2,10 @@
 //!
 //! Coordination runs after local facet-band layout as fold → solve →
 //! install → adopt: collect a requirement snapshot, solve the real facet
-//! tree once (channels and geometry from the same solve), install the
-//! solution artifact on every band, then adopt the implied geometry —
-//! plot areas and scale ranges move, measured chrome stays frozen within
-//! the round (the staleness law).
+//! tree once for channels, install the solution artifact on every band,
+//! adopt the implied geometry, then install the current settled geometry
+//! for render/readback. Plot areas and scale ranges move, measured chrome
+//! stays frozen within the round (the staleness law).
 //!
 //! Immutable coordination plans are built in `coordination_plans`; bounded
 //! side effects (channel install, geometry adoption) are applied through
@@ -18,7 +18,7 @@ use crate::{
     facet::{
         coord::renderable_for_empty_policy,
         coordination_apply::{
-            apply_requirement_pass, refresh_retained_geometry_after_adopt, run_adopt,
+            apply_requirement_pass, refresh_current_facet_geometry, run_adopt,
             visit_facet_bands_with_node_id,
         },
         coordination_plans::{
@@ -105,11 +105,11 @@ async fn run_facet_coordination_until(
 }
 
 /// The coordination pass: collect a requirement snapshot, solve the real
-/// facet tree (one solve produces the channel values AND the geometry),
-/// install the channel solution on every band, and ADOPT the solve's
-/// allotments — plot areas become slots, scale ranges follow, chrome
-/// stays frozen within the round. `stop_at` maps the public checkpoints
-/// onto these stages and returns `None` when the run stops early.
+/// facet tree for channels, install the channel solution on every band,
+/// ADOPT the solve's allotments, then install the current settled geometry.
+/// Plot areas become slots, scale ranges follow, and chrome stays frozen
+/// within the round. `stop_at` maps the public checkpoints onto these
+/// stages and returns `None` when the run stops early.
 async fn run_facet_coordination(
     measurement: &mut ComponentsMeasurement,
     eval_ctx: &EvaluationContext,
@@ -137,9 +137,10 @@ async fn run_facet_coordination(
         return Ok(None);
     }
 
-    // Adopt the solve's geometry.
+    // Adopt coordinated channel values into scales/plot areas, then solve the
+    // settled tree used by render/readback.
     let adopt_trace = run_adopt(measurement, eval_ctx)?;
-    refresh_retained_geometry_after_adopt(measurement, sizing)?;
+    refresh_current_facet_geometry(measurement, sizing)?;
     debug!(
         bands = adopt_trace.bands,
         cells_adopted = adopt_trace.cells_adopted,
@@ -212,8 +213,15 @@ mod tests {
     use super::*;
     use crate::{
         coords::{CoordinatedLayout, CoordinatedOverflow},
-        facet::evaluated_facet_tree::EvaluatedFacetTree,
+        facet::{
+            coord::{
+                retarget_measurement_plot_area_no_remeasure,
+                retarget_measurement_plot_area_policy_no_remeasure,
+            },
+            evaluated_facet_tree::EvaluatedFacetTree,
+        },
         layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
+        plot::CompiledPlot,
         plot::compiled::{
             ComponentsMeasurement, CoordinationScopeKey, scale_provider::DynamicScaleProvider,
             scales::build_scale_builder_from_marks,
@@ -324,8 +332,9 @@ mod tests {
             )
     }
 
-    async fn nested_fixture()
-    -> Result<(ComponentsMeasurement, EvaluationContext), AvengerChartError> {
+    async fn nested_compiled_fixture()
+    -> Result<(Arc<CompiledPlot>, ComponentsMeasurement, EvaluationContext), AvengerChartError>
+    {
         let session = SessionContext::new();
         let data_df = session
             .sql(
@@ -341,7 +350,7 @@ mod tests {
             .map_err(|e| AvengerChartError::InternalError(e.to_string()))?;
 
         let plot = build_nested_plot(data_df);
-        let compiled_plot = plot.compile(&session).await?;
+        let compiled_plot = Arc::new(plot.compile(&session).await?);
 
         let facet_tree =
             Arc::new(EvaluatedFacetTree::from_compiled_plot(&compiled_plot, &session).await?);
@@ -388,7 +397,68 @@ mod tests {
             .measure_plot_components(&eval_ctx, &evaluated_layout_spec, &provider, None, &[])
             .await?;
 
+        Ok((compiled_plot, measurement, eval_ctx))
+    }
+
+    async fn nested_fixture()
+    -> Result<(ComponentsMeasurement, EvaluationContext), AvengerChartError> {
+        let (_, measurement, eval_ctx) = nested_compiled_fixture().await?;
         Ok((measurement, eval_ctx))
+    }
+
+    fn root_current_geometry_size(
+        measurement: &ComponentsMeasurement,
+    ) -> Option<avenger_layout::Size> {
+        let mut size = None;
+        visit_facet_bands(measurement, 0, &mut |depth, facet_band| {
+            if depth == 0
+                && size.is_none()
+                && let Some((geometry, _)) = facet_band.current_geometry_handle()
+            {
+                size = Some(geometry.solution.size);
+            }
+        });
+        size
+    }
+
+    fn assert_current_geometry_installed_for_real_cells(measurement: &ComponentsMeasurement) {
+        let mut band_count = 0usize;
+        let mut nested_band_count = 0usize;
+        visit_facet_bands(measurement, 0, &mut |depth, facet_band| {
+            band_count += 1;
+            if depth > 0 {
+                nested_band_count += 1;
+            }
+            assert!(
+                facet_band.current_geometry_handle().is_some(),
+                "facet band at depth {depth} should have current geometry"
+            );
+            let (content_size, regions) = facet_band
+                .current_child_frame_regions()
+                .expect("current geometry should provide child-frame regions");
+            assert!(content_size.width >= 0.0);
+            assert!(content_size.height >= 0.0);
+            assert_eq!(
+                regions.len(),
+                facet_band.cells.len(),
+                "current geometry should expose real child cells only"
+            );
+            let mut child_indices = regions
+                .iter()
+                .map(|region| region.child_index)
+                .collect::<Vec<_>>();
+            child_indices.sort_unstable();
+            assert_eq!(
+                child_indices,
+                (0..facet_band.cells.len()).collect::<Vec<_>>(),
+                "current geometry child regions should be one-to-one with real cells"
+            );
+        });
+        assert!(band_count > 0, "fixture should contain facet bands");
+        assert!(
+            nested_band_count > 0,
+            "fixture should contain nested facet bands"
+        );
     }
 
     #[tokio::test]
@@ -465,6 +535,74 @@ mod tests {
                 .cloned()
                 .collect();
         assert_eq!(layout_patch_nodes, snapshot_nodes);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn current_geometry_installs_on_nested_bands_and_excludes_ghost_slots()
+    -> Result<(), AvengerChartError> {
+        let (mut measurement, eval_ctx) = nested_fixture().await?;
+        coordinate_facet_measurement_tree(&mut measurement, &eval_ctx).await?;
+
+        assert_current_geometry_installed_for_real_cells(&measurement);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn standard_retarget_refreshes_current_facet_geometry() -> Result<(), AvengerChartError> {
+        let (compiled_plot, mut measurement, eval_ctx) = nested_compiled_fixture().await?;
+        coordinate_facet_measurement_tree(&mut measurement, &eval_ctx).await?;
+        let before = root_current_geometry_size(&measurement)
+            .expect("coordination should install root current geometry");
+        let new_width = (measurement.plot_area_width * 0.72).max(1.0);
+        let new_height = (measurement.plot_area_height * 0.81).max(1.0);
+
+        retarget_measurement_plot_area_no_remeasure(
+            &mut measurement,
+            compiled_plot.as_ref(),
+            &eval_ctx,
+            &[],
+            new_width,
+            new_height,
+        )?;
+
+        let after = root_current_geometry_size(&measurement)
+            .expect("retarget should refresh root current geometry");
+        assert!(
+            (before.width - after.width).abs() > 0.01
+                || (before.height - after.height).abs() > 0.01,
+            "retarget should update installed current geometry"
+        );
+        assert_current_geometry_installed_for_real_cells(&measurement);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_retarget_refreshes_current_facet_geometry() -> Result<(), AvengerChartError> {
+        let (compiled_plot, mut measurement, eval_ctx) = nested_compiled_fixture().await?;
+        coordinate_facet_measurement_tree(&mut measurement, &eval_ctx).await?;
+        let before = root_current_geometry_size(&measurement)
+            .expect("coordination should install root current geometry");
+        let new_width = (measurement.plot_area_width * 0.68).max(1.0);
+        let new_height = (measurement.plot_area_height * 0.77).max(1.0);
+
+        retarget_measurement_plot_area_policy_no_remeasure(
+            &mut measurement,
+            compiled_plot.as_ref(),
+            &eval_ctx,
+            &[],
+            new_width,
+            new_height,
+        )?;
+
+        let after = root_current_geometry_size(&measurement)
+            .expect("policy retarget should refresh root current geometry");
+        assert!(
+            (before.width - after.width).abs() > 0.01
+                || (before.height - after.height).abs() > 0.01,
+            "policy retarget should update installed current geometry"
+        );
+        assert_current_geometry_installed_for_real_cells(&measurement);
         Ok(())
     }
 }

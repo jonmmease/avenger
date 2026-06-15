@@ -31,10 +31,7 @@ use crate::{
             FacetOverflowPurpose, FacetOverflowResolutionPhase, FacetOverflowResolvedSource,
             resolve_facet_overflow,
         },
-        placement::{
-            facet_band_positions_from_band_layout, resolve_facet_band_placement,
-            resolve_facet_band_placement_from_configured_scales,
-        },
+        placement::resolve_facet_band_placement_from_configured_scales,
     },
     layout::{BandPosition, BandPositionIterator},
     plot::compiled::{
@@ -1049,24 +1046,24 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
         && let Some(facet_measurement) = facet_band_from_coord(coord_measurement)
         && !facet_measurement.cells.is_empty()
         && facet_measurement.axis.scale_name() == O::scale_key()
-        && let Some(placement) =
-            resolve_facet_band_placement_from_configured_scales(coord_measurement, scales)?
     {
         let band_positions = if let Some((plot_width, plot_height)) = layout_size {
-            facet_band_positions_from_band_layout(
-                facet_measurement,
-                &placement,
-                plot_width,
-                plot_height,
-            )?
-        } else {
+            let _ = (plot_width, plot_height);
+            facet_measurement.current_band_positions()?
+        } else if let Some(placement) =
+            resolve_facet_band_placement_from_configured_scales(coord_measurement, scales)?
+        {
             placement.band_positions(&facet_measurement.cells)?
+        } else {
+            Vec::new()
         };
-        let labels = band_positions
-            .iter()
-            .map(|position| format_scalar_value(&position.value))
-            .collect();
-        return Ok((band_positions, labels));
+        if !band_positions.is_empty() {
+            let labels = band_positions
+                .iter()
+                .map(|position| format_scalar_value(&position.value))
+                .collect();
+            return Ok((band_positions, labels));
+        }
     }
 
     let band_scale = scales
@@ -1229,15 +1226,9 @@ fn column_band_positions_for_measurement(
     }
 
     if !child_facet.cells.is_empty()
-        && let Some(placement) = resolve_facet_band_placement(measurement).ok().flatten()
+        && let Ok(positions) = child_facet.current_band_positions()
     {
-        return facet_band_positions_from_band_layout(
-            child_facet,
-            &placement,
-            measurement.plot_area_width,
-            measurement.plot_area_height,
-        )
-        .ok();
+        return Some(positions);
     }
 
     let child_col_scale = measurement.scales.get("column")?;
