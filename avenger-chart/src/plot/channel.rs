@@ -6,8 +6,8 @@ use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    Auto, Axis, AxisSpec, ChannelValue, Legend, MarkState, Scale, resolve_all_channel_refs,
-    strip_trailing_numbers,
+    Auto, AvengerChartError, Axis, AxisSpec, ChannelValue, CoordinateSystemTransformCore, Legend,
+    MarkState, Scale, resolve_all_channel_refs, strip_trailing_numbers,
 };
 use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
 
@@ -37,11 +37,12 @@ fn merge_axis_config(
 pub(crate) fn extract_channel_configs_from_state(
     mark_state: &MarkState,
     ctx: &SessionContext,
+    coord_transform: &dyn CoordinateSystemTransformCore,
     axis_specs: &mut HashMap<String, AxisSpec>,
     legends: &mut IndexMap<String, Legend>,
     scale_specs: &mut HashMap<String, ScaleSpec>,
     scale_to_coord_channel: &mut HashMap<String, String>,
-) {
+) -> Result<(), AvengerChartError> {
     // Get all channel encodings from the mark
     let encodings = mark_state.data.channels();
 
@@ -57,6 +58,17 @@ pub(crate) fn extract_channel_configs_from_state(
     for (channel_name, channel_value) in resolved_encodings {
         if let Some(axis_config) = channel_value.get_axis_config() {
             merge_axis_config(axis_specs, &channel_name, axis_config);
+        }
+
+        if !coord_transform.channel_uses_scale(&channel_name) {
+            if channel_value.has_scale_config() || channel_value.has_legend_config() {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Coordinate channel '{channel_name}' is a layout/partition input and does \
+                     not support scale or legend configuration. Use coordinate-specific ordering, \
+                     sharing, and guide options instead."
+                )));
+            }
+            continue;
         }
 
         // Extract scale and legend configs
@@ -136,6 +148,8 @@ pub(crate) fn extract_channel_configs_from_state(
     for (channel_name, axis_config) in mark_state.axis_configs.iter() {
         merge_axis_config(axis_specs, channel_name, axis_config.as_ref());
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -145,7 +159,7 @@ mod tests {
     use avenger_chart_cartesian::{
         Cartesian, CartesianAxis, marks::CartesianSymbolPositionChannels,
     };
-    use avenger_chart_core::serialization::DefaultLogicalExprNodeExt;
+    use avenger_chart_core::{CoordinateSystem, serialization::DefaultLogicalExprNodeExt};
     use avenger_chart_marks::Symbol;
     use datafusion::{
         common::ScalarValue,
@@ -186,14 +200,17 @@ mod tests {
         let mut legends = IndexMap::new();
         let mut scale_specs = HashMap::new();
         let mut scale_to_coord_channel = HashMap::new();
+        let coord_transform = Cartesian::default().create_transform();
         extract_channel_configs_from_state(
             mark.state(),
             &ctx,
+            coord_transform.as_ref(),
             &mut axis_specs,
             &mut legends,
             &mut scale_specs,
             &mut scale_to_coord_channel,
-        );
+        )
+        .expect("extract channel configs");
 
         let axis = axis_for_channel(&axis_specs, "x");
         assert_eq!(axis_title(&axis, &ctx), "Explicit title");

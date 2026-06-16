@@ -26,7 +26,17 @@ pub struct InteractionPointInversionRequest<'a> {
 /// top-level chart layout/runtime engine. The top-level chart crate layers its
 /// measurement hook on top while facet/concat layout remains core-owned there.
 pub trait CoordinateSystemTransformCore: Send + Sync {
+    /// Channels required by this coordinate transform.
+    ///
+    /// Required channels are coordinate inputs. Most are backed by scales, but
+    /// container-like transforms may use some required channels as partition or
+    /// layout keys instead.
     fn required_channels(&self) -> &'static [&'static str];
+
+    /// Whether a coordinate/input channel should participate in scale building.
+    fn channel_uses_scale(&self, _channel: &str) -> bool {
+        true
+    }
 
     /// Transform position channels to coordinate system geometry.
     fn transform(

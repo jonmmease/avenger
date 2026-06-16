@@ -22,9 +22,8 @@ use avenger_chart_core::{
     CompiledMarkState, CompiledSubplotPayload, CoordinateGuide, CoordinateSystemTransformCore,
     CoordinationScope, DefaultLogicalExprNodeExt, FacetAxis, FacetDimensionConfig,
     FacetEmptyCellPolicy, FacetWrapColumnMode, MarkRuntimeContext, RowDimensionConfig,
-    ScaleTypePreference, SerializableExpr, Size2D, SubplotContainerCoordinateSystem,
-    SubplotDataSource, SubplotMarkCore, WrapDimensionConfig, channel_value::expr_to_string,
-    default_scale_type_for_data_type,
+    SerializableExpr, Size2D, SubplotContainerCoordinateSystem, SubplotDataSource, SubplotMarkCore,
+    WrapDimensionConfig, channel_value::expr_to_string,
 };
 use avenger_chart_marks::Subplot;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
@@ -755,7 +754,7 @@ pub trait FacetWrapSubplotChannels: Sized {
 
 impl FacetWrapSubplotChannels for Subplot<FacetWrap> {
     fn wrap<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value(WrapDimensionConfig::channel_name(), value.into().no_scale())
+        self.with_channel_value(WrapDimensionConfig::channel_name(), value.into())
     }
 
     fn wrap_with<V, F>(self, value: V, f: F) -> Self
@@ -986,44 +985,6 @@ impl CompiledMarkCore for CompiledFacetRowSubplot {
 
     fn wants_full_data_batch(&self) -> bool {
         true // Facets need full data for nested filtering
-    }
-
-    fn preferred_scale_type(
-        &self,
-        channel: &str,
-        data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> Option<ScaleTypePreference> {
-        if channel == RowDimensionConfig::channel_name() {
-            // Keep a generated band scale for row facet domain ordering and
-            // initial measurement seeding. Final geometry is chart-owned.
-            Some(ScaleTypePreference::Band)
-        } else {
-            default_scale_type_for_data_type(data_type)
-        }
-    }
-
-    fn default_scale_options(
-        &self,
-        channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-        _data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> std::collections::HashMap<String, datafusion::logical_expr::Expr> {
-        use datafusion::logical_expr::lit;
-        use std::collections::HashMap;
-        let mut options = HashMap::new();
-
-        // Keep generated facet scale defaults neutral. The scale is a
-        // compile/seed artifact; final cell positions come from current
-        // facet geometry.
-        if channel == RowDimensionConfig::channel_name() && scale_impl.scale_type() == "band" {
-            options.insert("padding_outer".to_string(), lit(0.0f32));
-            // Keep scale-derived seed positions flush with the facet origin.
-            options.insert("align".to_string(), lit(0.0f32));
-            // Facet geometry handles pixel fitting after measurement.
-            options.insert("round".to_string(), lit(false));
-        }
-
-        options
     }
 }
 
@@ -1649,44 +1610,6 @@ impl CompiledMarkCore for CompiledFacetColumnSubplot {
 
     fn wants_full_data_batch(&self) -> bool {
         true // Facets need full data for nested filtering
-    }
-
-    fn preferred_scale_type(
-        &self,
-        channel: &str,
-        data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> Option<ScaleTypePreference> {
-        if channel == ColumnDimensionConfig::channel_name() {
-            // Keep a generated band scale for column facet domain ordering and
-            // initial measurement seeding. Final geometry is chart-owned.
-            Some(ScaleTypePreference::Band)
-        } else {
-            default_scale_type_for_data_type(data_type)
-        }
-    }
-
-    fn default_scale_options(
-        &self,
-        channel: &str,
-        scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-        _data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> std::collections::HashMap<String, datafusion::logical_expr::Expr> {
-        use datafusion::logical_expr::lit;
-        use std::collections::HashMap;
-        let mut options = HashMap::new();
-
-        // Keep generated facet scale defaults neutral. The scale is a
-        // compile/seed artifact; final cell positions come from current
-        // facet geometry.
-        if channel == ColumnDimensionConfig::channel_name() && scale_impl.scale_type() == "band" {
-            options.insert("padding_outer".to_string(), lit(0.0f32));
-            // Keep scale-derived seed positions flush with the facet origin.
-            options.insert("align".to_string(), lit(0.0f32));
-            // Facet geometry handles pixel fitting after measurement.
-            options.insert("round".to_string(), lit(false));
-        }
-
-        options
     }
 }
 

@@ -82,7 +82,6 @@ async fn run_count(point_count: usize) -> Result<(), Box<dyn std::error::Error>>
     let mut scale_cache_key_total_us = 0u64;
     let mut scale_cache_lookup_total_us = 0u64;
     let mut scale_build_total_us = 0u64;
-    let mut scale_coord_adjust_total_us = 0u64;
     let mut measurement_retarget_total_us = 0u64;
     let mut facet_domain_override_total_us = 0u64;
     let mut build_total_us = 0u64;
@@ -123,14 +122,13 @@ async fn run_count(point_count: usize) -> Result<(), Box<dyn std::error::Error>>
         scale_cache_key_total_us += metrics.timings.preview_scale_cache_key_us;
         scale_cache_lookup_total_us += metrics.timings.preview_scale_cache_lookup_us;
         scale_build_total_us += metrics.timings.preview_scale_build_us;
-        scale_coord_adjust_total_us += metrics.timings.preview_scale_coord_adjust_us;
         measurement_retarget_total_us += metrics.timings.preview_measurement_retarget_us;
         facet_domain_override_total_us += metrics.timings.preview_facet_domain_override_us;
         build_total_us += metrics.timings.build_plot_components_us;
         components_total_us += metrics.timings.components_to_evaluated_plot_us;
 
         println!(
-            "simple_instanced_pan count={} seq={} eval={:.2}ms setup={:.2}ms clone={:.2}ms scales={:.2}ms scale_ctx={:.2}ms scale_key={:.2}ms scale_lookup={:.2}ms scale_build={:.2}ms scale_adjust={:.2}ms retarget={:.2}ms facet_override={:.2}ms build={:.2}ms components={:.2}ms set_scene={:.2}ms png_render={:.2}ms frame_total={:.2}ms data_reuse={} data_miss={} mark_collects={} guide_ms={:.2}",
+            "simple_instanced_pan count={} seq={} eval={:.2}ms setup={:.2}ms clone={:.2}ms scales={:.2}ms scale_ctx={:.2}ms scale_key={:.2}ms scale_lookup={:.2}ms scale_build={:.2}ms retarget={:.2}ms facet_override={:.2}ms build={:.2}ms components={:.2}ms set_scene={:.2}ms png_render={:.2}ms frame_total={:.2}ms data_reuse={} data_miss={} mark_collects={} guide_ms={:.2}",
             point_count,
             idx + 1,
             ms(eval_elapsed),
@@ -141,7 +139,6 @@ async fn run_count(point_count: usize) -> Result<(), Box<dyn std::error::Error>>
             us_to_ms(metrics.timings.preview_scale_cache_key_us),
             us_to_ms(metrics.timings.preview_scale_cache_lookup_us),
             us_to_ms(metrics.timings.preview_scale_build_us),
-            us_to_ms(metrics.timings.preview_scale_coord_adjust_us),
             us_to_ms(metrics.timings.preview_measurement_retarget_us),
             us_to_ms(metrics.timings.preview_facet_domain_override_us),
             us_to_ms(metrics.timings.build_plot_components_us),
@@ -159,7 +156,7 @@ async fn run_count(point_count: usize) -> Result<(), Box<dyn std::error::Error>>
     let n = PAN_FRAMES as f64;
     let frame_total = eval_total + set_scene_total + render_total;
     println!(
-        "simple_instanced_pan SUMMARY count={} frames={} avg_eval={:.2}ms avg_setup={:.2}ms avg_clone={:.2}ms avg_scales={:.2}ms avg_scale_ctx={:.2}ms avg_scale_key={:.2}ms avg_scale_lookup={:.2}ms avg_scale_build={:.2}ms avg_scale_adjust={:.2}ms avg_retarget={:.2}ms avg_facet_override={:.2}ms avg_build={:.2}ms avg_components={:.2}ms avg_set_scene={:.2}ms avg_png_render={:.2}ms avg_frame={:.2}ms est_fps={:.1}",
+        "simple_instanced_pan SUMMARY count={} frames={} avg_eval={:.2}ms avg_setup={:.2}ms avg_clone={:.2}ms avg_scales={:.2}ms avg_scale_ctx={:.2}ms avg_scale_key={:.2}ms avg_scale_lookup={:.2}ms avg_scale_build={:.2}ms avg_retarget={:.2}ms avg_facet_override={:.2}ms avg_build={:.2}ms avg_components={:.2}ms avg_set_scene={:.2}ms avg_png_render={:.2}ms avg_frame={:.2}ms est_fps={:.1}",
         point_count,
         PAN_FRAMES,
         ms(eval_total) / n,
@@ -170,7 +167,6 @@ async fn run_count(point_count: usize) -> Result<(), Box<dyn std::error::Error>>
         us_to_ms(scale_cache_key_total_us) / n,
         us_to_ms(scale_cache_lookup_total_us) / n,
         us_to_ms(scale_build_total_us) / n,
-        us_to_ms(scale_coord_adjust_total_us) / n,
         us_to_ms(measurement_retarget_total_us) / n,
         us_to_ms(facet_domain_override_total_us) / n,
         us_to_ms(build_total_us) / n,

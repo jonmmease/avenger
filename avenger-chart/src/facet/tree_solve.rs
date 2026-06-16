@@ -309,11 +309,10 @@ fn lower_facet_tree_with_options(
     let policy = sizing.policy();
 
     // Physical-axis mode: an axis is CONTENT-DRIVEN when any band whose
-    // main axis uses content-driven geometry (wrap and plot-area-sized
-    // bands realize leaf-derived extents — the canvas
-    // constrains the wrap COUNT upstream, never the cell sizes), else by
-    // the runtime sizing policy. Content-driven axes keep natural track
-    // sizes (free space trails); constrained axes distribute it.
+    // main axis uses content-driven geometry. Plot-area-sized bands,
+    // including wraps in plot-area-sized height mode, realize
+    // leaf-derived extents. Canvas-constrained wrap rows still distribute
+    // the available canvas height across their physical rows.
     let mut x_content = false;
     let mut y_content = false;
     {

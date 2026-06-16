@@ -2760,6 +2760,159 @@ impl CompiledPlot {
         Ok(plot_bounds)
     }
 
+    fn facet_snapshot_target_plot_area(
+        policy: FacetRuntimeSizingPolicy,
+        plot_bounds: &LayoutBounds,
+        current_width: f32,
+        current_height: f32,
+    ) -> (f32, f32) {
+        let width = if policy.width.is_canvas_constrained() {
+            plot_bounds.width.max(1.0)
+        } else {
+            current_width.max(1.0)
+        };
+        let height = if policy.height.is_canvas_constrained() {
+            plot_bounds.height.max(1.0)
+        } else {
+            current_height.max(1.0)
+        };
+        (width, height)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn rebuild_facet_snapshot_layout_once(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        policy: FacetRuntimeSizingPolicy,
+        phase: GuideOverflowPhase,
+    ) -> Result<LayoutBounds, AvengerChartError> {
+        let plot_area_width = measurement.plot_area_width.max(1.0);
+        let plot_area_height = measurement.plot_area_height.max(1.0);
+        let layout_spec = Self::layout_spec_for_policy_plot_area_size(
+            evaluated_layout_spec,
+            policy,
+            plot_area_width,
+            plot_area_height,
+        );
+        let ctx = &*eval_ctx.session_context;
+        let facet_tree = eval_ctx.facet_tree.as_ref();
+        let (_, realized_layout, realized_legend_plan) =
+            Box::pin(self.rebuild_layout_with_coord_overflow(
+                eval_ctx,
+                &layout_spec,
+                &measurement.scales,
+                plot_area_width,
+                plot_area_height,
+                &measurement.params,
+                None,
+                ctx,
+                facet_tree,
+                &[],
+                eval_ctx.child_frame_sharing_path(),
+                Some(measurement.coord_measurement.as_ref()),
+                phase,
+            ))
+            .await?;
+
+        let plot_bounds = *realized_layout.plot_area_bounds();
+        measurement.layout = realized_layout;
+        measurement.legend_plan = realized_legend_plan;
+        measurement.sync_canvas_size_from_layout();
+
+        Ok(plot_bounds)
+    }
+
+    async fn refresh_facet_snapshot_layout_from_coord_overflow(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        evaluated_layout_spec: &EvaluatedLayoutSpec,
+        resolved_chart_sizing: ResolvedChartSizing,
+        phase: GuideOverflowPhase,
+    ) -> Result<(), AvengerChartError> {
+        let ResolvedChartSizing::FacetBand(policy) = resolved_chart_sizing else {
+            return Ok(());
+        };
+        if measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<FacetBandCoordMeasurement>()
+            .is_none()
+        {
+            return Ok(());
+        }
+
+        for _ in 0..2 {
+            let plot_bounds = Box::pin(self.rebuild_facet_snapshot_layout_once(
+                measurement,
+                eval_ctx,
+                evaluated_layout_spec,
+                policy,
+                phase,
+            ))
+            .await?;
+            let current_width = measurement.plot_area_width.max(1.0);
+            let current_height = measurement.plot_area_height.max(1.0);
+            let (target_width, target_height) = Self::facet_snapshot_target_plot_area(
+                policy,
+                &plot_bounds,
+                current_width,
+                current_height,
+            );
+            if (target_width - current_width).abs() <= 0.01
+                && (target_height - current_height).abs() <= 0.01
+            {
+                measurement.clip = self.resolved_clip_region(
+                    eval_ctx,
+                    &[],
+                    &measurement.scales,
+                    current_width,
+                    current_height,
+                );
+                measurement.legend_plan.retarget_scales(&measurement.scales);
+                crate::facet::coordination_apply::refresh_current_facet_geometry(
+                    measurement,
+                    eval_ctx.facet_runtime_sizing_mode(),
+                )?;
+                return Ok(());
+            }
+
+            retarget_measurement_plot_area_policy_no_remeasure(
+                measurement,
+                self,
+                eval_ctx,
+                &[],
+                target_width,
+                target_height,
+            )?;
+        }
+
+        Box::pin(self.rebuild_facet_snapshot_layout_once(
+            measurement,
+            eval_ctx,
+            evaluated_layout_spec,
+            policy,
+            phase,
+        ))
+        .await?;
+        measurement.clip = self.resolved_clip_region(
+            eval_ctx,
+            &[],
+            &measurement.scales,
+            measurement.plot_area_width,
+            measurement.plot_area_height,
+        );
+        measurement.legend_plan.retarget_scales(&measurement.scales);
+        crate::facet::coordination_apply::refresh_current_facet_geometry(
+            measurement,
+            eval_ctx.facet_runtime_sizing_mode(),
+        )?;
+
+        Ok(())
+    }
+
     pub(crate) async fn refresh_reused_profile_layout(
         &self,
         measurement: &mut ComponentsMeasurement,
@@ -5384,10 +5537,32 @@ impl CompiledPlot {
                 ))
                 .await
             }
-            LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured) => Ok(()),
+            LayoutSnapshot::Whole(WholeChartSnapshot::LocalMeasured) => {
+                if matches!(resolved_chart_sizing, ResolvedChartSizing::FacetBand(_)) {
+                    Box::pin(self.refresh_facet_snapshot_layout_from_coord_overflow(
+                        measurement,
+                        eval_ctx,
+                        evaluated_layout_spec,
+                        resolved_chart_sizing,
+                        GuideOverflowPhase::Measurement,
+                    ))
+                    .await
+                } else {
+                    Ok(())
+                }
+            }
             LayoutSnapshot::Whole(WholeChartSnapshot::Coordination(checkpoint)) => {
                 if matches!(resolved_chart_sizing, ResolvedChartSizing::FacetBand(_)) {
-                    coordinate_overflow_for_guides_until(measurement, eval_ctx, *checkpoint).await
+                    coordinate_overflow_for_guides_until(measurement, eval_ctx, *checkpoint)
+                        .await?;
+                    Box::pin(self.refresh_facet_snapshot_layout_from_coord_overflow(
+                        measurement,
+                        eval_ctx,
+                        evaluated_layout_spec,
+                        resolved_chart_sizing,
+                        GuideOverflowPhase::Final,
+                    ))
+                    .await
                 } else {
                     Ok(())
                 }
@@ -6945,6 +7120,24 @@ mod tests {
                 .wrap_with(col("category"), |c| {
                     c.columns(2).guide(|g| g.title("Category"))
                 }),
+            )
+    }
+
+    fn build_canvas_sized_facet_wrap_plot(df: DataFrame) -> Plot<FacetWrap> {
+        Plot::<FacetWrap>::new()
+            .data(df)
+            .canvas_size(360.0, 260.0)
+            .mark(
+                Subplot::new(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(col("value"))
+                            .y(col("value"))
+                            .size(24.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .wrap_with(col("category"), |c| c.columns(2)),
             )
     }
 
@@ -9808,6 +10001,24 @@ mod tests {
             measurement.layout.frame_layout.plot_area.y,
             measurement.layout.total_overflow.top
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn canvas_sized_facet_wrap_keeps_main_axis_canvas_constrained()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let df = deeply_nested_dataframe(&ctx);
+        let compiled = build_canvas_sized_facet_wrap_plot(df).compile(&ctx).await?;
+        let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
+        let wrap_measurement =
+            facet_band_ref(&measurement).expect("FacetWrap should measure as a facet band");
+
+        assert!(
+            !wrap_measurement.content_driven_main_axis(),
+            "canvas-sized wrap rows must distribute available canvas height instead of growing from nested content"
+        );
+
         Ok(())
     }
 

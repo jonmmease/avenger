@@ -213,7 +213,6 @@ pub(crate) async fn measure_coordinate_system_transform(
 
     if any.is::<crate::facet::coord::FacetRow>() {
         return Box::pin(crate::facet::coord::measure_facet_row(
-            request.scales(),
             request.plot_width(),
             request.plot_height(),
             request.eval_ctx(),
@@ -226,7 +225,6 @@ pub(crate) async fn measure_coordinate_system_transform(
 
     if any.is::<crate::facet::coord::FacetColumn>() {
         return Box::pin(crate::facet::coord::measure_facet_column(
-            request.scales(),
             request.plot_width(),
             request.plot_height(),
             request.eval_ctx(),
@@ -239,7 +237,6 @@ pub(crate) async fn measure_coordinate_system_transform(
 
     if any.is::<crate::facet::coord::FacetWrap>() {
         return Box::pin(crate::facet::coord::measure_facet_wrap(
-            request.scales(),
             request.plot_width(),
             request.plot_height(),
             request.eval_ctx(),

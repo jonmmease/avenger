@@ -13,11 +13,11 @@ use indexmap::IndexMap;
 use avenger_chart_core::{
     AvengerChartError, Axis, AxisGuideVisibilityPolicy, AxisSpec, ChartTool, CompileContext,
     CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
-    CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinationScope,
-    DomainCoordination, DomainCoordinationGroup, IntoExpr, Legend, LegendSurfaceKind, Mark,
-    MarkDataMode, MarkState, Param, RepeatContext, RepeatDomainCoordination, RepeatVariable,
-    Selection, Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections,
-    validate_structural_id,
+    CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
+    CoordinationScope, DomainCoordination, DomainCoordinationGroup, IntoExpr, Legend,
+    LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param, RepeatContext,
+    RepeatDomainCoordination, RepeatVariable, Selection, Store, SubplotChildPlotSpec, Theme,
+    TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -451,14 +451,17 @@ impl<C: CoordinateSystem> Plot<C> {
             crate::plot::channel::extract_channel_configs_from_state(
                 mark_state,
                 session_context,
+                coord_transform.as_ref(),
                 &mut pre_tool_axis_specs,
                 &mut pre_tool_legends,
                 &mut pre_tool_scale_specs,
                 &mut pre_tool_scale_to_coord_channel,
-            );
+            )?;
         }
-        let pre_tool_scale_coordination =
-            scale_domain_coordinations_from_states(&pre_tool_mark_states)?;
+        let pre_tool_scale_coordination = scale_domain_coordinations_from_states(
+            &pre_tool_mark_states,
+            coord_transform.as_ref(),
+        )?;
         let tool_scale_targets = discover_tool_scale_targets(
             coord_transform.as_ref(),
             &pre_tool_scale_to_coord_channel,
@@ -493,14 +496,18 @@ impl<C: CoordinateSystem> Plot<C> {
             crate::plot::channel::extract_channel_configs_from_state(
                 mark_state,
                 session_context,
+                coord_transform.as_ref(),
                 &mut axis_specs,
                 &mut legends,
                 &mut scale_specs,
                 &mut scale_to_coord_channel,
-            );
+            )?;
         }
 
-        let scale_coordination = scale_domain_coordinations_from_states(&resolved_mark_states)?;
+        let scale_coordination = scale_domain_coordinations_from_states(
+            &resolved_mark_states,
+            coord_transform.as_ref(),
+        )?;
         tool_context.apply_scale_edits(
             &active_tool_expansions,
             coord_transform.as_ref(),
@@ -1307,17 +1314,22 @@ fn resolve_repeat_variables(
 
 fn scale_domain_coordinations_from_states(
     states: &[MarkState],
+    coord_transform: &dyn CoordinateSystemTransformCore,
 ) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
     let state_refs = states.iter().collect::<Vec<_>>();
-    scale_domain_coordinations_from_state_refs(&state_refs)
+    scale_domain_coordinations_from_state_refs(&state_refs, coord_transform)
 }
 
 fn scale_domain_coordinations_from_state_refs(
     states: &[&MarkState],
+    coord_transform: &dyn CoordinateSystemTransformCore,
 ) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
     let mut result: HashMap<String, DomainCoordination> = HashMap::new();
     for state in states {
         for (channel_name, channel_value) in state.data.channels() {
+            if !coord_transform.channel_uses_scale(channel_name) {
+                continue;
+            }
             let Some(scale_name) = channel_value.get_scale_name(channel_name) else {
                 continue;
             };

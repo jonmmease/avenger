@@ -9,16 +9,15 @@ use std::{
     time::Instant,
 };
 
-use avenger_scales::scales::{ConfiguredScale, band::bandwidth};
+use avenger_scales::scales::ConfiguredScale;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 use tracing::{debug, trace};
 
 use avenger_chart_core::{
-    AxisPosition, CompiledGuide, ConfiguredScaleLegendExt, CoordMeasurement, DomainValues,
-    FacetAxis, GuideOverflowPhase, GuideSharingContext, LayoutBounds, OverflowSpaceRequirement,
-    SharingLevel,
+    AxisPosition, CompiledGuide, CoordMeasurement, FacetAxis, GuideOverflowPhase,
+    GuideSharingContext, LayoutBounds, OverflowSpaceRequirement, SharingLevel,
 };
 
 use crate::{
@@ -58,7 +57,7 @@ struct SubplotOverflowCacheKey {
     guide: &'static str,
     compiled_subplot_ptr: usize,
     data_plan: String,
-    band_scale: String,
+    band_size: u32,
     plot_width: u32,
     plot_height: u32,
     params: Vec<(String, String)>,
@@ -68,6 +67,15 @@ struct SubplotOverflowCacheKey {
 #[inline]
 fn has_visible_anchor(anchor: f32) -> bool {
     anchor.abs() > HIDDEN_TOP_LOCAL_ANCHOR_EPSILON
+}
+
+#[inline]
+fn measured_subplot_anchor_can_place<O: FacetGuideAxisOps>(
+    place_at_end: bool,
+    plot_bounds: &LayoutBounds,
+    measured_anchor: f32,
+) -> bool {
+    O::is_rotated() || (!place_at_end && plot_bounds.y + 0.01 >= measured_anchor)
 }
 
 fn subplot_overflow_cache()
@@ -123,8 +131,6 @@ impl GuideAnchorSource {
 pub(crate) trait FacetGuideAxisOps {
     fn log_name() -> &'static str;
     fn facet_axis() -> FacetAxis;
-    fn scale_key() -> &'static str;
-    fn missing_scale_error() -> &'static str;
     fn place_at_end(position: Option<&str>) -> bool;
     fn axis_position(place_at_end: bool) -> AxisPosition;
     fn is_rotated() -> bool;
@@ -212,14 +218,6 @@ impl FacetGuideAxisOps for RowGuideAxisOps {
 
     fn facet_axis() -> FacetAxis {
         FacetAxis::Row
-    }
-
-    fn scale_key() -> &'static str {
-        "row"
-    }
-
-    fn missing_scale_error() -> &'static str {
-        "No row scale found"
     }
 
     fn place_at_end(position: Option<&str>) -> bool {
@@ -312,14 +310,6 @@ impl FacetGuideAxisOps for ColGuideAxisOps {
 
     fn facet_axis() -> FacetAxis {
         FacetAxis::Column
-    }
-
-    fn scale_key() -> &'static str {
-        "column"
-    }
-
-    fn missing_scale_error() -> &'static str {
-        "No column scale found"
     }
 
     fn place_at_end(position: Option<&str>) -> bool {
@@ -625,9 +615,9 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
                 .await?
             };
             let measured_anchor = O::side_overflow_anchor(place_at_end, &measured_subplot_overflow);
-            let can_place_in_reserved_top_slab =
-                !O::is_rotated() && !place_at_end && plot_bounds.y + 0.01 >= measured_anchor;
-            if can_place_in_reserved_top_slab && has_visible_anchor(measured_anchor) {
+            if measured_subplot_anchor_can_place::<O>(place_at_end, plot_bounds, measured_anchor)
+                && has_visible_anchor(measured_anchor)
+            {
                 subplot_overflow_anchor = measured_anchor;
                 anchor_source = GuideAnchorSource::MeasuredSubplot;
             }
@@ -699,7 +689,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
 
 pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
     state: &FacetGuideState,
-    scales: &HashMap<String, ConfiguredScale>,
+    _scales: &HashMap<String, ConfiguredScale>,
     coord_measurement: Option<&dyn CoordMeasurement>,
     plot_width: f32,
     plot_height: f32,
@@ -729,23 +719,22 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
         return Ok(OverflowSpaceRequirement::default());
     };
 
-    let band_scale = scales
-        .get(O::scale_key())
-        .ok_or_else(|| AvengerChartError::InternalError(O::missing_scale_error().to_string()))?;
-    let band_size = bandwidth(&band_scale.config)
-        .map_err(|e| AvengerChartError::InternalError(format!("Failed to get bandwidth: {e}")))?;
-    let (subplot_width, subplot_height) = O::subplot_dimensions(plot_width, plot_height, band_size);
     let nested_guide = subplot.compiled_guide.as_deref();
     let cell_values = if nested_guide.is_some() {
-        coord_measurement
-            .and_then(facet_measurement_values)
-            .or_else(|| scale_discrete_values(band_scale))
+        coord_measurement.and_then(facet_measurement_values)
     } else {
         None
     };
+    let band_size = provisional_band_size::<O>(
+        coord_measurement,
+        plot_width,
+        plot_height,
+        cell_values.as_ref().map(Vec::len).unwrap_or(1),
+    );
+    let (subplot_width, subplot_height) = O::subplot_dimensions(plot_width, plot_height, band_size);
     let cache_key = subplot_overflow_cache_key::<O>(
         state,
-        band_scale,
+        band_size,
         plot_width,
         plot_height,
         params,
@@ -880,7 +869,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
 
 fn subplot_overflow_cache_key<O: FacetGuideAxisOps>(
     state: &FacetGuideState,
-    band_scale: &ConfiguredScale,
+    band_size: f32,
     plot_width: f32,
     plot_height: f32,
     params: &IndexMap<String, ScalarValue>,
@@ -900,7 +889,7 @@ fn subplot_overflow_cache_key<O: FacetGuideAxisOps>(
         guide: O::log_name(),
         compiled_subplot_ptr: Arc::as_ptr(compiled_subplot) as usize,
         data_plan: format!("{:?}", data.logical_plan()),
-        band_scale: format!("{band_scale:?}"),
+        band_size: band_size.to_bits(),
         plot_width: plot_width.to_bits(),
         plot_height: plot_height.to_bits(),
         params,
@@ -1016,7 +1005,7 @@ fn measure_facet_guide_slab(
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
 ) -> f32 {
-    if labels.is_empty() {
+    if labels.is_empty() && facet_title.is_none() {
         return 0.0;
     }
 
@@ -1035,15 +1024,52 @@ fn measure_facet_guide_slab(
     measure_container_band_guide_slab(&measurement_config)
 }
 
+fn provisional_band_size<O: FacetGuideAxisOps>(
+    coord_measurement: Option<&dyn CoordMeasurement>,
+    plot_width: f32,
+    plot_height: f32,
+    cell_count: usize,
+) -> f32 {
+    if let Some(measurement) = coord_measurement {
+        if let Some(probe) = measurement
+            .as_any()
+            .downcast_ref::<FacetBandProbeMeasurement>()
+            && probe.axis == O::facet_axis()
+            && probe.provisional_main_size().is_finite()
+            && probe.provisional_main_size() > 0.0
+        {
+            return probe.provisional_main_size();
+        }
+
+        if let Some(facet_measurement) = facet_band_from_coord(measurement)
+            && facet_measurement.axis == O::facet_axis()
+        {
+            let geometry = facet_measurement.current_geometry_for_parent(plot_width, plot_height);
+            if let Some(cell) = geometry.cells.first()
+                && cell.main_size.is_finite()
+                && cell.main_size > 0.0
+            {
+                return cell.main_size;
+            }
+        }
+    }
+
+    let parent_main_extent = match O::facet_axis() {
+        FacetAxis::Column => plot_width,
+        FacetAxis::Row => plot_height,
+    };
+    (parent_main_extent / cell_count.max(1) as f32).max(1.0)
+}
+
 fn band_positions_and_labels<O: FacetGuideAxisOps>(
-    scales: &HashMap<String, ConfiguredScale>,
+    _scales: &HashMap<String, ConfiguredScale>,
     coord_measurement: Option<&dyn CoordMeasurement>,
     layout_size: Option<(f32, f32)>,
 ) -> Result<(Vec<BandPosition>, Vec<String>), AvengerChartError> {
     let is_render = layout_size.is_some();
     if let Some(coord_measurement) = coord_measurement
         && let Some(facet_measurement) = facet_band_from_coord(coord_measurement)
-        && facet_measurement.axis.scale_name() == O::scale_key()
+        && facet_measurement.axis == O::facet_axis()
     {
         let band_positions = if is_render {
             facet_measurement.current_band_positions()?
@@ -1067,7 +1093,6 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
 
     let values = coord_measurement
         .and_then(facet_measurement_values)
-        .or_else(|| scales.get(O::scale_key()).and_then(scale_discrete_values))
         .unwrap_or_default();
     let band_positions = values
         .into_iter()
@@ -1086,13 +1111,6 @@ fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<Sc
         .as_any()
         .downcast_ref::<FacetBandProbeMeasurement>()
         .map(|facet_measurement| facet_measurement.cell_values().cloned().collect::<Vec<_>>())
-}
-
-fn scale_discrete_values(scale: &ConfiguredScale) -> Option<Vec<ScalarValue>> {
-    match scale.domain_values().ok()? {
-        DomainValues::Discrete(values) => Some(values),
-        DomainValues::Interval(_, _) => None,
-    }
 }
 
 fn labels_from_band_positions(band_positions: &[BandPosition]) -> Vec<String> {
@@ -1419,6 +1437,17 @@ mod tests {
         ];
         let labels = labels_from_band_positions(&band_positions);
         assert_eq!(labels, vec!["A".to_string(), "B".to_string()]);
+    }
+
+    #[test]
+    fn measure_facet_guide_slab_reserves_title_without_measurement_labels() {
+        let empty = measure_facet_guide_slab(&[], None, &Theme::light(), &IndexMap::new());
+        let title = "Category".to_string();
+        let title_only =
+            measure_facet_guide_slab(&[], Some(&title), &Theme::light(), &IndexMap::new());
+
+        assert_eq!(empty, 0.0);
+        assert!(title_only > 0.0);
     }
 
     #[test]

@@ -138,7 +138,8 @@ impl CompiledPlot {
         param_specs: &HashMap<String, CompiledParamSpec>,
         raw_domain_param_groups: &mut HashMap<String, String>,
     ) -> Result<(), AvengerChartError> {
-        let scale_coordinations = scale_domain_coordinations(&self.marks)?;
+        let scale_coordinations =
+            scale_domain_coordinations(&self.marks, self.coord_transform.as_ref())?;
         for (scale_name, spec) in &self.scale_specs {
             let PlotScaleSpec::Local(config) = spec;
             let Some(domain) = config.domain.as_option() else {
@@ -224,7 +225,8 @@ impl CompiledPlot {
     }
 
     fn validate_transform_output_scale_sharing_recursive(&self) -> Result<(), AvengerChartError> {
-        let scale_coordinations = scale_domain_coordinations(&self.marks)?;
+        let scale_coordinations =
+            scale_domain_coordinations(&self.marks, self.coord_transform.as_ref())?;
         for mark in &self.marks {
             if let Some(facet) = facet_subplot_ref(mark.as_ref()) {
                 facet
@@ -308,6 +310,7 @@ impl CompiledPlot {
 /// validated by the recursion.
 fn scale_domain_coordinations(
     marks: &[Arc<dyn CompiledMark>],
+    coord_transform: &dyn avenger_chart_core::CoordinateSystemTransformCore,
 ) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
     let mut result: HashMap<String, DomainCoordination> = HashMap::new();
     for mark in marks {
@@ -315,6 +318,9 @@ fn scale_domain_coordinations(
             continue;
         }
         for (channel_name, channel_value) in mark.data_context().channels() {
+            if !coord_transform.channel_uses_scale(channel_name) {
+                continue;
+            }
             let Some(coordination) = channel_value.get_domain_coordination().cloned() else {
                 continue;
             };

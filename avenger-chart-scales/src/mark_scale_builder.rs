@@ -154,11 +154,15 @@ impl PreparedScaleMark {
     }
 }
 
-fn collect_channel_derived_scalars(
+fn collect_channel_derived_scalars<C>(
     channel: &str,
     prepared_marks: &[PreparedScaleMark],
+    coord_transform: &C,
     ctx: &SessionContext,
-) -> Result<DerivedScalarMap, AvengerChartError> {
+) -> Result<DerivedScalarMap, AvengerChartError>
+where
+    C: CoordinateSystemTransformCore + ?Sized,
+{
     let mut collected = DerivedScalarMap::new();
     for prepared in prepared_marks {
         let mut collect_from_exprs = |exprs: Vec<Expr>| -> Result<(), AvengerChartError> {
@@ -184,13 +188,7 @@ fn collect_channel_derived_scalars(
         let resolved = resolve_all_channel_refs(&prepared.channels, ctx)
             .unwrap_or_else(|_| prepared.channels.clone());
         for (channel_name, channel_value) in resolved {
-            let maps_to_target =
-                if let Some(scale_name) = channel_value.get_scale_name(&channel_name) {
-                    scale_name == channel
-                } else {
-                    channel_name == channel
-                };
-            if !maps_to_target {
+            if !channel_maps_to_scale(coord_transform, &channel_name, &channel_value, channel) {
                 continue;
             }
 
@@ -299,7 +297,9 @@ where
         let resolved =
             resolve_all_channel_refs(encodings, ctx).unwrap_or_else(|_| encodings.clone());
         for (channel_name, channel_value) in resolved {
-            if channel_value.get_scale_name(&channel_name).is_some() {
+            if coord_transform.channel_uses_scale(&channel_name)
+                && channel_value.get_scale_name(&channel_name).is_some()
+            {
                 channels_with_scales.insert(channel_name.clone());
             }
         }
@@ -307,7 +307,9 @@ where
 
     // Also include explicit scale specs
     for channel in scale_specs.keys() {
-        channels_with_scales.insert(channel.clone());
+        if coord_transform.channel_uses_scale(channel) {
+            channels_with_scales.insert(channel.clone());
+        }
     }
 
     // Always ensure positional channels are present (handles implicit/unnamed scales
@@ -315,6 +317,7 @@ where
     let positional_channel_set_temp: HashSet<String> = coord_transform
         .required_channels()
         .iter()
+        .filter(|&&ch| coord_transform.channel_uses_scale(ch))
         .flat_map(|&ch| vec![ch.to_string(), format!("{}2", ch)])
         .collect();
     for ch in &positional_channel_set_temp {
@@ -325,6 +328,7 @@ where
     let positional_channel_set: HashSet<String> = coord_transform
         .required_channels()
         .iter()
+        .filter(|&&ch| coord_transform.channel_uses_scale(ch))
         .flat_map(|&ch| vec![ch.to_string(), format!("{}2", ch)])
         .collect();
 
@@ -368,6 +372,7 @@ where
                 domain_opt,
                 ordering,
                 prepared_marks,
+                coord_transform,
                 eval_ctx,
                 ctx,
                 params,
@@ -425,6 +430,7 @@ where
                     channel,
                     &spec,
                     prepared_marks,
+                    coord_transform,
                     ctx,
                     &phase1_configured,
                     theme,
@@ -442,6 +448,7 @@ where
                 domain_opt,
                 ordering,
                 prepared_marks,
+                coord_transform,
                 eval_ctx,
                 ctx,
                 params,
@@ -459,6 +466,25 @@ where
 }
 
 /// Build scale specification for a channel
+fn channel_maps_to_scale<C>(
+    coord_transform: &C,
+    channel_name: &str,
+    channel_value: &ChannelValue,
+    target_channel: &str,
+) -> bool
+where
+    C: CoordinateSystemTransformCore + ?Sized,
+{
+    if !coord_transform.channel_uses_scale(channel_name) {
+        return false;
+    }
+
+    channel_value
+        .get_scale_name(channel_name)
+        .map(|scale_name| scale_name == target_channel)
+        .unwrap_or(channel_name == target_channel)
+}
+
 async fn build_scale_for_channel<C>(
     channel: &str,
     prepared_marks: &[PreparedScaleMark],
@@ -501,16 +527,7 @@ where
         // Look for any channel whose scale name matches the target channel
         // This allows y2's data to be used when building scale "y"
         for (channel_name, channel_value) in &resolved {
-            // Check if this channel maps to our target scale
-            let maps_to_target =
-                if let Some(scale_name) = channel_value.get_scale_name(channel_name) {
-                    scale_name == channel
-                } else {
-                    // Value channels don't have scales but exact name match counts
-                    channel_name == channel
-                };
-
-            if !maps_to_target {
+            if !channel_maps_to_scale(coord_transform, channel_name, channel_value, channel) {
                 continue;
             }
 
@@ -573,15 +590,7 @@ where
         let resolved = resolve_all_channel_refs(channels, ctx).unwrap_or_else(|_| channels.clone());
 
         for (channel_name, channel_value) in &resolved {
-            // Check if this channel maps to our target scale
-            let maps_to_target =
-                if let Some(scale_name) = channel_value.get_scale_name(channel_name) {
-                    scale_name == channel
-                } else {
-                    channel_name == channel
-                };
-
-            if !maps_to_target {
+            if !channel_maps_to_scale(coord_transform, channel_name, channel_value, channel) {
                 continue;
             }
 
@@ -662,11 +671,7 @@ where
         // Find mark that has a channel mapping to this scale
         if let Some(prepared) = prepared_marks.iter().find(|prepared| {
             prepared.channels.iter().any(|(ch_name, ch_val)| {
-                if let Some(scale_name) = ch_val.get_scale_name(ch_name) {
-                    scale_name == channel
-                } else {
-                    ch_name == channel
-                }
+                channel_maps_to_scale(coord_transform, ch_name, ch_val, channel)
             })
         }) {
             let mark_opts = prepared
@@ -721,14 +726,18 @@ where
 }
 
 /// Get radius expression for a positional channel (returns None for non-positional)
-fn get_radius_expression(
+fn get_radius_expression<C>(
     channel: &str,
     spec: &Box<dyn ScaleSpec>,
     prepared_marks: &[PreparedScaleMark],
+    coord_transform: &C,
     ctx: &SessionContext,
     phase1_configured: &HashMap<String, ConfiguredScaleWithSpec>,
     theme: &Theme,
-) -> Result<Option<PreparedRadiusExpression>, AvengerChartError> {
+) -> Result<Option<PreparedRadiusExpression>, AvengerChartError>
+where
+    C: CoordinateSystemTransformCore + ?Sized,
+{
     // Check if scale supports radius expansion
     let scale_for_check = Scale::<Auto>::from_spec(spec.clone_box());
     let supports_radius = if let Ok(scale_impl) = scale_for_check.to_scale_impl() {
@@ -749,75 +758,72 @@ fn get_radius_expression(
 
         // Check if this mark uses this channel
         for (ch, ch_value) in &resolved {
-            if let Some(ch_scale_name) = ch_value.get_scale_name(ch) {
-                let base_channel = strip_trailing_numbers(channel);
+            let base_channel = strip_trailing_numbers(channel);
+            if channel_maps_to_scale(coord_transform, ch, ch_value, base_channel) {
+                // Create scale-aware resolve_channel closure
+                let resolve_channel = |ch_name: &str| -> Expr {
+                    if let Some(channel_value) = resolved.get(ch_name) {
+                        match channel_value {
+                            ChannelValue::Scaled {
+                                expr, scale_name, ..
+                            } => {
+                                let scale_key = scale_name
+                                    .as_ref()
+                                    .cloned()
+                                    .unwrap_or_else(|| strip_trailing_numbers(ch_name).to_string());
 
-                if ch_scale_name == base_channel {
-                    // Create scale-aware resolve_channel closure
-                    let resolve_channel = |ch_name: &str| -> Expr {
-                        if let Some(channel_value) = resolved.get(ch_name) {
-                            match channel_value {
-                                ChannelValue::Scaled {
-                                    expr, scale_name, ..
-                                } => {
-                                    let scale_key =
-                                        scale_name.as_ref().cloned().unwrap_or_else(|| {
-                                            strip_trailing_numbers(ch_name).to_string()
-                                        });
-
-                                    // Check Phase 1 scales
-                                    if let Some(configured) = phase1_configured.get(&scale_key)
-                                        && let Ok(expr_df) = expr.to_expr(ctx)
-                                    {
-                                        return ConfiguredScaleDataFusionExt::to_expr(
-                                            configured,
-                                            expr_df.clone(),
-                                        )
-                                        .unwrap_or(expr_df);
-                                    }
-
-                                    // Fallback to raw expression
-                                    if let Ok(expr_df) = expr.to_expr(ctx) {
-                                        return expr_df;
-                                    }
+                                // Check Phase 1 scales
+                                if let Some(configured) = phase1_configured.get(&scale_key)
+                                    && let Ok(expr_df) = expr.to_expr(ctx)
+                                {
+                                    return ConfiguredScaleDataFusionExt::to_expr(
+                                        configured,
+                                        expr_df.clone(),
+                                    )
+                                    .unwrap_or(expr_df);
                                 }
-                                ChannelValue::Value { expr, .. } => {
-                                    if let Ok(expr_df) = expr.to_expr(ctx) {
-                                        return expr_df;
-                                    }
+
+                                // Fallback to raw expression
+                                if let Ok(expr_df) = expr.to_expr(ctx) {
+                                    return expr_df;
                                 }
-                                _ => {}
                             }
+                            ChannelValue::Value { expr, .. } => {
+                                if let Ok(expr_df) = expr.to_expr(ctx) {
+                                    return expr_df;
+                                }
+                            }
+                            _ => {}
                         }
+                    }
 
-                        let temp_eval_ctx = CoreEvaluationContext::new(
-                            Arc::new(theme.clone()),
-                            Arc::new(ctx.clone()),
-                            IndexMap::new(),
-                        );
-                        if let Some(default_scalar) =
-                            default_channel_value_for_eval(mark.as_ref(), ch_name, &temp_eval_ctx)
-                        {
-                            return lit(default_scalar);
-                        }
+                    let temp_eval_ctx = CoreEvaluationContext::new(
+                        Arc::new(theme.clone()),
+                        Arc::new(ctx.clone()),
+                        IndexMap::new(),
+                    );
+                    if let Some(default_scalar) =
+                        default_channel_value_for_eval(mark.as_ref(), ch_name, &temp_eval_ctx)
+                    {
+                        return lit(default_scalar);
+                    }
 
-                        lit(0.0)
-                    };
+                    lit(0.0)
+                };
 
-                    // Get the mark's radius formula using harmless placeholder
-                    // columns, then substitute the actual channel expressions.
-                    // This avoids serializing scale UDFs through mark crates
-                    // that only know about the core/default expression codec.
-                    let placeholder_channel = |ch_name: &str| -> Expr {
-                        col(format!("{RADIUS_CHANNEL_PLACEHOLDER_PREFIX}{ch_name}"))
-                    };
-                    let Some(radius) = mark.radius_expression(channel, &placeholder_channel) else {
-                        return Ok(None);
-                    };
-                    let prepared = prepared_radius_from_serialized(&radius, ctx)?;
-                    return substitute_radius_expression_placeholders(prepared, &resolve_channel)
-                        .map(Some);
-                }
+                // Get the mark's radius formula using harmless placeholder
+                // columns, then substitute the actual channel expressions.
+                // This avoids serializing scale UDFs through mark crates
+                // that only know about the core/default expression codec.
+                let placeholder_channel = |ch_name: &str| -> Expr {
+                    col(format!("{RADIUS_CHANNEL_PLACEHOLDER_PREFIX}{ch_name}"))
+                };
+                let Some(radius) = mark.radius_expression(channel, &placeholder_channel) else {
+                    return Ok(None);
+                };
+                let prepared = prepared_radius_from_serialized(&radius, ctx)?;
+                return substitute_radius_expression_placeholders(prepared, &resolve_channel)
+                    .map(Some);
             }
         }
     }
@@ -827,7 +833,7 @@ fn get_radius_expression(
 
 /// Cache domain data for a channel in the ScaleBuilder
 #[allow(clippy::too_many_arguments)]
-async fn cache_domain_data(
+async fn cache_domain_data<C>(
     channel: &str,
     spec: &Box<dyn ScaleSpec>,
     dt: &ArrowDataType,
@@ -835,6 +841,7 @@ async fn cache_domain_data(
     domain_opt: Option<ScaleDomain>,
     ordering: Option<ScaleOrderingSpec>,
     prepared_marks: &[PreparedScaleMark],
+    coord_transform: &C,
     eval_ctx: &CoreEvaluationContext,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
@@ -842,8 +849,12 @@ async fn cache_domain_data(
     builder: &mut ScaleBuilder,
     radius_expr_opt: Option<PreparedRadiusExpression>,
     theme: &Theme,
-) -> Result<(), AvengerChartError> {
-    let derived_scalars = collect_channel_derived_scalars(channel, prepared_marks, ctx)?;
+) -> Result<(), AvengerChartError>
+where
+    C: CoordinateSystemTransformCore + ?Sized,
+{
+    let derived_scalars =
+        collect_channel_derived_scalars(channel, prepared_marks, coord_transform, ctx)?;
 
     // Build a scale with domain and options to inspect domain (including any DomainExprs)
     let mut scale = Scale::<Auto>::from_spec(spec.clone_box());
@@ -953,9 +964,12 @@ async fn cache_domain_data(
                 .unwrap_or_else(|_| prepared.domain_channels.clone());
 
             for (channel_name, domain_channel_value) in &domain_resolved {
-                if let Some(channel_scale_name) = domain_channel_value.get_scale_name(channel_name)
-                    && channel_scale_name == channel
-                {
+                if channel_maps_to_scale(
+                    coord_transform,
+                    channel_name,
+                    domain_channel_value,
+                    channel,
+                ) {
                     let domain_scale_input = domain_channel_value.scale_input_expr(ctx);
                     let use_domain_source = domain_scale_input
                         .as_ref()
@@ -1831,6 +1845,34 @@ mod tests {
 
     use super::*;
     use crate::{Band, Linear};
+    use avenger_chart_core::{PlotGeometry, SubplotGeometry};
+    use avenger_common::value::ScalarOrArray;
+
+    struct TestCoordTransform;
+
+    impl CoordinateSystemTransformCore for TestCoordTransform {
+        fn required_channels(&self) -> &'static [&'static str] {
+            &[]
+        }
+
+        fn transform(
+            &self,
+            _position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+            _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+            _plot_width: f32,
+            _plot_height: f32,
+        ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+            Ok(Box::new(SubplotGeometry::default()))
+        }
+
+        fn default_scale_options(
+            &self,
+            _channel: &str,
+            _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+        ) -> HashMap<String, ScalarValue> {
+            HashMap::new()
+        }
+    }
 
     fn s(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))
@@ -1983,6 +2025,7 @@ mod tests {
             .into_option()
             .expect("ordering config");
         let mut builder = ScaleBuilder::new();
+        let coord_transform = TestCoordTransform;
 
         cache_domain_data(
             "x",
@@ -1992,6 +2035,7 @@ mod tests {
             Some(ScaleDomain::new_discrete(vec![lit("B"), lit("A")])),
             Some(ordering),
             &[],
+            &coord_transform,
             &eval_ctx(&ctx),
             &ctx,
             &IndexMap::new(),
@@ -2033,6 +2077,7 @@ mod tests {
             .into_option()
             .expect("ordering config");
         let mut builder = ScaleBuilder::new();
+        let coord_transform = TestCoordTransform;
 
         let err = cache_domain_data(
             "x",
@@ -2042,6 +2087,7 @@ mod tests {
             None,
             Some(ordering),
             &[],
+            &coord_transform,
             &eval_ctx(&ctx),
             &ctx,
             &IndexMap::new(),

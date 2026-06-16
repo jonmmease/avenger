@@ -26,7 +26,7 @@ pub struct CoordinatedOverflow {
 pub struct CoordinatedLayout {
     /// Physical gap between adjacent subplot plot areas.
     ///
-    /// This value is written to band scales and explicit plot-area placement.
+    /// This value feeds layout-native facet geometry and explicit plot-area placement.
     pub padding_inner_px: f32,
     /// Virtual same-axis guide slot gap used for facet-guide alignment.
     ///
