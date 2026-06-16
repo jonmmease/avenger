@@ -677,3 +677,71 @@ async fn test_nested_position_facet_shared_whole_path_slots() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn test_nested_position_repeat_axis_titles() {
+    let ctx = SessionContext::new();
+    let batch = record_batch(
+        vec![
+            Field::new("region", DataType::Utf8, false),
+            Field::new("product", DataType::Utf8, false),
+            Field::new("team", DataType::Utf8, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "North", "North", "North", "South", "South", "South",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["Bk", "Gm", "Ty", "Bk", "Gm", "Ty"])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "Alpha", "Beta", "Alpha", "Beta", "Alpha", "Beta",
+            ])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![22.0, 31.0, 26.0, 28.0, 24.0, 34.0])) as ArrayRef,
+        ],
+    );
+    let df = ctx.read_batch(batch).expect("dataframe");
+    let nested = named_struct(vec![
+        lit("region"),
+        col("region"),
+        lit("leaf"),
+        repeat::column().into(),
+    ]);
+    let cell = Plot::<Cartesian>::new().mark(
+        Rect::new()
+            .x_with(nested, |x| {
+                x.axis(|a| a.title(repeat::column_title()).grid(false))
+                    .level(0, |l| l.axis(|a| a.title("Region")).padding_inner(0.34))
+                    .level(1, |l| {
+                        l.axis(|a| a.title(repeat::column_title()))
+                            .padding_inner(0.08)
+                    })
+            })
+            .x2_with(col(":x"), |x| x.band(1.0))
+            .y_with(lit(0.0), |y| {
+                y.scale(|s| s.domain((0.0, 40.0)))
+                    .axis(|a| a.title("Value").grid(true))
+            })
+            .y2(col("value"))
+            .fill("#4c78a8")
+            .stroke("#ffffff")
+            .stroke_width(1.0),
+    );
+    let plot = Plot::<RepeatColumns>::new()
+        .data(df)
+        .plot_size(260.0, 165.0)
+        .columns(vec![
+            RepeatVariable::new("product", col("product")).title("Product"),
+            RepeatVariable::new("team", col("team")).title("Team"),
+        ])
+        .cell(cell);
+
+    let compiled = plot.compile(&ctx).await.expect("compile repeat columns");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "repeat_nested_position_axis_titles",
+    )
+    .await;
+}
