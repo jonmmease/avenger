@@ -11,7 +11,7 @@ use crate::{
         evaluated_facet_tree::EvaluatedFacetTree,
         layout_plan::{FacetBandPlan, FacetCellEmptyKind},
         probe_summary::FacetCellProbeSummary,
-        scale_precompute::{FacetScaleNodeArtifacts, FacetScaleNodeKey},
+        scale_builder_precompute::{FacetScaleBuilderNodeArtifacts, FacetScaleBuilderNodeKey},
     },
     partition::PartitionCellPlan,
     plot::compiled::{CompiledPlot, ComponentsMeasurement},
@@ -44,7 +44,7 @@ pub(crate) struct FacetBandPreparedInputs {
     pub(crate) cell_semantics: FacetBandSemantics,
     pub(crate) layout_min_slot_count: usize,
     pub(crate) renderable_mask: Vec<bool>,
-    pub(crate) scale_artifacts_key: FacetScaleNodeKey,
+    pub(crate) scale_artifacts_key: FacetScaleBuilderNodeKey,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -73,7 +73,7 @@ pub(crate) struct FacetBandPreparedRuntime {
     pub(crate) nested_measure_ctx: FacetBandNestedMeasureContext,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) initial_subplot_band_size: f32,
-    pub(crate) scale_artifacts: Arc<FacetScaleNodeArtifacts>,
+    pub(crate) scale_artifacts: Arc<FacetScaleBuilderNodeArtifacts>,
 }
 
 pub(crate) struct FacetBandMeasuredRuntime {

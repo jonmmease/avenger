@@ -1536,7 +1536,7 @@ pub(crate) async fn measure_concat_coord_system(
             Orientation::Vertical => Size::new(plot_width, track_budget),
         };
         let facet_scoped_extents = eval_ctx
-            .facet_scale_precompute_store()
+            .facet_scale_builder_precompute_store()
             .coordinated_child_frame_domain_extents(
                 &prepared.relative_facet_child_frame_path,
                 facet_path,
@@ -1662,7 +1662,7 @@ pub(crate) async fn measure_grid_concat_coord_system(
             span_budget(&row_budgets, placement.row, placement.row_span),
         );
         let facet_scoped_extents = eval_ctx
-            .facet_scale_precompute_store()
+            .facet_scale_builder_precompute_store()
             .coordinated_child_frame_domain_extents(
                 &prepared.relative_facet_child_frame_path,
                 facet_path,
@@ -1786,7 +1786,7 @@ pub(crate) async fn measure_wrap_concat_coord_system(
         .enumerate()
     {
         let facet_scoped_extents = eval_ctx
-            .facet_scale_precompute_store()
+            .facet_scale_builder_precompute_store()
             .coordinated_child_frame_domain_extents(
                 &prepared.relative_facet_child_frame_path,
                 facet_path,

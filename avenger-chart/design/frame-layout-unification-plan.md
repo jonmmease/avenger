@@ -1,5 +1,10 @@
 # Frame Layout Unification Plan
 
+> Historical note: this plan predates the current facet geometry model.
+> References to scale-backed facet placement or facet band scales describe an
+> older implementation. Current facet render/readback geometry is stored in
+> `CurrentFacetGeometry` after the settled measurement tree is solved.
+
 ## Goal
 
 Unify regular chart layout and facet chart layout around one local frame

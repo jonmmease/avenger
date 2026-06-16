@@ -97,7 +97,7 @@ use super::{
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_marks,
     session::{
-        FacetScalePrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
+        FacetScaleBuilderPrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
         LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
         ScopedParamStore, ScopedSelectionStore, ScopedStoreState, SelectionRevisionFingerprint,
         StoreRevisionFingerprint, TextMeasurementCacheHandle, changed_param_names,
@@ -280,6 +280,11 @@ enum ResolvedChartSizing {
 struct EvaluationOutcome {
     evaluated: EvaluatedPlot,
     layout_profile: Option<LayoutProfileSnapshot>,
+}
+
+struct FacetLayoutRefreshOutcome {
+    plot_bounds: LayoutBounds,
+    retarget_count: usize,
 }
 
 pub(crate) struct PreviewLayoutProfileAttempt {
@@ -2632,6 +2637,78 @@ impl CompiledPlot {
         Ok((overflow, layout, legend_plan))
     }
 
+    fn install_rebuilt_layout(
+        measurement: &mut ComponentsMeasurement,
+        layout: LayoutSolution,
+        legend_plan: PreparedLegendPlan,
+    ) -> LayoutBounds {
+        let plot_bounds = *layout.plot_area_bounds();
+        measurement.layout = layout;
+        measurement.legend_plan = legend_plan;
+        measurement.sync_canvas_size_from_layout();
+        plot_bounds
+    }
+
+    fn finalize_measurement_layout_state(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        facet_path: &[ScalarValue],
+        refresh_geometry: bool,
+    ) -> Result<(), AvengerChartError> {
+        measurement.clip = self.resolved_clip_region(
+            eval_ctx,
+            facet_path,
+            &measurement.scales,
+            measurement.plot_area_width,
+            measurement.plot_area_height,
+        );
+        measurement.legend_plan.retarget_scales(&measurement.scales);
+        if refresh_geometry {
+            crate::facet::coordination_apply::refresh_current_facet_geometry(
+                measurement,
+                eval_ctx.facet_runtime_sizing_mode(),
+            )?;
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn rebuild_layout_from_current_coord_overflow(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        layout_spec: &EvaluatedLayoutSpec,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        phase: GuideOverflowPhase,
+    ) -> Result<LayoutBounds, AvengerChartError> {
+        let ctx = &*eval_ctx.session_context;
+        let facet_tree = eval_ctx.facet_tree.as_ref();
+        let (_, layout, legend_plan) = Box::pin(self.rebuild_layout_with_coord_overflow(
+            eval_ctx,
+            layout_spec,
+            &measurement.scales,
+            measurement.plot_area_width,
+            measurement.plot_area_height,
+            &measurement.params,
+            data_override,
+            ctx,
+            facet_tree,
+            facet_path,
+            eval_ctx.child_frame_sharing_path(),
+            Some(measurement.coord_measurement.as_ref()),
+            phase,
+        ))
+        .await?;
+
+        Ok(Self::install_rebuilt_layout(
+            measurement,
+            layout,
+            legend_plan,
+        ))
+    }
+
     async fn refresh_final_child_layouts_bottom_up(
         &self,
         measurement: &mut ComponentsMeasurement,
@@ -2724,104 +2801,115 @@ impl CompiledPlot {
         Box::pin(self.refresh_final_child_layouts_bottom_up(measurement, eval_ctx, facet_path))
             .await?;
 
-        let ctx = &*eval_ctx.session_context;
-        let facet_tree = eval_ctx.facet_tree.as_ref();
-        let (_, realized_layout, realized_legend_plan) =
-            Box::pin(self.rebuild_layout_with_coord_overflow(
-                eval_ctx,
-                layout_spec,
-                &measurement.scales,
-                measurement.plot_area_width,
-                measurement.plot_area_height,
-                &measurement.params,
-                data_override,
-                ctx,
-                facet_tree,
-                facet_path,
-                eval_ctx.child_frame_sharing_path(),
-                Some(measurement.coord_measurement.as_ref()),
-                GuideOverflowPhase::Final,
-            ))
-            .await?;
-
-        let plot_bounds = *realized_layout.plot_area_bounds();
-        measurement.layout = realized_layout;
-        measurement.legend_plan = realized_legend_plan;
-        measurement.sync_canvas_size_from_layout();
-        measurement.clip = self.resolved_clip_region(
+        let plot_bounds = Box::pin(self.rebuild_layout_from_current_coord_overflow(
+            measurement,
             eval_ctx,
+            layout_spec,
+            data_override,
             facet_path,
-            &measurement.scales,
-            measurement.plot_area_width,
-            measurement.plot_area_height,
-        );
-        measurement.legend_plan.retarget_scales(&measurement.scales);
+            GuideOverflowPhase::Final,
+        ))
+        .await?;
+        self.finalize_measurement_layout_state(measurement, eval_ctx, facet_path, false)?;
 
         Ok(plot_bounds)
     }
 
-    fn facet_snapshot_target_plot_area(
-        policy: FacetRuntimeSizingPolicy,
-        plot_bounds: &LayoutBounds,
-        current_width: f32,
-        current_height: f32,
-    ) -> (f32, f32) {
-        let width = if policy.width.is_canvas_constrained() {
-            plot_bounds.width.max(1.0)
-        } else {
-            current_width.max(1.0)
-        };
-        let height = if policy.height.is_canvas_constrained() {
-            plot_bounds.height.max(1.0)
-        } else {
-            current_height.max(1.0)
-        };
-        (width, height)
-    }
-
     #[allow(clippy::too_many_arguments)]
-    async fn rebuild_facet_snapshot_layout_once(
+    async fn refresh_policy_layout_from_current_coord_overflow(
         &self,
         measurement: &mut ComponentsMeasurement,
         eval_ctx: &EvaluationContext,
         evaluated_layout_spec: &EvaluatedLayoutSpec,
         policy: FacetRuntimeSizingPolicy,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
         phase: GuideOverflowPhase,
-    ) -> Result<LayoutBounds, AvengerChartError> {
-        let plot_area_width = measurement.plot_area_width.max(1.0);
-        let plot_area_height = measurement.plot_area_height.max(1.0);
-        let layout_spec = Self::layout_spec_for_policy_plot_area_size(
-            evaluated_layout_spec,
-            policy,
-            plot_area_width,
-            plot_area_height,
-        );
-        let ctx = &*eval_ctx.session_context;
-        let facet_tree = eval_ctx.facet_tree.as_ref();
-        let (_, realized_layout, realized_legend_plan) =
-            Box::pin(self.rebuild_layout_with_coord_overflow(
+    ) -> Result<FacetLayoutRefreshOutcome, AvengerChartError> {
+        let mut retarget_count = 0usize;
+        for _ in 0..2 {
+            let plot_area_width = measurement.plot_area_width.max(1.0);
+            let plot_area_height = measurement.plot_area_height.max(1.0);
+            let layout_spec = if facet_path.is_empty() {
+                Self::layout_spec_for_policy_plot_area_size(
+                    evaluated_layout_spec,
+                    policy,
+                    plot_area_width,
+                    plot_area_height,
+                )
+            } else {
+                Self::nested_fixed_plot_area_layout_spec(plot_area_width, plot_area_height)
+            };
+            let plot_bounds = Box::pin(self.rebuild_layout_from_current_coord_overflow(
+                measurement,
                 eval_ctx,
                 &layout_spec,
-                &measurement.scales,
-                plot_area_width,
-                plot_area_height,
-                &measurement.params,
-                None,
-                ctx,
-                facet_tree,
-                &[],
-                eval_ctx.child_frame_sharing_path(),
-                Some(measurement.coord_measurement.as_ref()),
+                data_override,
+                facet_path,
                 phase,
             ))
             .await?;
 
-        let plot_bounds = *realized_layout.plot_area_bounds();
-        measurement.layout = realized_layout;
-        measurement.legend_plan = realized_legend_plan;
-        measurement.sync_canvas_size_from_layout();
+            let current_width = measurement.plot_area_width.max(1.0);
+            let current_height = measurement.plot_area_height.max(1.0);
+            let target_width = if policy.width.is_canvas_constrained() {
+                plot_bounds.width.max(1.0)
+            } else {
+                current_width
+            };
+            let target_height = if policy.height.is_canvas_constrained() {
+                plot_bounds.height.max(1.0)
+            } else {
+                current_height
+            };
+            if (target_width - current_width).abs() <= 0.01
+                && (target_height - current_height).abs() <= 0.01
+            {
+                self.finalize_measurement_layout_state(measurement, eval_ctx, facet_path, true)?;
+                return Ok(FacetLayoutRefreshOutcome {
+                    plot_bounds,
+                    retarget_count,
+                });
+            }
 
-        Ok(plot_bounds)
+            retarget_measurement_plot_area_policy_no_remeasure(
+                measurement,
+                self,
+                eval_ctx,
+                facet_path,
+                target_width,
+                target_height,
+            )?;
+            retarget_count += 1;
+        }
+
+        let plot_area_width = measurement.plot_area_width.max(1.0);
+        let plot_area_height = measurement.plot_area_height.max(1.0);
+        let layout_spec = if facet_path.is_empty() {
+            Self::layout_spec_for_policy_plot_area_size(
+                evaluated_layout_spec,
+                policy,
+                plot_area_width,
+                plot_area_height,
+            )
+        } else {
+            Self::nested_fixed_plot_area_layout_spec(plot_area_width, plot_area_height)
+        };
+        let plot_bounds = Box::pin(self.rebuild_layout_from_current_coord_overflow(
+            measurement,
+            eval_ctx,
+            &layout_spec,
+            data_override,
+            facet_path,
+            phase,
+        ))
+        .await?;
+        self.finalize_measurement_layout_state(measurement, eval_ctx, facet_path, true)?;
+
+        Ok(FacetLayoutRefreshOutcome {
+            plot_bounds,
+            retarget_count,
+        })
     }
 
     async fn refresh_facet_snapshot_layout_from_coord_overflow(
@@ -2844,71 +2932,24 @@ impl CompiledPlot {
             return Ok(());
         }
 
-        for _ in 0..2 {
-            let plot_bounds = Box::pin(self.rebuild_facet_snapshot_layout_once(
-                measurement,
-                eval_ctx,
-                evaluated_layout_spec,
-                policy,
-                phase,
-            ))
-            .await?;
-            let current_width = measurement.plot_area_width.max(1.0);
-            let current_height = measurement.plot_area_height.max(1.0);
-            let (target_width, target_height) = Self::facet_snapshot_target_plot_area(
-                policy,
-                &plot_bounds,
-                current_width,
-                current_height,
-            );
-            if (target_width - current_width).abs() <= 0.01
-                && (target_height - current_height).abs() <= 0.01
-            {
-                measurement.clip = self.resolved_clip_region(
-                    eval_ctx,
-                    &[],
-                    &measurement.scales,
-                    current_width,
-                    current_height,
-                );
-                measurement.legend_plan.retarget_scales(&measurement.scales);
-                crate::facet::coordination_apply::refresh_current_facet_geometry(
-                    measurement,
-                    eval_ctx.facet_runtime_sizing_mode(),
-                )?;
-                return Ok(());
-            }
-
-            retarget_measurement_plot_area_policy_no_remeasure(
-                measurement,
-                self,
-                eval_ctx,
-                &[],
-                target_width,
-                target_height,
-            )?;
-        }
-
-        Box::pin(self.rebuild_facet_snapshot_layout_once(
+        let outcome = Box::pin(self.refresh_policy_layout_from_current_coord_overflow(
             measurement,
             eval_ctx,
             evaluated_layout_spec,
             policy,
+            None,
+            &[],
             phase,
         ))
         .await?;
-        measurement.clip = self.resolved_clip_region(
-            eval_ctx,
-            &[],
-            &measurement.scales,
-            measurement.plot_area_width,
-            measurement.plot_area_height,
+        trace!(
+            plot_area_width = measurement.plot_area_width,
+            plot_area_height = measurement.plot_area_height,
+            plot_bounds_width = outcome.plot_bounds.width,
+            plot_bounds_height = outcome.plot_bounds.height,
+            retarget_count = outcome.retarget_count,
+            "facet snapshot layout refreshed from current coord overflow"
         );
-        measurement.legend_plan.retarget_scales(&measurement.scales);
-        crate::facet::coordination_apply::refresh_current_facet_geometry(
-            measurement,
-            eval_ctx.facet_runtime_sizing_mode(),
-        )?;
 
         Ok(())
     }
@@ -2989,18 +3030,7 @@ impl CompiledPlot {
         // Canvas-mode params carry the evaluated canvas dimensions for media
         // queries and user expressions. Retargeting the plot area must not
         // turn `width`/`height` into inner plot dimensions.
-        measurement.clip = self.resolved_clip_region(
-            eval_ctx,
-            facet_path,
-            &measurement.scales,
-            plot_area_width,
-            plot_area_height,
-        );
-        measurement.legend_plan.retarget_scales(&measurement.scales);
-        crate::facet::coordination_apply::refresh_current_facet_geometry(
-            measurement,
-            eval_ctx.facet_runtime_sizing_mode(),
-        )?;
+        self.finalize_measurement_layout_state(measurement, eval_ctx, facet_path, true)?;
 
         Ok(())
     }
@@ -3080,14 +3110,7 @@ impl CompiledPlot {
         measurement.plot_area_height = next_height;
         measurement.scales = final_scales;
         measurement.coord_measurement = coord_measurement;
-        measurement.clip = self.resolved_clip_region(
-            eval_ctx,
-            facet_path,
-            &measurement.scales,
-            next_width,
-            next_height,
-        );
-        measurement.legend_plan.retarget_scales(&measurement.scales);
+        self.finalize_measurement_layout_state(measurement, eval_ctx, facet_path, false)?;
 
         Ok(())
     }
@@ -3505,36 +3528,16 @@ impl CompiledPlot {
         measurement.scales = final_scales;
         measurement.coord_measurement = coord_measurement;
 
-        let facet_tree = eval_ctx.facet_tree.as_ref();
-        let (_, realized_layout, realized_legend_plan) =
-            Box::pin(self.rebuild_layout_with_coord_overflow(
-                eval_ctx,
-                &realized_layout_spec,
-                &measurement.scales,
-                plot_area_width,
-                plot_area_height,
-                &measurement.params,
-                data_override,
-                ctx,
-                facet_tree,
-                facet_path,
-                eval_ctx.child_frame_sharing_path(),
-                Some(measurement.coord_measurement.as_ref()),
-                GuideOverflowPhase::Final,
-            ))
-            .await?;
-
-        measurement.layout = realized_layout;
-        measurement.legend_plan = realized_legend_plan;
-        measurement.sync_canvas_size_from_layout();
-        measurement.clip = self.resolved_clip_region(
+        Box::pin(self.rebuild_layout_from_current_coord_overflow(
+            measurement,
             eval_ctx,
+            &realized_layout_spec,
+            data_override,
             facet_path,
-            &measurement.scales,
-            plot_area_width,
-            plot_area_height,
-        );
-        measurement.legend_plan.retarget_scales(&measurement.scales);
+            GuideOverflowPhase::Final,
+        ))
+        .await?;
+        self.finalize_measurement_layout_state(measurement, eval_ctx, facet_path, false)?;
 
         Ok(())
     }
@@ -3605,30 +3608,15 @@ impl CompiledPlot {
         } else {
             Self::nested_fixed_plot_area_layout_spec(plot_area_width, plot_area_height)
         };
-        let ctx = &*eval_ctx.session_context;
-        let facet_tree = eval_ctx.facet_tree.as_ref();
-        let (_, realized_layout, realized_legend_plan) =
-            Box::pin(self.rebuild_layout_with_coord_overflow(
-                eval_ctx,
-                &realized_layout_spec,
-                &measurement.scales,
-                plot_area_width,
-                plot_area_height,
-                &measurement.params,
-                data_override,
-                ctx,
-                facet_tree,
-                facet_path,
-                eval_ctx.child_frame_sharing_path(),
-                Some(measurement.coord_measurement.as_ref()),
-                GuideOverflowPhase::Final,
-            ))
-            .await?;
-
-        let plot_bounds = *realized_layout.plot_area_bounds();
-        measurement.layout = realized_layout;
-        measurement.legend_plan = realized_legend_plan;
-        measurement.sync_canvas_size_from_layout();
+        let plot_bounds = Box::pin(self.rebuild_layout_from_current_coord_overflow(
+            measurement,
+            eval_ctx,
+            &realized_layout_spec,
+            data_override,
+            facet_path,
+            GuideOverflowPhase::Final,
+        ))
+        .await?;
 
         if policy.width.is_canvas_constrained() {
             plot_area_width = plot_bounds.width.max(1.0);
@@ -3649,14 +3637,7 @@ impl CompiledPlot {
             )?;
             true
         } else {
-            measurement.clip = self.resolved_clip_region(
-                eval_ctx,
-                facet_path,
-                &measurement.scales,
-                plot_area_width,
-                plot_area_height,
-            );
-            measurement.legend_plan.retarget_scales(&measurement.scales);
+            self.finalize_measurement_layout_state(measurement, eval_ctx, facet_path, false)?;
             false
         };
 
@@ -3673,28 +3654,15 @@ impl CompiledPlot {
             } else {
                 Self::nested_fixed_plot_area_layout_spec(post_retarget_width, post_retarget_height)
             };
-            let (_, post_retarget_layout, post_retarget_legend_plan) =
-                Box::pin(self.rebuild_layout_with_coord_overflow(
-                    eval_ctx,
-                    &post_retarget_layout_spec,
-                    &measurement.scales,
-                    post_retarget_width,
-                    post_retarget_height,
-                    &measurement.params,
-                    data_override,
-                    ctx,
-                    facet_tree,
-                    facet_path,
-                    eval_ctx.child_frame_sharing_path(),
-                    Some(measurement.coord_measurement.as_ref()),
-                    GuideOverflowPhase::Final,
-                ))
-                .await?;
-
-            let post_retarget_bounds = *post_retarget_layout.plot_area_bounds();
-            measurement.layout = post_retarget_layout;
-            measurement.legend_plan = post_retarget_legend_plan;
-            measurement.sync_canvas_size_from_layout();
+            let post_retarget_bounds = Box::pin(self.rebuild_layout_from_current_coord_overflow(
+                measurement,
+                eval_ctx,
+                &post_retarget_layout_spec,
+                data_override,
+                facet_path,
+                GuideOverflowPhase::Final,
+            ))
+            .await?;
 
             let mut realized_width = post_retarget_width;
             let mut realized_height = post_retarget_height;
@@ -3717,18 +3685,7 @@ impl CompiledPlot {
                     realized_height,
                 )?;
             } else {
-                measurement.clip = self.resolved_clip_region(
-                    eval_ctx,
-                    facet_path,
-                    &measurement.scales,
-                    realized_width,
-                    realized_height,
-                );
-                measurement.legend_plan.retarget_scales(&measurement.scales);
-                crate::facet::coordination_apply::refresh_current_facet_geometry(
-                    measurement,
-                    eval_ctx.facet_runtime_sizing_mode(),
-                )?;
+                self.finalize_measurement_layout_state(measurement, eval_ctx, facet_path, true)?;
             }
         }
 
@@ -5762,7 +5719,7 @@ impl CompiledPlot {
         let (
             scale_domain_cache,
             facet_semantic_cache,
-            facet_scale_precompute_cache,
+            facet_scale_builder_precompute_cache,
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
@@ -5774,7 +5731,7 @@ impl CompiledPlot {
                 options,
                 scale_domain_cache,
                 facet_semantic_cache,
-                facet_scale_precompute_cache,
+                facet_scale_builder_precompute_cache,
                 Some(guide_overflow_cache),
                 Some(legend_measurement_cache),
                 Some(text_measurement_cache),
@@ -5794,7 +5751,7 @@ impl CompiledPlot {
         options: EvaluationOptions,
         scale_domain_cache: ScaleDomainCacheHandle,
         facet_semantic_cache: FacetSemanticCacheHandle,
-        facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
+        facet_scale_builder_precompute_cache: FacetScaleBuilderPrecomputeCacheHandle,
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
@@ -5817,7 +5774,7 @@ impl CompiledPlot {
             Some(metrics.clone()),
             Some(scale_domain_cache),
             Some(facet_semantic_cache),
-            Some(facet_scale_precompute_cache),
+            Some(facet_scale_builder_precompute_cache),
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
@@ -5842,7 +5799,7 @@ impl CompiledPlot {
         evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
         scale_domain_cache: Option<ScaleDomainCacheHandle>,
         facet_semantic_cache: Option<FacetSemanticCacheHandle>,
-        facet_scale_precompute_cache: Option<FacetScalePrecomputeCacheHandle>,
+        facet_scale_builder_precompute_cache: Option<FacetScaleBuilderPrecomputeCacheHandle>,
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
@@ -5921,11 +5878,11 @@ impl CompiledPlot {
             depth = facet_tree.depth(),
             "evaluated facet tree construction completed"
         );
-        let facet_scale_precompute_store = facet_scale_precompute_cache
+        let facet_scale_builder_precompute_store = facet_scale_builder_precompute_cache
             .as_ref()
             .filter(|_| facet_tree.depth() > 0)
             .map(|cache| {
-                let (store, hit) = self.facet_scale_precompute_store_from_session_cache(
+                let (store, hit) = self.facet_scale_builder_precompute_store_from_session_cache(
                     cache,
                     ctx,
                     &merged_params,
@@ -5933,9 +5890,9 @@ impl CompiledPlot {
                 );
                 Self::record_evaluation_metric(&evaluation_metrics, |metrics| {
                     if hit {
-                        metrics.record_facet_scale_precompute_cache_hit();
+                        metrics.record_facet_scale_builder_precompute_cache_hit();
                     } else {
-                        metrics.record_facet_scale_precompute_cache_miss();
+                        metrics.record_facet_scale_builder_precompute_cache_miss();
                     }
                 });
                 store
@@ -6062,8 +6019,8 @@ impl CompiledPlot {
         if let Some(profile) = layout_profile {
             eval_ctx = eval_ctx.with_layout_profile(profile);
         }
-        if let Some(store) = facet_scale_precompute_store {
-            eval_ctx = eval_ctx.with_facet_scale_precompute_store(store);
+        if let Some(store) = facet_scale_builder_precompute_store {
+            eval_ctx = eval_ctx.with_facet_scale_builder_precompute_store(store);
         }
         if let Some(store) = scoped_param_store {
             eval_ctx = eval_ctx.with_scoped_param_store(store);
@@ -6280,7 +6237,7 @@ impl CompiledPlot {
         layout_profile: &LayoutProfileSnapshot,
         scale_domain_cache: ScaleDomainCacheHandle,
         facet_semantic_cache: FacetSemanticCacheHandle,
-        facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
+        facet_scale_builder_precompute_cache: FacetScaleBuilderPrecomputeCacheHandle,
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
@@ -6443,7 +6400,7 @@ impl CompiledPlot {
                     Some(metrics.clone()),
                     Some(scale_domain_cache),
                     Some(facet_semantic_cache),
-                    Some(facet_scale_precompute_cache),
+                    Some(facet_scale_builder_precompute_cache),
                     guide_overflow_cache,
                     legend_measurement_cache,
                     text_measurement_cache,

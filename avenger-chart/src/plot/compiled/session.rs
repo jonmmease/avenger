@@ -40,7 +40,7 @@ use crate::{
     facet::{
         evaluated_facet_tree::EvaluatedFacetTree,
         marks::facet::{FacetSubplotRef, facet_subplot_ref},
-        scale_precompute::FacetScalePrecomputeStore,
+        scale_builder_precompute::FacetScaleBuilderPrecomputeStore,
     },
     guide::OverflowSpaceRequirement,
     layout::{LayoutSpec, Size2D, SizeMode},
@@ -60,7 +60,8 @@ use super::{
 
 pub(crate) type ScaleDomainCacheHandle = Arc<Mutex<ScaleDomainCache>>;
 pub(crate) type FacetSemanticCacheHandle = Arc<Mutex<PartitionSlotCache>>;
-pub(crate) type FacetScalePrecomputeCacheHandle = Arc<Mutex<FacetScalePrecomputeSessionCache>>;
+pub(crate) type FacetScaleBuilderPrecomputeCacheHandle =
+    Arc<Mutex<FacetScaleBuilderPrecomputeSessionCache>>;
 pub(crate) type GuideOverflowCacheHandle = Arc<Mutex<GuideOverflowCache>>;
 pub(crate) type LegendMeasurementCacheHandle = Arc<Mutex<LegendMeasurementCache>>;
 pub(crate) type TextMeasurementCacheHandle = Arc<Mutex<TextMeasurementCache>>;
@@ -70,7 +71,7 @@ pub(crate) type StoreRevisionFingerprint = Vec<(String, Vec<String>, u64)>;
 pub(crate) fn new_plot_session_cache_handles() -> (
     ScaleDomainCacheHandle,
     FacetSemanticCacheHandle,
-    FacetScalePrecomputeCacheHandle,
+    FacetScaleBuilderPrecomputeCacheHandle,
     GuideOverflowCacheHandle,
     LegendMeasurementCacheHandle,
     TextMeasurementCacheHandle,
@@ -78,7 +79,9 @@ pub(crate) fn new_plot_session_cache_handles() -> (
     (
         Arc::new(Mutex::new(ScaleDomainCache::default())),
         Arc::new(Mutex::new(PartitionSlotCache::new())),
-        Arc::new(Mutex::new(FacetScalePrecomputeSessionCache::default())),
+        Arc::new(Mutex::new(
+            FacetScaleBuilderPrecomputeSessionCache::default(),
+        )),
         Arc::new(Mutex::new(GuideOverflowCache::default())),
         Arc::new(Mutex::new(LegendMeasurementCache::default())),
         Arc::new(Mutex::new(TextMeasurementCache::default())),
@@ -132,28 +135,28 @@ pub(crate) enum ScaleDomainCacheScope {
     },
 }
 
-/// Session-owned cache of facet scale-precompute stores.
+/// Session-owned cache of facet scale-builder-precompute stores.
 #[derive(Default)]
-pub(crate) struct FacetScalePrecomputeSessionCache {
-    stores: HashMap<FacetScalePrecomputeCacheKey, Arc<FacetScalePrecomputeStore>>,
+pub(crate) struct FacetScaleBuilderPrecomputeSessionCache {
+    stores: HashMap<FacetScaleBuilderPrecomputeCacheKey, Arc<FacetScaleBuilderPrecomputeStore>>,
 }
 
-impl FacetScalePrecomputeSessionCache {
+impl FacetScaleBuilderPrecomputeSessionCache {
     fn store_for_key(
         &mut self,
-        key: FacetScalePrecomputeCacheKey,
-    ) -> (Arc<FacetScalePrecomputeStore>, bool) {
+        key: FacetScaleBuilderPrecomputeCacheKey,
+    ) -> (Arc<FacetScaleBuilderPrecomputeStore>, bool) {
         if let Some(store) = self.stores.get(&key) {
             return (store.clone(), true);
         }
-        let store = Arc::new(FacetScalePrecomputeStore::default());
+        let store = Arc::new(FacetScaleBuilderPrecomputeStore::default());
         self.stores.insert(key, store.clone());
         (store, false)
     }
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct FacetScalePrecomputeCacheKey {
+struct FacetScaleBuilderPrecomputeCacheKey {
     program_ptr: usize,
     facet_tree_structure: Vec<String>,
     params: Vec<(String, String)>,
@@ -507,7 +510,7 @@ impl ScopedParamStore {
 
     /// Deterministic fingerprint of all materialized scoped values for `names`.
     ///
-    /// Used by facet scale-precompute cache keys that span multiple facet owners.
+    /// Used by facet scale-builder-precompute cache keys that span multiple facet owners.
     /// Includes a default marker so a missing scoped value is distinguished from a
     /// written one.
     // Consumed by facet-scoped cache keys when faceted scoped-param evaluation
@@ -1351,7 +1354,7 @@ pub struct PlotSession {
     last_metrics: Option<EvaluationMetrics>,
     scale_domain_cache: ScaleDomainCacheHandle,
     facet_semantic_cache: FacetSemanticCacheHandle,
-    facet_scale_precompute_cache: FacetScalePrecomputeCacheHandle,
+    facet_scale_builder_precompute_cache: FacetScaleBuilderPrecomputeCacheHandle,
     guide_overflow_cache: GuideOverflowCacheHandle,
     legend_measurement_cache: LegendMeasurementCacheHandle,
     text_measurement_cache: TextMeasurementCacheHandle,
@@ -1369,7 +1372,7 @@ impl PlotSession {
         let (
             scale_domain_cache,
             facet_semantic_cache,
-            facet_scale_precompute_cache,
+            facet_scale_builder_precompute_cache,
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
@@ -1386,7 +1389,7 @@ impl PlotSession {
             last_metrics: None,
             scale_domain_cache,
             facet_semantic_cache,
-            facet_scale_precompute_cache,
+            facet_scale_builder_precompute_cache,
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
@@ -1573,7 +1576,7 @@ impl PlotSession {
                         layout_profile,
                         self.scale_domain_cache.clone(),
                         self.facet_semantic_cache.clone(),
-                        self.facet_scale_precompute_cache.clone(),
+                        self.facet_scale_builder_precompute_cache.clone(),
                         use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                         use_measurement_profile_caches
                             .then(|| self.legend_measurement_cache.clone()),
@@ -1611,7 +1614,7 @@ impl PlotSession {
                     options,
                     self.scale_domain_cache.clone(),
                     self.facet_semantic_cache.clone(),
-                    self.facet_scale_precompute_cache.clone(),
+                    self.facet_scale_builder_precompute_cache.clone(),
                     use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                     use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                     use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
@@ -1653,7 +1656,7 @@ impl PlotSession {
                 options,
                 self.scale_domain_cache.clone(),
                 self.facet_semantic_cache.clone(),
-                self.facet_scale_precompute_cache.clone(),
+                self.facet_scale_builder_precompute_cache.clone(),
                 use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                 use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                 use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
@@ -1721,14 +1724,14 @@ impl CompiledPlot {
         )
     }
 
-    pub(crate) fn facet_scale_precompute_store_from_session_cache(
+    pub(crate) fn facet_scale_builder_precompute_store_from_session_cache(
         &self,
-        cache: &FacetScalePrecomputeCacheHandle,
+        cache: &FacetScaleBuilderPrecomputeCacheHandle,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
         facet_tree: &EvaluatedFacetTree,
-    ) -> (Arc<FacetScalePrecomputeStore>, bool) {
-        let relevant_params = facet_scale_precompute_dependency_params(self, ctx, params)
+    ) -> (Arc<FacetScaleBuilderPrecomputeStore>, bool) {
+        let relevant_params = facet_scale_builder_precompute_dependency_params(self, ctx, params)
             .into_iter()
             .map(|name| {
                 let value = params
@@ -1739,14 +1742,14 @@ impl CompiledPlot {
                 (name, value)
             })
             .collect();
-        let key = FacetScalePrecomputeCacheKey {
+        let key = FacetScaleBuilderPrecomputeCacheKey {
             program_ptr: self as *const _ as usize,
             facet_tree_structure: facet_tree.structure_cache_key(),
             params: relevant_params,
         };
         cache
             .lock()
-            .expect("facet scale precompute cache lock poisoned")
+            .expect("facet scale-builder precompute cache lock poisoned")
             .store_for_key(key)
     }
 
@@ -2005,7 +2008,7 @@ fn collect_serializable_expr_placeholders(
     collect_expr_node_placeholders(Some(&node), ctx, names, all_param_names);
 }
 
-fn facet_scale_precompute_dependency_params(
+fn facet_scale_builder_precompute_dependency_params(
     plot: &CompiledPlot,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
@@ -5555,7 +5558,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn facet_scale_precompute_cache_reuses_store_for_width_only_param_change()
+    async fn facet_scale_builder_precompute_cache_reuses_store_for_width_only_param_change()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_facet_width_param_scale_cache_plot(&ctx).await?);
@@ -5564,22 +5567,28 @@ mod tests {
         let (_evaluated, first) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
             .await?;
-        assert_eq!(first.pipeline.facet_scale_precompute_cache_hits, 0);
-        assert_eq!(first.pipeline.facet_scale_precompute_cache_misses, 1);
+        assert_eq!(first.pipeline.facet_scale_builder_precompute_cache_hits, 0);
+        assert_eq!(
+            first.pipeline.facet_scale_builder_precompute_cache_misses,
+            1
+        );
 
         let mut patch = IndexMap::new();
         patch.insert("width".to_string(), ScalarValue::Float64(Some(700.0)));
         let (_evaluated, second) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
             .await?;
-        assert_eq!(second.pipeline.facet_scale_precompute_cache_hits, 1);
-        assert_eq!(second.pipeline.facet_scale_precompute_cache_misses, 0);
+        assert_eq!(second.pipeline.facet_scale_builder_precompute_cache_hits, 1);
+        assert_eq!(
+            second.pipeline.facet_scale_builder_precompute_cache_misses,
+            0
+        );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn facet_scale_precompute_cache_invalidates_when_child_channel_param_changes()
+    async fn facet_scale_builder_precompute_cache_invalidates_when_child_channel_param_changes()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_facet_child_scale_param_precompute_cache_plot(&ctx).await?);
@@ -5588,28 +5597,37 @@ mod tests {
         let (_evaluated, first) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
             .await?;
-        assert_eq!(first.pipeline.facet_scale_precompute_cache_hits, 0);
-        assert_eq!(first.pipeline.facet_scale_precompute_cache_misses, 1);
+        assert_eq!(first.pipeline.facet_scale_builder_precompute_cache_hits, 0);
+        assert_eq!(
+            first.pipeline.facet_scale_builder_precompute_cache_misses,
+            1
+        );
 
         let (_evaluated, second) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
             .await?;
-        assert_eq!(second.pipeline.facet_scale_precompute_cache_hits, 1);
-        assert_eq!(second.pipeline.facet_scale_precompute_cache_misses, 0);
+        assert_eq!(second.pipeline.facet_scale_builder_precompute_cache_hits, 1);
+        assert_eq!(
+            second.pipeline.facet_scale_builder_precompute_cache_misses,
+            0
+        );
 
         let mut patch = IndexMap::new();
         patch.insert("scale_factor".to_string(), ScalarValue::Float64(Some(2.0)));
         let (_evaluated, third) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
             .await?;
-        assert_eq!(third.pipeline.facet_scale_precompute_cache_hits, 0);
-        assert_eq!(third.pipeline.facet_scale_precompute_cache_misses, 1);
+        assert_eq!(third.pipeline.facet_scale_builder_precompute_cache_hits, 0);
+        assert_eq!(
+            third.pipeline.facet_scale_builder_precompute_cache_misses,
+            1
+        );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn facet_scale_precompute_cache_respects_responsive_wrap_structure_changes()
+    async fn facet_scale_builder_precompute_cache_respects_responsive_wrap_structure_changes()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_responsive_wrap_width_param_cache_plot(&ctx).await?);
@@ -5618,8 +5636,11 @@ mod tests {
         let (_evaluated, first) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
             .await?;
-        assert_eq!(first.pipeline.facet_scale_precompute_cache_hits, 0);
-        assert_eq!(first.pipeline.facet_scale_precompute_cache_misses, 1);
+        assert_eq!(first.pipeline.facet_scale_builder_precompute_cache_hits, 0);
+        assert_eq!(
+            first.pipeline.facet_scale_builder_precompute_cache_misses,
+            1
+        );
 
         let mut patch = IndexMap::new();
         patch.insert("width".to_string(), ScalarValue::Float64(Some(900.0)));
@@ -5627,10 +5648,13 @@ mod tests {
             .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
             .await?;
         assert_eq!(
-            second.pipeline.facet_scale_precompute_cache_hits, 0,
+            second.pipeline.facet_scale_builder_precompute_cache_hits, 0,
             "a changed responsive-wrap physical structure must not reuse path-keyed precompute artifacts"
         );
-        assert_eq!(second.pipeline.facet_scale_precompute_cache_misses, 1);
+        assert_eq!(
+            second.pipeline.facet_scale_builder_precompute_cache_misses,
+            1
+        );
 
         Ok(())
     }

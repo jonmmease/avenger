@@ -323,12 +323,12 @@ impl EvaluationMetrics {
         self.pipeline.facet_semantic_cache_misses += count;
     }
 
-    pub(crate) fn record_facet_scale_precompute_cache_hit(&mut self) {
-        self.pipeline.facet_scale_precompute_cache_hits += 1;
+    pub(crate) fn record_facet_scale_builder_precompute_cache_hit(&mut self) {
+        self.pipeline.facet_scale_builder_precompute_cache_hits += 1;
     }
 
-    pub(crate) fn record_facet_scale_precompute_cache_miss(&mut self) {
-        self.pipeline.facet_scale_precompute_cache_misses += 1;
+    pub(crate) fn record_facet_scale_builder_precompute_cache_miss(&mut self) {
+        self.pipeline.facet_scale_builder_precompute_cache_misses += 1;
     }
 
     pub(crate) fn record_scale_builder_build(&mut self) {
@@ -565,10 +565,10 @@ pub struct EvaluationPipelineMetrics {
     pub facet_semantic_cache_hits: usize,
     /// Number of session semantic facet cache misses while building facet trees.
     pub facet_semantic_cache_misses: usize,
-    /// Number of session facet scale-precompute store hits.
-    pub facet_scale_precompute_cache_hits: usize,
-    /// Number of session facet scale-precompute store misses.
-    pub facet_scale_precompute_cache_misses: usize,
+    /// Number of session facet scale-builder-precompute store hits.
+    pub facet_scale_builder_precompute_cache_hits: usize,
+    /// Number of session facet scale-builder-precompute store misses.
+    pub facet_scale_builder_precompute_cache_misses: usize,
     /// Number of scale-builder construction requests observed by the chart
     /// runtime. This counts calls to the current domain-inference pipeline,
     /// not chart geometry refreshes.
@@ -641,8 +641,10 @@ impl EvaluationPipelineMetrics {
         self.facet_tree_profile_reuses += other.facet_tree_profile_reuses;
         self.facet_semantic_cache_hits += other.facet_semantic_cache_hits;
         self.facet_semantic_cache_misses += other.facet_semantic_cache_misses;
-        self.facet_scale_precompute_cache_hits += other.facet_scale_precompute_cache_hits;
-        self.facet_scale_precompute_cache_misses += other.facet_scale_precompute_cache_misses;
+        self.facet_scale_builder_precompute_cache_hits +=
+            other.facet_scale_builder_precompute_cache_hits;
+        self.facet_scale_builder_precompute_cache_misses +=
+            other.facet_scale_builder_precompute_cache_misses;
         self.scale_builder_builds += other.scale_builder_builds;
         self.scale_domain_cache_hits += other.scale_domain_cache_hits;
         self.scale_domain_cache_misses += other.scale_domain_cache_misses;

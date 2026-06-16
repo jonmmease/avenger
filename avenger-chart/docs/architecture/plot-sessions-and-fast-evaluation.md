@@ -79,7 +79,7 @@ question and has its own invalidation boundary:
   compiled data plan, scale specs, relevant params, and sharing scope;
 - facet semantic cache: partition slot values and ordering inputs, including
   responsive `FacetWrap` slots before physical row/column placement;
-- facet scale-precompute cache: keyed `FacetScalePrecomputeStore` instances
+- facet scale-builder-precompute cache: keyed `FacetScaleBuilderPrecomputeStore` instances
   for compatible facet structures;
 - guide-overflow cache: measured coordinate-guide overflow profiles;
 - legend-measurement cache: measured local and hoisted legend groups;
@@ -316,8 +316,8 @@ Scale and domain metrics:
 - `scale_domain_cache_hits` and `scale_domain_cache_misses`,
 - `scale_builder_builds`,
 - `scale_domain_collects`,
-- `facet_scale_precompute_cache_hits` and
-  `facet_scale_precompute_cache_misses`.
+- `facet_scale_builder_precompute_cache_hits` and
+  `facet_scale_builder_precompute_cache_misses`.
 
 Measurement and chrome metrics:
 

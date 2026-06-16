@@ -1,5 +1,11 @@
 # Facet Sizing Unification Follow-Up Plan
 
+> Historical note: this plan predates the removal of configured facet
+> row/column scales as layout-geometry storage. References to
+> "scale-backed" facet placement and facet band scales describe the old
+> implementation, not the current architecture. The current pipeline stores
+> render/readback geometry in `CurrentFacetGeometry`.
+
 ## Goal
 
 Finish the parts of the facet sizing design that are still transitional after

@@ -11,17 +11,17 @@ flowchart TD
     Compile["Subplot<FacetRow/FacetColumn>\nCompiledFacetRowSubplot / CompiledFacetColumnSubplot"]
     Tree["EvaluatedFacetTree\nPartitionNode hierarchy"]
     Band["FacetBandMeasurePipeline\nper-band measurement"]
-    Domains["scale_precompute and domain_coordination"]
-    Coordination["coordinate_facet_measurement_tree\nfold -> solve -> install channels -> adopt geometry"]
-    Placement["FacetBandPlacement\nfacet_child_frame_placement_from_band"]
+    Domains["scale_builder_precompute and domain_coordination"]
+    Coordination["coordinate_facet_measurement_tree\nfold -> solve -> install channels -> adopt sizing"]
+    Geometry["CurrentFacetGeometry\nsettled tree -> LayoutSolution"]
     Render["render_facet_band_common\nchild plot groups"]
 
     Compile --> Tree
     Tree --> Band
     Domains --> Band
     Band --> Coordination
-    Coordination --> Placement
-    Placement --> Render
+    Coordination --> Geometry
+    Geometry --> Render
 ```
 
 ## Compile Path
@@ -78,11 +78,11 @@ scale/domain artifacts, builds cell semantics, prepares child plots, probes
 overflow, computes local layout, and assembles `FacetBandCoordMeasurement`.
 
 `FacetBandCoordMeasurement` is the central measured facet value. It contains
-the measured cells, band scale, local layout, measured overflow, coordination
-state, placement model, empty-cell policy, child-frame path prefix, and
-compiled child plot.
+the measured cells, shared `ScaleBuilder` for child plot domains, local layout,
+measured overflow, coordination state, current geometry handle, empty-cell
+policy, child-frame path prefix, and compiled child plot.
 
-## Coordination And Placement
+## Coordination And Current Geometry
 
 `coordinate_facet_measurement_tree` runs the cross-band coordination
 pass as fold → solve → install channels → adopt geometry. The driver is
@@ -95,10 +95,9 @@ and adopt walks live in `facet/coordination_apply.rs`.
   decided before lowering, from construction-time values — per-band
   coordinated slot count (shared groups take the group max over the
   share key; FREE slot sharing keeps local n floored by
-  `min_slot_count`) and the lowered track gap (raw `padding_inner_px`
-  for scale-backed bands, the placement `main_axis_gap` floor for
-  explicit bands). Reading snapshot-stable values keeps repeated runs
-  on one tree identical by construction.
+  `min_slot_count`) and the lowered track gap. Reading
+  snapshot-stable values keeps repeated runs on one tree identical by
+  construction.
 - SOLVE (`tree_solve::tree_solved_round`): the live measurement tree
   lowers into one `avenger_layout::Layout` — leaf cells at their plot
   sizes carrying epoch overflow envelopes as layered edge demands,
@@ -126,13 +125,10 @@ and adopt walks live in `facet/coordination_apply.rs`.
 - ADOPT (`run_adopt`): one top-down walk moves every band to the
   operating point its installed solution implies, through the
   no-remeasure substrate
-  (`retarget_parent_plot_area_policy_no_remeasure`): the band scale
-  range follows the container's main extent, `subplot_cross_size`
-  becomes the bandwidth of the band scale at the active coordinated
-  layout (the division law — law values from the installed artifact),
-  each cell's plot area adopts the band-axis bandwidth plus the
-  legend-shrunk orthogonal extent, and scale ranges follow — all gated
-  by the sizing policy (content-driven axes keep their measured
+  (`retarget_parent_plot_area_policy_no_remeasure`). Each cell's plot
+  area adopts the coordinated band-axis size plus the legend-shrunk
+  orthogonal extent, and ordinary child plot scale ranges follow — all
+  gated by the sizing policy (content-driven axes keep their measured
   sizes). The substrate recurses when a cell's size moves; the walk
   covers layout-changed-but-size-unchanged bands. Ownership
   realization runs per band after its subtree adopts; the
@@ -141,16 +137,15 @@ and adopt walks live in `facet/coordination_apply.rs`.
 
 Adopt applies the pipeline's state-transition law, not a read of solved
 geometry: the solve lowers cells at their live sizes, so its slot
-geometry describes the current state, while the transition values (the
-bandwidth at the coordinated layout; the legend shrink inside a fixed
-plot area) are the next operating point. Adoption moves the tree to the
-solve's fixed point — at the settled state, solved slots equal live
-geometry and re-lowering changes nothing. The env-gated shadow census
+geometry describes the current state, while the transition values are
+the next operating point. Adoption moves the tree to the solve's fixed
+point — at the settled state, solved slots equal live geometry and
+re-lowering changes nothing. The env-gated shadow census
 (`AVENGER_SHADOW_TREE_SOLVE=1`) verifies this equilibrium per run:
 geometry (settled slots vs live cells), idempotence (re-solve from the
-shadow's own slots), adoption (`adopt_delta`: retained install-time
+shadow's own slots), and adoption (`adopt_delta`: retained install-time
 solution vs settled re-solve — the size of the transition the run
-applied), and placement (see below).
+applied).
 
 Within a coordination run, measured chrome and overflow stay FROZEN at
 their epoch measurements (the staleness law): adoption moves geometry,
@@ -168,47 +163,33 @@ The public `CoordinationCheckpoint` variants map onto the stages:
 `ChannelsInstalled` stops after install (channel values readable,
 geometry not yet adopted) and `Adopted` stops after geometry adoption.
 
-Rendering resolves `FacetBandPlacement` through `facet/placement.rs`, converts
-that placement to child-frame render placements, and calls
-`CompiledPlot::build_plot_components` for each renderable cell. Placement is
-a pure read in both modes: scale-backed bands resolve cell positions from the
-active band scale, and explicit (leaf-plot-area-sized) bands solve the band
-on read from the live cells and the coordinated views
-(`explicit_placement()`: an avenger-layout band solve over cell plot sizes
-and boundary demands, plus the boundary-overflow cross offset). There is no
-cached placement and nothing to refresh after mutating cells, scales, or
-coordinated values. Empty explicit bands derive their extent from the
-containing measurement's plot area at each consumer.
+After every stable no-remeasure mutation boundary, chart refreshes
+`CurrentFacetGeometry` from the settled measurement tree:
+`refresh_current_facet_geometry` lowers the current tree and solves one
+`avenger_layout::Layout`. Rendering, facet guide positions, debug overlays,
+and child-frame readback consume this current geometry directly. Missing
+current geometry for a renderable facet band is an internal error.
 
-Placement and the coordination solve are two evaluations of one law:
-after the pre-solve folds, the on-read band strip uses the same slot
-counts, gaps, and outer spacing as the lowered tree, so at the settled
-state the strip solve reproduces the retained solution's band tracks
-(the census placement probe pins this; 175/181 explicit-band runs are
-exact). The residual is the chrome-accounting boundary: the lowered
-tree keeps nested epoch chrome inside cell slots (the two-wrapper
-boundary), while the render model absorbs the same chrome into parent
-gaps (the overflow stacking model) — two consistent representations of
-the same totals, which is why placement reads stay compute-on-read
-rather than raw solution reads.
+`facet/placement.rs` still contains chart-owned geometry helpers for deriving
+uniform or content-driven facet band geometry during measurement and geometry
+refresh. Those helpers are not a second render-time source of truth: final
+render/readback positions come from `CurrentFacetGeometry`, not configured
+facet row/column scales and not a render-local fallback solve.
 
 ## Generic Layout Alignment Boundary
 
 Facet layout also participates in the generic child-frame layout-alignment
 pass described in [layout-and-child-frames.md](layout-and-child-frames.md).
 `FacetBandCoordMeasurement` exports a `ChildFrameLayoutCoordinationNode` whose
-grid-shaped requirements are derived from the resolved facet placement. The
+grid-shaped requirements are derived from the current facet geometry. The
 node includes a facet semantic tag so equivalent facet bands can align across
 manual or repeat-generated container siblings without grouping unrelated
 facet fields.
 
 Facet nodes participate in the generic pass for DIAGNOSTICS only (group
 membership, merged requirements, deltas) — there is no facet
-value-apply adapter, because none would ever run: applying requires
-explicit placement, which exists only under a leaf-plot-sized facet
-root, and a root cannot also be a concat child, so no multi-member
-alignment group can reach an applicable band (in-chart facet cousins
-are already equalized by the coordination pass before alignment runs).
+value-apply adapter because in-chart facet cousins are already equalized by the
+coordination pass before alignment runs.
 The `concat_grid_facet_track_alignment` visual baseline pins the
 closest reachable boundary rendering.
 `coordinate_facet_measurement_tree` is the authoritative facet

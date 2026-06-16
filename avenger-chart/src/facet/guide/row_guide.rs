@@ -207,7 +207,7 @@ impl CompiledGuide for FacetRowGuide {
 
     async fn measure_overflow_for_phase(
         &self,
-        scales: &HashMap<String, ConfiguredScale>,
+        _scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         theme: &Theme,
@@ -225,7 +225,6 @@ impl CompiledGuide for FacetRowGuide {
         Box::pin(
             band_guide_engine::measure_overflow_common::<RowGuideAxisOps>(
                 &self.as_engine_state(),
-                scales,
                 plot_width,
                 plot_height,
                 theme,
@@ -257,7 +256,7 @@ impl CompiledGuide for FacetRowGuide {
 
     async fn evaluate(
         &self,
-        scales: &HashMap<String, ConfiguredScale>,
+        _scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         plot_bounds: &LayoutBounds,
@@ -271,7 +270,6 @@ impl CompiledGuide for FacetRowGuide {
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Box::pin(band_guide_engine::evaluate_common::<RowGuideAxisOps>(
             &self.as_engine_state(),
-            scales,
             plot_width,
             plot_height,
             plot_bounds,

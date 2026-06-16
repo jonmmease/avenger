@@ -35,12 +35,12 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct FacetScaleNodeKey {
+pub(crate) struct FacetScaleBuilderNodeKey {
     subplot_ptr: usize,
     canonical_parent_path: Vec<ScalarValue>,
 }
 
-impl FacetScaleNodeKey {
+impl FacetScaleBuilderNodeKey {
     pub(crate) fn new(subplot: &Arc<CompiledPlot>, parent_path: &[ScalarValue]) -> Self {
         Self {
             subplot_ptr: Arc::as_ptr(subplot) as usize,
@@ -50,12 +50,12 @@ impl FacetScaleNodeKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct FacetScaleSubtreeKey {
+pub(crate) struct FacetScaleBuilderSubtreeKey {
     marks_scope_ptr: usize,
     canonical_parent_path: Vec<ScalarValue>,
 }
 
-impl FacetScaleSubtreeKey {
+impl FacetScaleBuilderSubtreeKey {
     pub(crate) fn new(
         compiled_marks: &[Arc<dyn CompiledMark>],
         parent_path: &[ScalarValue],
@@ -68,7 +68,7 @@ impl FacetScaleSubtreeKey {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct FacetScaleNodeArtifacts {
+pub(crate) struct FacetScaleBuilderNodeArtifacts {
     pub(crate) child_facet_slot_sharing: Option<SharingLevel>,
     pub(crate) child_facet_depth: u8,
     pub(crate) requires_per_cell_channel_domain_sharing: bool,
@@ -108,42 +108,42 @@ pub(crate) struct FacetChildFrameDomainInfo {
 }
 
 #[derive(Default)]
-struct FacetScalePrecomputeState {
-    precomputed_subtrees: HashSet<FacetScaleSubtreeKey>,
-    node_artifacts: HashMap<FacetScaleNodeKey, Arc<FacetScaleNodeArtifacts>>,
+struct FacetScaleBuilderPrecomputeState {
+    precomputed_subtrees: HashSet<FacetScaleBuilderSubtreeKey>,
+    node_artifacts: HashMap<FacetScaleBuilderNodeKey, Arc<FacetScaleBuilderNodeArtifacts>>,
     domain_infos: HashMap<FacetDomainInfoKey, CellDomainInfo>,
     child_frame_domain_infos: HashMap<FacetChildFrameDomainInfoKey, FacetChildFrameDomainInfo>,
 }
 
 #[derive(Default)]
-pub(crate) struct FacetScalePrecomputeStore {
-    state: Mutex<FacetScalePrecomputeState>,
+pub(crate) struct FacetScaleBuilderPrecomputeStore {
+    state: Mutex<FacetScaleBuilderPrecomputeState>,
 }
 
-impl FacetScalePrecomputeStore {
-    pub(crate) fn is_subtree_precomputed(&self, key: &FacetScaleSubtreeKey) -> bool {
+impl FacetScaleBuilderPrecomputeStore {
+    pub(crate) fn is_subtree_precomputed(&self, key: &FacetScaleBuilderSubtreeKey) -> bool {
         self.state
             .lock()
-            .expect("FacetScalePrecomputeStore lock poisoned")
+            .expect("FacetScaleBuilderPrecomputeStore lock poisoned")
             .precomputed_subtrees
             .contains(key)
     }
 
-    pub(crate) fn mark_subtree_precomputed(&self, key: FacetScaleSubtreeKey) {
+    pub(crate) fn mark_subtree_precomputed(&self, key: FacetScaleBuilderSubtreeKey) {
         self.state
             .lock()
-            .expect("FacetScalePrecomputeStore lock poisoned")
+            .expect("FacetScaleBuilderPrecomputeStore lock poisoned")
             .precomputed_subtrees
             .insert(key);
     }
 
     pub(crate) fn get_node_artifacts(
         &self,
-        key: &FacetScaleNodeKey,
-    ) -> Option<Arc<FacetScaleNodeArtifacts>> {
+        key: &FacetScaleBuilderNodeKey,
+    ) -> Option<Arc<FacetScaleBuilderNodeArtifacts>> {
         self.state
             .lock()
-            .expect("FacetScalePrecomputeStore lock poisoned")
+            .expect("FacetScaleBuilderPrecomputeStore lock poisoned")
             .node_artifacts
             .get(key)
             .cloned()
@@ -151,12 +151,12 @@ impl FacetScalePrecomputeStore {
 
     pub(crate) fn insert_node_artifacts(
         &self,
-        key: FacetScaleNodeKey,
-        artifacts: Arc<FacetScaleNodeArtifacts>,
+        key: FacetScaleBuilderNodeKey,
+        artifacts: Arc<FacetScaleBuilderNodeArtifacts>,
     ) {
         self.state
             .lock()
-            .expect("FacetScalePrecomputeStore lock poisoned")
+            .expect("FacetScaleBuilderPrecomputeStore lock poisoned")
             .node_artifacts
             .insert(key, artifacts);
     }
@@ -170,7 +170,7 @@ impl FacetScalePrecomputeStore {
         let mut state = self
             .state
             .lock()
-            .expect("FacetScalePrecomputeStore lock poisoned");
+            .expect("FacetScaleBuilderPrecomputeStore lock poisoned");
         for info in infos {
             let key = FacetDomainInfoKey {
                 subplot_ptr,
@@ -185,7 +185,7 @@ impl FacetScalePrecomputeStore {
     pub(crate) fn domain_infos(&self) -> Vec<CellDomainInfo> {
         self.state
             .lock()
-            .expect("FacetScalePrecomputeStore lock poisoned")
+            .expect("FacetScaleBuilderPrecomputeStore lock poisoned")
             .domain_infos
             .values()
             .cloned()
@@ -196,7 +196,7 @@ impl FacetScalePrecomputeStore {
         let mut state = self
             .state
             .lock()
-            .expect("FacetScalePrecomputeStore lock poisoned");
+            .expect("FacetScaleBuilderPrecomputeStore lock poisoned");
         for info in infos {
             let key = FacetChildFrameDomainInfoKey {
                 relative_child_frame_path: info.relative_child_frame_path.clone(),
@@ -213,7 +213,7 @@ impl FacetScalePrecomputeStore {
     pub(crate) fn child_frame_domain_infos(&self) -> Vec<FacetChildFrameDomainInfo> {
         self.state
             .lock()
-            .expect("FacetScalePrecomputeStore lock poisoned")
+            .expect("FacetScaleBuilderPrecomputeStore lock poisoned")
             .child_frame_domain_infos
             .values()
             .cloned()
@@ -534,7 +534,7 @@ pub(crate) async fn build_node_artifacts(
     compiled_subplot: &Arc<CompiledPlot>,
     facet_tree: &EvaluatedFacetTree,
     eval_ctx: &EvaluationContext,
-) -> Result<FacetScaleNodeArtifacts, AvengerChartError> {
+) -> Result<FacetScaleBuilderNodeArtifacts, AvengerChartError> {
     let shared_scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
         &compiled_subplot.marks,
         &compiled_subplot.scale_specs,
@@ -590,7 +590,7 @@ pub(crate) async fn build_node_artifacts(
         HashMap::new()
     };
 
-    Ok(FacetScaleNodeArtifacts {
+    Ok(FacetScaleBuilderNodeArtifacts {
         child_facet_slot_sharing,
         child_facet_depth,
         requires_per_cell_channel_domain_sharing,
@@ -653,7 +653,7 @@ async fn collect_node_domain_infos(
     compiled_subplot: &Arc<CompiledPlot>,
     facet_tree: &EvaluatedFacetTree,
     eval_ctx: &EvaluationContext,
-    artifacts: &FacetScaleNodeArtifacts,
+    artifacts: &FacetScaleBuilderNodeArtifacts,
 ) -> Result<Vec<CellDomainInfo>, AvengerChartError> {
     let mut infos = Vec::new();
     let mut ordered_owner_extent_cache: HashMap<(Vec<ScalarValue>, String), DomainExtent> =
@@ -831,7 +831,7 @@ async fn collect_positioned_child_frame_domain_infos_for_mark(
 
     let Some(parent_data) = inherited_data_df else {
         return Err(AvengerChartError::InvalidArgument(format!(
-            "Partitioned {} subplots require inherited parent data for facet scale precompute",
+            "Partitioned {} subplots require inherited parent data for facet scale-builder precompute",
             subplot.spec().outer_label
         )));
     };
@@ -1040,8 +1040,8 @@ async fn ensure_subtree_precomputed_internal(
         return Ok(());
     };
 
-    let store = eval_ctx.facet_scale_precompute_store();
-    let node_key = FacetScaleNodeKey::new(&compiled_subplot, facet_path);
+    let store = eval_ctx.facet_scale_builder_precompute_store();
+    let node_key = FacetScaleBuilderNodeKey::new(&compiled_subplot, facet_path);
 
     let cell_values =
         enumerate_cell_values_for_node(facet_tree, facet_path, current_facet_slot_sharing);
@@ -1059,7 +1059,7 @@ async fn ensure_subtree_precomputed_internal(
         .await?;
         let artifacts = Arc::new(artifacts);
         store.insert_node_artifacts(node_key.clone(), artifacts.clone());
-        trace!(facet_path = ?facet_path, "facet scale precompute built node artifacts");
+        trace!(facet_path = ?facet_path, "facet scale-builder precompute built node artifacts");
         artifacts
     };
 
@@ -1126,8 +1126,8 @@ pub(crate) async fn ensure_subtree_precomputed(
     facet_tree: &EvaluatedFacetTree,
     eval_ctx: &EvaluationContext,
 ) -> Result<(), AvengerChartError> {
-    let subtree_key = FacetScaleSubtreeKey::new(compiled_marks, facet_path);
-    let store = eval_ctx.facet_scale_precompute_store();
+    let subtree_key = FacetScaleBuilderSubtreeKey::new(compiled_marks, facet_path);
+    let store = eval_ctx.facet_scale_builder_precompute_store();
     if store.is_subtree_precomputed(&subtree_key) {
         return Ok(());
     }
@@ -1143,7 +1143,7 @@ pub(crate) async fn ensure_subtree_precomputed(
     store.mark_subtree_precomputed(subtree_key);
     debug!(
         facet_path = ?facet_path,
-        "facet scale precompute completed for subtree"
+        "facet scale-builder precompute completed for subtree"
     );
     Ok(())
 }
@@ -1174,15 +1174,15 @@ mod tests {
 
     #[test]
     fn store_uses_canonicalized_paths_for_lookup() {
-        let store = FacetScalePrecomputeStore::default();
-        let key = FacetScaleNodeKey {
+        let store = FacetScaleBuilderPrecomputeStore::default();
+        let key = FacetScaleBuilderNodeKey {
             subplot_ptr: 42,
             canonical_parent_path: canonicalize_path(&[s_utf8_view("x"), s_large_utf8("y")]),
         };
-        let artifacts = Arc::new(FacetScaleNodeArtifacts::default());
+        let artifacts = Arc::new(FacetScaleBuilderNodeArtifacts::default());
         store.insert_node_artifacts(key, artifacts.clone());
 
-        let lookup = FacetScaleNodeKey {
+        let lookup = FacetScaleBuilderNodeKey {
             subplot_ptr: 42,
             canonical_parent_path: canonicalize_path(&[s_utf8("x"), s_utf8("y")]),
         };
@@ -1193,8 +1193,8 @@ mod tests {
 
     #[test]
     fn subtree_key_dedupes_by_scope_and_path() {
-        let store = FacetScalePrecomputeStore::default();
-        let key = FacetScaleSubtreeKey {
+        let store = FacetScaleBuilderPrecomputeStore::default();
+        let key = FacetScaleBuilderSubtreeKey {
             marks_scope_ptr: 77,
             canonical_parent_path: canonicalize_path(&[s_utf8_view("r")]),
         };
@@ -1205,7 +1205,7 @@ mod tests {
 
     #[test]
     fn child_frame_domain_lookup_coordinates_by_sharing_path_and_facet_group() {
-        let store = FacetScalePrecomputeStore::default();
+        let store = FacetScaleBuilderPrecomputeStore::default();
         let sepal = vec![ContainerPathSegment::concat_child(0, Some("sepal"))];
         let petal = vec![ContainerPathSegment::concat_child(1, Some("petal"))];
         store.insert_child_frame_domain_infos(vec![
@@ -1270,7 +1270,7 @@ mod tests {
 
     #[test]
     fn child_frame_domain_lookup_coordinates_named_groups_across_channels() {
-        let store = FacetScalePrecomputeStore::default();
+        let store = FacetScaleBuilderPrecomputeStore::default();
         let sepal = vec![ContainerPathSegment::concat_child(0, Some("sepal"))];
         store.insert_child_frame_domain_infos(vec![
             FacetChildFrameDomainInfo {
@@ -1311,7 +1311,7 @@ mod tests {
 
     #[test]
     fn default_facet_scoped_child_frame_domains_preserve_child_path() {
-        let store = FacetScalePrecomputeStore::default();
+        let store = FacetScaleBuilderPrecomputeStore::default();
         let sepal = vec![ContainerPathSegment::concat_child(0, Some("sepal"))];
         let petal = vec![ContainerPathSegment::concat_child(1, Some("petal"))];
         store.insert_child_frame_domain_infos(vec![

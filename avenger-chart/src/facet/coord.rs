@@ -56,9 +56,9 @@ use crate::{
             compute_uniform_facet_band_geometry,
         },
         probe_summary::FacetCellProbeSummary,
-        scale_precompute::{
-            FacetScaleNodeArtifacts, FacetScaleNodeKey, build_node_artifacts, canonicalize_path,
-            ensure_subtree_precomputed,
+        scale_builder_precompute::{
+            FacetScaleBuilderNodeArtifacts, FacetScaleBuilderNodeKey, build_node_artifacts,
+            canonicalize_path, ensure_subtree_precomputed,
         },
         subtree_plot_area::{LeafPlotAreaSize, estimate_path_plot_area_from_leaf_size},
     },
@@ -1104,26 +1104,6 @@ impl FacetBandCoordMeasurement {
     }
 }
 
-/// Scale selection strategy for measuring a facet cell.
-enum FacetCellMeasurementMode<'a> {
-    /// Use child facet slot-sharing rules (Free/Level(N)/Shared) for nested facet cells.
-    ChildFacetSlots {
-        child_facet_slot_sharing: Option<SharingLevel>,
-        child_facet_depth: u8,
-        requires_per_cell_channel_domain_sharing: bool,
-        ancestor_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
-        per_cell_scale_builder_cache: &'a HashMap<Vec<ScalarValue>, ScaleBuilder>,
-        shared_scale_builder: &'a ScaleBuilder,
-        facet_tree: &'a crate::facet::evaluated_facet_tree::EvaluatedFacetTree,
-        data_df: &'a DataFrame,
-        eval_ctx: &'a EvaluationContext,
-    },
-}
-
-struct MeasuredFacetCell {
-    measurement: ComponentsMeasurement,
-}
-
 struct FacetCellDraft {
     plan: FacetCellPlan,
     data_override: DataFrame,
@@ -1150,13 +1130,13 @@ struct FacetBandMeasurePlan {
     cell_values: Vec<ScalarValue>,
     min_slot_count: usize,
     cells: Vec<FacetCellDraft>,
-    scale_artifacts: Arc<FacetScaleNodeArtifacts>,
+    scale_artifacts: Arc<FacetScaleBuilderNodeArtifacts>,
 }
 
 /// Shared nested-facet measurement context used by overflow probes and retargeted layout.
 #[derive(Clone)]
 pub(crate) struct FacetBandNestedMeasureContext {
-    scale_artifacts: Arc<FacetScaleNodeArtifacts>,
+    scale_artifacts: Arc<FacetScaleBuilderNodeArtifacts>,
     facet_tree: Arc<crate::facet::evaluated_facet_tree::EvaluatedFacetTree>,
     data_df: DataFrame,
     eval_ctx: EvaluationContext,
@@ -1905,19 +1885,20 @@ async fn execute_measurement_from_plan(
     shared_scale_builder: &ScaleBuilder,
     eval_ctx: &EvaluationContext,
     coordinated_domain_extents: &HashMap<String, DomainExtent>,
-) -> Result<MeasuredFacetCell, AvengerChartError> {
+) -> Result<ComponentsMeasurement, AvengerChartError> {
     match plan {
-        NestedScalePlan::EmptySharedNoData => Box::pin(measure_child_frame_plot_with_builder(
-            compiled_subplot,
-            subplot_eval_ctx,
-            subplot_layout_spec,
-            shared_scale_builder,
-            None,
-            &cell.full_path,
-            &[coordinated_domain_extents],
-        ))
-        .await
-        .map(|measurement| MeasuredFacetCell { measurement }),
+        NestedScalePlan::EmptySharedNoData => {
+            Box::pin(measure_child_frame_plot_with_builder(
+                compiled_subplot,
+                subplot_eval_ctx,
+                subplot_layout_spec,
+                shared_scale_builder,
+                None,
+                &cell.full_path,
+                &[coordinated_domain_extents],
+            ))
+            .await
+        }
         NestedScalePlan::PerCellCachedBuilder { cached_builder } => {
             Box::pin(measure_child_frame_plot_with_builder(
                 compiled_subplot,
@@ -1929,7 +1910,6 @@ async fn execute_measurement_from_plan(
                 &[coordinated_domain_extents],
             ))
             .await
-            .map(|measurement| MeasuredFacetCell { measurement })
         }
         NestedScalePlan::PerCellBuilderFallback => {
             let cell_scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
@@ -1954,81 +1934,32 @@ async fn execute_measurement_from_plan(
             ))
             .await?;
 
-            Ok(MeasuredFacetCell { measurement })
+            Ok(measurement)
         }
         NestedScalePlan::AncestorCachedBuilder {
             cached_builder,
             ancestor_filtered_df,
-        } => Box::pin(measure_child_frame_plot_with_builder(
-            compiled_subplot,
-            subplot_eval_ctx,
-            subplot_layout_spec,
-            cached_builder,
-            Some(&ancestor_filtered_df),
-            &cell.full_path,
-            &[coordinated_domain_extents],
-        ))
-        .await
-        .map(|measurement| MeasuredFacetCell { measurement }),
-        NestedScalePlan::Shared => Box::pin(measure_child_frame_plot_with_builder(
-            compiled_subplot,
-            subplot_eval_ctx,
-            subplot_layout_spec,
-            shared_scale_builder,
-            Some(data_override),
-            &cell.full_path,
-            &[coordinated_domain_extents],
-        ))
-        .await
-        .map(|measurement| MeasuredFacetCell { measurement }),
-    }
-}
-
-/// Measure a single facet cell using a selected scale strategy.
-///
-/// This is the shared measurement engine used by estimated-overflow probes,
-/// local layout finalization, and coordinated refinement.
-async fn measure_facet_cell(
-    cell: &FacetCellPlan,
-    data_override: &DataFrame,
-    compiled_subplot: &Arc<CompiledPlot>,
-    subplot_eval_ctx: &EvaluationContext,
-    subplot_layout_spec: &EvaluatedLayoutSpec,
-    mode: FacetCellMeasurementMode<'_>,
-    coordinated_domain_extents: &HashMap<String, DomainExtent>,
-) -> Result<MeasuredFacetCell, AvengerChartError> {
-    match mode {
-        FacetCellMeasurementMode::ChildFacetSlots {
-            child_facet_slot_sharing,
-            child_facet_depth,
-            requires_per_cell_channel_domain_sharing,
-            ancestor_scale_builder_cache,
-            per_cell_scale_builder_cache,
-            shared_scale_builder,
-            facet_tree,
-            data_df,
-            eval_ctx,
         } => {
-            let plan = resolve_nested_scale_plan(
-                cell,
-                child_facet_slot_sharing,
-                child_facet_depth,
-                requires_per_cell_channel_domain_sharing,
-                ancestor_scale_builder_cache,
-                per_cell_scale_builder_cache,
-                facet_tree,
-                data_df,
-            )?;
-            Box::pin(execute_measurement_from_plan(
-                plan,
-                cell,
-                data_override,
+            Box::pin(measure_child_frame_plot_with_builder(
+                compiled_subplot,
+                subplot_eval_ctx,
+                subplot_layout_spec,
+                cached_builder,
+                Some(&ancestor_filtered_df),
+                &cell.full_path,
+                &[coordinated_domain_extents],
+            ))
+            .await
+        }
+        NestedScalePlan::Shared => {
+            Box::pin(measure_child_frame_plot_with_builder(
                 compiled_subplot,
                 subplot_eval_ctx,
                 subplot_layout_spec,
                 shared_scale_builder,
-                eval_ctx,
-                coordinated_domain_extents,
+                Some(data_override),
+                &cell.full_path,
+                &[coordinated_domain_extents],
             ))
             .await
         }
@@ -2044,29 +1975,32 @@ async fn measure_nested_cell(
     subplot_eval_ctx: &EvaluationContext,
     nested_ctx: &FacetBandNestedMeasureContext,
     coordinated_domain_extents: &HashMap<String, DomainExtent>,
-) -> Result<MeasuredFacetCell, AvengerChartError> {
+) -> Result<ComponentsMeasurement, AvengerChartError> {
     let subplot_layout_spec =
         fixed_child_plot_area_layout_spec(subplot_plot_width, subplot_plot_height);
-    let mode = FacetCellMeasurementMode::ChildFacetSlots {
-        child_facet_slot_sharing: nested_ctx.scale_artifacts.child_facet_slot_sharing,
-        child_facet_depth: nested_ctx.scale_artifacts.child_facet_depth,
-        requires_per_cell_channel_domain_sharing: nested_ctx
+
+    let plan = resolve_nested_scale_plan(
+        cell,
+        nested_ctx.scale_artifacts.child_facet_slot_sharing,
+        nested_ctx.scale_artifacts.child_facet_depth,
+        nested_ctx
             .scale_artifacts
             .requires_per_cell_channel_domain_sharing,
-        ancestor_scale_builder_cache: &nested_ctx.scale_artifacts.ancestor_scale_builder_cache,
-        per_cell_scale_builder_cache: &nested_ctx.scale_artifacts.per_cell_scale_builder_cache,
-        shared_scale_builder: &nested_ctx.scale_artifacts.shared_scale_builder,
-        facet_tree: nested_ctx.facet_tree.as_ref(),
-        data_df: &nested_ctx.data_df,
-        eval_ctx: &nested_ctx.eval_ctx,
-    };
-    Box::pin(measure_facet_cell(
+        &nested_ctx.scale_artifacts.ancestor_scale_builder_cache,
+        &nested_ctx.scale_artifacts.per_cell_scale_builder_cache,
+        nested_ctx.facet_tree.as_ref(),
+        &nested_ctx.data_df,
+    )?;
+
+    Box::pin(execute_measurement_from_plan(
+        plan,
         cell,
         data_override,
         compiled_subplot,
         subplot_eval_ctx,
         &subplot_layout_spec,
-        mode,
+        &nested_ctx.scale_artifacts.shared_scale_builder,
+        &nested_ctx.eval_ctx,
         coordinated_domain_extents,
     ))
     .await
@@ -2095,9 +2029,9 @@ async fn build_facet_band_measure_plan(
         min_slot_count = min_slot_count.max(ragged_slot_count);
     }
 
-    let node_key = FacetScaleNodeKey::new(compiled_subplot, facet_path);
+    let node_key = FacetScaleBuilderNodeKey::new(compiled_subplot, facet_path);
     let scale_artifacts = if let Some(artifacts) = eval_ctx
-        .facet_scale_precompute_store()
+        .facet_scale_builder_precompute_store()
         .get_node_artifacts(&node_key)
     {
         artifacts
@@ -2118,7 +2052,7 @@ async fn build_facet_band_measure_plan(
             .await?,
         );
         eval_ctx
-            .facet_scale_precompute_store()
+            .facet_scale_builder_precompute_store()
             .insert_node_artifacts(node_key, artifacts.clone());
         artifacts
     };
@@ -2283,7 +2217,7 @@ async fn prepare_band_inputs_and_runtime(
         cell_semantics: cell_semantics.clone(),
         layout_min_slot_count,
         renderable_mask,
-        scale_artifacts_key: FacetScaleNodeKey::new(
+        scale_artifacts_key: FacetScaleBuilderNodeKey::new(
             compiled_subplot,
             &cell_semantics.node_id.facet_path,
         ),
@@ -2311,7 +2245,7 @@ async fn build_overflow_probe(
         prepared_inputs.cell_semantics.cells.len(),
         "FacetBand prepared inputs invariant violated: renderable mask length mismatch"
     );
-    let expected_key = FacetScaleNodeKey::new(
+    let expected_key = FacetScaleBuilderNodeKey::new(
         &runtime_state.compiled_subplot,
         &prepared_inputs.cell_semantics.node_id.facet_path,
     );
@@ -2533,7 +2467,7 @@ async fn coordinate_cell_domains_before_measurement(
 
     let mut domain_infos = nested_ctx
         .eval_ctx
-        .facet_scale_precompute_store()
+        .facet_scale_builder_precompute_store()
         .domain_infos();
     domain_infos.extend(current_domain_infos.iter().cloned());
     if domain_infos.is_empty() {
@@ -2728,7 +2662,7 @@ async fn measure_cells_overflow_probe(
                     &cell.plan.full_path,
                 ))
                 .await?;
-                MeasuredFacetCell { measurement }
+                measurement
             } else {
                 if cell_eval_ctx.layout_profile().is_some() {
                     cell_eval_ctx.record_facet_cell_measurement_profile_miss();
@@ -2749,13 +2683,13 @@ async fn measure_cells_overflow_probe(
             Box::pin(capture_estimated_overflow_probe_if_requested(
                 &cell_eval_ctx,
                 compiled_subplot,
-                &measured.measurement,
+                &measured,
                 &cell.data_override,
                 &cell.plan.full_path,
             ))
             .await?;
-            let cell_probe_summary = parent_cell_overflow_summary(&measured.measurement);
-            cell.measurement = Some(measured.measurement);
+            let cell_probe_summary = parent_cell_overflow_summary(&measured);
+            cell.measurement = Some(measured);
             cell_probe_summary
         } else {
             perf_counters.estimated_overflow_non_leaf_aggregate_count += 1;
@@ -2774,13 +2708,13 @@ async fn measure_cells_overflow_probe(
             Box::pin(capture_estimated_overflow_probe_if_requested(
                 &cell_eval_ctx,
                 compiled_subplot,
-                &measured.measurement,
+                &measured,
                 &cell.data_override,
                 &cell.plan.full_path,
             ))
             .await?;
-            let cell_probe_summary = parent_cell_overflow_summary(&measured.measurement);
-            cell.measurement = Some(measured.measurement);
+            let cell_probe_summary = parent_cell_overflow_summary(&measured);
+            cell.measurement = Some(measured);
             trace!(
                 cell_index = idx,
                 "FacetBand non-leaf estimated-overflow full measure"
@@ -3601,7 +3535,7 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
     fn initial_uniform_subplot_main_size(&self, slot_count: usize) -> f32 {
         // Preserve the former first-pass facet measurement seed without
-        // keeping configured row/column band scales as geometry state.
+        // reintroducing the old facet dimension-scale state.
         let n = slot_count.max(1) as f32;
         let bandspace = (n - FACET_DIMENSION_SEED_PADDING_INNER
             + 2.0 * FACET_DIMENSION_SEED_PADDING_OUTER)

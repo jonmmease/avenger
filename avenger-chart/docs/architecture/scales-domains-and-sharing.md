@@ -111,7 +111,7 @@ child-frame coordination code, but it is not the public authoring model for
 scale domains.
 
 Facet domain coordination uses `EvaluatedFacetTree`,
-`FacetScalePrecomputeStore`, and `DomainExtent` values. Child-frame containers
+`FacetScaleBuilderPrecomputeStore`, and `DomainExtent` values. Child-frame containers
 use `ChildFrameDomainSharingInput`, `ChildFrameChannelDomainExtent`, and
 `coordinated_child_frame_domain_extents`. Both paths normalize
 `DomainCoordination` into a `CoordinationScopeKey` that includes the

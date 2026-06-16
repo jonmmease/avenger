@@ -64,6 +64,12 @@ struct SubplotOverflowCacheKey {
     sharing_signature: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FacetGuidePositionPhase {
+    Measurement,
+    Render,
+}
+
 #[inline]
 fn has_visible_anchor(anchor: f32) -> bool {
     anchor.abs() > HIDDEN_TOP_LOCAL_ANCHOR_EPSILON
@@ -412,7 +418,6 @@ impl FacetGuideAxisOps for ColGuideAxisOps {
 
 pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     state: &FacetGuideState,
-    scales: &HashMap<String, ConfiguredScale>,
     plot_width: f32,
     plot_height: f32,
     theme: &Theme,
@@ -434,7 +439,6 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     } else {
         Box::pin(compute_subplot_overflow_common::<O>(
             state,
-            scales,
             coord_measurement,
             plot_width,
             plot_height,
@@ -447,7 +451,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         .await?
     };
     let (_band_positions, labels) =
-        band_positions_and_labels::<O>(scales, coord_measurement, None)?;
+        band_positions_and_labels::<O>(coord_measurement, FacetGuidePositionPhase::Measurement)?;
     let place_at_end = O::place_at_end(state.position.as_deref());
     let axis_position = O::axis_position(place_at_end);
     if !state.visible {
@@ -484,7 +488,6 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     if !has_visible_anchor(guide_anchor) && !O::is_rotated() && !place_at_end {
         let measured_subplot_overflow = Box::pin(compute_subplot_overflow_common::<O>(
             state,
-            scales,
             coord_measurement,
             plot_width,
             plot_height,
@@ -531,7 +534,6 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
 
 pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     state: &FacetGuideState,
-    scales: &HashMap<String, ConfiguredScale>,
     plot_width: f32,
     plot_height: f32,
     plot_bounds: &LayoutBounds,
@@ -563,11 +565,8 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     }
 
     let positions_start = Instant::now();
-    let (band_positions, labels) = band_positions_and_labels::<O>(
-        scales,
-        Some(coord_measurement),
-        Some((plot_width, plot_height)),
-    )?;
+    let (band_positions, labels) =
+        band_positions_and_labels::<O>(Some(coord_measurement), FacetGuidePositionPhase::Render)?;
     if band_positions.is_empty() {
         return Ok(vec![]);
     }
@@ -602,7 +601,6 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
             } else {
                 Box::pin(compute_subplot_overflow_common::<O>(
                     state,
-                    scales,
                     Some(coord_measurement),
                     plot_width,
                     plot_height,
@@ -689,7 +687,6 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
 
 pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
     state: &FacetGuideState,
-    _scales: &HashMap<String, ConfiguredScale>,
     coord_measurement: Option<&dyn CoordMeasurement>,
     plot_width: f32,
     plot_height: f32,
@@ -1062,29 +1059,26 @@ fn provisional_band_size<O: FacetGuideAxisOps>(
 }
 
 fn band_positions_and_labels<O: FacetGuideAxisOps>(
-    _scales: &HashMap<String, ConfiguredScale>,
     coord_measurement: Option<&dyn CoordMeasurement>,
-    layout_size: Option<(f32, f32)>,
+    phase: FacetGuidePositionPhase,
 ) -> Result<(Vec<BandPosition>, Vec<String>), AvengerChartError> {
-    let is_render = layout_size.is_some();
     if let Some(coord_measurement) = coord_measurement
         && let Some(facet_measurement) = facet_band_from_coord(coord_measurement)
         && facet_measurement.axis == O::facet_axis()
     {
-        let band_positions = if is_render {
-            facet_measurement.current_band_positions()?
-        } else {
-            facet_measurement
+        let band_positions = match phase {
+            FacetGuidePositionPhase::Measurement => facet_measurement
                 .cell_values()
                 .cloned()
                 .map(|value| BandPosition::new(value, 0.0, 0.0))
-                .collect()
+                .collect(),
+            FacetGuidePositionPhase::Render => facet_measurement.current_band_positions()?,
         };
         let labels = labels_from_band_positions(&band_positions);
         return Ok((band_positions, labels));
     }
 
-    if is_render {
+    if matches!(phase, FacetGuidePositionPhase::Render) {
         return Err(AvengerChartError::InternalError(format!(
             "{} render requires current facet geometry",
             O::log_name()

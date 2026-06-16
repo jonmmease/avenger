@@ -969,7 +969,7 @@ pub(crate) async fn measure_positioned_subplots(
                 spec.key.as_deref(),
             ));
             let facet_scoped_domain_extents = eval_ctx
-                .facet_scale_precompute_store()
+                .facet_scale_builder_precompute_store()
                 .coordinated_child_frame_domain_extents(&relative_child_frame_path, facet_path);
             children.push(
                 Box::pin(measure_positioned_child(

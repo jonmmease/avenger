@@ -824,11 +824,9 @@ async fn compile_facet_subplot_child(
         })
 }
 
-/// Compiled subplot mark specialized for the FacetRow outer coordinate system.
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CompiledFacetRowSubplot {
-    pub(crate) payload: CompiledSubplotPayload,
+struct CompiledFacetBandConfig {
     pub(crate) facet_title: Option<String>,
     pub(crate) facet_slot_sharing: Option<CoordinationScope>,
     pub(crate) facet_position: Option<String>,
@@ -844,6 +842,48 @@ pub struct CompiledFacetRowSubplot {
     pub(crate) facet_order_descending: bool,
 }
 
+impl CompiledFacetBandConfig {
+    fn facet_title(&self) -> Option<&str> {
+        self.facet_title.as_deref()
+    }
+
+    fn facet_slot_sharing(&self) -> Option<CoordinationScope> {
+        self.facet_slot_sharing
+    }
+
+    fn facet_position(&self) -> Option<&str> {
+        self.facet_position.as_deref()
+    }
+
+    fn facet_guide_visible(&self) -> bool {
+        self.facet_guide_visible
+    }
+
+    fn axis_guide_visibility(&self) -> Option<AxisGuideVisibilityConfig> {
+        self.axis_guide_visibility
+    }
+
+    fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
+        self.facet_empty_cell_policy
+    }
+
+    fn facet_order_expr(&self) -> Option<&LogicalExprNode> {
+        self.facet_order_expr.as_ref()
+    }
+
+    fn facet_order_descending(&self) -> bool {
+        self.facet_order_descending
+    }
+}
+
+/// Compiled subplot mark specialized for the FacetRow outer coordinate system.
+#[serde_as]
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CompiledFacetRowSubplot {
+    pub(crate) payload: CompiledSubplotPayload,
+    config: CompiledFacetBandConfig,
+}
+
 impl CompiledFacetRowSubplot {
     pub fn compiled_subplot(&self) -> &CompiledPlot {
         compiled_subplot_payload_child_plot(&self.payload)
@@ -856,28 +896,28 @@ impl CompiledFacetRowSubplot {
         self.payload.compiled_state()
     }
     pub fn facet_title(&self) -> Option<&str> {
-        self.facet_title.as_deref()
+        self.config.facet_title()
     }
     pub fn facet_slot_sharing(&self) -> Option<CoordinationScope> {
-        self.facet_slot_sharing
+        self.config.facet_slot_sharing()
     }
     pub fn facet_position(&self) -> Option<&str> {
-        self.facet_position.as_deref()
+        self.config.facet_position()
     }
     pub fn facet_guide_visible(&self) -> bool {
-        self.facet_guide_visible
+        self.config.facet_guide_visible()
     }
     pub fn axis_guide_visibility(&self) -> Option<AxisGuideVisibilityConfig> {
-        self.axis_guide_visibility
+        self.config.axis_guide_visibility()
     }
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
-        self.facet_empty_cell_policy
+        self.config.facet_empty_cell_policy()
     }
     pub fn facet_order_expr(&self) -> Option<&LogicalExprNode> {
-        self.facet_order_expr.as_ref()
+        self.config.facet_order_expr()
     }
     pub fn facet_order_descending(&self) -> bool {
-        self.facet_order_descending
+        self.config.facet_order_descending()
     }
 
     pub(crate) fn render_with_context<'a>(
@@ -888,7 +928,7 @@ impl CompiledFacetRowSubplot {
             FacetBandRenderOps::row(),
             self.compiled_subplot(),
             self.state().id.as_deref(),
-            self.facet_empty_cell_policy,
+            self.config.facet_empty_cell_policy,
             context,
         ))
     }
@@ -940,16 +980,18 @@ async fn compile_facet_row_subplot_mark(
             subplot.key_config().map(ToOwned::to_owned),
             SubplotDataSource::InheritParent,
         ),
-        facet_title,
-        facet_slot_sharing: subplot.facet_row_slot_sharing_config(),
-        facet_position: subplot.facet_row_position_config().map(ToOwned::to_owned),
-        facet_guide_visible: subplot.facet_row_guide_visible_config().unwrap_or(true),
-        axis_guide_visibility: subplot.facet_row_axis_guide_visibility_config(),
-        facet_empty_cell_policy: subplot
-            .facet_row_empty_cell_policy_config()
-            .unwrap_or_default(),
-        facet_order_expr: subplot.facet_row_order_expr_config().cloned(),
-        facet_order_descending: subplot.facet_row_order_descending_config(),
+        config: CompiledFacetBandConfig {
+            facet_title,
+            facet_slot_sharing: subplot.facet_row_slot_sharing_config(),
+            facet_position: subplot.facet_row_position_config().map(ToOwned::to_owned),
+            facet_guide_visible: subplot.facet_row_guide_visible_config().unwrap_or(true),
+            axis_guide_visibility: subplot.facet_row_axis_guide_visibility_config(),
+            facet_empty_cell_policy: subplot
+                .facet_row_empty_cell_policy_config()
+                .unwrap_or_default(),
+            facet_order_expr: subplot.facet_row_order_expr_config().cloned(),
+            facet_order_descending: subplot.facet_row_order_descending_config(),
+        },
     }))
 }
 
@@ -1017,19 +1059,7 @@ impl CompiledMark for CompiledFacetRowSubplot {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledFacetColumnSubplot {
     pub(crate) payload: CompiledSubplotPayload,
-    pub(crate) facet_title: Option<String>,
-    pub(crate) facet_slot_sharing: Option<CoordinationScope>,
-    pub(crate) facet_position: Option<String>,
-    #[serde(default = "default_true")]
-    pub(crate) facet_guide_visible: bool,
-    #[serde(default)]
-    pub(crate) axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
-    #[serde(default)]
-    pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
-    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
-    pub(crate) facet_order_expr: Option<LogicalExprNode>,
-    #[serde(default)]
-    pub(crate) facet_order_descending: bool,
+    config: CompiledFacetBandConfig,
 }
 
 impl CompiledFacetColumnSubplot {
@@ -1044,28 +1074,28 @@ impl CompiledFacetColumnSubplot {
         self.payload.compiled_state()
     }
     pub fn facet_title(&self) -> Option<&str> {
-        self.facet_title.as_deref()
+        self.config.facet_title()
     }
     pub fn facet_slot_sharing(&self) -> Option<CoordinationScope> {
-        self.facet_slot_sharing
+        self.config.facet_slot_sharing()
     }
     pub fn facet_position(&self) -> Option<&str> {
-        self.facet_position.as_deref()
+        self.config.facet_position()
     }
     pub fn facet_guide_visible(&self) -> bool {
-        self.facet_guide_visible
+        self.config.facet_guide_visible()
     }
     pub fn axis_guide_visibility(&self) -> Option<AxisGuideVisibilityConfig> {
-        self.axis_guide_visibility
+        self.config.axis_guide_visibility()
     }
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
-        self.facet_empty_cell_policy
+        self.config.facet_empty_cell_policy()
     }
     pub fn facet_order_expr(&self) -> Option<&LogicalExprNode> {
-        self.facet_order_expr.as_ref()
+        self.config.facet_order_expr()
     }
     pub fn facet_order_descending(&self) -> bool {
-        self.facet_order_descending
+        self.config.facet_order_descending()
     }
 
     pub(crate) fn render_with_context<'a>(
@@ -1076,7 +1106,7 @@ impl CompiledFacetColumnSubplot {
             FacetBandRenderOps::col(),
             self.compiled_subplot(),
             self.state().id.as_deref(),
-            self.facet_empty_cell_policy,
+            self.config.facet_empty_cell_policy,
             context,
         ))
     }
@@ -1128,16 +1158,18 @@ async fn compile_facet_column_subplot_mark(
             subplot.key_config().map(ToOwned::to_owned),
             SubplotDataSource::InheritParent,
         ),
-        facet_title,
-        facet_slot_sharing: subplot.facet_col_slot_sharing_config(),
-        facet_position: subplot.facet_col_position_config().map(ToOwned::to_owned),
-        facet_guide_visible: subplot.facet_col_guide_visible_config().unwrap_or(true),
-        axis_guide_visibility: subplot.facet_col_axis_guide_visibility_config(),
-        facet_empty_cell_policy: subplot
-            .facet_col_empty_cell_policy_config()
-            .unwrap_or_default(),
-        facet_order_expr: subplot.facet_col_order_expr_config().cloned(),
-        facet_order_descending: subplot.facet_col_order_descending_config(),
+        config: CompiledFacetBandConfig {
+            facet_title,
+            facet_slot_sharing: subplot.facet_col_slot_sharing_config(),
+            facet_position: subplot.facet_col_position_config().map(ToOwned::to_owned),
+            facet_guide_visible: subplot.facet_col_guide_visible_config().unwrap_or(true),
+            axis_guide_visibility: subplot.facet_col_axis_guide_visibility_config(),
+            facet_empty_cell_policy: subplot
+                .facet_col_empty_cell_policy_config()
+                .unwrap_or_default(),
+            facet_order_expr: subplot.facet_col_order_expr_config().cloned(),
+            facet_order_descending: subplot.facet_col_order_descending_config(),
+        },
     }))
 }
 
@@ -1156,19 +1188,7 @@ async fn compile_facet_column_subplot_mark(
 pub struct CompiledFacetWrapSubplot {
     pub(crate) payload: CompiledSubplotPayload,
     pub(crate) physical_subplot: Arc<CompiledPlot>,
-    pub(crate) facet_title: Option<String>,
-    pub(crate) facet_slot_sharing: Option<CoordinationScope>,
-    pub(crate) facet_position: Option<String>,
-    #[serde(default = "default_true")]
-    pub(crate) facet_guide_visible: bool,
-    #[serde(default)]
-    pub(crate) axis_guide_visibility: Option<AxisGuideVisibilityConfig>,
-    #[serde(default)]
-    pub(crate) facet_empty_cell_policy: FacetEmptyCellPolicy,
-    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
-    pub(crate) facet_order_expr: Option<LogicalExprNode>,
-    #[serde(default)]
-    pub(crate) facet_order_descending: bool,
+    config: CompiledFacetBandConfig,
     #[serde(default)]
     pub(crate) facet_column_mode: FacetWrapColumnMode,
 }
@@ -1191,35 +1211,35 @@ impl CompiledFacetWrapSubplot {
     }
 
     pub fn facet_title(&self) -> Option<&str> {
-        self.facet_title.as_deref()
+        self.config.facet_title()
     }
 
     pub fn facet_slot_sharing(&self) -> Option<CoordinationScope> {
-        self.facet_slot_sharing
+        self.config.facet_slot_sharing()
     }
 
     pub fn facet_position(&self) -> Option<&str> {
-        self.facet_position.as_deref()
+        self.config.facet_position()
     }
 
     pub fn facet_guide_visible(&self) -> bool {
-        self.facet_guide_visible
+        self.config.facet_guide_visible()
     }
 
     pub fn axis_guide_visibility(&self) -> Option<AxisGuideVisibilityConfig> {
-        self.axis_guide_visibility
+        self.config.axis_guide_visibility()
     }
 
     pub fn facet_empty_cell_policy(&self) -> FacetEmptyCellPolicy {
-        self.facet_empty_cell_policy
+        self.config.facet_empty_cell_policy()
     }
 
     pub fn facet_order_expr(&self) -> Option<&LogicalExprNode> {
-        self.facet_order_expr.as_ref()
+        self.config.facet_order_expr()
     }
 
     pub fn facet_order_descending(&self) -> bool {
-        self.facet_order_descending
+        self.config.facet_order_descending()
     }
 
     pub fn facet_column_mode(&self) -> FacetWrapColumnMode {
@@ -1234,7 +1254,7 @@ impl CompiledFacetWrapSubplot {
             FacetBandRenderOps::row(),
             self.physical_subplot(),
             self.state().id.as_deref(),
-            self.facet_empty_cell_policy,
+            self.config.facet_empty_cell_policy,
             context,
         ))
     }
@@ -1294,14 +1314,16 @@ fn build_physical_wrap_subplot(
             None,
             SubplotDataSource::InheritParent,
         ),
-        facet_title,
-        facet_slot_sharing: Some(CoordinationScope::Free),
-        facet_position,
-        facet_guide_visible,
-        axis_guide_visibility,
-        facet_empty_cell_policy,
-        facet_order_expr: None,
-        facet_order_descending: false,
+        config: CompiledFacetBandConfig {
+            facet_title,
+            facet_slot_sharing: Some(CoordinationScope::Free),
+            facet_position,
+            facet_guide_visible,
+            axis_guide_visibility,
+            facet_empty_cell_policy,
+            facet_order_expr: None,
+            facet_order_descending: false,
+        },
     });
     let synthetic_marks = vec![synthetic_column_mark];
     let mut guide = crate::facet::guide::FacetColGuideConfig::default();
@@ -1398,14 +1420,16 @@ async fn compile_facet_wrap_subplot_mark(
             SubplotDataSource::InheritParent,
         ),
         physical_subplot,
-        facet_title,
-        facet_slot_sharing: subplot.facet_wrap_slot_sharing_config(),
-        facet_position,
-        facet_guide_visible,
-        axis_guide_visibility,
-        facet_empty_cell_policy,
-        facet_order_expr: subplot.facet_wrap_order_expr_config().cloned(),
-        facet_order_descending: subplot.facet_wrap_order_descending_config(),
+        config: CompiledFacetBandConfig {
+            facet_title,
+            facet_slot_sharing: subplot.facet_wrap_slot_sharing_config(),
+            facet_position,
+            facet_guide_visible,
+            axis_guide_visibility,
+            facet_empty_cell_policy,
+            facet_order_expr: subplot.facet_wrap_order_expr_config().cloned(),
+            facet_order_descending: subplot.facet_wrap_order_descending_config(),
+        },
         facet_column_mode: subplot.facet_wrap_column_mode_config(),
     }))
 }
@@ -1469,6 +1493,14 @@ pub enum FacetSubplotRef<'a> {
 }
 
 impl<'a> FacetSubplotRef<'a> {
+    fn config(self) -> &'a CompiledFacetBandConfig {
+        match self {
+            Self::Row(mark) => &mark.config,
+            Self::Col(mark) => &mark.config,
+            Self::Wrap(mark) => &mark.config,
+        }
+    }
+
     pub fn compiled_subplot(self) -> &'a CompiledPlot {
         match self {
             Self::Row(mark) => mark.compiled_subplot(),
@@ -1486,39 +1518,21 @@ impl<'a> FacetSubplotRef<'a> {
     }
 
     pub fn facet_slot_sharing(self) -> Option<CoordinationScope> {
-        match self {
-            Self::Row(mark) => mark.facet_slot_sharing(),
-            Self::Col(mark) => mark.facet_slot_sharing(),
-            Self::Wrap(mark) => mark.facet_slot_sharing(),
-        }
+        self.config().facet_slot_sharing()
     }
 
     pub fn facet_order_expr(
         self,
         ctx: &SessionContext,
     ) -> Result<Option<datafusion::logical_expr::Expr>, AvengerChartError> {
-        match self {
-            Self::Row(mark) => mark
-                .facet_order_expr()
-                .map(|expr| expr.to_expr(ctx))
-                .transpose(),
-            Self::Col(mark) => mark
-                .facet_order_expr()
-                .map(|expr| expr.to_expr(ctx))
-                .transpose(),
-            Self::Wrap(mark) => mark
-                .facet_order_expr()
-                .map(|expr| expr.to_expr(ctx))
-                .transpose(),
-        }
+        self.config()
+            .facet_order_expr()
+            .map(|expr| expr.to_expr(ctx))
+            .transpose()
     }
 
     pub fn facet_order_descending(self) -> bool {
-        match self {
-            Self::Row(mark) => mark.facet_order_descending(),
-            Self::Col(mark) => mark.facet_order_descending(),
-            Self::Wrap(mark) => mark.facet_order_descending(),
-        }
+        self.config().facet_order_descending()
     }
 
     pub fn facet_column_mode(self) -> FacetWrapColumnMode {
@@ -1529,19 +1543,11 @@ impl<'a> FacetSubplotRef<'a> {
     }
 
     pub fn facet_empty_cell_policy(self) -> FacetEmptyCellPolicy {
-        match self {
-            Self::Row(mark) => mark.facet_empty_cell_policy(),
-            Self::Col(mark) => mark.facet_empty_cell_policy(),
-            Self::Wrap(mark) => mark.facet_empty_cell_policy(),
-        }
+        self.config().facet_empty_cell_policy()
     }
 
     pub fn axis_guide_visibility(self) -> Option<AxisGuideVisibilityConfig> {
-        match self {
-            Self::Row(mark) => mark.axis_guide_visibility(),
-            Self::Col(mark) => mark.axis_guide_visibility(),
-            Self::Wrap(mark) => mark.axis_guide_visibility(),
-        }
+        self.config().axis_guide_visibility()
     }
 
     pub(crate) fn render_with_context<'b>(
