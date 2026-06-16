@@ -837,6 +837,97 @@ async fn test_nested_position_facet_free_domains() {
 }
 
 #[tokio::test]
+async fn test_nested_position_facet_heatmap_shared_x_free_y() {
+    let ctx = SessionContext::new();
+    let batch = record_batch(
+        vec![
+            Field::new("market", DataType::Utf8, false),
+            Field::new("x_group", DataType::Utf8, false),
+            Field::new("x_member", DataType::Utf8, false),
+            Field::new("y_group", DataType::Utf8, false),
+            Field::new("y_member", DataType::Utf8, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "North", "North", "North", "North", "South", "South", "South", "South",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "A", "A", "B", "B", "A", "A", "B", "B",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "a1", "a2", "b1", "b1", "a2", "a2", "b1", "b2",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "P", "P", "R", "R", "Q", "Q", "Q", "S",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "p1", "p2", "r1", "r2", "q1", "q2", "q1", "s1",
+            ])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![
+                0.20, 0.65, 0.35, 0.85, 0.55, 0.30, 0.75, 0.45,
+            ])) as ArrayRef,
+        ],
+    );
+    let df = ctx.read_batch(batch).expect("dataframe");
+
+    let plot = Plot::<FacetColumn>::new().data(df).mark(
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .x_with(nested_x("x_group", "x_member"), |x| {
+                        x.axis(|a| a.title("Shared nested X").grid(false))
+                            .level(0, |l| {
+                                l.domain_scope(CoordinationScope::Shared)
+                                    .padding_inner(0.08)
+                                    .padding_outer(0.04)
+                            })
+                            .level(1, |l| {
+                                l.domain_scope(CoordinationScope::Shared)
+                                    .nest_scope(NestScope::Shared)
+                                    .padding_inner(0.0)
+                            })
+                    })
+                    .x2_with(col(":x"), |x| x.band(1.0))
+                    .y_with(nested_x("y_group", "y_member"), |y| {
+                        y.axis(|a| a.title("Local nested Y").grid(false))
+                            .level(0, |l| {
+                                l.domain_scope(CoordinationScope::Free)
+                                    .padding_inner(0.08)
+                                    .padding_outer(0.04)
+                            })
+                            .level(1, |l| {
+                                l.domain_scope(CoordinationScope::Free)
+                                    .nest_scope(NestScope::Free)
+                                    .padding_inner(0.0)
+                            })
+                    })
+                    .y2_with(col(":y"), |y| y.band(1.0))
+                    .fill_with(col("value"), |fill| {
+                        fill.scale_with::<Linear>(|s| {
+                            s.domain((0.0, 1.0)).range_colors(vec![
+                                Srgba::new(0.96, 0.98, 1.0, 1.0),
+                                Srgba::new(0.05, 0.24, 0.45, 1.0),
+                            ])
+                        })
+                    }),
+            ),
+        )
+        .column(col("market")),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "facet_nested_position_heatmap_shared_x_free_y",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_nested_position_repeat_axis_titles() {
     let ctx = SessionContext::new();
     let batch = record_batch(
