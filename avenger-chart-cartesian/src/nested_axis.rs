@@ -23,6 +23,9 @@ const LEVEL_GAP: f32 = 8.0;
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct NestedAxisLevelGuideConfig {
     pub(crate) visible: bool,
+    pub(crate) title: Option<String>,
+    pub(crate) title_visible: bool,
+    pub(crate) label_angle: Option<f32>,
 }
 
 pub(crate) fn make_nested_axis_marks(
@@ -87,16 +90,14 @@ pub(crate) fn make_nested_axis_marks(
 
     if config.labels_visible.unwrap_or(true) {
         for level in (0..level_count).rev() {
-            if level_configs
-                .and_then(|configs| configs.get(&level))
-                .is_some_and(|config| !config.visible)
-            {
+            let level_config = level_configs.and_then(|configs| configs.get(&level));
+            if level_config.is_some_and(|config| !config.visible) {
                 continue;
             }
             let bands = nested_axis_bands(&scale.config, level)?;
             axis_group
                 .marks
-                .push(make_level_labels(&bands, level_count, config)?.into());
+                .push(make_level_labels(&bands, level_count, config, level_config)?.into());
             if level < level_count - 1 {
                 axis_group
                     .marks
@@ -105,11 +106,12 @@ pub(crate) fn make_nested_axis_marks(
         }
     }
 
+    let title = nested_axis_title(title, &layout, level_configs);
     if config.title_visible.unwrap_or(true) && !title.is_empty() {
         let envelope = axis_group.bounding_box();
         axis_group
             .marks
-            .push(make_title(title, scale, envelope.lower(), envelope.upper(), config)?.into());
+            .push(make_title(&title, scale, envelope.lower(), envelope.upper(), config)?.into());
     }
 
     main_group.marks.push(axis_group.into());
@@ -251,6 +253,7 @@ fn make_level_labels(
     bands: &[NestedBandAxisBand],
     level_count: usize,
     config: &AxisConfig,
+    level_config: Option<&NestedAxisLevelGuideConfig>,
 ) -> Result<SceneTextMark, AvengerChartError> {
     let font_size = config.label_font_size.unwrap_or(TICK_FONT_SIZE);
     let font_adjustment = font_size * 0.10;
@@ -264,11 +267,15 @@ fn make_level_labels(
     let distance =
         config.tick_length.unwrap_or(TICK_LENGTH) + TEXT_MARGIN + row * (font_size + LEVEL_GAP);
     let leaf_level = level_count.saturating_sub(1);
-    let leaf_angle = if level == leaf_level {
-        config.label_angle.unwrap_or(0.0)
-    } else {
-        0.0
-    };
+    let leaf_angle = level_config
+        .and_then(|config| config.label_angle)
+        .unwrap_or_else(|| {
+            if level == leaf_level {
+                config.label_angle.unwrap_or(0.0)
+            } else {
+                0.0
+            }
+        });
 
     let (x, y, align, baseline, angle) = match config.orientation {
         AxisOrientation::Left => (
@@ -442,6 +449,48 @@ fn band_centers(bands: &[NestedBandAxisBand]) -> Vec<f32> {
     bands.iter().map(|band| band.center).collect()
 }
 
+fn nested_axis_title(
+    explicit_title: &str,
+    layout: &avenger_scales::scales::nested_band::NestedBandLayout,
+    level_configs: Option<&BTreeMap<usize, NestedAxisLevelGuideConfig>>,
+) -> String {
+    if !explicit_title.is_empty() {
+        return explicit_title.to_string();
+    }
+
+    let mut level_titles = Vec::new();
+    for level in 0..=layout.leaf_level() {
+        let level_config = level_configs.and_then(|configs| configs.get(&level));
+        if level_config.is_some_and(|config| !config.visible || !config.title_visible) {
+            continue;
+        }
+
+        let title = level_config
+            .and_then(|config| config.title.as_ref())
+            .filter(|title| !title.is_empty())
+            .cloned()
+            .or_else(|| {
+                layout
+                    .field_names()
+                    .get(level)
+                    .filter(|title| !title.is_empty())
+                    .cloned()
+            })
+            .unwrap_or_else(|| format!("level {level}"));
+        level_titles.push(title);
+    }
+
+    match level_titles.as_slice() {
+        [] => String::new(),
+        [title] => title.clone(),
+        titles => {
+            let leaf = titles.last().expect("non-empty titles");
+            let parents = titles[..titles.len() - 1].join(" / ");
+            format!("{leaf} grouped by {parents}")
+        }
+    }
+}
+
 fn angled_label_align(angle: f32, top_axis: bool) -> TextAlign {
     if angle == 0.0 {
         TextAlign::Center
@@ -454,7 +503,7 @@ fn angled_label_align(angle: f32, top_axis: bool) -> TextAlign {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{collections::BTreeMap, sync::Arc};
 
     use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
     use avenger_scales::scales::nested_band::NestedBandScale;
@@ -464,7 +513,7 @@ mod tests {
         datatypes::Field,
     };
 
-    use super::make_nested_axis_marks;
+    use super::{NestedAxisLevelGuideConfig, make_nested_axis_marks, nested_axis_title};
 
     fn utf8_struct(columns: &[(&str, Vec<&str>)]) -> ArrayRef {
         let columns = columns
@@ -516,5 +565,83 @@ mod tests {
             axis_elements.marks.len() >= 5,
             "expected axis line, ticks, two label levels, boundary, and title"
         );
+    }
+
+    #[test]
+    fn nested_axis_title_defaults_to_struct_field_names() {
+        let domain = utf8_struct(&[
+            ("cylinders", vec!["4", "4", "6"]),
+            ("manufacturer", vec!["ford", "toyota", "ford"]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 240.0));
+        let layout =
+            avenger_scales::scales::nested_band::nested_band_layout(&scale.config).expect("layout");
+
+        assert_eq!(
+            nested_axis_title("", &layout, None),
+            "manufacturer grouped by cylinders"
+        );
+    }
+
+    #[test]
+    fn nested_axis_title_uses_level_overrides_and_outer_title_precedence() {
+        let domain = utf8_struct(&[
+            ("cylinders", vec!["4", "4", "6"]),
+            ("manufacturer", vec!["ford", "toyota", "ford"]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 240.0));
+        let layout =
+            avenger_scales::scales::nested_band::nested_band_layout(&scale.config).expect("layout");
+        let configs = BTreeMap::from([
+            (
+                0,
+                NestedAxisLevelGuideConfig {
+                    visible: true,
+                    title: Some("# Cylinders".to_string()),
+                    title_visible: true,
+                    label_angle: None,
+                },
+            ),
+            (
+                1,
+                NestedAxisLevelGuideConfig {
+                    visible: true,
+                    title: Some("Maker".to_string()),
+                    title_visible: true,
+                    label_angle: None,
+                },
+            ),
+        ]);
+
+        assert_eq!(
+            nested_axis_title("", &layout, Some(&configs)),
+            "Maker grouped by # Cylinders"
+        );
+        assert_eq!(
+            nested_axis_title("Custom Axis", &layout, Some(&configs)),
+            "Custom Axis"
+        );
+    }
+
+    #[test]
+    fn nested_axis_title_omits_hidden_or_title_hidden_levels() {
+        let domain = utf8_struct(&[
+            ("group", vec!["A", "A", "B"]),
+            ("member", vec!["one", "two", "one"]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 240.0));
+        let layout =
+            avenger_scales::scales::nested_band::nested_band_layout(&scale.config).expect("layout");
+        let configs = BTreeMap::from([(
+            1,
+            NestedAxisLevelGuideConfig {
+                visible: true,
+                title: Some("Member".to_string()),
+                title_visible: false,
+                label_angle: None,
+            },
+        )]);
+
+        assert_eq!(nested_axis_title("", &layout, Some(&configs)), "group");
     }
 }

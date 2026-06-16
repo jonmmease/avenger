@@ -779,7 +779,41 @@ async fn evaluate_nested_axis_level_configs(
         } else {
             true
         };
-        configs.insert(*level, NestedAxisLevelGuideConfig { visible });
+        let title = if let Some(title_node) = axis.title.as_option().and_then(|o| o.as_ref()) {
+            let title_expr =
+                resolve_axis_expr(title_node.to_default_expr(ctx)?, channel, sharing_context)?;
+            Some(evaluate_string_expr(&title_expr, ctx, params).await?)
+        } else {
+            None
+        };
+        let title_visible =
+            if let Some(show_title_node) = axis.show_title.as_option().and_then(|o| o.as_ref()) {
+                let show_title_expr = resolve_axis_expr(
+                    show_title_node.to_default_expr(ctx)?,
+                    channel,
+                    sharing_context,
+                )?;
+                evaluate_bool_expr(&show_title_expr, ctx, params).await?
+            } else {
+                true
+            };
+        let label_angle =
+            if let Some(angle_node) = axis.label_angle.as_option().and_then(|o| o.as_ref()) {
+                let angle_expr =
+                    resolve_axis_expr(angle_node.to_default_expr(ctx)?, channel, sharing_context)?;
+                Some(evaluate_f32_expr(&angle_expr, ctx, params).await?)
+            } else {
+                None
+            };
+        configs.insert(
+            *level,
+            NestedAxisLevelGuideConfig {
+                visible,
+                title,
+                title_visible,
+                label_angle,
+            },
+        );
     }
 
     Ok(configs)
