@@ -336,6 +336,69 @@ async fn test_nested_position_bokeh_style_variable_parent_width_axis() {
 }
 
 #[tokio::test]
+async fn test_nested_position_three_level_category_bars() {
+    let ctx = SessionContext::new();
+    let batch = record_batch(
+        vec![
+            Field::new("region", DataType::Utf8, false),
+            Field::new("category", DataType::Utf8, false),
+            Field::new("item", DataType::Utf8, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "North", "North", "North", "South", "South", "South", "South",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "Fruit", "Fruit", "Grain", "Fruit", "Fruit", "Grain", "Grain",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["A", "B", "O", "A", "C", "R", "W"])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![
+                34.0, 28.0, 22.0, 30.0, 26.0, 35.0, 31.0,
+            ])) as ArrayRef,
+        ],
+    );
+    let df = ctx.read_batch(batch).expect("dataframe");
+    let nested = named_struct(vec![
+        lit("region"),
+        col("region"),
+        lit("category"),
+        col("category"),
+        lit("item"),
+        col("item"),
+    ]);
+
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Rect::new()
+            .x_with(nested, |x| {
+                x.axis(|a| a.title("Item grouped by category and region").grid(false))
+                    .level(0, |l| l.padding_inner(0.34).padding_outer(0.16))
+                    .level(1, |l| l.padding_inner(0.22).padding_outer(0.04))
+                    .level(2, |l| l.padding_inner(0.08))
+            })
+            .x2_with(col(":x"), |x| x.band(1.0))
+            .y_with(lit(0.0), |y| {
+                y.scale(|s| s.domain((0.0, 40.0)))
+                    .axis(|a| a.title("Value").grid(true))
+            })
+            .y2(col("value"))
+            .fill_with(col("category"), |fill| fill)
+            .stroke("#ffffff")
+            .stroke_width(1.0),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "nested_three_level_category_bars",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_nested_position_parent_span_overlay() {
     let ctx = SessionContext::new();
     let batch = record_batch(
