@@ -10,6 +10,7 @@ pub enum ScaleTypePreference {
     Symlog,
     Time,
     Band,
+    NestedBand,
     Point,
     Ordinal,
     Threshold,

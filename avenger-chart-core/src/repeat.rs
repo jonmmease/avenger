@@ -13,9 +13,9 @@ use serde_with::{FromInto, serde_as};
 
 use crate::{
     AvengerChartError, Axis, ChannelExpr, ChannelValue, ConditionalValue, CoordinationScope,
-    DefaultLogicalExprNodeExt, DomainCoordination, IntoExpr, Legend, Maybe, RadiusExpression,
-    ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, ScaleOrderingSpec, ScaleRange,
-    SerializableExpr, scale_domain::DomainExpr, simplify_to_scalar_sync,
+    DefaultLogicalExprNodeExt, DomainCoordination, IntoExpr, Legend, Maybe, NestedBandSpec,
+    RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, ScaleOrderingSpec,
+    ScaleRange, SerializableExpr, scale_domain::DomainExpr, simplify_to_scalar_sync,
 };
 
 const REPEAT_PLACEHOLDER_PREFIX: &str = "$__repeat_";
@@ -462,8 +462,9 @@ pub fn resolve_repeat_channel_value(
         ChannelValue::Scaled {
             expr,
             scale_name,
-            band,
+            position_boundary,
             scale_config,
+            nested_band_config,
             legend_config,
             axis_config,
             domain_coordination,
@@ -471,8 +472,9 @@ pub fn resolve_repeat_channel_value(
         } => ChannelValue::Scaled {
             expr: resolve_expr_node(expr, ctx)?,
             scale_name,
-            band,
+            position_boundary,
             scale_config: resolve_scale_config(scale_config, ctx)?,
+            nested_band_config: resolve_nested_band_config(nested_band_config, ctx)?,
             legend_config: resolve_legend_config(legend_config, ctx)?,
             axis_config: resolve_axis_config(axis_config, ctx)?,
             domain_coordination,
@@ -485,6 +487,7 @@ pub fn resolve_repeat_channel_value(
             conditions,
             otherwise,
             scale_config,
+            nested_band_config,
             legend_config,
             axis_config,
             domain_coordination,
@@ -507,6 +510,7 @@ pub fn resolve_repeat_channel_value(
                 conditions,
                 otherwise,
                 scale_config: resolve_scale_config(scale_config, ctx)?,
+                nested_band_config: resolve_nested_band_config(nested_band_config, ctx)?,
                 legend_config: resolve_legend_config(legend_config, ctx)?,
                 axis_config: resolve_axis_config(axis_config, ctx)?,
                 domain_coordination,
@@ -621,6 +625,27 @@ fn resolve_scale_config(
 ) -> Result<Option<Box<ScaleConfigSpec>>, AvengerChartError> {
     scale_config
         .map(|config| resolve_scale_config_spec(*config, ctx).map(Box::new))
+        .transpose()
+}
+
+fn resolve_nested_band_config(
+    nested_band_config: Option<Box<NestedBandSpec>>,
+    ctx: &RepeatContext,
+) -> Result<Option<Box<NestedBandSpec>>, AvengerChartError> {
+    nested_band_config
+        .map(|config| {
+            let mut config = *config;
+            for level in config.levels.values_mut() {
+                level.domain = resolve_maybe(std::mem::take(&mut level.domain), |domain| {
+                    resolve_scale_domain(domain, ctx)
+                })?;
+                level.ordering = resolve_maybe(std::mem::take(&mut level.ordering), |ordering| {
+                    resolve_scale_ordering(ordering, ctx)
+                })?;
+                level.axis_config = resolve_axis_config(level.axis_config.take(), ctx)?;
+            }
+            Ok(Box::new(config))
+        })
         .transpose()
 }
 
@@ -1053,6 +1078,7 @@ mod tests {
                     .expect("otherwise serializes"),
             },
             scale_config: None,
+            nested_band_config: None,
             legend_config: None,
             axis_config: None,
             domain_coordination: None,
@@ -1077,7 +1103,7 @@ mod tests {
             expr: LogicalExprNode::from_default_expr(column().into_data_expr())
                 .expect("expr serializes"),
             scale_name: None,
-            band: None,
+            position_boundary: None,
             scale_config: Some(Box::new(ScaleConfigSpec {
                 scale_spec: Maybe::Unset,
                 domain: Maybe::Set(ScaleDomain::new_interval(row_index(), column_index())),
@@ -1085,6 +1111,7 @@ mod tests {
                 ordering: Maybe::Unset,
                 options,
             })),
+            nested_band_config: None,
             legend_config: None,
             axis_config: None,
             domain_coordination: None,
@@ -1103,8 +1130,9 @@ mod tests {
             expr: LogicalExprNode::from_default_expr(column().into_data_expr())
                 .expect("expr serializes"),
             scale_name: None,
-            band: None,
+            position_boundary: None,
             scale_config: None,
+            nested_band_config: None,
             legend_config: Some(Box::new(Legend::new().title(column_title()))),
             axis_config: None,
             domain_coordination: None,

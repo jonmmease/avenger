@@ -25,8 +25,9 @@
 //! channels.insert("y".to_string(), ChannelValue::Scaled {
 //!     expr: LogicalExprNode::from_expr(col("value")).expect("Failed to serialize expr"),
 //!     scale_name: None,
-//!     band: None,
+//!     position_boundary: None,
 //!     scale_config: None,
+//!     nested_band_config: None,
 //!     legend_config: None,
 //!     axis_config: None,
 //!     domain_coordination: None,
@@ -35,8 +36,9 @@
 //! channels.insert("y2".to_string(), ChannelValue::Scaled {
 //!     expr: LogicalExprNode::from_expr(col(":y") + lit(10.0)).expect("Failed to serialize expr"),  // References y channel
 //!     scale_name: None,
-//!     band: None,
+//!     position_boundary: None,
 //!     scale_config: None,
+//!     nested_band_config: None,
 //!     legend_config: None,
 //!     axis_config: None,
 //!     domain_coordination: None,
@@ -416,8 +418,9 @@ pub fn resolve_all_channel_refs(
                 ChannelValue::Scaled {
                     expr,
                     scale_name,
-                    band,
+                    position_boundary,
                     scale_config,
+                    nested_band_config,
                     legend_config,
                     axis_config,
                     domain_coordination,
@@ -427,8 +430,9 @@ pub fn resolve_all_channel_refs(
                     ChannelValue::Scaled {
                         expr: resolved_expr,
                         scale_name: scale_name.clone(),
-                        band: *band,
+                        position_boundary: *position_boundary,
                         scale_config: scale_config.clone(),
+                        nested_band_config: nested_band_config.clone(),
                         legend_config: legend_config.clone(),
                         axis_config: axis_config.clone(),
                         domain_coordination: domain_coordination.clone(),
@@ -445,6 +449,7 @@ pub fn resolve_all_channel_refs(
                     conditions,
                     otherwise,
                     scale_config,
+                    nested_band_config,
                     legend_config,
                     axis_config,
                     domain_coordination,
@@ -489,6 +494,7 @@ pub fn resolve_all_channel_refs(
                         conditions: resolved_conditions,
                         otherwise: resolved_otherwise,
                         scale_config: scale_config.clone(),
+                        nested_band_config: nested_band_config.clone(),
                         legend_config: legend_config.clone(),
                         axis_config: axis_config.clone(),
                         domain_coordination: domain_coordination.clone(),
@@ -508,6 +514,8 @@ pub fn resolve_all_channel_refs(
 mod tests {
     use datafusion::logical_expr::{col, lit};
 
+    use crate::PositionBoundary;
+
     use super::*;
 
     #[test]
@@ -519,8 +527,9 @@ mod tests {
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col("value")).expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -533,8 +542,9 @@ mod tests {
                 expr: LogicalExprNode::from_expr(col(":x") + lit(10.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -558,6 +568,48 @@ mod tests {
     }
 
     #[test]
+    fn nested_band_channel_reference_preserves_derivative_boundary() {
+        let ctx = SessionContext::new();
+        let mut channels = IndexMap::new();
+        channels.insert(
+            "x".to_string(),
+            ChannelValue::Scaled {
+                expr: LogicalExprNode::from_expr(col("nested")).expect("serialize x"),
+                scale_name: Some("shared_x".to_string()),
+                position_boundary: Some(PositionBoundary::Band { band: 0.0 }),
+                scale_config: None,
+                nested_band_config: None,
+                legend_config: None,
+                axis_config: None,
+                domain_coordination: None,
+                transform_scope: None,
+            },
+        );
+        channels.insert(
+            "x2".to_string(),
+            ChannelValue::Scaled {
+                expr: LogicalExprNode::from_expr(col(":x")).expect("serialize x2"),
+                scale_name: Some("shared_x".to_string()),
+                position_boundary: Some(PositionBoundary::Band { band: 1.0 }),
+                scale_config: None,
+                nested_band_config: None,
+                legend_config: None,
+                axis_config: None,
+                domain_coordination: None,
+                transform_scope: None,
+            },
+        );
+
+        let resolved = resolve_all_channel_refs(&channels, &ctx).expect("resolve refs");
+        let x2 = resolved.get("x2").expect("resolved x2");
+        assert_eq!(x2.expr(&ctx).expect("expr").to_string(), "nested");
+        assert_eq!(
+            x2.get_position_boundary(),
+            Some(PositionBoundary::Band { band: 1.0 })
+        );
+    }
+
+    #[test]
     fn test_chain_references() {
         let ctx = SessionContext::new();
         let mut channels = IndexMap::new();
@@ -566,8 +618,9 @@ mod tests {
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col("base")).expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -580,8 +633,9 @@ mod tests {
                 expr: LogicalExprNode::from_expr(col(":a") * lit(2.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -594,8 +648,9 @@ mod tests {
                 expr: LogicalExprNode::from_expr(col(":b") + lit(5.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -634,8 +689,9 @@ mod tests {
                 expr: LogicalExprNode::from_expr(col(":x") + lit(1.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -663,8 +719,9 @@ mod tests {
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col(":y")).expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -676,8 +733,9 @@ mod tests {
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col(":x")).expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -712,8 +770,9 @@ mod tests {
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col("value")).expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -725,8 +784,9 @@ mod tests {
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col(":bogus")).expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -762,8 +822,9 @@ mod tests {
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col("a")).expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -775,8 +836,9 @@ mod tests {
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col("b")).expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -789,8 +851,9 @@ mod tests {
                 expr: LogicalExprNode::from_expr(col(":x") + col(":y"))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -859,8 +922,9 @@ mod tests {
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col("base")).expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -873,8 +937,9 @@ mod tests {
                 expr: LogicalExprNode::from_expr(col(":a") * lit(2.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -887,8 +952,9 @@ mod tests {
                 expr: LogicalExprNode::from_expr(col(":a") * lit(3.0))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -901,8 +967,9 @@ mod tests {
                 expr: LogicalExprNode::from_expr(col(":b") + col(":c"))
                     .expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -928,8 +995,9 @@ mod tests {
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col("color")).expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -941,8 +1009,9 @@ mod tests {
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col(":bogus")).expect("Failed to serialize expr"),
                 scale_name: None,
-                band: None,
+                position_boundary: None,
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,

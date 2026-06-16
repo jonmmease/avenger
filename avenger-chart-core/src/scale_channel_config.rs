@@ -127,7 +127,8 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
         ChannelValue::Scaled {
             expr,
             scale_name,
-            band,
+            position_boundary,
+            nested_band_config,
             legend_config,
             axis_config,
             domain_coordination,
@@ -136,8 +137,9 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
         } => ChannelValue::Scaled {
             expr,
             scale_name,
-            band,
+            position_boundary,
             scale_config: Some(scale_config),
+            nested_band_config,
             legend_config,
             axis_config,
             domain_coordination,
@@ -146,6 +148,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
         ChannelValue::Conditional {
             conditions,
             otherwise,
+            nested_band_config,
             legend_config,
             axis_config,
             domain_coordination,
@@ -155,6 +158,7 @@ fn apply_scale_config(value: ChannelValue, scale_config: Scale<Auto>) -> Channel
             conditions,
             otherwise,
             scale_config: Some(scale_config),
+            nested_band_config,
             legend_config,
             axis_config,
             domain_coordination,

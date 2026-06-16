@@ -190,6 +190,11 @@ impl<S: ScaleSpec> ScaleRuntimeExt for Scale<S> {
                         }
                         Arc::new(Float32Array::from(float_values)) as ArrayRef
                     }
+                    DomainKind::NestedCategorical => {
+                        return Err(AvengerChartError::InternalError(
+                            "NestedBand domains must be resolved from struct-valued data before creating ConfiguredScale".to_string(),
+                        ));
+                    }
                 }
             }
             ScaleDefaultDomain::DomainExprs(_) => {
@@ -418,7 +423,9 @@ impl<S: ScaleSpec> ScaleDomainInferenceExt for Scale<S> {
 
 fn infer_default_domain(scale_impl: &Arc<dyn avenger_scales::scales::ScaleImpl>) -> ScaleDomain {
     match (scale_impl.domain_kind(), scale_impl.range_kind()) {
-        (DomainKind::Categorical, _) => ScaleDomain::new_discrete(vec![]),
+        (DomainKind::Categorical | DomainKind::NestedCategorical, _) => {
+            ScaleDomain::new_discrete(vec![])
+        }
         (DomainKind::Numeric | DomainKind::Temporal, RangeKind::Continuous) => {
             ScaleDomain::new_interval(lit(0.0), lit(1.0))
         }

@@ -3,6 +3,7 @@ pub mod coerce;
 pub mod linear;
 pub use linear::NormalizationConfig;
 pub mod log;
+pub mod nested_band;
 pub mod ordinal;
 pub mod point;
 pub mod pow;
@@ -551,6 +552,9 @@ pub enum DomainKind {
     /// Categorical values (strings, discrete categories)
     /// Used by ordinal, band, point scales
     Categorical,
+    /// Struct-valued categorical paths.
+    /// Used by nested band scales.
+    NestedCategorical,
 }
 
 /// The kind of values a scale produces in its range

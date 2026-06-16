@@ -33,6 +33,7 @@ pub use avenger_chart_core::{
     SelectionCombine, SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreFieldPatch,
     StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext, WeekStart, ZeroDCoord,
 };
+pub use avenger_chart_core::{NestScope, NestedBandLevelSpec, NestedBandSpec, PositionBoundary};
 pub use avenger_chart_core::{
     RepeatContext, RepeatDomainCoordination, RepeatPlaceholderKind, RepeatTypeHint, RepeatVariable,
     ResolvedRepeatVariable,
@@ -104,9 +105,9 @@ pub use avenger_chart_cartesian::CartesianPositionConfig;
 // Re-export scale types
 pub use avenger_chart_core::{Auto, ScaleConfigSpec, ScaleOrderingSpec};
 pub use avenger_chart_scales::{
-    Band, BandScaleExt, Linear, LinearScaleExt, Log, LogScaleExt, Ordinal, OrdinalScaleExt, Point,
-    PointScaleExt, Pow, PowScaleExt, Quantile, Quantize, ScaleRuntimeExt, Sqrt, SqrtScaleExt,
-    Symlog, SymlogScaleExt, Threshold, Time, TimeScaleExt,
+    Band, BandScaleExt, Linear, LinearScaleExt, Log, LogScaleExt, NestedBand, Ordinal,
+    OrdinalScaleExt, Point, PointScaleExt, Pow, PowScaleExt, Quantile, Quantize, ScaleRuntimeExt,
+    Sqrt, SqrtScaleExt, Symlog, SymlogScaleExt, Threshold, Time, TimeScaleExt,
 };
 
 // Re-export legend types

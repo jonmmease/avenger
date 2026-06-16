@@ -1,6 +1,8 @@
 use datafusion::logical_expr::Expr;
 
-use crate::{ChannelConfig, ChannelValue};
+use crate::{
+    Axis, ChannelConfig, ChannelValue, NestedBandLevelConfig, NestedBandSpec, PositionBoundary,
+};
 
 /// Generic configuration for position channels across coordinate systems.
 ///
@@ -44,6 +46,37 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
     pub fn band(self, band: f64) -> Self {
         Self {
             inner: self.inner.band(band),
+            axis_config: self.axis_config,
+        }
+    }
+
+    /// Configure one level of a nested categorical band position channel.
+    pub fn level<F>(self, level: usize, f: F) -> Self
+    where
+        A: Axis,
+        F: FnOnce(NestedBandLevelConfig<A>) -> NestedBandLevelConfig<A>,
+    {
+        let mut nested = self
+            .inner
+            .get_nested_band_config()
+            .cloned()
+            .unwrap_or_else(NestedBandSpec::default);
+        let level_spec = nested.levels.remove(&level).unwrap_or_default();
+        nested
+            .levels
+            .insert(level, f(NestedBandLevelConfig::new(level_spec)).into_spec());
+        Self {
+            inner: self.inner.with_nested_band_config(nested),
+            axis_config: self.axis_config,
+        }
+    }
+
+    /// Set the boundary for a specific nested categorical band level.
+    pub fn level_band(self, level: usize, band: f64) -> Self {
+        Self {
+            inner: self
+                .inner
+                .with_position_boundary(PositionBoundary::level_band(level, band)),
             axis_config: self.axis_config,
         }
     }
@@ -146,5 +179,42 @@ impl<A: Clone + Default + Send + Sync + 'static> From<f32> for GenericPositionCo
 impl<A: Clone + Default + Send + Sync + 'static> From<i32> for GenericPositionConfig<A> {
     fn from(v: i32) -> Self {
         Self::new(ChannelValue::from(v))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use datafusion::prelude::col;
+
+    use crate::{NestScope, PositionBoundary};
+
+    use super::*;
+
+    #[test]
+    fn nested_band_position_config_level_and_level_band() {
+        let config = GenericPositionConfig::<()>::new(ChannelValue::from(col("x")))
+            .level(1, |level| {
+                level
+                    .nest_scope(NestScope::Shared)
+                    .padding_inner(0.0)
+                    .padding_outer_px(4.0)
+            })
+            .level_band(1, 1.0);
+
+        let nested = config
+            .inner
+            .get_nested_band_config()
+            .expect("nested config");
+        let level = nested.level(1).expect("level config");
+        assert_eq!(level.nest_scope, Some(NestScope::Shared));
+        assert_eq!(level.padding_inner, Some(0.0));
+        assert_eq!(level.padding_outer_px, Some(4.0));
+        assert_eq!(
+            config.inner.get_position_boundary(),
+            Some(PositionBoundary::LevelBand {
+                level: 1,
+                band: 1.0
+            })
+        );
     }
 }

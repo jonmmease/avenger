@@ -15,6 +15,7 @@ pub fn scale_spec_for_preference(preference: ScaleTypePreference) -> Box<dyn Sca
         ScaleTypePreference::Symlog => Box::new(Symlog),
         ScaleTypePreference::Time => Box::new(Time),
         ScaleTypePreference::Band => Box::new(Band),
+        ScaleTypePreference::NestedBand => Box::new(NestedBand),
         ScaleTypePreference::Point => Box::new(Point),
         ScaleTypePreference::Ordinal => Box::new(Ordinal),
         ScaleTypePreference::Threshold => Box::new(Threshold),
@@ -52,6 +53,10 @@ pub struct Time;
 /// Band scale marker type
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Band;
+
+/// Nested categorical band scale marker type
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct NestedBand;
 
 /// Point scale marker type
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -198,6 +203,22 @@ impl ScaleSpec for Band {
 }
 
 #[typetag::serde]
+impl ScaleSpec for NestedBand {
+    fn clone_box(&self) -> Box<dyn ScaleSpec> {
+        Box::new(*self)
+    }
+
+    fn create_impl(&self) -> Arc<dyn ScaleImpl> {
+        use avenger_scales::scales::nested_band::NestedBandScale;
+        Arc::new(NestedBandScale)
+    }
+
+    fn name(&self) -> &'static str {
+        "nested_band"
+    }
+}
+
+#[typetag::serde]
 impl ScaleSpec for Point {
     fn clone_box(&self) -> Box<dyn ScaleSpec> {
         Box::new(*self)
@@ -330,6 +351,7 @@ mod tests {
             Box::new(Log),
             Box::new(Sqrt),
             Box::new(Band),
+            Box::new(NestedBand),
             Box::new(Ordinal),
         ];
 
@@ -337,5 +359,16 @@ mod tests {
             let cloned = spec.clone();
             assert_eq!(spec.name(), cloned.name());
         }
+    }
+
+    #[test]
+    fn nested_band_scale_spec_creates_nested_band_impl() {
+        use avenger_scales::scales::DomainKind;
+
+        let spec = NestedBand;
+        let scale_impl = spec.create_impl();
+        assert_eq!(spec.name(), "nested_band");
+        assert_eq!(scale_impl.scale_type(), "nested_band");
+        assert_eq!(scale_impl.domain_kind(), DomainKind::NestedCategorical);
     }
 }

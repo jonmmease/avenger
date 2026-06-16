@@ -46,6 +46,7 @@ pub mod mark_render_context;
 pub mod mark_runtime_context;
 pub mod mark_state;
 pub mod maybe;
+pub mod nested_band;
 pub mod no_guide;
 pub mod overflow;
 pub mod param;
@@ -192,6 +193,9 @@ pub use mark_runtime_context::MarkRuntimeContext;
 pub use mark_state::validate_structural_id;
 pub use mark_state::{CompiledMarkState, MarkDataMode, MarkState};
 pub use maybe::{Maybe, MaybeOptionalExpr};
+pub use nested_band::{
+    NestScope, NestedBandLevelConfig, NestedBandLevelSpec, NestedBandSpec, PositionBoundary,
+};
 pub use no_guide::NoGuide;
 pub use overflow::{MeasurementResult, OverflowSpaceRequirement};
 pub use param::{CompiledParamSpec, Param};

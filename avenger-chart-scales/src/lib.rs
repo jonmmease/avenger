@@ -38,8 +38,8 @@ pub use scale::{
     ScaleDomainInferenceExt, ScaleRuntimeExt, SqrtScaleExt, SymlogScaleExt, TimeScaleExt,
 };
 pub use spec::{
-    Band, Linear, Log, Ordinal, Point, Pow, Quantile, Quantize, Sqrt, Symlog, Threshold, Time,
-    scale_spec_for_preference,
+    Band, Linear, Log, NestedBand, Ordinal, Point, Pow, Quantile, Quantize, Sqrt, Symlog,
+    Threshold, Time, scale_spec_for_preference,
 };
 pub use udf::create_scale_udf;
 

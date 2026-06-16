@@ -64,8 +64,9 @@ mod serialization_tests {
         let channel = ChannelValue::Scaled {
             expr: expr_node.clone(),
             scale_name: Some("x".to_string()),
-            band: None,
+            position_boundary: None,
             scale_config: None,
+            nested_band_config: None,
             legend_config: None,
             axis_config: None,
             domain_coordination: None,

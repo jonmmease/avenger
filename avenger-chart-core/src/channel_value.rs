@@ -14,7 +14,8 @@ use serde_with::{FromInto, serde_as};
 
 use crate::{
     AvengerChartError, Axis, CoordinationScope, DomainCoordination, DomainCoordinationGroup,
-    Legend, ScaleConfigSpec, SerializableExpr, channel::strip_trailing_numbers,
+    Legend, NestedBandSpec, PositionBoundary, ScaleConfigSpec, SerializableExpr,
+    channel::strip_trailing_numbers,
 };
 
 trait LogicalExprNodeExt: Sized {
@@ -161,10 +162,13 @@ pub enum ChannelValue {
         expr: LogicalExprNode,
         /// Optional custom scale name (defaults to channel name)
         scale_name: Option<String>,
-        /// Band parameter for band scales (0.0 = start of band, 1.0 = end of band)
-        band: Option<f64>,
+        /// Boundary request for banded position scales.
+        position_boundary: Option<PositionBoundary>,
         /// Optional scale configuration
         scale_config: Option<Box<ScaleConfigSpec>>,
+        /// Optional nested-band level configuration.
+        #[serde(default)]
+        nested_band_config: Option<Box<NestedBandSpec>>,
         /// Optional legend configuration
         legend_config: Option<Box<Legend>>,
         /// Optional axis configuration applied when this value is used on a position channel
@@ -191,6 +195,9 @@ pub enum ChannelValue {
         otherwise: ConditionalValue,
         /// Optional scale configuration (applies to all Field branches)
         scale_config: Option<Box<ScaleConfigSpec>>,
+        /// Optional nested-band level configuration.
+        #[serde(default)]
+        nested_band_config: Option<Box<NestedBandSpec>>,
         /// Optional legend configuration (applies to all Field branches)
         legend_config: Option<Box<Legend>>,
         /// Optional axis configuration applied when this value is used on a position channel
@@ -327,6 +334,11 @@ impl ChannelExpr {
         self.map_channel_value(|value| value.band(band))
     }
 
+    /// Set the boundary for a specific nested-band level.
+    pub fn level_band(self, level: usize, band: f64) -> Self {
+        self.map_channel_value(|value| value.level_band(level, band))
+    }
+
     /// Set a custom scale name for this channel value.
     pub fn with_scale_name(self, name: impl Into<String>) -> Self {
         self.map_channel_value(|value| value.with_scale_name(name))
@@ -410,14 +422,14 @@ impl std::fmt::Debug for ChannelValue {
         match self {
             ChannelValue::Scaled {
                 scale_name,
-                band,
+                position_boundary,
                 transform_scope,
                 ..
             } => f
                 .debug_struct("Scaled")
                 .field("expr", &"<SerializableExpr>".to_string())
                 .field("scale_name", scale_name)
-                .field("band", band)
+                .field("position_boundary", position_boundary)
                 .field("has_scale_config", &self.has_scale_config())
                 .field("has_legend_config", &self.has_legend_config())
                 .field("has_axis_config", &self.has_axis_config())
@@ -535,8 +547,9 @@ impl ChannelValue {
             ChannelValue::Scaled {
                 expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination,
@@ -544,8 +557,9 @@ impl ChannelValue {
             } => ChannelValue::Scaled {
                 expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination: domain_coordination
@@ -556,6 +570,7 @@ impl ChannelValue {
                 conditions,
                 otherwise,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination,
@@ -564,6 +579,7 @@ impl ChannelValue {
                 conditions,
                 otherwise,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination: domain_coordination
@@ -580,8 +596,9 @@ impl ChannelValue {
             ChannelValue::Scaled {
                 expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination,
@@ -589,8 +606,9 @@ impl ChannelValue {
             } => ChannelValue::Scaled {
                 expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination: Some(
@@ -602,6 +620,7 @@ impl ChannelValue {
                 conditions,
                 otherwise,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination,
@@ -610,6 +629,7 @@ impl ChannelValue {
                 conditions,
                 otherwise,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination: Some(
@@ -628,8 +648,9 @@ impl ChannelValue {
             ChannelValue::Scaled {
                 expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination,
@@ -637,8 +658,9 @@ impl ChannelValue {
             } => ChannelValue::Scaled {
                 expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination: Some(
@@ -650,6 +672,7 @@ impl ChannelValue {
                 conditions,
                 otherwise,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination,
@@ -658,6 +681,7 @@ impl ChannelValue {
                 conditions,
                 otherwise,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination: Some(
@@ -677,8 +701,9 @@ impl ChannelValue {
             ChannelValue::Scaled {
                 expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 transform_scope,
@@ -686,8 +711,9 @@ impl ChannelValue {
             } => ChannelValue::Scaled {
                 expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination: Some(coordination),
@@ -697,6 +723,7 @@ impl ChannelValue {
                 conditions,
                 otherwise,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 transform_scope,
@@ -705,6 +732,7 @@ impl ChannelValue {
                 conditions,
                 otherwise,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination: Some(coordination),
@@ -729,8 +757,9 @@ impl ChannelValue {
             ChannelValue::Scaled {
                 expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 domain_coordination,
                 transform_scope,
@@ -738,8 +767,9 @@ impl ChannelValue {
             } => ChannelValue::Scaled {
                 expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config: Some(axis_config),
                 domain_coordination,
@@ -750,6 +780,7 @@ impl ChannelValue {
                 conditions,
                 otherwise,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 domain_coordination,
                 transform_scope,
@@ -758,6 +789,7 @@ impl ChannelValue {
                 conditions,
                 otherwise,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config: Some(axis_config),
                 domain_coordination,
@@ -879,12 +911,22 @@ impl ChannelValue {
     /// Get all expressions from this channel value
     pub fn all_exprs(&self, ctx: &SessionContext) -> Vec<Expr> {
         match self {
-            ChannelValue::Scaled { expr, .. } | ChannelValue::Value { expr } => {
-                expr.to_expr(ctx).ok().into_iter().collect()
+            ChannelValue::Scaled {
+                expr,
+                nested_band_config,
+                ..
+            } => {
+                let mut exprs = expr.to_expr(ctx).ok().into_iter().collect::<Vec<_>>();
+                if let Some(config) = nested_band_config {
+                    exprs.extend(config.all_exprs(ctx));
+                }
+                exprs
             }
+            ChannelValue::Value { expr } => expr.to_expr(ctx).ok().into_iter().collect(),
             ChannelValue::Conditional {
                 conditions,
                 otherwise,
+                nested_band_config,
                 ..
             } => {
                 let mut exprs = Vec::new();
@@ -898,6 +940,9 @@ impl ChannelValue {
                 }
                 if let Ok(e) = otherwise.expr(ctx) {
                     exprs.push(e);
+                }
+                if let Some(config) = nested_band_config {
+                    exprs.extend(config.all_exprs(ctx));
                 }
                 exprs
             }
@@ -923,10 +968,72 @@ impl ChannelValue {
 
     /// Set the band parameter for this channel (only for scaled values)
     pub fn band(self, band: f64) -> Self {
+        self.with_position_boundary(PositionBoundary::band(band))
+    }
+
+    /// Set the boundary for a specific nested-band level.
+    pub fn level_band(self, level: usize, band: f64) -> Self {
+        self.with_position_boundary(PositionBoundary::level_band(level, band))
+    }
+
+    /// Set the position boundary for this channel.
+    pub fn with_position_boundary(self, position_boundary: PositionBoundary) -> Self {
         match self {
             ChannelValue::Scaled {
                 expr,
                 scale_name,
+                scale_config,
+                nested_band_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+                ..
+            } => ChannelValue::Scaled {
+                expr,
+                scale_name,
+                position_boundary: Some(position_boundary),
+                scale_config,
+                nested_band_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+            },
+            other => other,
+        }
+    }
+
+    /// Get the position boundary configured for this channel.
+    pub fn get_position_boundary(&self) -> Option<PositionBoundary> {
+        match self {
+            ChannelValue::Scaled {
+                position_boundary, ..
+            } => *position_boundary,
+            ChannelValue::Conditional { .. } | ChannelValue::Value { .. } => None,
+        }
+    }
+
+    /// Get the nested-band configuration if present.
+    pub fn get_nested_band_config(&self) -> Option<&NestedBandSpec> {
+        match self {
+            ChannelValue::Scaled {
+                nested_band_config, ..
+            }
+            | ChannelValue::Conditional {
+                nested_band_config, ..
+            } => nested_band_config.as_deref(),
+            ChannelValue::Value { .. } => None,
+        }
+    }
+
+    /// Replace the nested-band configuration on this scaled channel.
+    pub fn with_nested_band_config(self, nested_band_config: NestedBandSpec) -> Self {
+        match self {
+            ChannelValue::Scaled {
+                expr,
+                scale_name,
+                position_boundary,
                 scale_config,
                 legend_config,
                 axis_config,
@@ -934,16 +1041,36 @@ impl ChannelValue {
                 transform_scope,
                 ..
             } => ChannelValue::Scaled {
-                expr: expr.clone(),
-                scale_name: scale_name.clone(),
-                band: Some(band),
-                scale_config: scale_config.clone(),
-                legend_config: legend_config.clone(),
-                axis_config: axis_config.clone(),
+                expr,
+                scale_name,
+                position_boundary,
+                scale_config,
+                nested_band_config: Some(Box::new(nested_band_config)),
+                legend_config,
+                axis_config,
                 domain_coordination,
                 transform_scope,
             },
-            other => other, // No-op for identity and conditional values
+            ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+                ..
+            } => ChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config,
+                nested_band_config: Some(Box::new(nested_band_config)),
+                legend_config,
+                axis_config,
+                domain_coordination,
+                transform_scope,
+            },
+            other => other,
         }
     }
 
@@ -953,8 +1080,9 @@ impl ChannelValue {
         match self {
             ChannelValue::Scaled {
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination,
@@ -963,8 +1091,9 @@ impl ChannelValue {
             } => ChannelValue::Scaled {
                 expr: new_expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination,
@@ -976,8 +1105,9 @@ impl ChannelValue {
                 ChannelValue::Scaled {
                     expr: new_expr,
                     scale_name: None,
-                    band: None,
+                    position_boundary: None,
                     scale_config: None,
+                    nested_band_config: None,
                     legend_config: None,
                     axis_config: None,
                     domain_coordination: None,
@@ -992,20 +1122,22 @@ impl ChannelValue {
         match self {
             ChannelValue::Scaled {
                 expr,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination,
                 transform_scope,
                 ..
             } => ChannelValue::Scaled {
-                expr: expr.clone(),
+                expr,
                 scale_name: Some(name.into()),
-                band,
-                scale_config: scale_config.clone(),
-                legend_config: legend_config.clone(),
-                axis_config: axis_config.clone(),
+                position_boundary,
+                scale_config,
+                nested_band_config,
+                legend_config,
+                axis_config,
                 domain_coordination,
                 transform_scope,
             },
@@ -1014,8 +1146,9 @@ impl ChannelValue {
                 ChannelValue::Scaled {
                     expr,
                     scale_name: Some(name.into()),
-                    band: None,
+                    position_boundary: None,
                     scale_config: None,
+                    nested_band_config: None,
                     legend_config: None,
                     axis_config: None,
                     domain_coordination: None,
@@ -1095,8 +1228,9 @@ impl From<Expr> for ChannelValue {
         ChannelValue::Scaled {
             expr: LogicalExprNode::from_expr(expr).expect("Failed to serialize expression"),
             scale_name: None,
-            band: None,
+            position_boundary: None,
             scale_config: None,
+            nested_band_config: None,
             legend_config: None,
             axis_config: None,
             domain_coordination: None,
@@ -1149,7 +1283,7 @@ impl From<bool> for ChannelValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::channel::BaseChannelName;
+    use crate::{Maybe, ScaleOrderingSpec, channel::BaseChannelName};
     use datafusion::prelude::col;
 
     #[test]
@@ -1288,7 +1422,7 @@ mod tests {
         assert!(matches!(
             cv,
             ChannelValue::Scaled {
-                band: Some(0.5),
+                position_boundary: Some(PositionBoundary::Band { band: 0.5 }),
                 ..
             }
         ));
@@ -1299,11 +1433,76 @@ mod tests {
         let cv2: ChannelValue = col("x").into();
         let cv2 = cv2.band(1.0);
         match (cv1, cv2) {
-            (ChannelValue::Scaled { band: b1, .. }, ChannelValue::Scaled { band: b2, .. }) => {
+            (
+                ChannelValue::Scaled {
+                    position_boundary: b1,
+                    ..
+                },
+                ChannelValue::Scaled {
+                    position_boundary: b2,
+                    ..
+                },
+            ) => {
                 assert_eq!(b1, b2);
             }
             _ => panic!("Expected both to be scaled"),
         }
+    }
+
+    #[test]
+    fn nested_band_channel_value_level_band_stores_position_boundary() {
+        let cv: ChannelValue = col("x").into();
+        let cv = cv.level_band(1, 0.75);
+        assert_eq!(
+            cv.get_position_boundary(),
+            Some(PositionBoundary::LevelBand {
+                level: 1,
+                band: 0.75
+            })
+        );
+    }
+
+    #[test]
+    fn nested_band_channel_value_band_stores_leaf_boundary() {
+        let cv: ChannelValue = col("x").into();
+        let cv = cv.band(1.0);
+        assert_eq!(
+            cv.get_position_boundary(),
+            Some(PositionBoundary::Band { band: 1.0 })
+        );
+    }
+
+    #[test]
+    fn nested_band_channel_expr_level_band_stores_position_boundary() {
+        let expr = ChannelExpr::scaled(col("x")).level_band(0, 1.0);
+        assert_eq!(
+            expr.channel_value().get_position_boundary(),
+            Some(PositionBoundary::LevelBand {
+                level: 0,
+                band: 1.0
+            })
+        );
+    }
+
+    #[test]
+    fn nested_band_config_expressions_are_collected() {
+        let ctx = SessionContext::new();
+        let mut nested = NestedBandSpec::default();
+        nested.level_mut(1).ordering = Maybe::Set(ScaleOrderingSpec {
+            order_expr: Some(
+                LogicalExprNode::from_expr(col("series_sort")).expect("serialize order expr"),
+            ),
+            order_descending: Some(true),
+        });
+        let cv: ChannelValue = col("category").into();
+        let cv = cv.with_nested_band_config(nested);
+
+        let rendered = cv
+            .all_exprs(&ctx)
+            .into_iter()
+            .map(|expr| expr.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(rendered, vec!["category", "series_sort"]);
     }
 
     #[test]
@@ -1447,6 +1646,7 @@ mod tests {
                         .expect("Failed to serialize expr"),
                 },
                 scale_config: None,
+                nested_band_config: None,
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -1510,6 +1710,7 @@ mod tests {
                     .expect("Failed to serialize otherwise"),
             },
             scale_config: None,
+            nested_band_config: None,
             legend_config: None,
             axis_config: None,
             domain_coordination: None,
@@ -1575,6 +1776,7 @@ mod tests {
                     .expect("Failed to serialize otherwise"),
             },
             scale_config: None,
+            nested_band_config: None,
             legend_config: None,
             axis_config: None,
             domain_coordination: None,
@@ -1644,6 +1846,7 @@ mod tests {
                     .expect("Failed to serialize otherwise"),
             },
             scale_config: None,
+            nested_band_config: None,
             legend_config: None,
             axis_config: None,
             domain_coordination: None,
@@ -1698,6 +1901,7 @@ mod tests {
                     .expect("Failed to serialize otherwise"),
             },
             scale_config: None,
+            nested_band_config: None,
             legend_config: None,
             axis_config: None,
             domain_coordination: None,
@@ -1735,6 +1939,7 @@ mod tests {
                     .expect("Failed to serialize otherwise"),
             },
             scale_config: None,
+            nested_band_config: None,
             legend_config: None,
             axis_config: None,
             domain_coordination: None,

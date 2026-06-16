@@ -75,6 +75,8 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(DomainValues::Discrete(scalars))
             }
+            // Nested categorical domains are positional geometry, not legend domains.
+            (DomainKind::NestedCategorical, _) => Ok(DomainValues::Discrete(Vec::new())),
             // Numeric/Temporal domains with continuous ranges use intervals
             (DomainKind::Numeric | DomainKind::Temporal, RangeKind::Continuous) => {
                 if domain_array.len() >= 2 {

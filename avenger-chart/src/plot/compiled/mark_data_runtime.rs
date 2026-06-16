@@ -28,8 +28,8 @@ use indexmap::IndexMap;
 
 use avenger_chart_core::{
     CompiledSelectionSpec, DataTransformExecutionContext, DataTransformStage, DerivedScalarMap,
-    FacetDataScope, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
-    SharingLevel, contains_aggregate, params_to_datafusion,
+    FacetDataScope, MarkDataMode, PositionBoundary, SelectionClause, SelectionCombine,
+    SelectionPredicateSpec, SharingLevel, contains_aggregate, params_to_datafusion,
     selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
 };
 
@@ -351,8 +351,9 @@ fn expand_selection_predicates_in_channels(
             ChannelValue::Scaled {
                 expr,
                 scale_name,
-                band,
+                position_boundary,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination,
@@ -363,8 +364,9 @@ fn expand_selection_predicates_in_channels(
                 ChannelValue::Scaled {
                     expr: LogicalExprNode::from_expr(expanded)?,
                     scale_name,
-                    band,
+                    position_boundary,
                     scale_config,
+                    nested_band_config,
                     legend_config,
                     axis_config,
                     domain_coordination,
@@ -382,6 +384,7 @@ fn expand_selection_predicates_in_channels(
                 conditions,
                 otherwise,
                 scale_config,
+                nested_band_config,
                 legend_config,
                 axis_config,
                 domain_coordination,
@@ -434,6 +437,7 @@ fn expand_selection_predicates_in_channels(
                     conditions: expanded_conditions,
                     otherwise: expanded_otherwise,
                     scale_config,
+                    nested_band_config,
                     legend_config,
                     axis_config,
                     domain_coordination,
@@ -996,7 +1000,7 @@ pub(crate) fn apply_channel_scale(
         ChannelValue::Scaled {
             expr,
             scale_name,
-            band,
+            position_boundary,
             ..
         } => {
             let default_scale_name = strip_trailing_numbers(channel_name).to_string();
@@ -1010,8 +1014,15 @@ pub(crate) fn apply_channel_scale(
             })?;
 
             let expr_df = expr.to_expr(ctx)?;
-            if let Some(band) = band {
-                scale.to_expr_with_band(expr_df.clone(), *band)
+            if let Some(boundary) = position_boundary {
+                match boundary {
+                    PositionBoundary::Band { band } => scale.to_expr_with_band(expr_df, *band),
+                    PositionBoundary::LevelBand { level, .. } => {
+                        Err(AvengerChartError::InvalidArgument(format!(
+                            "level_band({level}, ...) requires a nested band scale"
+                        )))
+                    }
+                }
             } else {
                 scale.to_expr(expr_df)
             }
