@@ -1,5 +1,6 @@
 // Test that the new scale API works correctly
 use avenger_chart::prelude::*;
+use datafusion::prelude::named_struct;
 use palette::rgb::Srgba;
 
 #[test]
@@ -80,4 +81,30 @@ fn test_scale_preserves_domain_from_data() {
                 s.nice(true).zero(true)
             })
         }));
+}
+
+#[test]
+fn test_nested_band_position_api() {
+    let nested = named_struct(vec![lit("cyl"), col("cyl"), lit("make"), col("make")]);
+    let _plot = Plot::<Cartesian>::new().mark(
+        Rect::new()
+            .x_with(nested, |x| {
+                x.axis(|a| a.title("Make grouped by cylinders").grid(false))
+                    .level(0, |l| {
+                        l.domain_values(vec![lit("4"), lit("6")])
+                            .domain_scope(CoordinationScope::Shared)
+                            .padding_inner(0.35)
+                            .padding_outer(0.12)
+                    })
+                    .level(1, |l| {
+                        l.domain_scope(CoordinationScope::Shared)
+                            .nest_scope(NestScope::Shared)
+                            .padding_inner(0.05)
+                            .axis(|a| a.visible(false))
+                    })
+            })
+            .x2_with(col(":x"), |x| x.band(1.0))
+            .y(lit(0.0))
+            .y2(col("value")),
+    );
 }

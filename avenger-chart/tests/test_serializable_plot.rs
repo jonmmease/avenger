@@ -1,9 +1,10 @@
 //! Test for CompiledPlot serialization
 
-use avenger_chart::cartesian::CartesianSymbolPositionChannels;
+use avenger_chart::cartesian::{CartesianRectPositionChannels, CartesianSymbolPositionChannels};
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::{CompiledPlot, Plot};
-use datafusion::prelude::{SessionContext, col};
+use avenger_chart::prelude::{Cartesian, CoordinationScope, NestScope, Rect};
+use datafusion::prelude::{SessionContext, col, lit, named_struct};
 
 #[tokio::test]
 async fn test_compiled_plot() {
@@ -27,4 +28,37 @@ async fn test_compiled_plot() {
     // Just verify it round-trips successfully
     assert!(json.contains("coord_transform"));
     assert!(json.contains("marks"));
+}
+
+#[tokio::test]
+async fn test_compiled_plot_with_nested_position_metadata() {
+    let ctx = SessionContext::new();
+    let nested = named_struct(vec![
+        lit("quarter"),
+        col("quarter"),
+        lit("team"),
+        col("team"),
+    ]);
+    let plot = Plot::<Cartesian>::new().mark(
+        Rect::new()
+            .x_with(nested, |x| {
+                x.level(0, |l| l.domain_scope(CoordinationScope::Shared))
+                    .level(1, |l| {
+                        l.domain_scope(CoordinationScope::Shared)
+                            .nest_scope(NestScope::Shared)
+                            .axis(|a| a.visible(false))
+                    })
+            })
+            .x2_with(col(":x"), |x| x.band(1.0))
+            .y(lit(0.0))
+            .y2(col("value")),
+    );
+
+    let compiled = plot.compile(&ctx).await.unwrap();
+    let json = serde_json::to_string_pretty(&compiled).unwrap();
+    let _deserialized: CompiledPlot = serde_json::from_str(&json).unwrap();
+
+    assert!(json.contains("nested_band_config"));
+    assert!(json.contains("nest_scope"));
+    assert!(json.contains("domain_coordination"));
 }

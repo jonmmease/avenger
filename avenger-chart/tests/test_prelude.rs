@@ -29,6 +29,11 @@ fn test_prelude_imports() {
     // Scales
     let _linear = Scale::<Linear>::new();
     let _band = Scale::<Band>::new();
+    let _nested_band = Scale::<NestedBand>::new();
+    let _nested_spec = NestedBandSpec::default();
+    let _nested_level = NestedBandLevelSpec::default();
+    let _nest_scope = NestScope::Shared;
+    let _position_boundary = PositionBoundary::level_band(0, 0.5);
 
     // Legend builders
     let _legend = ColorLegendBuilder::new()
