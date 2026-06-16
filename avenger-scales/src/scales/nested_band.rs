@@ -8,8 +8,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
-    array::{Array, ArrayRef, Float32Array, StructArray},
-    compute::cast,
+    array::{Array, ArrayRef, Float32Array, StructArray, UInt32Array},
+    compute::{cast, kernels::take},
     datatypes::{DataType, Field},
 };
 use indexmap::IndexMap;
@@ -246,6 +246,56 @@ impl ScaleImpl for NestedBandScale {
             .map(|path| layout.position_for_path(path, boundary_level, band))
             .collect::<Vec<_>>();
         Ok(Arc::new(Float32Array::from(positions)) as ArrayRef)
+    }
+
+    fn invert_range_interval(
+        &self,
+        config: &ScaleConfig,
+        range: (f32, f32),
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        self.validate_options(config)?;
+        let layout = NestedBandLayout::from_config(config)?;
+        let paths = extract_struct_paths(&config.domain, "domain")?;
+        let leaf_bands = layout.axis_bands(layout.leaf_level())?;
+
+        let (mut lo, mut hi) = range;
+        if lo.is_nan() || hi.is_nan() {
+            return take_domain_indices(&config.domain, Vec::new());
+        }
+        if hi < lo {
+            std::mem::swap(&mut lo, &mut hi);
+        }
+
+        let mut domain_index_by_key = HashMap::new();
+        for (index, path) in paths.paths.iter().enumerate() {
+            domain_index_by_key
+                .entry(path.key())
+                .or_insert(index as u32);
+        }
+
+        let is_point = (lo - hi).abs() < f32::EPSILON;
+        let indices = leaf_bands
+            .iter()
+            .filter(|band| {
+                let start = band.start.min(band.end);
+                let end = band.start.max(band.end);
+                if is_point {
+                    lo >= start && lo <= end
+                } else {
+                    hi >= start && lo <= end
+                }
+            })
+            .filter_map(|band| {
+                let key = band
+                    .path
+                    .iter()
+                    .map(|component| component.key.clone())
+                    .collect::<Vec<_>>();
+                domain_index_by_key.get(&key).copied()
+            })
+            .collect::<Vec<_>>();
+
+        take_domain_indices(&config.domain, indices)
     }
 }
 
@@ -906,6 +956,14 @@ fn invalid_level(level: usize, level_count: usize) -> AvengerScaleError {
     ))
 }
 
+fn take_domain_indices(
+    domain: &ArrayRef,
+    indices: Vec<u32>,
+) -> Result<ArrayRef, AvengerScaleError> {
+    let indices = Arc::new(UInt32Array::from(indices)) as ArrayRef;
+    Ok(take::take(domain, &indices, None)?)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -941,6 +999,15 @@ mod tests {
                     Some(scaled.value(index))
                 }
             })
+            .collect()
+    }
+
+    fn struct_utf8_values(array: &ArrayRef, field_name: &str) -> Vec<Option<String>> {
+        let struct_array = array.as_any().downcast_ref::<StructArray>().unwrap();
+        let column = struct_array.column_by_name(field_name).unwrap();
+        let strings = column.as_any().downcast_ref::<StringArray>().unwrap();
+        (0..array.len())
+            .map(|index| (!strings.is_null(index)).then(|| strings.value(index).to_string()))
             .collect()
     }
 
@@ -1142,6 +1209,103 @@ mod tests {
         let scale = NestedBandScale::configured(domain.clone(), (0.0, 200.0));
 
         assert_eq!(positions(&scale, &domain), vec![Some(0.0), Some(100.0)]);
+    }
+
+    #[test]
+    fn nested_band_invert_point_returns_leaf_struct_path() {
+        let domain = utf8_struct(&[
+            ("group", vec![Some("A"), Some("A"), Some("B")]),
+            ("series", vec![Some("x"), Some("y"), Some("x")]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 300.0));
+
+        let inverted = scale
+            .invert_range_interval((150.0, 150.0))
+            .expect("invert point");
+
+        assert_eq!(inverted.len(), 1);
+        assert_eq!(
+            struct_utf8_values(&inverted, "group"),
+            vec![Some("A".into())]
+        );
+        assert_eq!(
+            struct_utf8_values(&inverted, "series"),
+            vec![Some("y".into())]
+        );
+    }
+
+    #[test]
+    fn nested_band_invert_point_in_padding_returns_empty_domain() {
+        let domain = utf8_struct(&[
+            ("group", vec![Some("A"), Some("A")]),
+            ("series", vec![Some("x"), Some("y")]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 220.0))
+            .with_option("padding_inner_px_levels", ",20");
+
+        let inverted = scale
+            .invert_range_interval((105.0, 105.0))
+            .expect("invert padding point");
+
+        assert_eq!(inverted.len(), 0);
+        assert!(matches!(inverted.data_type(), DataType::Struct(_)));
+    }
+
+    #[test]
+    fn nested_band_invert_point_in_parent_gap_returns_empty_domain() {
+        let domain = utf8_struct(&[
+            ("group", vec![Some("A"), Some("B")]),
+            ("series", vec![Some("x"), Some("y")]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 220.0))
+            .with_option("padding_inner_px_levels", "20,");
+
+        let inverted = scale
+            .invert_range_interval((105.0, 105.0))
+            .expect("invert parent padding point");
+
+        assert_eq!(inverted.len(), 0);
+        assert!(matches!(inverted.data_type(), DataType::Struct(_)));
+    }
+
+    #[test]
+    fn nested_band_invert_shared_ghost_slot_returns_empty_domain() {
+        let domain = utf8_struct(&[
+            ("group", vec![Some("A"), Some("A"), Some("B")]),
+            ("series", vec![Some("x"), Some("y"), Some("x")]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 400.0))
+            .with_option("nest_scopes", "free,shared");
+
+        let inverted = scale
+            .invert_range_interval((350.0, 350.0))
+            .expect("invert shared ghost slot");
+
+        assert_eq!(inverted.len(), 0);
+        assert!(matches!(inverted.data_type(), DataType::Struct(_)));
+    }
+
+    #[test]
+    fn nested_band_invert_interval_returns_intersecting_leaf_paths() {
+        let domain = utf8_struct(&[
+            ("group", vec![Some("A"), Some("A"), Some("B")]),
+            ("series", vec![Some("x"), Some("y"), Some("x")]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 300.0));
+
+        let inverted = scale
+            .invert_range_interval((50.0, 250.0))
+            .expect("invert interval");
+
+        assert_eq!(inverted.len(), 3);
+        assert_eq!(
+            struct_utf8_values(&inverted, "group"),
+            vec![Some("A".into()), Some("A".into()), Some("B".into())]
+        );
+        assert_eq!(
+            struct_utf8_values(&inverted, "series"),
+            vec![Some("x".into()), Some("y".into()), Some("x".into())]
+        );
     }
 
     #[test]

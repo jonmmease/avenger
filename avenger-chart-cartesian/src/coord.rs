@@ -139,19 +139,39 @@ impl CoordinateSystemTransformCore for Cartesian {
                     "Missing configured scale for coordinate channel '{channel}'"
                 ))
             })?;
-            // The default Cartesian y range binds to [plot_area_height, 0], so
-            // invert_scalar already handles the reversed range; no special-case
-            // arithmetic is needed here.
-            let value = scale.invert_scalar(range_value).map_err(|err| {
-                AvengerChartError::InvalidArgument(format!(
-                    "Cannot invert coordinate channel '{channel}' (scale type {}): {err}",
-                    scale.scale_impl.scale_type()
-                ))
-            })?;
-            inverted.insert(
-                (*channel).to_string(),
-                ScalarValue::Float64(Some(value as f64)),
-            );
+            // The configured scale handles reversed ranges; categorical scales
+            // use interval inversion so a point inside a band returns its
+            // domain value.
+            let value = if matches!(
+                scale.scale_impl.domain_kind(),
+                DomainKind::Categorical | DomainKind::NestedCategorical
+            ) {
+                let values = scale
+                    .invert_range_interval((range_value, range_value))
+                    .map_err(|err| {
+                        AvengerChartError::InvalidArgument(format!(
+                            "Cannot invert coordinate channel '{channel}' (scale type {}): {err}",
+                            scale.scale_impl.scale_type()
+                        ))
+                    })?;
+                if values.is_empty() {
+                    continue;
+                }
+                ScalarValue::try_from_array(values.as_ref(), 0).map_err(|err| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "Cannot convert inverted coordinate channel '{channel}' value: {err}"
+                    ))
+                })?
+            } else {
+                let value = scale.invert_scalar(range_value).map_err(|err| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "Cannot invert coordinate channel '{channel}' (scale type {}): {err}",
+                        scale.scale_impl.scale_type()
+                    ))
+                })?;
+                ScalarValue::Float64(Some(value as f64))
+            };
+            inverted.insert((*channel).to_string(), value);
         }
         Ok(inverted)
     }
@@ -171,15 +191,45 @@ impl CoordinateSystemTransform for Cartesian {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use avenger_scales::scales::linear::LinearScale;
+    use std::sync::Arc;
+
+    use avenger_scales::scales::{
+        band::BandScale, linear::LinearScale, nested_band::NestedBandScale,
+    };
+    use datafusion::arrow::{
+        array::{Array, ArrayRef, StringArray, StructArray},
+        datatypes::{DataType, Field},
+    };
+
+    fn utf8_struct(fields: &[(&str, Vec<Option<&str>>)]) -> ArrayRef {
+        let columns = fields
+            .iter()
+            .map(|(name, values)| {
+                (
+                    Arc::new(Field::new(*name, DataType::Utf8, true)),
+                    Arc::new(StringArray::from(values.clone())) as ArrayRef,
+                )
+            })
+            .collect::<Vec<_>>();
+        Arc::new(StructArray::from(columns)) as ArrayRef
+    }
+
+    fn struct_scalar_utf8_value(value: &ScalarValue, field_name: &str) -> Option<String> {
+        let ScalarValue::Struct(struct_array) = value else {
+            panic!("expected struct scalar, got {value:?}");
+        };
+        let column = struct_array.column_by_name(field_name).unwrap();
+        let strings = column.as_any().downcast_ref::<StringArray>().unwrap();
+        (!strings.is_null(0)).then(|| strings.value(0).to_string())
+    }
 
     #[test]
-    fn cartesian_invertible_channels_are_x_and_y() {
+    fn cartesian_interaction_invertible_channels_are_x_and_y() {
         assert_eq!(Cartesian.interaction_invertible_channels(), &["x", "y"]);
     }
 
     #[test]
-    fn invert_x_maps_local_point_through_scale() {
+    fn interaction_invert_x_maps_local_point_through_scale() {
         let mut scales = HashMap::new();
         scales.insert(
             "x".to_string(),
@@ -201,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn invert_y_handles_reversed_range() {
+    fn interaction_invert_y_handles_reversed_range() {
         // Cartesian y range binds to [plot_area_height, 0], so a local y near the
         // top of the plot inverts to a high domain value.
         let mut scales = HashMap::new();
@@ -225,7 +275,82 @@ mod tests {
     }
 
     #[test]
-    fn invert_missing_scale_is_invalid_argument() {
+    fn interaction_invert_band_x_returns_categorical_domain_value() {
+        let domain = Arc::new(StringArray::from(vec!["A", "B", "C"])) as ArrayRef;
+        let mut scales = HashMap::new();
+        scales.insert("x".to_string(), BandScale::configured(domain, (0.0, 300.0)));
+
+        let inverted = Cartesian
+            .invert_interaction_point(InteractionPointInversionRequest {
+                local_point: [150.0, 0.0],
+                plot_area_width: 300.0,
+                plot_area_height: 100.0,
+                channels: &["x"],
+                scales: &scales,
+            })
+            .expect("invert categorical x");
+
+        match inverted.get("x") {
+            Some(ScalarValue::Utf8(Some(value))) => assert_eq!(value, "B"),
+            other => panic!("expected x=B, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn interaction_invert_nested_band_x_returns_struct_domain_value() {
+        let domain = utf8_struct(&[
+            ("group", vec![Some("A"), Some("A"), Some("B")]),
+            ("series", vec![Some("x"), Some("y"), Some("x")]),
+        ]);
+        let mut scales = HashMap::new();
+        scales.insert(
+            "x".to_string(),
+            NestedBandScale::configured(domain, (0.0, 300.0)),
+        );
+
+        let inverted = Cartesian
+            .invert_interaction_point(InteractionPointInversionRequest {
+                local_point: [150.0, 0.0],
+                plot_area_width: 300.0,
+                plot_area_height: 100.0,
+                channels: &["x"],
+                scales: &scales,
+            })
+            .expect("invert nested categorical x");
+        let x = inverted.get("x").expect("x value");
+
+        assert_eq!(struct_scalar_utf8_value(x, "group"), Some("A".to_string()));
+        assert_eq!(struct_scalar_utf8_value(x, "series"), Some("y".to_string()));
+    }
+
+    #[test]
+    fn interaction_invert_nested_band_x_gap_omits_channel_value() {
+        let domain = utf8_struct(&[
+            ("group", vec![Some("A"), Some("A")]),
+            ("series", vec![Some("x"), Some("y")]),
+        ]);
+        let mut scales = HashMap::new();
+        scales.insert(
+            "x".to_string(),
+            NestedBandScale::configured(domain, (0.0, 220.0))
+                .with_option("padding_inner_px_levels", ",20"),
+        );
+
+        let inverted = Cartesian
+            .invert_interaction_point(InteractionPointInversionRequest {
+                local_point: [105.0, 0.0],
+                plot_area_width: 220.0,
+                plot_area_height: 100.0,
+                channels: &["x"],
+                scales: &scales,
+            })
+            .expect("invert nested categorical x gap");
+
+        assert!(!inverted.contains_key("x"));
+    }
+
+    #[test]
+    fn interaction_invert_missing_scale_is_invalid_argument() {
         let scales = HashMap::new();
         let err = Cartesian
             .invert_interaction_point(InteractionPointInversionRequest {
