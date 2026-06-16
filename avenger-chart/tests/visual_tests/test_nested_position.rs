@@ -4,7 +4,7 @@ use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use datafusion::{
     arrow::{
-        array::{ArrayRef, Float32Array, StringArray},
+        array::{ArrayRef, Float32Array, StringArray, StructArray},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
@@ -114,6 +114,85 @@ async fn test_nested_position_grouped_bar_shared_slots() {
         None,
         "nested_position",
         "grouped_bar_shared_slots",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_struct_column_grouped_bar() {
+    let ctx = SessionContext::new();
+    let group_field = Arc::new(Field::new("quarter", DataType::Utf8, true));
+    let member_field = Arc::new(Field::new("team", DataType::Utf8, true));
+    let nested = Arc::new(StructArray::from(vec![
+        (
+            group_field.clone(),
+            Arc::new(StringArray::from(vec![
+                "Q1", "Q1", "Q1", "Q2", "Q2", "Q3", "Q3", "Q3",
+            ])) as ArrayRef,
+        ),
+        (
+            member_field.clone(),
+            Arc::new(StringArray::from(vec![
+                "North", "South", "East", "North", "East", "North", "South", "East",
+            ])) as ArrayRef,
+        ),
+    ])) as ArrayRef;
+    let batch = record_batch(
+        vec![
+            Field::new(
+                "nested",
+                DataType::Struct(
+                    vec![group_field.as_ref().clone(), member_field.as_ref().clone()].into(),
+                ),
+                false,
+            ),
+            Field::new("team", DataType::Utf8, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            nested,
+            Arc::new(StringArray::from(vec![
+                "North", "South", "East", "North", "East", "North", "South", "East",
+            ])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![
+                42.0, 30.0, 34.0, 47.0, 38.0, 51.0, 39.0, 44.0,
+            ])) as ArrayRef,
+        ],
+    );
+    let df = ctx.read_batch(batch).expect("dataframe");
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .legend("fill", |legend| legend.title("Team"))
+        .mark(
+            Rect::new()
+                .x_with(col("nested"), |x| {
+                    x.axis(|a| a.title("Struct column").grid(false))
+                        .level(0, |l| l.padding_inner(0.45).padding_outer(0.15))
+                        .level(1, |l| {
+                            l.nest_scope(NestScope::Shared)
+                                .padding_inner(0.08)
+                                .axis(|a| a.visible(false))
+                        })
+                })
+                .x2_with(col(":x"), |x| x.band(1.0))
+                .y_with(lit(0.0), |y| {
+                    y.scale(|s| s.domain((0.0, 60.0)))
+                        .axis(|a| a.title("Value").grid(true))
+                })
+                .y2(col("value"))
+                .fill_with(col("team"), |fill| fill)
+                .stroke("#ffffff")
+                .stroke_width(1.0),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "struct_column_grouped_bar",
     )
     .await;
 }
