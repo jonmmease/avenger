@@ -111,3 +111,7 @@ required-features = ["winit-wgpu"]
 [[example]]
 name = "facet_lasso_scene_query_selection"
 required-features = ["winit-wgpu"]
+
+[[example]]
+name = "nested_grouped_bar_click_selection"
+required-features = ["winit-wgpu"]

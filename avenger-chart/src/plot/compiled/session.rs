@@ -2483,7 +2483,11 @@ fn collect_expr_placeholders(expr: &Expr, names: &mut BTreeSet<String>) {
 #[cfg(test)]
 mod tests {
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
-    use datafusion::{prelude::SessionContext, scalar::ScalarValue};
+    use datafusion::{
+        arrow::array::{ArrayRef, Float64Array, StringArray, StructArray},
+        prelude::SessionContext,
+        scalar::ScalarValue,
+    };
 
     use crate::prelude::*;
 
@@ -2882,6 +2886,45 @@ mod tests {
             .await
     }
 
+    async fn compile_struct_equality_selection_preview_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let selected = picked.predicate();
+        let batch = RecordBatch::try_from_iter(vec![
+            (
+                "nested_key",
+                struct_key_array(&["A", "A", "B", "B"], &["x", "y", "x", "z"]),
+            ),
+            (
+                "x",
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0])) as ArrayRef,
+            ),
+            (
+                "y",
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0])) as ArrayRef,
+            ),
+        ])?;
+        let df = ctx.read_batch(batch)?;
+        Plot::<Cartesian>::new()
+            .add_selection(picked)
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .fill_with(lit("#b8beca"), |c| {
+                        c.no_scale()
+                            .when_value(selected, lit("#2563eb"))
+                            .no_legend()
+                    })
+                    .size(20.0),
+            )
+            .compile(ctx)
+            .await
+    }
+
     async fn compile_selection_facet_context_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -2983,6 +3026,47 @@ mod tests {
                     id: "category".to_string(),
                     field_expr: LogicalExprNode::from_expr(col("category"))
                         .expect("serialize category equality field"),
+                    value,
+                }],
+            },
+            facet_context: Vec::new(),
+        }
+    }
+
+    fn struct_key_array(groups: &[&str], series: &[&str]) -> ArrayRef {
+        Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("group", DataType::Utf8, false)),
+                Arc::new(StringArray::from(groups.to_vec())) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("series", DataType::Utf8, false)),
+                Arc::new(StringArray::from(series.to_vec())) as ArrayRef,
+            ),
+        ])) as ArrayRef
+    }
+
+    fn struct_key_scalar(group: &str, series: &str) -> ScalarValue {
+        let struct_array = struct_key_array(&[group], &[series])
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .expect("struct key array")
+            .clone();
+        ScalarValue::Struct(Arc::new(struct_array))
+    }
+
+    fn struct_key_equality_selection_clause(id: &str, value: ScalarValue) -> SelectionClause {
+        SelectionClause {
+            id: id.to_string(),
+            scope: avenger_chart_core::ResolvedSelectionClauseScope {
+                sharing: CoordinationScope::Shared,
+                owner_path: Vec::new(),
+            },
+            predicate: avenger_chart_core::SelectionPredicateSpec::Equality {
+                dimensions: vec![avenger_chart_core::SelectionEqualityDimensionValue {
+                    id: "nested_key".to_string(),
+                    field_expr: LogicalExprNode::from_expr(col("nested_key"))
+                        .expect("serialize nested key equality field"),
                     value,
                 }],
             },
@@ -4578,6 +4662,31 @@ mod tests {
         assert_eq!(
             null_count, 0,
             "null equality values should produce a false predicate"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn equality_selection_predicate_matches_struct_values() -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_struct_equality_selection_preview_plot(&ctx).await?);
+
+        let count = evaluate_blue_count_after_selection_clauses_for_selection(
+            compiled,
+            ctx,
+            "picked",
+            SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![struct_key_equality_selection_clause(
+                    "A_y",
+                    struct_key_scalar("A", "y"),
+                )],
+            },
+        )
+        .await?;
+        assert_eq!(
+            count, 1,
+            "struct-valued equality clauses should match the selected nested key"
         );
 
         Ok(())

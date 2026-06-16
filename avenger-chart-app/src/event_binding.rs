@@ -4432,6 +4432,7 @@ mod tests {
         },
     };
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
+    use datafusion::arrow::array::{ArrayRef, Float64Array, StringArray, StructArray};
 
     use super::*;
 
@@ -6748,6 +6749,140 @@ mod tests {
         (state, handlers, mark_instance, position)
     }
 
+    async fn nested_grouped_bar_state_and_handler(
+        binding: ChartEventBinding,
+    ) -> (
+        ChartAppState,
+        ChartEventBindingHandler,
+        MarkInstance,
+        [f32; 2],
+    ) {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let selected = picked.predicate();
+        let df = ctx
+            .read_batch(nested_grouped_bar_batch())
+            .expect("nested grouped bar data");
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(520.0, 360.0)
+            .add_selection(picked)
+            .data(df)
+            .mark(
+                Rect::new()
+                    .x_with(col("nested_key"), |x| {
+                        x.axis(|axis| axis.title("Quarter")).level(1, |level| {
+                            level
+                                .nest_scope(NestScope::Shared)
+                                .axis(|axis| axis.visible(false))
+                        })
+                    })
+                    .x2_with(col(":x"), |x| x.band(1.0))
+                    .y(lit(0.0))
+                    .y2(col("value"))
+                    .fill_with(lit("#b8beca"), |c| {
+                        c.no_scale()
+                            .when_value(selected, lit("#2563eb"))
+                            .no_legend()
+                    }),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile nested grouped bar plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial nested grouped bar build");
+        let datum_mark_instance =
+            retained_event_datum_mark_instance(&state, "value", ScalarValue::Float64(Some(38.0)))
+                .await;
+        let position = rect_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the Q2/East bar");
+        assert_eq!(
+            mark_instance.mark_path, datum_mark_instance.mark_path,
+            "rtree hit-test path should match retained event datum rows"
+        );
+        assert_eq!(
+            mark_instance.instance_index, datum_mark_instance.instance_index,
+            "rtree hit-test instance should match retained event datum rows"
+        );
+        (state, handler, mark_instance, position)
+    }
+
+    fn nested_key_clause() -> SelectionClauseUpdate {
+        SelectionClauseUpdate::equality(lit("active"))
+            .facet_scope(CoordinationScope::Shared)
+            .dimension_named("nested_key", col("nested_key"), event::datum("nested_key"))
+            .build()
+    }
+
+    fn nested_grouped_bar_batch() -> RecordBatch {
+        let quarter = ["Q1", "Q1", "Q1", "Q2", "Q2", "Q3", "Q3", "Q3"];
+        let team = [
+            "North", "South", "East", "North", "East", "North", "South", "East",
+        ];
+        let value = [42.0, 30.0, 34.0, 47.0, 38.0, 51.0, 39.0, 44.0];
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new(
+                "nested_key",
+                DataType::Struct(
+                    vec![
+                        Arc::new(Field::new("quarter", DataType::Utf8, false)),
+                        Arc::new(Field::new("team", DataType::Utf8, false)),
+                    ]
+                    .into(),
+                ),
+                false,
+            ),
+            Field::new("quarter", DataType::Utf8, false),
+            Field::new("team", DataType::Utf8, false),
+            Field::new("value", DataType::Float64, false),
+        ]));
+
+        RecordBatch::try_new(
+            schema,
+            vec![
+                nested_key_array(&quarter, &team),
+                Arc::new(StringArray::from(quarter.to_vec())) as ArrayRef,
+                Arc::new(StringArray::from(team.to_vec())) as ArrayRef,
+                Arc::new(Float64Array::from(value.to_vec())) as ArrayRef,
+            ],
+        )
+        .expect("nested grouped bar batch")
+    }
+
+    fn nested_key_array(quarters: &[&str], teams: &[&str]) -> ArrayRef {
+        Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("quarter", DataType::Utf8, false)),
+                Arc::new(StringArray::from(quarters.to_vec())) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("team", DataType::Utf8, false)),
+                Arc::new(StringArray::from(teams.to_vec())) as ArrayRef,
+            ),
+        ])) as ArrayRef
+    }
+
+    fn nested_key_scalar(quarter: &str, team: &str) -> ScalarValue {
+        let array = nested_key_array(&[quarter], &[team]);
+        let struct_array = array
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .expect("nested key struct array")
+            .clone();
+        ScalarValue::Struct(Arc::new(struct_array))
+    }
+
     async fn equality_symbol_state_and_handler(
         binding: ChartEventBinding,
     ) -> (
@@ -7420,6 +7555,57 @@ mod tests {
             dimensions[0].value,
             ScalarValue::Utf8(Some("Beta".to_string())),
             "ev::datum should use the clicked aggregate bar's logical category"
+        );
+    }
+
+    #[tokio::test]
+    async fn bar_click_writes_nested_struct_selection_clause() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("value").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(nested_key_clause()),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            nested_grouped_bar_state_and_handler(binding).await;
+        let scopes = state.interaction_scopes().await;
+        let scope = match route_interaction_scope(&scopes, Some(position), &channel_set(&["x"])) {
+            InteractionRoute::Scope(scope) => scope,
+            InteractionRoute::None => panic!("clicked bar should route to a coordinate scope"),
+            InteractionRoute::Ambiguous => {
+                panic!("clicked bar should route to one coordinate scope")
+            }
+        };
+        let inverted = invert_scene_point(scope, position, &["x"]).expect("invert nested x");
+        assert_eq!(
+            inverted.get("x"),
+            Some(&nested_key_scalar("Q2", "East")),
+            "nested scale inversion should recover the same hidden-leaf path selected by the click"
+        );
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(
+            status.rerender,
+            "click should patch selection; metrics={:?}",
+            state.event_metrics().await
+        );
+        assert!(status.rebuild_geometry);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].id, "active");
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_eq!(dimensions.len(), 1);
+        assert_eq!(dimensions[0].id, "nested_key");
+        assert_eq!(
+            dimensions[0].value,
+            nested_key_scalar("Q2", "East"),
+            "ev::datum(\"nested_key\") should carry the clicked hidden-leaf path"
         );
     }
 
