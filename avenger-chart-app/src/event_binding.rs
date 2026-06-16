@@ -4432,7 +4432,7 @@ mod tests {
         },
     };
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
-    use datafusion::arrow::array::{ArrayRef, Float64Array, StringArray, StructArray};
+    use datafusion::arrow::array::{Array, ArrayRef, Float64Array, StringArray, StructArray};
 
     use super::*;
 
@@ -6818,8 +6818,12 @@ mod tests {
     }
 
     fn nested_key_clause() -> SelectionClauseUpdate {
+        nested_key_clause_with_scope(CoordinationScope::Shared)
+    }
+
+    fn nested_key_clause_with_scope(facet_scope: CoordinationScope) -> SelectionClauseUpdate {
         SelectionClauseUpdate::equality(lit("active"))
-            .facet_scope(CoordinationScope::Shared)
+            .facet_scope(facet_scope)
             .dimension_named("nested_key", col("nested_key"), event::datum("nested_key"))
             .build()
     }
@@ -6873,14 +6877,141 @@ mod tests {
         ])) as ArrayRef
     }
 
-    fn nested_key_scalar(quarter: &str, team: &str) -> ScalarValue {
-        let array = nested_key_array(&[quarter], &[team]);
-        let struct_array = array
+    fn assert_nested_key_value(value: &ScalarValue, expected_quarter: &str, expected_team: &str) {
+        let ScalarValue::Struct(struct_array) = value else {
+            panic!("expected nested key struct value, got {value:?}");
+        };
+        assert_eq!(
+            struct_array.len(),
+            1,
+            "nested key scalar should contain one row"
+        );
+        let quarter = struct_array
+            .column_by_name("quarter")
+            .expect("quarter field")
             .as_any()
-            .downcast_ref::<StructArray>()
-            .expect("nested key struct array")
-            .clone();
-        ScalarValue::Struct(Arc::new(struct_array))
+            .downcast_ref::<StringArray>()
+            .expect("quarter string array");
+        let team = struct_array
+            .column_by_name("team")
+            .expect("team field")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("team string array");
+        assert_eq!(quarter.value(0), expected_quarter);
+        assert_eq!(team.value(0), expected_team);
+    }
+
+    async fn faceted_nested_grouped_bar_state_and_handler(
+        binding: ChartEventBinding,
+    ) -> (
+        ChartAppState,
+        ChartEventBindingHandler,
+        MarkInstance,
+        [f32; 2],
+    ) {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked")
+            .empty_selects_nothing()
+            .facet_context_field("region", col("region"));
+        let selected = picked.predicate();
+        let df = ctx
+            .read_batch(faceted_nested_grouped_bar_batch())
+            .expect("faceted nested grouped bar data");
+        let leaf = Plot::<Cartesian>::new().mark(
+            Rect::new()
+                .x_with(col("nested_key"), |x| {
+                    x.axis(|axis| axis.title("Quarter")).level(1, |level| {
+                        level
+                            .nest_scope(NestScope::Shared)
+                            .axis(|axis| axis.visible(false))
+                    })
+                })
+                .x2_with(col(":x"), |x| x.band(1.0))
+                .y(lit(0.0))
+                .y2(col("value"))
+                .fill_with(lit("#b8beca"), |c| {
+                    c.no_scale()
+                        .when_value(selected, lit("#2563eb"))
+                        .no_legend()
+                }),
+        );
+        let compiled = Plot::<FacetColumn>::new()
+            .canvas_size(720.0, 360.0)
+            .add_selection(picked)
+            .data(df)
+            .mark(Subplot::new(leaf).column(col("region")))
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile faceted nested grouped bar plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial faceted nested grouped bar build");
+        let datum_mark_instance =
+            retained_event_datum_mark_instance(&state, "value", ScalarValue::Float64(Some(138.0)))
+                .await;
+        let position = rect_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the West Q2/East bar");
+        assert_eq!(
+            mark_instance.mark_path, datum_mark_instance.mark_path,
+            "rtree hit-test path should match retained event datum rows"
+        );
+        assert_eq!(
+            mark_instance.instance_index, datum_mark_instance.instance_index,
+            "rtree hit-test instance should match retained event datum rows"
+        );
+        (state, handler, mark_instance, position)
+    }
+
+    fn faceted_nested_grouped_bar_batch() -> RecordBatch {
+        let region = [
+            "East", "East", "East", "East", "West", "West", "West", "West",
+        ];
+        let quarter = ["Q1", "Q1", "Q2", "Q2", "Q1", "Q1", "Q2", "Q2"];
+        let team = [
+            "North", "East", "North", "East", "North", "East", "North", "East",
+        ];
+        let value = [42.0, 30.0, 47.0, 38.0, 142.0, 130.0, 147.0, 138.0];
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new(
+                "nested_key",
+                DataType::Struct(
+                    vec![
+                        Arc::new(Field::new("quarter", DataType::Utf8, false)),
+                        Arc::new(Field::new("team", DataType::Utf8, false)),
+                    ]
+                    .into(),
+                ),
+                false,
+            ),
+            Field::new("region", DataType::Utf8, false),
+            Field::new("quarter", DataType::Utf8, false),
+            Field::new("team", DataType::Utf8, false),
+            Field::new("value", DataType::Float64, false),
+        ]));
+
+        RecordBatch::try_new(
+            schema,
+            vec![
+                nested_key_array(&quarter, &team),
+                Arc::new(StringArray::from(region.to_vec())) as ArrayRef,
+                Arc::new(StringArray::from(quarter.to_vec())) as ArrayRef,
+                Arc::new(StringArray::from(team.to_vec())) as ArrayRef,
+                Arc::new(Float64Array::from(value.to_vec())) as ArrayRef,
+            ],
+        )
+        .expect("faceted nested grouped bar batch")
     }
 
     async fn equality_symbol_state_and_handler(
@@ -7579,11 +7710,7 @@ mod tests {
             }
         };
         let inverted = invert_scene_point(scope, position, &["x"]).expect("invert nested x");
-        assert_eq!(
-            inverted.get("x"),
-            Some(&nested_key_scalar("Q2", "East")),
-            "nested scale inversion should recover the same hidden-leaf path selected by the click"
-        );
+        assert_nested_key_value(inverted.get("x").expect("inverted x value"), "Q2", "East");
 
         let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
         assert!(
@@ -7602,11 +7729,66 @@ mod tests {
         };
         assert_eq!(dimensions.len(), 1);
         assert_eq!(dimensions[0].id, "nested_key");
-        assert_eq!(
-            dimensions[0].value,
-            nested_key_scalar("Q2", "East"),
-            "ev::datum(\"nested_key\") should carry the clicked hidden-leaf path"
+        assert_nested_key_value(&dimensions[0].value, "Q2", "East");
+    }
+
+    #[tokio::test]
+    async fn facet_bar_click_writes_nested_struct_selection_clause_in_cell_scope() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("value").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(nested_key_clause_with_scope(
+                    CoordinationScope::Free,
+                )),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            faceted_nested_grouped_bar_state_and_handler(binding).await;
+        let scopes = state.interaction_scopes().await;
+        let scope = match route_interaction_scope(&scopes, Some(position), &channel_set(&["x"])) {
+            InteractionRoute::Scope(scope) => scope,
+            InteractionRoute::None => {
+                panic!("clicked facet bar should route to a coordinate scope")
+            }
+            InteractionRoute::Ambiguous => {
+                panic!("clicked facet bar should route to one coordinate scope")
+            }
+        };
+        let inverted = invert_scene_point(scope, position, &["x"]).expect("invert nested x");
+        assert_nested_key_value(inverted.get("x").expect("inverted x value"), "Q2", "East");
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(
+            status.rerender,
+            "facet click should patch selection; metrics={:?}",
+            state.event_metrics().await
         );
+        assert!(status.rebuild_geometry);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].id, "active");
+        assert_eq!(clauses[0].scope.sharing, CoordinationScope::Free);
+        assert_eq!(
+            clauses[0].scope.owner_path,
+            vec![ScalarValue::Utf8(Some("West".to_string()))],
+            "Free-scoped nested selection should be owned by the clicked facet cell"
+        );
+        assert_eq!(clauses[0].facet_context.len(), 1);
+        assert_eq!(clauses[0].facet_context[0].id, "region");
+        assert_eq!(
+            clauses[0].facet_context[0].value,
+            ScalarValue::Utf8(Some("West".to_string()))
+        );
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_eq!(dimensions.len(), 1);
+        assert_eq!(dimensions[0].id, "nested_key");
+        assert_nested_key_value(&dimensions[0].value, "Q2", "East");
     }
 
     #[tokio::test]
