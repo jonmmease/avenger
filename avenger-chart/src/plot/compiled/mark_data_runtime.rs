@@ -28,8 +28,8 @@ use indexmap::IndexMap;
 
 use avenger_chart_core::{
     CompiledSelectionSpec, DataTransformExecutionContext, DataTransformStage, DerivedScalarMap,
-    FacetDataScope, MarkDataMode, PositionBoundary, SelectionClause, SelectionCombine,
-    SelectionPredicateSpec, SharingLevel, contains_aggregate, params_to_datafusion,
+    FacetDataScope, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
+    SharingLevel, contains_aggregate, params_to_datafusion,
     selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
 };
 
@@ -1015,14 +1015,7 @@ pub(crate) fn apply_channel_scale(
 
             let expr_df = expr.to_expr(ctx)?;
             if let Some(boundary) = position_boundary {
-                match boundary {
-                    PositionBoundary::Band { band } => scale.to_expr_with_band(expr_df, *band),
-                    PositionBoundary::LevelBand { level, .. } => {
-                        Err(AvengerChartError::InvalidArgument(format!(
-                            "level_band({level}, ...) requires a nested band scale"
-                        )))
-                    }
-                }
+                scale.to_expr_with_position_boundary(expr_df, *boundary)
             } else {
                 scale.to_expr(expr_df)
             }

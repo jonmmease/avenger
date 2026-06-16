@@ -168,6 +168,10 @@ impl CompiledMarkCore for CompiledCartesianArea {
         channel: &str,
         data_type: &DataType,
     ) -> Option<ScaleTypePreference> {
+        if let Some(scale_type) = super::nested_position_scale_type(channel, data_type) {
+            return Some(scale_type);
+        }
+
         match (channel, data_type) {
             (
                 "x" | "x2" | "y" | "y2",

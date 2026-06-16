@@ -874,7 +874,7 @@ where
         .as_ref()
         .and_then(|ordering| ordering.order_expr.as_ref())
         .is_some()
-        && target_domain_kind != DomainKind::Categorical
+        && !matches!(target_domain_kind, DomainKind::Categorical)
     {
         return Err(AvengerChartError::InvalidArgument(
             "Scale order_by is only supported for categorical-domain scales".to_string(),
@@ -1117,13 +1117,20 @@ where
             derived_scalars,
         ))
         .await?;
-    } else if target_domain_kind == DomainKind::Categorical {
+    } else if matches!(
+        target_domain_kind,
+        DomainKind::Categorical | DomainKind::NestedCategorical
+    ) {
         Box::pin(cache_categorical_data(
             channel,
             spec,
             options,
             &data_expressions,
-            ordering.as_ref(),
+            if target_domain_kind == DomainKind::Categorical {
+                ordering.as_ref()
+            } else {
+                None
+            },
             eval_ctx,
             ctx,
             params,
@@ -1834,18 +1841,20 @@ mod tests {
 
     use datafusion::{
         arrow::{
-            array::{Float64Array, StringArray},
+            array::{Array, Float32Array, Float64Array, StringArray},
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
         },
         functions_aggregate::{expr_fn::sum, min_max::max},
-        prelude::{SessionContext, col, lit},
+        prelude::{SessionContext, col, lit, named_struct},
     };
     use indexmap::IndexMap;
 
     use super::*;
-    use crate::{Band, Linear};
-    use avenger_chart_core::{PlotGeometry, SubplotGeometry};
+    use crate::{Band, Linear, NestedBand};
+    use avenger_chart_core::{
+        PlotGeometry, ResolvedDomain, ScaleRange, ScaleRangeBinding, SubplotGeometry,
+    };
     use avenger_common::value::ScalarOrArray;
 
     struct TestCoordTransform;
@@ -1903,6 +1912,17 @@ mod tests {
             Arc::new(ctx.clone()),
             IndexMap::new(),
         )
+    }
+
+    fn no_default_range(
+        _channel: &str,
+        _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+        _domain: &ResolvedDomain,
+        _data_type: &DataType,
+        _theme: &Theme,
+        _params: &IndexMap<String, ScalarValue>,
+    ) -> Option<ScaleRange> {
+        None
     }
 
     #[tokio::test]
@@ -2064,6 +2084,85 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(decoded, vec!["B", "A"]);
+    }
+
+    #[tokio::test]
+    async fn nested_band_domain_cache_preserves_struct_paths() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "A", "B"], vec![1.0, 2.0, 1.0]).unwrap();
+        let nested_expr = named_struct(vec![
+            lit("group"),
+            col("category"),
+            lit("series"),
+            col("value"),
+        ]);
+        let projected = data
+            .clone()
+            .select(vec![nested_expr.clone().alias("nested")])
+            .unwrap();
+        let nested_type = projected.schema().field(0).data_type().clone();
+
+        let spec: Box<dyn ScaleSpec> = Box::new(NestedBand);
+        let coord_transform = TestCoordTransform;
+        let mut builder = ScaleBuilder::new();
+        cache_domain_data(
+            "x",
+            &spec,
+            &nested_type,
+            HashMap::new(),
+            Some(ScaleDomain::new_data_fields(vec![(
+                Arc::new(data),
+                nested_expr,
+            )])),
+            None,
+            &[],
+            &coord_transform,
+            &eval_ctx(&ctx),
+            &ctx,
+            &IndexMap::new(),
+            &HashMap::new(),
+            &mut builder,
+            None,
+            &Theme::light(),
+        )
+        .await
+        .unwrap();
+
+        let mut coord_ranges = HashMap::new();
+        coord_ranges.insert(
+            "x".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 300.0),
+        );
+        let scales = builder
+            .build_scales(
+                300.0,
+                200.0,
+                &coord_ranges,
+                &HashMap::new(),
+                &no_default_range,
+                &Theme::light(),
+                &ctx,
+                &IndexMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let x_scale = scales.get("x").expect("x scale");
+        assert_eq!(x_scale.configured().scale_impl.scale_type(), "nested_band");
+        assert!(matches!(
+            x_scale.configured().domain().data_type(),
+            DataType::Struct(_)
+        ));
+
+        let scaled = x_scale
+            .configured()
+            .scale(x_scale.configured().domain())
+            .unwrap();
+        let scaled = scaled.as_any().downcast_ref::<Float32Array>().unwrap();
+        assert_eq!(scaled.len(), 3);
+        assert_eq!(scaled.value(0), 0.0);
+        assert_eq!(scaled.value(1), 100.0);
+        assert_eq!(scaled.value(2), 200.0);
     }
 
     #[tokio::test]

@@ -10,7 +10,9 @@ use datafusion::{
 };
 use datafusion_common::ScalarValue;
 
-use avenger_chart_core::{AvengerChartError, ConfiguredScaleLegendExt, DomainValues};
+use avenger_chart_core::{
+    AvengerChartError, ConfiguredScaleLegendExt, DomainValues, PositionBoundary,
+};
 
 use crate::{ConfiguredScaleWithSpec, udf::create_scale_udf};
 
@@ -21,6 +23,13 @@ pub trait ConfiguredScaleDataFusionExt {
 
     /// Create a DataFusion expression with custom band parameter for band/point scales
     fn to_expr_with_band(&self, input: Expr, band: f64) -> Result<Expr, AvengerChartError>;
+
+    /// Create a DataFusion expression with custom positional boundary metadata.
+    fn to_expr_with_position_boundary(
+        &self,
+        input: Expr,
+        boundary: PositionBoundary,
+    ) -> Result<Expr, AvengerChartError>;
 }
 
 impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
@@ -115,12 +124,56 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
                 self.spec().clone(),
                 temp_configured,
                 self.range_binding(),
-            );
+            )
+            .with_derived_scalars(self.derived_scalars().clone());
 
             temp_wrapper.to_expr(input)
         } else {
             // For non-band scales, ignore the band parameter
             self.to_expr(input)
+        }
+    }
+
+    fn to_expr_with_position_boundary(
+        &self,
+        input: Expr,
+        boundary: PositionBoundary,
+    ) -> Result<Expr, AvengerChartError> {
+        match boundary {
+            PositionBoundary::Band { band } => self.to_expr_with_band(input, band),
+            PositionBoundary::LevelBand { level, band } => {
+                let definitions = self.configured.scale_impl.option_definitions();
+                let supports_level = definitions.iter().any(|def| def.name == "level");
+                let supports_band = definitions.iter().any(|def| def.name == "band");
+                if !supports_level || !supports_band {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "level_band({level}, {band}) requires a nested band scale"
+                    )));
+                }
+
+                let mut config = self.configured.config.clone();
+                config.options.insert(
+                    "level".to_string(),
+                    avenger_scales::scalar::Scalar::from_i32(level as i32),
+                );
+                config.options.insert(
+                    "band".to_string(),
+                    avenger_scales::scalar::Scalar::from_f32(band as f32),
+                );
+
+                let temp_configured = ConfiguredScale {
+                    scale_impl: self.configured.scale_impl.clone(),
+                    config,
+                };
+                let temp_wrapper = ConfiguredScaleWithSpec::with_range_binding(
+                    self.spec().clone(),
+                    temp_configured,
+                    self.range_binding(),
+                )
+                .with_derived_scalars(self.derived_scalars().clone());
+
+                temp_wrapper.to_expr(input)
+            }
         }
     }
 }

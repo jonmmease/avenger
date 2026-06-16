@@ -3,10 +3,11 @@ use std::sync::Arc;
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
-    Mark, MarkRuntimeContext, PointGeometry, RadiusExpression, apply_opacity_to_color,
-    coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
+    Mark, MarkRuntimeContext, PointGeometry, RadiusExpression, ScaleTypePreference,
+    apply_opacity_to_color, coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
     coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
-    impl_mark_trait_common, is_continuous_scale, serialization::DefaultLogicalExprNodeExt,
+    default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
+    serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_chart_marks::{Line, PartitionKey, ensure_dictionary_array, line_channel_defaults};
 use avenger_color::ColorOrGradient;
@@ -14,7 +15,10 @@ use avenger_common::value::ScalarOrArrayValue;
 use avenger_scales::scales::coerce::Coercer;
 use avenger_scenegraph::marks::{line::SceneLineMark, mark::SceneMark};
 use datafusion::{
-    arrow::array::{AsArray, RecordBatch},
+    arrow::{
+        array::{AsArray, RecordBatch},
+        datatypes::DataType,
+    },
     common::ScalarValue,
     logical_expr::{Expr, lit},
 };
@@ -155,6 +159,15 @@ impl CompiledMarkCore for CompiledCartesianLine {
             "x" => None,
             _ => None,
         }
+    }
+
+    fn preferred_scale_type(
+        &self,
+        channel: &str,
+        data_type: &DataType,
+    ) -> Option<ScaleTypePreference> {
+        super::nested_position_scale_type(channel, data_type)
+            .or_else(|| default_scale_type_for_data_type(data_type))
     }
 
     fn preferred_legend_renderer(

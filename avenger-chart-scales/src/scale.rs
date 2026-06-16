@@ -191,9 +191,16 @@ impl<S: ScaleSpec> ScaleRuntimeExt for Scale<S> {
                         Arc::new(Float32Array::from(float_values)) as ArrayRef
                     }
                     DomainKind::NestedCategorical => {
-                        return Err(AvengerChartError::InternalError(
-                            "NestedBand domains must be resolved from struct-valued data before creating ConfiguredScale".to_string(),
-                        ));
+                        if scalars.iter().all(|scalar| {
+                            matches!(scalar, ScalarValue::Struct(_)) || scalar.is_null()
+                        }) {
+                            ScalarValue::iter_to_array(scalars.into_iter())?
+                        } else {
+                            return Err(AvengerChartError::InvalidArgument(
+                                "NestedBand domains must contain struct-valued categorical paths"
+                                    .to_string(),
+                            ));
+                        }
                     }
                 }
             }

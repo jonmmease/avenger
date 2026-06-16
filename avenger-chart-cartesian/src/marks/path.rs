@@ -138,6 +138,10 @@ impl CompiledMarkCore for CompiledCartesianPath {
         channel: &str,
         data_type: &DataType,
     ) -> Option<ScaleTypePreference> {
+        if let Some(scale_type) = super::nested_position_scale_type(channel, data_type) {
+            return Some(scale_type);
+        }
+
         match (channel, data_type) {
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
                 Some(ScaleTypePreference::Point)
