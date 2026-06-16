@@ -36,7 +36,7 @@ use crate::{
         coordination_plans::CoordinationNodeKey,
         domain_coordination::{
             aggregate_domain_extents, coordinated_extents_for_cell_with_owner_paths,
-            domain_infos_for_cell_with_owner_paths,
+            coordinated_nested_extent_for_cell, domain_infos_for_cell_with_owner_paths,
         },
         guide::FacetColGuideConfig,
         layout_plan::{
@@ -2490,6 +2490,22 @@ async fn coordinate_cell_domains_before_measurement(
                     .sharing_owner_path(&cell.plan.full_path, sharing_level.raw())
             },
         );
+        for (channel, config) in nested_ctx.facet_tree.channel_nested_band_configs() {
+            if let Some(extent) = coordinated_nested_extent_for_cell(
+                &cell.plan.full_path,
+                channel,
+                config,
+                &domain_infos,
+                &|path, sharing_level| {
+                    nested_ctx
+                        .facet_tree
+                        .sharing_owner_path(path, sharing_level.raw())
+                },
+            ) {
+                cell.coordinated_domain_extents
+                    .insert(channel.clone(), extent);
+            }
+        }
         if !cell.plan.has_data_rows
             && matches!(
                 empty_cell_policy.effective(),

@@ -22,7 +22,7 @@ use datafusion::{
 use indexmap::IndexMap;
 use tracing::debug;
 
-use avenger_chart_core::DomainCoordination;
+use avenger_chart_core::{DomainCoordination, NestedBandSpec};
 
 pub use crate::partition::{PartitionContent, PartitionNode};
 
@@ -67,6 +67,8 @@ pub struct EvaluatedFacetTree {
     /// Used for scale-domain coordination and for deriving sharing levels when
     /// guide visibility decisions do not have access to CoordMeasurement.
     channel_domain_coordinations: HashMap<String, DomainCoordination>,
+    /// Nested-band scale metadata extracted from innermost marks.
+    channel_nested_band_configs: HashMap<String, NestedBandSpec>,
     /// Cached path metadata for resolved concrete paths.
     path_info_cache: HashMap<Vec<ScalarValue>, ResolvedFacetPathInfo>,
     /// Cached predicates for valid, non-empty paths.
@@ -167,6 +169,7 @@ impl EvaluatedFacetTree {
     fn init_with_caches(
         root: Option<PartitionNode>,
         channel_domain_coordinations: HashMap<String, DomainCoordination>,
+        channel_nested_band_configs: HashMap<String, NestedBandSpec>,
     ) -> Self {
         let depth_cache = root.as_ref().map(Self::count_depth).unwrap_or(0);
         let level_counts_cache = root
@@ -179,6 +182,7 @@ impl EvaluatedFacetTree {
             depth_cache,
             level_counts_cache,
             channel_domain_coordinations,
+            channel_nested_band_configs,
             path_info_cache: HashMap::new(),
             path_predicate_cache: HashMap::new(),
             slot_membership_cache: HashMap::new(),
@@ -195,7 +199,7 @@ impl EvaluatedFacetTree {
     /// Note: All configuration (slot sharing levels, axis positions) is passed
     /// as parameters to query methods like `subplot_visibility`.
     pub fn new(root: Option<PartitionNode>) -> Self {
-        Self::init_with_caches(root, HashMap::new())
+        Self::init_with_caches(root, HashMap::new(), HashMap::new())
     }
 
     /// Create a new EvaluatedFacetTree with partition tree and channel-domain sharing levels.
@@ -214,12 +218,13 @@ impl EvaluatedFacetTree {
                     )
                 })
                 .collect(),
+            HashMap::new(),
         )
     }
 
     /// Create an empty tree (no faceting).
     pub fn empty() -> Self {
-        Self::init_with_caches(None, HashMap::new())
+        Self::init_with_caches(None, HashMap::new(), HashMap::new())
     }
 
     /// Get the partition tree root, if any.
@@ -495,9 +500,14 @@ impl EvaluatedFacetTree {
         .await?;
 
         // Extract channel-domain coordination targets from the innermost marks.
-        let channel_domain_coordinations = extract_channel_domain_coordinations(&plot.marks);
+        let (channel_domain_coordinations, channel_nested_band_configs) =
+            extract_channel_domain_metadata(&plot.marks);
 
-        Ok(Self::init_with_caches(root, channel_domain_coordinations))
+        Ok(Self::init_with_caches(
+            root,
+            channel_domain_coordinations,
+            channel_nested_band_configs,
+        ))
     }
 
     pub(crate) fn plot_contains_facet_mark(plot: &CompiledPlot) -> bool {
@@ -548,6 +558,13 @@ impl EvaluatedFacetTree {
         levels.insert(SharingLevel::GLOBAL);
         for coordination in self.channel_domain_coordinations.values() {
             levels.insert(SharingLevel::from(coordination.scope));
+        }
+        for config in self.channel_nested_band_configs.values() {
+            for level in config.levels.values() {
+                if let Some(coordination) = &level.domain_coordination {
+                    levels.insert(SharingLevel::from(coordination.scope));
+                }
+            }
         }
         if let Some(root) = self.root.as_ref() {
             Self::collect_node_sharing_levels_recursive(root, &mut levels);
@@ -1002,6 +1019,10 @@ impl EvaluatedFacetTree {
             .get(channel)
             .cloned()
             .unwrap_or_else(|| DomainCoordination::scale_name(SharingLevel::GLOBAL.into()))
+    }
+
+    pub(crate) fn channel_nested_band_configs(&self) -> &HashMap<String, NestedBandSpec> {
+        &self.channel_nested_band_configs
     }
 
     pub(crate) fn has_free_channel_domain_sharing(&self) -> bool {
@@ -1828,19 +1849,25 @@ impl EvaluatedFacetTree {
 /// Extract channel-domain coordination targets from compiled marks by recursing through facet subplots.
 ///
 /// This walks the mark tree to find the innermost (non-facet) marks and extracts
-/// their channel-domain coordination targets.
-fn extract_channel_domain_coordinations(
+/// scale-domain metadata.
+fn extract_channel_domain_metadata(
     marks: &[Arc<dyn CompiledMark>],
-) -> HashMap<String, DomainCoordination> {
-    let mut result = HashMap::new();
+) -> (
+    HashMap<String, DomainCoordination>,
+    HashMap<String, NestedBandSpec>,
+) {
+    let mut coordinations = HashMap::new();
+    let mut nested_band_configs = HashMap::new();
     let mut implicit_scaled_channels = HashSet::new();
+    let mut nested_channels_with_level_coordination = HashSet::new();
 
     for mark in marks {
         if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
             // Recurse into subplot to find innermost marks
-            let inner = extract_channel_domain_coordinations(&facet_mark.compiled_subplot().marks);
-            for (scale_name, coordination) in inner {
-                result
+            let (inner_coordinations, inner_nested_band_configs) =
+                extract_channel_domain_metadata(&facet_mark.compiled_subplot().marks);
+            for (scale_name, coordination) in inner_coordinations {
+                coordinations
                     .entry(scale_name)
                     .and_modify(|existing: &mut DomainCoordination| {
                         if coordination.scope.to_level() > existing.scope.to_level() {
@@ -1849,6 +1876,12 @@ fn extract_channel_domain_coordinations(
                     })
                     .or_insert(coordination);
             }
+            for (scale_name, config) in inner_nested_band_configs {
+                if nested_config_has_level_coordination(&config) {
+                    nested_channels_with_level_coordination.insert(scale_name.clone());
+                }
+                nested_band_configs.entry(scale_name).or_insert(config);
+            }
         } else {
             // Non-facet mark - extract channel-domain coordination targets.
             let data_context = mark.data_context();
@@ -1856,8 +1889,16 @@ fn extract_channel_domain_coordinations(
                 let Some(scale_name) = channel_value.get_scale_name(channel) else {
                     continue;
                 };
+                if let Some(config) = channel_value.get_nested_band_config().cloned() {
+                    if nested_config_has_level_coordination(&config) {
+                        nested_channels_with_level_coordination.insert(scale_name.clone());
+                    }
+                    nested_band_configs
+                        .entry(scale_name.clone())
+                        .or_insert(config);
+                }
                 if let Some(coordination) = channel_value.get_domain_coordination().cloned() {
-                    result
+                    coordinations
                         .entry(scale_name)
                         .and_modify(|existing: &mut DomainCoordination| {
                             if coordination.scope.to_level() > existing.scope.to_level() {
@@ -1872,13 +1913,34 @@ fn extract_channel_domain_coordinations(
         }
     }
 
+    for scale_name in &nested_channels_with_level_coordination {
+        implicit_scaled_channels.remove(scale_name);
+        coordinations
+            .entry(scale_name.clone())
+            .or_insert_with(|| DomainCoordination::scale_name(SharingLevel::FREE.into()));
+    }
+
     for scale_name in implicit_scaled_channels {
-        result
+        coordinations
             .entry(scale_name)
             .or_insert_with(|| DomainCoordination::scale_name(SharingLevel::GLOBAL.into()));
     }
 
-    result
+    (coordinations, nested_band_configs)
+}
+
+fn nested_config_has_level_coordination(config: &NestedBandSpec) -> bool {
+    config
+        .levels
+        .values()
+        .any(|level| level.domain_coordination.is_some())
+}
+
+#[cfg(test)]
+fn extract_channel_domain_coordinations(
+    marks: &[Arc<dyn CompiledMark>],
+) -> HashMap<String, DomainCoordination> {
+    extract_channel_domain_metadata(marks).0
 }
 
 /// Get a DataFrame from plot-level data or first mark with data.
@@ -3811,7 +3873,7 @@ mod tests {
             DomainCoordinationGroup::Named("height".to_string())
         );
 
-        let tree = EvaluatedFacetTree::init_with_caches(None, coordinations);
+        let tree = EvaluatedFacetTree::init_with_caches(None, coordinations, HashMap::new());
         assert_eq!(
             tree.channel_domain_coordination("x").group,
             DomainCoordinationGroup::Named("height".to_string())
@@ -3842,6 +3904,73 @@ mod tests {
 
         assert_eq!(fill.scope, CoordinationScope::Level(u8::MAX));
         assert_eq!(fill.group, DomainCoordinationGroup::ScaleName);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn nested_level_domain_coordination_suppresses_implicit_channel_sharing()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let nested = datafusion::prelude::named_struct(vec![
+            lit("outer"),
+            col("outer"),
+            lit("inner"),
+            col("inner"),
+        ]);
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                Rect::new()
+                    .x_with(nested.clone(), |x| {
+                        x.level(0, |l| l.domain_scope(CoordinationScope::Shared))
+                            .level(1, |l| {
+                                l.domain_scope(CoordinationScope::Level(1))
+                                    .nest_scope(NestScope::Shared)
+                            })
+                    })
+                    .x2_with(col(":x"), |x| x.band(1.0))
+                    .y(lit(0.0))
+                    .y2(lit(1.0)),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let (coordinations, nested_configs) = extract_channel_domain_metadata(&compiled.marks);
+        let x = coordinations
+            .get("x")
+            .expect("nested x should have coordination metadata");
+
+        assert_eq!(x.scope, CoordinationScope::Level(0));
+        assert!(nested_configs.contains_key("x"));
+        let tree =
+            EvaluatedFacetTree::init_with_caches(None, coordinations, nested_configs.clone());
+        assert!(
+            tree.used_sharing_levels
+                .contains(&SharingLevel::from_raw(1))
+        );
+
+        let explicit = Plot::<Cartesian>::new()
+            .mark(
+                Rect::new()
+                    .x_with(nested, |x| {
+                        x.with_domain_scope(CoordinationScope::Shared)
+                            .level(0, |l| l.domain_scope(CoordinationScope::Shared))
+                    })
+                    .x2_with(col(":x"), |x| x.band(1.0))
+                    .y(lit(0.0))
+                    .y2(lit(1.0)),
+            )
+            .compile(&ctx)
+            .await?;
+        let (explicit_coordinations, _) = extract_channel_domain_metadata(&explicit.marks);
+
+        assert_eq!(
+            explicit_coordinations
+                .get("x")
+                .expect("explicit x coordination")
+                .scope,
+            CoordinationScope::Level(u8::MAX)
+        );
 
         Ok(())
     }

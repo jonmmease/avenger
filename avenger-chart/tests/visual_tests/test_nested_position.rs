@@ -42,6 +42,26 @@ fn grouped_bar_df(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
     ctx.read_batch(batch).expect("dataframe")
 }
 
+fn facet_nested_df(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+    let batch = record_batch(
+        vec![
+            Field::new("market", DataType::Utf8, false),
+            Field::new("cyl", DataType::Utf8, false),
+            Field::new("make", DataType::Utf8, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "North", "North", "North", "South", "South", "South",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["4", "4", "6", "4", "6", "6"])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["F", "T", "A", "T", "A", "V"])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![34.0, 31.0, 22.0, 29.0, 24.0, 27.0])) as ArrayRef,
+        ],
+    );
+    ctx.read_batch(batch).expect("dataframe")
+}
+
 #[tokio::test]
 async fn test_nested_position_grouped_bar_shared_slots_hidden_leaf_axis() {
     let ctx = SessionContext::new();
@@ -674,6 +694,144 @@ async fn test_nested_position_facet_shared_whole_path_slots() {
         None,
         "nested_position",
         "facet_shared_whole_path_slots",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_facet_shared_parent_free_leaf() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<FacetColumn>::new().data(facet_nested_df(&ctx)).mark(
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .x_with(nested_x("cyl", "make"), |x| {
+                        x.axis(|a| a.title("Make grouped by cylinders").grid(false))
+                            .level(0, |l| {
+                                l.domain_scope(CoordinationScope::Shared)
+                                    .padding_inner(0.38)
+                                    .padding_outer(0.14)
+                            })
+                            .level(1, |l| {
+                                l.domain_scope(CoordinationScope::Shared)
+                                    .nest_scope(NestScope::Free)
+                                    .padding_inner(0.08)
+                            })
+                    })
+                    .x2_with(col(":x"), |x| x.band(1.0))
+                    .y_with(lit(0.0), |y| {
+                        y.with_domain_scope(CoordinationScope::Shared)
+                            .scale(|s| s.domain((0.0, 40.0)))
+                            .axis(|a| a.title("Value").grid(true))
+                    })
+                    .y2(col("value"))
+                    .fill_with(col("make"), |fill| fill)
+                    .stroke("#ffffff")
+                    .stroke_width(1.0),
+            ),
+        )
+        .column(col("market")),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "facet_nested_position_shared_parent_free_leaf",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_facet_shared_leaf_slots() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<FacetColumn>::new().data(facet_nested_df(&ctx)).mark(
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .x_with(nested_x("cyl", "make"), |x| {
+                        x.axis(|a| a.title("Make grouped by cylinders").grid(false))
+                            .level(0, |l| {
+                                l.domain_scope(CoordinationScope::Shared)
+                                    .padding_inner(0.38)
+                                    .padding_outer(0.14)
+                            })
+                            .level(1, |l| {
+                                l.domain_scope(CoordinationScope::Shared)
+                                    .nest_scope(NestScope::Shared)
+                                    .padding_inner(0.08)
+                            })
+                    })
+                    .x2_with(col(":x"), |x| x.band(1.0))
+                    .y_with(lit(0.0), |y| {
+                        y.with_domain_scope(CoordinationScope::Shared)
+                            .scale(|s| s.domain((0.0, 40.0)))
+                            .axis(|a| a.title("Value").grid(true))
+                    })
+                    .y2(col("value"))
+                    .fill_with(col("make"), |fill| fill)
+                    .stroke("#ffffff")
+                    .stroke_width(1.0),
+            ),
+        )
+        .column(col("market")),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "facet_nested_position_shared_leaf_slots",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_facet_free_domains() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<FacetColumn>::new().data(facet_nested_df(&ctx)).mark(
+        Subplot::new(
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .x_with(nested_x("cyl", "make"), |x| {
+                        x.axis(|a| a.title("Local make groups").grid(false))
+                            .level(0, |l| {
+                                l.domain_scope(CoordinationScope::Free)
+                                    .padding_inner(0.38)
+                                    .padding_outer(0.14)
+                            })
+                            .level(1, |l| {
+                                l.domain_scope(CoordinationScope::Free)
+                                    .nest_scope(NestScope::Free)
+                                    .padding_inner(0.08)
+                            })
+                    })
+                    .x2_with(col(":x"), |x| x.band(1.0))
+                    .y_with(lit(0.0), |y| {
+                        y.with_domain_scope(CoordinationScope::Shared)
+                            .scale(|s| s.domain((0.0, 40.0)))
+                            .axis(|a| a.title("Value").grid(true))
+                    })
+                    .y2(col("value"))
+                    .fill_with(col("make"), |fill| fill)
+                    .stroke("#ffffff")
+                    .stroke_width(1.0),
+            ),
+        )
+        .column(col("market")),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "facet_nested_position_free_domains",
     )
     .await;
 }

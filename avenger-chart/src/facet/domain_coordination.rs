@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
-use avenger_chart_core::{DomainCoordination, SharingLevel};
-use avenger_chart_scales::DomainExtent;
+use avenger_chart_core::{
+    DomainCoordination, NestScope, NestedBandSpec, SharingLevel, scalar_total_cmp,
+};
+use avenger_chart_scales::domain_extent::{
+    DomainBounds, DomainExtent, SerializableDomainValue, SerializableStructField,
+};
 use datafusion::common::ScalarValue;
 
 use crate::{
@@ -180,6 +184,226 @@ pub(crate) fn coordinated_extents_for_cell_with_owner_paths(
     coordinated
 }
 
+pub(crate) fn coordinated_nested_extent_for_cell(
+    full_cell_path: &[ScalarValue],
+    channel: &str,
+    config: &NestedBandSpec,
+    domain_infos: &[CellDomainInfo],
+    owner_path_for: &dyn Fn(&[ScalarValue], SharingLevel) -> Vec<ScalarValue>,
+) -> Option<DomainExtent> {
+    if !has_nested_level_coordination(config) {
+        return None;
+    }
+
+    let paths = nested_domain_paths_for_channel(channel, domain_infos);
+    let field_names = paths.first()?.field_names.clone();
+    let depth = field_names.len();
+    if depth == 0 {
+        return None;
+    }
+
+    let mut component_paths = Vec::new();
+    collect_nested_component_paths_for_cell(
+        &mut Vec::new(),
+        0,
+        depth,
+        full_cell_path,
+        config,
+        &paths,
+        owner_path_for,
+        &mut component_paths,
+    );
+    if component_paths.is_empty() {
+        return None;
+    }
+
+    let ordered = paths.iter().any(|path| path.ordered);
+    let mut values = component_paths
+        .into_iter()
+        .map(|components| {
+            SerializableDomainValue::Struct(
+                field_names
+                    .iter()
+                    .cloned()
+                    .zip(components)
+                    .map(|(name, value)| SerializableStructField {
+                        name,
+                        value: Box::new(value),
+                    })
+                    .collect(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    if ordered {
+        dedup_serializable_domain_values(&mut values);
+        Some(DomainExtent::ordered_discrete(values))
+    } else {
+        values.sort_by(|lhs, rhs| scalar_total_cmp(&lhs.to_scalar(), &rhs.to_scalar()));
+        dedup_serializable_domain_values(&mut values);
+        Some(DomainExtent::discrete(values))
+    }
+}
+
+fn has_nested_level_coordination(config: &NestedBandSpec) -> bool {
+    config
+        .levels
+        .values()
+        .any(|level| level.domain_coordination.is_some())
+}
+
+#[derive(Clone, Debug)]
+struct NestedDomainPath {
+    full_cell_path: Vec<ScalarValue>,
+    field_names: Vec<String>,
+    components: Vec<SerializableDomainValue>,
+    ordered: bool,
+}
+
+fn nested_domain_paths_for_channel(
+    channel: &str,
+    domain_infos: &[CellDomainInfo],
+) -> Vec<NestedDomainPath> {
+    let mut paths = Vec::new();
+    for info in domain_infos {
+        if info.channel != channel {
+            continue;
+        }
+
+        let DomainBounds::Discrete(values) = &info.extent.bounds else {
+            continue;
+        };
+
+        for value in values {
+            let SerializableDomainValue::Struct(fields) = value else {
+                continue;
+            };
+            paths.push(NestedDomainPath {
+                full_cell_path: info.full_cell_path.clone(),
+                field_names: fields.iter().map(|field| field.name.clone()).collect(),
+                components: fields
+                    .iter()
+                    .map(|field| field.value.as_ref().clone())
+                    .collect(),
+                ordered: info.extent.ordered_discrete,
+            });
+        }
+    }
+    paths
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_nested_component_paths_for_cell(
+    prefix: &mut Vec<SerializableDomainValue>,
+    level: usize,
+    depth: usize,
+    full_cell_path: &[ScalarValue],
+    config: &NestedBandSpec,
+    paths: &[NestedDomainPath],
+    owner_path_for: &dyn Fn(&[ScalarValue], SharingLevel) -> Vec<ScalarValue>,
+    output: &mut Vec<Vec<SerializableDomainValue>>,
+) {
+    if level == depth {
+        output.push(prefix.clone());
+        return;
+    }
+
+    for component in nested_level_component_candidates_for_cell(
+        prefix,
+        level,
+        full_cell_path,
+        config,
+        paths,
+        owner_path_for,
+    ) {
+        prefix.push(component);
+        collect_nested_component_paths_for_cell(
+            prefix,
+            level + 1,
+            depth,
+            full_cell_path,
+            config,
+            paths,
+            owner_path_for,
+            output,
+        );
+        prefix.pop();
+    }
+}
+
+fn nested_level_component_candidates_for_cell(
+    prefix: &[SerializableDomainValue],
+    level: usize,
+    full_cell_path: &[ScalarValue],
+    config: &NestedBandSpec,
+    paths: &[NestedDomainPath],
+    owner_path_for: &dyn Fn(&[ScalarValue], SharingLevel) -> Vec<ScalarValue>,
+) -> Vec<SerializableDomainValue> {
+    let level_config = config.level(level);
+    let domain_sharing_level = level_config
+        .and_then(|level| level.domain_coordination.as_ref())
+        .map(|coordination| SharingLevel::from(coordination.scope));
+    let nest_scope = level_config
+        .and_then(|level| level.nest_scope)
+        .unwrap_or(NestScope::Free);
+    let collect_globally = level > 0 && nest_scope == NestScope::Shared;
+    let target_owner_path =
+        domain_sharing_level.map(|sharing| owner_path_for(full_cell_path, sharing));
+
+    let mut candidates = Vec::new();
+    for path in paths {
+        if path.components.len() <= level {
+            continue;
+        }
+
+        match (domain_sharing_level, target_owner_path.as_ref()) {
+            (Some(sharing), Some(target_owner_path)) => {
+                if owner_path_for(&path.full_cell_path, sharing) != *target_owner_path {
+                    continue;
+                }
+            }
+            _ if path.full_cell_path != full_cell_path => continue,
+            _ => {}
+        }
+
+        if !collect_globally && !serializable_prefix_matches(&path.components, prefix) {
+            continue;
+        }
+
+        push_unique_serializable_value(&mut candidates, path.components[level].clone());
+    }
+
+    candidates
+}
+
+fn serializable_prefix_matches(
+    components: &[SerializableDomainValue],
+    prefix: &[SerializableDomainValue],
+) -> bool {
+    components.len() >= prefix.len()
+        && components
+            .iter()
+            .zip(prefix)
+            .all(|(component, expected)| component == expected)
+}
+
+fn push_unique_serializable_value(
+    target: &mut Vec<SerializableDomainValue>,
+    value: SerializableDomainValue,
+) {
+    if !target.iter().any(|existing| existing == &value) {
+        target.push(value);
+    }
+}
+
+fn dedup_serializable_domain_values(values: &mut Vec<SerializableDomainValue>) {
+    let mut unique = Vec::with_capacity(values.len());
+    for value in values.drain(..) {
+        push_unique_serializable_value(&mut unique, value);
+    }
+    *values = unique;
+}
+
 #[cfg(test)]
 pub(crate) fn domain_coordination_scope_key(
     channel: &str,
@@ -248,6 +472,69 @@ mod tests {
             owner_path: None,
             extent: DomainExtent::numeric(0.0, max),
         }
+    }
+
+    fn nested_domain_value(parts: &[(&str, &str)]) -> SerializableDomainValue {
+        SerializableDomainValue::Struct(
+            parts
+                .iter()
+                .map(|(name, value)| SerializableStructField {
+                    name: (*name).to_string(),
+                    value: Box::new(SerializableDomainValue::String((*value).to_string())),
+                })
+                .collect(),
+        )
+    }
+
+    fn nested_domain_info(
+        cell: &str,
+        channel: &str,
+        values: Vec<SerializableDomainValue>,
+    ) -> CellDomainInfo {
+        CellDomainInfo {
+            full_cell_path: vec![s(cell)],
+            channel: channel.to_string(),
+            domain_sharing_level: SharingLevel::FREE.raw(),
+            domain_coordination: scale_name_coordination(SharingLevel::FREE.raw()),
+            facet_depth: 1,
+            owner_path: Some(vec![s(cell)]),
+            extent: DomainExtent::discrete(values),
+        }
+    }
+
+    fn nested_config(levels: &[(usize, u8, Option<NestScope>)]) -> NestedBandSpec {
+        let mut config = NestedBandSpec::default();
+        for (level, sharing, nest_scope) in levels {
+            let level_config = config.level_mut(*level);
+            level_config.domain_coordination = Some(scale_name_coordination(*sharing));
+            level_config.nest_scope = *nest_scope;
+        }
+        config
+    }
+
+    fn owner_path_for_test(path: &[ScalarValue], sharing: SharingLevel) -> Vec<ScalarValue> {
+        sharing_policy::domain_group_key(path, sharing, path.len() as u8)
+    }
+
+    fn nested_extent_labels(extent: &DomainExtent) -> Vec<Vec<String>> {
+        let DomainBounds::Discrete(values) = &extent.bounds else {
+            panic!("expected discrete extent");
+        };
+        values
+            .iter()
+            .map(|value| {
+                let SerializableDomainValue::Struct(fields) = value else {
+                    panic!("expected struct value");
+                };
+                fields
+                    .iter()
+                    .map(|field| match field.value.as_ref() {
+                        SerializableDomainValue::String(value) => value.clone(),
+                        other => format!("{other:?}"),
+                    })
+                    .collect()
+            })
+            .collect()
     }
 
     #[test]
@@ -529,5 +816,131 @@ mod tests {
         };
 
         assert_eq!(reversed_values, values);
+    }
+
+    #[test]
+    fn nested_shared_parent_free_leaf_shares_children_per_parent() {
+        let infos = vec![
+            nested_domain_info(
+                "north",
+                "x",
+                vec![
+                    nested_domain_value(&[("cyl", "4"), ("make", "ford")]),
+                    nested_domain_value(&[("cyl", "6"), ("make", "amc")]),
+                ],
+            ),
+            nested_domain_info(
+                "south",
+                "x",
+                vec![
+                    nested_domain_value(&[("cyl", "4"), ("make", "toyota")]),
+                    nested_domain_value(&[("cyl", "6"), ("make", "ford")]),
+                ],
+            ),
+        ];
+        let config = nested_config(&[
+            (0, SharingLevel::GLOBAL.raw(), None),
+            (1, SharingLevel::GLOBAL.raw(), Some(NestScope::Free)),
+        ]);
+
+        let extent = coordinated_nested_extent_for_cell(
+            &[s("north")],
+            "x",
+            &config,
+            &infos,
+            &owner_path_for_test,
+        )
+        .expect("nested extent");
+
+        assert_eq!(
+            nested_extent_labels(&extent),
+            vec![
+                vec!["4".to_string(), "ford".to_string()],
+                vec!["4".to_string(), "toyota".to_string()],
+                vec!["6".to_string(), "amc".to_string()],
+                vec!["6".to_string(), "ford".to_string()],
+            ]
+        );
+    }
+
+    #[test]
+    fn nested_shared_parent_shared_leaf_crosses_children_under_each_parent() {
+        let infos = vec![
+            nested_domain_info(
+                "north",
+                "x",
+                vec![
+                    nested_domain_value(&[("cyl", "4"), ("make", "ford")]),
+                    nested_domain_value(&[("cyl", "6"), ("make", "amc")]),
+                ],
+            ),
+            nested_domain_info(
+                "south",
+                "x",
+                vec![
+                    nested_domain_value(&[("cyl", "4"), ("make", "toyota")]),
+                    nested_domain_value(&[("cyl", "6"), ("make", "ford")]),
+                ],
+            ),
+        ];
+        let config = nested_config(&[
+            (0, SharingLevel::GLOBAL.raw(), None),
+            (1, SharingLevel::GLOBAL.raw(), Some(NestScope::Shared)),
+        ]);
+
+        let extent = coordinated_nested_extent_for_cell(
+            &[s("north")],
+            "x",
+            &config,
+            &infos,
+            &owner_path_for_test,
+        )
+        .expect("nested extent");
+
+        assert_eq!(
+            nested_extent_labels(&extent),
+            vec![
+                vec!["4".to_string(), "amc".to_string()],
+                vec!["4".to_string(), "ford".to_string()],
+                vec!["4".to_string(), "toyota".to_string()],
+                vec!["6".to_string(), "amc".to_string()],
+                vec!["6".to_string(), "ford".to_string()],
+                vec!["6".to_string(), "toyota".to_string()],
+            ]
+        );
+    }
+
+    #[test]
+    fn nested_free_domains_stay_local_to_facet_cell() {
+        let infos = vec![
+            nested_domain_info(
+                "north",
+                "x",
+                vec![nested_domain_value(&[("cyl", "4"), ("make", "ford")])],
+            ),
+            nested_domain_info(
+                "south",
+                "x",
+                vec![nested_domain_value(&[("cyl", "6"), ("make", "toyota")])],
+            ),
+        ];
+        let config = nested_config(&[
+            (0, SharingLevel::FREE.raw(), None),
+            (1, SharingLevel::FREE.raw(), Some(NestScope::Free)),
+        ]);
+
+        let extent = coordinated_nested_extent_for_cell(
+            &[s("north")],
+            "x",
+            &config,
+            &infos,
+            &owner_path_for_test,
+        )
+        .expect("nested extent");
+
+        assert_eq!(
+            nested_extent_labels(&extent),
+            vec![vec!["4".to_string(), "ford".to_string()]]
+        );
     }
 }
