@@ -1240,7 +1240,9 @@ mod tests {
     use crate::Linear;
     use avenger_chart_core::PlotGeometry;
     use avenger_common::value::ScalarOrArray;
+    use datafusion::arrow::array::{ArrayRef, StringArray, StructArray};
     use datafusion::functions_array::expr_fn::make_array;
+    use std::sync::Arc;
 
     struct TestCoordDefaults;
 
@@ -2005,6 +2007,53 @@ mod tests {
         let color = extents.get("color").unwrap();
         let values = color.discrete_values().unwrap();
         assert_eq!(values.len(), 3);
+    }
+
+    #[test]
+    fn test_extend_with_domain_extents_preserves_struct_discrete_values() {
+        fn path(group: &str, member: &str) -> ScalarValue {
+            ScalarValue::Struct(Arc::new(StructArray::from(vec![
+                (
+                    Arc::new(datafusion::arrow::datatypes::Field::new(
+                        "group",
+                        DataType::Utf8,
+                        true,
+                    )),
+                    Arc::new(StringArray::from(vec![group])) as ArrayRef,
+                ),
+                (
+                    Arc::new(datafusion::arrow::datatypes::Field::new(
+                        "member",
+                        DataType::Utf8,
+                        true,
+                    )),
+                    Arc::new(StringArray::from(vec![member])) as ArrayRef,
+                ),
+            ])))
+        }
+
+        let mut builder = ScaleBuilder::new();
+        builder.add_standard(
+            "x".to_string(),
+            Box::new(Ordinal),
+            DataExtents::Discrete(vec![path("A", "one")]),
+            HashMap::new(),
+            empty_scalars(),
+        );
+
+        let shared_path = SerializableDomainValue::from_scalar(&path("B", "two"));
+        let mut shared = HashMap::new();
+        shared.insert(
+            "x".to_string(),
+            DomainExtent::ordered_discrete(vec![shared_path.clone()]),
+        );
+
+        builder.extend_with_domain_extents(&shared);
+
+        let extents = builder.extract_domain_extents(&["x"]);
+        let x = extents.get("x").unwrap();
+        assert_eq!(x.discrete_values(), Some([shared_path].as_slice()));
+        assert!(x.ordered_discrete);
     }
 
     #[test]

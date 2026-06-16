@@ -6,7 +6,15 @@
 //! It also provides `SerializableDomainValue` and `SerializableDataExtents`
 //! for serializing domain values across boundaries.
 
-use datafusion::common::ScalarValue;
+use std::sync::Arc;
+
+use datafusion::{
+    arrow::{
+        array::{Array, StructArray},
+        datatypes::Field,
+    },
+    common::ScalarValue,
+};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -38,7 +46,15 @@ pub enum SerializableDomainValue {
     TimestampUs(i64),
     /// Timestamp in nanoseconds since Unix epoch
     TimestampNs(i64),
+    /// Struct value, preserving field order and field names.
+    Struct(Vec<SerializableStructField>),
     Null,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SerializableStructField {
+    pub name: String,
+    pub value: Box<SerializableDomainValue>,
 }
 
 impl SerializableDomainValue {
@@ -109,6 +125,29 @@ impl SerializableDomainValue {
                 Self::from_scalar(inner.as_ref())
             }
 
+            ScalarValue::Struct(array) => {
+                if array.is_empty() || array.is_null(0) {
+                    SerializableDomainValue::Null
+                } else {
+                    SerializableDomainValue::Struct(
+                        array
+                            .fields()
+                            .iter()
+                            .zip(array.columns())
+                            .map(|(field, column)| {
+                                let value = ScalarValue::try_from_array(column, 0)
+                                    .map(|scalar| Self::from_scalar(&scalar))
+                                    .unwrap_or(SerializableDomainValue::Null);
+                                SerializableStructField {
+                                    name: field.name().clone(),
+                                    value: Box::new(value),
+                                }
+                            })
+                            .collect(),
+                    )
+                }
+            }
+
             // Everything else becomes Null
             _ => SerializableDomainValue::Null,
         }
@@ -147,6 +186,20 @@ impl SerializableDomainValue {
             }
             SerializableDomainValue::TimestampNs(ts) => {
                 ScalarValue::TimestampNanosecond(Some(*ts), None)
+            }
+            SerializableDomainValue::Struct(fields) => {
+                let mut columns = Vec::with_capacity(fields.len());
+                for field in fields {
+                    let scalar = field.value.to_scalar();
+                    let Ok(array) = ScalarValue::iter_to_array([scalar.clone()].into_iter()) else {
+                        return ScalarValue::Null;
+                    };
+                    columns.push((
+                        Arc::new(Field::new(&field.name, scalar.data_type(), true)),
+                        array,
+                    ));
+                }
+                ScalarValue::Struct(Arc::new(StructArray::from(columns)))
             }
             SerializableDomainValue::Null => ScalarValue::Null,
         }
@@ -638,5 +691,77 @@ mod tests {
         // Test null
         let n = SerializableDomainValue::from_scalar(&ScalarValue::Null);
         assert!(matches!(n, SerializableDomainValue::Null));
+    }
+
+    #[test]
+    fn test_serializable_domain_struct_value_roundtrip() {
+        let struct_scalar = ScalarValue::Struct(Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new(
+                    "group",
+                    datafusion::arrow::datatypes::DataType::Utf8,
+                    true,
+                )),
+                ScalarValue::iter_to_array([ScalarValue::Utf8(Some("A".to_string()))].into_iter())
+                    .unwrap(),
+            ),
+            (
+                Arc::new(Field::new(
+                    "member",
+                    datafusion::arrow::datatypes::DataType::Int64,
+                    true,
+                )),
+                ScalarValue::iter_to_array([ScalarValue::Int64(Some(2))].into_iter()).unwrap(),
+            ),
+        ])));
+
+        let serializable = SerializableDomainValue::from_scalar(&struct_scalar);
+        let SerializableDomainValue::Struct(fields) = &serializable else {
+            panic!("expected struct value");
+        };
+        assert_eq!(fields[0].name, "group");
+        assert_eq!(
+            fields[0].value.as_ref(),
+            &SerializableDomainValue::String("A".to_string())
+        );
+        assert_eq!(fields[1].name, "member");
+        assert_eq!(fields[1].value.as_ref(), &SerializableDomainValue::Int(2));
+
+        let restored = serializable.to_scalar();
+        let ScalarValue::Struct(restored_array) = restored else {
+            panic!("expected restored struct scalar");
+        };
+        assert_eq!(restored_array.len(), 1);
+        assert_eq!(
+            ScalarValue::try_from_array(restored_array.column_by_name("group").unwrap(), 0)
+                .unwrap(),
+            ScalarValue::Utf8(Some("A".to_string()))
+        );
+        assert_eq!(
+            ScalarValue::try_from_array(restored_array.column_by_name("member").unwrap(), 0)
+                .unwrap(),
+            ScalarValue::Int64(Some(2))
+        );
+    }
+
+    #[test]
+    fn test_struct_discrete_extent_serializes_without_losing_paths() {
+        let path = SerializableDomainValue::Struct(vec![
+            SerializableStructField {
+                name: "quarter".to_string(),
+                value: Box::new(SerializableDomainValue::String("Q1".to_string())),
+            },
+            SerializableStructField {
+                name: "team".to_string(),
+                value: Box::new(SerializableDomainValue::String("North".to_string())),
+            },
+        ]);
+        let extent = DomainExtent::ordered_discrete(vec![path.clone()]);
+
+        let json = serde_json::to_string(&extent).expect("serialize");
+        let restored: DomainExtent = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(restored.discrete_values(), Some([path].as_slice()));
+        assert!(restored.ordered_discrete);
     }
 }
