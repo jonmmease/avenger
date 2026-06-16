@@ -3,6 +3,7 @@
 #![allow(clippy::borrowed_box, clippy::too_many_arguments)]
 
 use std::{
+    cmp::Ordering,
     collections::{HashMap, HashSet},
     sync::Arc,
 };
@@ -10,7 +11,7 @@ use std::{
 use avenger_scales::scales::{DomainKind, RangeKind};
 use datafusion::{
     arrow::{
-        array::AsArray,
+        array::{Array, AsArray},
         compute::cast,
         datatypes::{DataType as ArrowDataType, Float64Type},
     },
@@ -33,8 +34,8 @@ use avenger_chart_core::{
     EvaluationContext as CoreEvaluationContext, MarkDataMode, Maybe, NestScope, NestedBandSpec,
     RadiusExpression, ScaleOrderingSpec, ScaleRange, Theme, TimeContext, array_value_to_f64,
     collect_derived_scalar_ids, contains_aggregate, default_channel_value_for_eval,
-    params_to_datafusion, resolve_all_channel_refs, resolve_derived_scalars, scalar_total_cmp,
-    strip_trailing_numbers,
+    eval_to_scalars, params_to_datafusion, resolve_all_channel_refs, resolve_derived_scalars,
+    scalar_total_cmp, strip_trailing_numbers,
 };
 
 use crate::{
@@ -1276,6 +1277,18 @@ where
         target_domain_kind,
         DomainKind::Categorical | DomainKind::NestedCategorical
     ) {
+        let nested_band_config = if target_domain_kind == DomainKind::NestedCategorical {
+            let config =
+                nested_band_config_for_channel(channel, prepared_marks, coord_transform, ctx)?;
+            if let Some(config) = &config {
+                if let ArrowDataType::Struct(fields) = dt {
+                    validate_nested_band_config(config, fields.len())?;
+                }
+            }
+            config
+        } else {
+            None
+        };
         Box::pin(cache_categorical_data(
             channel,
             spec,
@@ -1286,6 +1299,7 @@ where
             } else {
                 None
             },
+            nested_band_config.as_ref(),
             eval_ctx,
             ctx,
             params,
@@ -1783,12 +1797,182 @@ fn rewrite_order_expr_columns(
     .map_err(AvengerChartError::DataFusionError)
 }
 
+struct NestedLevelDomainOrder {
+    explicit_domain: Option<Vec<ScalarValue>>,
+    descending: Option<bool>,
+}
+
+async fn apply_nested_level_domain_ordering(
+    mut values: Vec<ScalarValue>,
+    config: Option<&NestedBandSpec>,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    derived_scalars: &DerivedScalarMap,
+) -> Result<(Vec<ScalarValue>, bool), AvengerChartError> {
+    let Some(config) = config else {
+        return Ok((values, false));
+    };
+
+    let mut level_orders = HashMap::new();
+    for (level, level_config) in &config.levels {
+        let explicit_domain = match level_config.domain.as_option() {
+            Some(domain) => Some(
+                resolve_nested_level_domain_values(*level, domain, ctx, params, derived_scalars)
+                    .await?,
+            ),
+            None => None,
+        };
+
+        let descending = match level_config.ordering.as_option() {
+            Some(ordering) => {
+                if ordering.has_order_expr() {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Nested-band level {level} order_by(...) is not supported yet; use domain_values(...), order_asc(), or order_desc()"
+                    )));
+                }
+                ordering.order_descending
+            }
+            None => None,
+        };
+
+        if explicit_domain.is_some() || descending.is_some() {
+            level_orders.insert(
+                *level,
+                NestedLevelDomainOrder {
+                    explicit_domain,
+                    descending,
+                },
+            );
+        }
+    }
+
+    if level_orders.is_empty() {
+        return Ok((values, false));
+    }
+
+    let max_depth = values
+        .iter()
+        .filter_map(nested_struct_depth)
+        .max()
+        .unwrap_or(0);
+    values.sort_by(|lhs, rhs| compare_nested_struct_paths(lhs, rhs, max_depth, &level_orders));
+    Ok((values, true))
+}
+
+async fn resolve_nested_level_domain_values(
+    level: usize,
+    domain: &ScaleDomain,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    derived_scalars: &DerivedScalarMap,
+) -> Result<Vec<ScalarValue>, AvengerChartError> {
+    match &domain.default_domain {
+        ScaleDefaultDomain::Discrete(values) => {
+            let exprs = values
+                .iter()
+                .map(|node| resolve_derived_scalars(node.to_expr(ctx)?, derived_scalars))
+                .collect::<Result<Vec<_>, _>>()?;
+            let datafusion_params = params_to_datafusion(params);
+            eval_to_scalars(exprs, Some(ctx), datafusion_params.as_ref())
+                .await
+                .map_err(AvengerChartError::DataFusionError)
+        }
+        ScaleDefaultDomain::NoDefault if domain.raw_domain.is_none() => Ok(Vec::new()),
+        ScaleDefaultDomain::NoDefault => Err(AvengerChartError::InvalidArgument(format!(
+            "Nested-band level {level} domain must be discrete values"
+        ))),
+        ScaleDefaultDomain::Interval(_, _) | ScaleDefaultDomain::DomainExprs(_) => {
+            Err(AvengerChartError::InvalidArgument(format!(
+                "Nested-band level {level} domain must be discrete values"
+            )))
+        }
+    }
+}
+
+fn nested_struct_depth(value: &ScalarValue) -> Option<usize> {
+    match value {
+        ScalarValue::Struct(array) if array.len() > 0 && !array.is_null(0) => {
+            Some(array.num_columns())
+        }
+        ScalarValue::Struct(_) => Some(0),
+        _ => None,
+    }
+}
+
+fn nested_struct_component(value: &ScalarValue, level: usize) -> Option<ScalarValue> {
+    let ScalarValue::Struct(array) = value else {
+        return None;
+    };
+    if array.len() == 0 || array.is_null(0) || level >= array.num_columns() {
+        return None;
+    }
+    ScalarValue::try_from_array(array.column(level), 0).ok()
+}
+
+fn compare_nested_struct_paths(
+    lhs: &ScalarValue,
+    rhs: &ScalarValue,
+    max_depth: usize,
+    level_orders: &HashMap<usize, NestedLevelDomainOrder>,
+) -> Ordering {
+    for level in 0..max_depth {
+        let lhs_component = nested_struct_component(lhs, level);
+        let rhs_component = nested_struct_component(rhs, level);
+        let cmp = if let Some(order) = level_orders.get(&level) {
+            order.compare(lhs_component.as_ref(), rhs_component.as_ref())
+        } else {
+            compare_optional_scalars(lhs_component.as_ref(), rhs_component.as_ref())
+        };
+        if !cmp.is_eq() {
+            return cmp;
+        }
+    }
+    scalar_total_cmp(lhs, rhs)
+}
+
+impl NestedLevelDomainOrder {
+    fn compare(&self, lhs: Option<&ScalarValue>, rhs: Option<&ScalarValue>) -> Ordering {
+        if let Some(domain) = &self.explicit_domain {
+            let lhs_rank = lhs.and_then(|value| domain.iter().position(|known| known == value));
+            let rhs_rank = rhs.and_then(|value| domain.iter().position(|known| known == value));
+            match (lhs_rank, rhs_rank) {
+                (Some(lhs_rank), Some(rhs_rank)) => {
+                    let cmp = lhs_rank.cmp(&rhs_rank);
+                    if !cmp.is_eq() {
+                        return cmp;
+                    }
+                }
+                (Some(_), None) => return Ordering::Less,
+                (None, Some(_)) => return Ordering::Greater,
+                (None, None) => {}
+            }
+        }
+
+        let cmp = compare_optional_scalars(lhs, rhs);
+        if self.descending.unwrap_or(false) {
+            cmp.reverse()
+        } else {
+            cmp
+        }
+    }
+}
+
+fn compare_optional_scalars(lhs: Option<&ScalarValue>, rhs: Option<&ScalarValue>) -> Ordering {
+    match (lhs, rhs) {
+        (Some(lhs), Some(rhs)) => scalar_total_cmp(lhs, rhs),
+        (Some(_), None) => Ordering::Greater,
+        (None, Some(_)) => Ordering::Less,
+        (None, None) => Ordering::Equal,
+    }
+}
+
 async fn cache_categorical_data(
     channel: &str,
     spec: &Box<dyn ScaleSpec>,
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
     data_expressions: &[(Arc<DataFrame>, Expr)],
     ordering: Option<&ScaleOrderingSpec>,
+    nested_band_config: Option<&NestedBandSpec>,
     eval_ctx: &CoreEvaluationContext,
     _ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
@@ -1815,6 +1999,15 @@ async fn cache_categorical_data(
             false,
         )
     };
+    let (all_unique_values, nested_ordered) = apply_nested_level_domain_ordering(
+        all_unique_values,
+        nested_band_config,
+        _ctx,
+        params,
+        &derived_scalars,
+    )
+    .await?;
+    let ordered = ordered || nested_ordered;
 
     if !all_unique_values.is_empty() {
         let extents = if ordered {
@@ -1996,7 +2189,7 @@ mod tests {
 
     use datafusion::{
         arrow::{
-            array::{Array, Float32Array, Float64Array, StringArray},
+            array::{Array, ArrayRef, Float32Array, Float64Array, StringArray, StructArray},
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
         },
@@ -2041,6 +2234,36 @@ mod tests {
 
     fn s(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))
+    }
+
+    fn nested_path(group: &str, member: &str) -> ScalarValue {
+        ScalarValue::Struct(Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("group", DataType::Utf8, true)),
+                Arc::new(StringArray::from(vec![group])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("member", DataType::Utf8, true)),
+                Arc::new(StringArray::from(vec![member])) as ArrayRef,
+            ),
+        ])))
+    }
+
+    fn nested_path_labels(values: &[ScalarValue]) -> Vec<(String, String)> {
+        values
+            .iter()
+            .map(|value| {
+                let group = match nested_struct_component(value, 0) {
+                    Some(ScalarValue::Utf8(Some(value))) => value,
+                    other => panic!("unexpected group component: {other:?}"),
+                };
+                let member = match nested_struct_component(value, 1) {
+                    Some(ScalarValue::Utf8(Some(value))) => value,
+                    other => panic!("unexpected member component: {other:?}"),
+                };
+                (group, member)
+            })
+            .collect()
     }
 
     fn df(
@@ -2184,6 +2407,137 @@ mod tests {
         match err {
             AvengerChartError::InvalidArgument(message) => {
                 assert!(message.contains("Scale order_by expression"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn nested_level_domain_values_order_struct_paths_by_level() {
+        let ctx = SessionContext::new();
+        let values = vec![
+            nested_path("A", "north"),
+            nested_path("A", "south"),
+            nested_path("B", "north"),
+            nested_path("B", "south"),
+        ];
+        let mut config = NestedBandSpec::default();
+        config.levels.insert(
+            0,
+            NestedBandLevelSpec {
+                domain: Maybe::Set(ScaleDomain::new_discrete(vec![lit("B"), lit("A")])),
+                ..Default::default()
+            },
+        );
+        config.levels.insert(
+            1,
+            NestedBandLevelSpec {
+                domain: Maybe::Set(ScaleDomain::new_discrete(vec![lit("south"), lit("north")])),
+                ..Default::default()
+            },
+        );
+
+        let (values, ordered) = apply_nested_level_domain_ordering(
+            values,
+            Some(&config),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert!(ordered);
+        assert_eq!(
+            nested_path_labels(&values),
+            vec![
+                ("B".to_string(), "south".to_string()),
+                ("B".to_string(), "north".to_string()),
+                ("A".to_string(), "south".to_string()),
+                ("A".to_string(), "north".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_level_order_desc_preserves_parent_grouping() {
+        let ctx = SessionContext::new();
+        let values = vec![
+            nested_path("A", "a"),
+            nested_path("A", "c"),
+            nested_path("B", "b"),
+            nested_path("B", "a"),
+            nested_path("A", "b"),
+            nested_path("B", "c"),
+        ];
+        let mut config = NestedBandSpec::default();
+        config.levels.insert(
+            1,
+            NestedBandLevelSpec {
+                ordering: Maybe::Set(ScaleOrderingSpec {
+                    order_expr: None,
+                    order_descending: Some(true),
+                }),
+                ..Default::default()
+            },
+        );
+
+        let (values, ordered) = apply_nested_level_domain_ordering(
+            values,
+            Some(&config),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert!(ordered);
+        assert_eq!(
+            nested_path_labels(&values),
+            vec![
+                ("A".to_string(), "c".to_string()),
+                ("A".to_string(), "b".to_string()),
+                ("A".to_string(), "a".to_string()),
+                ("B".to_string(), "c".to_string()),
+                ("B".to_string(), "b".to_string()),
+                ("B".to_string(), "a".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_level_order_by_is_rejected_until_supported() {
+        let ctx = SessionContext::new();
+        let mut config = NestedBandSpec::default();
+        config.levels.insert(
+            1,
+            NestedBandLevelSpec {
+                ordering: Maybe::Set(
+                    Scale::<Band>::new()
+                        .order_by(col("value"))
+                        .into_config()
+                        .ordering
+                        .into_option()
+                        .expect("ordering config"),
+                ),
+                ..Default::default()
+            },
+        );
+
+        let err = apply_nested_level_domain_ordering(
+            vec![nested_path("A", "a")],
+            Some(&config),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .expect_err("order_by should not silently be ignored");
+
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("Nested-band level 1 order_by"));
             }
             other => panic!("unexpected error: {other:?}"),
         }
