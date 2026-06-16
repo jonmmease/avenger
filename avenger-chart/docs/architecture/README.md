@@ -126,4 +126,5 @@ flowchart TD
 - Prefer type names, trait names, function names, and module paths.
 - Do not use source line-number anchors.
 - Keep implementation plans out of current architecture references.
-- Delete stale planning notes instead of preserving them in this directory.
+- When behavior changes, update these documents to describe the new current
+  state.

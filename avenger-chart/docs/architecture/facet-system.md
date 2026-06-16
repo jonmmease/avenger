@@ -82,6 +82,24 @@ the measured cells, shared `ScaleBuilder` for child plot domains, local layout,
 measured overflow, coordination state, current geometry handle, empty-cell
 policy, child-frame path prefix, and compiled child plot.
 
+## Sizing Policy
+
+Facet sizing is per physical dimension. `FacetRuntimeSizingPolicy` stores a
+`FacetDimensionSizing` for width and height:
+
+- `CanvasConstrained { canvas_size }` means the dimension is solved inside the
+  available canvas extent and child plot areas may be retargeted without
+  remeasurement;
+- `LeafPlotAreaSized { leaf_plot_size }` means leaf child plot areas preserve
+  that physical plot-area size and the overall chart grows as needed.
+
+For a column facet, the facet-band dimension is width; for a row facet, it is
+height. A band whose main physical dimension is leaf-plot-area-sized uses
+content-driven facet geometry. A band whose main dimension is
+canvas-constrained uses uniform geometry over the parent plot-area extent.
+Both modes refresh `CurrentFacetGeometry` after stable mutation boundaries, so
+render/readback consumes one settled geometry artifact.
+
 ## Coordination And Current Geometry
 
 `coordinate_facet_measurement_tree` runs the cross-band coordination
@@ -109,11 +127,9 @@ and adopt walks live in `facet/coordination_apply.rs`.
   padded to the folded slot count. One solve yields the layout channel
   (solved track spacing; `guide_slot_gap_px` folds chart-side) and the
   full-overflow channel (each node's `Region.coordinated` edges — its
-  own post-share ask). When the shadow census is enabled the solve is
-  also retained whole (`RetainedFacetSolve`) for the census's adoption
-  probe. Guide-anchor and boundary overflow remain chart-side folds
-  over their own scopes (`fold_overflow_entries`): lanes split groups,
-  and boundary strips global edges per node.
+  own post-share ask). Guide-anchor and boundary overflow remain
+  chart-side folds over their own scopes (`fold_overflow_entries`):
+  lanes split groups, and boundary strips global edges per node.
 - INSTALL (`build_requirement_pass_with_round` +
   `apply_requirement_pass`): the per-node channel values (lane gap
   folds and global-edge outer reversion applied in
@@ -142,10 +158,8 @@ the next operating point. Adoption moves the tree to the solve's fixed
 point — at the settled state, solved slots equal live geometry and
 re-lowering changes nothing. The env-gated shadow census
 (`AVENGER_SHADOW_TREE_SOLVE=1`) verifies this equilibrium per run:
-geometry (settled slots vs live cells), idempotence (re-solve from the
-shadow's own slots), and adoption (`adopt_delta`: retained install-time
-solution vs settled re-solve — the size of the transition the run
-applied).
+settled slot geometry against live cells, idempotence from the shadow's
+own slots, adoption deltas, and content-driven geometry probes.
 
 Within a coordination run, measured chrome and overflow stay FROZEN at
 their epoch measurements (the staleness law): adoption moves geometry,

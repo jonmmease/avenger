@@ -83,7 +83,8 @@ param map. Both paths merge provided params with defaults, build an
 - builds configured scales through a `ScaleProvider`,
 - measures coordinate-specific state through
   `measure_coordinate_system_transform`,
-- applies coordinate measurement scale adjustments when needed,
+- coordinates facet layout/overflow and refreshes `CurrentFacetGeometry` for
+  render/readback when the coordinate measurement is faceted,
 - refines layout when plot-area sizing needs coordinate-aware overflow,
 - records clip, frame allocation, params, layout, scales, and prepared legend
   plan in `ComponentsMeasurement`.

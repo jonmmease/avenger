@@ -10,6 +10,26 @@ solvers, and requirement alignment — live in the `avenger-layout` crate.
 concepts at the boundary: plot area -> content size, guide overflow -> inner
 edge, legend overflow -> outer edge, rendered envelope -> total edge.
 
+## Frame And Content Solvers
+
+Chart layout has two layers:
+
+- the frame solver lays out chart chrome around one content rectangle: margins,
+  titles, guide overflow bands, legends, and plot/content bounds;
+- the content solver lays out what lives inside that content rectangle.
+
+`AvengerFrameLayoutSolver` is the native chart-frame solver. It consumes
+`FrameLayoutInput`, builds `FrameChrome` from measured guide overflow, title,
+subtitle, legend measurements, theme, and sizing policy, and returns a
+`LayoutSolution` with frame bounds, plot-area bounds, legend layout info, guide
+overflow, total overflow, and frame allocation metadata.
+
+Content solving is polymorphic. `SinglePlotContentSolver` is the degenerate
+case for regular charts. `ChildFrameContentSolver` consumes a
+`ChildFrameContainerView` and projects facet, concat, repeat-lowered concat, or
+positioned child frames into the solved content rectangle. This split keeps
+chart chrome solving separate from container-specific placement.
+
 ## Child-Frame Lifecycle
 
 ```mermaid

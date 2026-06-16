@@ -7,9 +7,10 @@ coordination live in the top-level `avenger-chart` crate.
 The chart-independent layout primitives underneath live in the
 `avenger-layout` crate: geometry value types, the band/grid solvers with
 per-axis `TrackSpacing`, the region placement handoff, and the one-round
-requirement-alignment engine. `avenger-layout` has no chart (or other)
-dependencies; `avenger-chart` consumes it through small adapters and re-exports
-in `avenger-chart/src/layout/mod.rs`.
+requirement-alignment engine. `avenger-layout` has no chart dependencies and
+depends only on lower-level workspace crates such as `avenger-color`;
+`avenger-chart` consumes it through small adapters and re-exports in
+`avenger-chart/src/layout/mod.rs`.
 
 The extension boundary is narrower:
 
@@ -65,11 +66,12 @@ flowchart TD
     Polar --> Chart
 ```
 
-Other workspace crates such as `avenger-layout`, `avenger-scales`,
-`avenger-scenegraph`, `avenger-guides`, `avenger-text`, `avenger-app`,
-`avenger-eventstream`, `avenger-wgpu`, `avenger-winit-wgpu`, and
-`avenger-chart-app` sit outside this chart-layer graph and provide runtime
-services used by the facade, examples, apps, or extension crates.
+Other workspace crates such as `avenger-color`, `avenger-layout`,
+`avenger-scales`, `avenger-scenegraph`, `avenger-guides`, `avenger-text`,
+`avenger-app`, `avenger-eventstream`, `avenger-wgpu`,
+`avenger-winit-wgpu`, and `avenger-chart-app` sit outside this chart-layer
+graph and provide runtime services used by the facade, examples, apps, or
+extension crates.
 `avenger-layout` is consumed only by the facade crate.
 
 ## Owner Crates
@@ -85,6 +87,8 @@ services used by the facade, examples, apps, or extension crates.
 | `avenger-chart-cartesian` | `Cartesian`, `CartesianGuide`, `CartesianAxis`, Cartesian channel/axis behavior, Cartesian render implementations for built-in data marks, and Cartesian `Subplot` placement channels `subplot_x` and `subplot_y`. |
 | `avenger-chart-polar` | `Polar`, `PolarGuide`, `PolarAxis`, polar channel/axis behavior, Polar `Symbol` render implementation, and Polar `Subplot` placement channels `r` and `theta`. |
 | `avenger-chart` | Facade exports plus `Plot`, `CompiledPlot`, facade `render::EvaluationContext`, facet, concat, repeat lowering, partitioning, child-frame measurement, chart frame/content layout solving, adapters over the `avenger-layout` solvers, generic positioned subplot measurement/rendering, transform runtime application, plot-level scale and legend planning, tool expansion application, WGPU/canvas rendering, and integration tests. |
+| `avenger-color` | Lower-level color and gradient data model, CSS/named color parsing, color-space conversion and mixing helpers, WCAG contrast helpers, and pure color-ramp interpolation. |
+| `avenger-layout` | Chart-independent geometry, track spacing, band/grid layout solves, region placement/readback, and one-round requirement alignment. |
 | `avenger-chart-app` | Chart-specific app bridge: `ChartAppState`, `ChartResizeBinding`, `ChartAppOptions`, `chart_avenger_app`, resize handlers, and Winit/WGPU helper exports behind the `winit-wgpu` feature. |
 | `avenger-winit-wgpu` | Desktop/WASM host integration: `WinitWgpuAvengerApp`, `WinitWgpuAvengerAppOptions`, `WindowSceneSizing`, `CanvasFrameOptions`, Winit event-loop handling, virtual canvas frame input, scenegraph installation, and WGPU surface rendering. |
 

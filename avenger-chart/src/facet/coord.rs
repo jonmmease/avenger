@@ -3534,8 +3534,8 @@ impl<'a> FacetBandMeasurePipeline<'a> {
     }
 
     fn initial_uniform_subplot_main_size(&self, slot_count: usize) -> f32 {
-        // Preserve the former first-pass facet measurement seed without
-        // reintroducing the old facet dimension-scale state.
+        // Use a deterministic first-pass facet measurement seed derived from
+        // the current parent extent and facet slot count.
         let n = slot_count.max(1) as f32;
         let bandspace = (n - FACET_DIMENSION_SEED_PADDING_INNER
             + 2.0 * FACET_DIMENSION_SEED_PADDING_OUTER)
