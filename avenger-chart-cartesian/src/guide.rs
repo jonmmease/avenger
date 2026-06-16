@@ -1,5 +1,8 @@
 //! Cartesian coordinate system guide implementation
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use avenger_chart_core::{
     AvengerChartError, AxisPosition, CompiledGuide, CompiledMarkCore, CoordMeasurement,
@@ -48,6 +51,9 @@ pub struct CartesianGuide {
     /// Child-frame scale sharing levels extracted from mark channels.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub(crate) channel_sharing_levels: HashMap<String, u8>,
+    /// Nested-band per-level axis overrides extracted from position channels.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub(crate) nested_axis_levels: HashMap<String, BTreeMap<usize, CartesianAxis>>,
 }
 
 impl std::fmt::Debug for CartesianGuide {
@@ -57,6 +63,7 @@ impl std::fmt::Debug for CartesianGuide {
             .field("options", &self.options)
             .field("channel_titles", &self.channel_titles)
             .field("channel_sharing_levels", &self.channel_sharing_levels)
+            .field("nested_axis_levels", &self.nested_axis_levels)
             .finish()
     }
 }
@@ -68,6 +75,7 @@ impl CartesianGuide {
             options: CartesianOptions::default(),
             channel_titles: HashMap::new(),
             channel_sharing_levels: HashMap::new(),
+            nested_axis_levels: HashMap::new(),
         }
     }
 
@@ -148,6 +156,13 @@ impl CartesianGuide {
             self.options.plot_background_color = other.options.plot_background_color;
         }
 
+        for (channel, level_axes) in other.nested_axis_levels {
+            self.nested_axis_levels
+                .entry(channel)
+                .or_default()
+                .extend(level_axes);
+        }
+
         self
     }
 }
@@ -179,8 +194,29 @@ impl CoordinateGuide for CartesianGuide {
         }
 
         self.channel_sharing_levels.clear();
+        self.nested_axis_levels.clear();
         for mark in compiled_marks {
             for (channel, channel_value) in mark.data_context().channels() {
+                if let Some(nested_config) = channel_value.get_nested_band_config() {
+                    let channel = strip_trailing_numbers(channel).to_string();
+                    let level_axes = self.nested_axis_levels.entry(channel).or_default();
+                    for (level, level_config) in &nested_config.levels {
+                        let Some(axis_config) = &level_config.axis_config else {
+                            continue;
+                        };
+                        let Some(axis) = axis_config.as_any().downcast_ref::<CartesianAxis>()
+                        else {
+                            continue;
+                        };
+                        level_axes
+                            .entry(*level)
+                            .and_modify(|existing| {
+                                *existing = std::mem::take(existing).update(axis.clone());
+                            })
+                            .or_insert_with(|| axis.clone());
+                    }
+                }
+
                 let Some(sharing) = channel_value.get_domain_scope() else {
                     continue;
                 };
@@ -431,6 +467,7 @@ impl CompiledGuide for CartesianGuide {
                     sharing_context,
                     facet_sharing_level,
                     child_frame_sharing_level,
+                    self.nested_axis_levels.get(channel),
                 )
                 .await?;
                 marks.push(axis_mark);

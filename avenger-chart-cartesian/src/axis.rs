@@ -1,4 +1,4 @@
-use std::any::Any;
+use std::{any::Any, collections::BTreeMap};
 
 pub use avenger_chart_core::AxisPosition;
 use avenger_chart_core::{
@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::marks::subplot::{CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL};
+use crate::nested_axis::{NestedAxisLevelGuideConfig, make_nested_axis_marks};
 
 /// Concrete struct for Cartesian axes.
 ///
@@ -504,6 +505,7 @@ pub async fn evaluate_cartesian_axis(
     sharing_context: GuideSharingContext<'_>,
     facet_sharing_level: SharingLevel,
     child_frame_sharing_level: SharingLevel,
+    nested_axis_levels: Option<&BTreeMap<usize, CartesianAxis>>,
 ) -> Result<SceneMark, AvengerChartError> {
     let visible = if let Some(visible_node) = axis.visible.as_option().and_then(|o| o.as_ref()) {
         let visible_expr =
@@ -565,6 +567,15 @@ pub async fn evaluate_cartesian_axis(
             let format_expr =
                 resolve_axis_expr(format_node.to_default_expr(ctx)?, channel, sharing_context)?;
             Some(evaluate_string_expr(&format_expr, ctx, params).await?)
+        } else {
+            None
+        };
+
+    let label_angle =
+        if let Some(angle_node) = axis.label_angle.as_option().and_then(|o| o.as_ref()) {
+            let angle_expr =
+                resolve_axis_expr(angle_node.to_default_expr(ctx)?, channel, sharing_context)?;
+            Some(evaluate_f32_expr(&angle_expr, ctx, params).await?)
         } else {
             None
         };
@@ -682,6 +693,7 @@ pub async fn evaluate_cartesian_axis(
         tick_length: theme.axis_tick_length(&axis_ctx),
         label_font_size: theme.font_size(&label_ctx),
         label_font_weight: theme.font_weight(&label_ctx),
+        label_angle,
         title_font_weight: theme.font_weight(&title_ctx),
         label_font_family,
         title_font_family,
@@ -699,6 +711,20 @@ pub async fn evaluate_cartesian_axis(
         String::new()
     };
     let title = title.as_str();
+
+    let nested_axis_level_configs = match scale.scale_impl.domain_kind() {
+        DomainKind::NestedCategorical => Some(
+            evaluate_nested_axis_level_configs(
+                nested_axis_levels,
+                channel,
+                ctx,
+                params,
+                sharing_context,
+            )
+            .await?,
+        ),
+        _ => None,
+    };
 
     let domain_kind = scale.scale_impl.domain_kind();
     let axis_group = match domain_kind {
@@ -719,10 +745,44 @@ pub async fn evaluate_cartesian_axis(
                 }
             }
         }
+        DomainKind::NestedCategorical => make_nested_axis_marks(
+            scale,
+            title,
+            axis_origin,
+            &axis_config,
+            nested_axis_level_configs.as_ref(),
+        )?,
         _ => make_numeric_axis_marks(scale, title, axis_origin, &axis_config)?,
     };
 
     Ok(SceneMark::Group(axis_group))
+}
+
+async fn evaluate_nested_axis_level_configs(
+    nested_axis_levels: Option<&BTreeMap<usize, CartesianAxis>>,
+    channel: &str,
+    ctx: &SessionContext,
+    params: &indexmap::IndexMap<String, ScalarValue>,
+    sharing_context: GuideSharingContext<'_>,
+) -> Result<BTreeMap<usize, NestedAxisLevelGuideConfig>, AvengerChartError> {
+    let Some(nested_axis_levels) = nested_axis_levels else {
+        return Ok(BTreeMap::new());
+    };
+
+    let mut configs = BTreeMap::new();
+    for (level, axis) in nested_axis_levels {
+        let visible = if let Some(visible_node) = axis.visible.as_option().and_then(|o| o.as_ref())
+        {
+            let visible_expr =
+                resolve_axis_expr(visible_node.to_default_expr(ctx)?, channel, sharing_context)?;
+            evaluate_bool_expr(&visible_expr, ctx, params).await?
+        } else {
+            true
+        };
+        configs.insert(*level, NestedAxisLevelGuideConfig { visible });
+    }
+
+    Ok(configs)
 }
 
 async fn evaluate_tick_spacing(

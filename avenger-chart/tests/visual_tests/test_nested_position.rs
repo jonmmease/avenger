@@ -1,0 +1,219 @@
+use std::sync::Arc;
+
+use crate::visual_tests::helpers::assert_visual_match_default;
+use avenger_chart::prelude::*;
+use datafusion::{
+    arrow::{
+        array::{ArrayRef, Float32Array, StringArray},
+        datatypes::{DataType, Field, Schema},
+        record_batch::RecordBatch,
+    },
+    prelude::{SessionContext, named_struct},
+};
+use palette::Srgba;
+
+fn record_batch(fields: Vec<Field>, columns: Vec<ArrayRef>) -> RecordBatch {
+    RecordBatch::try_new(Arc::new(Schema::new(fields)), columns).expect("record batch")
+}
+
+fn nested_x(outer: &str, inner: &str) -> datafusion::logical_expr::Expr {
+    named_struct(vec![lit("group"), col(outer), lit("member"), col(inner)])
+}
+
+#[tokio::test]
+async fn test_nested_position_grouped_bar_shared_slots_hidden_leaf_axis() {
+    let ctx = SessionContext::new();
+    let batch = record_batch(
+        vec![
+            Field::new("quarter", DataType::Utf8, false),
+            Field::new("team", DataType::Utf8, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "Q1", "Q1", "Q1", "Q2", "Q2", "Q3", "Q3", "Q3",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "North", "South", "East", "North", "East", "North", "South", "East",
+            ])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![
+                42.0, 30.0, 34.0, 47.0, 38.0, 51.0, 39.0, 44.0,
+            ])) as ArrayRef,
+        ],
+    );
+    let df = ctx.read_batch(batch).expect("dataframe");
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .legend("fill", |legend| legend.title("Team"))
+        .mark(
+            Rect::new()
+                .x_with(nested_x("quarter", "team"), |x| {
+                    x.axis(|a| a.title("Quarter").grid(false))
+                        .level(0, |l| l.padding_inner(0.45).padding_outer(0.15))
+                        .level(1, |l| {
+                            l.nest_scope(NestScope::Shared)
+                                .padding_inner(0.08)
+                                .axis(|a| a.visible(false))
+                        })
+                })
+                .x2_with(col(":x"), |x| x.band(1.0))
+                .y_with(lit(0.0), |y| {
+                    y.scale(|s| s.domain((0.0, 60.0)))
+                        .axis(|a| a.title("Value").grid(true))
+                })
+                .y2(col("value"))
+                .fill_with(col("team"), |fill| fill)
+                .stroke("#ffffff")
+                .stroke_width(1.0),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "grouped_bar_shared_slots_hidden_leaf_axis",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_bokeh_style_variable_parent_width_axis() {
+    let ctx = SessionContext::new();
+    let batch = record_batch(
+        vec![
+            Field::new("cylinders", DataType::Utf8, false),
+            Field::new("manufacturer", DataType::Utf8, false),
+            Field::new("mpg", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "3", "4", "4", "4", "4", "5", "5", "6", "6", "6", "8", "8", "8",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "mazda", "amc", "buick", "ford", "toyota", "audi", "mercedes", "amc", "buick",
+                "volvo", "amc", "dodge", "ford",
+            ])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![
+                20.4, 25.7, 28.1, 29.3, 30.4, 28.0, 25.2, 18.6, 20.5, 23.8, 15.0, 14.6, 15.2,
+            ])) as ArrayRef,
+        ],
+    );
+    let df = ctx.read_batch(batch).expect("dataframe");
+
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Rect::new()
+            .x_with(nested_x("cylinders", "manufacturer"), |x| {
+                x.axis(|a| {
+                    a.title("Manufacturer grouped by cylinders")
+                        .grid(false)
+                        .label_angle(-45.0)
+                })
+                .level(0, |l| l.padding_inner(0.35).padding_outer(0.2))
+                .level(1, |l| l.padding_inner(0.06))
+            })
+            .x2_with(col(":x"), |x| x.band(1.0))
+            .y_with(lit(0.0), |y| {
+                y.scale(|s| s.domain((0.0, 36.0)))
+                    .axis(|a| a.title("Mean MPG").grid(true))
+            })
+            .y2(col("mpg"))
+            .fill_with(col("cylinders"), |fill| fill)
+            .stroke("#ffffff")
+            .stroke_width(1.0),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "bokeh_style_variable_parent_width_axis",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_heatmap_zero_padding_both_axes() {
+    let ctx = SessionContext::new();
+    let mut x_group = Vec::new();
+    let mut x_member = Vec::new();
+    let mut y_group = Vec::new();
+    let mut y_member = Vec::new();
+    let mut value = Vec::new();
+    for (gx, members_x) in [("A", ["a1", "a2"]), ("B", ["b1", "b2"])] {
+        for mx in members_x {
+            for (gy, members_y) in [("North", ["n1", "n2"]), ("South", ["s1", "s2"])] {
+                for my in members_y {
+                    x_group.push(gx);
+                    x_member.push(mx);
+                    y_group.push(gy);
+                    y_member.push(my);
+                    value.push(match (gx, mx, gy, my) {
+                        ("A", "a1", "North", "n1") => 0.15,
+                        ("A", "a2", "South", "s2") => 0.95,
+                        ("B", "b1", "North", "n2") => 0.70,
+                        ("B", "b2", "South", "s1") => 0.45,
+                        _ => 0.30,
+                    });
+                }
+            }
+        }
+    }
+    let batch = record_batch(
+        vec![
+            Field::new("x_group", DataType::Utf8, false),
+            Field::new("x_member", DataType::Utf8, false),
+            Field::new("y_group", DataType::Utf8, false),
+            Field::new("y_member", DataType::Utf8, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(x_group)) as ArrayRef,
+            Arc::new(StringArray::from(x_member)) as ArrayRef,
+            Arc::new(StringArray::from(y_group)) as ArrayRef,
+            Arc::new(StringArray::from(y_member)) as ArrayRef,
+            Arc::new(Float32Array::from(value)) as ArrayRef,
+        ],
+    );
+    let df = ctx.read_batch(batch).expect("dataframe");
+
+    let x_expr = nested_x("x_group", "x_member");
+    let y_expr = nested_x("y_group", "y_member");
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Rect::new()
+            .x_with(x_expr, |x| {
+                x.axis(|a| a.title("Nested X").grid(false))
+                    .level(0, |l| l.padding_inner(0.0).padding_outer(0.0))
+                    .level(1, |l| l.padding_inner(0.0).padding_outer(0.0))
+            })
+            .x2_with(col(":x"), |x| x.band(1.0))
+            .y_with(y_expr, |y| {
+                y.axis(|a| a.title("Nested Y").grid(false))
+                    .level(0, |l| l.padding_inner(0.0).padding_outer(0.0))
+                    .level(1, |l| l.padding_inner(0.0).padding_outer(0.0))
+            })
+            .y2_with(col(":y"), |y| y.band(1.0))
+            .fill_with(col("value"), |fill| {
+                fill.scale_with::<Linear>(|s| {
+                    s.domain((0.0, 1.0)).range_colors(vec![
+                        Srgba::new(0.97, 0.98, 1.0, 1.0),
+                        Srgba::new(0.03, 0.19, 0.42, 1.0),
+                    ])
+                })
+            }),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "heatmap_zero_padding_both_axes",
+    )
+    .await;
+}

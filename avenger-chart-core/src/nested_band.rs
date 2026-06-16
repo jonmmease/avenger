@@ -29,7 +29,6 @@ pub enum NestScope {
 
 /// A boundary request within a position scale's band hierarchy.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
 pub enum PositionBoundary {
     /// Boundary inside the leaf band.
     Band { band: f64 },
@@ -361,5 +360,52 @@ mod tests {
             .map(|expr| expr.to_string())
             .collect::<Vec<_>>();
         assert_eq!(rendered, vec!["Utf8(\"a\")", "Utf8(\"b\")", "sort_key"]);
+    }
+
+    #[test]
+    fn nested_band_spec_bincode_round_trips_without_level_axis_config() {
+        let spec = NestedBandSpec {
+            levels: BTreeMap::from([(
+                1,
+                NestedBandLevelSpec {
+                    nest_scope: Some(NestScope::Shared),
+                    padding_inner: Some(0.05),
+                    ..Default::default()
+                },
+            )]),
+        };
+
+        let serialized = bincode::serialize(&spec).expect("serialize");
+        let restored: NestedBandSpec = bincode::deserialize(&serialized).expect("deserialize");
+
+        assert_eq!(
+            restored.level(1).unwrap().nest_scope,
+            Some(NestScope::Shared)
+        );
+        assert_eq!(restored.level(1).unwrap().padding_inner, Some(0.05));
+    }
+
+    #[test]
+    fn nested_band_spec_bincode_round_trips_with_level_axis_config() {
+        let spec = NestedBandSpec {
+            levels: BTreeMap::from([(
+                1,
+                NestedBandLevelConfig::<()>::new(NestedBandLevelSpec::default())
+                    .axis(|axis| axis)
+                    .into_spec(),
+            )]),
+        };
+
+        let serialized = bincode::serialize(&spec).expect("serialize");
+        let restored: NestedBandSpec = bincode::deserialize(&serialized).expect("deserialize");
+
+        assert!(
+            restored
+                .level(1)
+                .unwrap()
+                .axis_config
+                .as_ref()
+                .is_some_and(|axis| axis.as_any().is::<()>())
+        );
     }
 }

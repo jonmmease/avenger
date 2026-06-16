@@ -1283,7 +1283,7 @@ impl From<bool> for ChannelValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Maybe, ScaleOrderingSpec, channel::BaseChannelName};
+    use crate::{Maybe, NestScope, ScaleOrderingSpec, channel::BaseChannelName};
     use datafusion::prelude::col;
 
     #[test]
@@ -1503,6 +1503,63 @@ mod tests {
             .map(|expr| expr.to_string())
             .collect::<Vec<_>>();
         assert_eq!(rendered, vec!["category", "series_sort"]);
+    }
+
+    #[test]
+    fn scaled_channel_value_bincode_round_trips() {
+        let value = ChannelValue::from(col("category")).band(0.0);
+
+        let serialized = bincode::serialize(&value).expect("serialize");
+        let restored: ChannelValue = bincode::deserialize(&serialized).expect("deserialize");
+
+        assert_eq!(
+            restored.get_position_boundary(),
+            Some(PositionBoundary::Band { band: 0.0 })
+        );
+    }
+
+    #[test]
+    fn nested_band_col_channel_value_bincode_round_trips() {
+        let mut nested = NestedBandSpec::default();
+        nested.level_mut(1).nest_scope = Some(NestScope::Shared);
+        let value = ChannelValue::from(col("category"))
+            .with_nested_band_config(nested)
+            .band(0.0);
+
+        let serialized = bincode::serialize(&value).expect("serialize");
+        let restored: ChannelValue = bincode::deserialize(&serialized).expect("deserialize");
+
+        assert_eq!(
+            restored
+                .get_nested_band_config()
+                .and_then(|nested| nested.level(1))
+                .and_then(|level| level.nest_scope),
+            Some(NestScope::Shared)
+        );
+    }
+
+    #[test]
+    fn nested_band_named_struct_channel_value_bincode_round_trips() {
+        use datafusion::prelude::{lit, named_struct};
+
+        let mut nested = NestedBandSpec::default();
+        nested.level_mut(1).nest_scope = Some(NestScope::Shared);
+        nested.level_mut(1).padding_inner = Some(0.05);
+        let value = ChannelValue::from(named_struct(vec![
+            lit("group"),
+            col("group"),
+            lit("member"),
+            col("member"),
+        ]))
+        .with_nested_band_config(nested)
+        .band(0.0);
+
+        let serialized = bincode::serialize(&value).expect("serialize");
+        let restored: ChannelValue = bincode::deserialize(&serialized).expect("deserialize");
+
+        let nested = restored.get_nested_band_config().expect("nested config");
+        assert_eq!(nested.level(1).unwrap().nest_scope, Some(NestScope::Shared));
+        assert_eq!(nested.level(1).unwrap().padding_inner, Some(0.05));
     }
 
     #[test]
