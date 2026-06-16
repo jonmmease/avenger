@@ -30,8 +30,8 @@ use tracing::trace;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledMark, CoordinateSystemTransformCore, DerivedScalarMap,
-    EvaluationContext as CoreEvaluationContext, MarkDataMode, Maybe, RadiusExpression,
-    ScaleOrderingSpec, ScaleRange, Theme, TimeContext, array_value_to_f64,
+    EvaluationContext as CoreEvaluationContext, MarkDataMode, Maybe, NestScope, NestedBandSpec,
+    RadiusExpression, ScaleOrderingSpec, ScaleRange, Theme, TimeContext, array_value_to_f64,
     collect_derived_scalar_ids, contains_aggregate, default_channel_value_for_eval,
     params_to_datafusion, resolve_all_channel_refs, resolve_derived_scalars, scalar_total_cmp,
     strip_trailing_numbers,
@@ -711,6 +711,23 @@ where
         }
     }
 
+    if scale_spec.name() == "nested_band" {
+        let level_count = match &dt {
+            ArrowDataType::Struct(fields) => fields.len(),
+            other => {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "NestedBand scales require struct-valued position data, got {other:?}"
+                )));
+            }
+        };
+        if let Some(config) =
+            nested_band_config_for_channel(channel, prepared_marks, coord_transform, ctx)?
+        {
+            validate_nested_band_config(&config, level_count)?;
+            scale = apply_nested_band_options(scale, &config)?;
+        }
+    }
+
     let options = scale.get_options().clone();
     let domain_opt = scale.get_domain().cloned();
     let ordering = scale.get_ordering().cloned();
@@ -723,6 +740,144 @@ where
         domain_opt,
         ordering,
     )))
+}
+
+fn nested_band_config_for_channel<C>(
+    channel: &str,
+    prepared_marks: &[PreparedScaleMark],
+    coord_transform: &C,
+    ctx: &SessionContext,
+) -> Result<Option<NestedBandSpec>, AvengerChartError>
+where
+    C: CoordinateSystemTransformCore + ?Sized,
+{
+    for prepared in prepared_marks {
+        validate_nested_band_derivative_configs(&prepared.channels, ctx)?;
+        let resolved = resolve_all_channel_refs(&prepared.channels, ctx)
+            .unwrap_or_else(|_| prepared.channels.clone());
+        for (channel_name, channel_value) in &resolved {
+            if channel_maps_to_scale(coord_transform, channel_name, channel_value, channel)
+                && let Some(config) = channel_value.get_nested_band_config()
+            {
+                return Ok(Some(config.clone()));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn validate_nested_band_derivative_configs(
+    channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
+) -> Result<(), AvengerChartError> {
+    for (channel_name, channel_value) in channels {
+        if channel_value.get_nested_band_config().is_none() {
+            continue;
+        }
+        let Some(expr) = channel_value.scale_input_expr(ctx) else {
+            continue;
+        };
+        let references_derivative = expr.column_refs().iter().any(|column| {
+            column
+                .name
+                .strip_prefix(':')
+                .is_some_and(|source| !source.is_empty())
+        });
+        if references_derivative {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Nested-band level configuration must be declared on the source position channel, not derivative channel '{channel_name}'"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_nested_band_config(
+    config: &NestedBandSpec,
+    level_count: usize,
+) -> Result<(), AvengerChartError> {
+    for (level, level_config) in &config.levels {
+        if *level >= level_count {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Nested-band level {level} is invalid for struct position data with {level_count} fields"
+            )));
+        }
+        if *level == 0 && level_config.nest_scope.is_some() {
+            return Err(AvengerChartError::InvalidArgument(
+                "nest_scope(...) is only valid for nested-band child levels, not level 0"
+                    .to_string(),
+            ));
+        }
+        for (name, value) in [
+            ("padding_inner", level_config.padding_inner),
+            ("padding_outer", level_config.padding_outer),
+            ("padding_inner_px", level_config.padding_inner_px),
+            ("padding_outer_px", level_config.padding_outer_px),
+        ] {
+            if let Some(value) = value
+                && (value < 0.0 || !value.is_finite())
+            {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Nested-band {name} for level {level} must be non-negative and finite"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn apply_nested_band_options(
+    mut scale: Scale<Auto>,
+    config: &NestedBandSpec,
+) -> Result<Scale<Auto>, AvengerChartError> {
+    let Some(max_level) = config.levels.keys().next_back().copied() else {
+        return Ok(scale);
+    };
+    let len = max_level + 1;
+    let mut nest_scopes = vec![String::new(); len];
+    let mut padding_inner = vec![String::new(); len];
+    let mut padding_outer = vec![String::new(); len];
+    let mut padding_inner_px = vec![String::new(); len];
+    let mut padding_outer_px = vec![String::new(); len];
+
+    for (level, level_config) in &config.levels {
+        if let Some(scope) = level_config.nest_scope {
+            nest_scopes[*level] = match scope {
+                NestScope::Free => "free".to_string(),
+                NestScope::Shared => "shared".to_string(),
+            };
+        }
+        if let Some(value) = level_config.padding_inner {
+            padding_inner[*level] = value.to_string();
+        }
+        if let Some(value) = level_config.padding_outer {
+            padding_outer[*level] = value.to_string();
+        }
+        if let Some(value) = level_config.padding_inner_px {
+            padding_inner_px[*level] = value.to_string();
+        }
+        if let Some(value) = level_config.padding_outer_px {
+            padding_outer_px[*level] = value.to_string();
+        }
+    }
+
+    if nest_scopes.iter().any(|value| !value.is_empty()) {
+        scale = scale.option("nest_scopes", lit(nest_scopes.join(",")));
+    }
+    if padding_inner.iter().any(|value| !value.is_empty()) {
+        scale = scale.option("padding_inner_levels", lit(padding_inner.join(",")));
+    }
+    if padding_outer.iter().any(|value| !value.is_empty()) {
+        scale = scale.option("padding_outer_levels", lit(padding_outer.join(",")));
+    }
+    if padding_inner_px.iter().any(|value| !value.is_empty()) {
+        scale = scale.option("padding_inner_px_levels", lit(padding_inner_px.join(",")));
+    }
+    if padding_outer_px.iter().any(|value| !value.is_empty()) {
+        scale = scale.option("padding_outer_px_levels", lit(padding_outer_px.join(",")));
+    }
+
+    Ok(scale)
 }
 
 /// Get radius expression for a positional channel (returns None for non-positional)
@@ -1853,7 +2008,8 @@ mod tests {
     use super::*;
     use crate::{Band, Linear, NestedBand};
     use avenger_chart_core::{
-        PlotGeometry, ResolvedDomain, ScaleRange, ScaleRangeBinding, SubplotGeometry,
+        ChannelExpr, NestedBandLevelSpec, PlotGeometry, ResolvedDomain, ScaleRange,
+        ScaleRangeBinding, SubplotGeometry,
     };
     use avenger_common::value::ScalarOrArray;
 
@@ -2163,6 +2319,110 @@ mod tests {
         assert_eq!(scaled.value(0), 0.0);
         assert_eq!(scaled.value(1), 100.0);
         assert_eq!(scaled.value(2), 200.0);
+    }
+
+    #[test]
+    fn nested_band_level_config_encodes_scale_options() {
+        let ctx = SessionContext::new();
+        let mut config = NestedBandSpec::default();
+        config.levels.insert(
+            1,
+            NestedBandLevelSpec {
+                nest_scope: Some(NestScope::Shared),
+                padding_inner: Some(0.25),
+                padding_outer: Some(0.5),
+                padding_inner_px: Some(4.0),
+                padding_outer_px: Some(8.0),
+                ..Default::default()
+            },
+        );
+
+        validate_nested_band_config(&config, 2).unwrap();
+        let scale =
+            apply_nested_band_options(Scale::<Auto>::from_spec(Box::new(NestedBand)), &config)
+                .unwrap();
+
+        let option_string = |key: &str| match scale.get_options()[key].to_expr(&ctx).unwrap() {
+            Expr::Literal(ScalarValue::Utf8(Some(value)), _) => value,
+            other => panic!("unexpected option expr for {key}: {other:?}"),
+        };
+
+        assert_eq!(option_string("nest_scopes"), ",shared");
+        assert_eq!(option_string("padding_inner_levels"), ",0.25");
+        assert_eq!(option_string("padding_outer_levels"), ",0.5");
+        assert_eq!(option_string("padding_inner_px_levels"), ",4");
+        assert_eq!(option_string("padding_outer_px_levels"), ",8");
+    }
+
+    #[test]
+    fn nested_band_level_zero_nest_scope_is_invalid() {
+        let mut config = NestedBandSpec::default();
+        config.levels.insert(
+            0,
+            NestedBandLevelSpec {
+                nest_scope: Some(NestScope::Shared),
+                ..Default::default()
+            },
+        );
+
+        let err = validate_nested_band_config(&config, 2).expect_err("level 0 nest scope");
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("level 0"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nested_band_level_beyond_struct_fields_is_invalid() {
+        let mut config = NestedBandSpec::default();
+        config.levels.insert(2, NestedBandLevelSpec::default());
+
+        let err = validate_nested_band_config(&config, 2).expect_err("invalid level");
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("level 2"));
+                assert!(message.contains("2 fields"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nested_band_derivative_channel_rejects_level_config() {
+        let ctx = SessionContext::new();
+        let mut channels = IndexMap::new();
+        channels.insert("x".to_string(), ChannelValue::from(col("x")));
+        channels.insert(
+            "x2".to_string(),
+            ChannelValue::from(col(":x")).with_nested_band_config({
+                let mut config = NestedBandSpec::default();
+                config.levels.insert(
+                    1,
+                    NestedBandLevelSpec {
+                        nest_scope: Some(NestScope::Shared),
+                        ..Default::default()
+                    },
+                );
+                config
+            }),
+        );
+
+        let err = validate_nested_band_derivative_configs(&channels, &ctx)
+            .expect_err("derivative config");
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("derivative channel 'x2'"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        channels.insert(
+            "x2".to_string(),
+            ChannelExpr::scaled(col(":x")).level_band(0, 1.0).into(),
+        );
+        validate_nested_band_derivative_configs(&channels, &ctx).unwrap();
     }
 
     #[tokio::test]
