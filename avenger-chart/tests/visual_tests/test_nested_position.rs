@@ -167,6 +167,39 @@ async fn test_nested_position_explicit_level_ordering() {
 }
 
 #[tokio::test]
+async fn test_nested_position_symbol_centers() {
+    let ctx = SessionContext::new();
+
+    let plot = Plot::<Cartesian>::new()
+        .data(grouped_bar_df(&ctx))
+        .legend("fill", |legend| legend.title("Team"))
+        .mark(
+            Symbol::new()
+                .x_with(nested_x("quarter", "team"), |x| {
+                    x.axis(|a| a.title("Team grouped by quarter").grid(false))
+                        .level(0, |l| l.padding_inner(0.42).padding_outer(0.14))
+                        .level(1, |l| {
+                            l.nest_scope(NestScope::Shared)
+                                .padding_inner(0.08)
+                                .axis(|a| a.label_angle(-30.0))
+                        })
+                        .band(0.5)
+                })
+                .y_with(col("value"), |y| {
+                    y.scale(|s| s.domain((0.0, 60.0)))
+                        .axis(|a| a.title("Value").grid(true))
+                })
+                .fill_with(col("team"), |fill| fill)
+                .stroke("#ffffff")
+                .stroke_width(1.0)
+                .size(110.0),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "nested_position", "symbol_centers").await;
+}
+
+#[tokio::test]
 async fn test_nested_position_bokeh_style_variable_parent_width_axis() {
     let ctx = SessionContext::new();
     let batch = record_batch(
