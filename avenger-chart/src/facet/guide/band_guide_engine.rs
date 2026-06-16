@@ -16,8 +16,9 @@ use indexmap::IndexMap;
 use tracing::{debug, trace};
 
 use avenger_chart_core::{
-    AxisPosition, CompiledGuide, CoordMeasurement, FacetAxis, GuideOverflowPhase,
-    GuideSharingContext, LayoutBounds, OverflowSpaceRequirement, SharingLevel,
+    AxisPosition, CompiledGuide, ConfiguredScaleLegendExt, CoordMeasurement, DomainValues,
+    FacetAxis, GuideOverflowPhase, GuideSharingContext, LayoutBounds, OverflowSpaceRequirement,
+    SharingLevel,
 };
 
 use crate::{
@@ -31,9 +32,8 @@ use crate::{
             FacetOverflowPurpose, FacetOverflowResolutionPhase, FacetOverflowResolvedSource,
             resolve_facet_overflow,
         },
-        placement::resolve_facet_band_placement_from_configured_scales,
     },
-    layout::{BandPosition, BandPositionIterator},
+    layout::BandPosition,
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, ContainerBandGuideMeasurementConfig,
         ContainerBandGuideRenderConfig, measure_container_band_guide_slab,
@@ -445,6 +445,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         Box::pin(compute_subplot_overflow_common::<O>(
             state,
             scales,
+            coord_measurement,
             plot_width,
             plot_height,
             theme,
@@ -494,6 +495,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
         let measured_subplot_overflow = Box::pin(compute_subplot_overflow_common::<O>(
             state,
             scales,
+            coord_measurement,
             plot_width,
             plot_height,
             theme,
@@ -611,6 +613,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
                 Box::pin(compute_subplot_overflow_common::<O>(
                     state,
                     scales,
+                    Some(coord_measurement),
                     plot_width,
                     plot_height,
                     theme,
@@ -697,6 +700,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
 pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
     state: &FacetGuideState,
     scales: &HashMap<String, ConfiguredScale>,
+    coord_measurement: Option<&dyn CoordMeasurement>,
     plot_width: f32,
     plot_height: f32,
     theme: &Theme,
@@ -732,8 +736,10 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
         .map_err(|e| AvengerChartError::InternalError(format!("Failed to get bandwidth: {e}")))?;
     let (subplot_width, subplot_height) = O::subplot_dimensions(plot_width, plot_height, band_size);
     let nested_guide = subplot.compiled_guide.as_deref();
-    let band_positions = if nested_guide.is_some() {
-        Some(BandPositionIterator::from_configured_scale(band_scale)?.collect::<Vec<_>>())
+    let cell_values = if nested_guide.is_some() {
+        coord_measurement
+            .and_then(facet_measurement_values)
+            .or_else(|| scale_discrete_values(band_scale))
     } else {
         None
     };
@@ -746,7 +752,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
         data,
         sharing_context,
         nested_guide,
-        band_positions.as_deref().unwrap_or(&[]),
+        cell_values.as_deref().unwrap_or(&[]),
     );
     if let Some(cache_key) = cache_key.as_ref() {
         let cached = {
@@ -783,8 +789,8 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
 
     let guide_start = Instant::now();
     let overflow = if let Some(guide) = nested_guide {
-        let band_positions = band_positions.unwrap_or_default();
-        if band_positions.is_empty() {
+        let cell_values = cell_values.unwrap_or_default();
+        if cell_values.is_empty() {
             Box::pin(guide.measure_overflow(
                 &configured_scales,
                 subplot_width,
@@ -798,17 +804,13 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
             ))
             .await?
         } else {
-            let cell_values: Vec<_> = band_positions
-                .iter()
-                .map(|band_position| band_position.value.clone())
-                .collect();
             let (first_idx, last_idx) = sharing_context
                 .effective_edge_indices_for_values(&cell_values)
-                .unwrap_or((0, band_positions.len() - 1));
+                .unwrap_or((0, cell_values.len() - 1));
 
             let first_path = {
                 let mut path = sharing_context.facet_path().to_vec();
-                path.push(band_positions[first_idx].value.clone());
+                path.push(cell_values[first_idx].clone());
                 path
             };
             let first_context = sharing_context.with_facet_path(&first_path);
@@ -829,7 +831,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
             } else {
                 let last_path = {
                     let mut path = sharing_context.facet_path().to_vec();
-                    path.push(band_positions[last_idx].value.clone());
+                    path.push(cell_values[last_idx].clone());
                     path
                 };
                 let last_context = sharing_context.with_facet_path(&last_path);
@@ -885,7 +887,7 @@ fn subplot_overflow_cache_key<O: FacetGuideAxisOps>(
     data: &DataFrame,
     sharing_context: GuideSharingContext<'_>,
     nested_guide: Option<&dyn CompiledGuide>,
-    band_positions: &[BandPosition],
+    cell_values: &[ScalarValue],
 ) -> Option<SubplotOverflowCacheKey> {
     let compiled_subplot = state.compiled_subplot.as_ref()?;
     let mut params = params
@@ -904,7 +906,7 @@ fn subplot_overflow_cache_key<O: FacetGuideAxisOps>(
         params,
         sharing_signature: subplot_overflow_sharing_signature::<O>(
             nested_guide,
-            band_positions,
+            cell_values,
             sharing_context,
         ),
     })
@@ -912,30 +914,26 @@ fn subplot_overflow_cache_key<O: FacetGuideAxisOps>(
 
 fn subplot_overflow_sharing_signature<O: FacetGuideAxisOps>(
     nested_guide: Option<&dyn CompiledGuide>,
-    band_positions: &[BandPosition],
+    cell_values: &[ScalarValue],
     sharing_context: GuideSharingContext<'_>,
 ) -> Vec<String> {
     let Some(nested_guide) = nested_guide else {
         return vec![raw_sharing_context_signature(sharing_context)];
     };
 
-    if band_positions.is_empty() {
+    if cell_values.is_empty() {
         return vec![guide_sharing_context_signature(
             nested_guide,
             sharing_context,
         )];
     }
 
-    let cell_values = band_positions
-        .iter()
-        .map(|band_position| band_position.value.clone())
-        .collect::<Vec<_>>();
     let (first_idx, last_idx) = sharing_context
-        .effective_edge_indices_for_values(&cell_values)
-        .unwrap_or((0, band_positions.len() - 1));
+        .effective_edge_indices_for_values(cell_values)
+        .unwrap_or((0, cell_values.len() - 1));
 
     let mut first_path = sharing_context.facet_path().to_vec();
-    first_path.push(band_positions[first_idx].value.clone());
+    first_path.push(cell_values[first_idx].clone());
     let first_context = sharing_context.with_facet_path(&first_path);
     let mut signature = vec![format!(
         "first:{}",
@@ -944,7 +942,7 @@ fn subplot_overflow_sharing_signature<O: FacetGuideAxisOps>(
 
     if first_idx != last_idx {
         let mut last_path = sharing_context.facet_path().to_vec();
-        last_path.push(band_positions[last_idx].value.clone());
+        last_path.push(cell_values[last_idx].clone());
         let last_context = sharing_context.with_facet_path(&last_path);
         signature.push(format!(
             "last:{}",
@@ -1042,37 +1040,40 @@ fn band_positions_and_labels<O: FacetGuideAxisOps>(
     coord_measurement: Option<&dyn CoordMeasurement>,
     layout_size: Option<(f32, f32)>,
 ) -> Result<(Vec<BandPosition>, Vec<String>), AvengerChartError> {
+    let is_render = layout_size.is_some();
     if let Some(coord_measurement) = coord_measurement
         && let Some(facet_measurement) = facet_band_from_coord(coord_measurement)
-        && !facet_measurement.cells.is_empty()
         && facet_measurement.axis.scale_name() == O::scale_key()
     {
-        let band_positions = if let Some((plot_width, plot_height)) = layout_size {
-            let _ = (plot_width, plot_height);
+        let band_positions = if is_render {
             facet_measurement.current_band_positions()?
-        } else if let Some(placement) =
-            resolve_facet_band_placement_from_configured_scales(coord_measurement, scales)?
-        {
-            placement.band_positions(&facet_measurement.cells)?
         } else {
-            Vec::new()
+            facet_measurement
+                .cell_values()
+                .cloned()
+                .map(|value| BandPosition::new(value, 0.0, 0.0))
+                .collect()
         };
-        if !band_positions.is_empty() {
-            let labels = band_positions
-                .iter()
-                .map(|position| format_scalar_value(&position.value))
-                .collect();
-            return Ok((band_positions, labels));
-        }
+        let labels = labels_from_band_positions(&band_positions);
+        return Ok((band_positions, labels));
     }
 
-    let band_scale = scales
-        .get(O::scale_key())
-        .ok_or_else(|| AvengerChartError::InternalError(O::missing_scale_error().to_string()))?;
-    let band_positions: Vec<_> = BandPositionIterator::from_configured_scale(band_scale)?.collect();
+    if is_render {
+        return Err(AvengerChartError::InternalError(format!(
+            "{} render requires current facet geometry",
+            O::log_name()
+        )));
+    }
 
-    let coord_values = coord_measurement.and_then(facet_measurement_values);
-    let labels = labels_from_values_or_band_positions(coord_values, &band_positions);
+    let values = coord_measurement
+        .and_then(facet_measurement_values)
+        .or_else(|| scales.get(O::scale_key()).and_then(scale_discrete_values))
+        .unwrap_or_default();
+    let band_positions = values
+        .into_iter()
+        .map(|value| BandPosition::new(value, 0.0, 0.0))
+        .collect::<Vec<_>>();
+    let labels = labels_from_band_positions(&band_positions);
 
     Ok((band_positions, labels))
 }
@@ -1087,18 +1088,18 @@ fn facet_measurement_values(measurement: &dyn CoordMeasurement) -> Option<Vec<Sc
         .map(|facet_measurement| facet_measurement.cell_values().cloned().collect::<Vec<_>>())
 }
 
-fn labels_from_values_or_band_positions(
-    coord_values: Option<Vec<ScalarValue>>,
-    band_positions: &[BandPosition],
-) -> Vec<String> {
-    if let Some(values) = coord_values {
-        values.iter().map(format_scalar_value).collect()
-    } else {
-        band_positions
-            .iter()
-            .map(|bp| format_scalar_value(&bp.value))
-            .collect()
+fn scale_discrete_values(scale: &ConfiguredScale) -> Option<Vec<ScalarValue>> {
+    match scale.domain_values().ok()? {
+        DomainValues::Discrete(values) => Some(values),
+        DomainValues::Interval(_, _) => None,
     }
+}
+
+fn labels_from_band_positions(band_positions: &[BandPosition]) -> Vec<String> {
+    band_positions
+        .iter()
+        .map(|bp| format_scalar_value(&bp.value))
+        .collect()
 }
 
 #[cfg(test)]
@@ -1230,11 +1231,7 @@ fn column_band_positions_for_measurement(
     {
         return Some(positions);
     }
-
-    let child_col_scale = measurement.scales.get("column")?;
-    BandPositionIterator::from_scale(child_col_scale)
-        .ok()
-        .map(Iterator::collect)
+    None
 }
 
 fn child_col_span_midpoint(cell: &FacetCellRuntime, recursion_depth: usize) -> Option<f32> {
@@ -1415,16 +1412,13 @@ mod tests {
     }
 
     #[test]
-    fn labels_from_values_or_band_positions_prefers_coord_values() {
+    fn labels_from_band_positions_formats_values() {
         let band_positions = vec![
-            BandPosition::new(s("scale-A"), 0.0, 10.0),
-            BandPosition::new(s("scale-B"), 10.0, 10.0),
+            BandPosition::new(s("A"), 0.0, 10.0),
+            BandPosition::new(s("B"), 10.0, 10.0),
         ];
-        let labels = labels_from_values_or_band_positions(
-            Some(vec![s("coord-A"), s("coord-B")]),
-            &band_positions,
-        );
-        assert_eq!(labels, vec!["coord-A".to_string(), "coord-B".to_string()]);
+        let labels = labels_from_band_positions(&band_positions);
+        assert_eq!(labels, vec!["A".to_string(), "B".to_string()]);
     }
 
     #[test]

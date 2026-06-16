@@ -2825,16 +2825,10 @@ impl CompiledPlot {
             .downcast_mut::<FacetBandCoordMeasurement>()
         {
             facet_band.retarget_parent_plot_area_no_remeasure(
-                &mut measurement.scales,
                 eval_ctx,
                 plot_area_width,
                 plot_area_height,
             )?;
-        } else {
-            crate::coords::apply_coord_measurement_scale_adjustments(
-                measurement.coord_measurement.as_ref(),
-                &mut measurement.scales,
-            );
         }
 
         measurement.plot_area_width = plot_area_width;
@@ -2911,7 +2905,7 @@ impl CompiledPlot {
             .with_params(measurement.params.clone())
             .with_facet_probe_size_overrides(Arc::new(probe_size_overrides));
 
-        let mut final_scales = scale_provider
+        let final_scales = scale_provider
             .build_scales(
                 next_width,
                 next_height,
@@ -2929,11 +2923,6 @@ impl CompiledPlot {
             ctx,
         ))
         .await?;
-        crate::coords::apply_coord_measurement_scale_adjustments(
-            coord_measurement.as_ref(),
-            &mut final_scales,
-        );
-
         measurement.plot_area_width = next_width;
         measurement.plot_area_height = next_height;
         measurement.scales = final_scales;
@@ -3123,7 +3112,7 @@ impl CompiledPlot {
             .coord_measurement
             .as_any()
             .downcast_ref::<FacetBandCoordMeasurement>()
-            .filter(|facet_band| facet_band.uses_explicit_placement())
+            .filter(|facet_band| facet_band.content_driven_main_axis())
         {
             if facet_band.cells.is_empty() {
                 return Some((measurement.plot_area_width, measurement.plot_area_height));
@@ -3312,7 +3301,8 @@ impl CompiledPlot {
         Self::collect_facet_probe_size_overrides(measurement, &mut probe_size_overrides);
         let params_with_current_dims = eval_ctx
             .with_params(measurement.params.clone())
-            .with_facet_probe_size_overrides(Arc::new(probe_size_overrides));
+            .with_facet_probe_size_overrides(Arc::new(probe_size_overrides))
+            .without_layout_profile();
         let scale_builder = Box::pin(self.build_scale_builder_for_render_context(
             &params_with_current_dims,
             data_override.cloned(),
@@ -3341,7 +3331,7 @@ impl CompiledPlot {
             return Ok(());
         }
 
-        let mut final_scales = scale_provider
+        let final_scales = scale_provider
             .build_scales(
                 plot_area_width,
                 plot_area_height,
@@ -3359,10 +3349,6 @@ impl CompiledPlot {
             ctx,
         ))
         .await?;
-        crate::coords::apply_coord_measurement_scale_adjustments(
-            coord_measurement.as_ref(),
-            &mut final_scales,
-        );
         measurement.scales = final_scales;
         measurement.coord_measurement = coord_measurement;
 
@@ -3521,10 +3507,82 @@ impl CompiledPlot {
             false
         };
 
+        if retargeted {
+            let post_retarget_width = measurement.plot_area_width.max(1.0);
+            let post_retarget_height = measurement.plot_area_height.max(1.0);
+            let post_retarget_layout_spec = if facet_path.is_empty() {
+                Self::layout_spec_for_policy_plot_area_size(
+                    evaluated_layout_spec,
+                    policy,
+                    post_retarget_width,
+                    post_retarget_height,
+                )
+            } else {
+                Self::nested_fixed_plot_area_layout_spec(post_retarget_width, post_retarget_height)
+            };
+            let (_, post_retarget_layout, post_retarget_legend_plan) =
+                Box::pin(self.rebuild_layout_with_coord_overflow(
+                    eval_ctx,
+                    &post_retarget_layout_spec,
+                    &measurement.scales,
+                    post_retarget_width,
+                    post_retarget_height,
+                    &measurement.params,
+                    data_override,
+                    ctx,
+                    facet_tree,
+                    facet_path,
+                    eval_ctx.child_frame_sharing_path(),
+                    Some(measurement.coord_measurement.as_ref()),
+                    GuideOverflowPhase::Final,
+                ))
+                .await?;
+
+            let post_retarget_bounds = *post_retarget_layout.plot_area_bounds();
+            measurement.layout = post_retarget_layout;
+            measurement.legend_plan = post_retarget_legend_plan;
+            measurement.sync_canvas_size_from_layout();
+
+            let mut realized_width = post_retarget_width;
+            let mut realized_height = post_retarget_height;
+            if policy.width.is_canvas_constrained() {
+                realized_width = post_retarget_bounds.width.max(1.0);
+            }
+            if policy.height.is_canvas_constrained() {
+                realized_height = post_retarget_bounds.height.max(1.0);
+            }
+
+            if (measurement.plot_area_width - realized_width).abs() > 0.01
+                || (measurement.plot_area_height - realized_height).abs() > 0.01
+            {
+                retarget_measurement_plot_area_policy_no_remeasure(
+                    measurement,
+                    self,
+                    eval_ctx,
+                    facet_path,
+                    realized_width,
+                    realized_height,
+                )?;
+            } else {
+                measurement.clip = self.resolved_clip_region(
+                    eval_ctx,
+                    facet_path,
+                    &measurement.scales,
+                    realized_width,
+                    realized_height,
+                );
+                measurement.legend_plan.retarget_scales(&measurement.scales);
+                crate::facet::coordination_apply::refresh_current_facet_geometry(
+                    measurement,
+                    eval_ctx.facet_runtime_sizing_mode(),
+                )?;
+            }
+        }
+
         trace!(
             facet_path = ?facet_path,
-            plot_area_width,
-            plot_area_height,
+            plot_area_width = measurement.plot_area_width,
+            plot_area_height = measurement.plot_area_height,
             canvas_width = measurement.canvas_size.0,
             canvas_height = measurement.canvas_size.1,
             "policy realization computed facet extent"
@@ -4157,8 +4215,8 @@ impl CompiledPlot {
     /// This allows coordinate systems to compute layout data that's available
     /// to both guides and marks during rendering.
     ///
-    /// Note: The caller is responsible for calling `apply_scale_adjustments()`
-    /// on the returned measurement to update scales with coordinate-system-derived values.
+    /// Facet coordinate measurement returns chart-owned geometry state; scales
+    /// are retargeted only for ordinary plot scale ranges.
     async fn measure_coord_system(
         &self,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -4267,7 +4325,7 @@ impl CompiledPlot {
             .await?;
 
         // Phase 3: Build final scales with actual plot area dimensions
-        let mut final_scales = scale_provider
+        let final_scales = scale_provider
             .build_scales(plot_area_width, plot_area_height, ctx, &merged_params)
             .await?;
 
@@ -4282,13 +4340,6 @@ impl CompiledPlot {
             ctx,
         ))
         .await?;
-
-        // Apply scale adjustments from coordinate-system measurement (stays in main function
-        // because it mutates final_scales which is used by later phases)
-        crate::coords::apply_coord_measurement_scale_adjustments(
-            coord_measurement.as_ref(),
-            &mut final_scales,
-        );
 
         if dimensions.has_plot_area_dimension() {
             let initial_plot_bounds = *layout.plot_area_bounds();
@@ -6205,10 +6256,15 @@ impl CompiledPlot {
                     metrics.record_preview_structure_reflow_reuse();
                 });
                 let reflow_start = Instant::now();
+                let mut reflow_options = options.clone();
+                reflow_options.facet_layout_refinement.max_refinement_passes = reflow_options
+                    .facet_layout_refinement
+                    .max_refinement_passes
+                    .max(crate::render::FacetLayoutRefinement::default().max_refinement_passes);
                 let outcome = Box::pin(self.evaluate_with_options_internal(
                     ctx,
                     Some(merged_params),
-                    options,
+                    reflow_options,
                     Some(metrics.clone()),
                     Some(scale_domain_cache),
                     Some(facet_semantic_cache),
@@ -6440,7 +6496,7 @@ impl CompiledPlot {
                 plot: self,
             };
             let scale_build_start = Instant::now();
-            let mut refreshed_scales = scale_provider
+            let refreshed_scales = scale_provider
                 .build_scales(
                     target_plot_area_width,
                     target_plot_area_height,
@@ -6450,15 +6506,6 @@ impl CompiledPlot {
                 .await?;
             Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
                 metrics.record_preview_scale_build_duration(scale_build_start.elapsed());
-            });
-            let scale_coord_adjust_start = Instant::now();
-            crate::coords::apply_coord_measurement_scale_adjustments(
-                measurement.coord_measurement.as_ref(),
-                &mut refreshed_scales,
-            );
-            Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
-                metrics
-                    .record_preview_scale_coord_adjust_duration(scale_coord_adjust_start.elapsed());
             });
             measurement.scales = refreshed_scales;
             Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
@@ -6640,7 +6687,7 @@ mod tests {
             coord::{FacetBandCoordMeasurement, facet_band_ref as facet_band_ref_from_coord},
             coordination::coordinate_facet_measurement_tree,
         },
-        layout::{BandPositionIterator, CanvasConstraint, FrameDimensionSizing, PlotConstraint},
+        layout::{CanvasConstraint, FrameDimensionSizing, PlotConstraint},
         prelude::*,
         render::FacetLayoutRefinement,
     };
@@ -8659,7 +8706,7 @@ mod tests {
         out: &mut Vec<(f32, f32)>,
     ) {
         if let Some(plot_area_sized_facet) =
-            facet_band_ref(measurement).filter(|facet_band| facet_band.uses_explicit_placement())
+            facet_band_ref(measurement).filter(|facet_band| facet_band.content_driven_main_axis())
         {
             if plot_area_sized_facet.cells.is_empty() {
                 out.push((measurement.plot_area_width, measurement.plot_area_height));
@@ -8673,12 +8720,10 @@ mod tests {
 
     fn assert_no_plot_area_sized_main_axis_overlap(measurement: &ComponentsMeasurement) {
         if let Some(facet_band) =
-            facet_band_ref(measurement).filter(|facet_band| facet_band.uses_explicit_placement())
+            facet_band_ref(measurement).filter(|facet_band| facet_band.content_driven_main_axis())
         {
-            let placement = facet_band
-                .resolved_placement_from_scale_specs(&measurement.scales)
-                .expect("plot-area-sized facet placement should resolve");
-            for window in placement.cells.windows(2) {
+            let geometry = facet_band.content_driven_geometry();
+            for window in geometry.cells.windows(2) {
                 let current = &window[0];
                 let next = &window[1];
                 assert!(
@@ -8802,52 +8847,50 @@ mod tests {
         count
     }
 
-    fn assert_plot_area_sized_resolved_placement_count_and_order(
+    fn assert_plot_area_sized_content_geometry_count_and_order(
         measurement: &ComponentsMeasurement,
     ) {
         if let Some(plot_area_sized_facet) =
-            facet_band_ref(measurement).filter(|facet_band| facet_band.uses_explicit_placement())
+            facet_band_ref(measurement).filter(|facet_band| facet_band.content_driven_main_axis())
         {
-            let resolved = plot_area_sized_facet
-                .resolved_placement_from_scale_specs(&measurement.scales)
-                .expect("plot-area-sized facet placement should resolve");
+            let resolved = plot_area_sized_facet.content_driven_geometry();
             assert_eq!(
                 resolved.cell_count(),
                 plot_area_sized_facet.cells.len(),
-                "resolved plot-area-sized placement count should match facet cell count"
+                "resolved plot-area-sized geometry count should match facet cell count"
             );
-            for (idx, cell_placement) in resolved.cells.iter().enumerate() {
+            for (idx, cell_geometry) in resolved.cells.iter().enumerate() {
                 assert_eq!(
-                    cell_placement.cell_index, idx,
-                    "resolved plot-area-sized placement should preserve cell ordering"
+                    cell_geometry.cell_index, idx,
+                    "resolved plot-area-sized geometry should preserve cell ordering"
                 );
             }
 
             for child in plot_area_sized_facet.child_measurements_iter() {
-                assert_plot_area_sized_resolved_placement_count_and_order(child);
+                assert_plot_area_sized_content_geometry_count_and_order(child);
             }
         }
     }
 
-    fn assert_plot_area_sized_facet_plot_area_matches_placement(
+    fn assert_plot_area_sized_facet_plot_area_matches_geometry(
         measurement: &ComponentsMeasurement,
     ) {
         if let Some(plot_area_sized_facet) = facet_band_ref(measurement)
-            .filter(|facet_band| facet_band.uses_explicit_placement())
-            // Empty explicit bands derive their extent from the containing
+            .filter(|facet_band| facet_band.content_driven_main_axis())
+            // Empty content-driven bands derive their extent from the containing
             // measurement's plot area, making this check an identity.
             .filter(|facet_band| !facet_band.cells.is_empty())
         {
             let (expected_width, expected_height) = plot_area_sized_facet.plot_area_extent();
             assert!(
                 (measurement.plot_area_width - expected_width).abs() <= 0.01,
-                "plot-area-sized facet plot width should match computed placement: measurement={}, placement={}",
+                "plot-area-sized facet plot width should match computed geometry: measurement={}, geometry={}",
                 measurement.plot_area_width,
                 expected_width
             );
             assert!(
                 (measurement.plot_area_height - expected_height).abs() <= 0.01,
-                "plot-area-sized facet plot height should match computed placement: measurement={}, placement={}",
+                "plot-area-sized facet plot height should match computed geometry: measurement={}, geometry={}",
                 measurement.plot_area_height,
                 expected_height
             );
@@ -8867,7 +8910,7 @@ mod tests {
             );
 
             for child in plot_area_sized_facet.child_measurements_iter() {
-                assert_plot_area_sized_facet_plot_area_matches_placement(child);
+                assert_plot_area_sized_facet_plot_area_matches_geometry(child);
             }
         }
     }
@@ -9413,11 +9456,10 @@ mod tests {
                 > fast_metrics.facet_layout.plot_component_measure_calls,
             "refinement should remeasure at the retargeted subplot size; fast={fast_metrics:?}, refined={refined_metrics:?}"
         );
-        assert_eq!(
-            collect_text_x_positions(&fast_eval.scene_graph, "of-right").len(),
-            0,
-            "fast one-shot subtree should document the missing right overflow"
-        );
+        // The fast zero-refinement snapshot renders from the current geometry
+        // available at that point. The late right overflow is only guaranteed
+        // after the refinement remeasure below.
+        let _ = fast_eval;
         assert!(
             !collect_text_x_positions(&refined_eval.scene_graph, "of-right").is_empty(),
             "refined subtree should allocate the late right overflow"
@@ -10057,14 +10099,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plot_area_sized_mode_realizes_plot_area_from_computed_placement()
+    async fn plot_area_sized_mode_realizes_plot_area_from_computed_geometry()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled =
             compile_three_level_col_legend_sharing_plot_area_sized(&ctx, LegendPosition::Right)
                 .await?;
         let (_, _, measurement) = prepare_refined_top_level_measurement(&compiled, &ctx).await?;
-        assert_plot_area_sized_facet_plot_area_matches_placement(&measurement);
+        assert_plot_area_sized_facet_plot_area_matches_geometry(&measurement);
         Ok(())
     }
 
@@ -10091,8 +10133,8 @@ mod tests {
                 "empty plot-area-sized facet slot height should preserve the incoming leaf plot area: {height}"
             );
         }
-        assert_plot_area_sized_facet_plot_area_matches_placement(&measurement);
-        assert_plot_area_sized_resolved_placement_count_and_order(&measurement);
+        assert_plot_area_sized_facet_plot_area_matches_geometry(&measurement);
+        assert_plot_area_sized_content_geometry_count_and_order(&measurement);
         Ok(())
     }
 
@@ -10393,12 +10435,13 @@ mod tests {
             legend_slab_for_position(row_facet.active_overflow(), LegendPosition::Left);
         let base_x = measurement.layout.plot_area_bounds().x;
         let base_y = measurement.layout.plot_area_bounds().y;
-        let row_scale = measurement
-            .scales
-            .get("row")
-            .expect("expected row scale for facet row origin invariant");
-        let expected_y_starts: Vec<f32> = BandPositionIterator::from_scale(row_scale)?
-            .map(|band| base_y + band.start())
+        let container = measurement
+            .child_frame_container_view()?
+            .expect("row facet measurement should expose current child-frame geometry");
+        let expected_y_starts: Vec<f32> = container
+            .child_regions()
+            .iter()
+            .map(|region| base_y + region.content.y)
             .collect();
         let row_origins = absolute_origins_for_named_groups(&evaluated.scene_graph, "facet_row_");
         assert!(
@@ -10444,12 +10487,13 @@ mod tests {
             legend_slab_for_position(col_facet.active_overflow(), LegendPosition::Top);
         let base_x = measurement.layout.plot_area_bounds().x;
         let base_y = measurement.layout.plot_area_bounds().y;
-        let col_scale = measurement
-            .scales
-            .get("column")
-            .expect("expected column scale for facet col origin invariant");
-        let expected_x_starts: Vec<f32> = BandPositionIterator::from_scale(col_scale)?
-            .map(|band| base_x + band.start())
+        let container = measurement
+            .child_frame_container_view()?
+            .expect("column facet measurement should expose current child-frame geometry");
+        let expected_x_starts: Vec<f32> = container
+            .child_regions()
+            .iter()
+            .map(|region| base_x + region.content.x)
             .collect();
         let col_origins = absolute_origins_for_named_groups(&evaluated.scene_graph, "facet_col_");
         assert!(

@@ -1109,6 +1109,40 @@ impl EvaluationContext {
         self.layout_profile.as_ref()
     }
 
+    pub(crate) fn without_layout_profile(&self) -> Self {
+        Self {
+            core: self.core.clone(),
+            facet_tree: self.facet_tree.clone(),
+            facet_data_root: self.facet_data_root.clone(),
+            hide_invalid_facet_path_axes: self.hide_invalid_facet_path_axes,
+            facet_scale_precompute_store: self.facet_scale_precompute_store.clone(),
+            facet_runtime_sizing_mode: self.facet_runtime_sizing_mode,
+            debug_layout_overlay: self.debug_layout_overlay,
+            facet_layout_refinement: self.facet_layout_refinement,
+            facet_probe_size_overrides: self.facet_probe_size_overrides.clone(),
+            facet_padding_feedback: self.facet_padding_feedback.clone(),
+            facet_coord_node_path: self.facet_coord_node_path.clone(),
+            child_frame_container_path: self.child_frame_container_path.clone(),
+            child_frame_sharing_path: self.child_frame_sharing_path.clone(),
+            evaluation_metrics: self.evaluation_metrics.clone(),
+            scale_domain_cache: self.scale_domain_cache.clone(),
+            guide_overflow_cache: self.guide_overflow_cache.clone(),
+            legend_measurement_cache: self.legend_measurement_cache.clone(),
+            text_measurement_cache: self.text_measurement_cache.clone(),
+            layout_profile: None,
+            facet_cell_rendered_components_capture: self
+                .facet_cell_rendered_components_capture
+                .clone(),
+            facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
+            interaction_scope_sink: self.interaction_scope_sink.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_datum_sink: self.event_datum_sink.clone(),
+            scoped_param_store: self.scoped_param_store.clone(),
+            scoped_selection_store: self.scoped_selection_store.clone(),
+            scoped_store_state: self.scoped_store_state.clone(),
+        }
+    }
+
     pub(crate) fn with_facet_cell_rendered_components_capture(
         &self,
         capture: FacetCellRenderedComponentsProfileCapture,

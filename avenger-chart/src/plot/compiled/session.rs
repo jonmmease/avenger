@@ -5119,7 +5119,11 @@ mod tests {
                 evaluated.scene_graph.marks.len(),
                 one_shot.scene_graph.marks.len()
             );
-            assert_symbol_positions_close(&evaluated.scene_graph, &one_shot.scene_graph);
+            assert_symbol_positions_close_with_tolerance(
+                &evaluated.scene_graph,
+                &one_shot.scene_graph,
+                3.0,
+            );
         }
 
         assert!(

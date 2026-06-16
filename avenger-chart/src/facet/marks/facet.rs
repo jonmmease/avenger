@@ -994,7 +994,8 @@ impl CompiledMarkCore for CompiledFacetRowSubplot {
         data_type: &datafusion::arrow::datatypes::DataType,
     ) -> Option<ScaleTypePreference> {
         if channel == RowDimensionConfig::channel_name() {
-            // Use band scale for row faceting regardless of domain type (categorical input expected)
+            // Keep a generated band scale for row facet domain ordering and
+            // initial measurement seeding. Final geometry is chart-owned.
             Some(ScaleTypePreference::Band)
         } else {
             default_scale_type_for_data_type(data_type)
@@ -1011,16 +1012,14 @@ impl CompiledMarkCore for CompiledFacetRowSubplot {
         use std::collections::HashMap;
         let mut options = HashMap::new();
 
-        // Configure band scale padding for facet row channel
-        // Note: padding_inner is set by the FacetRow coordinate system (default 0.1)
-        // We only set padding_outer and alignment here
+        // Keep generated facet scale defaults neutral. The scale is a
+        // compile/seed artifact; final cell positions come from current
+        // facet geometry.
         if channel == RowDimensionConfig::channel_name() && scale_impl.scale_type() == "band" {
             options.insert("padding_outer".to_string(), lit(0.0f32));
-            // Align bands flush to the top so the first row's
-            // band_start is 0.0. Mirrors FacetCol behavior to avoid
-            // 1px vertical offsets in debug overlays.
+            // Keep scale-derived seed positions flush with the facet origin.
             options.insert("align".to_string(), lit(0.0f32));
-            // Disable band rounding - we handle rounding manually in closures for better control
+            // Facet geometry handles pixel fitting after measurement.
             options.insert("round".to_string(), lit(false));
         }
 
@@ -1033,8 +1032,8 @@ impl CompiledMarkCore for CompiledFacetRowSubplot {
 impl CompiledMark for CompiledFacetRowSubplot {
     /// Render faceted row layout
     ///
-    /// Uses the coordinate-system measurement from RenderContext (computed by FacetRow)
-    /// and the adjusted row scale to resolve deterministic band positions.
+    /// Facet row subplot marks render through the top-level facet dispatcher,
+    /// which reads current facet geometry rather than scale positions.
     async fn render_from_data(
         &self,
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,
@@ -1658,7 +1657,8 @@ impl CompiledMarkCore for CompiledFacetColumnSubplot {
         data_type: &datafusion::arrow::datatypes::DataType,
     ) -> Option<ScaleTypePreference> {
         if channel == ColumnDimensionConfig::channel_name() {
-            // Use band scale for column faceting regardless of domain type (categorical input expected)
+            // Keep a generated band scale for column facet domain ordering and
+            // initial measurement seeding. Final geometry is chart-owned.
             Some(ScaleTypePreference::Band)
         } else {
             default_scale_type_for_data_type(data_type)
@@ -1675,16 +1675,14 @@ impl CompiledMarkCore for CompiledFacetColumnSubplot {
         use std::collections::HashMap;
         let mut options = HashMap::new();
 
-        // Configure band scale padding for facet col channel
-        // Note: padding_inner is set by the FacetCol coordinate system (default 0.1)
-        // We only set padding_outer and alignment here
+        // Keep generated facet scale defaults neutral. The scale is a
+        // compile/seed artifact; final cell positions come from current
+        // facet geometry.
         if channel == ColumnDimensionConfig::channel_name() && scale_impl.scale_type() == "band" {
             options.insert("padding_outer".to_string(), lit(0.0f32));
-            // Align bands flush to the left so band_start of the first
-            // subplot is exactly 0. This prevents a residual 1px offset
-            // from split rounding when distributing leftover space.
+            // Keep scale-derived seed positions flush with the facet origin.
             options.insert("align".to_string(), lit(0.0f32));
-            // Disable band rounding - we handle rounding manually in closures for better control
+            // Facet geometry handles pixel fitting after measurement.
             options.insert("round".to_string(), lit(false));
         }
 
@@ -1697,9 +1695,8 @@ impl CompiledMarkCore for CompiledFacetColumnSubplot {
 impl CompiledMark for CompiledFacetColumnSubplot {
     /// Render faceted column layout
     ///
-    /// Uses the coordinate-system measurement from RenderContext (computed by FacetColumn)
-    /// and the already-adjusted column scale to resolve deterministic band positions,
-    /// then renders each subplot using its prepared child measurement.
+    /// Facet column subplot marks render through the top-level facet dispatcher,
+    /// which reads current facet geometry rather than scale positions.
     async fn render_from_data(
         &self,
         _data: Option<&datafusion::arrow::record_batch::RecordBatch>,

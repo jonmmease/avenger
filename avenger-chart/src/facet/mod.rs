@@ -7,13 +7,13 @@
 //!    child measurements.
 //! 3. `coordination` reconciles requirements across matching facet bands:
 //!    overflows, layout, final plot-area sizes, and scale ranges.
-//! 4. `placement` and `marks` turn coordinated measurements into renderable facet
-//!    guide and subplot positions.
+//! 4. `placement` computes chart-owned facet geometry that `marks` turn into
+//!    renderable facet guides and subplot positions.
 //!
 //! Faceted charts use one runtime sizing policy. Each physical dimension is
 //! either canvas-constrained, where final subplot plot areas are derived from
 //! the available canvas after coordinated overflows, or leaf-plot-area-sized,
-//! where requested leaf plot areas determine explicit facet placement and the
+//! where requested leaf plot areas determine content-driven facet geometry and the
 //! outer canvas grows to contain them. Canvas-fit, plot-area-sized, and mixed
 //! sizing are public configurations of this per-dimension policy.
 //!

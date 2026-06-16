@@ -2,7 +2,7 @@
 //! requirement channels (`tree_solved_round`) and current child-frame
 //! geometry (`CurrentFacetGeometry`), plus an env-gated shadow census
 //! (`AVENGER_SHADOW_TREE_SOLVE=1`) reporting slot-vs-live geometry deltas
-//! plus the idempotence, adoption, and placement probes (the standing
+//! plus the idempotence, adoption, and content-driven geometry probes (the standing
 //! equilibrium check: adoption must land the tree where settled slots equal
 //! live geometry).
 //!
@@ -32,9 +32,9 @@
 //!   `min_slot_count`, with the trailing edge cell's demand mirrored onto
 //!   the last ghost (renderable-edge law).
 //! - Spacing lowers RAW (`padding_inner_px` as `min_gap`); the
-//!   placement-time `main_axis_gap` floor stays a render-side concern.
+//!   content-driven `main_axis_gap` floor stays a render-side concern.
 //! - Physical axes are content-driven when any band with that main axis
-//!   uses explicit placement (else by sizing policy); constrained axes
+//!   uses content-driven geometry (else by sizing policy); constrained axes
 //!   pin the root `SolveOptions` at the facet root's plot area and
 //!   distribute free space, content-driven axes keep natural tracks.
 //!
@@ -145,8 +145,8 @@ struct BandFold {
     /// share key for shared bands; local (floored by the structural
     /// minimum) for FREE slot sharing.
     channel_n: usize,
-    /// The lowered track gap: raw `padding_inner_px` for scale-backed
-    /// bands, the placement gap floor for explicit bands.
+    /// The lowered track gap: raw `padding_inner_px` for uniform bands,
+    /// the placement gap floor for content-driven bands.
     min_gap: f32,
 }
 
@@ -195,7 +195,7 @@ fn compute_band_folds(
                     local_n,
                     min_slot_count: base.min_slot_count,
                     free: base.slot_sharing.is_free(),
-                    min_gap: match (mode, base.uses_explicit_placement()) {
+                    min_gap: match (mode, base.content_driven_main_axis()) {
                         (_, true) => crate::facet::padding_policy::main_axis_gap(padding),
                         (FacetLoweringMode::Coordination, false) => padding,
                         (FacetLoweringMode::SettledGeometry, false) => padding,
@@ -309,13 +309,13 @@ fn lower_facet_tree_with_options(
     let policy = sizing.policy();
 
     // Physical-axis mode: an axis is CONTENT-DRIVEN when any band whose
-    // main axis is that physical axis uses explicit placement (wrap and
-    // plot-area-sized bands realize leaf-derived extents — the canvas
+    // main axis uses content-driven geometry (wrap and plot-area-sized
+    // bands realize leaf-derived extents — the canvas
     // constrains the wrap COUNT upstream, never the cell sizes), else by
     // the runtime sizing policy. Content-driven axes keep natural track
     // sizes (free space trails); constrained axes distribute it.
-    let mut x_explicit = false;
-    let mut y_explicit = false;
+    let mut x_content = false;
+    let mut y_content = false;
     {
         let mut walk_path = Vec::new();
         crate::facet::coordination_apply::visit_facet_bands_with_node_id(
@@ -324,17 +324,17 @@ fn lower_facet_tree_with_options(
             &mut walk_path,
             &mut |_node_id, _depth, facet_band| {
                 let base = facet_band;
-                if base.uses_explicit_placement() {
+                if base.content_driven_main_axis() {
                     match base.axis {
-                        FacetAxis::Column => x_explicit = true,
-                        FacetAxis::Row => y_explicit = true,
+                        FacetAxis::Column => x_content = true,
+                        FacetAxis::Row => y_content = true,
                     }
                 }
             },
         );
     }
-    let x_content_driven = x_explicit || policy.width.is_leaf_plot_area_sized();
-    let y_content_driven = y_explicit || policy.height.is_leaf_plot_area_sized();
+    let x_content_driven = x_content || policy.width.is_leaf_plot_area_sized();
+    let y_content_driven = y_content || policy.height.is_leaf_plot_area_sized();
 
     let folds = compute_band_folds(measurement, mode);
     let mut bands = Vec::new();
@@ -558,7 +558,7 @@ fn lower_band(
             channel_n = fold.channel_n,
             local_n = band.local_layout.n,
             min_slot_count = band.min_slot_count,
-            explicit = band.uses_explicit_placement(),
+            content_driven_main_axis = band.content_driven_main_axis(),
             content_driven_x = content_driven.0,
             content_driven_y = content_driven.1,
             "lowered band slots"
@@ -613,8 +613,8 @@ fn lower_band(
     }
 
     // Spacing lowers the local declarations with the pre-folded track
-    // gap (raw padding for scale-backed bands, the placement gap floor
-    // for explicit bands); the share merge raises them across cousins.
+    // gap (raw padding for uniform bands, the placement gap floor for
+    // content-driven bands); the share merge raises them across cousins.
     let layout = match mode {
         FacetLoweringMode::Coordination => &band.local_layout,
         FacetLoweringMode::SettledGeometry => band.active_layout(),
@@ -844,7 +844,7 @@ const SHADOW_EPS: f32 = 0.01;
 
 /// Env-gated shadow diagnostics for one coordination run: re-solve the
 /// tree from the settled measurement state and report leaf-slot-vs-live
-/// geometry deltas plus the idempotence, adoption, and placement probes
+/// geometry deltas plus the idempotence, adoption, and content-driven geometry probes
 /// (the equilibrium check on adoption's fixed point).
 pub(crate) fn run_shadow_census(
     measurement: &ComponentsMeasurement,
@@ -866,12 +866,11 @@ pub(crate) fn run_shadow_census(
     let mut geometry_max = 0.0f32;
     let mut geometry_cells_over = 0usize;
     let mut geometry_cells = 0usize;
-    // Placement probe (F3): explicit placement computed on read (the
-    // local strip solve) vs the settled re-solve's band tracks — the
-    // two evaluations of the placement law that D3 proposes to unify.
-    let mut placement_bands = 0usize;
-    let mut placement_max = 0.0f32;
-    let mut placement_values_over = 0usize;
+    // Content-driven geometry probe (F3): geometry computed on read (the
+    // local strip solve) vs the settled re-solve's band tracks.
+    let mut content_geometry_bands = 0usize;
+    let mut content_geometry_max = 0.0f32;
+    let mut content_geometry_values_over = 0usize;
     // Stratum-heterogeneity probe (named-strata study): counts share
     // groups whose members carry unequal epoch envelopes — the
     // coordination-active cohort, where cross-cousin merging changes
@@ -968,17 +967,15 @@ pub(crate) fn run_shadow_census(
                 geometry_max = geometry_max.max(delta);
             }
 
-            // Placement probe: explicit bands only (scale-backed
-            // placement keeps its verification-shadow role per the G5
-            // verdict). Compare per-cell main starts/sizes and the band
-            // extents between the on-read strip solve and the settled
-            // tree solve's band tracks.
-            if base.uses_explicit_placement() {
-                let placement = base.explicit_placement();
+            // Geometry probe: content-driven bands only. Compare per-cell
+            // main starts/sizes and band extents between the on-read strip
+            // solve and the settled tree solve's band tracks.
+            if base.content_driven_main_axis() {
+                let geometry = base.content_driven_geometry();
                 let RegionDetail::Grid { tracks } = &band_region.detail else {
                     return;
                 };
-                placement_bands += 1;
+                content_geometry_bands += 1;
                 let vertical = matches!(base.axis, crate::coords::FacetAxis::Row);
                 let (starts, sizes, cross_size, main_extent) = if vertical {
                     (
@@ -1000,32 +997,32 @@ pub(crate) fn run_shadow_census(
                     let delta = (ours - solved).abs();
                     band_max = band_max.max(delta);
                     if delta > SHADOW_EPS {
-                        placement_values_over += 1;
+                        content_geometry_values_over += 1;
                         debug!(
                             target: "avenger_chart::facet::tree_solve",
                             node = ?node_id.path,
                             label,
                             idx,
-                            placement = ours,
+                            computed = ours,
                             solved,
-                            "placement probe divergence"
+                            "content-driven geometry probe divergence"
                         );
                     }
                 };
-                for (idx, cell) in placement.cells.iter().enumerate() {
+                for (idx, cell) in geometry.cells.iter().enumerate() {
                     let start = starts.get(idx).copied().unwrap_or(f32::NAN);
                     let size = sizes.get(idx).copied().unwrap_or(f32::NAN);
                     compare("main_start", idx, cell.main_start, start);
                     compare("main_size", idx, cell.main_size, size);
                 }
-                compare("main_extent", 0, placement.main_extent, main_extent);
+                compare("main_extent", 0, geometry.main_extent, main_extent);
                 compare(
                     "cross_extent",
                     0,
-                    placement.cross_extent.unwrap_or(0.0),
+                    geometry.cross_extent.unwrap_or(0.0),
                     cross_size,
                 );
-                placement_max = placement_max.max(band_max);
+                content_geometry_max = content_geometry_max.max(band_max);
             }
         },
     );
@@ -1098,9 +1095,9 @@ pub(crate) fn run_shadow_census(
         geometry_cells_over,
         idempotence_delta,
         current_delta = current_delta.unwrap_or(f32::NAN),
-        placement_bands,
-        placement_max,
-        placement_values_over,
+        content_geometry_bands,
+        content_geometry_max,
+        content_geometry_values_over,
         strata_groups_shared,
         strata_groups_hetero,
         strata_spread_max,

@@ -7,7 +7,6 @@
 //! `avenger-layout` geometry.
 
 pub(crate) mod alignment;
-mod band_position;
 mod chrome;
 pub(crate) mod concat_grid;
 mod content_solver;
@@ -16,7 +15,6 @@ mod frame_solver;
 mod info;
 pub(crate) mod placement;
 mod sizing;
-mod uniform;
 
 pub(crate) use alignment::{
     AlignmentNode, RoundDeltas, SingletonPolicy, SkippedGroupReason, align_by,
@@ -29,7 +27,6 @@ pub use avenger_chart_core::{
 pub(crate) use avenger_layout::{
     EdgeDemand, EdgeGrant, Edges, GridShape, GridSlot, Size, Spacing as TrackSpacing,
 };
-pub use band_position::BandPositionIterator;
 pub(crate) use chrome::FrameChrome;
 pub use content_solver::{
     ChildFrameContentMeasurement, ChildFrameContentPlan, ChildFrameContentSolver,
@@ -48,7 +45,6 @@ pub use sizing::{
 pub(crate) use sizing::{
     EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, ResolvedLayoutDimensions, SizeMode,
 };
-pub(crate) use uniform::UniformTracks;
 
 /// Convert chart-core edge slabs into neutral layout edges.
 pub(crate) fn layout_edges(slabs: EdgeSlabs) -> Edges<f32> {

@@ -153,7 +153,7 @@ async fn run_facet_coordination(
 
     // Env-gated shadow diagnostics: re-solve the tree from the settled
     // state and report slot-vs-live geometry deltas plus the idempotence,
-    // adoption, and placement probes; behavior-neutral.
+    // adoption, and content-driven geometry probes; behavior-neutral.
     if crate::facet::tree_solve::shadow_enabled() {
         crate::facet::tree_solve::run_shadow_census(
             measurement,

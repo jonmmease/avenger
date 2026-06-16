@@ -13,7 +13,7 @@ use crate::{
     facet::{
         coord::FacetBandCoordMeasurement,
         overflow_projection::{FacetBoundaryDemand, rendered_boundary_demand_for_measurement},
-        placement::{FacetBandPlacement, resolve_facet_band_placement},
+        placement::FacetBandGeometry,
     },
     layout::{
         AlignmentNode, EdgeGrant, GridShape, GridSlot, SingletonPolicy, SkippedGroupReason,
@@ -365,20 +365,17 @@ fn facet_grid_requirements(
     facet_band: &FacetBandCoordMeasurement,
     shape: GridShape,
 ) -> Result<ChartGridRequirements, AvengerChartError> {
-    let placement = resolve_facet_band_placement(measurement)?.ok_or_else(|| {
-        AvengerChartError::InternalError(
-            "Facet grid track requirements requested for non-facet measurement".to_string(),
-        )
-    })?;
+    let geometry = facet_band
+        .current_geometry_for_parent(measurement.plot_area_width, measurement.plot_area_height);
     let active_layout = facet_band.active_layout();
     let cell_boundaries = facet_band
         .cells
         .iter()
         .map(|cell| rendered_boundary_demand_for_measurement(facet_band.axis, &cell.measurement))
         .collect::<Vec<_>>();
-    let grid = facet_grid_requirements_from_placement(
+    let grid = facet_grid_requirements_from_geometry(
         shape,
-        &placement,
+        &geometry,
         active_layout.padding_inner_px,
         &cell_boundaries,
     )?;
@@ -397,12 +394,12 @@ fn facet_grid_requirements(
 /// rendered boundary demand becomes that track's edge demand. The exported
 /// `min_gap` is deliberately not floored by `MIN_SUBPLOT_MAIN_GAP`: facet
 /// requirements are only merged and projected back into `CoordinatedLayout`
-/// (never solved), and the floor is applied where placement is computed, in
-/// `compute_explicit_facet_band_placement`. Exporting the raw value keeps
+/// (never solved), and the floor is applied where content-driven geometry is
+/// computed. Exporting the raw value keeps
 /// export -> apply -> export a fixed point.
-fn facet_grid_requirements_from_placement(
+fn facet_grid_requirements_from_geometry(
     shape: GridShape,
-    placement: &FacetBandPlacement,
+    geometry: &FacetBandGeometry,
     min_gap: f32,
     cell_boundaries: &[FacetBoundaryDemand],
 ) -> Result<GridRequirements, AvengerChartError> {
@@ -418,23 +415,23 @@ fn facet_grid_requirements_from_placement(
         row_bottom: vec![EdgeGrant::default(); shape.rows],
     };
 
-    match placement.axis {
+    match geometry.axis {
         FacetAxis::Column => {
             requirements.column_spacing.min_gap = min_gap;
-            if let Some(first) = placement.cells.first() {
+            if let Some(first) = geometry.cells.first() {
                 requirements.column_spacing.outer_start = first.main_start.max(0.0);
             }
-            if let Some(last) = placement.cells.last() {
+            if let Some(last) = geometry.cells.last() {
                 requirements.column_spacing.outer_end =
-                    (placement.main_extent - last.main_start - last.main_size).max(0.0);
+                    (geometry.main_extent - last.main_start - last.main_size).max(0.0);
             }
-            if let Some(height) = placement.cross_extent {
+            if let Some(height) = geometry.cross_extent {
                 requirements.row_heights[0] = height;
             }
-            for cell in &placement.cells {
+            for cell in &geometry.cells {
                 if cell.cell_index >= shape.columns {
                     return Err(AvengerChartError::InternalError(format!(
-                        "Facet column placement cell index {} exceeded coordination columns {}",
+                        "Facet column geometry cell index {} exceeded coordination columns {}",
                         cell.cell_index, shape.columns
                     )));
                 }
@@ -447,20 +444,20 @@ fn facet_grid_requirements_from_placement(
         }
         FacetAxis::Row => {
             requirements.row_spacing.min_gap = min_gap;
-            if let Some(first) = placement.cells.first() {
+            if let Some(first) = geometry.cells.first() {
                 requirements.row_spacing.outer_start = first.main_start.max(0.0);
             }
-            if let Some(last) = placement.cells.last() {
+            if let Some(last) = geometry.cells.last() {
                 requirements.row_spacing.outer_end =
-                    (placement.main_extent - last.main_start - last.main_size).max(0.0);
+                    (geometry.main_extent - last.main_start - last.main_size).max(0.0);
             }
-            if let Some(width) = placement.cross_extent {
+            if let Some(width) = geometry.cross_extent {
                 requirements.column_widths[0] = width;
             }
-            for cell in &placement.cells {
+            for cell in &geometry.cells {
                 if cell.cell_index >= shape.rows {
                     return Err(AvengerChartError::InternalError(format!(
-                        "Facet row placement cell index {} exceeded coordination rows {}",
+                        "Facet row geometry cell index {} exceeded coordination rows {}",
                         cell.cell_index, shape.rows
                     )));
                 }
@@ -477,12 +474,11 @@ fn facet_grid_requirements_from_placement(
 }
 
 // Facet bands export layout coordination nodes for alignment DIAGNOSTICS
-// only — there is no facet value-apply adapter, because none would ever
-// run: applying requires explicit placement, which exists only under a
-// leaf-plot-sized facet root, and a root cannot also be a concat child;
-// in-chart facet cousins are already equalized by facet coordination
-// before alignment runs. The `concat_grid_facet_track_alignment` visual
-// baseline pins the boundary rendering.
+// only — there is no facet value-apply adapter. In-chart facet cousins are
+// already equalized by facet coordination before alignment runs; child-frame
+// alignment only needs these exported requirements for diagnostics.
+// The `concat_grid_facet_track_alignment` visual baseline pins the boundary
+// rendering.
 
 pub(crate) fn collect_child_frame_layout_coordination_nodes(
     measurement: &ComponentsMeasurement,
@@ -911,7 +907,7 @@ fn apply_child_frame_layout_alignment_recursive(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::facet::placement::FacetCellPlacement;
+    use crate::facet::placement::FacetCellGeometry;
 
     fn test_alignment_key(kind: ChildFrameContainerKind) -> LayoutAlignmentKey {
         LayoutAlignmentKey {
@@ -1034,16 +1030,16 @@ mod tests {
         assert!(plans.contains_key(&grid_key));
     }
 
-    fn two_cell_column_placement() -> FacetBandPlacement {
-        FacetBandPlacement::new(
+    fn two_cell_column_geometry() -> FacetBandGeometry {
+        FacetBandGeometry::new(
             FacetAxis::Column,
             vec![
-                FacetCellPlacement {
+                FacetCellGeometry {
                     cell_index: 0,
                     main_start: 3.0,
                     main_size: 10.0,
                 },
-                FacetCellPlacement {
+                FacetCellGeometry {
                     cell_index: 1,
                     main_start: 20.0,
                     main_size: 10.0,
@@ -1056,7 +1052,7 @@ mod tests {
 
     #[test]
     fn facet_grid_requirements_preserve_outer_band_offsets() -> Result<(), AvengerChartError> {
-        let placement = two_cell_column_placement();
+        let geometry = two_cell_column_geometry();
         let boundaries = [
             FacetBoundaryDemand {
                 before: 0.0,
@@ -1067,12 +1063,12 @@ mod tests {
                 after: 0.0,
             },
         ];
-        let requirements = facet_grid_requirements_from_placement(
+        let requirements = facet_grid_requirements_from_geometry(
             GridShape {
                 rows: 1,
                 columns: 2,
             },
-            &placement,
+            &geometry,
             9.0,
             &boundaries,
         )?;
@@ -1102,7 +1098,7 @@ mod tests {
     #[test]
     fn facet_grid_requirements_round_trip_preserves_coordinated_layout()
     -> Result<(), AvengerChartError> {
-        let placement = two_cell_column_placement();
+        let geometry = two_cell_column_geometry();
         let boundaries = [
             FacetBoundaryDemand {
                 before: 1.0,
@@ -1113,12 +1109,12 @@ mod tests {
                 after: 0.0,
             },
         ];
-        let requirements = facet_grid_requirements_from_placement(
+        let requirements = facet_grid_requirements_from_geometry(
             GridShape {
                 rows: 1,
                 columns: 2,
             },
-            &placement,
+            &geometry,
             8.0,
             &boundaries,
         )?;
@@ -1136,7 +1132,7 @@ mod tests {
     #[test]
     fn merged_facet_requirements_take_max_min_gap_without_boundary_inflation()
     -> Result<(), AvengerChartError> {
-        let placement = two_cell_column_placement();
+        let geometry = two_cell_column_geometry();
         let shape = GridShape {
             rows: 1,
             columns: 2,
@@ -1153,9 +1149,9 @@ mod tests {
             },
         ];
         let first =
-            facet_grid_requirements_from_placement(shape, &placement, 14.0, &narrow_boundaries)?;
+            facet_grid_requirements_from_geometry(shape, &geometry, 14.0, &narrow_boundaries)?;
         let second =
-            facet_grid_requirements_from_placement(shape, &placement, 8.0, &wide_boundaries)?;
+            facet_grid_requirements_from_geometry(shape, &geometry, 8.0, &wide_boundaries)?;
 
         let merged =
             GridRequirements::merge_max([&first, &second]).expect("compatible facet grids");

@@ -1,7 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{FacetEmptyCellPolicy, SharingLevel};
-use avenger_scales::scales::ConfiguredScale;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, logical_expr::lit};
 
 use crate::{
@@ -73,7 +72,6 @@ pub(crate) struct FacetBandPreparedRuntime {
     pub(crate) subplot_eval_ctx: EvaluationContext,
     pub(crate) nested_measure_ctx: FacetBandNestedMeasureContext,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
-    pub(crate) original_band_scale: ConfiguredScale,
     pub(crate) initial_subplot_band_size: f32,
     pub(crate) scale_artifacts: Arc<FacetScaleNodeArtifacts>,
 }

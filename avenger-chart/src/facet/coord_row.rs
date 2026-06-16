@@ -57,8 +57,9 @@ pub(crate) fn compute_band_layout(positions: &[f32], extent: f32) -> (Vec<f32>, 
     let mut sorted = positions.to_vec();
     sorted.sort_by(|a, b| a.total_cmp(b));
 
-    // Spacing is owned by the band scale configuration (padding_inner[_px]).
-    // Derive cell bandwidth directly from the positioned starts and total extent.
+    // This transform path is legacy/stale for production facet rendering.
+    // Derive a best-effort cell bandwidth directly from positioned starts
+    // and total extent for callers that still inspect transform geometry.
     let inferred_bandwidth = if sorted.len() > 1 {
         let first = sorted.first().copied().unwrap_or(0.0);
         let last = sorted.last().copied().unwrap_or(first);

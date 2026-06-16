@@ -2,7 +2,6 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame};
 
-use crate::facet::coord::{FacetBandCoordMeasurement, FacetBandProbeMeasurement};
 use crate::{
     error::AvengerChartError,
     marks::CompiledMark,
@@ -64,23 +63,6 @@ pub async fn coordinate_overflow_for_guides_until(
         checkpoint,
     )
     .await
-}
-
-pub(crate) fn apply_coord_measurement_scale_adjustments(
-    measurement: &dyn CoordMeasurement,
-    scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
-) {
-    if let Some(facet_band) = measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurement>()
-    {
-        facet_band.apply_scale_adjustments(scales);
-    } else if let Some(facet_probe) = measurement
-        .as_any()
-        .downcast_ref::<FacetBandProbeMeasurement>()
-    {
-        facet_probe.apply_scale_adjustments(scales);
-    }
 }
 
 /// Inputs for coordinate-system measurement.
@@ -233,6 +215,7 @@ pub(crate) async fn measure_coordinate_system_transform(
         return Box::pin(crate::facet::coord::measure_facet_row(
             request.scales(),
             request.plot_width(),
+            request.plot_height(),
             request.eval_ctx(),
             request.data(),
             request.compiled_marks(),
@@ -244,6 +227,7 @@ pub(crate) async fn measure_coordinate_system_transform(
     if any.is::<crate::facet::coord::FacetColumn>() {
         return Box::pin(crate::facet::coord::measure_facet_column(
             request.scales(),
+            request.plot_width(),
             request.plot_height(),
             request.eval_ctx(),
             request.data(),

@@ -2,9 +2,9 @@
 //!
 //! These helpers synthesize an initial subtree size from the evaluated facet
 //! tree and a requested leaf plot size. They intentionally do not include
-//! coordinated overflows, guide padding, legends, or explicit placement gaps.
-//! After coordination, plot-area-sized facets use realized explicit placement as
-//! the source of truth for final subtree extents.
+//! coordinated overflows, guide padding, legends, or content-driven geometry gaps.
+//! After coordination, plot-area-sized facets use realized content-driven
+//! geometry as the source of truth for final subtree extents.
 
 use datafusion::common::ScalarValue;
 

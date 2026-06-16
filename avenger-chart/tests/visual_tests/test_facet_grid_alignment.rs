@@ -9,12 +9,11 @@
 //! the alignment-apply stage).
 //!
 //! This is the closest any end-to-end spec gets to the facet-band apply
-//! adapter, and it still does NOT fire: concat-nested facet bands are
-//! scale-backed (explicit placement exists only under a leaf-plot-sized
-//! facet ROOT, which cannot also be a concat child), so the apply skips
-//! with `ScaleBackedPlacement` and the two bands keep their own spacing.
-//! The baseline pins that unaligned rendering so any change to the
-//! adapter's reachability or behavior shows up as an image diff.
+//! adapter. Concat-nested facet bands use canvas-constrained current facet
+//! geometry rather than content-driven placement, so the apply skips and the
+//! two bands keep their own spacing. The baseline pins that unaligned
+//! rendering so any change to the adapter's reachability or behavior shows
+//! up as an image diff.
 
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;

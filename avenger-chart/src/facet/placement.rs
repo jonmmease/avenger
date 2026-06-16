@@ -1,65 +1,43 @@
-//! Shared facet band placement helpers.
+//! Shared facet band geometry helpers.
 //!
-//! Scale-backed bands resolve placement from the active band scale. Explicit
-//! bands store placement on the measurement, then expose it through the same
-//! resolved placement view.
+//! Facet geometry is chart-owned layout state. It is derived either from the
+//! active coordinated layout over a known parent extent, or from measured child
+//! content when the facet's main axis is content-driven.
 
-use std::collections::HashMap;
-
-use avenger_scales::scales::ConfiguredScale;
-use datafusion_common::ScalarValue;
 use tracing::trace;
 
 use crate::{
-    coords::{CoordMeasurement, CoordinatedLayout, FacetAxis},
-    error::AvengerChartError,
+    coords::{CoordinatedLayout, FacetAxis},
     facet::{
         coord::{FacetBandCoordMeasurement, FacetCellRuntime},
         overflow_projection::rendered_boundary_demand_for_measurement,
         padding_policy,
     },
-    layout::{
-        BandPosition, BandPositionIterator, BoundaryDemand, Size, TrackSpacing, UniformTracks,
-    },
+    layout::{BoundaryDemand, Size, TrackSpacing},
     plot::compiled::ComponentsMeasurement,
-    scales::ConfiguredScaleWithSpec,
 };
 
-/// Resolved placement for a facet band, regardless of sizing mode.
+/// Resolved geometry for a facet band, regardless of sizing mode.
 #[derive(Debug, Clone)]
-pub(crate) struct FacetBandPlacement {
+pub(crate) struct FacetBandGeometry {
     pub(crate) axis: FacetAxis,
-    pub(crate) cells: Vec<FacetCellPlacement>,
+    pub(crate) cells: Vec<FacetCellGeometry>,
     pub(crate) main_extent: f32,
     pub(crate) cross_extent: Option<f32>,
 }
 
-/// Resolved placement for one facet cell.
+/// Resolved geometry for one facet cell.
 #[derive(Debug, Clone)]
-pub(crate) struct FacetCellPlacement {
+pub(crate) struct FacetCellGeometry {
     pub(crate) cell_index: usize,
     pub(crate) main_start: f32,
     pub(crate) main_size: f32,
 }
 
-/// Placement model for a facet band.
-///
-/// Scale-backed placement resolves cell positions from the active band scale.
-/// Explicit placement computes cell positions on read from the live cells
-/// and the coordinated views, which is needed when the facet band's physical
-/// main dimension is leaf-plot-area sized and the containing plot area grows
-/// to fit the rendered subtree.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum FacetBandPlacementModel {
-    #[default]
-    ScaleBacked,
-    Explicit,
-}
-
-impl FacetBandPlacement {
+impl FacetBandGeometry {
     pub(crate) fn new(
         axis: FacetAxis,
-        cells: Vec<FacetCellPlacement>,
+        cells: Vec<FacetCellGeometry>,
         main_extent: f32,
         cross_extent: Option<f32>,
     ) -> Self {
@@ -77,202 +55,74 @@ impl FacetBandPlacement {
     }
 
     #[cfg(test)]
-    pub(crate) fn cell(&self, index: usize) -> Option<&FacetCellPlacement> {
+    pub(crate) fn cell(&self, index: usize) -> Option<&FacetCellGeometry> {
         self.cells.get(index)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn main_starts(&self) -> impl Iterator<Item = f32> + '_ {
-        self.cells.iter().map(|cell| cell.main_start)
     }
 
     #[cfg(test)]
     pub(crate) fn main_sizes(&self) -> impl Iterator<Item = f32> + '_ {
         self.cells.iter().map(|cell| cell.main_size)
     }
-
-    pub(crate) fn band_positions(
-        &self,
-        cells: &[FacetCellRuntime],
-    ) -> Result<Vec<BandPosition>, AvengerChartError> {
-        if self.cells.len() != cells.len() {
-            return Err(AvengerChartError::InternalError(format!(
-                "Facet placement count mismatch: placement={}, cells={}",
-                self.cells.len(),
-                cells.len()
-            )));
-        }
-
-        Ok(self
-            .cells
-            .iter()
-            .zip(cells.iter())
-            .map(|(placement, cell)| {
-                BandPosition::new(
-                    cell.plan.value.clone(),
-                    placement.main_start,
-                    placement.main_size,
-                )
-            })
-            .collect())
-    }
 }
 
-pub(crate) fn resolve_scale_backed_facet_band_placement(
+pub(crate) fn compute_uniform_facet_band_geometry(
     axis: FacetAxis,
-    configured: &ConfiguredScale,
-    cell_values: &[ScalarValue],
-    cell_count: usize,
+    real_cell_count: usize,
+    layout: &CoordinatedLayout,
+    parent_main_extent: f32,
     cross_extent: Option<f32>,
-) -> Result<FacetBandPlacement, AvengerChartError> {
-    let bands: Vec<_> = BandPositionIterator::from_configured_scale(configured)?.collect();
-    let axis_label = match axis {
-        FacetAxis::Column => "FacetCol",
-        FacetAxis::Row => "FacetRow",
-    };
-
-    if cell_count == 0 && cell_values.is_empty() {
-        return Ok(FacetBandPlacement::new(axis, Vec::new(), 0.0, cross_extent));
+) -> FacetBandGeometry {
+    if real_cell_count == 0 {
+        return FacetBandGeometry::new(axis, Vec::new(), 0.0, cross_extent);
     }
 
-    if bands.len() != cell_count {
-        return Err(AvengerChartError::InternalError(format!(
-            "{axis_label} placement: band positions length {} did not match facet cell count {}",
-            bands.len(),
-            cell_count
-        )));
-    }
+    let slot_count = layout.n.max(real_cell_count).max(1);
+    let range_start = layout.outer_start.max(0.0);
+    let range_size =
+        (parent_main_extent.max(0.0) - range_start - layout.outer_end.max(0.0)).max(0.0);
+    let gap = layout.padding_inner_px.max(0.0);
 
-    if bands.len() != cell_values.len() {
-        return Err(AvengerChartError::InternalError(format!(
-            "{axis_label} placement: band positions length {} did not match facet cell value count {}",
-            bands.len(),
-            cell_values.len()
-        )));
-    }
-
-    if !bands
-        .iter()
-        .zip(cell_values.iter())
-        .all(|(band, value)| band.value == *value)
-    {
-        return Err(AvengerChartError::InternalError(format!(
-            "{axis_label} placement: band position order did not align with facet cell order"
-        )));
-    }
-
-    let main_extent = configured
-        .numeric_interval_range()
-        .map(|(start, end)| (end - start).abs())
-        .unwrap_or_else(|_| {
-            let start = bands.first().map(BandPosition::start).unwrap_or(0.0);
-            let end = bands.last().map(BandPosition::end).unwrap_or(0.0);
-            (end - start).abs()
-        });
-
-    // Positions come from the neutral uniform-tracks solve. Facet-written
-    // band scales are uniform by construction (range + band_n +
-    // padding_inner_px over default band options), so each scale-read band
-    // position is shadow-asserted against the solved arithmetic progression
-    // in debug builds.
-    let track_size = bands.first().map(|band| band.bandwidth).unwrap_or(0.0);
-    let outer_start = bands.first().map(BandPosition::start).unwrap_or(0.0);
-    let min_gap = if bands.len() >= 2 {
-        (bands[1].start() - bands[0].end()).max(0.0)
+    // Uniform chart-owned layout geometry: reserve coordinated outer edges,
+    // divide the remaining parent extent across real and ghost slots, and
+    // keep the requested inner gap between neighboring slots.
+    //
+    // Column child plot areas are rendered on pixel-snapped bounds. If
+    // snapping the uniform track size still fits in the parent range, use
+    // that stable pixel size for readback too; otherwise keep the fractional
+    // size so the final track does not overrun the parent. Row facets keep
+    // the fractional band math; vertical snapping compounds visibly across
+    // rows and diverges from the historical row layout.
+    let available = (range_size - gap * slot_count.saturating_sub(1) as f32).max(0.0);
+    let exact_track_size = (available / slot_count as f32).max(0.0);
+    let snapped_track_size = exact_track_size.round().max(0.0);
+    let snapped_extent =
+        snapped_track_size * slot_count as f32 + gap * slot_count.saturating_sub(1) as f32;
+    let track_size = if matches!(axis, FacetAxis::Column) && snapped_extent <= range_size + 0.01 {
+        snapped_track_size
     } else {
-        0.0
+        exact_track_size
     };
-    let outer_end = bands
-        .last()
-        .map(|band| (main_extent - band.end()).max(0.0))
-        .unwrap_or(0.0);
-    let tracks = UniformTracks {
-        count: bands.len(),
-        spacing: TrackSpacing {
-            outer_start,
-            outer_end,
-            min_gap,
-        },
-    };
-    let solved = tracks.solve(track_size);
-    let children = solved
-        .starts
-        .iter()
-        .enumerate()
-        .map(|(id, &main_start)| {
-            debug_assert!(
-                (main_start - bands[id].start()).abs() <= 0.01
-                    && (solved.track_size - bands[id].bandwidth).abs() <= 0.01,
-                "facet band scale positions diverged from the uniform-tracks solve: \
-                 solved=({main_start}, {}), scale=({}, {})",
-                solved.track_size,
-                bands[id].start(),
-                bands[id].bandwidth,
-            );
-            FacetCellPlacement {
-                cell_index: id,
-                main_start,
-                main_size: solved.track_size,
-            }
+    let step = track_size + gap;
+
+    let cells = (0..real_cell_count)
+        .map(|cell_index| FacetCellGeometry {
+            cell_index,
+            main_start: range_start + cell_index as f32 * step,
+            main_size: track_size,
         })
-        .collect();
+        .collect::<Vec<_>>();
+    let main_extent = parent_main_extent.max(0.0);
 
-    Ok(FacetBandPlacement::new(
-        axis,
-        children,
-        main_extent,
-        cross_extent,
-    ))
+    FacetBandGeometry::new(axis, cells, main_extent, cross_extent)
 }
 
-pub(crate) fn resolve_facet_band_placement_from_configured_scales(
-    coord_measurement: &dyn CoordMeasurement,
-    scales: &HashMap<String, ConfiguredScale>,
-) -> Result<Option<FacetBandPlacement>, AvengerChartError> {
-    let Some(facet_band) = coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurement>()
-    else {
-        return Ok(None);
-    };
-
-    Ok(Some(
-        facet_band.resolved_placement_from_configured_scales(scales)?,
-    ))
-}
-
-pub(crate) fn resolve_facet_band_placement_from_scale_specs(
-    coord_measurement: &dyn CoordMeasurement,
-    scales: &HashMap<String, ConfiguredScaleWithSpec>,
-) -> Result<Option<FacetBandPlacement>, AvengerChartError> {
-    let Some(facet_band) = coord_measurement
-        .as_any()
-        .downcast_ref::<FacetBandCoordMeasurement>()
-    else {
-        return Ok(None);
-    };
-
-    Ok(Some(
-        facet_band.resolved_placement_from_scale_specs(scales)?,
-    ))
-}
-
-pub(crate) fn resolve_facet_band_placement(
-    measurement: &ComponentsMeasurement,
-) -> Result<Option<FacetBandPlacement>, AvengerChartError> {
-    resolve_facet_band_placement_from_scale_specs(
-        measurement.coord_measurement.as_ref(),
-        &measurement.scales,
-    )
-}
-
-pub(crate) fn compute_explicit_facet_band_placement(
+pub(crate) fn compute_content_driven_facet_band_geometry(
     axis: FacetAxis,
     cells: &[FacetCellRuntime],
     layout: &CoordinatedLayout,
-) -> FacetBandPlacement {
+) -> FacetBandGeometry {
     if cells.is_empty() {
-        return FacetBandPlacement::new(axis, Vec::new(), 0.0, Some(0.0));
+        return FacetBandGeometry::new(axis, Vec::new(), 0.0, Some(0.0));
     }
 
     let gap = padding_policy::main_axis_gap(layout.padding_inner_px);
@@ -308,7 +158,7 @@ pub(crate) fn compute_explicit_facet_band_placement(
             after_current,
             before_next,
             gap_size,
-            "plot-area-sized facet placement gap"
+            "plot-area-sized facet geometry gap"
         );
     }
 
@@ -398,30 +248,30 @@ pub(crate) fn compute_explicit_facet_band_placement(
         )
     };
 
-    // Only the real cells become placements; ghost tracks reserve space.
+    // Only the real cells become geometry entries; ghost tracks reserve space.
     let placed_cells = (0..cells.len())
-        .map(|cell_index| FacetCellPlacement {
+        .map(|cell_index| FacetCellGeometry {
             cell_index,
             main_start: main_starts[cell_index],
             main_size: main_sizes[cell_index],
         })
         .collect();
 
-    FacetBandPlacement::new(axis, placed_cells, main_extent, Some(cross_extent))
+    FacetBandGeometry::new(axis, placed_cells, main_extent, Some(cross_extent))
 }
 
 /// Returns the main-axis extent of a cell for plot-area-sized positioning.
 ///
 /// For leaf cells, this is simply `plot_area_width` (or height for rows).
 /// For intermediate cells (containing a plot-area-sized facet band), the
-/// stored explicit placement carries the actual subtree extent, including
+/// content-driven geometry carries the actual subtree extent, including
 /// inter-cell gaps and trailing outer padding.
 fn cell_main_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) -> f32 {
     if let Some(facet_band) = measurement
         .coord_measurement
         .as_any()
         .downcast_ref::<FacetBandCoordMeasurement>()
-        .filter(|facet_band| facet_band.uses_explicit_placement())
+        .filter(|facet_band| facet_band.content_driven_main_axis())
     {
         if facet_band.cells.is_empty() {
             return match axis {
@@ -451,7 +301,7 @@ fn cell_cross_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) ->
         .coord_measurement
         .as_any()
         .downcast_ref::<FacetBandCoordMeasurement>()
-        .filter(|facet_band| facet_band.uses_explicit_placement())
+        .filter(|facet_band| facet_band.content_driven_main_axis())
     {
         if facet_band.cells.is_empty() {
             return match axis {
@@ -479,102 +329,104 @@ fn cell_cross_plot_size(axis: FacetAxis, measurement: &ComponentsMeasurement) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use avenger_scales::scales::band::BandScale;
 
-    fn make_band_scale(range: (f32, f32)) -> ConfiguredScale {
-        let domain = ScalarValue::iter_to_array(vec![
-            ScalarValue::Utf8(Some("a".to_string())),
-            ScalarValue::Utf8(Some("b".to_string())),
-        ])
-        .unwrap();
-        BandScale::configured(domain, range)
+    fn layout(
+        padding_inner_px: f32,
+        outer_start: f32,
+        outer_end: f32,
+        n: usize,
+    ) -> CoordinatedLayout {
+        CoordinatedLayout {
+            padding_inner_px,
+            guide_slot_gap_px: 0.0,
+            outer_start,
+            outer_end,
+            n,
+        }
     }
 
     #[test]
-    fn scale_backed_placement_matches_active_band_scale() {
-        let scale = make_band_scale((0.0, 100.0));
-        let cell_values = vec![
-            ScalarValue::Utf8(Some("a".to_string())),
-            ScalarValue::Utf8(Some("b".to_string())),
-        ];
-
-        let placement = resolve_scale_backed_facet_band_placement(
+    fn uniform_geometry_places_column_cells_from_layout() {
+        let geometry = compute_uniform_facet_band_geometry(
             FacetAxis::Column,
-            &scale,
-            &cell_values,
-            cell_values.len(),
+            2,
+            &layout(10.0, 5.0, 15.0, 2),
+            120.0,
             Some(42.0),
-        )
-        .unwrap();
+        );
 
-        let starts = placement.main_starts().collect::<Vec<_>>();
-        let sizes = placement.main_sizes().collect::<Vec<_>>();
-        assert_eq!(placement.axis, FacetAxis::Column);
-        assert_eq!(placement.cell_count(), 2);
-        assert!(starts[0] < starts[1]);
-        assert!(sizes.iter().all(|size| *size > 0.0));
-        assert_eq!(placement.cross_extent, Some(42.0));
-        assert_eq!(placement.cell(1).unwrap().cell_index, 1);
+        assert_eq!(geometry.axis, FacetAxis::Column);
+        assert_eq!(geometry.cell_count(), 2);
+        assert_eq!(geometry.cross_extent, Some(42.0));
+        assert!((geometry.main_extent - 120.0).abs() <= 0.01);
+        assert!((geometry.cell(0).unwrap().main_start - 5.0).abs() <= 0.01);
+        assert!((geometry.cell(0).unwrap().main_size - 45.0).abs() <= 0.01);
+        assert!((geometry.cell(1).unwrap().main_start - 60.0).abs() <= 0.01);
+        assert_eq!(geometry.cell(1).unwrap().cell_index, 1);
     }
 
     #[test]
-    fn scale_backed_placement_errors_on_count_mismatch() {
-        let scale = make_band_scale((0.0, 100.0));
-        let cell_values = vec![
-            ScalarValue::Utf8(Some("a".to_string())),
-            ScalarValue::Utf8(Some("b".to_string())),
-        ];
-
-        let err = resolve_scale_backed_facet_band_placement(
-            FacetAxis::Column,
-            &scale,
-            &cell_values,
-            cell_values.len() + 1,
+    fn uniform_geometry_reserves_ghost_slots_without_returning_them() {
+        let geometry = compute_uniform_facet_band_geometry(
+            FacetAxis::Row,
+            2,
+            &layout(4.0, 0.0, 0.0, 4),
+            100.0,
             None,
-        )
-        .unwrap_err();
-        let message = format!("{}", err);
-        assert!(message.contains("band positions length"));
-        assert!(message.contains("facet cell count"));
+        );
+
+        assert_eq!(geometry.axis, FacetAxis::Row);
+        assert_eq!(geometry.cell_count(), 2);
+        assert!((geometry.main_extent - 100.0).abs() <= 0.01);
+        assert!((geometry.cell(0).unwrap().main_size - 22.0).abs() <= 0.01);
+        assert!((geometry.cell(1).unwrap().main_start - 26.0).abs() <= 0.01);
     }
 
     #[test]
-    fn scale_backed_placement_allows_empty_filtered_cells() {
-        let scale = make_band_scale((0.0, 100.0));
-
-        let placement = resolve_scale_backed_facet_band_placement(
+    fn uniform_geometry_allows_empty_filtered_cells() {
+        let geometry = compute_uniform_facet_band_geometry(
             FacetAxis::Column,
-            &scale,
-            &[],
             0,
+            &layout(10.0, 5.0, 15.0, 4),
+            120.0,
             Some(42.0),
-        )
-        .unwrap();
+        );
 
-        assert_eq!(placement.axis, FacetAxis::Column);
-        assert_eq!(placement.cell_count(), 0);
-        assert_eq!(placement.main_extent, 0.0);
-        assert_eq!(placement.cross_extent, Some(42.0));
+        assert_eq!(geometry.axis, FacetAxis::Column);
+        assert_eq!(geometry.cell_count(), 0);
+        assert_eq!(geometry.main_extent, 0.0);
+        assert_eq!(geometry.cross_extent, Some(42.0));
     }
 
     #[test]
-    fn scale_backed_placement_errors_on_order_mismatch() {
-        let scale = make_band_scale((0.0, 100.0));
-        let cell_values = vec![
-            ScalarValue::Utf8(Some("b".to_string())),
-            ScalarValue::Utf8(Some("a".to_string())),
-        ];
-
-        let err = resolve_scale_backed_facet_band_placement(
+    fn uniform_geometry_zero_gap_and_outer_edges() {
+        let geometry = compute_uniform_facet_band_geometry(
             FacetAxis::Column,
-            &scale,
-            &cell_values,
-            cell_values.len(),
+            3,
+            &layout(0.0, 10.0, 20.0, 3),
+            100.0,
             None,
-        )
-        .unwrap_err();
-        let message = format!("{}", err);
-        assert!(message.contains("band position order"));
-        assert!(message.contains("facet cell order"));
+        );
+
+        assert_eq!(geometry.cell_count(), 3);
+        assert!((geometry.cell(0).unwrap().main_start - 10.0).abs() <= 0.01);
+        assert!((geometry.cell(0).unwrap().main_size - 23.0).abs() <= 0.01);
+        assert!((geometry.cell(2).unwrap().main_start - 56.0).abs() <= 0.01);
+    }
+
+    #[test]
+    fn uniform_geometry_clamps_overlarge_gap_to_nonnegative_tracks() {
+        let geometry = compute_uniform_facet_band_geometry(
+            FacetAxis::Row,
+            3,
+            &layout(80.0, 0.0, 0.0, 3),
+            100.0,
+            None,
+        );
+
+        assert_eq!(geometry.cell_count(), 3);
+        assert!(geometry.main_sizes().all(|size| size >= 0.0));
+        assert_eq!(geometry.cell(0).unwrap().main_size, 0.0);
+        assert_eq!(geometry.cell(1).unwrap().main_start, 80.0);
     }
 }

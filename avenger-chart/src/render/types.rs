@@ -279,10 +279,6 @@ impl EvaluationMetrics {
         self.timings.preview_scale_build_us += duration_micros_u64(duration);
     }
 
-    pub(crate) fn record_preview_scale_coord_adjust_duration(&mut self, duration: Duration) {
-        self.timings.preview_scale_coord_adjust_us += duration_micros_u64(duration);
-    }
-
     pub(crate) fn record_preview_measurement_retarget_duration(&mut self, duration: Duration) {
         self.timings.preview_measurement_retarget_us += duration_micros_u64(duration);
     }
@@ -505,7 +501,7 @@ pub struct EvaluationTimingMetrics {
     pub preview_layout_setup_us: u64,
     /// Time spent cloning the cached measurement before retargeting it.
     pub preview_measurement_clone_us: u64,
-    /// Time spent refreshing configured scales for a reused Preview measurement.
+    /// Time spent refreshing configured non-facet scales for a reused Preview measurement.
     pub preview_scale_refresh_us: u64,
     /// Time spent constructing the lightweight core scale-evaluation context.
     pub preview_scale_context_setup_us: u64,
@@ -515,8 +511,6 @@ pub struct EvaluationTimingMetrics {
     pub preview_scale_cache_lookup_us: u64,
     /// Time spent constructing configured scales from cached domain artifacts.
     pub preview_scale_build_us: u64,
-    /// Time spent applying coordinate measurement scale adjustments during Preview.
-    pub preview_scale_coord_adjust_us: u64,
     /// Time spent retargeting the reused measurement to the requested plot area.
     pub preview_measurement_retarget_us: u64,
     /// Time spent applying active raw-domain overrides to reused facet cells.
@@ -544,7 +538,6 @@ impl EvaluationTimingMetrics {
         self.preview_scale_cache_key_us += other.preview_scale_cache_key_us;
         self.preview_scale_cache_lookup_us += other.preview_scale_cache_lookup_us;
         self.preview_scale_build_us += other.preview_scale_build_us;
-        self.preview_scale_coord_adjust_us += other.preview_scale_coord_adjust_us;
         self.preview_measurement_retarget_us += other.preview_measurement_retarget_us;
         self.preview_facet_domain_override_us += other.preview_facet_domain_override_us;
         self.measure_cells_overflow_probe_us += other.measure_cells_overflow_probe_us;
@@ -578,7 +571,7 @@ pub struct EvaluationPipelineMetrics {
     pub facet_scale_precompute_cache_misses: usize,
     /// Number of scale-builder construction requests observed by the chart
     /// runtime. This counts calls to the current domain-inference pipeline,
-    /// not configured scale range rebuilds.
+    /// not chart geometry refreshes.
     pub scale_builder_builds: usize,
     /// Number of scale-domain cache hits in a reusable `PlotSession`.
     pub scale_domain_cache_hits: usize,
