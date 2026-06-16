@@ -20,9 +20,7 @@ fn nested_x(outer: &str, inner: &str) -> datafusion::logical_expr::Expr {
     named_struct(vec![lit("group"), col(outer), lit("member"), col(inner)])
 }
 
-#[tokio::test]
-async fn test_nested_position_grouped_bar_shared_slots_hidden_leaf_axis() {
-    let ctx = SessionContext::new();
+fn grouped_bar_df(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
     let batch = record_batch(
         vec![
             Field::new("quarter", DataType::Utf8, false),
@@ -41,10 +39,15 @@ async fn test_nested_position_grouped_bar_shared_slots_hidden_leaf_axis() {
             ])) as ArrayRef,
         ],
     );
-    let df = ctx.read_batch(batch).expect("dataframe");
+    ctx.read_batch(batch).expect("dataframe")
+}
+
+#[tokio::test]
+async fn test_nested_position_grouped_bar_shared_slots_hidden_leaf_axis() {
+    let ctx = SessionContext::new();
 
     let plot = Plot::<Cartesian>::new()
-        .data(df)
+        .data(grouped_bar_df(&ctx))
         .legend("fill", |legend| legend.title("Team"))
         .mark(
             Rect::new()
@@ -75,6 +78,42 @@ async fn test_nested_position_grouped_bar_shared_slots_hidden_leaf_axis() {
         None,
         "nested_position",
         "grouped_bar_shared_slots_hidden_leaf_axis",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_grouped_bar_shared_slots() {
+    let ctx = SessionContext::new();
+
+    let plot = Plot::<Cartesian>::new()
+        .data(grouped_bar_df(&ctx))
+        .legend("fill", |legend| legend.title("Team"))
+        .mark(
+            Rect::new()
+                .x_with(nested_x("quarter", "team"), |x| {
+                    x.axis(|a| a.title("Quarter / Team").grid(false))
+                        .level(0, |l| l.padding_inner(0.45).padding_outer(0.15))
+                        .level(1, |l| l.nest_scope(NestScope::Shared).padding_inner(0.08))
+                })
+                .x2_with(col(":x"), |x| x.band(1.0))
+                .y_with(lit(0.0), |y| {
+                    y.scale(|s| s.domain((0.0, 60.0)))
+                        .axis(|a| a.title("Value").grid(true))
+                })
+                .y2(col("value"))
+                .fill_with(col("team"), |fill| fill)
+                .stroke("#ffffff")
+                .stroke_width(1.0),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "grouped_bar_shared_slots",
     )
     .await;
 }
@@ -132,6 +171,72 @@ async fn test_nested_position_bokeh_style_variable_parent_width_axis() {
         None,
         "nested_position",
         "bokeh_style_variable_parent_width_axis",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_parent_span_overlay() {
+    let ctx = SessionContext::new();
+    let batch = record_batch(
+        vec![
+            Field::new("region", DataType::Utf8, false),
+            Field::new("item", DataType::Utf8, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "West", "West", "West", "East", "East", "Central", "Central",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["A", "B", "C", "A", "B", "A", "B"])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![
+                28.0, 35.0, 32.0, 41.0, 38.0, 31.0, 36.0,
+            ])) as ArrayRef,
+        ],
+    );
+    let df = ctx.read_batch(batch).expect("dataframe");
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .mark(
+            Rect::new()
+                .x_with(nested_x("region", "item"), |x| {
+                    x.axis(|a| a.title("Item grouped by region").grid(false))
+                        .level(0, |l| l.padding_inner(0.38).padding_outer(0.18))
+                        .level(1, |l| l.padding_inner(0.08))
+                })
+                .x2_with(col(":x"), |x| x.band(1.0))
+                .y_with(lit(0.0), |y| {
+                    y.scale(|s| s.domain((0.0, 50.0)))
+                        .axis(|a| a.title("Value").grid(true))
+                })
+                .y2(col("value"))
+                .fill("#7aa6c2")
+                .stroke("#ffffff")
+                .stroke_width(1.0),
+        )
+        .mark(
+            Rule::new()
+                .x_with(nested_x("region", "item"), |x| {
+                    x.level(0, |l| l.padding_inner(0.38).padding_outer(0.18))
+                        .level(1, |l| l.padding_inner(0.08))
+                        .level_band(0, 0.0)
+                })
+                .x2_with(col(":x"), |x| x.level_band(0, 1.0))
+                .y(lit(47.0))
+                .y2(lit(47.0))
+                .stroke("#111827")
+                .stroke_width(2.0)
+                .opacity(0.75),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "parent_span_overlay",
     )
     .await;
 }
@@ -216,4 +321,67 @@ async fn test_nested_position_heatmap_zero_padding_both_axes() {
         "heatmap_zero_padding_both_axes",
     )
     .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_y_lollipop() {
+    let ctx = SessionContext::new();
+    let batch = record_batch(
+        vec![
+            Field::new("department", DataType::Utf8, false),
+            Field::new("role", DataType::Utf8, false),
+            Field::new("score", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "Sales",
+                "Sales",
+                "Sales",
+                "Support",
+                "Support",
+                "Engineering",
+                "Engineering",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "AE", "AM", "SE", "Tier 1", "Tier 2", "Backend", "Frontend",
+            ])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![
+                74.0, 68.0, 81.0, 62.0, 71.0, 88.0, 84.0,
+            ])) as ArrayRef,
+        ],
+    );
+    let df = ctx.read_batch(batch).expect("dataframe");
+    let nested_y = nested_x("department", "role");
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .mark(
+            Rule::new()
+                .x_with(lit(0.0), |x| {
+                    x.scale(|s| s.domain((0.0, 100.0)))
+                        .axis(|a| a.title("Score").grid(true))
+                })
+                .x2(col("score"))
+                .y_with(nested_y.clone(), |y| {
+                    y.axis(|a| a.title("Role grouped by department").grid(false))
+                        .level(0, |l| l.padding_inner(0.35).padding_outer(0.15))
+                        .level(1, |l| l.padding_inner(0.1))
+                        .band(0.5)
+                })
+                .y2_with(col(":y"), |y| y.band(0.5))
+                .stroke("#64748b")
+                .stroke_width(1.6),
+        )
+        .mark(
+            Symbol::new()
+                .x(col("score"))
+                .y(nested_y)
+                .fill("#f59e0b")
+                .stroke("#ffffff")
+                .stroke_width(1.0)
+                .size(85.0),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(&compiled, &ctx, None, "nested_position", "y_lollipop").await;
 }
