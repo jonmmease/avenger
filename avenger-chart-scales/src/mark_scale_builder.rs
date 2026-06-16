@@ -11,9 +11,9 @@ use std::{
 use avenger_scales::scales::{DomainKind, RangeKind};
 use datafusion::{
     arrow::{
-        array::{Array, AsArray},
+        array::{Array, AsArray, StructArray},
         compute::cast,
-        datatypes::{DataType as ArrowDataType, Float64Type},
+        datatypes::{DataType as ArrowDataType, Field, Float64Type},
     },
     common::{
         DFSchema, ScalarValue,
@@ -1850,6 +1850,8 @@ async fn apply_nested_level_domain_ordering(
         return Ok((values, false));
     }
 
+    values = expand_nested_level_domain_paths(values, config, &level_orders)?;
+
     let max_depth = values
         .iter()
         .filter_map(nested_struct_depth)
@@ -1889,6 +1891,191 @@ async fn resolve_nested_level_domain_values(
     }
 }
 
+fn expand_nested_level_domain_paths(
+    values: Vec<ScalarValue>,
+    config: &NestedBandSpec,
+    level_orders: &HashMap<usize, NestedLevelDomainOrder>,
+) -> Result<Vec<ScalarValue>, AvengerChartError> {
+    if !level_orders
+        .values()
+        .any(|order| order.explicit_domain.is_some())
+    {
+        return Ok(values);
+    }
+    let Some(field_names) = nested_struct_field_names(&values) else {
+        return Ok(values);
+    };
+    let depth = field_names.len();
+    if depth == 0 {
+        return Ok(values);
+    }
+
+    let existing_paths = values
+        .iter()
+        .filter_map(nested_struct_components)
+        .filter(|components| components.len() == depth)
+        .collect::<Vec<_>>();
+    if existing_paths.is_empty() {
+        return Ok(values);
+    }
+
+    let mut component_paths = Vec::new();
+    collect_expanded_nested_component_paths(
+        &mut Vec::new(),
+        0,
+        depth,
+        config,
+        level_orders,
+        &existing_paths,
+        &mut component_paths,
+    );
+    if component_paths.is_empty() {
+        return Ok(values);
+    }
+
+    let mut expanded = component_paths
+        .iter()
+        .map(|components| nested_struct_scalar(&field_names, components))
+        .collect::<Result<Vec<_>, _>>()?;
+    for value in values {
+        if !expanded.iter().any(|existing| existing == &value) {
+            expanded.push(value);
+        }
+    }
+    Ok(expanded)
+}
+
+fn collect_expanded_nested_component_paths(
+    prefix: &mut Vec<ScalarValue>,
+    level: usize,
+    depth: usize,
+    config: &NestedBandSpec,
+    level_orders: &HashMap<usize, NestedLevelDomainOrder>,
+    existing_paths: &[Vec<ScalarValue>],
+    output: &mut Vec<Vec<ScalarValue>>,
+) {
+    if level == depth {
+        output.push(prefix.clone());
+        return;
+    }
+
+    for component in
+        nested_level_component_candidates(prefix, level, config, level_orders, existing_paths)
+    {
+        prefix.push(component);
+        collect_expanded_nested_component_paths(
+            prefix,
+            level + 1,
+            depth,
+            config,
+            level_orders,
+            existing_paths,
+            output,
+        );
+        prefix.pop();
+    }
+}
+
+fn nested_level_component_candidates(
+    prefix: &[ScalarValue],
+    level: usize,
+    config: &NestedBandSpec,
+    level_orders: &HashMap<usize, NestedLevelDomainOrder>,
+    existing_paths: &[Vec<ScalarValue>],
+) -> Vec<ScalarValue> {
+    let order = level_orders.get(&level);
+    let explicit_domain = order.and_then(|order| order.explicit_domain.as_ref());
+    let scope = config
+        .level(level)
+        .and_then(|level_config| level_config.nest_scope)
+        .unwrap_or(NestScope::Free);
+    let expands_explicit_domain =
+        explicit_domain.is_some() && (level == 0 || scope == NestScope::Shared);
+    let collect_existing_globally =
+        expands_explicit_domain && level > 0 && scope == NestScope::Shared;
+
+    let existing = collect_existing_nested_components(
+        existing_paths,
+        prefix,
+        level,
+        collect_existing_globally,
+    );
+
+    let mut candidates = Vec::new();
+    if expands_explicit_domain && let Some(explicit_domain) = explicit_domain {
+        append_unique_scalars(&mut candidates, explicit_domain.iter().cloned());
+    }
+    append_unique_scalars(&mut candidates, existing);
+
+    candidates.sort_by(|lhs, rhs| {
+        if let Some(order) = order {
+            order.compare(Some(lhs), Some(rhs))
+        } else {
+            scalar_total_cmp(lhs, rhs)
+        }
+    });
+    dedup_scalars(candidates)
+}
+
+fn collect_existing_nested_components(
+    existing_paths: &[Vec<ScalarValue>],
+    prefix: &[ScalarValue],
+    level: usize,
+    collect_globally: bool,
+) -> Vec<ScalarValue> {
+    let mut components = Vec::new();
+    for path in existing_paths {
+        if path.len() <= level {
+            continue;
+        }
+        if !collect_globally && !path_prefix_matches(path, prefix) {
+            continue;
+        }
+        append_unique_scalars(&mut components, std::iter::once(path[level].clone()));
+    }
+    components
+}
+
+fn path_prefix_matches(path: &[ScalarValue], prefix: &[ScalarValue]) -> bool {
+    path.len() >= prefix.len()
+        && path
+            .iter()
+            .zip(prefix)
+            .all(|(component, expected)| component == expected)
+}
+
+fn append_unique_scalars(
+    target: &mut Vec<ScalarValue>,
+    values: impl IntoIterator<Item = ScalarValue>,
+) {
+    for value in values {
+        if !target.iter().any(|existing| existing == &value) {
+            target.push(value);
+        }
+    }
+}
+
+fn dedup_scalars(values: Vec<ScalarValue>) -> Vec<ScalarValue> {
+    let mut unique = Vec::with_capacity(values.len());
+    append_unique_scalars(&mut unique, values);
+    unique
+}
+
+fn nested_struct_field_names(values: &[ScalarValue]) -> Option<Vec<String>> {
+    values.iter().find_map(|value| {
+        let ScalarValue::Struct(array) = value else {
+            return None;
+        };
+        Some(
+            array
+                .fields()
+                .iter()
+                .map(|field| field.name().to_string())
+                .collect(),
+        )
+    })
+}
+
 fn nested_struct_depth(value: &ScalarValue) -> Option<usize> {
     match value {
         ScalarValue::Struct(array) if array.len() > 0 && !array.is_null(0) => {
@@ -1907,6 +2094,41 @@ fn nested_struct_component(value: &ScalarValue, level: usize) -> Option<ScalarVa
         return None;
     }
     ScalarValue::try_from_array(array.column(level), 0).ok()
+}
+
+fn nested_struct_components(value: &ScalarValue) -> Option<Vec<ScalarValue>> {
+    let ScalarValue::Struct(array) = value else {
+        return None;
+    };
+    if array.len() == 0 || array.is_null(0) {
+        return None;
+    }
+    (0..array.num_columns())
+        .map(|level| ScalarValue::try_from_array(array.column(level), 0).ok())
+        .collect()
+}
+
+fn nested_struct_scalar(
+    field_names: &[String],
+    components: &[ScalarValue],
+) -> Result<ScalarValue, AvengerChartError> {
+    let fields = field_names
+        .iter()
+        .zip(components)
+        .map(|(name, component)| {
+            let array =
+                ScalarValue::iter_to_array(std::iter::once(component.clone())).map_err(|err| {
+                    AvengerChartError::InternalError(format!(
+                        "Failed to build nested-band domain component: {err}"
+                    ))
+                })?;
+            Ok((
+                Arc::new(Field::new(name, array.data_type().clone(), true)),
+                array,
+            ))
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+    Ok(ScalarValue::Struct(Arc::new(StructArray::from(fields))))
 }
 
 fn compare_nested_struct_paths(
@@ -2455,6 +2677,92 @@ mod tests {
                 ("B".to_string(), "north".to_string()),
                 ("A".to_string(), "south".to_string()),
                 ("A".to_string(), "north".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_shared_level_domain_values_synthesize_missing_paths() {
+        let ctx = SessionContext::new();
+        let values = vec![nested_path("A", "north"), nested_path("B", "east")];
+        let mut config = NestedBandSpec::default();
+        config.levels.insert(
+            0,
+            NestedBandLevelSpec {
+                domain: Maybe::Set(ScaleDomain::new_discrete(vec![lit("B"), lit("A")])),
+                ..Default::default()
+            },
+        );
+        config.levels.insert(
+            1,
+            NestedBandLevelSpec {
+                nest_scope: Some(NestScope::Shared),
+                domain: Maybe::Set(ScaleDomain::new_discrete(vec![
+                    lit("south"),
+                    lit("north"),
+                    lit("east"),
+                ])),
+                ..Default::default()
+            },
+        );
+
+        let (values, ordered) = apply_nested_level_domain_ordering(
+            values,
+            Some(&config),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert!(ordered);
+        assert_eq!(
+            nested_path_labels(&values),
+            vec![
+                ("B".to_string(), "south".to_string()),
+                ("B".to_string(), "north".to_string()),
+                ("B".to_string(), "east".to_string()),
+                ("A".to_string(), "south".to_string()),
+                ("A".to_string(), "north".to_string()),
+                ("A".to_string(), "east".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_free_level_domain_values_do_not_synthesize_missing_paths() {
+        let ctx = SessionContext::new();
+        let values = vec![nested_path("A", "north"), nested_path("B", "east")];
+        let mut config = NestedBandSpec::default();
+        config.levels.insert(
+            1,
+            NestedBandLevelSpec {
+                domain: Maybe::Set(ScaleDomain::new_discrete(vec![
+                    lit("south"),
+                    lit("north"),
+                    lit("east"),
+                ])),
+                ..Default::default()
+            },
+        );
+
+        let (values, ordered) = apply_nested_level_domain_ordering(
+            values,
+            Some(&config),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert!(ordered);
+        assert_eq!(
+            nested_path_labels(&values),
+            vec![
+                ("A".to_string(), "north".to_string()),
+                ("B".to_string(), "east".to_string()),
             ]
         );
     }
