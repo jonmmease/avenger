@@ -385,3 +385,72 @@ async fn test_nested_position_y_lollipop() {
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(&compiled, &ctx, None, "nested_position", "y_lollipop").await;
 }
+
+#[tokio::test]
+async fn test_nested_position_facet_shared_whole_path_slots() {
+    let ctx = SessionContext::new();
+    let batch = record_batch(
+        vec![
+            Field::new("market", DataType::Utf8, false),
+            Field::new("quarter", DataType::Utf8, false),
+            Field::new("team", DataType::Utf8, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "North", "North", "North", "South", "South", "South", "South",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "Q1", "Q1", "Q2", "Q1", "Q2", "Q2", "Q3",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "East", "North", "East", "South", "East", "South", "North",
+            ])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![
+                32.0, 45.0, 38.0, 28.0, 42.0, 35.0, 48.0,
+            ])) as ArrayRef,
+        ],
+    );
+    let df = ctx.read_batch(batch).expect("dataframe");
+
+    let plot = Plot::<FacetColumn>::new().data(df).mark(
+        Subplot::new(
+            Plot::<Cartesian>::new()
+                .legend("fill", |legend| legend.title("Team"))
+                .mark(
+                    Rect::new()
+                        .x_with(nested_x("quarter", "team"), |x| {
+                            x.with_domain_scope(CoordinationScope::Shared)
+                                .axis(|a| a.title("Quarter").grid(false))
+                                .level(0, |l| l.padding_inner(0.42).padding_outer(0.12))
+                                .level(1, |l| {
+                                    l.nest_scope(NestScope::Shared)
+                                        .padding_inner(0.08)
+                                        .axis(|a| a.visible(false))
+                                })
+                        })
+                        .x2_with(col(":x"), |x| x.band(1.0))
+                        .y_with(lit(0.0), |y| {
+                            y.with_domain_scope(CoordinationScope::Shared)
+                                .scale(|s| s.domain((0.0, 55.0)))
+                                .axis(|a| a.title("Value").grid(true))
+                        })
+                        .y2(col("value"))
+                        .fill_with(col("team"), |fill| fill)
+                        .stroke("#ffffff")
+                        .stroke_width(1.0),
+                ),
+        )
+        .column(col("market")),
+    );
+
+    let compiled = plot.compile(&ctx).await.expect("compile plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "facet_shared_whole_path_slots",
+    )
+    .await;
+}
