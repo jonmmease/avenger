@@ -19,6 +19,7 @@ const TITLE_FONT_SIZE: f32 = 12.0;
 const TICK_FONT_SIZE: f32 = 12.0;
 const PIXEL_OFFSET: f32 = 0.5;
 const LEVEL_GAP: f32 = 8.0;
+const TEXT_WIDTH_FACTOR: f32 = 0.56;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct NestedAxisLevelGuideConfig {
@@ -26,6 +27,13 @@ pub(crate) struct NestedAxisLevelGuideConfig {
     pub(crate) title: Option<String>,
     pub(crate) title_visible: bool,
     pub(crate) label_angle: Option<f32>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct NestedAxisLevelLabelLayout {
+    label_distance: f32,
+    boundary_inner: f32,
+    boundary_outer: f32,
 }
 
 pub(crate) fn make_nested_axis_marks(
@@ -37,7 +45,10 @@ pub(crate) fn make_nested_axis_marks(
 ) -> Result<SceneGroup, AvengerChartError> {
     let layout = nested_band_layout(&scale.config)?;
     let level_count = layout.leaf_level() + 1;
-    let leaf_bands = nested_axis_bands(&scale.config, level_count - 1)?;
+    let level_bands = (0..level_count)
+        .map(|level| nested_axis_bands(&scale.config, level))
+        .collect::<Result<Vec<_>, _>>()?;
+    let leaf_bands = &level_bands[level_count - 1];
 
     let mut main_group = SceneGroup {
         origin: [0.0, 0.0],
@@ -62,6 +73,8 @@ pub(crate) fn make_nested_axis_marks(
         config.orientation,
         AxisOrientation::Left | AxisOrientation::Right
     );
+    let label_layouts =
+        nested_axis_level_label_layouts(&level_bands, is_vertical, config, level_configs);
     let offset = match config.orientation {
         AxisOrientation::Left => 0.0,
         AxisOrientation::Right => config.dimensions[0],
@@ -84,9 +97,11 @@ pub(crate) fn make_nested_axis_marks(
     axis_group
         .marks
         .push(make_rule(start, end, is_vertical, offset, config.domain_color, 1.0).into());
-    axis_group
-        .marks
-        .push(make_tick_marks(&leaf_bands, &config.orientation, offset, config).into());
+    if level_visible(level_configs, level_count - 1) {
+        axis_group
+            .marks
+            .push(make_tick_marks(leaf_bands, &config.orientation, offset, config).into());
+    }
 
     if config.labels_visible.unwrap_or(true) {
         for level in (0..level_count).rev() {
@@ -94,14 +109,21 @@ pub(crate) fn make_nested_axis_marks(
             if level_config.is_some_and(|config| !config.visible) {
                 continue;
             }
-            let bands = nested_axis_bands(&scale.config, level)?;
-            axis_group
-                .marks
-                .push(make_level_labels(&bands, level_count, config, level_config)?.into());
+            let bands = &level_bands[level];
+            axis_group.marks.push(
+                make_level_labels(
+                    bands,
+                    level_count - 1,
+                    config,
+                    level_config,
+                    label_layouts[level],
+                )?
+                .into(),
+            );
             if level < level_count - 1 {
                 axis_group
                     .marks
-                    .push(make_level_boundaries(&bands, level_count, config)?.into());
+                    .push(make_level_boundaries(bands, config, label_layouts[level])?.into());
             }
         }
     }
@@ -127,6 +149,15 @@ pub(crate) fn make_nested_axis_marks(
     main_group.origin = origin;
 
     Ok(main_group)
+}
+
+fn level_visible(
+    level_configs: Option<&BTreeMap<usize, NestedAxisLevelGuideConfig>>,
+    level: usize,
+) -> bool {
+    !level_configs
+        .and_then(|configs| configs.get(&level))
+        .is_some_and(|config| !config.visible)
 }
 
 fn make_rule(
@@ -251,9 +282,10 @@ fn make_grid_marks(
 
 fn make_level_labels(
     bands: &[NestedBandAxisBand],
-    level_count: usize,
+    leaf_level: usize,
     config: &AxisConfig,
     level_config: Option<&NestedAxisLevelGuideConfig>,
+    layout: NestedAxisLevelLabelLayout,
 ) -> Result<SceneTextMark, AvengerChartError> {
     let font_size = config.label_font_size.unwrap_or(TICK_FONT_SIZE);
     let font_adjustment = font_size * 0.10;
@@ -263,30 +295,18 @@ fn make_level_labels(
         .map(|band| band.label.clone())
         .collect::<Vec<_>>();
     let level = bands.first().map(|band| band.level).unwrap_or(0);
-    let row = level_count.saturating_sub(1).saturating_sub(level) as f32;
-    let distance =
-        config.tick_length.unwrap_or(TICK_LENGTH) + TEXT_MARGIN + row * (font_size + LEVEL_GAP);
-    let leaf_level = level_count.saturating_sub(1);
-    let leaf_angle = level_config
-        .and_then(|config| config.label_angle)
-        .unwrap_or_else(|| {
-            if level == leaf_level {
-                config.label_angle.unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        });
+    let leaf_angle = level_label_angle(level, leaf_level, config, level_config);
 
     let (x, y, align, baseline, angle) = match config.orientation {
         AxisOrientation::Left => (
-            ScalarOrArray::new_scalar(-distance),
+            ScalarOrArray::new_scalar(-layout.label_distance),
             ScalarOrArray::new_array(centers.iter().map(|v| v - font_adjustment).collect()),
             TextAlign::Right,
             TextBaseline::Middle,
             0.0,
         ),
         AxisOrientation::Right => (
-            ScalarOrArray::new_scalar(config.dimensions[0] + distance),
+            ScalarOrArray::new_scalar(config.dimensions[0] + layout.label_distance),
             ScalarOrArray::new_array(centers.iter().map(|v| v - font_adjustment).collect()),
             TextAlign::Left,
             TextBaseline::Middle,
@@ -294,14 +314,14 @@ fn make_level_labels(
         ),
         AxisOrientation::Top => (
             ScalarOrArray::new_array(centers),
-            ScalarOrArray::new_scalar(-distance),
+            ScalarOrArray::new_scalar(-layout.label_distance),
             angled_label_align(leaf_angle, true),
             TextBaseline::Bottom,
             leaf_angle,
         ),
         AxisOrientation::Bottom => (
             ScalarOrArray::new_array(centers),
-            ScalarOrArray::new_scalar(config.dimensions[1] + distance),
+            ScalarOrArray::new_scalar(config.dimensions[1] + layout.label_distance),
             angled_label_align(leaf_angle, false),
             TextBaseline::Top,
             leaf_angle,
@@ -330,45 +350,40 @@ fn make_level_labels(
 
 fn make_level_boundaries(
     bands: &[NestedBandAxisBand],
-    level_count: usize,
     config: &AxisConfig,
+    layout: NestedAxisLevelLabelLayout,
 ) -> Result<SceneRuleMark, AvengerChartError> {
     let Some(first) = bands.first() else {
         return Ok(SceneRuleMark::default());
     };
-    let font_size = config.label_font_size.unwrap_or(TICK_FONT_SIZE);
-    let row = level_count.saturating_sub(1).saturating_sub(first.level) as f32;
-    let tick_len = config.tick_length.unwrap_or(TICK_LENGTH);
-    let inner = tick_len + row * (font_size + LEVEL_GAP);
-    let outer = inner + font_size + LEVEL_GAP * 0.5;
     let mut positions = Vec::with_capacity(bands.len() + 1);
     positions.push(first.start);
     positions.extend(bands.iter().map(|band| band.end));
 
     let (x, x2, y, y2) = match config.orientation {
         AxisOrientation::Left => (
-            ScalarOrArray::new_scalar(-inner),
-            ScalarOrArray::new_scalar(-outer),
+            ScalarOrArray::new_scalar(-layout.boundary_inner),
+            ScalarOrArray::new_scalar(-layout.boundary_outer),
             ScalarOrArray::new_array(positions.clone()),
             ScalarOrArray::new_array(positions),
         ),
         AxisOrientation::Right => (
-            ScalarOrArray::new_scalar(config.dimensions[0] + inner),
-            ScalarOrArray::new_scalar(config.dimensions[0] + outer),
+            ScalarOrArray::new_scalar(config.dimensions[0] + layout.boundary_inner),
+            ScalarOrArray::new_scalar(config.dimensions[0] + layout.boundary_outer),
             ScalarOrArray::new_array(positions.clone()),
             ScalarOrArray::new_array(positions),
         ),
         AxisOrientation::Top => (
             ScalarOrArray::new_array(positions.clone()),
             ScalarOrArray::new_array(positions),
-            ScalarOrArray::new_scalar(-inner),
-            ScalarOrArray::new_scalar(-outer),
+            ScalarOrArray::new_scalar(-layout.boundary_inner),
+            ScalarOrArray::new_scalar(-layout.boundary_outer),
         ),
         AxisOrientation::Bottom => (
             ScalarOrArray::new_array(positions.clone()),
             ScalarOrArray::new_array(positions),
-            ScalarOrArray::new_scalar(config.dimensions[1] + inner),
-            ScalarOrArray::new_scalar(config.dimensions[1] + outer),
+            ScalarOrArray::new_scalar(config.dimensions[1] + layout.boundary_inner),
+            ScalarOrArray::new_scalar(config.dimensions[1] + layout.boundary_outer),
         ),
     };
 
@@ -449,6 +464,79 @@ fn band_centers(bands: &[NestedBandAxisBand]) -> Vec<f32> {
     bands.iter().map(|band| band.center).collect()
 }
 
+fn nested_axis_level_label_layouts(
+    level_bands: &[Vec<NestedBandAxisBand>],
+    is_vertical: bool,
+    config: &AxisConfig,
+    level_configs: Option<&BTreeMap<usize, NestedAxisLevelGuideConfig>>,
+) -> Vec<NestedAxisLevelLabelLayout> {
+    let font_size = config.label_font_size.unwrap_or(TICK_FONT_SIZE);
+    let tick_len = config.tick_length.unwrap_or(TICK_LENGTH);
+    let leaf_level = level_bands.len().saturating_sub(1);
+    let mut layouts = vec![
+        NestedAxisLevelLabelLayout {
+            label_distance: tick_len + TEXT_MARGIN,
+            boundary_inner: tick_len,
+            boundary_outer: tick_len + font_size + LEVEL_GAP * 0.5,
+        };
+        level_bands.len()
+    ];
+    let mut label_distance = tick_len + TEXT_MARGIN;
+
+    for level in (0..level_bands.len()).rev() {
+        let level_config = level_configs.and_then(|configs| configs.get(&level));
+        let angle = level_label_angle(level, leaf_level, config, level_config);
+        let extent = level_label_cross_extent(&level_bands[level], font_size, angle, is_vertical);
+        layouts[level] = NestedAxisLevelLabelLayout {
+            label_distance,
+            boundary_inner: (label_distance - TEXT_MARGIN).max(tick_len),
+            boundary_outer: label_distance + extent + LEVEL_GAP * 0.5,
+        };
+        label_distance += extent + LEVEL_GAP;
+    }
+
+    layouts
+}
+
+fn level_label_angle(
+    level: usize,
+    leaf_level: usize,
+    config: &AxisConfig,
+    level_config: Option<&NestedAxisLevelGuideConfig>,
+) -> f32 {
+    level_config
+        .and_then(|config| config.label_angle)
+        .unwrap_or_else(|| {
+            if level == leaf_level {
+                config.label_angle.unwrap_or(0.0)
+            } else {
+                0.0
+            }
+        })
+}
+
+fn level_label_cross_extent(
+    bands: &[NestedBandAxisBand],
+    font_size: f32,
+    angle: f32,
+    is_vertical: bool,
+) -> f32 {
+    let label_width = bands
+        .iter()
+        .map(|band| band.label.chars().count() as f32 * font_size * TEXT_WIDTH_FACTOR)
+        .fold(font_size, f32::max);
+    if is_vertical {
+        return label_width;
+    }
+
+    let radians = angle.to_radians().abs();
+    if radians == 0.0 {
+        font_size
+    } else {
+        (label_width * radians.sin().abs() + font_size * radians.cos().abs()).max(font_size)
+    }
+}
+
 fn nested_axis_title(
     explicit_title: &str,
     layout: &avenger_scales::scales::nested_band::NestedBandLayout,
@@ -461,7 +549,9 @@ fn nested_axis_title(
     let mut level_titles = Vec::new();
     for level in 0..=layout.leaf_level() {
         let level_config = level_configs.and_then(|configs| configs.get(&level));
-        if level_config.is_some_and(|config| !config.visible || !config.title_visible) {
+        if !level_visible(level_configs, level)
+            || level_config.is_some_and(|config| !config.title_visible)
+        {
             continue;
         }
 
@@ -643,5 +733,46 @@ mod tests {
         )]);
 
         assert_eq!(nested_axis_title("", &layout, Some(&configs)), "group");
+    }
+
+    #[test]
+    fn nested_axis_hidden_leaf_level_suppresses_leaf_ticks() {
+        let domain = utf8_struct(&[
+            ("group", vec!["A", "A", "B"]),
+            ("member", vec!["one", "two", "one"]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 240.0));
+        let configs = BTreeMap::from([(
+            1,
+            NestedAxisLevelGuideConfig {
+                visible: false,
+                title: None,
+                title_visible: true,
+                label_angle: None,
+            },
+        )]);
+        let axis = make_nested_axis_marks(
+            &scale,
+            "Member grouped by group",
+            [0.0, 0.0],
+            &AxisConfig {
+                orientation: AxisOrientation::Bottom,
+                dimensions: [240.0, 120.0],
+                labels_visible: Some(true),
+                title_visible: Some(true),
+                ..Default::default()
+            },
+            Some(&configs),
+        )
+        .expect("nested axis");
+
+        let SceneMark::Group(axis_elements) = &axis.marks[0] else {
+            panic!("expected axis element group");
+        };
+        assert_eq!(
+            axis_elements.marks.len(),
+            4,
+            "expected axis line, parent labels, parent boundaries, and title"
+        );
     }
 }
