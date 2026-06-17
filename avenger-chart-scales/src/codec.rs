@@ -103,14 +103,16 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         if node.name() == "scale" {
             // Try to downcast to ScaleUDF
             if let Some(scale_udf) = node.inner().as_any().downcast_ref::<ScaleUDF>() {
-                // Serialize the ScaleUDF using postcard
-                let postcard_bytes = postcard::to_allocvec(scale_udf)
+                // Serialize the ScaleUDF with serde_json. The payload is small,
+                // and JSON supports the internally tagged enums and maps used by
+                // chart scale specs without requiring known sequence lengths.
+                let payload = serde_json::to_vec(scale_udf)
                     .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
-                // Write magic header, length, and postcard data
+                // Write magic header, length, and payload data
                 buf.extend_from_slice(SCALE_UDF_MAGIC);
-                buf.extend_from_slice(&(postcard_bytes.len() as u32).to_le_bytes());
-                buf.extend_from_slice(&postcard_bytes);
+                buf.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+                buf.extend_from_slice(&payload);
             }
             // If it's not a ScaleUDF implementation, don't serialize
         }
@@ -127,24 +129,24 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
             // Skip magic header
             let buf = &buf[SCALE_UDF_MAGIC.len()..];
 
-            // Read postcard length
+            // Read payload length
             if buf.len() < 4 {
                 return datafusion_common::plan_err!(
                     "Invalid scale UDF serialization: missing length"
                 );
             }
-            let postcard_len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+            let payload_len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
 
-            // Read postcard data
-            if buf.len() < 4 + postcard_len {
+            // Read payload data
+            if buf.len() < 4 + payload_len {
                 return datafusion_common::plan_err!(
                     "Invalid scale UDF serialization: truncated data"
                 );
             }
-            let postcard_bytes = &buf[4..4 + postcard_len];
+            let payload = &buf[4..4 + payload_len];
 
             // Deserialize ScaleUDF
-            let scale_udf: ScaleUDF = postcard::from_bytes(postcard_bytes)
+            let scale_udf: ScaleUDF = serde_json::from_slice(payload)
                 .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
             return Ok(Arc::new(ScalarUDF::new_from_impl(scale_udf)));
@@ -161,6 +163,8 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Linear, Scale, create_scale_udf};
+    use datafusion::arrow::datatypes::{DataType, Field};
 
     #[test]
     fn test_codec_creation() {
@@ -173,5 +177,30 @@ mod tests {
     fn test_magic_headers() {
         assert_eq!(SCALE_UDF_MAGIC.len(), 12);
         assert_eq!(SCALE_UDF_MAGIC, b"SCALE_UDF_V1");
+    }
+
+    #[test]
+    fn scale_udf_codec_encodes_and_decodes_internal_scale() {
+        let codec = AvengerChartExtensionCodec::new();
+        let udf = create_scale_udf(
+            Scale::<Linear>::new().into_auto(),
+            DataType::Float64,
+            DataType::Float32,
+            DataType::Struct(vec![Arc::new(Field::new("band", DataType::Float64, true))].into()),
+        )
+        .expect("scale udf");
+
+        let mut buf = Vec::new();
+        codec
+            .try_encode_udf(&udf, &mut buf)
+            .expect("encode scale udf");
+
+        assert!(buf.starts_with(SCALE_UDF_MAGIC));
+
+        let decoded = codec
+            .try_decode_udf("scale", &buf)
+            .expect("decode scale udf");
+        assert_eq!(decoded.name(), "scale");
+        assert!(decoded.inner().as_any().is::<ScaleUDF>());
     }
 }

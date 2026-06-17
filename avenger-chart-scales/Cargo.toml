@@ -14,8 +14,8 @@ datafusion-proto = "48.0.1"
 futures = { workspace = true }
 indexmap = { workspace = true }
 palette = { workspace = true }
-postcard = { version = "1.1.3", features = ["alloc"] }
 serde = { workspace = true }
+serde_json = { workspace = true }
 serde_with = "3.0"
 tracing = { workspace = true }
 typetag = "0.2"
@@ -23,5 +23,4 @@ typetag = "0.2"
 [dev-dependencies]
 async-trait = { workspace = true }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
-serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
