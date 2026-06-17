@@ -3053,9 +3053,10 @@ mod tests {
     use crate::{Band, Linear, NestedBand};
     use avenger_chart_core::{
         ChannelDescriptor, ChannelExpr, CompiledDataContext, CompiledMarkCore, CompiledMarkState,
-        MarkDataMode, MarkRuntimeContext, NestedBandLevelSpec, PlotGeometry, ResolvedDomain,
-        ScaleChannelValue, ScaleRange, ScaleRangeBinding, ScaleTypePreference, SubplotGeometry,
-        default_scale_type_for_data_type, nested,
+        MarkDataMode, MarkRuntimeContext, NestedBandLevelSpec, PlotGeometry, RepeatContext,
+        ResolvedDomain, ResolvedRepeatVariable, ScaleChannelValue, ScaleRange, ScaleRangeBinding,
+        ScaleTypePreference, SubplotGeometry, default_scale_type_for_data_type, nested,
+        repeat::column_name, resolve_repeat_channel_expr,
     };
     use avenger_common::value::ScalarOrArray;
     use avenger_scenegraph::marks::mark::SceneMark;
@@ -3822,6 +3823,74 @@ mod tests {
                 .map(|value| nested_component_display_label(value, "member"))
                 .collect::<Vec<_>>(),
             vec!["Alpha", "Zulu"]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_band_label_with_repeat_placeholder_resolves_before_collection() {
+        let ctx = SessionContext::new();
+        let data = nested_label_df(
+            &ctx,
+            vec!["A", "A"],
+            vec!["a", "b"],
+            vec![Some("Alias A"), Some("Alias B")],
+        )
+        .unwrap();
+        let repeat_ctx = RepeatContext::new().with_column(
+            ResolvedRepeatVariable {
+                id: "member".to_string(),
+                expr: col("source_member"),
+                title: "Member".to_string(),
+                type_hint: None,
+            },
+            0,
+            1,
+        );
+        let value = nested(["group".to_string(), column_name()]).map_channel_value(|value| {
+            let mut config = value
+                .get_nested_band_config()
+                .cloned()
+                .expect("nested config");
+            config.level_mut(1).label_expr = Some(
+                datafusion_proto::protobuf::LogicalExprNode::from_expr(col(format!(
+                    "{}_label",
+                    column_name()
+                )))
+                .expect("serialize label expr"),
+            );
+            value.with_nested_band_config(config)
+        });
+        let resolved =
+            resolve_repeat_channel_expr(value, &repeat_ctx).expect("resolve repeat placeholders");
+        let config = resolved
+            .channel_value()
+            .get_nested_band_config()
+            .cloned()
+            .expect("resolved nested config");
+
+        assert_eq!(
+            config.source_columns,
+            vec!["group".to_string(), "member".to_string()]
+        );
+
+        let labeled_values = apply_nested_level_labels(
+            vec![nested_path("A", "a"), nested_path("A", "b")],
+            Some(&config),
+            &[(Arc::new(data), resolved.data_expr().clone())],
+            &eval_ctx(&ctx),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            labeled_values
+                .iter()
+                .map(|value| nested_component_display_label(value, "member"))
+                .collect::<Vec<_>>(),
+            vec!["Alias A", "Alias B"]
         );
     }
 
