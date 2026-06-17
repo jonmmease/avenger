@@ -1173,6 +1173,41 @@ mod tests {
     }
 
     #[test]
+    fn nested_band_struct_field_order_defines_levels_and_leaf() {
+        let domain = utf8_struct(&[
+            ("outer", vec![Some("A"), Some("A"), Some("B")]),
+            ("leaf", vec![Some("x"), Some("y"), Some("x")]),
+        ]);
+        let scale = NestedBandScale::configured(domain.clone(), (0.0, 300.0));
+        let layout = nested_band_layout(&scale.config).expect("layout");
+
+        assert_eq!(layout.field_names(), &["outer", "leaf"]);
+        assert_eq!(layout.leaf_level(), 1);
+        assert_eq!(layout.axis_bands(0).unwrap()[0].label, "A");
+        assert_eq!(layout.axis_bands(1).unwrap()[0].label, "x");
+        assert_eq!(
+            positions(&scale, &domain),
+            vec![Some(0.0), Some(100.0), Some(200.0)]
+        );
+
+        let swapped = utf8_struct(&[
+            ("leaf", vec![Some("x"), Some("y"), Some("x")]),
+            ("outer", vec![Some("A"), Some("A"), Some("B")]),
+        ]);
+        let swapped_scale = NestedBandScale::configured(swapped.clone(), (0.0, 300.0));
+        let swapped_layout = nested_band_layout(&swapped_scale.config).expect("layout");
+
+        assert_eq!(swapped_layout.field_names(), &["leaf", "outer"]);
+        assert_eq!(swapped_layout.leaf_level(), 1);
+        assert_eq!(swapped_layout.axis_bands(0).unwrap()[0].label, "x");
+        assert_eq!(swapped_layout.axis_bands(1).unwrap()[0].label, "A");
+        assert_eq!(
+            positions(&swapped_scale, &swapped),
+            vec![Some(0.0), Some(200.0), Some(100.0)]
+        );
+    }
+
+    #[test]
     fn nested_band_null_values_scale_when_they_are_in_domain() {
         let domain = utf8_struct(&[
             ("group", vec![Some("A"), Some("A")]),
@@ -1207,7 +1242,11 @@ mod tests {
             ),
         ])) as ArrayRef;
         let scale = NestedBandScale::configured(domain.clone(), (0.0, 200.0));
+        let layout = nested_band_layout(&scale.config).expect("layout");
 
+        assert_eq!(layout.field_names(), &["group", "date"]);
+        assert_eq!(layout.leaf_level(), 1);
+        assert_eq!(layout.leaf_bandwidth(), 100.0);
         assert_eq!(positions(&scale, &domain), vec![Some(0.0), Some(100.0)]);
     }
 
