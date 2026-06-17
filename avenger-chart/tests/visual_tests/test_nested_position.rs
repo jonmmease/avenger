@@ -243,7 +243,7 @@ async fn test_nested_position_explicit_level_ordering() {
                     x.axis(|a| {
                         a.title("Team grouped by quarter")
                             .grid(false)
-                            .label_angle(-25.0)
+                            .label_angle(-90.0)
                     })
                     .level(0, |l| {
                         l.domain_values(vec![lit("Q3"), lit("Q1"), lit("Q2")])
@@ -293,7 +293,7 @@ async fn test_nested_position_symbol_centers() {
                         .level(1, |l| {
                             l.nest_scope(NestScope::Shared)
                                 .padding_inner(0.08)
-                                .axis(|a| a.label_angle(-30.0))
+                                .axis(|a| a.label_angle(-90.0))
                         })
                         .band(0.5)
                 })
@@ -341,7 +341,7 @@ async fn test_nested_position_bokeh_style_variable_parent_width_axis() {
                 x.axis(|a| {
                     a.title("Manufacturer grouped by cylinders")
                         .grid(false)
-                        .label_angle(-45.0)
+                        .label_angle(-90.0)
                 })
                 .level(0, |l| l.padding_inner(0.35).padding_outer(0.2))
                 .level(1, |l| l.padding_inner(0.06))
@@ -997,7 +997,7 @@ async fn test_nested_position_axis_long_labels_measurement() {
                                 .padding_outer(0.14)
                         })
                         .level(1, |l| {
-                            l.axis(|a| a.title("Portfolio").label_angle(-35.0))
+                            l.axis(|a| a.title("Portfolio").label_angle(-90.0))
                                 .nest_scope(NestScope::Shared)
                                 .padding_inner(0.08)
                         })

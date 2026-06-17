@@ -40,7 +40,6 @@ pub(crate) struct NestedAxisLevelGuideConfig {
 #[derive(Clone, Copy, Debug)]
 struct NestedAxisLevelLabelLayout {
     label_distance: f32,
-    boundary_inner: f32,
     boundary_outer: f32,
 }
 
@@ -305,6 +304,8 @@ fn make_level_labels(
         .collect::<Vec<_>>();
     let level = bands.first().map(|band| band.level).unwrap_or(0);
     let leaf_angle = level_label_angle(level, leaf_level, config, level_config);
+    let (horizontal_label_dx, horizontal_label_dy) =
+        horizontal_axis_label_optical_offset(leaf_angle, font_adjustment);
 
     let (x, y, align, baseline, angle) = match config.orientation {
         AxisOrientation::Left => (
@@ -322,17 +323,29 @@ fn make_level_labels(
             0.0,
         ),
         AxisOrientation::Top => (
-            ScalarOrArray::new_array(centers),
-            ScalarOrArray::new_scalar(-layout.label_distance),
+            ScalarOrArray::new_array(
+                centers
+                    .iter()
+                    .map(|v| v + horizontal_label_dx)
+                    .collect::<Vec<_>>(),
+            ),
+            ScalarOrArray::new_scalar(-layout.label_distance + horizontal_label_dy),
             angled_label_align(leaf_angle, true),
-            TextBaseline::Bottom,
+            horizontal_axis_label_baseline(leaf_angle, true),
             leaf_angle,
         ),
         AxisOrientation::Bottom => (
-            ScalarOrArray::new_array(centers),
-            ScalarOrArray::new_scalar(config.dimensions[1] + layout.label_distance),
+            ScalarOrArray::new_array(
+                centers
+                    .iter()
+                    .map(|v| v + horizontal_label_dx)
+                    .collect::<Vec<_>>(),
+            ),
+            ScalarOrArray::new_scalar(
+                config.dimensions[1] + layout.label_distance + horizontal_label_dy,
+            ),
             angled_label_align(leaf_angle, false),
-            TextBaseline::Top,
+            horizontal_axis_label_baseline(leaf_angle, false),
             leaf_angle,
         ),
     };
@@ -371,13 +384,13 @@ fn make_level_boundaries(
 
     let (x, x2, y, y2) = match config.orientation {
         AxisOrientation::Left => (
-            ScalarOrArray::new_scalar(-layout.boundary_inner),
+            ScalarOrArray::new_scalar(0.0),
             ScalarOrArray::new_scalar(-layout.boundary_outer),
             ScalarOrArray::new_array(positions.clone()),
             ScalarOrArray::new_array(positions),
         ),
         AxisOrientation::Right => (
-            ScalarOrArray::new_scalar(config.dimensions[0] + layout.boundary_inner),
+            ScalarOrArray::new_scalar(config.dimensions[0]),
             ScalarOrArray::new_scalar(config.dimensions[0] + layout.boundary_outer),
             ScalarOrArray::new_array(positions.clone()),
             ScalarOrArray::new_array(positions),
@@ -385,13 +398,13 @@ fn make_level_boundaries(
         AxisOrientation::Top => (
             ScalarOrArray::new_array(positions.clone()),
             ScalarOrArray::new_array(positions),
-            ScalarOrArray::new_scalar(-layout.boundary_inner),
+            ScalarOrArray::new_scalar(0.0),
             ScalarOrArray::new_scalar(-layout.boundary_outer),
         ),
         AxisOrientation::Bottom => (
             ScalarOrArray::new_array(positions.clone()),
             ScalarOrArray::new_array(positions),
-            ScalarOrArray::new_scalar(config.dimensions[1] + layout.boundary_inner),
+            ScalarOrArray::new_scalar(config.dimensions[1]),
             ScalarOrArray::new_scalar(config.dimensions[1] + layout.boundary_outer),
         ),
     };
@@ -508,7 +521,6 @@ fn nested_axis_level_label_layouts(
     let mut layouts = vec![
         NestedAxisLevelLabelLayout {
             label_distance: initial_label_distance,
-            boundary_inner: inner_tick_space,
             boundary_outer: initial_label_distance + font_size + LEVEL_GAP * 0.5,
         };
         level_bands.len()
@@ -524,7 +536,6 @@ fn nested_axis_level_label_layouts(
         let extent = level_label_cross_extent(&level_bands[level], font_size, angle, is_vertical);
         layouts[level] = NestedAxisLevelLabelLayout {
             label_distance,
-            boundary_inner: (label_distance - TEXT_MARGIN).max(inner_tick_space),
             boundary_outer: label_distance + extent + LEVEL_GAP * 0.5,
         };
         label_distance += extent + LEVEL_GAP;
@@ -626,22 +637,53 @@ fn angled_label_align(angle: f32, top_axis: bool) -> TextAlign {
     }
 }
 
+fn horizontal_axis_label_baseline(angle: f32, top_axis: bool) -> TextBaseline {
+    if angle_is_steep(angle) {
+        TextBaseline::Middle
+    } else if top_axis {
+        TextBaseline::Bottom
+    } else {
+        TextBaseline::Top
+    }
+}
+
+fn horizontal_axis_label_optical_offset(angle: f32, font_adjustment: f32) -> (f32, f32) {
+    if !angle_is_steep(angle) {
+        return (0.0, 0.0);
+    }
+
+    let radians = angle.to_radians();
+    (
+        font_adjustment * radians.sin(),
+        -font_adjustment * radians.cos(),
+    )
+}
+
+fn angle_is_steep(angle: f32) -> bool {
+    let normalized = angle.rem_euclid(180.0);
+    let angle_from_horizontal = normalized.min(180.0 - normalized);
+    angle_from_horizontal > 45.0
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::BTreeMap, sync::Arc};
 
+    use avenger_color::ColorOrGradient;
     use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
     use avenger_scales::scales::nested_band::{NestedBandScale, nested_axis_bands};
     use avenger_scenegraph::marks::mark::SceneMark;
+    use avenger_text::types::{TextAlign, TextBaseline};
     use datafusion::arrow::{
         array::{ArrayRef, StringArray, StructArray},
         datatypes::Field,
     };
 
     use super::{
-        LEVEL_GAP, NestedAxisLevelGuideConfig, TEXT_MARGIN, TICK_FONT_SIZE,
-        level_boundary_positions, make_nested_axis_marks, nested_axis_level_label_layouts,
-        nested_axis_title,
+        LEVEL_GAP, NestedAxisLevelGuideConfig, NestedAxisLevelLabelLayout, TEXT_MARGIN,
+        TICK_FONT_SIZE, angled_label_align, horizontal_axis_label_baseline,
+        horizontal_axis_label_optical_offset, level_boundary_positions, make_level_boundaries,
+        make_nested_axis_marks, nested_axis_level_label_layouts, nested_axis_title,
     };
 
     fn utf8_struct(columns: &[(&str, Vec<&str>)]) -> ArrayRef {
@@ -740,6 +782,93 @@ mod tests {
     }
 
     #[test]
+    fn nested_axis_boundaries_start_at_axis_and_use_tick_color() {
+        let domain = utf8_struct(&[
+            ("quarter", vec!["Q1", "Q1", "Q2"]),
+            ("team", vec!["East", "North", "East"]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 240.0));
+        let parent_bands = nested_axis_bands(&scale.config, 0).expect("parent bands");
+        let tick_color = [0.2, 0.3, 0.4, 1.0];
+
+        let boundaries = make_level_boundaries(
+            &parent_bands,
+            &AxisConfig {
+                orientation: AxisOrientation::Bottom,
+                dimensions: [240.0, 120.0],
+                tick_color: Some(tick_color),
+                ..Default::default()
+            },
+            NestedAxisLevelLabelLayout {
+                label_distance: 0.0,
+                boundary_outer: 17.0,
+            },
+            0.0,
+            240.0,
+        )
+        .expect("boundaries");
+
+        assert!(
+            boundaries.y.equals_scalar(120.0),
+            "bottom-axis separators should start at the axis line"
+        );
+        assert!(
+            boundaries.y2.equals_scalar(137.0),
+            "bottom-axis separators should extend outward through the category label band"
+        );
+        assert_eq!(
+            boundaries.stroke.first(),
+            Some(&ColorOrGradient::Color(tick_color)),
+            "category separators should use the configured tick color"
+        );
+    }
+
+    #[test]
+    fn vertical_nested_axis_labels_rotate_around_edge_midpoint() {
+        assert_eq!(angled_label_align(-90.0, false), TextAlign::Right);
+        assert_eq!(angled_label_align(90.0, false), TextAlign::Left);
+        assert_eq!(
+            horizontal_axis_label_baseline(-90.0, false),
+            TextBaseline::Middle
+        );
+        assert_eq!(
+            horizontal_axis_label_baseline(90.0, false),
+            TextBaseline::Middle
+        );
+        assert_eq!(
+            horizontal_axis_label_baseline(-60.0, false),
+            TextBaseline::Middle
+        );
+        assert_eq!(
+            horizontal_axis_label_baseline(60.0, false),
+            TextBaseline::Middle
+        );
+        assert_eq!(angled_label_align(-45.0, false), TextAlign::Right);
+        assert_eq!(angled_label_align(45.0, false), TextAlign::Left);
+        assert_eq!(
+            horizontal_axis_label_baseline(-45.0, false),
+            TextBaseline::Top
+        );
+        assert_eq!(
+            horizontal_axis_label_baseline(45.0, false),
+            TextBaseline::Top
+        );
+    }
+
+    #[test]
+    fn steep_horizontal_axis_labels_use_rotated_y_tick_optical_offset() {
+        assert_eq!(horizontal_axis_label_optical_offset(-45.0, 1.2), (0.0, 0.0));
+
+        let (dx, dy) = horizontal_axis_label_optical_offset(-90.0, 1.2);
+        assert_close(dx, -1.2);
+        assert_close(dy, 0.0);
+
+        let (dx, dy) = horizontal_axis_label_optical_offset(90.0, 1.2);
+        assert_close(dx, 1.2);
+        assert_close(dy, 0.0);
+    }
+
+    #[test]
     fn nested_axis_layout_skips_hidden_leaf_tick_space() {
         let domain = utf8_struct(&[
             ("quarter", vec!["Q1", "Q1", "Q2"]),
@@ -774,7 +903,6 @@ mod tests {
         );
 
         assert_close(layouts[0].label_distance, TEXT_MARGIN);
-        assert_close(layouts[0].boundary_inner, 0.0);
         assert_close(
             layouts[0].boundary_outer,
             TEXT_MARGIN + TICK_FONT_SIZE + LEVEL_GAP * 0.5,
