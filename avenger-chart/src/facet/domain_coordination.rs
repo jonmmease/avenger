@@ -502,6 +502,19 @@ mod tests {
         }
     }
 
+    fn nested_ordered_domain_info(
+        cell: &str,
+        channel: &str,
+        values: Vec<SerializableDomainValue>,
+    ) -> CellDomainInfo {
+        let mut info = nested_domain_info(cell, channel, values);
+        let DomainBounds::Discrete(values) = info.extent.bounds else {
+            panic!("expected discrete extent");
+        };
+        info.extent = DomainExtent::ordered_discrete(values);
+        info
+    }
+
     fn nested_config(levels: &[(usize, u8, Option<NestScope>)]) -> NestedBandSpec {
         let mut config = NestedBandSpec::default();
         for (level, sharing, nest_scope) in levels {
@@ -859,6 +872,52 @@ mod tests {
                 vec!["4".to_string(), "toyota".to_string()],
                 vec!["6".to_string(), "amc".to_string()],
                 vec!["6".to_string(), "ford".to_string()],
+            ]
+        );
+    }
+
+    #[test]
+    fn ordered_nested_domains_use_shared_owner_order() {
+        let infos = vec![
+            nested_ordered_domain_info(
+                "north",
+                "x",
+                vec![
+                    nested_domain_value(&[("cyl", "6"), ("make", "ford")]),
+                    nested_domain_value(&[("cyl", "4"), ("make", "toyota")]),
+                ],
+            ),
+            nested_ordered_domain_info(
+                "south",
+                "x",
+                vec![
+                    nested_domain_value(&[("cyl", "4"), ("make", "amc")]),
+                    nested_domain_value(&[("cyl", "6"), ("make", "bmw")]),
+                ],
+            ),
+        ];
+        let config = nested_config(&[
+            (0, SharingLevel::GLOBAL.raw(), None),
+            (1, SharingLevel::GLOBAL.raw(), Some(NestScope::Free)),
+        ]);
+
+        let extent = coordinated_nested_extent_for_cell(
+            &[s("north")],
+            "x",
+            &config,
+            &infos,
+            &owner_path_for_test,
+        )
+        .expect("nested extent");
+
+        assert!(extent.ordered_discrete);
+        assert_eq!(
+            nested_extent_labels(&extent),
+            vec![
+                vec!["6".to_string(), "ford".to_string()],
+                vec!["6".to_string(), "bmw".to_string()],
+                vec!["4".to_string(), "toyota".to_string()],
+                vec!["4".to_string(), "amc".to_string()],
             ]
         );
     }
