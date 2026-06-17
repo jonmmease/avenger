@@ -674,6 +674,39 @@ mod tests {
     }
 
     #[test]
+    fn owner_paths_make_shared_domain_keys_stable_across_child_cells() {
+        let coordination = scale_name_coordination(SharingLevel::GLOBAL.raw());
+        let shared_owner = vec![s("global-owner")];
+        let left_key = domain_coordination_scope_key_with_owner(
+            "x",
+            &[s("north"), s("leaf_a")],
+            SharingLevel::GLOBAL,
+            &coordination,
+            2,
+            Some(&shared_owner),
+        );
+        let right_key = domain_coordination_scope_key_with_owner(
+            "x",
+            &[s("south"), s("leaf_b")],
+            SharingLevel::GLOBAL,
+            &coordination,
+            2,
+            Some(&shared_owner),
+        );
+        let other_owner_key = domain_coordination_scope_key_with_owner(
+            "x",
+            &[s("south"), s("leaf_b")],
+            SharingLevel::GLOBAL,
+            &coordination,
+            2,
+            Some(&[s("other-owner")]),
+        );
+
+        assert_eq!(left_key, right_key);
+        assert_ne!(left_key, other_owner_key);
+    }
+
+    #[test]
     fn aggregate_named_domain_extents_groups_different_channels() {
         let mut x_info = numeric_info(vec![s("A")], "x", SharingLevel::GLOBAL.raw(), 2.0);
         x_info.domain_coordination = named_coordination(SharingLevel::GLOBAL.raw(), "height");
