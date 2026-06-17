@@ -3609,6 +3609,140 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn nested_band_preserves_independent_x_y_level_options() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "A", "B"], vec![1.0, 2.0, 1.0]).unwrap();
+        let x_nested = named_struct(vec![
+            lit("x_group"),
+            col("category"),
+            lit("x_member"),
+            col("value"),
+        ]);
+        let y_nested = named_struct(vec![
+            lit("y_group"),
+            col("category"),
+            lit("y_member"),
+            col("value"),
+        ]);
+        let mut x_config = NestedBandSpec::default();
+        x_config.levels.insert(
+            1,
+            NestedBandLevelSpec {
+                nest_scope: Some(NestScope::Shared),
+                padding_inner: Some(0.2),
+                ..Default::default()
+            },
+        );
+        let mut y_config = NestedBandSpec::default();
+        y_config.levels.insert(
+            1,
+            NestedBandLevelSpec {
+                padding_inner_px: Some(7.0),
+                ..Default::default()
+            },
+        );
+
+        let mut channels = IndexMap::new();
+        channels.insert(
+            "x".to_string(),
+            ChannelValue::from(x_nested).with_nested_band_config(x_config),
+        );
+        channels.insert(
+            "x2".to_string(),
+            ChannelExpr::scaled(col(":x")).band(1.0).into(),
+        );
+        channels.insert(
+            "y".to_string(),
+            ChannelValue::from(y_nested).with_nested_band_config(y_config),
+        );
+        channels.insert(
+            "y2".to_string(),
+            ChannelExpr::scaled(col(":y")).band(1.0).into(),
+        );
+        let mark = Arc::new(TestCompiledMark::new(data, channels)) as Arc<dyn CompiledMark>;
+        let coord_transform = TestCoordTransform;
+        let builder = build_scale_builder_from_marks(
+            &[mark],
+            &HashMap::new(),
+            &coord_transform,
+            &None,
+            None,
+            &eval_ctx(&ctx),
+            &Theme::light(),
+        )
+        .await
+        .unwrap();
+
+        let mut coord_ranges = HashMap::new();
+        coord_ranges.insert(
+            "x".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 300.0),
+        );
+        coord_ranges.insert(
+            "y".to_string(),
+            ScaleRangeBinding::fixed_interval(200.0, 0.0),
+        );
+        let scales = builder
+            .build_scales(
+                300.0,
+                200.0,
+                &coord_ranges,
+                &HashMap::new(),
+                &no_default_range,
+                &Theme::light(),
+                &ctx,
+                &IndexMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let x_options = &scales
+            .get("x")
+            .expect("x nested scale")
+            .configured()
+            .config
+            .options;
+        let y_options = &scales
+            .get("y")
+            .expect("y nested scale")
+            .configured()
+            .config
+            .options;
+        assert_eq!(
+            x_options
+                .get("nest_scopes")
+                .expect("x nest scopes")
+                .as_string()
+                .unwrap(),
+            ",shared"
+        );
+        assert_eq!(
+            x_options
+                .get("padding_inner_levels")
+                .expect("x padding levels")
+                .as_string()
+                .unwrap(),
+            ",0.2"
+        );
+        assert!(
+            !x_options.contains_key("padding_inner_px_levels"),
+            "x scale should not inherit y pixel padding"
+        );
+        assert_eq!(
+            y_options
+                .get("padding_inner_px_levels")
+                .expect("y pixel padding levels")
+                .as_string()
+                .unwrap(),
+            ",7"
+        );
+        assert!(
+            !y_options.contains_key("nest_scopes"),
+            "y scale should not inherit x nest scope"
+        );
+    }
+
     #[test]
     fn nested_band_level_config_encodes_scale_options() {
         let ctx = SessionContext::new();
