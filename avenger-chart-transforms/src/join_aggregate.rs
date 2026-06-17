@@ -1,6 +1,6 @@
 use crate::aggregate::{
     AggregateGroupKeySpec, AggregateMeasureSpec, AggregateOp, aggregate_expr,
-    map_aggregate_group_keys, map_aggregate_measures,
+    map_aggregate_group_keys, map_aggregate_measures, validate_aggregate_ops,
 };
 use crate::common::{expr_node, simple_column_name, validate_output_names};
 use async_trait::async_trait;
@@ -74,6 +74,43 @@ impl JoinAggregate {
         self.measure(name, AggregateOp::Max, Some(expr.into_expr()))
     }
 
+    pub fn median(self, name: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.measure(name, AggregateOp::Median, Some(expr.into_expr()))
+    }
+
+    pub fn approx_percentile_cont(
+        self,
+        name: impl Into<String>,
+        expr: impl IntoExpr,
+        percentile: f64,
+    ) -> Self {
+        self.measure(
+            name,
+            AggregateOp::ApproxPercentileCont {
+                percentile,
+                centroids: None,
+            },
+            Some(expr.into_expr()),
+        )
+    }
+
+    pub fn approx_percentile_cont_with_centroids(
+        self,
+        name: impl Into<String>,
+        expr: impl IntoExpr,
+        percentile: f64,
+        centroids: u32,
+    ) -> Self {
+        self.measure(
+            name,
+            AggregateOp::ApproxPercentileCont {
+                percentile,
+                centroids: Some(centroids),
+            },
+            Some(expr.into_expr()),
+        )
+    }
+
     fn measure(mut self, name: impl Into<String>, op: AggregateOp, expr: Option<Expr>) -> Self {
         self.measures.push(AggregateMeasureSpec {
             name: name.into(),
@@ -97,6 +134,7 @@ impl DataTransform for JoinAggregate {
             ));
         }
         validate_measure_names(&self.measures)?;
+        validate_aggregate_ops(&self.measures)?;
         Ok((
             Box::new(CompiledJoinAggregateTransform {
                 group_by: self.group_by,

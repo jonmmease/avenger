@@ -84,6 +84,25 @@ mod tests {
         ctx.read_batch(batch).unwrap()
     }
 
+    fn stats_dataframe(ctx: &SessionContext) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("category", DataType::Utf8, false),
+                Field::new("value", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec![
+                    "A", "A", "A", "A", "B", "B", "B", "B",
+                ])) as _,
+                Arc::new(Float64Array::from(vec![
+                    1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0,
+                ])) as _,
+            ],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
     fn bin_dataframe(ctx: &SessionContext) -> DataFrame {
         bin_dataframe_from_values(
             ctx,
@@ -676,6 +695,48 @@ mod tests {
 
     fn joinaggregate_rows_from_batches(batches: &[RecordBatch]) -> Vec<(String, String, f64, f64)> {
         batches.iter().flat_map(joinaggregate_rows).collect()
+    }
+
+    fn aggregate_stat_rows_from_batches(batches: &[RecordBatch]) -> Vec<(String, f64, f64, f64)> {
+        batches
+            .iter()
+            .flat_map(|batch| {
+                let category = batch
+                    .column_by_name("category")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .unwrap();
+                let median = batch
+                    .column_by_name("median_value")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .unwrap();
+                let q1 = batch
+                    .column_by_name("q1_value")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .unwrap();
+                let q3 = batch
+                    .column_by_name("q3_value")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .unwrap();
+                (0..batch.num_rows())
+                    .map(|index| {
+                        (
+                            category.value(index).to_string(),
+                            median.value(index),
+                            q1.value(index),
+                            q3.value(index),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
     }
 
     fn timeunit_rows(batch: &RecordBatch) -> Vec<(Option<i64>, Option<i64>, Option<i64>)> {
@@ -1273,6 +1334,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn aggregate_computes_median_and_percentiles() {
+        let ctx = SessionContext::new();
+        let dataframe = stats_dataframe(&ctx);
+        let (compiled_transform, output) = compile_transform(
+            Aggregate::new()
+                .group_by([col("category")])
+                .median("median_value", col("value"))
+                .approx_percentile_cont("q1_value", col("value"), 0.25)
+                .approx_percentile_cont_with_centroids("q3_value", col("value"), 0.75, 200),
+        );
+        assert_eq!(output.output("median_value").to_string(), "median_value");
+        assert_eq!(output.output("q1_value").to_string(), "q1_value");
+        assert_eq!(output.output("q3_value").to_string(), "q3_value");
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = aggregate_stat_rows_from_batches(&batches);
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(rows.len(), 2);
+
+        assert_eq!(rows[0].0, "A");
+        assert!((rows[0].1 - 2.5).abs() < 1e-9, "{rows:?}");
+        assert!(rows[0].2 <= rows[0].1, "{rows:?}");
+        assert!(rows[0].3 >= rows[0].1, "{rows:?}");
+
+        assert_eq!(rows[1].0, "B");
+        assert!((rows[1].1 - 25.0).abs() < 1e-9, "{rows:?}");
+        assert!(rows[1].2 <= rows[1].1, "{rows:?}");
+        assert!(rows[1].3 >= rows[1].1, "{rows:?}");
+    }
+
+    #[tokio::test]
+    async fn aggregate_rejects_invalid_percentile_options() {
+        let err = match Aggregate::new()
+            .approx_percentile_cont("bad", col("value"), f64::NAN)
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
+        {
+            Ok(_) => panic!("invalid percentile should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("invalid percentile"), "{err}");
+
+        let err = match JoinAggregate::new()
+            .approx_percentile_cont_with_centroids("bad", col("value"), 0.5, 0)
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
+        {
+            Ok(_) => panic!("invalid centroid count should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("centroid count 0"), "{err}");
+    }
+
+    #[tokio::test]
     async fn joinaggregate_global_repeats_aggregate_on_each_row() {
         let ctx = SessionContext::new();
         let dataframe = sample_dataframe(&ctx);
@@ -1347,6 +1460,34 @@ mod tests {
             .collect::<Vec<_>>();
         counts.sort();
         assert_eq!(counts, vec![1, 3, 3, 3]);
+    }
+
+    #[tokio::test]
+    async fn joinaggregate_repeats_median_and_percentiles_on_each_row() {
+        let ctx = SessionContext::new();
+        let dataframe = stats_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            JoinAggregate::new()
+                .group_by([col("category")])
+                .median("median_value", col("value"))
+                .approx_percentile_cont("q1_value", col("value"), 0.25)
+                .approx_percentile_cont("q3_value", col("value"), 0.75),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = aggregate_stat_rows_from_batches(&batches);
+        rows.sort_by(|a, b| (&a.0, a.1.to_bits()).cmp(&(&b.0, b.1.to_bits())));
+        assert_eq!(rows.len(), 8);
+        assert!(rows.iter().take(4).all(|row| row.0 == "A"), "{rows:?}");
+        assert!(
+            rows.iter().take(4).all(|row| (row.1 - 2.5).abs() < 1e-9),
+            "{rows:?}"
+        );
+        assert!(rows.iter().skip(4).all(|row| row.0 == "B"), "{rows:?}");
+        assert!(
+            rows.iter().skip(4).all(|row| (row.1 - 25.0).abs() < 1e-9),
+            "{rows:?}"
+        );
+        assert!(rows.iter().all(|row| row.2 <= row.1 && row.3 >= row.1));
     }
 
     #[tokio::test]

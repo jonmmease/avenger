@@ -24,7 +24,7 @@ mod validation;
 use std::{
     any::Any,
     collections::{BTreeSet, HashMap},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use datafusion::{
@@ -40,10 +40,11 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use avenger_chart_core::{
-    AvengerChartError, AxisSpec, ChannelValue, CompiledGuide, CompiledMark, CompiledParamSpec,
-    CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot, CompiledSubplotPayload,
-    CoordMeasurement, CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext,
-    Legend, LogicalPlanNodeExt, ScaleRangeBinding, SerializableDataFrame, SerializableDataType,
+    AvengerChartError, AxisSpec, ChannelValue, CompiledDataContext, CompiledGuide, CompiledMark,
+    CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot,
+    CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
+    EvaluationContext as CoreEvaluationContext, FacetDataScope, Legend, LogicalPlanNodeExt,
+    MarkDataMode, ScaleRangeBinding, SerializableDataFrame, SerializableDataType,
     SerializableScalarMap, Theme, TimeContext, ToolMetadata, channel::strip_trailing_numbers,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
@@ -101,8 +102,8 @@ pub(crate) use self::layout_profile::{
 };
 use self::legends::PreparedLegendPlan;
 pub(crate) use self::mark_data_runtime::{
-    LogicalMarkDataRequest, MarkDataRequest, PreparedMarkData, prepare_logical_mark_data,
-    prepare_mark_data as prepare_mark_data_runtime,
+    BaseDataRequest, LogicalMarkDataRequest, MarkDataRequest, PreparedBaseData, PreparedMarkData,
+    prepare_base_data, prepare_logical_mark_data, prepare_mark_data as prepare_mark_data_runtime,
 };
 pub use self::session::{
     EvaluationRequest, PlotSession, ScopedParamAssignment, ScopedParamStoreSnapshot,
@@ -130,6 +131,29 @@ pub(crate) struct CompiledColorbarOverlayMarks {
     pub(crate) marks: Vec<Arc<dyn CompiledMark>>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct CompiledMarkGroupState {
+    #[serde(default)]
+    pub(crate) id: Option<String>,
+    #[serde(default)]
+    pub(crate) parent_group_index: Option<usize>,
+    #[serde(default)]
+    pub(crate) data: CompiledDataContext,
+    #[serde(default)]
+    pub(crate) data_mode: MarkDataMode,
+    pub(crate) facet_data_scope: FacetDataScope,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(crate) struct MarkGroupDataCacheKey {
+    pub(crate) plot_identity: usize,
+    pub(crate) group_index: usize,
+    pub(crate) facet_path: Vec<String>,
+}
+
+pub(crate) type MarkGroupDataCacheHandle =
+    Arc<Mutex<HashMap<MarkGroupDataCacheKey, Arc<PreparedBaseData>>>>;
+
 #[serde_as]
 #[derive(Serialize, Deserialize)]
 pub struct CompiledPlot {
@@ -141,6 +165,14 @@ pub struct CompiledPlot {
 
     /// Mark renderers
     pub(crate) marks: Vec<Arc<dyn CompiledMark>>,
+
+    /// Compiled recursive mark-group metadata.
+    #[serde(default)]
+    pub(crate) mark_groups: Vec<CompiledMarkGroupState>,
+
+    /// Nearest containing mark group for each compiled primitive mark.
+    #[serde(default)]
+    pub(crate) mark_group_index_by_mark: Vec<Option<usize>>,
 
     /// Axis specifications
     pub(crate) axis_specs: HashMap<String, AxisSpec>,
@@ -222,6 +254,91 @@ pub struct CompiledPlot {
 }
 
 impl CompiledPlot {
+    fn mark_group_data_cache_key(
+        &self,
+        group_index: usize,
+        facet_path: &[ScalarValue],
+    ) -> MarkGroupDataCacheKey {
+        MarkGroupDataCacheKey {
+            plot_identity: self as *const Self as usize,
+            group_index,
+            facet_path: facet_path
+                .iter()
+                .map(|value| format!("{value:?}"))
+                .collect(),
+        }
+    }
+
+    pub(crate) fn mark_group_index_for_mark(&self, mark_index: usize) -> Option<usize> {
+        self.mark_group_index_by_mark
+            .get(mark_index)
+            .copied()
+            .flatten()
+    }
+
+    pub(crate) async fn prepare_mark_group_base_data(
+        &self,
+        group_index: usize,
+        eval_ctx: &EvaluationContext,
+        provided_plot_df: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+    ) -> Result<Arc<PreparedBaseData>, AvengerChartError> {
+        let key = self.mark_group_data_cache_key(group_index, facet_path);
+        if let Some(cached) = eval_ctx
+            .mark_group_data_cache
+            .lock()
+            .expect("mark-group data cache lock poisoned")
+            .get(&key)
+            .cloned()
+        {
+            return Ok(cached);
+        }
+
+        let group = self.mark_groups.get(group_index).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Compiled mark group index {group_index} is out of bounds"
+            ))
+        })?;
+        let inherited_base = if group.data.has_explicit_data_source() {
+            None
+        } else if let Some(parent_index) = group.parent_group_index {
+            Some(
+                Box::pin(self.prepare_mark_group_base_data(
+                    parent_index,
+                    eval_ctx,
+                    provided_plot_df,
+                    facet_path,
+                ))
+                .await?,
+            )
+        } else {
+            None
+        };
+
+        let prepared = prepare_base_data(BaseDataRequest {
+            data_context: &group.data,
+            data_mode: group.data_mode,
+            facet_data_scope: group.facet_data_scope,
+            plot_data: self.data.as_ref(),
+            provided_plot_df,
+            inherited_base: inherited_base.as_deref(),
+            facet_data_scope_context: Some(crate::facet::data_scope::FacetDataScopeContext::new(
+                eval_ctx.facet_tree.as_ref(),
+                eval_ctx.facet_data_root(),
+                facet_path,
+            )),
+            eval_ctx,
+        })
+        .await?;
+        let prepared = Arc::new(prepared);
+        eval_ctx
+            .mark_group_data_cache
+            .lock()
+            .expect("mark-group data cache lock poisoned")
+            .insert(key, prepared.clone());
+        Ok(prepared)
+    }
+
     /// Get the theme or create default if not set
     pub fn get_theme(&self) -> Arc<Theme> {
         self.theme
@@ -325,10 +442,21 @@ impl CompiledPlot {
     ) -> Result<(), AvengerChartError> {
         let plot_data = self.data.as_ref().or(inherited_plot_data);
         let eval_ctx = self.schema_inference_evaluation_context(ctx);
+        let inherited_df = if self.data.is_none() {
+            inherited_plot_data.and_then(|node| {
+                node.to_logical_plan(ctx)
+                    .ok()
+                    .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+            })
+        } else {
+            None
+        };
         collect_event_coord_types_from_marks(
             self.coord_transform.as_ref(),
+            self,
             &self.marks,
             plot_data,
+            inherited_df.as_ref(),
             ctx,
             &eval_ctx,
             out,
@@ -427,13 +555,35 @@ impl CompiledPlot {
         }
 
         let eval_ctx = self.schema_inference_evaluation_context(ctx);
+        let inherited_df = if self.data.is_none() {
+            inherited_plot_data.and_then(|node| {
+                node.to_logical_plan(ctx)
+                    .ok()
+                    .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+            })
+        } else {
+            None
+        };
 
         for mark in &self.marks {
+            let prepared_base = match self.mark_group_index_for_mark(mark.state().mark_index()) {
+                Some(group_index) => Some(
+                    Box::pin(self.prepare_mark_group_base_data(
+                        group_index,
+                        &eval_ctx,
+                        inherited_df.as_ref(),
+                        &[],
+                    ))
+                    .await?,
+                ),
+                None => None,
+            };
             let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
                 mark: mark.as_ref(),
                 plot_data,
-                provided_plot_df: None,
+                provided_plot_df: inherited_df.as_ref(),
                 facet_data_scope: None,
+                prepared_base: prepared_base.as_deref(),
                 eval_ctx: &eval_ctx,
             }))
             .await?;
@@ -559,11 +709,8 @@ impl CompiledPlot {
         let eval_ctx =
             CoreEvaluationContext::new(self.get_theme(), Arc::new(ctx.clone()), params.clone())
                 .with_time_context(self.time_context.clone());
-        let scale_builder = Box::pin(scales::build_scale_builder_from_marks(
-            &self.marks,
-            &self.scale_specs,
-            &self.coord_transform,
-            &self.data,
+        let scale_builder = Box::pin(scales::build_scale_builder_from_compiled_plot(
+            self,
             Some(df.clone()),
             &eval_ctx,
             self.get_theme().as_ref(),
@@ -635,8 +782,10 @@ fn collect_event_datum_types_from_schema(
 
 async fn collect_event_coord_types_from_marks(
     coord_transform: &dyn CoordinateSystemTransform,
+    plot: &CompiledPlot,
     marks: &[Arc<dyn CompiledMark>],
     plot_data: Option<&LogicalPlanNode>,
+    provided_plot_df: Option<&DataFrame>,
     ctx: &SessionContext,
     eval_ctx: &EvaluationContext,
     out: &mut IndexMap<String, DataType>,
@@ -647,14 +796,36 @@ async fn collect_event_coord_types_from_marks(
     }
 
     for mark in marks {
-        let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
+        let prepared_base = match plot.mark_group_index_for_mark(mark.state().mark_index()) {
+            Some(group_index) => Some(
+                Box::pin(plot.prepare_mark_group_base_data(
+                    group_index,
+                    eval_ctx,
+                    provided_plot_df,
+                    &[],
+                ))
+                .await?,
+            ),
+            None => None,
+        };
+        let prepared = match Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: mark.as_ref(),
             plot_data,
-            provided_plot_df: None,
+            provided_plot_df,
             facet_data_scope: None,
+            prepared_base: prepared_base.as_deref(),
             eval_ctx,
         }))
-        .await?;
+        .await
+        {
+            Ok(prepared) => prepared,
+            Err(AvengerChartError::InternalError(message))
+                if message == "Mark expressions reference columns but no data is available" =>
+            {
+                continue;
+            }
+            Err(err) => return Err(err),
+        };
         let mark_df = prepared.domain_dataframe.as_ref();
         let channels = &prepared.domain_channels;
 

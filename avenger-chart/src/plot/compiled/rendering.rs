@@ -95,7 +95,7 @@ use super::{
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider},
-    scales::build_scale_builder_from_marks,
+    scales::build_scale_builder_from_compiled_plot,
     session::{
         FacetScaleBuilderPrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
         LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
@@ -1556,11 +1556,8 @@ impl CompiledPlot {
             merged_params.clone(),
         )
         .with_time_context(self.time_context.clone());
-        let scale_builder = Box::pin(build_scale_builder_from_marks(
-            &self.marks,
-            &self.scale_specs,
-            &self.coord_transform,
-            &self.data,
+        let scale_builder = Box::pin(build_scale_builder_from_compiled_plot(
+            self,
             None,
             &scale_eval_ctx,
             self.get_theme().as_ref(),
@@ -1784,6 +1781,18 @@ impl CompiledPlot {
         provided_plot_df: Option<&DataFrame>,
         facet_path: &[ScalarValue],
     ) -> Result<Option<PreparedMarkData>, AvengerChartError> {
+        let prepared_base = match self.mark_group_index_for_mark(mark.state().mark_index()) {
+            Some(group_index) => Some(
+                Box::pin(self.prepare_mark_group_base_data(
+                    group_index,
+                    eval_ctx,
+                    provided_plot_df,
+                    facet_path,
+                ))
+                .await?,
+            ),
+            None => None,
+        };
         let prepared = prepare_mark_data_runtime(MarkDataRequest {
             mark,
             plot_data: self.data.as_ref(),
@@ -1794,6 +1803,7 @@ impl CompiledPlot {
                 facet_path,
             )),
             prepared_logical: None,
+            prepared_base: prepared_base.as_deref(),
             eval_ctx,
             evaluation_metrics: eval_ctx.evaluation_metrics.clone(),
             scales,
@@ -3431,11 +3441,8 @@ impl CompiledPlot {
             eval_ctx.record_scale_domain_cache_miss();
         }
         eval_ctx.record_scale_builder_build();
-        let scale_builder = Box::pin(build_scale_builder_from_marks(
-            &self.marks,
-            &self.scale_specs,
-            &self.coord_transform,
-            &self.data,
+        let scale_builder = Box::pin(build_scale_builder_from_compiled_plot(
+            self,
             data_override,
             eval_ctx,
             self.get_theme().as_ref(),
@@ -5932,11 +5939,8 @@ impl CompiledPlot {
                     metrics.record_scale_domain_cache_miss();
                     metrics.record_scale_builder_build();
                 });
-                let builder = Box::pin(build_scale_builder_from_marks(
-                    &self.marks,
-                    &self.scale_specs,
-                    &self.coord_transform,
-                    &self.data,
+                let builder = Box::pin(build_scale_builder_from_compiled_plot(
+                    self,
                     None,
                     &scale_eval_ctx,
                     self.get_theme().as_ref(),
@@ -5952,11 +5956,8 @@ impl CompiledPlot {
                 metrics.record_scale_builder_build();
             });
             Arc::new(
-                Box::pin(build_scale_builder_from_marks(
-                    &self.marks,
-                    &self.scale_specs,
-                    &self.coord_transform,
-                    &self.data,
+                Box::pin(build_scale_builder_from_compiled_plot(
+                    self,
                     None,
                     &scale_eval_ctx,
                     self.get_theme().as_ref(),
@@ -6607,11 +6608,8 @@ impl CompiledPlot {
                     metrics.record_scale_domain_cache_miss();
                     metrics.record_scale_builder_build();
                 });
-                let builder = Box::pin(build_scale_builder_from_marks(
-                    &self.marks,
-                    &self.scale_specs,
-                    &self.coord_transform,
-                    &self.data,
+                let builder = Box::pin(build_scale_builder_from_compiled_plot(
+                    self,
                     None,
                     &scale_eval_ctx,
                     self.get_theme().as_ref(),
@@ -8404,11 +8402,8 @@ mod tests {
             merged_params.clone(),
         )
         .with_time_context(compiled.time_context.clone());
-        let scale_builder = build_scale_builder_from_marks(
-            &compiled.marks,
-            &compiled.scale_specs,
-            &compiled.coord_transform,
-            &compiled.data,
+        let scale_builder = build_scale_builder_from_compiled_plot(
+            compiled,
             None,
             &scale_eval_ctx,
             compiled.get_theme().as_ref(),

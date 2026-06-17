@@ -12,12 +12,12 @@ use indexmap::IndexMap;
 
 use avenger_chart_core::{
     AvengerChartError, Axis, AxisGuideVisibilityPolicy, AxisSpec, ChartTool, CompileContext,
-    CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
+    CompiledDataContext, CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
     CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
-    CoordinationScope, DomainCoordination, DomainCoordinationGroup, IntoExpr, Legend,
-    LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param, RepeatContext,
-    RepeatDomainCoordination, RepeatVariable, Selection, Store, SubplotChildPlotSpec, Theme,
-    TimeContext, compile_selections, validate_structural_id,
+    CoordinationScope, DataContext, DomainCoordination, DomainCoordinationGroup, IntoExpr,
+    IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param, PlotMark,
+    PlotMarkKind, RepeatContext, RepeatDomainCoordination, RepeatVariable, Selection, Store,
+    SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -41,8 +41,8 @@ use super::{
 pub struct Plot<C: CoordinateSystem> {
     coord_system: C,
 
-    /// Marks stored until compilation
-    marks: Vec<Arc<dyn Mark<C>>>,
+    /// Recursive plot elements stored until compilation.
+    marks: Vec<PlotMark<C>>,
 
     /// Plot-level data for mark inheritance
     pub(crate) data: Option<DataFrame>,
@@ -446,7 +446,9 @@ impl<C: CoordinateSystem> Plot<C> {
         let mut pre_tool_legends: IndexMap<String, Legend> = self.legends.clone();
         let mut pre_tool_scale_specs: HashMap<String, ScaleSpec> = self.scale_specs.clone();
         let mut pre_tool_scale_to_coord_channel: HashMap<String, String> = HashMap::new();
-        let pre_tool_mark_states = resolve_mark_states(&self.marks, tool_context.repeat_context())?;
+        let pre_tool_flat_marks = flatten_plot_marks(&self.marks, tool_context.repeat_context())?;
+        let pre_tool_mark_states =
+            resolve_mark_states(&pre_tool_flat_marks.marks, tool_context.repeat_context())?;
         for mark_state in &pre_tool_mark_states {
             crate::plot::channel::extract_channel_configs_from_state(
                 mark_state,
@@ -486,10 +488,19 @@ impl<C: CoordinateSystem> Plot<C> {
 
         let mut marks = self.marks;
         for active in &active_tool_expansions {
-            marks.extend(active.expansion.marks.iter().cloned());
+            marks.extend(
+                active
+                    .expansion
+                    .marks
+                    .iter()
+                    .cloned()
+                    .map(PlotMark::from_mark_arc),
+            );
         }
-        validate_sibling_mark_ids(&marks)?;
-        let resolved_mark_states = resolve_mark_states(&marks, tool_context.repeat_context())?;
+        let flat_marks = flatten_plot_marks(&marks, tool_context.repeat_context())?;
+        validate_sibling_mark_ids(&flat_marks.marks)?;
+        let resolved_mark_states =
+            resolve_mark_states(&flat_marks.marks, tool_context.repeat_context())?;
 
         // 1. Extract and merge channel configs from all marks with proper SessionContext
         for mark_state in &resolved_mark_states {
@@ -520,12 +531,17 @@ impl<C: CoordinateSystem> Plot<C> {
         // runtime so faceted marks aggregate after mark-level data scope has been
         // resolved.
         let mut compiled_marks: Vec<Arc<dyn CompiledMark>> = Vec::new();
-        for (mark_index, (m, mark_state)) in
-            marks.iter().zip(resolved_mark_states.iter()).enumerate()
+        for (mark_index, (m, mark_state)) in flat_marks
+            .marks
+            .iter()
+            .zip(resolved_mark_states.iter())
+            .enumerate()
         {
             // Get the DataFrame (or use plot-level data)
             let df_opt = if mark_state.data_mode == MarkDataMode::Unit {
                 None
+            } else if flat_marks.mark_group_indices[mark_index].is_some() {
+                mark_state.data.dataframe().cloned()
             } else {
                 mark_state
                     .data
@@ -541,6 +557,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 .await?;
             compiled_marks.push(compiled_mark);
         }
+        let mark_groups = compile_mark_group_states(&flat_marks.group_states);
 
         // 3. Build guide renderer - either from config or default
         let mut guide = if let Some(config) = &self.guide_config {
@@ -674,6 +691,8 @@ impl<C: CoordinateSystem> Plot<C> {
             coord_transform,
             compiled_guide: Some(compiled_guide),
             marks: compiled_marks,
+            mark_groups,
+            mark_group_index_by_mark: flat_marks.mark_group_indices,
             axis_specs,
             legends,
             legend_colorbar_overlays,
@@ -711,9 +730,12 @@ impl<C: CoordinateSystem> Plot<C> {
         &self.coord_system
     }
 
-    pub fn mark<M: Mark<C> + 'static>(mut self, mark: M) -> Self {
-        // Just store the mark - config extraction happens during compile()
-        self.marks.push(Arc::new(mark));
+    pub fn mark<M>(mut self, mark: M) -> Self
+    where
+        M: IntoPlotMark<C>,
+    {
+        // Just store plot elements - config extraction happens during compile().
+        self.marks.extend(mark.into_plot_marks());
         self
     }
 
@@ -1099,7 +1121,7 @@ where
 {
     Plot {
         coord_system,
-        marks,
+        marks: marks.into_iter().map(PlotMark::from_mark_arc).collect(),
         data: parts.data,
         scale_specs: parts.scale_specs,
         legends: parts.legends,
@@ -1116,6 +1138,126 @@ where
         cursor_params: parts.cursor_params,
         tools: Vec::new(),
     }
+}
+
+#[derive(Clone)]
+struct AuthoringMarkGroupState {
+    id: Option<String>,
+    parent_group_index: Option<usize>,
+    data: DataContext,
+    data_mode: MarkDataMode,
+    facet_data_scope: avenger_chart_core::FacetDataScope,
+}
+
+struct FlattenedPlotMarks<C: CoordinateSystem> {
+    marks: Vec<Arc<dyn Mark<C>>>,
+    group_states: Vec<AuthoringMarkGroupState>,
+    mark_group_indices: Vec<Option<usize>>,
+}
+
+fn flatten_plot_marks<C: CoordinateSystem>(
+    elements: &[PlotMark<C>],
+    repeat_context: Option<&RepeatContext>,
+) -> Result<FlattenedPlotMarks<C>, AvengerChartError> {
+    let empty_repeat_context;
+    let repeat_context = match repeat_context {
+        Some(repeat_context) => repeat_context,
+        None => {
+            empty_repeat_context = RepeatContext::default();
+            &empty_repeat_context
+        }
+    };
+    let mut flat = FlattenedPlotMarks {
+        marks: Vec::new(),
+        group_states: Vec::new(),
+        mark_group_indices: Vec::new(),
+    };
+    flatten_plot_mark_elements(elements, None, repeat_context, &mut flat)?;
+    Ok(flat)
+}
+
+fn flatten_plot_mark_elements<C: CoordinateSystem>(
+    elements: &[PlotMark<C>],
+    parent_group_index: Option<usize>,
+    repeat_context: &RepeatContext,
+    flat: &mut FlattenedPlotMarks<C>,
+) -> Result<(), AvengerChartError> {
+    for element in elements {
+        match element.kind() {
+            PlotMarkKind::Primitive(mark) => {
+                if parent_group_index.is_some() {
+                    let state = mark.state();
+                    if state.has_explicit_data_source() {
+                        return Err(AvengerChartError::InvalidArgument(
+                            "Primitive child marks inside MarkGroup may not set explicit data or data_store"
+                                .to_string(),
+                        ));
+                    }
+                    if state.data_mode == MarkDataMode::Unit {
+                        return Err(AvengerChartError::InvalidArgument(
+                            "Primitive child marks inside MarkGroup may not use unit_data()"
+                                .to_string(),
+                        ));
+                    }
+                }
+                flat.marks.push(mark.clone());
+                flat.mark_group_indices.push(parent_group_index);
+            }
+            PlotMarkKind::Group(group) => {
+                group.validate_id()?;
+                if group.children().is_empty() {
+                    return Err(AvengerChartError::InvalidArgument(
+                        "MarkGroup must contain at least one child mark or group".to_string(),
+                    ));
+                }
+                let group_index = flat.group_states.len();
+                flat.group_states.push(AuthoringMarkGroupState {
+                    id: group.id_ref().map(ToString::to_string),
+                    parent_group_index,
+                    data: group.data_context().resolve_repeat(repeat_context)?,
+                    data_mode: group.data_mode(),
+                    facet_data_scope: group.facet_data_scope_value(),
+                });
+                flatten_plot_mark_elements(
+                    group.children(),
+                    Some(group_index),
+                    repeat_context,
+                    flat,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn compile_mark_group_states(
+    groups: &[AuthoringMarkGroupState],
+) -> Vec<super::compiled::CompiledMarkGroupState> {
+    groups
+        .iter()
+        .map(|group| {
+            let data = if let Some(store_data) = group.data.store_data_ref() {
+                CompiledDataContext::new_store_data(
+                    store_data.clone(),
+                    group.data.transforms().to_vec(),
+                    group.data.channels().clone(),
+                )
+            } else {
+                CompiledDataContext::new(
+                    group.data.dataframe().cloned(),
+                    group.data.transforms().to_vec(),
+                    group.data.channels().clone(),
+                )
+            };
+            super::compiled::CompiledMarkGroupState {
+                id: group.id.clone(),
+                parent_group_index: group.parent_group_index,
+                data,
+                data_mode: group.data_mode,
+                facet_data_scope: group.facet_data_scope,
+            }
+        })
+        .collect()
 }
 
 fn lower_repeat_columns_plot<C: CoordinateSystem>(
@@ -1519,7 +1661,9 @@ mod tests {
         CartesianAxis, CartesianRectPositionChannels, CartesianSymbolPositionChannels,
     };
     use avenger_chart_core::{
-        AxisGuideVisibilityPolicy, DefaultLogicalExprNodeExt, DomainCoordinationGroup,
+        AxisGuideVisibilityPolicy, CompiledDataTransform, DataTransform,
+        DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
+        DefaultLogicalExprNodeExt, DomainCoordinationGroup, IntoPlotMark, MarkGroup, PlotMark,
         RepeatContext, RepeatDomainCoordination, RepeatVariable, ResolvedRepeatVariable,
         ScaleChannelConfig, SelectionClauseUpdate, SelectionPredicateUpdate, SelectionUpdate,
         StoreRow, StoreUpdate, SubplotDataSource, collect_repeat_placeholder_kinds, repeat,
@@ -1537,7 +1681,11 @@ mod tests {
         functions_aggregate::expr_fn::count,
         prelude::{SessionContext, col, lit},
     };
-    use std::sync::Arc;
+    use serde::{Deserialize, Serialize};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     fn resolved_repeat(id: &str) -> ResolvedRepeatVariable {
         ResolvedRepeatVariable {
@@ -1594,6 +1742,273 @@ mod tests {
 
     fn constant_y_grid_cell(value: f64) -> Plot<Cartesian> {
         Plot::<Cartesian>::new().mark(Symbol::new().x(repeat::column()).y(lit(value)).size(64.0))
+    }
+
+    struct TestCompoundMark;
+
+    impl IntoPlotMark<Cartesian> for TestCompoundMark {
+        fn into_plot_marks(self) -> Vec<PlotMark<Cartesian>> {
+            vec![
+                PlotMark::from_mark(Symbol::new().id("compound_symbol").x(lit(1.0)).y(lit(2.0))),
+                PlotMark::from_mark(Rect::new().id("compound_rect").x(lit(0.0)).y(lit(0.0))),
+            ]
+        }
+    }
+
+    static COUNTING_GROUP_TRANSFORM_APPLIES: AtomicUsize = AtomicUsize::new(0);
+
+    #[derive(Clone)]
+    struct CountingGroupTransform;
+
+    impl DataTransform for CountingGroupTransform {
+        type Output = ();
+
+        fn into_compiled_and_output(
+            self,
+            _ctx: DataTransformCompileContext,
+        ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError> {
+            Ok((Box::new(CompiledCountingGroupTransform), ()))
+        }
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct CompiledCountingGroupTransform;
+
+    #[typetag::serde(name = "test_mark_group_counting")]
+    #[async_trait::async_trait]
+    impl CompiledDataTransform for CompiledCountingGroupTransform {
+        fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
+            Box::new(self.clone())
+        }
+
+        async fn apply(
+            &self,
+            dataframe: datafusion::dataframe::DataFrame,
+            _ctx: &DataTransformExecutionContext<'_>,
+        ) -> Result<DataTransformResult, AvengerChartError> {
+            COUNTING_GROUP_TRANSFORM_APPLIES.fetch_add(1, Ordering::SeqCst);
+            Ok(DataTransformResult::dataframe(dataframe))
+        }
+    }
+
+    async fn xy_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+        ctx.sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 4.0), (3.0, 6.0)) AS t(x, y)")
+            .await
+            .expect("dataframe")
+    }
+
+    #[tokio::test]
+    async fn mark_group_flattening_preserves_author_order() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(Symbol::new().id("a").x(lit(1.0)).y(lit(1.0)))
+            .mark(
+                MarkGroup::new()
+                    .id("summary")
+                    .mark(Symbol::new().id("b").x(lit(2.0)).y(lit(2.0)))
+                    .mark(Rect::new().id("c").x(lit(3.0)).y(lit(3.0))),
+            )
+            .mark(TestCompoundMark)
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let ids = compiled
+            .marks
+            .iter()
+            .map(|mark| mark.state().id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            vec![
+                Some("a".to_string()),
+                Some("b".to_string()),
+                Some("c".to_string()),
+                Some("compound_symbol".to_string()),
+                Some("compound_rect".to_string()),
+            ]
+        );
+        assert_eq!(compiled.mark_groups.len(), 1);
+        assert_eq!(
+            compiled.mark_group_index_by_mark,
+            vec![None, Some(0), Some(0), None, None]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_mark_group_records_nearest_parent_group() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                MarkGroup::new().id("outer").mark(
+                    MarkGroup::new()
+                        .id("inner")
+                        .mark(Symbol::new().id("leaf").x(lit(1.0)).y(lit(1.0))),
+                ),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        assert_eq!(compiled.mark_groups.len(), 2);
+        assert_eq!(compiled.mark_groups[0].parent_group_index, None);
+        assert_eq!(compiled.mark_groups[1].parent_group_index, Some(0));
+        assert_eq!(compiled.mark_group_index_by_mark, vec![Some(1)]);
+    }
+
+    #[tokio::test]
+    async fn empty_mark_group_is_invalid() {
+        let ctx = SessionContext::new();
+        let err = match Plot::<Cartesian>::new()
+            .mark(MarkGroup::new())
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("empty group should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("MarkGroup must contain"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn primitive_group_child_cannot_set_explicit_data() {
+        let ctx = SessionContext::new();
+        let data = xy_dataframe(&ctx).await;
+        let err = match Plot::<Cartesian>::new()
+            .mark(MarkGroup::new().mark(Symbol::new().data(data).x(col("x")).y(col("y"))))
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("explicit child data should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("Primitive child marks inside MarkGroup may not set explicit data"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn flattened_group_child_ids_must_be_unique() {
+        let ctx = SessionContext::new();
+        let err = match Plot::<Cartesian>::new()
+            .mark(Symbol::new().id("duplicate").x(lit(1.0)).y(lit(1.0)))
+            .mark(MarkGroup::new().mark(Symbol::new().id("duplicate").x(lit(2.0)).y(lit(2.0))))
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("duplicate ids should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("Duplicate mark id"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn two_marks_in_one_group_share_transform_preparation() {
+        let ctx = SessionContext::new();
+        let data = xy_dataframe(&ctx).await;
+        COUNTING_GROUP_TRANSFORM_APPLIES.store(0, Ordering::SeqCst);
+        let compiled = Plot::<Cartesian>::new()
+            .data(data.clone())
+            .mark(
+                MarkGroup::new().transform_no_output(CountingGroupTransform, |group| {
+                    group
+                        .mark(Symbol::new().x(col("x")).y(col("y")))
+                        .mark(Symbol::new().x(col("x")).y(col("y")))
+                }),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let _scales = compiled
+            .build_scales_for_dataframe(&data, 320.0, 240.0, &ctx, compiled.get_default_params())
+            .await
+            .expect("build scales");
+        assert_eq!(COUNTING_GROUP_TRANSFORM_APPLIES.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn sibling_groups_prepare_independent_transform_branches() {
+        let ctx = SessionContext::new();
+        let data = xy_dataframe(&ctx).await;
+        COUNTING_GROUP_TRANSFORM_APPLIES.store(0, Ordering::SeqCst);
+        let branch = || {
+            MarkGroup::<Cartesian>::new().transform_no_output(CountingGroupTransform, |group| {
+                group.mark(Symbol::new().x(col("x")).y(col("y")))
+            })
+        };
+        let compiled = Plot::<Cartesian>::new()
+            .data(data.clone())
+            .mark(branch())
+            .mark(branch())
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let _scales = compiled
+            .build_scales_for_dataframe(&data, 320.0, 240.0, &ctx, compiled.get_default_params())
+            .await
+            .expect("build scales");
+        assert_eq!(COUNTING_GROUP_TRANSFORM_APPLIES.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn nested_explicit_group_data_resets_parent_inheritance() {
+        let ctx = SessionContext::new();
+        let parent_data = xy_dataframe(&ctx).await;
+        let child_data = ctx
+            .sql("SELECT * FROM (VALUES (10.0, 20.0), (30.0, 40.0)) AS t(x, y)")
+            .await
+            .expect("child dataframe");
+        COUNTING_GROUP_TRANSFORM_APPLIES.store(0, Ordering::SeqCst);
+        let compiled = Plot::<Cartesian>::new()
+            .data(parent_data.clone())
+            .mark(
+                MarkGroup::new().transform_no_output(CountingGroupTransform, |group| {
+                    group.mark(
+                        MarkGroup::new()
+                            .data(child_data)
+                            .mark(Symbol::new().x(col("x")).y(col("y"))),
+                    )
+                }),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let _scales = compiled
+            .build_scales_for_dataframe(
+                &parent_data,
+                320.0,
+                240.0,
+                &ctx,
+                compiled.get_default_params(),
+            )
+            .await
+            .expect("build scales");
+        assert_eq!(COUNTING_GROUP_TRANSFORM_APPLIES.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn compiled_plot_serializes_mark_group_metadata() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                MarkGroup::new()
+                    .id("group")
+                    .mark(Symbol::new().id("leaf").x(lit(1.0)).y(lit(1.0))),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let bytes = bincode::serialize(&compiled).expect("serialize");
+        let restored: CompiledPlot = bincode::deserialize(&bytes).expect("deserialize");
+        assert_eq!(restored.mark_groups.len(), 1);
+        assert_eq!(restored.mark_groups[0].id.as_deref(), Some("group"));
+        assert_eq!(restored.mark_group_index_by_mark, vec![Some(0)]);
     }
 
     fn repeated_item_cell() -> Plot<Cartesian> {

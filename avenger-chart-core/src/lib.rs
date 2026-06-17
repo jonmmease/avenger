@@ -41,6 +41,7 @@ pub mod legend_renderer;
 pub mod legend_spec;
 pub mod mark;
 pub mod mark_channel_coercion;
+pub mod mark_group;
 pub mod mark_macros;
 pub mod mark_render_context;
 pub mod mark_runtime_context;
@@ -189,6 +190,7 @@ pub use mark_channel_coercion::{
     coerce_stroke_join_channel_values_with_renderer, coerce_stroke_join_channel_with_renderer,
     coerce_text_align_channel, coerce_text_baseline_channel, coerce_text_channel,
 };
+pub use mark_group::{IntoPlotMark, MarkGroup, PlotMark, PlotMarkKind};
 pub use mark_render_context::MarkRenderContext;
 pub use mark_runtime_context::MarkRuntimeContext;
 pub use mark_state::validate_structural_id;

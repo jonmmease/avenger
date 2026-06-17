@@ -27,7 +27,7 @@ use super::{
     ChildFrameChannelDomainExtent, ChildFrameSharingLevel, CompiledPlot, ComponentsMeasurement,
     child_frame_domain_sharing_levels_for_plot, extract_child_frame_shared_domain_extents,
     scale_provider::DynamicScaleProvider,
-    scales::build_scale_builder_from_marks_with_render_context,
+    scales::build_scale_builder_from_compiled_plot_with_render_context,
     session::{ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope},
 };
 
@@ -162,11 +162,8 @@ impl ChildFrameRuntime {
             eval_ctx.record_scale_domain_cache_miss();
         }
         eval_ctx.record_scale_builder_build();
-        let scale_builder = Box::pin(build_scale_builder_from_marks_with_render_context(
-            &plot.marks,
-            &plot.scale_specs,
-            &plot.coord_transform,
-            &plot.data,
+        let scale_builder = Box::pin(build_scale_builder_from_compiled_plot_with_render_context(
+            plot,
             data_override.clone(),
             eval_ctx,
             plot.get_theme().as_ref(),

@@ -67,6 +67,12 @@ impl DataContext {
         self.store_data.as_ref()
     }
 
+    /// Whether this context starts from an explicit dataframe or mutable store
+    /// instead of inheriting data from its parent plot or group.
+    pub fn has_explicit_data_source(&self) -> bool {
+        self.dataframe.is_some() || self.store_data.is_some()
+    }
+
     pub fn with_channel_value(mut self, channel: &str, value: ChannelValue) -> Self {
         self.channels.insert(channel.to_string(), value);
         self

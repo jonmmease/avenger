@@ -1,27 +1,77 @@
 //! Facade compatibility for scale building owned by `avenger-chart-scales`.
 
-use std::{collections::HashMap, sync::Arc};
+#[cfg(test)]
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use datafusion::{
     arrow::datatypes::DataType as ArrowDataType, common::ScalarValue, dataframe::DataFrame,
 };
+#[cfg(test)]
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
+#[cfg(test)]
+use avenger_chart_core::CoordinateSystemTransform;
 use avenger_chart_core::{
-    AvengerChartError, CompiledMark, CoordinateSystemTransform,
-    EvaluationContext as CoreEvaluationContext, ResolvedDomain, ScaleRange, Theme,
+    AvengerChartError, CompiledMark, EvaluationContext as CoreEvaluationContext, ResolvedDomain,
+    ScaleRange, Theme,
 };
-use avenger_chart_scales::{PlotScaleSpec, PreparedScaleMark, ScaleBuilder};
+#[cfg(test)]
+use avenger_chart_scales::PlotScaleSpec;
+use avenger_chart_scales::{PreparedScaleMark, ScaleBuilder};
 use avenger_scales::scales::ScaleImpl;
 
 use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
 
 use super::{
-    LogicalMarkDataRequest, prepare_logical_mark_data,
+    CompiledPlot, LogicalMarkDataRequest, prepare_logical_mark_data,
     session::{ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope},
 };
 
+async fn prepare_scale_mark_for_plot(
+    plot: &CompiledPlot,
+    mark: &Arc<dyn CompiledMark>,
+    df_override: Option<&DataFrame>,
+    eval_ctx: &crate::render::EvaluationContext,
+    facet_path: &[ScalarValue],
+) -> Result<PreparedScaleMark, AvengerChartError> {
+    let prepared_base = match plot.mark_group_index_for_mark(mark.state().mark_index()) {
+        Some(group_index) => Some(
+            Box::pin(plot.prepare_mark_group_base_data(
+                group_index,
+                eval_ctx,
+                df_override,
+                facet_path,
+            ))
+            .await?,
+        ),
+        None => None,
+    };
+    let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
+        mark: mark.as_ref(),
+        plot_data: plot.data.as_ref(),
+        provided_plot_df: df_override,
+        facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(
+            eval_ctx.facet_tree.as_ref(),
+            eval_ctx.facet_data_root(),
+            facet_path,
+        )),
+        prepared_base: prepared_base.as_deref(),
+        eval_ctx,
+    }))
+    .await?;
+    Ok(PreparedScaleMark::new_with_domain_source(
+        mark.clone(),
+        prepared.dataframe,
+        prepared.channels,
+        prepared.domain_dataframe,
+        prepared.domain_channels,
+        prepared.derived_scalars,
+    ))
+}
+
+#[cfg(test)]
 pub(crate) async fn build_scale_builder_from_marks(
     compiled_marks: &[Arc<dyn CompiledMark>],
     scale_specs: &HashMap<String, PlotScaleSpec>,
@@ -45,6 +95,7 @@ pub(crate) async fn build_scale_builder_from_marks(
             plot_data: data.as_ref(),
             provided_plot_df: df_override.as_ref(),
             facet_data_scope: None,
+            prepared_base: None,
             eval_ctx: &render_eval_ctx,
         }))
         .await?;
@@ -70,40 +121,53 @@ pub(crate) async fn build_scale_builder_from_marks(
     .await
 }
 
-pub(crate) async fn build_scale_builder_from_marks_with_render_context(
-    compiled_marks: &[Arc<dyn CompiledMark>],
-    scale_specs: &HashMap<String, PlotScaleSpec>,
-    coord_transform: &Box<dyn CoordinateSystemTransform>,
-    data: &Option<LogicalPlanNode>,
+pub(crate) async fn build_scale_builder_from_compiled_plot(
+    plot: &CompiledPlot,
+    df_override: Option<DataFrame>,
+    eval_ctx: &CoreEvaluationContext,
+    theme: &Theme,
+) -> Result<ScaleBuilder, AvengerChartError> {
+    let mut render_eval_ctx = crate::render::EvaluationContext::new(
+        eval_ctx.theme().clone(),
+        eval_ctx.session_context().clone(),
+        eval_ctx.params().clone(),
+        Arc::new(EvaluatedFacetTree::empty()),
+    );
+    render_eval_ctx.core = eval_ctx.clone();
+    build_scale_builder_from_compiled_plot_with_render_context(
+        plot,
+        df_override,
+        &render_eval_ctx,
+        theme,
+    )
+    .await
+}
+
+pub(crate) async fn build_scale_builder_from_compiled_plot_with_render_context(
+    plot: &CompiledPlot,
     df_override: Option<DataFrame>,
     eval_ctx: &crate::render::EvaluationContext,
     theme: &Theme,
 ) -> Result<ScaleBuilder, AvengerChartError> {
-    let mut prepared_marks = Vec::with_capacity(compiled_marks.len());
-    for mark in compiled_marks {
-        let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
-            mark: mark.as_ref(),
-            plot_data: data.as_ref(),
-            provided_plot_df: df_override.as_ref(),
-            facet_data_scope: None,
-            eval_ctx,
-        }))
-        .await?;
-        prepared_marks.push(PreparedScaleMark::new_with_domain_source(
-            mark.clone(),
-            prepared.dataframe,
-            prepared.channels,
-            prepared.domain_dataframe,
-            prepared.domain_channels,
-            prepared.derived_scalars,
-        ));
+    let mut prepared_marks = Vec::with_capacity(plot.marks.len());
+    for mark in &plot.marks {
+        prepared_marks.push(
+            Box::pin(prepare_scale_mark_for_plot(
+                plot,
+                mark,
+                df_override.as_ref(),
+                eval_ctx,
+                &[],
+            ))
+            .await?,
+        );
     }
 
     Box::pin(
         avenger_chart_scales::build_scale_builder_from_prepared_marks(
             &prepared_marks,
-            scale_specs,
-            coord_transform.as_ref(),
+            &plot.scale_specs,
+            plot.coord_transform.as_ref(),
             eval_ctx,
             theme,
         ),
@@ -111,11 +175,8 @@ pub(crate) async fn build_scale_builder_from_marks_with_render_context(
     .await
 }
 
-pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
-    compiled_marks: &[Arc<dyn CompiledMark>],
-    scale_specs: &HashMap<String, PlotScaleSpec>,
-    coord_transform: &Box<dyn CoordinateSystemTransform>,
-    data: &Option<LogicalPlanNode>,
+pub(crate) async fn build_scale_builder_from_compiled_plot_with_facet_scope(
+    plot: &CompiledPlot,
     df_override: Option<DataFrame>,
     eval_ctx: &crate::render::EvaluationContext,
     facet_path: &[ScalarValue],
@@ -129,9 +190,9 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
                 .collect(),
         );
         let key = scale_domain_cache_key_for_parts_with_scope(
-            compiled_marks,
-            scale_specs,
-            data,
+            &plot.marks,
+            &plot.scale_specs,
+            &plot.data,
             df_override.as_ref(),
             eval_ctx.session_context.as_ref(),
             eval_ctx.params(),
@@ -153,35 +214,25 @@ pub(crate) async fn build_scale_builder_from_marks_with_facet_scope(
         eval_ctx.record_scale_domain_cache_miss();
     }
     eval_ctx.record_scale_builder_build();
-    let mut prepared_marks = Vec::with_capacity(compiled_marks.len());
-    for mark in compiled_marks {
-        let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
-            mark: mark.as_ref(),
-            plot_data: data.as_ref(),
-            provided_plot_df: df_override.as_ref(),
-            facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(
-                eval_ctx.facet_tree.as_ref(),
-                eval_ctx.facet_data_root(),
+    let mut prepared_marks = Vec::with_capacity(plot.marks.len());
+    for mark in &plot.marks {
+        prepared_marks.push(
+            Box::pin(prepare_scale_mark_for_plot(
+                plot,
+                mark,
+                df_override.as_ref(),
+                eval_ctx,
                 facet_path,
-            )),
-            eval_ctx,
-        }))
-        .await?;
-        prepared_marks.push(PreparedScaleMark::new_with_domain_source(
-            mark.clone(),
-            prepared.dataframe,
-            prepared.channels,
-            prepared.domain_dataframe,
-            prepared.domain_channels,
-            prepared.derived_scalars,
-        ));
+            ))
+            .await?,
+        );
     }
 
     let scale_builder = Box::pin(
         avenger_chart_scales::build_scale_builder_from_prepared_marks(
             &prepared_marks,
-            scale_specs,
-            coord_transform.as_ref(),
+            &plot.scale_specs,
+            plot.coord_transform.as_ref(),
             eval_ctx,
             theme,
         ),
@@ -224,8 +275,6 @@ pub(super) fn default_range_for_compiled_marks<'a>(
         None
     }
 }
-
-use super::CompiledPlot;
 
 impl CompiledPlot {
     /// Check if a data type is numeric

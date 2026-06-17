@@ -2481,7 +2481,7 @@ mod tests {
                 },
                 container_label_items_from_child_frame_container,
                 scale_provider::DynamicScaleProvider,
-                scales::build_scale_builder_from_marks,
+                scales::build_scale_builder_from_compiled_plot,
             },
         },
         render::EvaluationContext,
@@ -2537,11 +2537,8 @@ mod tests {
                 left: 0.0,
             },
         };
-        let scale_builder = build_scale_builder_from_marks(
-            &compiled.marks,
-            &compiled.scale_specs,
-            &compiled.coord_transform,
-            &compiled.data,
+        let scale_builder = build_scale_builder_from_compiled_plot(
+            compiled,
             None,
             &eval_ctx,
             compiled.get_theme().as_ref(),

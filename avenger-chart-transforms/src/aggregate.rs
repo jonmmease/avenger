@@ -10,8 +10,8 @@ use avenger_chart_core::{
 use datafusion::{
     common::ScalarValue,
     dataframe::DataFrame,
-    functions_aggregate::expr_fn::{avg, count, max, min, sum},
-    logical_expr::{Expr, col, lit},
+    functions_aggregate::expr_fn::{approx_percentile_cont, avg, count, max, median, min, sum},
+    logical_expr::{Expr, col, expr::Sort, lit},
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
@@ -41,13 +41,18 @@ pub struct AggregateMeasureSpec {
     pub expr: Option<LogicalExprNode>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AggregateOp {
     Sum,
     Count,
     Mean,
     Min,
     Max,
+    Median,
+    ApproxPercentileCont {
+        percentile: f64,
+        centroids: Option<u32>,
+    },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -105,6 +110,43 @@ impl Aggregate {
         self.measure(name, AggregateOp::Max, Some(expr.into_expr()))
     }
 
+    pub fn median(self, name: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.measure(name, AggregateOp::Median, Some(expr.into_expr()))
+    }
+
+    pub fn approx_percentile_cont(
+        self,
+        name: impl Into<String>,
+        expr: impl IntoExpr,
+        percentile: f64,
+    ) -> Self {
+        self.measure(
+            name,
+            AggregateOp::ApproxPercentileCont {
+                percentile,
+                centroids: None,
+            },
+            Some(expr.into_expr()),
+        )
+    }
+
+    pub fn approx_percentile_cont_with_centroids(
+        self,
+        name: impl Into<String>,
+        expr: impl IntoExpr,
+        percentile: f64,
+        centroids: u32,
+    ) -> Self {
+        self.measure(
+            name,
+            AggregateOp::ApproxPercentileCont {
+                percentile,
+                centroids: Some(centroids),
+            },
+            Some(expr.into_expr()),
+        )
+    }
+
     fn measure(mut self, name: impl Into<String>, op: AggregateOp, expr: Option<Expr>) -> Self {
         self.measures.push(AggregateMeasureSpec {
             name: name.into(),
@@ -122,6 +164,7 @@ impl DataTransform for Aggregate {
         self,
         _ctx: DataTransformCompileContext,
     ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError> {
+        validate_aggregate_ops(&self.measures)?;
         let mut names = IndexMap::new();
         for group in &self.group_by {
             if let Some(alias) = &group.alias {
@@ -281,8 +324,47 @@ pub(crate) fn aggregate_expr(
         AggregateOp::Mean => avg(required_measure_expr(measure, ctx)?),
         AggregateOp::Min => min(required_measure_expr(measure, ctx)?),
         AggregateOp::Max => max(required_measure_expr(measure, ctx)?),
+        AggregateOp::Median => median(required_measure_expr(measure, ctx)?),
+        AggregateOp::ApproxPercentileCont {
+            percentile,
+            centroids,
+        } => approx_percentile_cont(
+            Sort {
+                expr: required_measure_expr(measure, ctx)?,
+                asc: true,
+                nulls_first: true,
+            },
+            lit(percentile),
+            centroids.map(|centroids| lit(centroids as i64)),
+        ),
     };
     Ok(expr.alias(&measure.name))
+}
+
+pub(crate) fn validate_aggregate_ops(
+    measures: &[AggregateMeasureSpec],
+) -> Result<(), AvengerChartError> {
+    for measure in measures {
+        if let AggregateOp::ApproxPercentileCont {
+            percentile,
+            centroids,
+        } = measure.op
+        {
+            if !percentile.is_finite() || !(0.0..=1.0).contains(&percentile) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Aggregate measure '{}' has invalid percentile {percentile}; expected a finite value between 0.0 and 1.0",
+                    measure.name
+                )));
+            }
+            if centroids == Some(0) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Aggregate measure '{}' has invalid centroid count 0; expected at least 1",
+                    measure.name
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn required_measure_expr(

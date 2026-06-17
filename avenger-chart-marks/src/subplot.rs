@@ -7,8 +7,9 @@ use avenger_chart_core::{
     AvengerChartError, AxisGuideVisibilityConfig, ChannelValue, ColumnDimensionConfig,
     CompileContext, CompiledMark, CompiledMarkState, CompiledSubplotChildPlot,
     CoordinateSystemCore, CoordinationScope, DataContext, FacetDataScope, FacetDimensionConfig,
-    FacetEmptyCellPolicy, FacetWrapColumnMode, Mark, MarkDataMode, MarkState, RowDimensionConfig,
-    SubplotChildPlotSpec, SubplotContainerCoordinateSystem, SubplotMarkCore,
+    FacetEmptyCellPolicy, FacetWrapColumnMode, IntoPlotMark, Mark, MarkDataMode, MarkState,
+    PlotMark, RowDimensionConfig, SubplotChildPlotSpec, SubplotContainerCoordinateSystem,
+    SubplotMarkCore,
 };
 
 #[derive(Clone)]
@@ -667,5 +668,14 @@ where
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
         C::compile_subplot_mark_with_context(self, compiled_state, session_context, compile_context)
             .await
+    }
+}
+
+impl<C> IntoPlotMark<C> for Subplot<C>
+where
+    C: SubplotContainerCoordinateSystem,
+{
+    fn into_plot_marks(self) -> Vec<PlotMark<C>> {
+        vec![PlotMark::from_mark(self)]
     }
 }

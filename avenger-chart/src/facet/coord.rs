@@ -71,7 +71,7 @@ use crate::{
         ChildFrameRegion, CompiledPlot, ComponentsMeasurement, CoordinationKind,
         CoordinationScopeKey, fixed_child_plot_area_layout_spec,
         measure_child_frame_plot_with_builder,
-        scales::build_scale_builder_from_marks_with_facet_scope, union_domain_extents,
+        scales::build_scale_builder_from_compiled_plot_with_facet_scope, union_domain_extents,
     },
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
     scales::{ConfiguredScaleWithSpec, ScaleBuilder, domain_extent::DomainExtent},
@@ -1912,17 +1912,15 @@ async fn execute_measurement_from_plan(
             .await
         }
         NestedScalePlan::PerCellBuilderFallback => {
-            let cell_scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
-                &compiled_subplot.marks,
-                &compiled_subplot.scale_specs,
-                &compiled_subplot.coord_transform,
-                &compiled_subplot.data,
-                Some(data_override.clone()),
-                eval_ctx,
-                &cell.full_path,
-                compiled_subplot.get_theme().as_ref(),
-            ))
-            .await?;
+            let cell_scale_builder =
+                Box::pin(build_scale_builder_from_compiled_plot_with_facet_scope(
+                    compiled_subplot,
+                    Some(data_override.clone()),
+                    eval_ctx,
+                    &cell.full_path,
+                    compiled_subplot.get_theme().as_ref(),
+                ))
+                .await?;
             let measurement = Box::pin(measure_child_frame_plot_with_builder(
                 compiled_subplot,
                 subplot_eval_ctx,
@@ -2308,11 +2306,8 @@ async fn build_extent_builder_for_cell(
         return Ok(cached_builder.clone());
     }
 
-    Box::pin(build_scale_builder_from_marks_with_facet_scope(
-        &compiled_subplot.marks,
-        &compiled_subplot.scale_specs,
-        &compiled_subplot.coord_transform,
-        &compiled_subplot.data,
+    Box::pin(build_scale_builder_from_compiled_plot_with_facet_scope(
+        compiled_subplot,
         Some(data_override.clone()),
         &nested_ctx.eval_ctx,
         &cell.plan.full_path,
@@ -2375,11 +2370,8 @@ async fn coordinate_cell_domains_before_measurement(
                 } else {
                     nested_ctx.data_df.clone()
                 };
-            let owner_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
-                &compiled_subplot.marks,
-                &compiled_subplot.scale_specs,
-                &compiled_subplot.coord_transform,
-                &compiled_subplot.data,
+            let owner_builder = Box::pin(build_scale_builder_from_compiled_plot_with_facet_scope(
+                compiled_subplot,
                 Some(owner_data),
                 &nested_ctx.eval_ctx,
                 &owner_path,

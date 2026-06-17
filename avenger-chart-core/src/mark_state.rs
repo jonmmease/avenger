@@ -128,6 +128,10 @@ impl CompiledMarkState {
 }
 
 impl MarkState {
+    pub fn has_explicit_data_source(&self) -> bool {
+        self.data.has_explicit_data_source()
+    }
+
     pub fn resolve_repeat(&self, ctx: &RepeatContext) -> Result<Self, AvengerChartError> {
         let mut resolved = self.clone();
         resolved.data = self.data.resolve_repeat(ctx)?;

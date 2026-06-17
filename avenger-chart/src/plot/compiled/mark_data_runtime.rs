@@ -27,9 +27,9 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    CompiledSelectionSpec, DataTransformExecutionContext, DataTransformStage, DerivedScalarMap,
-    FacetDataScope, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
-    SharingLevel, contains_aggregate, params_to_datafusion,
+    CompiledDataContext, CompiledSelectionSpec, DataTransformExecutionContext, DataTransformStage,
+    DerivedScalarMap, FacetDataScope, MarkDataMode, SelectionClause, SelectionCombine,
+    SelectionPredicateSpec, SharingLevel, contains_aggregate, params_to_datafusion,
     selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
 };
 
@@ -59,6 +59,15 @@ pub(crate) struct PreparedLogicalMarkData {
     pub(crate) derived_scalars: DerivedScalarMap,
 }
 
+/// Data prepared by a compiled `MarkGroup` before child mark-local transforms
+/// and channel aggregate preparation run.
+#[derive(Clone)]
+pub(crate) struct PreparedBaseData {
+    pub(crate) dataframe: Option<DataFrame>,
+    pub(crate) derived_scalars: DerivedScalarMap,
+    pub(crate) facet_data_scope: FacetDataScope,
+}
+
 /// Prepared data for mark evaluation.
 pub(crate) struct PreparedMarkData {
     /// Array data batch (multiple rows), or None if all channels are scalar.
@@ -77,6 +86,7 @@ pub(crate) struct MarkDataRequest<'a> {
     pub(crate) provided_plot_df: Option<&'a DataFrame>,
     pub(crate) facet_data_scope: Option<FacetDataScopeContext<'a>>,
     pub(crate) prepared_logical: Option<&'a PreparedLogicalMarkData>,
+    pub(crate) prepared_base: Option<&'a PreparedBaseData>,
     pub(crate) eval_ctx: &'a EvaluationContext,
     pub(crate) evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
     pub(crate) scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
@@ -89,6 +99,18 @@ pub(crate) struct LogicalMarkDataRequest<'a> {
     pub(crate) plot_data: Option<&'a LogicalPlanNode>,
     pub(crate) provided_plot_df: Option<&'a DataFrame>,
     pub(crate) facet_data_scope: Option<FacetDataScopeContext<'a>>,
+    pub(crate) prepared_base: Option<&'a PreparedBaseData>,
+    pub(crate) eval_ctx: &'a EvaluationContext,
+}
+
+pub(crate) struct BaseDataRequest<'a> {
+    pub(crate) data_context: &'a CompiledDataContext,
+    pub(crate) data_mode: MarkDataMode,
+    pub(crate) facet_data_scope: FacetDataScope,
+    pub(crate) plot_data: Option<&'a LogicalPlanNode>,
+    pub(crate) provided_plot_df: Option<&'a DataFrame>,
+    pub(crate) inherited_base: Option<&'a PreparedBaseData>,
+    pub(crate) facet_data_scope_context: Option<FacetDataScopeContext<'a>>,
     pub(crate) eval_ctx: &'a EvaluationContext,
 }
 
@@ -221,6 +243,20 @@ async fn apply_mark_data_transforms(
     }
 
     Ok((Some(dataframe), derived_scalars))
+}
+
+fn merge_derived_scalars(
+    mut base: DerivedScalarMap,
+    additions: DerivedScalarMap,
+) -> Result<DerivedScalarMap, AvengerChartError> {
+    for (id, expr) in additions {
+        if base.insert(id.clone(), expr).is_some() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Derived scalar '{id}' was produced more than once in the same data scope"
+            )));
+        }
+    }
+    Ok(base)
 }
 
 struct ScopedTransformStage<'a> {
@@ -760,6 +796,109 @@ fn dataframe_for_mark(
     ))
 }
 
+fn validate_narrowed_scope(
+    requested: FacetDataScope,
+    inherited: FacetDataScope,
+    label: &str,
+) -> Result<(), AvengerChartError> {
+    if requested.sharing_level() > inherited.sharing_level() {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{label} cannot broaden inherited facet data scope from {:?} to {:?}",
+            inherited.sharing_level(),
+            requested.sharing_level()
+        )));
+    }
+    Ok(())
+}
+
+fn dataframe_for_base_data(
+    request: &BaseDataRequest<'_>,
+    ctx: &SessionContext,
+) -> Result<Option<DataFrame>, AvengerChartError> {
+    if let Some(store_data) = request.data_context.store_data() {
+        return store_dataframe(
+            store_data,
+            request.facet_data_scope_context,
+            request.eval_ctx,
+        )
+        .map(Some);
+    }
+
+    if request.data_mode == MarkDataMode::Unit {
+        return Ok(None);
+    }
+
+    if let Some(df) = request.data_context.dataframe_with_context(ctx) {
+        return inherited_data_for_scope(
+            Some(&df),
+            request.facet_data_scope,
+            request.facet_data_scope_context,
+        );
+    }
+
+    if let Some(inherited) = request.inherited_base {
+        validate_narrowed_scope(
+            request.facet_data_scope,
+            inherited.facet_data_scope,
+            "Inherited MarkGroup",
+        )?;
+        return inherited_data_for_scope(
+            inherited.dataframe.as_ref(),
+            request.facet_data_scope,
+            request.facet_data_scope_context,
+        );
+    }
+
+    if let Some(df_override) = inherited_data_for_scope(
+        request.provided_plot_df,
+        request.facet_data_scope,
+        request.facet_data_scope_context,
+    )? {
+        return Ok(Some(df_override));
+    }
+
+    if let Some(df) = request.plot_data.and_then(|node| {
+        node.to_logical_plan(ctx)
+            .ok()
+            .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+    }) {
+        return inherited_data_for_scope(
+            Some(&df),
+            request.facet_data_scope,
+            request.facet_data_scope_context,
+        );
+    }
+
+    Ok(None)
+}
+
+pub(crate) async fn prepare_base_data(
+    request: BaseDataRequest<'_>,
+) -> Result<PreparedBaseData, AvengerChartError> {
+    let ctx = request.eval_ctx.session_context.as_ref();
+    let dataframe = dataframe_for_base_data(&request, ctx)?;
+    let (dataframe, derived_scalars) = apply_mark_data_transforms(
+        dataframe,
+        request.data_context.transforms(),
+        ctx,
+        request.eval_ctx,
+        request.facet_data_scope_context,
+        request.facet_data_scope,
+    )
+    .await?;
+    let derived_scalars = match request.inherited_base {
+        Some(inherited) => {
+            merge_derived_scalars(inherited.derived_scalars.clone(), derived_scalars)?
+        }
+        None => derived_scalars,
+    };
+    Ok(PreparedBaseData {
+        dataframe,
+        derived_scalars,
+        facet_data_scope: request.facet_data_scope,
+    })
+}
+
 fn empty_dataframe(ctx: &SessionContext) -> DataFrame {
     DataFrame::new(
         ctx.state().clone(),
@@ -782,16 +921,41 @@ pub(crate) async fn prepare_logical_mark_data(
         request.mark.data_context().transforms(),
         request.mark.state().facet_data_scope,
     );
-    let dataframe = dataframe_for_mark(
-        request.mark,
-        request.plot_data,
-        request.provided_plot_df,
-        request.facet_data_scope,
-        transform_initial_scope,
-        &channels,
-        ctx,
-        request.eval_ctx,
-    )?;
+    let (dataframe, inherited_derived_scalars) = if let Some(prepared_base) = request.prepared_base
+    {
+        validate_narrowed_scope(
+            transform_initial_scope,
+            prepared_base.facet_data_scope,
+            "Child mark",
+        )?;
+        let needs_rows = channel_exprs_reference_columns(&channels, ctx)
+            || aggregate_channels_need_preparation(&channels, ctx)
+            || !request.mark.data_context().transforms().is_empty();
+        let dataframe = if needs_rows {
+            inherited_data_for_scope(
+                prepared_base.dataframe.as_ref(),
+                transform_initial_scope,
+                request.facet_data_scope,
+            )?
+        } else {
+            None
+        };
+        (dataframe, prepared_base.derived_scalars.clone())
+    } else {
+        (
+            dataframe_for_mark(
+                request.mark,
+                request.plot_data,
+                request.provided_plot_df,
+                request.facet_data_scope,
+                transform_initial_scope,
+                &channels,
+                ctx,
+                request.eval_ctx,
+            )?,
+            DerivedScalarMap::new(),
+        )
+    };
     let (dataframe, derived_scalars) = apply_mark_data_transforms(
         dataframe,
         request.mark.data_context().transforms(),
@@ -801,6 +965,7 @@ pub(crate) async fn prepare_logical_mark_data(
         request.mark.state().facet_data_scope,
     )
     .await?;
+    let derived_scalars = merge_derived_scalars(inherited_derived_scalars, derived_scalars)?;
     let available_columns = dataframe.as_ref().map(|df| {
         df.schema()
             .fields()
@@ -1047,6 +1212,7 @@ pub(crate) async fn prepare_mark_data(
             plot_data: request.plot_data,
             provided_plot_df: request.provided_plot_df,
             facet_data_scope: request.facet_data_scope,
+            prepared_base: request.prepared_base,
             eval_ctx: request.eval_ctx,
         })
         .await?;
@@ -1490,6 +1656,7 @@ mod tests {
                 Some(root_df),
                 full_path,
             )),
+            prepared_base: None,
             eval_ctx: &eval_ctx,
         })
         .await?;
@@ -1558,6 +1725,7 @@ mod tests {
             provided_plot_df: None,
             facet_data_scope: None,
             prepared_logical: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
             evaluation_metrics: None,
             scales: &scales,
@@ -1594,6 +1762,7 @@ mod tests {
             provided_plot_df: None,
             facet_data_scope: None,
             prepared_logical: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
             evaluation_metrics: None,
             scales: &scales,
@@ -1630,6 +1799,7 @@ mod tests {
             provided_plot_df: None,
             facet_data_scope: None,
             prepared_logical: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
             evaluation_metrics: None,
             scales: &scales,
@@ -1663,6 +1833,7 @@ mod tests {
             provided_plot_df: None,
             facet_data_scope: None,
             prepared_logical: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
             evaluation_metrics: None,
             scales: &scales,
@@ -1692,6 +1863,7 @@ mod tests {
             provided_plot_df: None,
             facet_data_scope: None,
             prepared_logical: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
             evaluation_metrics: None,
             scales: &scales,
@@ -1724,6 +1896,7 @@ mod tests {
             provided_plot_df: Some(&df),
             facet_data_scope: None,
             prepared_logical: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
             evaluation_metrics: None,
             scales: &scales,
@@ -1762,6 +1935,7 @@ mod tests {
             plot_data: None,
             provided_plot_df: None,
             facet_data_scope: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
         })
         .await?;
@@ -1784,6 +1958,7 @@ mod tests {
             plot_data: None,
             provided_plot_df: None,
             facet_data_scope: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
         })
         .await?;
@@ -1816,6 +1991,7 @@ mod tests {
             provided_plot_df: None,
             facet_data_scope: None,
             prepared_logical: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
             evaluation_metrics: None,
             scales: &HashMap::new(),
@@ -1888,6 +2064,7 @@ mod tests {
                         Some(&root_df),
                         &north_west,
                     )),
+                    prepared_base: None,
                     eval_ctx: &eval_ctx,
                 })
                 .await?;
@@ -1938,6 +2115,7 @@ mod tests {
                         Some(&df),
                         &full_path,
                     )),
+                    prepared_base: None,
                     eval_ctx: &eval_ctx,
                 })
                 .await?;
@@ -2046,6 +2224,7 @@ mod tests {
             plot_data: None,
             provided_plot_df: Some(&df),
             facet_data_scope: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
         })
         .await?;
@@ -2092,6 +2271,7 @@ mod tests {
             plot_data: None,
             provided_plot_df: Some(&df),
             facet_data_scope: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
         })
         .await?;
@@ -2269,6 +2449,7 @@ mod tests {
             plot_data: None,
             provided_plot_df: Some(&df),
             facet_data_scope: None,
+            prepared_base: None,
             eval_ctx: &eval_ctx,
         })
         .await
@@ -2390,6 +2571,7 @@ mod tests {
                 Some(&root_df),
                 &full_path,
             )),
+            prepared_base: None,
             eval_ctx: &eval_ctx,
         })
         .await?;

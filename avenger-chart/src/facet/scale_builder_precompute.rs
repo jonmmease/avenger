@@ -27,7 +27,7 @@ use crate::{
         CoordinationScopeKey, aggregate_domain_requests, apply_domain_group_to_key,
         child_frame_domain_sharing_levels_for_plot, compiled_subplot_payload_child_plot,
         container_path_without_facet_segments,
-        scales::build_scale_builder_from_marks_with_facet_scope,
+        scales::build_scale_builder_from_compiled_plot_with_facet_scope,
     },
     render::EvaluationContext,
     scales::{DomainExtent, PlotScaleSpec, ScaleBuilder},
@@ -463,11 +463,8 @@ async fn build_ancestor_group_scale_builders(
             data_df.clone()
         };
 
-        let scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
-            &compiled_subplot.marks,
-            &compiled_subplot.scale_specs,
-            &compiled_subplot.coord_transform,
-            &compiled_subplot.data,
+        let scale_builder = Box::pin(build_scale_builder_from_compiled_plot_with_facet_scope(
+            compiled_subplot,
             Some(filtered_df),
             eval_ctx,
             &ancestor_key,
@@ -509,11 +506,8 @@ async fn build_per_cell_scale_builders(
             data_df.clone()
         };
 
-        let scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
-            &compiled_subplot.marks,
-            &compiled_subplot.scale_specs,
-            &compiled_subplot.coord_transform,
-            &compiled_subplot.data,
+        let scale_builder = Box::pin(build_scale_builder_from_compiled_plot_with_facet_scope(
+            compiled_subplot,
             Some(data_override),
             eval_ctx,
             &full_path,
@@ -535,11 +529,8 @@ pub(crate) async fn build_node_artifacts(
     facet_tree: &EvaluatedFacetTree,
     eval_ctx: &EvaluationContext,
 ) -> Result<FacetScaleBuilderNodeArtifacts, AvengerChartError> {
-    let shared_scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
-        &compiled_subplot.marks,
-        &compiled_subplot.scale_specs,
-        &compiled_subplot.coord_transform,
-        &compiled_subplot.data,
+    let shared_scale_builder = Box::pin(build_scale_builder_from_compiled_plot_with_facet_scope(
+        compiled_subplot,
         Some(inherited_data_df.clone()),
         eval_ctx,
         facet_path,
@@ -686,11 +677,8 @@ async fn collect_node_domain_infos(
                 inherited_data_df.clone()
             };
 
-            scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
-                &compiled_subplot.marks,
-                &compiled_subplot.scale_specs,
-                &compiled_subplot.coord_transform,
-                &compiled_subplot.data,
+            scale_builder = Box::pin(build_scale_builder_from_compiled_plot_with_facet_scope(
+                compiled_subplot,
                 Some(data_override),
                 eval_ctx,
                 &full_path,
@@ -727,17 +715,15 @@ async fn collect_node_domain_infos(
                     } else {
                         inherited_data_df.clone()
                     };
-                    let owner_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
-                        &compiled_subplot.marks,
-                        &compiled_subplot.scale_specs,
-                        &compiled_subplot.coord_transform,
-                        &compiled_subplot.data,
-                        Some(owner_data),
-                        eval_ctx,
-                        &owner_path,
-                        compiled_subplot.get_theme().as_ref(),
-                    ))
-                    .await?;
+                    let owner_builder =
+                        Box::pin(build_scale_builder_from_compiled_plot_with_facet_scope(
+                            compiled_subplot,
+                            Some(owner_data),
+                            eval_ctx,
+                            &owner_path,
+                            compiled_subplot.get_theme().as_ref(),
+                        ))
+                        .await?;
                     if let Some(owner_extent) = owner_builder
                         .extract_domain_extents(&[channel.as_str()])
                         .remove(&channel)
@@ -866,11 +852,8 @@ async fn collect_positioned_child_frame_domain_infos_for_mark(
             subplot.key(),
         ));
 
-        let scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
-            &child_plot.marks,
-            &child_plot.scale_specs,
-            &child_plot.coord_transform,
-            &child_plot.data,
+        let scale_builder = Box::pin(build_scale_builder_from_compiled_plot_with_facet_scope(
+            child_plot,
             Some(filtered_data.clone()),
             eval_ctx,
             full_cell_path,
@@ -957,11 +940,8 @@ async fn collect_child_frame_domain_infos_for_marks(
         } else {
             None
         };
-        let scale_builder = Box::pin(build_scale_builder_from_marks_with_facet_scope(
-            &child_plot.marks,
-            &child_plot.scale_specs,
-            &child_plot.coord_transform,
-            &child_plot.data,
+        let scale_builder = Box::pin(build_scale_builder_from_compiled_plot_with_facet_scope(
+            child_plot,
             child_data_override.clone(),
             eval_ctx,
             full_cell_path,

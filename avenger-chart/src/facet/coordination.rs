@@ -224,7 +224,7 @@ mod tests {
         plot::CompiledPlot,
         plot::compiled::{
             ComponentsMeasurement, CoordinationScopeKey, scale_provider::DynamicScaleProvider,
-            scales::build_scale_builder_from_marks,
+            scales::build_scale_builder_from_compiled_plot,
         },
         prelude::*,
         render::EvaluationContext,
@@ -363,16 +363,9 @@ mod tests {
         .with_facet_runtime_sizing_mode(canvas_sizing_mode(640.0, 420.0));
 
         let theme = compiled_plot.get_theme();
-        let scale_builder = build_scale_builder_from_marks(
-            &compiled_plot.marks,
-            &compiled_plot.scale_specs,
-            &compiled_plot.coord_transform,
-            &compiled_plot.data,
-            None,
-            &eval_ctx,
-            theme.as_ref(),
-        )
-        .await?;
+        let scale_builder =
+            build_scale_builder_from_compiled_plot(&compiled_plot, None, &eval_ctx, theme.as_ref())
+                .await?;
 
         let provider = DynamicScaleProvider {
             builder: &scale_builder,

@@ -79,6 +79,12 @@ impl CompiledDataContext {
         self.store_data.as_ref()
     }
 
+    /// Whether this context starts from an explicit logical plan or mutable
+    /// store instead of inheriting data from its parent plot or group.
+    pub fn has_explicit_data_source(&self) -> bool {
+        self.logical_plan.is_some() || self.store_data.is_some()
+    }
+
     /// Get the DataFrame using the provided SessionContext
     pub fn dataframe_with_context(&self, ctx: &SessionContext) -> Option<DataFrame> {
         self.logical_plan.as_ref().and_then(|node| {

@@ -1687,6 +1687,7 @@ impl CompiledPlot {
                     provided_plot_df: None,
                     facet_data_scope: None,
                     prepared_logical: None,
+                    prepared_base: None,
                     eval_ctx,
                     evaluation_metrics: eval_ctx.evaluation_metrics.clone(),
                     scales: &scales,

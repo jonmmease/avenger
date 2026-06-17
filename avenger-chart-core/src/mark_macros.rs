@@ -265,6 +265,16 @@ macro_rules! impl_mark_base {
                 self
             }
         }
+
+        impl<C> $crate::IntoPlotMark<C> for $mark_type<C>
+        where
+            C: $crate::CoordinateSystemCore,
+            $mark_type<C>: $crate::Mark<C> + Send + Sync + 'static,
+        {
+            fn into_plot_marks(self) -> Vec<$crate::PlotMark<C>> {
+                vec![$crate::PlotMark::from_mark(self)]
+            }
+        }
     };
 }
 
