@@ -276,6 +276,45 @@ where
     .await
 }
 
+fn positional_scale_names_for_prepared_marks<C>(
+    prepared_marks: &[PreparedScaleMark],
+    coord_transform: &C,
+    ctx: &SessionContext,
+) -> HashSet<String>
+where
+    C: CoordinateSystemTransformCore + ?Sized,
+{
+    let required = coord_transform
+        .required_channels()
+        .iter()
+        .filter(|&&channel| coord_transform.channel_uses_scale(channel))
+        .copied()
+        .collect::<HashSet<_>>();
+    let mut names = required
+        .iter()
+        .map(|channel| (*channel).to_string())
+        .collect::<HashSet<_>>();
+
+    for prepared in prepared_marks {
+        let resolved = resolve_all_channel_refs(&prepared.channels, ctx)
+            .unwrap_or_else(|_| prepared.channels.clone());
+        for (channel_name, channel_value) in resolved {
+            if !coord_transform.channel_uses_scale(&channel_name) {
+                continue;
+            }
+            let base_channel = strip_trailing_numbers(&channel_name);
+            if !required.contains(base_channel) {
+                continue;
+            }
+            if let Some(scale_name) = channel_value.get_scale_name(&channel_name) {
+                names.insert(scale_name);
+            }
+        }
+    }
+
+    names
+}
+
 /// Build a ScaleBuilder from mark-specific prepared data and channels.
 pub async fn build_scale_builder_from_prepared_marks<C>(
     prepared_marks: &[PreparedScaleMark],
@@ -299,9 +338,9 @@ where
             resolve_all_channel_refs(encodings, ctx).unwrap_or_else(|_| encodings.clone());
         for (channel_name, channel_value) in resolved {
             if coord_transform.channel_uses_scale(&channel_name)
-                && channel_value.get_scale_name(&channel_name).is_some()
+                && let Some(scale_name) = channel_value.get_scale_name(&channel_name)
             {
-                channels_with_scales.insert(channel_name.clone());
+                channels_with_scales.insert(scale_name);
             }
         }
     }
@@ -313,35 +352,30 @@ where
         }
     }
 
-    // Always ensure positional channels are present (handles implicit/unnamed scales
-    // and guarantees we attempt to build/capture radius-aware domains for x/y)
-    let positional_channel_set_temp: HashSet<String> = coord_transform
+    let positional_scale_names =
+        positional_scale_names_for_prepared_marks(prepared_marks, coord_transform, ctx);
+
+    // Always ensure base positional scales are present. This handles implicit
+    // unnamed scales and guarantees we attempt to build/capture radius-aware
+    // domains for x/y even when only a secondary channel is present.
+    for channel in coord_transform
         .required_channels()
         .iter()
         .filter(|&&ch| coord_transform.channel_uses_scale(ch))
-        .flat_map(|&ch| vec![ch.to_string(), format!("{}2", ch)])
-        .collect();
-    for ch in &positional_channel_set_temp {
-        channels_with_scales.insert(ch.clone());
+    {
+        channels_with_scales.insert((*channel).to_string());
     }
 
     // Determine positional vs non-positional channels
-    let positional_channel_set: HashSet<String> = coord_transform
-        .required_channels()
-        .iter()
-        .filter(|&&ch| coord_transform.channel_uses_scale(ch))
-        .flat_map(|&ch| vec![ch.to_string(), format!("{}2", ch)])
-        .collect();
-
     let non_positional_channels: Vec<String> = channels_with_scales
         .iter()
-        .filter(|ch| !positional_channel_set.contains(*ch))
+        .filter(|ch| !positional_scale_names.contains(*ch))
         .cloned()
         .collect();
 
     let positional_channels: Vec<String> = channels_with_scales
         .iter()
-        .filter(|ch| positional_channel_set.contains(*ch))
+        .filter(|ch| positional_scale_names.contains(*ch))
         .cloned()
         .collect();
 
@@ -2423,16 +2457,19 @@ mod tests {
     use super::*;
     use crate::{Band, Linear, NestedBand};
     use avenger_chart_core::{
-        ChannelExpr, NestedBandLevelSpec, PlotGeometry, ResolvedDomain, ScaleRange,
-        ScaleRangeBinding, SubplotGeometry,
+        ChannelDescriptor, ChannelExpr, CompiledDataContext, CompiledMarkCore, CompiledMarkState,
+        MarkDataMode, MarkRuntimeContext, NestedBandLevelSpec, PlotGeometry, ResolvedDomain,
+        ScaleRange, ScaleRangeBinding, ScaleTypePreference, SubplotGeometry,
+        default_scale_type_for_data_type,
     };
     use avenger_common::value::ScalarOrArray;
+    use avenger_scenegraph::marks::mark::SceneMark;
 
     struct TestCoordTransform;
 
     impl CoordinateSystemTransformCore for TestCoordTransform {
         fn required_channels(&self) -> &'static [&'static str] {
-            &[]
+            &["x", "y"]
         }
 
         fn transform(
@@ -2451,6 +2488,88 @@ mod tests {
             _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
         ) -> HashMap<String, ScalarValue> {
             HashMap::new()
+        }
+    }
+
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct TestCompiledMark {
+        state: CompiledMarkState,
+    }
+
+    impl TestCompiledMark {
+        fn new(dataframe: DataFrame, channels: IndexMap<String, ChannelValue>) -> Self {
+            Self {
+                state: CompiledMarkState {
+                    id: None,
+                    data: CompiledDataContext::new(Some(dataframe), Vec::new(), channels),
+                    data_mode: MarkDataMode::Inherit,
+                    mark_index: 0,
+                    facet_data_scope: Default::default(),
+                    exclude_from_scale_domains: false,
+                    visible: None,
+                    details: None,
+                    zindex: None,
+                    axis_configs: HashMap::new(),
+                },
+            }
+        }
+    }
+
+    impl CompiledMarkCore for TestCompiledMark {
+        fn state(&self) -> &CompiledMarkState {
+            &self.state
+        }
+
+        fn state_mut(&mut self) -> &mut CompiledMarkState {
+            &mut self.state
+        }
+
+        fn data_context(&self) -> &CompiledDataContext {
+            &self.state.data
+        }
+
+        fn mark_type(&self) -> &str {
+            "test"
+        }
+
+        fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+            ["x", "x2", "y", "y2"]
+                .into_iter()
+                .map(|name| ChannelDescriptor {
+                    name,
+                    required: false,
+                    default_value: None,
+                    allow_column_ref: true,
+                })
+                .collect()
+        }
+
+        fn preferred_scale_type(
+            &self,
+            channel: &str,
+            data_type: &DataType,
+        ) -> Option<ScaleTypePreference> {
+            if matches!(channel, "x" | "x2" | "y" | "y2")
+                && matches!(data_type, DataType::Struct(_))
+            {
+                Some(ScaleTypePreference::NestedBand)
+            } else {
+                default_scale_type_for_data_type(data_type)
+            }
+        }
+    }
+
+    #[typetag::serde]
+    #[async_trait::async_trait]
+    impl CompiledMark for TestCompiledMark {
+        async fn render_from_data(
+            &self,
+            _data: Option<&RecordBatch>,
+            _scalars: &RecordBatch,
+            _context: &dyn MarkRuntimeContext,
+            _coord: &dyn CoordinateSystemTransformCore,
+        ) -> Result<Vec<SceneMark>, AvengerChartError> {
+            Ok(Vec::new())
         }
     }
 
@@ -2981,6 +3100,76 @@ mod tests {
         assert_eq!(scaled.value(0), 0.0);
         assert_eq!(scaled.value(1), 100.0);
         assert_eq!(scaled.value(2), 200.0);
+    }
+
+    #[tokio::test]
+    async fn nested_band_uses_custom_position_scale_name() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "A", "B"], vec![1.0, 2.0, 1.0]).unwrap();
+        let nested_expr = named_struct(vec![
+            lit("group"),
+            col("category"),
+            lit("series"),
+            col("value"),
+        ]);
+        let mut channels = IndexMap::new();
+        channels.insert(
+            "x".to_string(),
+            ChannelValue::from(nested_expr).with_scale_name("grouped_x"),
+        );
+        channels.insert(
+            "x2".to_string(),
+            ChannelExpr::scaled(col(":x")).band(1.0).into(),
+        );
+        channels.insert("y".to_string(), ChannelValue::from(col("value")));
+        let mark = Arc::new(TestCompiledMark::new(data, channels)) as Arc<dyn CompiledMark>;
+        let coord_transform = TestCoordTransform;
+        let builder = build_scale_builder_from_marks(
+            &[mark],
+            &HashMap::new(),
+            &coord_transform,
+            &None,
+            None,
+            &eval_ctx(&ctx),
+            &Theme::light(),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            builder.channel_builders().contains_key("grouped_x"),
+            "nested position domain should be cached under the custom scale name"
+        );
+        assert!(
+            !builder.channel_builders().contains_key("x"),
+            "custom named x scale should not also create an unused default x scale"
+        );
+
+        let mut coord_ranges = HashMap::new();
+        coord_ranges.insert(
+            "grouped_x".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 300.0),
+        );
+        let scales = builder
+            .build_scales(
+                300.0,
+                200.0,
+                &coord_ranges,
+                &HashMap::new(),
+                &no_default_range,
+                &Theme::light(),
+                &ctx,
+                &IndexMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let x_scale = scales.get("grouped_x").expect("custom nested x scale");
+        assert_eq!(x_scale.configured().scale_impl.scale_type(), "nested_band");
+        assert!(matches!(
+            x_scale.configured().domain().data_type(),
+            DataType::Struct(_)
+        ));
     }
 
     #[test]

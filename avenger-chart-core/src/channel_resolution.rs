@@ -109,6 +109,21 @@ fn extract_channel_refs(expr: &Expr) -> HashSet<String> {
     refs
 }
 
+fn inherited_scale_name_from_single_ref(
+    expr: &LogicalExprNode,
+    resolved_channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
+) -> Option<String> {
+    let expr = expr.to_expr(ctx).ok()?;
+    let refs = extract_channel_refs(&expr);
+    let mut refs = refs.into_iter();
+    let ref_name = refs.next()?;
+    if refs.next().is_some() {
+        return None;
+    }
+    resolved_channels.get(&ref_name)?.get_scale_name(&ref_name)
+}
+
 /// Validate channel references for self-references and undefined channels
 fn validate_channel_refs(
     channels: &IndexMap<String, ChannelValue>,
@@ -426,10 +441,13 @@ pub fn resolve_all_channel_refs(
                     domain_coordination,
                     transform_scope,
                 } => {
+                    let inherited_scale_name = scale_name.clone().or_else(|| {
+                        inherited_scale_name_from_single_ref(expr, &resolved_channels, ctx)
+                    });
                     let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels, ctx);
                     ChannelValue::Scaled {
                         expr: resolved_expr,
-                        scale_name: scale_name.clone(),
+                        scale_name: inherited_scale_name,
                         position_boundary: *position_boundary,
                         scale_config: scale_config.clone(),
                         nested_band_config: nested_band_config.clone(),
@@ -589,7 +607,7 @@ mod tests {
             "x2".to_string(),
             ChannelValue::Scaled {
                 expr: LogicalExprNode::from_expr(col(":x")).expect("serialize x2"),
-                scale_name: Some("shared_x".to_string()),
+                scale_name: None,
                 position_boundary: Some(PositionBoundary::Band { band: 1.0 }),
                 scale_config: None,
                 nested_band_config: None,
@@ -607,6 +625,7 @@ mod tests {
             x2.get_position_boundary(),
             Some(PositionBoundary::Band { band: 1.0 })
         );
+        assert_eq!(x2.get_scale_name("x2").as_deref(), Some("shared_x"));
     }
 
     #[test]

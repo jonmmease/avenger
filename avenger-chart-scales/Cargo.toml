@@ -21,5 +21,7 @@ tracing = { workspace = true }
 typetag = "0.2"
 
 [dev-dependencies]
+async-trait = { workspace = true }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

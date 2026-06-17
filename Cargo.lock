@@ -756,9 +756,11 @@ name = "avenger-chart-scales"
 version = "0.1.0"
 dependencies = [
  "arrow",
+ "async-trait",
  "avenger-chart-core",
  "avenger-common",
  "avenger-scales",
+ "avenger-scenegraph",
  "datafusion",
  "datafusion-common",
  "datafusion-proto",
