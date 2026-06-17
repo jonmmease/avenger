@@ -696,7 +696,7 @@ mod tests {
     use std::{collections::BTreeMap, sync::Arc};
 
     use arrow::{
-        array::{ArrayRef, StringArray, StructArray},
+        array::{ArrayRef, Int32Array, StringArray, StructArray},
         datatypes::{DataType, Field},
     };
     use avenger_color::ColorOrGradient;
@@ -724,6 +724,67 @@ mod tests {
             })
             .collect::<Vec<_>>();
         Arc::new(StructArray::from(columns)) as ArrayRef
+    }
+
+    fn i32_struct(columns: &[(&str, Vec<Option<i32>>)]) -> ArrayRef {
+        let columns = columns
+            .iter()
+            .map(|(name, values)| {
+                (
+                    Arc::new(Field::new(*name, DataType::Int32, true)),
+                    Arc::new(Int32Array::from(values.clone())) as ArrayRef,
+                )
+            })
+            .collect::<Vec<_>>();
+        Arc::new(StructArray::from(columns)) as ArrayRef
+    }
+
+    fn labeled_i32_struct(columns: &[(&str, Vec<Option<i32>>, Vec<Option<&str>>)]) -> ArrayRef {
+        let columns = columns
+            .iter()
+            .map(|(name, keys, labels)| {
+                let key_field = Arc::new(Field::new("key", DataType::Int32, true));
+                let label_field = Arc::new(Field::new("label", DataType::Utf8, true));
+                let component = Arc::new(StructArray::from(vec![
+                    (
+                        key_field,
+                        Arc::new(Int32Array::from(keys.clone())) as ArrayRef,
+                    ),
+                    (
+                        label_field,
+                        Arc::new(StringArray::from(labels.clone())) as ArrayRef,
+                    ),
+                ])) as ArrayRef;
+                (
+                    Arc::new(Field::new(*name, component.data_type().clone(), true)),
+                    component,
+                )
+            })
+            .collect::<Vec<_>>();
+        Arc::new(StructArray::from(columns)) as ArrayRef
+    }
+
+    fn axis_text_marks(
+        axis: &avenger_scenegraph::marks::group::SceneGroup,
+    ) -> Vec<&avenger_scenegraph::marks::text::SceneTextMark> {
+        let SceneMark::Group(axis_elements) = &axis.marks[0] else {
+            panic!("expected axis element group");
+        };
+        axis_elements
+            .marks
+            .iter()
+            .filter_map(|mark| match mark {
+                SceneMark::Text(text) => Some(text.as_ref()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn axis_text_strings(axis: &avenger_scenegraph::marks::group::SceneGroup) -> Vec<String> {
+        axis_text_marks(axis)
+            .into_iter()
+            .flat_map(|text| text.text_iter().cloned().collect::<Vec<_>>())
+            .collect()
     }
 
     fn axis_text_lengths(axis: &avenger_scenegraph::marks::group::SceneGroup) -> Vec<u32> {
@@ -1128,6 +1189,158 @@ mod tests {
             axis_elements.marks.len(),
             4,
             "expected axis line, parent labels, parent boundaries, and title"
+        );
+    }
+
+    #[test]
+    fn nested_band_axis_uses_display_labels_from_scale_domain() {
+        let domain = labeled_i32_struct(&[
+            (
+                "year",
+                vec![Some(2024), Some(2024), Some(2025)],
+                vec![Some("FY 2024"), Some("FY 2024"), Some("FY 2025")],
+            ),
+            (
+                "month",
+                vec![Some(1), Some(2), Some(1)],
+                vec![Some("January"), Some("February"), Some("January")],
+            ),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 300.0));
+
+        let axis = make_nested_band_axis_marks(
+            &scale,
+            "",
+            [0.0, 0.0],
+            &AxisConfig {
+                orientation: AxisOrientation::Bottom,
+                dimensions: [300.0, 120.0],
+                labels_visible: Some(true),
+                title_visible: Some(true),
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("nested axis");
+
+        let labels = axis_text_strings(&axis);
+        assert!(labels.iter().any(|label| label == "FY 2024"));
+        assert!(labels.iter().any(|label| label == "FY 2025"));
+        assert!(labels.iter().any(|label| label == "January"));
+        assert!(labels.iter().any(|label| label == "February"));
+        assert!(
+            !labels.iter().any(|label| label == "2024" || label == "1"),
+            "axis should render display labels, not raw key strings"
+        );
+    }
+
+    #[test]
+    fn nested_band_axis_measurement_uses_display_label_width() {
+        let key_domain = i32_struct(&[
+            ("portfolio", vec![Some(1), Some(1)]),
+            ("division", vec![Some(1), Some(2)]),
+        ]);
+        let labeled_domain = labeled_i32_struct(&[
+            (
+                "portfolio",
+                vec![Some(1), Some(1)],
+                vec![Some("1"), Some("1")],
+            ),
+            (
+                "division",
+                vec![Some(1), Some(2)],
+                vec![
+                    Some("International growth markets"),
+                    Some("North America enterprise"),
+                ],
+            ),
+        ]);
+        let key_scale = NestedBandScale::configured(key_domain, (0.0, 320.0));
+        let labeled_scale = NestedBandScale::configured(labeled_domain, (0.0, 320.0));
+        let axis_config = AxisConfig {
+            orientation: AxisOrientation::Bottom,
+            dimensions: [320.0, 120.0],
+            label_angle: Some(-90.0),
+            labels_visible: Some(true),
+            title_visible: Some(true),
+            ..Default::default()
+        };
+        let key_bands = vec![
+            nested_axis_bands(&key_scale.config, 0).expect("key parent bands"),
+            nested_axis_bands(&key_scale.config, 1).expect("key leaf bands"),
+        ];
+        let labeled_bands = vec![
+            nested_axis_bands(&labeled_scale.config, 0).expect("labeled parent bands"),
+            nested_axis_bands(&labeled_scale.config, 1).expect("labeled leaf bands"),
+        ];
+
+        let key_layouts = nested_axis_level_label_layouts(&key_bands, false, &axis_config, None);
+        let labeled_layouts =
+            nested_axis_level_label_layouts(&labeled_bands, false, &axis_config, None);
+
+        assert_close(
+            key_layouts[1].label_distance,
+            labeled_layouts[1].label_distance,
+        );
+        assert!(
+            labeled_layouts[0].label_distance > key_layouts[0].label_distance + 100.0,
+            "parent labels should be pushed outward by measured display-label width"
+        );
+    }
+
+    #[test]
+    fn nested_band_axis_rotated_long_display_labels_do_not_overlap_parent_bands() {
+        let domain = labeled_i32_struct(&[
+            (
+                "portfolio",
+                vec![Some(1), Some(1)],
+                vec![
+                    Some("International growth markets"),
+                    Some("International growth markets"),
+                ],
+            ),
+            (
+                "division",
+                vec![Some(1), Some(2)],
+                vec![Some("Analytics platform"), Some("Customer operations")],
+            ),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 320.0));
+        let axis = make_nested_band_axis_marks(
+            &scale,
+            "",
+            [0.0, 0.0],
+            &AxisConfig {
+                orientation: AxisOrientation::Bottom,
+                dimensions: [320.0, 120.0],
+                label_angle: Some(-90.0),
+                labels_visible: Some(true),
+                title_visible: Some(true),
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("nested axis");
+        let text_marks = axis_text_marks(&axis);
+        let leaf_labels = text_marks
+            .iter()
+            .find(|text| text.text_iter().any(|label| label == "Analytics platform"))
+            .expect("leaf labels");
+        let parent_labels = text_marks
+            .iter()
+            .find(|text| {
+                text.text_iter()
+                    .any(|label| label == "International growth markets")
+            })
+            .expect("parent labels");
+
+        assert_eq!(leaf_labels.angle.first(), Some(&-90.0));
+        assert_eq!(leaf_labels.baseline.first(), Some(&TextBaseline::Middle));
+        let leaf_y = *leaf_labels.y.first().expect("leaf y");
+        let parent_y = *parent_labels.y.first().expect("parent y");
+        assert!(
+            parent_y - leaf_y > 100.0,
+            "parent band should be placed outside the measured rotated leaf labels"
         );
     }
 }
