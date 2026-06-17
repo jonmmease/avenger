@@ -2446,6 +2446,10 @@ mod tests {
             TimeLevels::new(col("timestamp"))
                 .year()
                 .quarter()
+                .name("period"),
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .quarter()
                 .month()
                 .name("period"),
             TimeLevels::new(col("timestamp"))

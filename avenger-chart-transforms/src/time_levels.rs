@@ -467,7 +467,8 @@ fn validate_nested_hierarchy(levels: &[TimeLevelKey]) -> Result<(), AvengerChart
     let chain = levels.iter().map(|level| level.level).collect::<Vec<_>>();
     let valid = match chain.as_slice() {
         [level] => level.date_part_name().is_ok(),
-        [TimeLevel::Year, TimeLevel::Quarter, TimeLevel::Month]
+        [TimeLevel::Year, TimeLevel::Quarter]
+        | [TimeLevel::Year, TimeLevel::Quarter, TimeLevel::Month]
         | [
             TimeLevel::Year,
             TimeLevel::Quarter,
