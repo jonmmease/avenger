@@ -1,10 +1,10 @@
 //! Nested categorical axis rendering.
 //!
 //! This follows the same outward-stacked guide-band shape as facet/container
-//! band guides: leaf ticks stay closest to the plot area, parent labels occupy
-//! progressively outer slabs, and separator rules show parent spans. The
-//! implementation stays local because facet band guides also own facet-specific
-//! visibility, slot ownership, and overflow-anchor policy.
+//! band guides: visible leaf ticks stay closest to the plot area, visible
+//! parent labels occupy progressively outer slabs, and separator rules show
+//! parent spans. The implementation stays local because facet band guides also
+//! own facet-specific visibility, slot ownership, and overflow-anchor policy.
 
 use std::collections::BTreeMap;
 
@@ -502,23 +502,29 @@ fn nested_axis_level_label_layouts(
     let font_size = config.label_font_size.unwrap_or(TICK_FONT_SIZE);
     let tick_len = config.tick_length.unwrap_or(TICK_LENGTH);
     let leaf_level = level_bands.len().saturating_sub(1);
+    let ticks_visible = level_visible(level_configs, leaf_level);
+    let inner_tick_space = if ticks_visible { tick_len } else { 0.0 };
+    let initial_label_distance = inner_tick_space + TEXT_MARGIN;
     let mut layouts = vec![
         NestedAxisLevelLabelLayout {
-            label_distance: tick_len + TEXT_MARGIN,
-            boundary_inner: tick_len,
-            boundary_outer: tick_len + font_size + LEVEL_GAP * 0.5,
+            label_distance: initial_label_distance,
+            boundary_inner: inner_tick_space,
+            boundary_outer: initial_label_distance + font_size + LEVEL_GAP * 0.5,
         };
         level_bands.len()
     ];
-    let mut label_distance = tick_len + TEXT_MARGIN;
+    let mut label_distance = initial_label_distance;
 
     for level in (0..level_bands.len()).rev() {
         let level_config = level_configs.and_then(|configs| configs.get(&level));
+        if level_config.is_some_and(|config| !config.visible) {
+            continue;
+        }
         let angle = level_label_angle(level, leaf_level, config, level_config);
         let extent = level_label_cross_extent(&level_bands[level], font_size, angle, is_vertical);
         layouts[level] = NestedAxisLevelLabelLayout {
             label_distance,
-            boundary_inner: (label_distance - TEXT_MARGIN).max(tick_len),
+            boundary_inner: (label_distance - TEXT_MARGIN).max(inner_tick_space),
             boundary_outer: label_distance + extent + LEVEL_GAP * 0.5,
         };
         label_distance += extent + LEVEL_GAP;
@@ -633,7 +639,8 @@ mod tests {
     };
 
     use super::{
-        NestedAxisLevelGuideConfig, level_boundary_positions, make_nested_axis_marks,
+        LEVEL_GAP, NestedAxisLevelGuideConfig, TEXT_MARGIN, TICK_FONT_SIZE,
+        level_boundary_positions, make_nested_axis_marks, nested_axis_level_label_layouts,
         nested_axis_title,
     };
 
@@ -730,6 +737,48 @@ mod tests {
         assert_close(positions[0], 0.0);
         assert_close(positions[1], 235.0);
         assert_close(positions[2], 370.0);
+    }
+
+    #[test]
+    fn nested_axis_layout_skips_hidden_leaf_tick_space() {
+        let domain = utf8_struct(&[
+            ("quarter", vec!["Q1", "Q1", "Q2"]),
+            ("team", vec!["East", "North", "East"]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 240.0));
+        let level_bands = vec![
+            nested_axis_bands(&scale.config, 0).expect("parent bands"),
+            nested_axis_bands(&scale.config, 1).expect("leaf bands"),
+        ];
+        let configs = BTreeMap::from([(
+            1,
+            NestedAxisLevelGuideConfig {
+                visible: false,
+                title: None,
+                title_visible: true,
+                label_angle: None,
+            },
+        )]);
+
+        let layouts = nested_axis_level_label_layouts(
+            &level_bands,
+            false,
+            &AxisConfig {
+                orientation: AxisOrientation::Bottom,
+                dimensions: [240.0, 120.0],
+                labels_visible: Some(true),
+                title_visible: Some(true),
+                ..Default::default()
+            },
+            Some(&configs),
+        );
+
+        assert_close(layouts[0].label_distance, TEXT_MARGIN);
+        assert_close(layouts[0].boundary_inner, 0.0);
+        assert_close(
+            layouts[0].boundary_outer,
+            TEXT_MARGIN + TICK_FONT_SIZE + LEVEL_GAP * 0.5,
+        );
     }
 
     #[test]
