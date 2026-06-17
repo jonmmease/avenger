@@ -45,6 +45,9 @@ pub struct ScaleUDF {
     /// Domain data type
     #[serde_as(as = "FromInto<SerializableDataType>")]
     pub(crate) domain_type: DataType,
+    /// Runtime input data type
+    #[serde_as(as = "FromInto<SerializableDataType>")]
+    pub(crate) input_type: DataType,
     /// Range data type
     #[serde_as(as = "FromInto<SerializableDataType>")]
     pub(crate) range_type: DataType,
@@ -60,12 +63,14 @@ impl ScaleUDF {
     pub fn new(
         scale: Scale<Auto>,
         domain_type: DataType,
+        input_type: DataType,
         range_type: DataType,
         options_type: DataType,
     ) -> Result<Self, AvengerChartError> {
         Ok(Self {
             scale,
             domain_type,
+            input_type,
             range_type,
             options_type,
             cached_signature: std::sync::OnceLock::new(),
@@ -79,7 +84,7 @@ impl ScaleUDF {
                 DataType::new_list(self.domain_type.clone(), true), // Domain array
                 DataType::new_list(self.range_type.clone(), true),  // Range array
                 self.options_type.clone(),                          // Options struct
-                self.domain_type.clone(),                           // Values to scale
+                self.input_type.clone(),                            // Values to scale
             ]),
             Volatility::Immutable,
         )
@@ -231,9 +236,10 @@ impl ScalarUDFImpl for ScaleUDF {
 pub fn create_scale_udf(
     scale: Scale<Auto>,
     domain_type: DataType,
+    input_type: DataType,
     range_type: DataType,
     options_type: DataType,
 ) -> Result<ScalarUDF, AvengerChartError> {
-    let scale_udf = ScaleUDF::new(scale, domain_type, range_type, options_type)?;
+    let scale_udf = ScaleUDF::new(scale, domain_type, input_type, range_type, options_type)?;
     Ok(ScalarUDF::new_from_impl(scale_udf))
 }

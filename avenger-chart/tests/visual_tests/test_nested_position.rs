@@ -4,7 +4,7 @@ use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use datafusion::{
     arrow::{
-        array::{ArrayRef, Float32Array, StringArray},
+        array::{ArrayRef, Float32Array, Int32Array, StringArray},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
@@ -92,6 +92,51 @@ fn grouped_stacked_bar_df(ctx: &SessionContext) -> datafusion::dataframe::DataFr
             Arc::new(Float32Array::from(
                 rows.iter().map(|row| row.3).collect::<Vec<_>>(),
             )) as ArrayRef,
+        ],
+    );
+    ctx.read_batch(batch).expect("dataframe")
+}
+
+fn temporal_month_spine_df(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+    let months = (1..=12).collect::<Vec<i32>>();
+    let quarters = months
+        .iter()
+        .map(|month| ((month - 1) / 3) + 1)
+        .collect::<Vec<_>>();
+    let years = vec![2024; months.len()];
+    let values = vec![
+        14.0, 0.0, 18.0, 22.0, 0.0, 26.0, 20.0, 24.0, 0.0, 28.0, 0.0, 31.0,
+    ];
+    let batch = record_batch(
+        vec![
+            Field::new("year", DataType::Int32, false),
+            Field::new("quarter", DataType::Int32, false),
+            Field::new("month", DataType::Int32, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(Int32Array::from(years)) as ArrayRef,
+            Arc::new(Int32Array::from(quarters)) as ArrayRef,
+            Arc::new(Int32Array::from(months)) as ArrayRef,
+            Arc::new(Float32Array::from(values)) as ArrayRef,
+        ],
+    );
+    ctx.read_batch(batch).expect("dataframe")
+}
+
+fn temporal_numeric_label_df(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+    let batch = record_batch(
+        vec![
+            Field::new("year", DataType::Int32, false),
+            Field::new("quarter", DataType::Int32, false),
+            Field::new("month", DataType::Int32, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(Int32Array::from(vec![2024, 2024, 2024, 2025, 2025, 2025])) as ArrayRef,
+            Arc::new(Int32Array::from(vec![1, 1, 2, 1, 2, 2])) as ArrayRef,
+            Arc::new(Int32Array::from(vec![1, 2, 4, 1, 4, 5])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![10.0, 16.0, 24.0, 12.0, 20.0, 28.0])) as ArrayRef,
         ],
     );
     ctx.read_batch(batch).expect("dataframe")
@@ -268,6 +313,110 @@ async fn test_nested_position_grouped_stacked_bar() {
         None,
         "nested_position",
         "grouped_stacked_bar",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_temporal_nested_manual_complete_month_spine() {
+    let ctx = SessionContext::new();
+
+    let plot = Plot::<Cartesian>::new()
+        .data(temporal_month_spine_df(&ctx))
+        .mark(
+            Rect::new()
+                .x_with(nested(["year", "quarter", "month"]), |x| {
+                    x.axis(|a| a.title("Month grouped by quarter and year").grid(false))
+                        .level(0, |l| {
+                            l.label_with(time::year_label(col("year")))
+                                .padding_inner(0.28)
+                                .padding_outer(0.12)
+                        })
+                        .level(1, |l| {
+                            l.nest_scope(NestScope::Shared)
+                                .label_with(time::quarter_label(col("quarter")))
+                                .padding_inner(0.16)
+                                .padding_outer(0.04)
+                        })
+                        .level(2, |l| {
+                            l.label_with(time::month_abbrev_from_number(col("month")))
+                                .padding_inner(0.04)
+                                .axis(|a| a.label_angle(-90.0))
+                        })
+                })
+                .x2_with(col(":x"), |x| x.band(1.0))
+                .y_with(lit(0.0), |y| {
+                    y.scale(|s| s.domain((0.0, 34.0)))
+                        .axis(|a| a.title("Completed value").grid(true))
+                })
+                .y2(col("value"))
+                .fill("#4c78a8")
+                .stroke("#ffffff")
+                .stroke_width(1.0),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile temporal nested bar");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "temporal_nested_manual_complete_month_spine",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_temporal_nested_manual_numeric_keys_display_labels() {
+    let ctx = SessionContext::new();
+
+    let plot = Plot::<Cartesian>::new()
+        .data(temporal_numeric_label_df(&ctx))
+        .mark(
+            Rect::new()
+                .x_with(nested(["year", "quarter", "month"]), |x| {
+                    x.axis(|a| a.title("Numeric keys with display labels").grid(false))
+                        .level(0, |l| {
+                            l.label_with(time::year_label(col("year")))
+                                .padding_inner(0.34)
+                                .padding_outer(0.14)
+                        })
+                        .level(1, |l| {
+                            l.nest_scope(NestScope::Shared)
+                                .label_with(time::quarter_label(col("quarter")))
+                                .padding_inner(0.2)
+                                .padding_outer(0.04)
+                        })
+                        .level(2, |l| {
+                            l.label_with(time::month_name_from_number(col("month")))
+                                .padding_inner(0.08)
+                                .axis(|a| a.label_angle(-90.0))
+                        })
+                })
+                .x2_with(col(":x"), |x| x.band(1.0))
+                .y_with(lit(0.0), |y| {
+                    y.scale(|s| s.domain((0.0, 30.0)))
+                        .axis(|a| a.title("Value").grid(true))
+                })
+                .y2(col("value"))
+                .fill("#7aa6c2")
+                .stroke("#ffffff")
+                .stroke_width(1.0),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile temporal numeric labels");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "temporal_nested_manual_numeric_keys_display_labels",
     )
     .await;
 }

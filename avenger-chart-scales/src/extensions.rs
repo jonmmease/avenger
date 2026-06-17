@@ -3,9 +3,14 @@
 //! These traits extend avenger_scales::ConfiguredScale with DataFusion integration
 //! and legend-specific convenience methods without adding dependencies to avenger-scales.
 
+use std::sync::Arc;
+
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::{
-    arrow::{array::ArrayRef, datatypes::Field},
+    arrow::{
+        array::ArrayRef,
+        datatypes::{DataType, Field, FieldRef},
+    },
     logical_expr::{Expr, ExprSchemable},
 };
 use datafusion_common::ScalarValue;
@@ -40,6 +45,7 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
 
         // Get data types from the configured scale
         let domain_type = self.configured.config.domain.data_type();
+        let input_type = scale_input_type(self.configured.scale_impl.scale_type(), &domain_type);
         let range_type = self.configured.config.range.data_type();
         let empty_schema = DFSchema::empty();
 
@@ -73,6 +79,7 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
         let udf = create_scale_udf(
             self.spec().clone(),
             domain_type.clone(),
+            input_type.clone(),
             range_type.clone(),
             options_type,
         )?;
@@ -82,7 +89,7 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
         let range_scalar = array_to_list_scalar(self.configured.config.range.clone())?;
 
         // Cast input to match domain type if needed
-        let casted_input = datafusion::logical_expr::cast(input, domain_type.clone());
+        let casted_input = datafusion::logical_expr::cast(input, input_type);
 
         // Call the UDF with domain, range, options, and input
         Ok(udf.call(vec![
@@ -176,6 +183,47 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
             }
         }
     }
+}
+
+fn scale_input_type(scale_type: &str, domain_type: &DataType) -> DataType {
+    if scale_type != "nested_band" {
+        return domain_type.clone();
+    }
+
+    let DataType::Struct(fields) = domain_type else {
+        return domain_type.clone();
+    };
+
+    DataType::Struct(
+        fields
+            .iter()
+            .map(|field| {
+                Arc::new(Field::new(
+                    field.name(),
+                    nested_band_component_input_type(field.data_type()),
+                    field.is_nullable(),
+                )) as FieldRef
+            })
+            .collect::<Vec<_>>()
+            .into(),
+    )
+}
+
+fn nested_band_component_input_type(data_type: &DataType) -> DataType {
+    let DataType::Struct(fields) = data_type else {
+        return data_type.clone();
+    };
+    let is_labeled_component = fields.len() == 2
+        && fields.iter().any(|field| field.name() == "key")
+        && fields.iter().any(|field| field.name() == "label");
+    if !is_labeled_component {
+        return data_type.clone();
+    }
+    fields
+        .iter()
+        .find(|field| field.name() == "key")
+        .map(|field| field.data_type().clone())
+        .unwrap_or_else(|| data_type.clone())
 }
 
 // Implementation for ConfiguredScaleWithSpec - delegates to inner ConfiguredScale

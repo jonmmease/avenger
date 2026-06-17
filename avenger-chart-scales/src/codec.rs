@@ -185,6 +185,7 @@ mod tests {
         let udf = create_scale_udf(
             Scale::<Linear>::new().into_auto(),
             DataType::Float64,
+            DataType::Float64,
             DataType::Float32,
             DataType::Struct(vec![Arc::new(Field::new("band", DataType::Float64, true))].into()),
         )
