@@ -12,6 +12,7 @@ use avenger_chart_core::{
 };
 use avenger_guides::axis::{
     band::make_band_axis_marks,
+    nested_band::{NestedBandAxisLevelConfig, make_nested_band_axis_marks},
     numeric::make_numeric_axis_marks,
     opts::{AxisConfig, AxisOrientation, AxisTickSpacing},
     point::make_point_axis_marks,
@@ -28,7 +29,6 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use crate::marks::subplot::{CARTESIAN_SUBPLOT_X_CHANNEL, CARTESIAN_SUBPLOT_Y_CHANNEL};
-use crate::nested_axis::{NestedAxisLevelGuideConfig, make_nested_axis_marks};
 
 /// Concrete struct for Cartesian axes.
 ///
@@ -745,7 +745,7 @@ pub async fn evaluate_cartesian_axis(
                 }
             }
         }
-        DomainKind::NestedCategorical => make_nested_axis_marks(
+        DomainKind::NestedCategorical => make_nested_band_axis_marks(
             scale,
             title,
             axis_origin,
@@ -764,7 +764,10 @@ async fn evaluate_nested_axis_level_configs(
     ctx: &SessionContext,
     params: &indexmap::IndexMap<String, ScalarValue>,
     sharing_context: GuideSharingContext<'_>,
-) -> Result<BTreeMap<usize, NestedAxisLevelGuideConfig>, AvengerChartError> {
+) -> Result<BTreeMap<usize, NestedBandAxisLevelConfig>, AvengerChartError> {
+    // Concrete nested-band axis rendering lives in avenger-guides. Cartesian
+    // keeps only the chart-side lowering from expression-backed CartesianAxis
+    // settings into guide-level, already evaluated per-level options.
     let Some(nested_axis_levels) = nested_axis_levels else {
         return Ok(BTreeMap::new());
     };
@@ -807,7 +810,7 @@ async fn evaluate_nested_axis_level_configs(
             };
         configs.insert(
             *level,
-            NestedAxisLevelGuideConfig {
+            NestedBandAxisLevelConfig {
                 visible,
                 title,
                 title_visible,

@@ -3,25 +3,25 @@
 //! This follows the same outward-stacked guide-band shape as facet/container
 //! band guides: visible leaf ticks stay closest to the plot area, visible
 //! parent labels occupy progressively outer slabs, and separator rules show
-//! parent spans. The implementation stays local because facet band guides also
-//! own facet-specific visibility, slot ownership, and overflow-anchor policy.
+//! parent spans.
 
 use std::collections::BTreeMap;
 
-use avenger_chart_core::AvengerChartError;
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
-use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
 use avenger_scales::scales::{
+    nested_band::{nested_axis_bands, nested_band_layout, NestedBandAxisBand},
     ConfiguredScale,
-    nested_band::{NestedBandAxisBand, nested_axis_bands, nested_band_layout},
 };
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::{
-    measurement::{TextMeasurementConfig, TextMeasurer, default_text_measurer},
+    measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer},
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
 };
+
+use super::opts::{AxisConfig, AxisOrientation};
+use crate::error::AvengerGuidesError;
 
 const TICK_LENGTH: f32 = 5.0;
 const TEXT_MARGIN: f32 = 3.0;
@@ -32,11 +32,11 @@ const PIXEL_OFFSET: f32 = 0.5;
 const LEVEL_GAP: f32 = 8.0;
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct NestedAxisLevelGuideConfig {
-    pub(crate) visible: bool,
-    pub(crate) title: Option<String>,
-    pub(crate) title_visible: bool,
-    pub(crate) label_angle: Option<f32>,
+pub struct NestedBandAxisLevelConfig {
+    pub visible: bool,
+    pub title: Option<String>,
+    pub title_visible: bool,
+    pub label_angle: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -45,13 +45,13 @@ struct NestedAxisLevelLabelLayout {
     boundary_outer: f32,
 }
 
-pub(crate) fn make_nested_axis_marks(
+pub fn make_nested_band_axis_marks(
     scale: &ConfiguredScale,
     title: &str,
     origin: [f32; 2],
     config: &AxisConfig,
-    level_configs: Option<&BTreeMap<usize, NestedAxisLevelGuideConfig>>,
-) -> Result<SceneGroup, AvengerChartError> {
+    level_configs: Option<&BTreeMap<usize, NestedBandAxisLevelConfig>>,
+) -> Result<SceneGroup, AvengerGuidesError> {
     let layout = nested_band_layout(&scale.config)?;
     let level_count = layout.leaf_level() + 1;
     let level_bands = (0..level_count)
@@ -162,7 +162,7 @@ pub(crate) fn make_nested_axis_marks(
 }
 
 fn level_visible(
-    level_configs: Option<&BTreeMap<usize, NestedAxisLevelGuideConfig>>,
+    level_configs: Option<&BTreeMap<usize, NestedBandAxisLevelConfig>>,
     level: usize,
 ) -> bool {
     !level_configs
@@ -250,7 +250,7 @@ fn make_grid_marks(
     orientation: &AxisOrientation,
     dimensions: &[f32; 2],
     config: &AxisConfig,
-) -> Result<SceneGroup, AvengerChartError> {
+) -> Result<SceneGroup, AvengerGuidesError> {
     let centers = band_centers(bands);
     let n = centers.len() as u32;
     let stroke = ColorOrGradient::Color(config.grid_color.unwrap_or([0.878, 0.878, 0.878, 0.5]));
@@ -272,20 +272,18 @@ fn make_grid_marks(
     Ok(SceneGroup {
         origin: [0.0, 0.0],
         zindex: Some(-1),
-        marks: vec![
-            SceneRuleMark {
-                len: n,
-                clip: false,
-                x,
-                x2,
-                y,
-                y2,
-                stroke: stroke.into(),
-                stroke_width: config.grid_width.unwrap_or(0.5).into(),
-                ..Default::default()
-            }
-            .into(),
-        ],
+        marks: vec![SceneRuleMark {
+            len: n,
+            clip: false,
+            x,
+            x2,
+            y,
+            y2,
+            stroke: stroke.into(),
+            stroke_width: config.grid_width.unwrap_or(0.5).into(),
+            ..Default::default()
+        }
+        .into()],
         ..Default::default()
     })
 }
@@ -294,9 +292,9 @@ fn make_level_labels(
     bands: &[NestedBandAxisBand],
     leaf_level: usize,
     config: &AxisConfig,
-    level_config: Option<&NestedAxisLevelGuideConfig>,
+    level_config: Option<&NestedBandAxisLevelConfig>,
     layout: NestedAxisLevelLabelLayout,
-) -> Result<SceneTextMark, AvengerChartError> {
+) -> Result<SceneTextMark, AvengerGuidesError> {
     let font_size = config.label_font_size.unwrap_or(TICK_FONT_SIZE);
     let font_adjustment = font_size * 0.10;
     let centers = band_centers(bands);
@@ -378,7 +376,7 @@ fn make_level_boundaries(
     layout: NestedAxisLevelLabelLayout,
     outer_start: f32,
     outer_end: f32,
-) -> Result<SceneRuleMark, AvengerChartError> {
+) -> Result<SceneRuleMark, AvengerGuidesError> {
     let positions = level_boundary_positions(bands, outer_start, outer_end);
     if positions.is_empty() {
         return Ok(SceneRuleMark::default());
@@ -450,7 +448,7 @@ fn make_title(
     lower: [f32; 2],
     upper: [f32; 2],
     config: &AxisConfig,
-) -> Result<SceneTextMark, AvengerChartError> {
+) -> Result<SceneTextMark, AvengerGuidesError> {
     let range = scale.numeric_interval_range()?;
     let mid = (range.0 + range.1) / 2.0;
     let (x, y, align, baseline, angle) = match config.orientation {
@@ -512,7 +510,7 @@ fn nested_axis_level_label_layouts(
     level_bands: &[Vec<NestedBandAxisBand>],
     is_vertical: bool,
     config: &AxisConfig,
-    level_configs: Option<&BTreeMap<usize, NestedAxisLevelGuideConfig>>,
+    level_configs: Option<&BTreeMap<usize, NestedBandAxisLevelConfig>>,
 ) -> Vec<NestedAxisLevelLabelLayout> {
     let font_size = config.label_font_size.unwrap_or(TICK_FONT_SIZE);
     let font_weight = FontWeight::Number(config.label_font_weight.unwrap_or(400.0));
@@ -559,7 +557,7 @@ fn level_label_angle(
     level: usize,
     leaf_level: usize,
     config: &AxisConfig,
-    level_config: Option<&NestedAxisLevelGuideConfig>,
+    level_config: Option<&NestedBandAxisLevelConfig>,
 ) -> f32 {
     level_config
         .and_then(|config| config.label_angle)
@@ -614,7 +612,7 @@ fn level_label_cross_extent(
 fn nested_axis_title(
     explicit_title: &str,
     layout: &avenger_scales::scales::nested_band::NestedBandLayout,
-    level_configs: Option<&BTreeMap<usize, NestedAxisLevelGuideConfig>>,
+    level_configs: Option<&BTreeMap<usize, NestedBandAxisLevelConfig>>,
 ) -> String {
     if !explicit_title.is_empty() {
         return explicit_title.to_string();
@@ -697,21 +695,22 @@ fn angle_is_steep(angle: f32) -> bool {
 mod tests {
     use std::{collections::BTreeMap, sync::Arc};
 
+    use arrow::{
+        array::{ArrayRef, StringArray, StructArray},
+        datatypes::{DataType, Field},
+    };
     use avenger_color::ColorOrGradient;
-    use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-    use avenger_scales::scales::nested_band::{NestedBandScale, nested_axis_bands};
+    use avenger_scales::scales::nested_band::{nested_axis_bands, NestedBandScale};
     use avenger_scenegraph::marks::mark::SceneMark;
     use avenger_text::types::{TextAlign, TextBaseline};
-    use datafusion::arrow::{
-        array::{ArrayRef, StringArray, StructArray},
-        datatypes::Field,
-    };
+
+    use crate::axis::opts::{AxisConfig, AxisOrientation};
 
     use super::{
-        LEVEL_GAP, NestedAxisLevelGuideConfig, NestedAxisLevelLabelLayout, TEXT_MARGIN,
-        TICK_FONT_SIZE, angled_label_align, horizontal_axis_label_baseline,
-        horizontal_axis_label_optical_offset, level_boundary_positions, make_level_boundaries,
-        make_nested_axis_marks, nested_axis_level_label_layouts, nested_axis_title,
+        angled_label_align, horizontal_axis_label_baseline, horizontal_axis_label_optical_offset,
+        level_boundary_positions, make_level_boundaries, make_nested_band_axis_marks,
+        nested_axis_level_label_layouts, nested_axis_title, NestedAxisLevelLabelLayout,
+        NestedBandAxisLevelConfig, LEVEL_GAP, TEXT_MARGIN, TICK_FONT_SIZE,
     };
 
     fn utf8_struct(columns: &[(&str, Vec<&str>)]) -> ArrayRef {
@@ -719,11 +718,7 @@ mod tests {
             .iter()
             .map(|(name, values)| {
                 (
-                    Arc::new(Field::new(
-                        *name,
-                        datafusion::arrow::datatypes::DataType::Utf8,
-                        true,
-                    )),
+                    Arc::new(Field::new(*name, DataType::Utf8, true)),
                     Arc::new(StringArray::from(values.clone())) as ArrayRef,
                 )
             })
@@ -761,7 +756,7 @@ mod tests {
         let scale = NestedBandScale::configured(domain, (0.0, 240.0))
             .with_option("nest_scopes", "free,shared")
             .with_option("padding_inner_levels", "0.3,0.1");
-        let axis = make_nested_axis_marks(
+        let axis = make_nested_band_axis_marks(
             &scale,
             "Manufacturer grouped by cylinders",
             [12.0, 24.0],
@@ -909,7 +904,7 @@ mod tests {
         ];
         let configs = BTreeMap::from([(
             1,
-            NestedAxisLevelGuideConfig {
+            NestedBandAxisLevelConfig {
                 visible: false,
                 title: None,
                 title_visible: true,
@@ -963,14 +958,14 @@ mod tests {
         let scale = NestedBandScale::configured(domain, (0.0, 320.0));
         let configs = BTreeMap::from([(
             1,
-            NestedAxisLevelGuideConfig {
+            NestedBandAxisLevelConfig {
                 visible: false,
                 title: None,
                 title_visible: true,
                 label_angle: None,
             },
         )]);
-        let axis = make_nested_axis_marks(
+        let axis = make_nested_band_axis_marks(
             &scale,
             "",
             [0.0, 0.0],
@@ -1006,7 +1001,7 @@ mod tests {
         let before = nested_axis_bands(&scale.config, 1).expect("leaf bands before");
         let configs = BTreeMap::from([(
             1,
-            NestedAxisLevelGuideConfig {
+            NestedBandAxisLevelConfig {
                 visible: false,
                 title: None,
                 title_visible: true,
@@ -1014,7 +1009,7 @@ mod tests {
             },
         )]);
 
-        make_nested_axis_marks(
+        make_nested_band_axis_marks(
             &scale,
             "Member grouped by group",
             [0.0, 0.0],
@@ -1045,7 +1040,7 @@ mod tests {
         let configs = BTreeMap::from([
             (
                 0,
-                NestedAxisLevelGuideConfig {
+                NestedBandAxisLevelConfig {
                     visible: true,
                     title: Some("# Cylinders".to_string()),
                     title_visible: true,
@@ -1054,7 +1049,7 @@ mod tests {
             ),
             (
                 1,
-                NestedAxisLevelGuideConfig {
+                NestedBandAxisLevelConfig {
                     visible: true,
                     title: Some("Maker".to_string()),
                     title_visible: true,
@@ -1084,7 +1079,7 @@ mod tests {
             avenger_scales::scales::nested_band::nested_band_layout(&scale.config).expect("layout");
         let configs = BTreeMap::from([(
             1,
-            NestedAxisLevelGuideConfig {
+            NestedBandAxisLevelConfig {
                 visible: true,
                 title: Some("Member".to_string()),
                 title_visible: false,
@@ -1104,14 +1099,14 @@ mod tests {
         let scale = NestedBandScale::configured(domain, (0.0, 240.0));
         let configs = BTreeMap::from([(
             1,
-            NestedAxisLevelGuideConfig {
+            NestedBandAxisLevelConfig {
                 visible: false,
                 title: None,
                 title_visible: true,
                 label_angle: None,
             },
         )]);
-        let axis = make_nested_axis_marks(
+        let axis = make_nested_band_axis_marks(
             &scale,
             "Member grouped by group",
             [0.0, 0.0],

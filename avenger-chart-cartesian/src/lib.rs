@@ -3,7 +3,6 @@ pub mod channels;
 pub mod coord;
 pub mod guide;
 pub mod marks;
-mod nested_axis;
 
 pub use axis::{AxisPosition, CartesianAxis, evaluate_cartesian_axis};
 pub use channels::CartesianPositionConfig;
