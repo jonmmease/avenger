@@ -1487,7 +1487,8 @@ mod tests {
     #[test]
     fn nested_band_config_expressions_are_collected() {
         let ctx = SessionContext::new();
-        let mut nested = NestedBandSpec::default();
+        let mut nested =
+            NestedBandSpec::from_source_columns(vec!["category".to_string(), "series".to_string()]);
         nested.level_mut(1).ordering = Maybe::Set(ScaleOrderingSpec {
             order_expr: Some(
                 LogicalExprNode::from_expr(col("series_sort")).expect("serialize order expr"),
@@ -1520,7 +1521,8 @@ mod tests {
 
     #[test]
     fn nested_band_col_channel_value_bincode_round_trips() {
-        let mut nested = NestedBandSpec::default();
+        let mut nested =
+            NestedBandSpec::from_source_columns(vec!["category".to_string(), "series".to_string()]);
         nested.level_mut(1).nest_scope = Some(NestScope::Shared);
         let value = ChannelValue::from(col("category"))
             .with_nested_band_config(nested)
@@ -1536,13 +1538,20 @@ mod tests {
                 .and_then(|level| level.nest_scope),
             Some(NestScope::Shared)
         );
+        assert_eq!(
+            restored
+                .get_nested_band_config()
+                .map(|nested| nested.source_columns.as_slice()),
+            Some(["category".to_string(), "series".to_string()].as_slice())
+        );
     }
 
     #[test]
     fn nested_band_named_struct_channel_value_bincode_round_trips() {
         use datafusion::prelude::{lit, named_struct};
 
-        let mut nested = NestedBandSpec::default();
+        let mut nested =
+            NestedBandSpec::from_source_columns(vec!["group".to_string(), "member".to_string()]);
         nested.level_mut(1).nest_scope = Some(NestScope::Shared);
         nested.level_mut(1).padding_inner = Some(0.05);
         let value = ChannelValue::from(named_struct(vec![
@@ -1558,6 +1567,7 @@ mod tests {
         let restored: ChannelValue = bincode::deserialize(&serialized).expect("deserialize");
 
         let nested = restored.get_nested_band_config().expect("nested config");
+        assert_eq!(nested.source_columns, vec!["group", "member"]);
         assert_eq!(nested.level(1).unwrap().nest_scope, Some(NestScope::Shared));
         assert_eq!(nested.level(1).unwrap().padding_inner, Some(0.05));
     }

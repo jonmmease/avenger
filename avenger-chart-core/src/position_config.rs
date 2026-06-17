@@ -184,15 +184,13 @@ impl<A: Clone + Default + Send + Sync + 'static> From<i32> for GenericPositionCo
 
 #[cfg(test)]
 mod tests {
-    use datafusion::prelude::col;
-
-    use crate::{NestScope, PositionBoundary};
+    use crate::{NestScope, PositionBoundary, nested};
 
     use super::*;
 
     #[test]
     fn nested_band_position_config_level_and_level_band() {
-        let config = GenericPositionConfig::<()>::new(ChannelValue::from(col("x")))
+        let config = GenericPositionConfig::<()>::new(nested(["group", "member"]).into())
             .level(1, |level| {
                 level
                     .nest_scope(NestScope::Shared)
@@ -205,6 +203,7 @@ mod tests {
             .inner
             .get_nested_band_config()
             .expect("nested config");
+        assert_eq!(nested.source_columns, vec!["group", "member"]);
         let level = nested.level(1).expect("level config");
         assert_eq!(level.nest_scope, Some(NestScope::Shared));
         assert_eq!(level.padding_inner, Some(0.0));

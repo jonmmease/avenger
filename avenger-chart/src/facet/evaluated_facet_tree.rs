@@ -3912,16 +3912,10 @@ mod tests {
     async fn nested_level_domain_coordination_suppresses_implicit_channel_sharing()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let nested = datafusion::prelude::named_struct(vec![
-            lit("outer"),
-            col("outer"),
-            lit("inner"),
-            col("inner"),
-        ]);
         let compiled = Plot::<Cartesian>::new()
             .mark(
                 Rect::new()
-                    .x_with(nested.clone(), |x| {
+                    .x_with(avenger_chart_core::nested(["outer", "inner"]), |x| {
                         x.level(0, |l| l.domain_scope(CoordinationScope::Shared))
                             .level(1, |l| {
                                 l.domain_scope(CoordinationScope::Level(1))
@@ -3952,7 +3946,7 @@ mod tests {
         let explicit = Plot::<Cartesian>::new()
             .mark(
                 Rect::new()
-                    .x_with(nested, |x| {
+                    .x_with(avenger_chart_core::nested(["outer", "inner"]), |x| {
                         x.with_domain_scope(CoordinationScope::Shared)
                             .level(0, |l| l.domain_scope(CoordinationScope::Shared))
                     })

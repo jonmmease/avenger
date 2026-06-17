@@ -4,11 +4,11 @@ use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use datafusion::{
     arrow::{
-        array::{ArrayRef, Float32Array, StringArray, StructArray},
+        array::{ArrayRef, Float32Array, StringArray},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    prelude::{SessionContext, named_struct},
+    prelude::SessionContext,
 };
 use palette::Srgba;
 
@@ -16,8 +16,8 @@ fn record_batch(fields: Vec<Field>, columns: Vec<ArrayRef>) -> RecordBatch {
     RecordBatch::try_new(Arc::new(Schema::new(fields)), columns).expect("record batch")
 }
 
-fn nested_x(outer: &str, inner: &str) -> datafusion::logical_expr::Expr {
-    named_struct(vec![lit("group"), col(outer), lit("member"), col(inner)])
+fn nested_x(outer: &str, inner: &str) -> ChannelExpr {
+    nested([outer, inner])
 }
 
 fn grouped_bar_df(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
@@ -172,38 +172,18 @@ async fn test_nested_position_grouped_bar_shared_slots() {
 }
 
 #[tokio::test]
-async fn test_nested_position_struct_column_grouped_bar() {
+async fn test_nested_position_source_column_grouped_bar() {
     let ctx = SessionContext::new();
-    let group_field = Arc::new(Field::new("quarter", DataType::Utf8, true));
-    let member_field = Arc::new(Field::new("team", DataType::Utf8, true));
-    let nested = Arc::new(StructArray::from(vec![
-        (
-            group_field.clone(),
-            Arc::new(StringArray::from(vec![
-                "Q1", "Q1", "Q1", "Q2", "Q2", "Q3", "Q3", "Q3",
-            ])) as ArrayRef,
-        ),
-        (
-            member_field.clone(),
-            Arc::new(StringArray::from(vec![
-                "North", "South", "East", "North", "East", "North", "South", "East",
-            ])) as ArrayRef,
-        ),
-    ])) as ArrayRef;
     let batch = record_batch(
         vec![
-            Field::new(
-                "nested",
-                DataType::Struct(
-                    vec![group_field.as_ref().clone(), member_field.as_ref().clone()].into(),
-                ),
-                false,
-            ),
+            Field::new("quarter", DataType::Utf8, false),
             Field::new("team", DataType::Utf8, false),
             Field::new("value", DataType::Float32, false),
         ],
         vec![
-            nested,
+            Arc::new(StringArray::from(vec![
+                "Q1", "Q1", "Q1", "Q2", "Q2", "Q3", "Q3", "Q3",
+            ])) as ArrayRef,
             Arc::new(StringArray::from(vec![
                 "North", "South", "East", "North", "East", "North", "South", "East",
             ])) as ArrayRef,
@@ -219,8 +199,8 @@ async fn test_nested_position_struct_column_grouped_bar() {
         .legend("fill", |legend| legend.title("Team"))
         .mark(
             Rect::new()
-                .x_with(col("nested"), |x| {
-                    x.axis(|a| a.title("Struct column").grid(false))
+                .x_with(nested(["quarter", "team"]), |x| {
+                    x.axis(|a| a.title("Source columns").grid(false))
                         .level(0, |l| l.padding_inner(0.45).padding_outer(0.15))
                         .level(1, |l| {
                             l.nest_scope(NestScope::Shared)
@@ -245,7 +225,7 @@ async fn test_nested_position_struct_column_grouped_bar() {
         &ctx,
         None,
         "nested_position",
-        "struct_column_grouped_bar",
+        "source_column_grouped_bar",
     )
     .await;
 }
@@ -412,14 +392,7 @@ async fn test_nested_position_three_level_category_bars() {
         ],
     );
     let df = ctx.read_batch(batch).expect("dataframe");
-    let nested = named_struct(vec![
-        lit("region"),
-        col("region"),
-        lit("category"),
-        col("category"),
-        lit("item"),
-        col("item"),
-    ]);
+    let nested = nested(["region", "category", "item"]);
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Rect::new()
@@ -475,14 +448,7 @@ async fn test_nested_position_category_axis_three_level() {
         ],
     );
     let df = ctx.read_batch(batch).expect("dataframe");
-    let nested = named_struct(vec![
-        lit("region"),
-        col("region"),
-        lit("category"),
-        col("category"),
-        lit("item"),
-        col("item"),
-    ]);
+    let nested = nested(["region", "category", "item"]);
 
     let plot = Plot::<Cartesian>::new()
         .canvas_size(680.0, 420.0)
@@ -1363,43 +1329,33 @@ async fn test_nested_position_repeat_axis_titles() {
         vec![
             Field::new("region", DataType::Utf8, false),
             Field::new("product", DataType::Utf8, false),
-            Field::new("team", DataType::Utf8, false),
-            Field::new("value", DataType::Float32, false),
+            Field::new("sales", DataType::Float32, false),
+            Field::new("target", DataType::Float32, false),
         ],
         vec![
             Arc::new(StringArray::from(vec![
                 "North", "North", "North", "South", "South", "South",
             ])) as ArrayRef,
             Arc::new(StringArray::from(vec!["Bk", "Gm", "Ty", "Bk", "Gm", "Ty"])) as ArrayRef,
-            Arc::new(StringArray::from(vec![
-                "Alpha", "Beta", "Alpha", "Beta", "Alpha", "Beta",
-            ])) as ArrayRef,
             Arc::new(Float32Array::from(vec![22.0, 31.0, 26.0, 28.0, 24.0, 34.0])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![26.0, 29.0, 30.0, 32.0, 30.0, 36.0])) as ArrayRef,
         ],
     );
     let df = ctx.read_batch(batch).expect("dataframe");
-    let nested = named_struct(vec![
-        lit("region"),
-        col("region"),
-        lit("leaf"),
-        repeat::column().into(),
-    ]);
+    let nested = nested(["region", "product"]);
     let cell = Plot::<Cartesian>::new().mark(
         Rect::new()
             .x_with(nested, |x| {
-                x.axis(|a| a.title(repeat::column_title()).grid(false))
+                x.axis(|a| a.title("Product grouped by region").grid(false))
                     .level(0, |l| l.axis(|a| a.title("Region")).padding_inner(0.34))
-                    .level(1, |l| {
-                        l.axis(|a| a.title(repeat::column_title()))
-                            .padding_inner(0.08)
-                    })
+                    .level(1, |l| l.axis(|a| a.title("Product")).padding_inner(0.08))
             })
             .x2_with(col(":x"), |x| x.band(1.0))
             .y_with(lit(0.0), |y| {
                 y.scale(|s| s.domain((0.0, 40.0)))
-                    .axis(|a| a.title("Value").grid(true))
+                    .axis(|a| a.title(repeat::column_title()).grid(true))
             })
-            .y2(col("value"))
+            .y2(repeat::column())
             .fill("#4c78a8")
             .stroke("#ffffff")
             .stroke_width(1.0),
@@ -1408,8 +1364,8 @@ async fn test_nested_position_repeat_axis_titles() {
         .data(df)
         .plot_size(260.0, 165.0)
         .columns(vec![
-            RepeatVariable::new("product", col("product")).title("Product"),
-            RepeatVariable::new("team", col("team")).title("Team"),
+            RepeatVariable::new("sales", col("sales")).title("Sales"),
+            RepeatVariable::new("target", col("target")).title("Target"),
         ])
         .cell(cell);
 

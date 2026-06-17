@@ -4,7 +4,7 @@ use avenger_chart::cartesian::{CartesianRectPositionChannels, CartesianSymbolPos
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::{CompiledPlot, Plot};
 use avenger_chart::prelude::{Cartesian, CoordinationScope, NestScope, Rect};
-use datafusion::prelude::{SessionContext, col, lit, named_struct};
+use datafusion::prelude::{SessionContext, col, lit};
 
 #[tokio::test]
 async fn test_compiled_plot() {
@@ -33,15 +33,9 @@ async fn test_compiled_plot() {
 #[tokio::test]
 async fn test_compiled_plot_with_nested_position_metadata() {
     let ctx = SessionContext::new();
-    let nested = named_struct(vec![
-        lit("quarter"),
-        col("quarter"),
-        lit("team"),
-        col("team"),
-    ]);
     let plot = Plot::<Cartesian>::new().mark(
         Rect::new()
-            .x_with(nested, |x| {
+            .x_with(avenger_chart::prelude::nested(["quarter", "team"]), |x| {
                 x.level(0, |l| l.domain_scope(CoordinationScope::Shared))
                     .level(1, |l| {
                         l.domain_scope(CoordinationScope::Shared)
@@ -59,6 +53,7 @@ async fn test_compiled_plot_with_nested_position_metadata() {
     let _deserialized: CompiledPlot = serde_json::from_str(&json).unwrap();
 
     assert!(json.contains("nested_band_config"));
+    assert!(json.contains("source_columns"));
     assert!(json.contains("nest_scope"));
     assert!(json.contains("domain_coordination"));
 }

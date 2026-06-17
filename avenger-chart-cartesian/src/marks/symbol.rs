@@ -169,10 +169,6 @@ impl CompiledMarkCore for CompiledCartesianSymbol {
         channel: &str,
         data_type: &DataType,
     ) -> Option<ScaleTypePreference> {
-        if let Some(scale_type) = super::nested_position_scale_type(channel, data_type) {
-            return Some(scale_type);
-        }
-
         match (channel, data_type) {
             // Symbol marks use point scales for categorical position data
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {

@@ -12,9 +12,8 @@ mod util;
 
 use std::sync::Arc;
 
-use avenger_chart_core::{ChannelValue, PositionConfig, ScaleTypePreference};
+use avenger_chart_core::{ChannelValue, PositionConfig};
 use avenger_chart_marks::{Area, Image, Line, PathMark, Rect, Rule, Symbol, Text, Trail};
-use datafusion::arrow::datatypes::DataType;
 
 use crate::{Cartesian, CartesianPositionConfig};
 
@@ -31,46 +30,6 @@ pub use subplot::{
 pub use symbol::CompiledCartesianSymbol;
 pub use text::CompiledCartesianText;
 pub use trail::CompiledCartesianTrail;
-
-pub(crate) fn nested_position_scale_type(
-    channel: &str,
-    data_type: &DataType,
-) -> Option<ScaleTypePreference> {
-    if matches!(channel, "x" | "x2" | "y" | "y2") && matches!(data_type, DataType::Struct(_)) {
-        Some(ScaleTypePreference::NestedBand)
-    } else {
-        None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use datafusion::arrow::datatypes::Field;
-
-    use super::*;
-
-    #[test]
-    fn nested_position_scale_type_is_position_only() {
-        let nested_type = DataType::Struct(
-            vec![
-                Field::new("group", DataType::Utf8, true),
-                Field::new("series", DataType::Utf8, true),
-            ]
-            .into(),
-        );
-
-        assert_eq!(
-            nested_position_scale_type("x", &nested_type),
-            Some(ScaleTypePreference::NestedBand)
-        );
-        assert_eq!(
-            nested_position_scale_type("x2", &nested_type),
-            Some(ScaleTypePreference::NestedBand)
-        );
-        assert_eq!(nested_position_scale_type("fill", &nested_type), None);
-        assert_eq!(nested_position_scale_type("x", &DataType::Utf8), None);
-    }
-}
 
 /// Cartesian position-channel builders for the generic `Area` mark.
 pub trait CartesianAreaPositionChannels: Sized {

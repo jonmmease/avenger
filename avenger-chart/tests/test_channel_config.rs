@@ -1,7 +1,7 @@
 // Test that channel-level scale and legend configuration works
 
 use avenger_chart::prelude::*;
-use datafusion::prelude::{SessionContext, named_struct};
+use datafusion::prelude::SessionContext;
 use palette::Srgba;
 
 // Helper macro to compile plot and extract configs
@@ -120,21 +120,13 @@ async fn test_channel_config() {
 async fn test_nested_position_level_config_does_not_create_legend() {
     let plot = Plot::<Cartesian>::new().mark(
         Rect::new()
-            .x_with(
-                named_struct(vec![
-                    lit("group"),
-                    col("group"),
-                    lit("series"),
-                    col("series"),
-                ]),
-                |x| {
-                    x.level(1, |level| {
-                        level
-                            .nest_scope(NestScope::Shared)
-                            .axis(|axis| axis.visible(false))
-                    })
-                },
-            )
+            .x_with(nested(["group", "series"]), |x| {
+                x.level(1, |level| {
+                    level
+                        .nest_scope(NestScope::Shared)
+                        .axis(|axis| axis.visible(false))
+                })
+            })
             .x2_with(col(":x"), |x| x.band(1.0))
             .y(lit(0.0))
             .y2(col("value"))

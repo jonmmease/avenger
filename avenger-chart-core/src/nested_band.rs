@@ -5,16 +5,22 @@
 //! pixels. This module stores the authoring metadata needed to configure that
 //! scale per nesting level.
 
-use std::{collections::BTreeMap, marker::PhantomData};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
+};
 
-use datafusion::{logical_expr::Expr, prelude::SessionContext};
+use datafusion::{
+    logical_expr::Expr,
+    prelude::{SessionContext, col, lit, named_struct},
+};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Axis, CoordinationScope, DefaultLogicalExprNodeExt, DomainCoordination,
-    DomainCoordinationGroup, IntoExpr, Maybe, RadiusExpression, ScaleDefaultDomain, ScaleDomain,
-    ScaleOrderingSpec, validate_domain_group_id,
+    AvengerChartError, Axis, ChannelExpr, ChannelValue, CoordinationScope,
+    DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup, IntoExpr, Maybe,
+    RadiusExpression, ScaleDefaultDomain, ScaleDomain, ScaleOrderingSpec, validate_domain_group_id,
 };
 
 /// How child domains are shared inside a parent nested-band level.
@@ -58,12 +64,23 @@ impl PositionBoundary {
 /// Nested-band configuration carried by a position channel.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct NestedBandSpec {
+    /// Source dataframe columns that define the nested categorical levels.
+    #[serde(default)]
+    pub source_columns: Vec<String>,
     /// Sparse configuration keyed by struct field / nesting level index.
     #[serde(default)]
     pub levels: BTreeMap<usize, NestedBandLevelSpec>,
 }
 
 impl NestedBandSpec {
+    /// Create nested-band metadata from explicit source dataframe columns.
+    pub fn from_source_columns(source_columns: Vec<String>) -> Self {
+        Self {
+            source_columns,
+            levels: BTreeMap::new(),
+        }
+    }
+
     /// Get a level configuration if it exists.
     pub fn level(&self, level: usize) -> Option<&NestedBandLevelSpec> {
         self.levels.get(&level)
@@ -81,14 +98,63 @@ impl NestedBandSpec {
             .flat_map(|level| level.all_exprs(ctx))
             .collect()
     }
+
+    /// Validate the source column contract for public nested-band channels.
+    pub fn validate_source_columns(&self) -> Result<(), AvengerChartError> {
+        if self.source_columns.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(
+                "Nested-band position channels must be created with nested([...]); raw struct-valued position columns are not supported"
+                    .to_string(),
+            ));
+        }
+
+        let mut seen = BTreeSet::new();
+        for column in &self.source_columns {
+            if column.is_empty() {
+                return Err(AvengerChartError::InvalidArgument(
+                    "nested([...]) source column names must be non-empty".to_string(),
+                ));
+            }
+            if !seen.insert(column) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "nested([...]) source column '{column}' is duplicated"
+                )));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl std::fmt::Debug for NestedBandSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NestedBandSpec")
+            .field("source_columns", &self.source_columns)
             .field("levels", &self.levels)
             .finish()
     }
+}
+
+/// Build a nested categorical position channel from source dataframe columns.
+///
+/// This is the public nested-band entry point. The returned channel lowers to a
+/// struct expression for scale evaluation, but keeps the original source column
+/// names in metadata so selection predicates and event datum requests can stay
+/// field-based.
+pub fn nested<I, S>(columns: I) -> ChannelExpr
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let source_columns = columns.into_iter().map(Into::into).collect::<Vec<_>>();
+    let args = source_columns
+        .iter()
+        .flat_map(|column| [lit(column.clone()), col(column.clone())])
+        .collect::<Vec<_>>();
+    let expr = named_struct(args);
+    let channel_value = ChannelValue::from(expr.clone())
+        .with_nested_band_config(NestedBandSpec::from_source_columns(source_columns));
+    ChannelExpr::new(expr, channel_value)
 }
 
 /// Configuration for one level of a nested band position channel.
@@ -363,8 +429,48 @@ mod tests {
     }
 
     #[test]
+    fn nested_builds_struct_channel_with_source_columns() {
+        let ctx = SessionContext::new();
+        let value = nested(["quarter", "team"]);
+        assert!(value.data_expr().to_string().starts_with("named_struct("));
+
+        let config = value
+            .channel_value()
+            .get_nested_band_config()
+            .expect("nested-band metadata");
+        assert_eq!(config.source_columns, vec!["quarter", "team"]);
+        let rendered = value
+            .channel_value()
+            .all_exprs(&ctx)
+            .into_iter()
+            .map(|expr| expr.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rendered,
+            vec!["named_struct(Utf8(\"quarter\"), quarter, Utf8(\"team\"), team)"]
+        );
+    }
+
+    #[test]
+    fn nested_source_columns_validate_non_empty_and_unique() {
+        let empty = NestedBandSpec::from_source_columns(Vec::new());
+        assert!(matches!(
+            empty.validate_source_columns(),
+            Err(AvengerChartError::InvalidArgument(_))
+        ));
+
+        let duplicate =
+            NestedBandSpec::from_source_columns(vec!["quarter".to_string(), "quarter".to_string()]);
+        assert!(matches!(
+            duplicate.validate_source_columns(),
+            Err(AvengerChartError::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
     fn nested_band_spec_bincode_round_trips_without_level_axis_config() {
         let spec = NestedBandSpec {
+            source_columns: vec!["group".to_string(), "series".to_string()],
             levels: BTreeMap::from([(
                 1,
                 NestedBandLevelSpec {
@@ -382,12 +488,14 @@ mod tests {
             restored.level(1).unwrap().nest_scope,
             Some(NestScope::Shared)
         );
+        assert_eq!(restored.source_columns, vec!["group", "series"]);
         assert_eq!(restored.level(1).unwrap().padding_inner, Some(0.05));
     }
 
     #[test]
     fn nested_band_spec_bincode_round_trips_with_level_axis_config() {
         let spec = NestedBandSpec {
+            source_columns: vec!["group".to_string(), "series".to_string()],
             levels: BTreeMap::from([(
                 1,
                 NestedBandLevelConfig::<()>::new(NestedBandLevelSpec::default())

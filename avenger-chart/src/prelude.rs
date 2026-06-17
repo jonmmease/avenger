@@ -33,7 +33,9 @@ pub use avenger_chart_core::{
     SelectionCombine, SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreFieldPatch,
     StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext, WeekStart, ZeroDCoord,
 };
-pub use avenger_chart_core::{NestScope, NestedBandLevelSpec, NestedBandSpec, PositionBoundary};
+pub use avenger_chart_core::{
+    NestScope, NestedBandLevelSpec, NestedBandSpec, PositionBoundary, nested,
+};
 pub use avenger_chart_core::{
     RepeatContext, RepeatDomainCoordination, RepeatPlaceholderKind, RepeatTypeHint, RepeatVariable,
     ResolvedRepeatVariable,

@@ -4506,7 +4506,7 @@ mod tests {
         },
     };
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
-    use datafusion::arrow::array::{Array, ArrayRef, Float64Array, StringArray, StructArray};
+    use datafusion::arrow::array::{Array, ArrayRef, Float64Array, StringArray};
 
     use super::*;
 
@@ -6847,7 +6847,7 @@ mod tests {
             .data(df)
             .mark(
                 Rect::new()
-                    .x_with(col("nested_key"), |x| {
+                    .x_with(nested(["quarter", "team"]), |x| {
                         x.axis(|axis| axis.title("Quarter")).level(1, |level| {
                             level
                                 .nest_scope(NestScope::Shared)
@@ -6895,21 +6895,17 @@ mod tests {
         (state, handler, mark_instance, position)
     }
 
-    fn nested_key_clause() -> SelectionClauseUpdate {
-        nested_key_clause_with_scope(CoordinationScope::Shared)
+    fn nested_source_column_clause() -> SelectionClauseUpdate {
+        nested_source_column_clause_with_scope(CoordinationScope::Shared)
     }
 
-    fn nested_key_event_coord_clause() -> SelectionClauseUpdate {
-        SelectionClauseUpdate::equality(lit("active"))
-            .facet_scope(CoordinationScope::Shared)
-            .dimension_named("nested_key", col("nested_key"), event::event_coord("x"))
-            .build()
-    }
-
-    fn nested_key_clause_with_scope(facet_scope: CoordinationScope) -> SelectionClauseUpdate {
+    fn nested_source_column_clause_with_scope(
+        facet_scope: CoordinationScope,
+    ) -> SelectionClauseUpdate {
         SelectionClauseUpdate::equality(lit("active"))
             .facet_scope(facet_scope)
-            .dimension_named("nested_key", col("nested_key"), event::datum("nested_key"))
+            .dimension_named("quarter", col("quarter"), event::datum("quarter"))
+            .dimension_named("team", col("team"), event::datum("team"))
             .build()
     }
 
@@ -6921,17 +6917,6 @@ mod tests {
         let value = [42.0, 30.0, 34.0, 47.0, 38.0, 51.0, 39.0, 44.0];
 
         let schema = Arc::new(Schema::new(vec![
-            Field::new(
-                "nested_key",
-                DataType::Struct(
-                    vec![
-                        Arc::new(Field::new("quarter", DataType::Utf8, false)),
-                        Arc::new(Field::new("team", DataType::Utf8, false)),
-                    ]
-                    .into(),
-                ),
-                false,
-            ),
             Field::new("quarter", DataType::Utf8, false),
             Field::new("team", DataType::Utf8, false),
             Field::new("value", DataType::Float64, false),
@@ -6940,7 +6925,6 @@ mod tests {
         RecordBatch::try_new(
             schema,
             vec![
-                nested_key_array(&quarter, &team),
                 Arc::new(StringArray::from(quarter.to_vec())) as ArrayRef,
                 Arc::new(StringArray::from(team.to_vec())) as ArrayRef,
                 Arc::new(Float64Array::from(value.to_vec())) as ArrayRef,
@@ -6949,20 +6933,7 @@ mod tests {
         .expect("nested grouped bar batch")
     }
 
-    fn nested_key_array(quarters: &[&str], teams: &[&str]) -> ArrayRef {
-        Arc::new(StructArray::from(vec![
-            (
-                Arc::new(Field::new("quarter", DataType::Utf8, false)),
-                Arc::new(StringArray::from(quarters.to_vec())) as ArrayRef,
-            ),
-            (
-                Arc::new(Field::new("team", DataType::Utf8, false)),
-                Arc::new(StringArray::from(teams.to_vec())) as ArrayRef,
-            ),
-        ])) as ArrayRef
-    }
-
-    fn assert_nested_key_value(value: &ScalarValue, expected_quarter: &str, expected_team: &str) {
+    fn assert_nested_coord_value(value: &ScalarValue, expected_quarter: &str, expected_team: &str) {
         let ScalarValue::Struct(struct_array) = value else {
             panic!("expected nested key struct value, got {value:?}");
         };
@@ -6985,6 +6956,24 @@ mod tests {
             .expect("team string array");
         assert_eq!(quarter.value(0), expected_quarter);
         assert_eq!(team.value(0), expected_team);
+    }
+
+    fn assert_quarter_team_dimensions(
+        dimensions: &[avenger_chart_core::SelectionEqualityDimensionValue],
+        expected_quarter: &str,
+        expected_team: &str,
+    ) {
+        assert_eq!(dimensions.len(), 2);
+        assert_eq!(dimensions[0].id, "quarter");
+        assert_eq!(
+            dimensions[0].value,
+            ScalarValue::Utf8(Some(expected_quarter.to_string()))
+        );
+        assert_eq!(dimensions[1].id, "team");
+        assert_eq!(
+            dimensions[1].value,
+            ScalarValue::Utf8(Some(expected_team.to_string()))
+        );
     }
 
     fn assert_nested_event_coord_schema(handler: &ChartEventBindingHandler) {
@@ -7023,7 +7012,7 @@ mod tests {
             .expect("faceted nested grouped bar data");
         let leaf = Plot::<Cartesian>::new().mark(
             Rect::new()
-                .x_with(col("nested_key"), |x| {
+                .x_with(nested(["quarter", "team"]), |x| {
                     x.axis(|axis| axis.title("Quarter")).level(1, |level| {
                         level
                             .nest_scope(NestScope::Shared)
@@ -7087,17 +7076,6 @@ mod tests {
         let value = [42.0, 30.0, 47.0, 38.0, 142.0, 130.0, 147.0, 138.0];
 
         let schema = Arc::new(Schema::new(vec![
-            Field::new(
-                "nested_key",
-                DataType::Struct(
-                    vec![
-                        Arc::new(Field::new("quarter", DataType::Utf8, false)),
-                        Arc::new(Field::new("team", DataType::Utf8, false)),
-                    ]
-                    .into(),
-                ),
-                false,
-            ),
             Field::new("region", DataType::Utf8, false),
             Field::new("quarter", DataType::Utf8, false),
             Field::new("team", DataType::Utf8, false),
@@ -7107,7 +7085,6 @@ mod tests {
         RecordBatch::try_new(
             schema,
             vec![
-                nested_key_array(&quarter, &team),
                 Arc::new(StringArray::from(region.to_vec())) as ArrayRef,
                 Arc::new(StringArray::from(quarter.to_vec())) as ArrayRef,
                 Arc::new(StringArray::from(team.to_vec())) as ArrayRef,
@@ -7793,13 +7770,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bar_click_writes_nested_struct_selection_clause() {
+    async fn bar_click_writes_nested_source_column_selection_clause() {
         let binding = ChartEventBinding::on(ChartEventType::Click)
             .filter(event::button().eq(lit("left")))
             .filter(event::datum("value").is_not_null())
             .set_selection(
                 "picked",
-                SelectionUpdate::replace_clause(nested_key_clause()),
+                SelectionUpdate::replace_clause(nested_source_column_clause()),
             )
             .exact();
         let (mut state, handler, mark_instance, position) =
@@ -7813,7 +7790,7 @@ mod tests {
             }
         };
         let inverted = invert_scene_point(scope, position, &["x"]).expect("invert nested x");
-        assert_nested_key_value(inverted.get("x").expect("inverted x value"), "Q2", "East");
+        assert_nested_coord_value(inverted.get("x").expect("inverted x value"), "Q2", "East");
 
         let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
         assert!(
@@ -7830,25 +7807,33 @@ mod tests {
         let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
             panic!("expected equality predicate");
         };
-        assert_eq!(dimensions.len(), 1);
-        assert_eq!(dimensions[0].id, "nested_key");
-        assert_nested_key_value(&dimensions[0].value, "Q2", "East");
+        assert_quarter_team_dimensions(dimensions, "Q2", "East");
     }
 
     #[tokio::test]
-    async fn bar_click_can_select_nested_struct_from_event_coord() {
+    async fn bar_click_exposes_nested_struct_event_coord_readback() {
         let binding = ChartEventBinding::on(ChartEventType::Click)
             .filter(event::button().eq(lit("left")))
             .filter(event::datum("value").is_not_null())
             .filter(event::event_coord("x").is_not_null())
             .set_selection(
                 "picked",
-                SelectionUpdate::replace_clause(nested_key_event_coord_clause()),
+                SelectionUpdate::replace_clause(nested_source_column_clause()),
             )
             .exact();
         let (mut state, handler, mark_instance, position) =
             nested_grouped_bar_state_and_handler(binding).await;
         assert_nested_event_coord_schema(&handler);
+        let scopes = state.interaction_scopes().await;
+        let scope = match route_interaction_scope(&scopes, Some(position), &channel_set(&["x"])) {
+            InteractionRoute::Scope(scope) => scope,
+            InteractionRoute::None => panic!("clicked bar should route to a coordinate scope"),
+            InteractionRoute::Ambiguous => {
+                panic!("clicked bar should route to one coordinate scope")
+            }
+        };
+        let inverted = invert_scene_point(scope, position, &["x"]).expect("invert nested x");
+        assert_nested_coord_value(inverted.get("x").expect("inverted x value"), "Q2", "East");
 
         let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
         assert!(
@@ -7865,19 +7850,17 @@ mod tests {
         let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
             panic!("expected equality predicate");
         };
-        assert_eq!(dimensions.len(), 1);
-        assert_eq!(dimensions[0].id, "nested_key");
-        assert_nested_key_value(&dimensions[0].value, "Q2", "East");
+        assert_quarter_team_dimensions(dimensions, "Q2", "East");
     }
 
     #[tokio::test]
-    async fn facet_bar_click_writes_nested_struct_selection_clause_in_cell_scope() {
+    async fn facet_bar_click_writes_nested_source_column_selection_clause_in_cell_scope() {
         let binding = ChartEventBinding::on(ChartEventType::Click)
             .filter(event::button().eq(lit("left")))
             .filter(event::datum("value").is_not_null())
             .set_selection(
                 "picked",
-                SelectionUpdate::replace_clause(nested_key_clause_with_scope(
+                SelectionUpdate::replace_clause(nested_source_column_clause_with_scope(
                     CoordinationScope::Free,
                 )),
             )
@@ -7895,7 +7878,7 @@ mod tests {
             }
         };
         let inverted = invert_scene_point(scope, position, &["x"]).expect("invert nested x");
-        assert_nested_key_value(inverted.get("x").expect("inverted x value"), "Q2", "East");
+        assert_nested_coord_value(inverted.get("x").expect("inverted x value"), "Q2", "East");
 
         let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
         assert!(
@@ -7924,9 +7907,7 @@ mod tests {
         let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
             panic!("expected equality predicate");
         };
-        assert_eq!(dimensions.len(), 1);
-        assert_eq!(dimensions[0].id, "nested_key");
-        assert_nested_key_value(&dimensions[0].value, "Q2", "East");
+        assert_quarter_team_dimensions(dimensions, "Q2", "East");
     }
 
     #[tokio::test]

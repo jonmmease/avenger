@@ -1251,6 +1251,7 @@ pub(crate) async fn prepare_mark_data(
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
+    use avenger_chart_core::nested;
     use avenger_chart_scales::NestedBand;
     use avenger_chart_transforms::{
         Aggregate, Bin, Calculate, Filter, Fold, Impute, JoinAggregate, Select, Window,
@@ -1267,7 +1268,7 @@ mod tests {
         functions_aggregate::average::avg,
         functions_window::expr_fn::row_number,
         logical_expr::{Expr, col},
-        prelude::{SessionContext, named_struct},
+        prelude::SessionContext,
     };
     use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
     use indexmap::IndexMap;
@@ -1571,14 +1572,8 @@ mod tests {
         let session = Arc::new(SessionContext::new());
         let df = nested_category_dataframe(&session);
         let plot_node = plot_data_node(&df)?;
-        let nested = named_struct(vec![
-            lit("group"),
-            col("group"),
-            lit("member"),
-            col("member"),
-        ]);
         let mark = Rect::new()
-            .x_with(nested, |x| x.band(0.0))
+            .x_with(nested(["group", "member"]), |x| x.band(0.0))
             .x2_with(col(":x"), |x| x.band(1.0))
             .y_with(lit(0.0), |y| y.no_scale())
             .y2_with(col("value"), |y| y.no_scale());
@@ -1613,14 +1608,8 @@ mod tests {
         let session = Arc::new(SessionContext::new());
         let df = nested_category_dataframe(&session);
         let plot_node = plot_data_node(&df)?;
-        let nested = named_struct(vec![
-            lit("group"),
-            col("group"),
-            lit("member"),
-            col("member"),
-        ]);
         let mark = Rect::new()
-            .x_with(nested, |x| x.level_band(0, 0.0))
+            .x_with(nested(["group", "member"]), |x| x.level_band(0, 0.0))
             .x2_with(col(":x"), |x| x.level_band(0, 1.0))
             .y_with(lit(0.0), |y| y.no_scale())
             .y2_with(col("value"), |y| y.no_scale());

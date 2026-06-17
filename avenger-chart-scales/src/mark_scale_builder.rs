@@ -32,10 +32,10 @@ use tracing::trace;
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledMark, CoordinateSystemTransformCore, DerivedScalarMap,
     EvaluationContext as CoreEvaluationContext, MarkDataMode, Maybe, NestScope, NestedBandSpec,
-    RadiusExpression, ScaleOrderingSpec, ScaleRange, Theme, TimeContext, array_value_to_f64,
-    collect_derived_scalar_ids, contains_aggregate, default_channel_value_for_eval,
-    eval_to_scalars, params_to_datafusion, resolve_all_channel_refs, resolve_derived_scalars,
-    scalar_total_cmp, strip_trailing_numbers,
+    RadiusExpression, ScaleOrderingSpec, ScaleRange, ScaleTypePreference, Theme, TimeContext,
+    array_value_to_f64, collect_derived_scalar_ids, contains_aggregate,
+    default_channel_value_for_eval, eval_to_scalars, params_to_datafusion,
+    resolve_all_channel_refs, resolve_derived_scalars, scalar_total_cmp, strip_trailing_numbers,
 };
 
 use crate::{
@@ -612,9 +612,12 @@ where
 
             if let Some(dt) = maybe_dt {
                 data_type = Some(dt.clone());
-                chosen_spec = mark
-                    .preferred_scale_type(channel_name, &dt)
-                    .map(scale_spec_for_preference);
+                chosen_spec = if channel_value.get_nested_band_config().is_some() {
+                    Some(scale_spec_for_preference(ScaleTypePreference::NestedBand))
+                } else {
+                    mark.preferred_scale_type(channel_name, &dt)
+                        .map(scale_spec_for_preference)
+                };
                 break 'outer;
             }
         }
@@ -655,7 +658,14 @@ where
 
     let scale_spec = match chosen_spec {
         Some(spec) => spec,
-        None => return Ok(None),
+        None => {
+            if matches!(data_type, Some(ArrowDataType::Struct(_))) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Struct-valued chart channel '{channel}' is not supported directly; use nested([...]) for nested-band position scales"
+                )));
+            }
+            return Ok(None);
+        }
     };
 
     let dt = match data_type {
@@ -750,26 +760,15 @@ where
     }
 
     if scale_spec.name() == "nested_band" {
-        let level_count = match &dt {
-            ArrowDataType::Struct(fields) => fields.len(),
-            other => {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "NestedBand scales require struct-valued position data, got {other:?}"
-                )));
-            }
-        };
-        if level_count == 0 {
-            return Err(AvengerChartError::InvalidArgument(
-                "NestedBand scales require struct-valued position data with at least one field"
-                    .to_string(),
-            ));
-        }
-        if let Some(config) =
-            nested_band_config_for_channel(channel, prepared_marks, coord_transform, ctx)?
-        {
-            validate_nested_band_config(&config, level_count)?;
-            scale = apply_nested_band_options(scale, &config)?;
-        }
+        let config = nested_band_config_for_channel(channel, prepared_marks, coord_transform, ctx)?
+            .ok_or_else(|| {
+                AvengerChartError::InvalidArgument(format!(
+                    "NestedBand position scale '{channel}' must be created with nested([...]); raw struct-valued position columns are not supported"
+                ))
+            })?;
+        let level_count = validate_nested_band_source_columns(&config, &dt)?;
+        validate_nested_band_config(&config, level_count)?;
+        scale = apply_nested_band_options(scale, &config)?;
     }
 
     let options = scale.get_options().clone();
@@ -834,6 +833,44 @@ fn validate_nested_band_derivative_configs(
         }
     }
     Ok(())
+}
+
+fn validate_nested_band_source_columns(
+    config: &NestedBandSpec,
+    dt: &ArrowDataType,
+) -> Result<usize, AvengerChartError> {
+    config.validate_source_columns()?;
+
+    let ArrowDataType::Struct(fields) = dt else {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "NestedBand scales require nested([...]) source columns lowered to struct-valued position data, got {dt:?}"
+        )));
+    };
+    let level_count = fields.len();
+    if level_count == 0 {
+        return Err(AvengerChartError::InvalidArgument(
+            "nested([...]) must contain at least one source column".to_string(),
+        ));
+    }
+    if config.source_columns.len() != level_count {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "nested([...]) declared {} source columns but lowered position data has {level_count} struct fields",
+            config.source_columns.len()
+        )));
+    }
+
+    for (level, (source_column, field)) in
+        config.source_columns.iter().zip(fields.iter()).enumerate()
+    {
+        if field.name() != source_column {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "nested([...]) source column '{source_column}' does not match lowered struct field '{}' at level {level}",
+                field.name()
+            )));
+        }
+    }
+
+    Ok(level_count)
 }
 
 fn validate_nested_band_config(
@@ -1324,9 +1361,8 @@ where
             let config =
                 nested_band_config_for_channel(channel, prepared_marks, coord_transform, ctx)?;
             if let Some(config) = &config {
-                if let ArrowDataType::Struct(fields) = dt {
-                    validate_nested_band_config(config, fields.len())?;
-                }
+                let level_count = validate_nested_band_source_columns(config, dt)?;
+                validate_nested_band_config(config, level_count)?;
             }
             config
         } else {
@@ -2745,8 +2781,8 @@ mod tests {
     use avenger_chart_core::{
         ChannelDescriptor, ChannelExpr, CompiledDataContext, CompiledMarkCore, CompiledMarkState,
         MarkDataMode, MarkRuntimeContext, NestedBandLevelSpec, PlotGeometry, ResolvedDomain,
-        ScaleRange, ScaleRangeBinding, ScaleTypePreference, SubplotGeometry,
-        default_scale_type_for_data_type,
+        ScaleChannelValue, ScaleRange, ScaleRangeBinding, ScaleTypePreference, SubplotGeometry,
+        default_scale_type_for_data_type, nested,
     };
     use avenger_common::value::ScalarOrArray;
     use avenger_scenegraph::marks::mark::SceneMark;
@@ -2931,6 +2967,31 @@ mod tests {
                 Arc::new(StringArray::from(groups)),
                 Arc::new(StringArray::from(members)),
                 Arc::new(Float64Array::from(values)),
+            ],
+        )?;
+        ctx.read_batch(batch)
+    }
+
+    fn nested_struct_df(ctx: &SessionContext) -> datafusion::error::Result<DataFrame> {
+        let nested_key = Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("group", DataType::Utf8, false)),
+                Arc::new(StringArray::from(vec!["A", "A", "B"])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("member", DataType::Utf8, false)),
+                Arc::new(StringArray::from(vec!["a", "b", "a"])) as ArrayRef,
+            ),
+        ])) as ArrayRef;
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("nested_key", nested_key.data_type().clone(), false),
+            Field::new("value", DataType::Float64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                nested_key,
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0])) as ArrayRef,
             ],
         )?;
         ctx.read_batch(batch)
@@ -3559,16 +3620,12 @@ mod tests {
     async fn nested_band_uses_custom_position_scale_name() {
         let ctx = SessionContext::new();
         let data = df(&ctx, vec!["A", "A", "B"], vec![1.0, 2.0, 1.0]).unwrap();
-        let nested_expr = named_struct(vec![
-            lit("group"),
-            col("category"),
-            lit("series"),
-            col("value"),
-        ]);
         let mut channels = IndexMap::new();
         channels.insert(
             "x".to_string(),
-            ChannelValue::from(nested_expr).with_scale_name("grouped_x"),
+            nested(["category", "value"])
+                .with_scale_name("grouped_x")
+                .into(),
         );
         channels.insert(
             "x2".to_string(),
@@ -3626,6 +3683,126 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn raw_named_struct_nested_band_level_config_requires_nested_api() {
+        let ctx = SessionContext::new();
+        let data = nested_df(
+            &ctx,
+            vec!["A", "A", "B"],
+            vec!["a", "b", "a"],
+            vec![1.0, 2.0, 3.0],
+        )
+        .unwrap();
+        let mut config = NestedBandSpec::default();
+        config.levels.insert(
+            1,
+            NestedBandLevelSpec {
+                nest_scope: Some(NestScope::Shared),
+                ..Default::default()
+            },
+        );
+        let mut channels = IndexMap::new();
+        channels.insert(
+            "x".to_string(),
+            ChannelValue::from(named_struct(vec![
+                lit("group"),
+                col("group"),
+                lit("member"),
+                col("member"),
+            ]))
+            .with_nested_band_config(config),
+        );
+        channels.insert(
+            "x2".to_string(),
+            ChannelExpr::scaled(col(":x")).band(1.0).into(),
+        );
+        channels.insert("y".to_string(), ChannelValue::from(col("value")));
+        let mark = Arc::new(TestCompiledMark::new(data, channels)) as Arc<dyn CompiledMark>;
+        let coord_transform = TestCoordTransform;
+
+        let err = build_scale_builder_from_marks(
+            &[mark],
+            &HashMap::new(),
+            &coord_transform,
+            &None,
+            None,
+            &eval_ctx(&ctx),
+            &Theme::light(),
+        )
+        .await
+        .expect_err("raw named_struct nested position should be rejected");
+
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("must be created with nested"), "{message}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn physical_struct_nested_band_position_column_requires_nested_api() {
+        let ctx = SessionContext::new();
+        let data = nested_struct_df(&ctx).unwrap();
+        let mut channels = IndexMap::new();
+        channels.insert("x".to_string(), ChannelValue::from(col("nested_key")));
+        channels.insert("y".to_string(), ChannelValue::from(col("value")));
+        let mark = Arc::new(TestCompiledMark::new(data, channels)) as Arc<dyn CompiledMark>;
+        let coord_transform = TestCoordTransform;
+
+        let err = build_scale_builder_from_marks(
+            &[mark],
+            &HashMap::new(),
+            &coord_transform,
+            &None,
+            None,
+            &eval_ctx(&ctx),
+            &Theme::light(),
+        )
+        .await
+        .expect_err("raw physical struct position should be rejected");
+
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("must be created with nested"), "{message}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_nested_band_scale_on_raw_struct_requires_nested_api() {
+        let ctx = SessionContext::new();
+        let data = nested_struct_df(&ctx).unwrap();
+        let mut channels = IndexMap::new();
+        channels.insert(
+            "x".to_string(),
+            ChannelValue::from(col("nested_key")).scale_with::<NestedBand>(|scale| scale),
+        );
+        channels.insert("y".to_string(), ChannelValue::from(col("value")));
+        let mark = Arc::new(TestCompiledMark::new(data, channels)) as Arc<dyn CompiledMark>;
+        let coord_transform = TestCoordTransform;
+
+        let err = build_scale_builder_from_marks(
+            &[mark],
+            &HashMap::new(),
+            &coord_transform,
+            &None,
+            None,
+            &eval_ctx(&ctx),
+            &Theme::light(),
+        )
+        .await
+        .expect_err("explicit nested band scale without nested metadata should be rejected");
+
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("must be created with nested"), "{message}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn nested_band_zero_field_struct_reports_invalid_argument() {
         let ctx = SessionContext::new();
         let empty_struct = Arc::new(StructArray::new_empty_fields(1, None)) as ArrayRef;
@@ -3662,7 +3839,7 @@ mod tests {
 
         match err {
             AvengerChartError::InvalidArgument(message) => {
-                assert!(message.contains("at least one field"));
+                assert!(message.contains("must be created with nested"), "{message}");
             }
             other => panic!("unexpected error: {other:?}"),
         }
@@ -3672,19 +3849,8 @@ mod tests {
     async fn nested_band_preserves_independent_x_y_level_options() {
         let ctx = SessionContext::new();
         let data = df(&ctx, vec!["A", "A", "B"], vec![1.0, 2.0, 1.0]).unwrap();
-        let x_nested = named_struct(vec![
-            lit("x_group"),
-            col("category"),
-            lit("x_member"),
-            col("value"),
-        ]);
-        let y_nested = named_struct(vec![
-            lit("y_group"),
-            col("category"),
-            lit("y_member"),
-            col("value"),
-        ]);
-        let mut x_config = NestedBandSpec::default();
+        let mut x_config =
+            NestedBandSpec::from_source_columns(vec!["category".to_string(), "value".to_string()]);
         x_config.levels.insert(
             1,
             NestedBandLevelSpec {
@@ -3693,7 +3859,8 @@ mod tests {
                 ..Default::default()
             },
         );
-        let mut y_config = NestedBandSpec::default();
+        let mut y_config =
+            NestedBandSpec::from_source_columns(vec!["category".to_string(), "value".to_string()]);
         y_config.levels.insert(
             1,
             NestedBandLevelSpec {
@@ -3705,7 +3872,9 @@ mod tests {
         let mut channels = IndexMap::new();
         channels.insert(
             "x".to_string(),
-            ChannelValue::from(x_nested).with_nested_band_config(x_config),
+            nested(["category", "value"])
+                .map_channel_value(|value| value.with_nested_band_config(x_config))
+                .into(),
         );
         channels.insert(
             "x2".to_string(),
@@ -3713,7 +3882,9 @@ mod tests {
         );
         channels.insert(
             "y".to_string(),
-            ChannelValue::from(y_nested).with_nested_band_config(y_config),
+            nested(["category", "value"])
+                .map_channel_value(|value| value.with_nested_band_config(y_config))
+                .into(),
         );
         channels.insert(
             "y2".to_string(),

@@ -163,11 +163,10 @@ impl CompiledMarkCore for CompiledCartesianLine {
 
     fn preferred_scale_type(
         &self,
-        channel: &str,
+        _channel: &str,
         data_type: &DataType,
     ) -> Option<ScaleTypePreference> {
-        super::nested_position_scale_type(channel, data_type)
-            .or_else(|| default_scale_type_for_data_type(data_type))
+        default_scale_type_for_data_type(data_type)
     }
 
     fn preferred_legend_renderer(

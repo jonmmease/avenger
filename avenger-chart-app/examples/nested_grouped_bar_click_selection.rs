@@ -1,8 +1,8 @@
 //! Grouped bars with a nested categorical x scale and clickable selection.
 //!
-//! Click a bar to select its full nested x path. The leaf nested axis level is
-//! hidden, so selection is driven by the clicked bar's struct-valued datum
-//! rather than visible leaf tick labels. Double-click to clear.
+//! Click a bar to select its quarter and team source-column values. The leaf
+//! nested axis level is hidden, so the team value is shown by the legend while
+//! selection remains cross-filter friendly. Double-click to clear.
 //!
 //! Run with:
 //! ```bash
@@ -18,7 +18,7 @@ use avenger_chart_app::{
 };
 use datafusion::{
     arrow::{
-        array::{ArrayRef, Float64Array, StringArray, StructArray},
+        array::{ArrayRef, Float64Array, StringArray},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
@@ -61,7 +61,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .mark(
             Rect::new()
                 .id("bars")
-                .x_with(col("nested_key"), |x| {
+                .x_with(nested(["quarter", "team"]), |x| {
                     x.axis(|a| a.title("Quarter").grid(false))
                         .level(0, |level| level.padding_inner(0.45).padding_outer(0.15))
                         .level(1, |level| {
@@ -128,7 +128,7 @@ fn select_bar_binding() -> ChartEventBinding {
         .filter(ev::datum("value").is_not_null())
         .set_selection(
             "picked",
-            SelectionUpdate::replace_clause(nested_key_clause()),
+            SelectionUpdate::replace_clause(source_column_clause()),
         )
         .exact()
 }
@@ -139,10 +139,11 @@ fn clear_selection_binding() -> ChartEventBinding {
         .exact()
 }
 
-fn nested_key_clause() -> SelectionClauseUpdate {
+fn source_column_clause() -> SelectionClauseUpdate {
     SelectionClauseUpdate::equality(lit("active"))
         .facet_scope(CoordinationScope::Shared)
-        .dimension_named("nested_key", col("nested_key"), ev::datum("nested_key"))
+        .dimension_named("quarter", col("quarter"), ev::datum("quarter"))
+        .dimension_named("team", col("team"), ev::datum("team"))
         .build()
 }
 
@@ -154,17 +155,6 @@ fn grouped_bar_batch() -> RecordBatch {
     let value = [42.0, 30.0, 34.0, 47.0, 38.0, 51.0, 39.0, 44.0];
 
     let schema = Arc::new(Schema::new(vec![
-        Field::new(
-            "nested_key",
-            DataType::Struct(
-                vec![
-                    Arc::new(Field::new("quarter", DataType::Utf8, false)),
-                    Arc::new(Field::new("team", DataType::Utf8, false)),
-                ]
-                .into(),
-            ),
-            false,
-        ),
         Field::new("quarter", DataType::Utf8, false),
         Field::new("team", DataType::Utf8, false),
         Field::new("value", DataType::Float64, false),
@@ -173,26 +163,12 @@ fn grouped_bar_batch() -> RecordBatch {
     RecordBatch::try_new(
         schema,
         vec![
-            nested_key_array(&quarter, &team),
             Arc::new(StringArray::from(quarter.to_vec())) as ArrayRef,
             Arc::new(StringArray::from(team.to_vec())) as ArrayRef,
             Arc::new(Float64Array::from(value.to_vec())) as ArrayRef,
         ],
     )
     .expect("grouped bar example data")
-}
-
-fn nested_key_array(quarters: &[&str], teams: &[&str]) -> ArrayRef {
-    Arc::new(StructArray::from(vec![
-        (
-            Arc::new(Field::new("quarter", DataType::Utf8, false)),
-            Arc::new(StringArray::from(quarters.to_vec())) as ArrayRef,
-        ),
-        (
-            Arc::new(Field::new("team", DataType::Utf8, false)),
-            Arc::new(StringArray::from(teams.to_vec())) as ArrayRef,
-        ),
-    ])) as ArrayRef
 }
 
 fn init_diagnostics() {

@@ -82,7 +82,7 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 
 use crate::{
-    ChannelResolutionError, ChannelValue, ConditionalValue,
+    ChannelResolutionError, ChannelValue, ConditionalValue, NestedBandSpec,
     serialization::DefaultLogicalExprNodeExt,
 };
 
@@ -122,6 +122,25 @@ fn inherited_scale_name_from_single_ref(
         return None;
     }
     resolved_channels.get(&ref_name)?.get_scale_name(&ref_name)
+}
+
+fn inherited_nested_band_config_from_single_ref(
+    expr: &LogicalExprNode,
+    resolved_channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
+) -> Option<Box<NestedBandSpec>> {
+    let expr = expr.to_expr(ctx).ok()?;
+    let refs = extract_channel_refs(&expr);
+    let mut refs = refs.into_iter();
+    let ref_name = refs.next()?;
+    if refs.next().is_some() {
+        return None;
+    }
+    resolved_channels
+        .get(&ref_name)?
+        .get_nested_band_config()
+        .cloned()
+        .map(Box::new)
 }
 
 /// Validate channel references for self-references and undefined channels
@@ -444,13 +463,16 @@ pub fn resolve_all_channel_refs(
                     let inherited_scale_name = scale_name.clone().or_else(|| {
                         inherited_scale_name_from_single_ref(expr, &resolved_channels, ctx)
                     });
+                    let inherited_nested_band_config = nested_band_config.clone().or_else(|| {
+                        inherited_nested_band_config_from_single_ref(expr, &resolved_channels, ctx)
+                    });
                     let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels, ctx);
                     ChannelValue::Scaled {
                         expr: resolved_expr,
                         scale_name: inherited_scale_name,
                         position_boundary: *position_boundary,
                         scale_config: scale_config.clone(),
-                        nested_band_config: nested_band_config.clone(),
+                        nested_band_config: inherited_nested_band_config,
                         legend_config: legend_config.clone(),
                         axis_config: axis_config.clone(),
                         domain_coordination: domain_coordination.clone(),
@@ -532,7 +554,7 @@ pub fn resolve_all_channel_refs(
 mod tests {
     use datafusion::logical_expr::{col, lit};
 
-    use crate::PositionBoundary;
+    use crate::{NestedBandSpec, PositionBoundary};
 
     use super::*;
 
@@ -596,7 +618,10 @@ mod tests {
                 scale_name: Some("shared_x".to_string()),
                 position_boundary: Some(PositionBoundary::Band { band: 0.0 }),
                 scale_config: None,
-                nested_band_config: None,
+                nested_band_config: Some(Box::new(NestedBandSpec::from_source_columns(vec![
+                    "group".to_string(),
+                    "member".to_string(),
+                ]))),
                 legend_config: None,
                 axis_config: None,
                 domain_coordination: None,
@@ -624,6 +649,11 @@ mod tests {
         assert_eq!(
             x2.get_position_boundary(),
             Some(PositionBoundary::Band { band: 1.0 })
+        );
+        assert_eq!(
+            x2.get_nested_band_config()
+                .map(|nested| nested.source_columns.as_slice()),
+            Some(["group".to_string(), "member".to_string()].as_slice())
         );
         assert_eq!(x2.get_scale_name("x2").as_deref(), Some("shared_x"));
     }

@@ -194,7 +194,7 @@ pub use mark_state::validate_structural_id;
 pub use mark_state::{CompiledMarkState, MarkDataMode, MarkState};
 pub use maybe::{Maybe, MaybeOptionalExpr};
 pub use nested_band::{
-    NestScope, NestedBandLevelConfig, NestedBandLevelSpec, NestedBandSpec, PositionBoundary,
+    NestScope, NestedBandLevelConfig, NestedBandLevelSpec, NestedBandSpec, PositionBoundary, nested,
 };
 pub use no_guide::NoGuide;
 pub use overflow::{MeasurementResult, OverflowSpaceRequirement};

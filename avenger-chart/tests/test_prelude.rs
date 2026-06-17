@@ -34,6 +34,7 @@ fn test_prelude_imports() {
     let _nested_level = NestedBandLevelSpec::default();
     let _nest_scope = NestScope::Shared;
     let _position_boundary = PositionBoundary::level_band(0, 0.5);
+    let _nested_expr = nested(["quarter", "team"]);
 
     // Legend builders
     let _legend = ColorLegendBuilder::new()
