@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use datafusion::{
     arrow::datatypes::DataType,
-    common::ScalarValue,
+    common::{Column, ScalarValue},
     logical_expr::{Expr, expr::Placeholder, lit},
     prelude::col,
 };
@@ -25,6 +25,9 @@ pub enum RepeatPlaceholderKind {
     RowExpr,
     ColumnExpr,
     ItemExpr,
+    RowName,
+    ColumnName,
+    ItemName,
     RowIndex,
     ColumnIndex,
     ItemIndex,
@@ -43,6 +46,9 @@ impl RepeatPlaceholderKind {
             Self::RowExpr => "row_expr",
             Self::ColumnExpr => "column_expr",
             Self::ItemExpr => "item_expr",
+            Self::RowName => "row_name",
+            Self::ColumnName => "column_name",
+            Self::ItemName => "item_name",
             Self::RowIndex => "row_index",
             Self::ColumnIndex => "column_index",
             Self::ItemIndex => "item_index",
@@ -61,6 +67,9 @@ impl RepeatPlaceholderKind {
             "row_expr" => Self::RowExpr,
             "column_expr" => Self::ColumnExpr,
             "item_expr" => Self::ItemExpr,
+            "row_name" => Self::RowName,
+            "column_name" => Self::ColumnName,
+            "item_name" => Self::ItemName,
             "row_index" => Self::RowIndex,
             "column_index" => Self::ColumnIndex,
             "item_index" => Self::ItemIndex,
@@ -79,6 +88,7 @@ impl RepeatPlaceholderKind {
         match self {
             Self::RowExpr | Self::ColumnExpr | Self::ItemExpr => None,
             Self::RowIndex | Self::ColumnIndex | Self::ItemIndex => Some(DataType::Int64),
+            Self::RowName | Self::ColumnName | Self::ItemName => Some(DataType::Utf8),
             Self::CellId
             | Self::RowId
             | Self::ColumnId
@@ -270,12 +280,45 @@ pub fn row() -> ChannelExpr {
     ChannelExpr::scaled(repeat_placeholder_expr(RepeatPlaceholderKind::RowExpr))
 }
 
+/// String placeholder for the current repeated row variable id.
+///
+/// Use this in field-name contexts such as `col(...)`, `event::datum(...)`,
+/// `nested([...])`, aggregate group keys, and source-column selection
+/// dimensions. It resolves to the repeat variable `id`, so it is intended for
+/// field-backed variables such as `RepeatVariable::field("name")` or
+/// `RepeatVariable::new("name", col("name"))`.
+pub fn row_name() -> String {
+    repeat_placeholder_id(RepeatPlaceholderKind::RowName)
+}
+
 pub fn column() -> ChannelExpr {
     ChannelExpr::scaled(repeat_placeholder_expr(RepeatPlaceholderKind::ColumnExpr))
 }
 
+/// String placeholder for the current repeated column variable id.
+///
+/// Use this in field-name contexts such as `col(...)`, `event::datum(...)`,
+/// `nested([...])`, aggregate group keys, and source-column selection
+/// dimensions. It resolves to the repeat variable `id`, so it is intended for
+/// field-backed variables such as `RepeatVariable::field("name")` or
+/// `RepeatVariable::new("name", col("name"))`.
+pub fn column_name() -> String {
+    repeat_placeholder_id(RepeatPlaceholderKind::ColumnName)
+}
+
 pub fn item() -> ChannelExpr {
     ChannelExpr::scaled(repeat_placeholder_expr(RepeatPlaceholderKind::ItemExpr))
+}
+
+/// String placeholder for the current repeated wrap/item variable id.
+///
+/// Use this in field-name contexts such as `col(...)`, `event::datum(...)`,
+/// `nested([...])`, aggregate group keys, and source-column selection
+/// dimensions. It resolves to the repeat variable `id`, so it is intended for
+/// field-backed variables such as `RepeatVariable::field("name")` or
+/// `RepeatVariable::new("name", col("name"))`.
+pub fn item_name() -> String {
+    repeat_placeholder_id(RepeatPlaceholderKind::ItemName)
 }
 
 pub fn row_index() -> Expr {
@@ -332,10 +375,28 @@ pub fn collect_repeat_placeholder_kinds(
         {
             kinds.insert(kind);
         }
+        if let Expr::Column(column) = candidate {
+            collect_repeat_name_placeholder_kinds(&column.name, &mut kinds);
+        }
+        if let Expr::Literal(ScalarValue::Utf8(Some(value)), _) = candidate {
+            collect_repeat_name_placeholder_kinds(value, &mut kinds);
+        }
         Ok(TreeNodeRecursion::Continue)
     })
     .map_err(AvengerChartError::DataFusionError)?;
     Ok(kinds)
+}
+
+fn collect_repeat_name_placeholder_kinds(value: &str, kinds: &mut BTreeSet<RepeatPlaceholderKind>) {
+    for kind in [
+        RepeatPlaceholderKind::RowName,
+        RepeatPlaceholderKind::ColumnName,
+        RepeatPlaceholderKind::ItemName,
+    ] {
+        if value.contains(&repeat_placeholder_id(kind)) {
+            kinds.insert(kind);
+        }
+    }
 }
 
 pub fn resolve_repeat_placeholders(
@@ -349,6 +410,25 @@ pub fn resolve_repeat_placeholders(
             let replacement = repeat_placeholder_replacement(kind, ctx)
                 .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?;
             return Ok(Transformed::yes(replacement));
+        }
+        if let Expr::Column(column) = &candidate
+            && let Some(name) = resolve_repeat_name_placeholders(&column.name, ctx)
+                .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?
+        {
+            return Ok(Transformed::yes(Expr::Column(Column {
+                relation: column.relation.clone(),
+                name,
+                spans: column.spans.clone(),
+            })));
+        }
+        if let Expr::Literal(ScalarValue::Utf8(Some(value)), metadata) = &candidate
+            && let Some(value) = resolve_repeat_name_placeholders(value, ctx)
+                .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?
+        {
+            return Ok(Transformed::yes(Expr::Literal(
+                ScalarValue::Utf8(Some(value)),
+                metadata.clone(),
+            )));
         }
 
         Ok(Transformed::no(candidate))
@@ -378,13 +458,19 @@ enum RepeatDomainOrigin {
 fn repeat_domain_origin(expr: &Expr) -> Result<Option<RepeatDomainOrigin>, AvengerChartError> {
     let kinds = collect_repeat_placeholder_kinds(expr)?;
     let mut origins = Vec::new();
-    if kinds.contains(&RepeatPlaceholderKind::RowExpr) {
+    if kinds.contains(&RepeatPlaceholderKind::RowExpr)
+        || kinds.contains(&RepeatPlaceholderKind::RowName)
+    {
         origins.push(RepeatDomainOrigin::Row);
     }
-    if kinds.contains(&RepeatPlaceholderKind::ColumnExpr) {
+    if kinds.contains(&RepeatPlaceholderKind::ColumnExpr)
+        || kinds.contains(&RepeatPlaceholderKind::ColumnName)
+    {
         origins.push(RepeatDomainOrigin::Column);
     }
-    if kinds.contains(&RepeatPlaceholderKind::ItemExpr) {
+    if kinds.contains(&RepeatPlaceholderKind::ItemExpr)
+        || kinds.contains(&RepeatPlaceholderKind::ItemName)
+    {
         origins.push(RepeatDomainOrigin::Item);
     }
     Ok(if origins.len() == 1 {
@@ -635,6 +721,11 @@ fn resolve_nested_band_config(
     nested_band_config
         .map(|config| {
             let mut config = *config;
+            config.source_columns = config
+                .source_columns
+                .into_iter()
+                .map(|column| Ok(resolve_repeat_name_placeholders(&column, ctx)?.unwrap_or(column)))
+                .collect::<Result<_, AvengerChartError>>()?;
             for level in config.levels.values_mut() {
                 level.domain = resolve_maybe(std::mem::take(&mut level.domain), |domain| {
                     resolve_scale_domain(domain, ctx)
@@ -821,6 +912,11 @@ fn repeat_placeholder_replacement(
         RepeatPlaceholderKind::RowExpr => resolved_expr(ctx.row.as_ref(), "row"),
         RepeatPlaceholderKind::ColumnExpr => resolved_expr(ctx.column.as_ref(), "column"),
         RepeatPlaceholderKind::ItemExpr => resolved_expr(ctx.item.as_ref(), "item"),
+        RepeatPlaceholderKind::RowName => resolved_string(ctx.row.as_ref(), "row", |v| &v.id),
+        RepeatPlaceholderKind::ColumnName => {
+            resolved_string(ctx.column.as_ref(), "column", |v| &v.id)
+        }
+        RepeatPlaceholderKind::ItemName => resolved_string(ctx.item.as_ref(), "item", |v| &v.id),
         RepeatPlaceholderKind::RowIndex => resolved_index(ctx.row_index, "row"),
         RepeatPlaceholderKind::ColumnIndex => resolved_index(ctx.column_index, "column"),
         RepeatPlaceholderKind::ItemIndex => resolved_index(ctx.item_index, "item"),
@@ -838,6 +934,31 @@ fn repeat_placeholder_replacement(
             resolved_string(ctx.item.as_ref(), "item", |v| &v.title)
         }
     }
+}
+
+pub fn resolve_repeat_name_placeholders(
+    value: &str,
+    ctx: &RepeatContext,
+) -> Result<Option<String>, AvengerChartError> {
+    let mut resolved = value.to_string();
+    let mut changed = false;
+    for (kind, variable, role) in [
+        (RepeatPlaceholderKind::RowName, ctx.row.as_ref(), "row"),
+        (
+            RepeatPlaceholderKind::ColumnName,
+            ctx.column.as_ref(),
+            "column",
+        ),
+        (RepeatPlaceholderKind::ItemName, ctx.item.as_ref(), "item"),
+    ] {
+        let placeholder = repeat_placeholder_id(kind);
+        if resolved.contains(&placeholder) {
+            let variable = variable.ok_or_else(|| missing_repeat_variable_error(role))?;
+            resolved = resolved.replace(&placeholder, &variable.id);
+            changed = true;
+        }
+    }
+    Ok(changed.then_some(resolved))
 }
 
 fn resolved_expr(
@@ -919,6 +1040,8 @@ mod tests {
     use datafusion_proto::protobuf::LogicalExprNode;
     use std::collections::HashMap;
 
+    use crate::{event, nested};
+
     use super::*;
 
     fn resolved(id: &str, expr: Expr, title: &str) -> ResolvedRepeatVariable {
@@ -934,6 +1057,12 @@ mod tests {
         RepeatContext::new()
             .with_row(resolved("row_a", col("a"), "Row A"), 1, 3)
             .with_column(resolved("col_b", col("b"), "Column B"), 2, 4)
+    }
+
+    fn field_context() -> RepeatContext {
+        RepeatContext::new()
+            .with_row(resolved("a", col("a"), "A"), 1, 3)
+            .with_column(resolved("b", col("b"), "B"), 2, 4)
     }
 
     #[test]
@@ -967,11 +1096,13 @@ mod tests {
         let expr = row_index()
             .eq(column_index())
             .and(column_id().eq(lit("x")))
+            .and(col(column_name()).is_not_null())
             .and(current_cell_predicate());
         let kinds = collect_repeat_placeholder_kinds(&expr).expect("collect placeholders");
         assert!(kinds.contains(&RepeatPlaceholderKind::RowIndex));
         assert!(kinds.contains(&RepeatPlaceholderKind::ColumnIndex));
         assert!(kinds.contains(&RepeatPlaceholderKind::ColumnId));
+        assert!(kinds.contains(&RepeatPlaceholderKind::ColumnName));
         assert!(kinds.contains(&RepeatPlaceholderKind::CellId));
     }
 
@@ -994,6 +1125,73 @@ mod tests {
             simplify_to_scalar_sync(cell).expect("scalar"),
             ScalarValue::Utf8(Some("repeat_cell:row_a:col_b".to_string()))
         );
+    }
+
+    #[test]
+    fn resolve_repeat_placeholders_rewrites_field_name_contexts() {
+        let ctx = field_context();
+
+        let column_expr =
+            resolve_repeat_placeholders(col(column_name()), &ctx).expect("resolve column name");
+        assert_eq!(column_expr.to_string(), "b");
+
+        let literal = resolve_repeat_placeholders(lit(format!("field:{}", column_name())), &ctx)
+            .expect("resolve string literal");
+        assert_eq!(
+            simplify_to_scalar_sync(literal).expect("scalar literal"),
+            ScalarValue::Utf8(Some("field:b".to_string()))
+        );
+
+        let event_datum =
+            resolve_repeat_placeholders(event::datum(column_name()), &ctx).expect("resolve datum");
+        assert_eq!(event_datum.to_string(), "__event_datum_b");
+    }
+
+    #[test]
+    fn resolve_repeat_channel_expr_rewrites_nested_source_columns() {
+        let value = nested(["quarter".to_string(), column_name()]);
+        let resolved =
+            resolve_repeat_channel_expr(value, &field_context()).expect("resolve nested channel");
+        assert_eq!(
+            resolved.data_expr().to_string(),
+            "named_struct(Utf8(\"quarter\"), quarter, Utf8(\"b\"), b)"
+        );
+
+        let config = resolved
+            .channel_value()
+            .get_nested_band_config()
+            .expect("nested-band metadata");
+        assert_eq!(config.source_columns, vec!["quarter", "b"]);
+    }
+
+    #[test]
+    fn repeat_name_resolves_to_variable_id_not_variable_expr() {
+        let ctx = RepeatContext::new().with_column(
+            resolved("alias", col("source"), "Aliased Source"),
+            0,
+            1,
+        );
+
+        let expr =
+            resolve_repeat_placeholders(column().into_data_expr(), &ctx).expect("resolve expr");
+        assert_eq!(expr.to_string(), "source");
+
+        let name_expr = resolve_repeat_placeholders(col(column_name()), &ctx)
+            .expect("resolve name placeholder");
+        assert_eq!(name_expr.to_string(), "alias");
+
+        let nested_value = nested([column_name()]);
+        let resolved_nested =
+            resolve_repeat_channel_expr(nested_value, &ctx).expect("resolve nested channel");
+        assert_eq!(
+            resolved_nested.data_expr().to_string(),
+            "named_struct(Utf8(\"alias\"), alias)"
+        );
+        let config = resolved_nested
+            .channel_value()
+            .get_nested_band_config()
+            .expect("nested-band metadata");
+        assert_eq!(config.source_columns, vec!["alias"]);
     }
 
     #[test]

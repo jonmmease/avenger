@@ -961,8 +961,8 @@ pub fn start_domain(channel: &str) -> Expr {
 /// The value is drawn from the evaluated logical mark row before visual channels
 /// are scaled to pixels. Events that do not hit a mark instance, or hit a mark
 /// without the requested datum field, produce null.
-pub fn datum(field: &str) -> Expr {
-    col(event_datum_column_name(field))
+pub fn datum(field: impl AsRef<str>) -> Expr {
+    col(event_datum_column_name(field.as_ref()))
 }
 
 /// Domain value associated with a clicked/hovered discrete legend item.

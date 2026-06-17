@@ -5,9 +5,10 @@ use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
     DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
-    SerializableExpr,
+    SerializableExpr, simplify_to_scalar_sync,
 };
 use datafusion::{
+    common::ScalarValue,
     dataframe::DataFrame,
     functions_aggregate::expr_fn::{avg, count, max, min, sum},
     logical_expr::{Expr, col, lit},
@@ -229,10 +230,29 @@ pub(crate) fn map_aggregate_group_keys(
         .map(|group| {
             Ok(AggregateGroupKeySpec {
                 expr: map_expr_node(&group.expr, f)?,
-                alias: group.alias.clone(),
+                alias: map_alias(&group.alias, f)?,
             })
         })
         .collect()
+}
+
+fn map_alias(
+    alias: &Option<String>,
+    f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+) -> Result<Option<String>, AvengerChartError> {
+    let Some(alias) = alias else {
+        return Ok(None);
+    };
+    if !alias.contains("$__repeat_") {
+        return Ok(Some(alias.clone()));
+    }
+    let mapped = f(lit(alias.clone()))?;
+    match simplify_to_scalar_sync(mapped).map_err(AvengerChartError::DataFusionError)? {
+        ScalarValue::Utf8(Some(value)) => Ok(Some(value)),
+        other => Err(AvengerChartError::InvalidArgument(format!(
+            "aggregate group_by alias expression must resolve to a string, got {other}"
+        ))),
+    }
 }
 
 pub(crate) fn map_aggregate_measures(
@@ -284,4 +304,50 @@ fn group_alias_is_identity(
     ctx: &datafusion::prelude::SessionContext,
 ) -> Result<bool, AvengerChartError> {
     Ok(simple_column_name(&group.expr.to_default_expr(ctx)?).as_deref() == Some(alias))
+}
+
+#[cfg(test)]
+mod tests {
+    use avenger_chart_core::{
+        RepeatContext, ResolvedRepeatVariable, repeat, resolve_repeat_placeholders,
+    };
+    use datafusion::{logical_expr::col, prelude::SessionContext};
+
+    use super::*;
+
+    #[test]
+    fn map_group_keys_resolves_repeat_name_aliases() {
+        let group_by = vec![AggregateGroupKeySpec {
+            expr: expr_node(
+                col(repeat::column_name()),
+                "aggregate group_by repeat column name",
+            ),
+            alias: Some(repeat::column_name()),
+        }];
+        let repeat_context = RepeatContext::new().with_column(
+            ResolvedRepeatVariable {
+                id: "team".to_string(),
+                expr: col("team"),
+                title: "Team".to_string(),
+                type_hint: None,
+            },
+            0,
+            2,
+        );
+
+        let mapped = map_aggregate_group_keys(&group_by, &mut |expr| {
+            resolve_repeat_placeholders(expr, &repeat_context)
+        })
+        .expect("resolve repeat placeholders");
+
+        assert_eq!(mapped[0].alias.as_deref(), Some("team"));
+        assert_eq!(
+            mapped[0]
+                .expr
+                .to_default_expr(&SessionContext::new())
+                .expect("expr deserializes")
+                .to_string(),
+            "team"
+        );
+    }
 }

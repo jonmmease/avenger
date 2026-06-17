@@ -1329,33 +1329,36 @@ async fn test_nested_position_repeat_axis_titles() {
         vec![
             Field::new("region", DataType::Utf8, false),
             Field::new("product", DataType::Utf8, false),
-            Field::new("sales", DataType::Float32, false),
-            Field::new("target", DataType::Float32, false),
+            Field::new("team", DataType::Utf8, false),
+            Field::new("value", DataType::Float32, false),
         ],
         vec![
             Arc::new(StringArray::from(vec![
                 "North", "North", "North", "South", "South", "South",
             ])) as ArrayRef,
             Arc::new(StringArray::from(vec!["Bk", "Gm", "Ty", "Bk", "Gm", "Ty"])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["Aa", "Bb", "Cc", "Aa", "Bb", "Cc"])) as ArrayRef,
             Arc::new(Float32Array::from(vec![22.0, 31.0, 26.0, 28.0, 24.0, 34.0])) as ArrayRef,
-            Arc::new(Float32Array::from(vec![26.0, 29.0, 30.0, 32.0, 30.0, 36.0])) as ArrayRef,
         ],
     );
     let df = ctx.read_batch(batch).expect("dataframe");
-    let nested = nested(["region", "product"]);
+    let nested = nested(["region".to_string(), repeat::column_name()]);
     let cell = Plot::<Cartesian>::new().mark(
         Rect::new()
             .x_with(nested, |x| {
-                x.axis(|a| a.title("Product grouped by region").grid(false))
+                x.axis(|a| a.title("Category grouped by region").grid(false))
                     .level(0, |l| l.axis(|a| a.title("Region")).padding_inner(0.34))
-                    .level(1, |l| l.axis(|a| a.title("Product")).padding_inner(0.08))
+                    .level(1, |l| {
+                        l.axis(|a| a.title(repeat::column_title()))
+                            .padding_inner(0.08)
+                    })
             })
             .x2_with(col(":x"), |x| x.band(1.0))
             .y_with(lit(0.0), |y| {
                 y.scale(|s| s.domain((0.0, 40.0)))
-                    .axis(|a| a.title(repeat::column_title()).grid(true))
+                    .axis(|a| a.title("Value").grid(true))
             })
-            .y2(repeat::column())
+            .y2(col("value"))
             .fill("#4c78a8")
             .stroke("#ffffff")
             .stroke_width(1.0),
@@ -1364,8 +1367,8 @@ async fn test_nested_position_repeat_axis_titles() {
         .data(df)
         .plot_size(260.0, 165.0)
         .columns(vec![
-            RepeatVariable::new("sales", col("sales")).title("Sales"),
-            RepeatVariable::new("target", col("target")).title("Target"),
+            RepeatVariable::field("product").title("Product"),
+            RepeatVariable::field("team").title("Team"),
         ])
         .cell(cell);
 

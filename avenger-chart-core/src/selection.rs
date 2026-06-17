@@ -634,6 +634,19 @@ impl SelectionEqualityClauseBuilder {
         self
     }
 
+    pub fn dimension_datum_named(
+        self,
+        id: impl Into<String>,
+        field_name: impl Into<String>,
+    ) -> Self {
+        let field_name = field_name.into();
+        self.dimension_named(
+            id,
+            datafusion::prelude::col(field_name.clone()),
+            crate::event::datum(field_name),
+        )
+    }
+
     pub fn build(self) -> SelectionClauseUpdate {
         self.update
     }

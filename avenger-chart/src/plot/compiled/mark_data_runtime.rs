@@ -145,8 +145,7 @@ async fn apply_mark_data_transforms(
     dataframe: Option<DataFrame>,
     transforms: &[DataTransformStage],
     ctx: &SessionContext,
-    params: &IndexMap<String, ScalarValue>,
-    time_context: &avenger_chart_core::TimeContext,
+    eval_ctx: &EvaluationContext,
     facet_data_scope: Option<FacetDataScopeContext<'_>>,
     mark_facet_data_scope: FacetDataScope,
 ) -> Result<(Option<DataFrame>, DerivedScalarMap), AvengerChartError> {
@@ -157,8 +156,8 @@ async fn apply_mark_data_transforms(
     let transforms = scoped_transform_stages(transforms, mark_facet_data_scope)?;
     let transform_ctx = DataTransformExecutionContext {
         session_context: ctx,
-        params,
-        time_context: time_context.clone(),
+        params: eval_ctx.params(),
+        time_context: eval_ctx.time_context().clone(),
     };
     let mut dataframe = dataframe;
     let mut derived_scalars = DerivedScalarMap::new();
@@ -191,7 +190,16 @@ async fn apply_mark_data_transforms(
             current_level = stage.level;
         }
 
-        let result = stage.transform.apply(dataframe, &transform_ctx).await?;
+        let available_columns = dataframe
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<HashSet<_>>();
+        let transform = stage.transform.map_exprs(&mut |expr| {
+            expand_selection_predicates(expr, eval_ctx, Some(&available_columns))
+        })?;
+        let result = transform.apply(dataframe, &transform_ctx).await?;
         dataframe = result.dataframe;
         for (id, expr) in result.derived_scalars {
             if derived_scalars.insert(id.clone(), expr).is_some() {
@@ -788,8 +796,7 @@ pub(crate) async fn prepare_logical_mark_data(
         dataframe,
         request.mark.data_context().transforms(),
         ctx,
-        request.eval_ctx.params(),
-        request.eval_ctx.time_context(),
+        request.eval_ctx,
         request.facet_data_scope,
         request.mark.state().facet_data_scope,
     )

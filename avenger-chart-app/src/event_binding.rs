@@ -7770,6 +7770,106 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn selection_predicate_filter_before_aggregate_updates_overlay() {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let selected = picked.predicate();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('Alpha'),
+                    ('Alpha'),
+                    ('Beta'),
+                    ('Beta'),
+                    ('Beta'),
+                    ('Gamma')
+                ) AS t(category)",
+            )
+            .await
+            .expect("filter aggregate data");
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(equality_category_clause(lit("active"))),
+            )
+            .exact();
+        let full_counts = Rect::new().transform(
+            Aggregate::new().group_by([col("category")]).count("count"),
+            |mark, count| {
+                mark.x_with(col("category"), |c| {
+                    c.scale_with::<Band>(|s| s.padding_inner(0.2))
+                })
+                .x2_with(col(":x"), |c| c.band(1.0))
+                .y(lit(0.0))
+                .y2(count.output("count"))
+                .fill("#b8beca")
+            },
+        );
+        let filtered_counts = Rect::new()
+            .transform_no_output(Filter::new(selected), |mark| mark)
+            .transform(
+                Aggregate::new().group_by([col("category")]).count("count"),
+                |mark, count| {
+                    mark.x_with(col("category"), |c| {
+                        c.scale_with::<Band>(|s| s.padding_inner(0.2))
+                    })
+                    .x2_with(col(":x"), |c| c.band(1.0))
+                    .y(lit(0.0))
+                    .y2(count.output("count"))
+                    .fill("#2563eb")
+                },
+            );
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .add_selection(picked)
+            .mark(full_counts)
+            .mark(filtered_counts)
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile filtered aggregate plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial filtered aggregate scene");
+        assert!(
+            !has_blue_fill(&collect_rect_fills(&scene)),
+            "empty selection should not render the filtered aggregate overlay"
+        );
+
+        let datum_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            "category",
+            ScalarValue::Utf8(Some("Beta".to_string())),
+        )
+        .await;
+        let position = rect_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the Beta aggregate bar");
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(status.rerender);
+
+        let updated_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("selected filtered aggregate scene");
+        assert!(
+            has_blue_fill(&collect_rect_fills(&updated_scene)),
+            "selection predicate should expand inside Filter before Aggregate"
+        );
+    }
+
+    #[tokio::test]
     async fn bar_click_writes_nested_source_column_selection_clause() {
         let binding = ChartEventBinding::on(ChartEventType::Click)
             .filter(event::button().eq(lit("left")))

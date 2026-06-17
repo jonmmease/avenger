@@ -2818,6 +2818,16 @@ mod tests {
     #[tokio::test]
     async fn repeat_grid_resolves_event_binding_placeholders() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("a", DataType::Float64, false),
+                Field::new("b", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(Float64Array::from(vec![1.0, 2.0])),
+                Arc::new(Float64Array::from(vec![3.0, 4.0])),
+            ],
+        )?;
         let binding = ChartEventBinding::on(ChartEventType::Click)
             .filter(repeat::cell_id().eq(lit("repeat_cell:a:b")))
             .set_store_at_start_scope(
@@ -2837,8 +2847,17 @@ mod tests {
                         .endpoints(lit(3.0), lit(4.0))
                         .build(),
                 ),
+            )
+            .set_selection_at_start_scope(
+                "field_pick",
+                SelectionUpdate::replace_clause(
+                    SelectionClauseUpdate::equality(lit("active"))
+                        .dimension_datum_named("column", repeat::column_name())
+                        .build(),
+                ),
             );
         let compiled = Plot::<RepeatGrid>::new()
+            .data(ctx.read_batch(batch)?)
             .rows(repeat_vars(&["a"]))
             .columns(repeat_vars(&["b"]))
             .cell(repeated_grid_cell().event_binding(binding))
@@ -2903,6 +2922,20 @@ mod tests {
         };
         assert_eq!(dimensions[0].field_expr.to_expr(&ctx)?.to_string(), "b");
         assert_eq!(dimensions[1].field_expr.to_expr(&ctx)?.to_string(), "a");
+
+        let SelectionUpdate::ReplaceAllClauses { clauses } =
+            &binding.selection_assignments[1].update
+        else {
+            panic!("expected selection replacement");
+        };
+        let SelectionPredicateUpdate::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_eq!(dimensions[0].field_expr.to_expr(&ctx)?.to_string(), "b");
+        assert_eq!(
+            dimensions[0].value.to_expr()?.to_string(),
+            "__event_datum_b"
+        );
         Ok(())
     }
 
