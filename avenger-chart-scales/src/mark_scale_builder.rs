@@ -4077,6 +4077,39 @@ mod tests {
         validate_nested_band_derivative_configs(&channels, &ctx).unwrap();
     }
 
+    #[test]
+    fn nested_band_derivative_channel_rejects_label_with() {
+        let ctx = SessionContext::new();
+        let mut channels = IndexMap::new();
+        channels.insert("x".to_string(), ChannelValue::from(col("x")));
+        channels.insert(
+            "x2".to_string(),
+            ChannelValue::from(col(":x")).with_nested_band_config({
+                let mut config = NestedBandSpec::default();
+                config.levels.insert(
+                    0,
+                    NestedBandLevelSpec {
+                        label_expr: Some(
+                            datafusion_proto::protobuf::LogicalExprNode::from_expr(col("label"))
+                                .expect("serialize label expr"),
+                        ),
+                        ..Default::default()
+                    },
+                );
+                config
+            }),
+        );
+
+        let err = validate_nested_band_derivative_configs(&channels, &ctx)
+            .expect_err("derivative label config");
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("derivative channel 'x2'"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn scale_order_by_rejects_non_categorical_scale() {
         let ctx = SessionContext::new();

@@ -40,6 +40,7 @@ async fn test_compiled_plot_with_nested_position_metadata() {
                     .level(1, |l| {
                         l.domain_scope(CoordinationScope::Shared)
                             .nest_scope(NestScope::Shared)
+                            .label_with(col("team_label"))
                             .axis(|a| a.visible(false))
                     })
             })
@@ -56,4 +57,5 @@ async fn test_compiled_plot_with_nested_position_metadata() {
     assert!(json.contains("source_columns"));
     assert!(json.contains("nest_scope"));
     assert!(json.contains("domain_coordination"));
+    assert!(json.contains("label_expr"));
 }

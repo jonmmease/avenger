@@ -733,6 +733,11 @@ fn resolve_nested_band_config(
                 level.ordering = resolve_maybe(std::mem::take(&mut level.ordering), |ordering| {
                     resolve_scale_ordering(ordering, ctx)
                 })?;
+                level.label_expr = level
+                    .label_expr
+                    .take()
+                    .map(|expr| resolve_expr_node(expr, ctx))
+                    .transpose()?;
                 level.axis_config = resolve_axis_config(level.axis_config.take(), ctx)?;
             }
             Ok(Box::new(config))
@@ -1162,6 +1167,39 @@ mod tests {
             .get_nested_band_config()
             .expect("nested-band metadata");
         assert_eq!(config.source_columns, vec!["quarter", "b"]);
+    }
+
+    #[test]
+    fn repeat_placeholders_resolve_inside_nested_band_label_with() {
+        let value = nested(["month"]).map_channel_value(|value| {
+            let mut config = value
+                .get_nested_band_config()
+                .expect("nested-band config")
+                .clone();
+            config.level_mut(0).label_expr = Some(
+                LogicalExprNode::from_default_expr(col(column_name()))
+                    .expect("serialize label expression"),
+            );
+            value.with_nested_band_config(config)
+        });
+
+        let resolved =
+            resolve_repeat_channel_expr(value, &field_context()).expect("resolve nested channel");
+        let config = resolved
+            .channel_value()
+            .get_nested_band_config()
+            .expect("nested-band metadata");
+        let label_expr = config
+            .level(0)
+            .and_then(|level| level.label_expr.as_ref())
+            .expect("label expression");
+        assert_eq!(
+            label_expr
+                .to_default_expr(&session_context())
+                .expect("label expr")
+                .to_string(),
+            "b"
+        );
     }
 
     #[test]

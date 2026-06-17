@@ -16,11 +16,13 @@ use datafusion::{
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
+use serde_with::{FromInto, serde_as};
 
 use crate::{
     AvengerChartError, Axis, ChannelExpr, ChannelValue, CoordinationScope,
     DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup, IntoExpr, Maybe,
-    RadiusExpression, ScaleDefaultDomain, ScaleDomain, ScaleOrderingSpec, validate_domain_group_id,
+    RadiusExpression, ScaleDefaultDomain, ScaleDomain, ScaleOrderingSpec, SerializableExpr,
+    validate_domain_group_id,
 };
 
 /// How child domains are shared inside a parent nested-band level.
@@ -158,6 +160,7 @@ where
 }
 
 /// Configuration for one level of a nested band position channel.
+#[serde_as]
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct NestedBandLevelSpec {
     #[serde(default)]
@@ -168,6 +171,9 @@ pub struct NestedBandLevelSpec {
     pub domain: Maybe<ScaleDomain>,
     #[serde(default)]
     pub ordering: Maybe<ScaleOrderingSpec>,
+    #[serde(default)]
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    pub label_expr: Option<LogicalExprNode>,
     #[serde(default)]
     pub padding_inner: Option<f64>,
     #[serde(default)]
@@ -190,6 +196,11 @@ impl NestedBandLevelSpec {
         if let Some(ordering) = self.ordering.as_option() {
             exprs.extend(ordering.all_exprs(ctx));
         }
+        if let Some(label_expr) = &self.label_expr
+            && let Ok(expr) = label_expr.to_default_expr(ctx)
+        {
+            exprs.push(expr);
+        }
         if let Some(axis) = &self.axis_config {
             exprs.extend(axis.all_exprs(ctx));
         }
@@ -204,6 +215,7 @@ impl std::fmt::Debug for NestedBandLevelSpec {
             .field("domain_coordination", &self.domain_coordination)
             .field("domain", &self.domain)
             .field("ordering", &self.ordering)
+            .field("has_label_expr", &self.label_expr.is_some())
             .field("padding_inner", &self.padding_inner)
             .field("padding_outer", &self.padding_outer)
             .field("padding_inner_px", &self.padding_inner_px)
@@ -296,6 +308,14 @@ impl<A: Axis + Clone + Default + Send + Sync + 'static> NestedBandLevelConfig<A>
         let mut ordering = self.spec.ordering.unwrap_or_else(ScaleOrderingSpec::empty);
         ordering.order_descending = Some(true);
         self.spec.ordering = Maybe::Set(ordering);
+        self
+    }
+
+    pub fn label_with(mut self, expr: impl IntoExpr) -> Self {
+        self.spec.label_expr = Some(
+            LogicalExprNode::from_default_expr(expr.into_expr())
+                .expect("Failed to serialize nested-band label expression"),
+        );
         self
     }
 
@@ -414,18 +434,85 @@ mod tests {
     }
 
     #[test]
-    fn nested_level_config_collects_expressions() {
+    fn nested_band_label_with_participates_in_all_exprs() {
         let ctx = SessionContext::new();
         let spec = NestedBandLevelConfig::<()>::new(NestedBandLevelSpec::default())
             .domain_values(vec![lit("a"), lit("b")])
             .order_by(col("sort_key"))
+            .label_with(col("display_label"))
             .into_spec();
         let rendered = spec
             .all_exprs(&ctx)
             .into_iter()
             .map(|expr| expr.to_string())
             .collect::<Vec<_>>();
-        assert_eq!(rendered, vec!["Utf8(\"a\")", "Utf8(\"b\")", "sort_key"]);
+        assert_eq!(
+            rendered,
+            vec!["Utf8(\"a\")", "Utf8(\"b\")", "sort_key", "display_label"]
+        );
+    }
+
+    #[test]
+    fn nested_band_level_label_with_is_stored() {
+        let ctx = SessionContext::new();
+        let spec = NestedBandLevelConfig::<()>::new(NestedBandLevelSpec::default())
+            .label_with(col("month_label"))
+            .into_spec();
+
+        let label_expr = spec.label_expr.as_ref().expect("label expression");
+        assert_eq!(
+            label_expr
+                .to_default_expr(&ctx)
+                .expect("deserialize label")
+                .to_string(),
+            "month_label"
+        );
+    }
+
+    #[test]
+    fn nested_band_label_with_survives_json_and_bincode() {
+        let ctx = SessionContext::new();
+        let spec = NestedBandSpec {
+            source_columns: vec!["month".to_string()],
+            levels: BTreeMap::from([(
+                0,
+                NestedBandLevelConfig::<()>::new(NestedBandLevelSpec::default())
+                    .label_with(col("month_label"))
+                    .into_spec(),
+            )]),
+        };
+
+        let json = serde_json::to_string(&spec).expect("json serialize");
+        assert!(json.contains("label_expr"));
+        let restored_json: NestedBandSpec = serde_json::from_str(&json).expect("json deserialize");
+        assert_eq!(
+            restored_json
+                .level(0)
+                .unwrap()
+                .label_expr
+                .as_ref()
+                .unwrap()
+                .to_default_expr(&ctx)
+                .expect("json label expr")
+                .to_string(),
+            "month_label"
+        );
+
+        let serialized = bincode::serialize(&spec).expect("bincode serialize");
+        let restored_bincode: NestedBandSpec =
+            bincode::deserialize(&serialized).expect("bincode deserialize");
+        assert_eq!(
+            restored_bincode
+                .level(0)
+                .unwrap()
+                .label_expr
+                .as_ref()
+                .unwrap()
+                .to_default_expr(&ctx)
+                .expect("bincode label expr")
+                .to_string(),
+            "month_label"
+        );
     }
 
     #[test]
