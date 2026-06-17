@@ -3,7 +3,9 @@
 //! This module treats Arrow struct values as categorical paths and lays those
 //! paths out as nested bands. The code is intentionally independent of chart
 //! axes, facets, and DataFusion so lower-level consumers can evaluate and read
-//! nested categorical geometry directly.
+//! nested categorical geometry directly. Shared nested levels may synthesize
+//! virtual guide bands for missing paths, but every allocated categorical span
+//! is either padding/gap or a real/virtual axis band.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -684,7 +686,6 @@ impl Span {
 struct Node {
     level: Option<usize>,
     component: Option<NestedBandPathComponent>,
-    parent: Option<usize>,
     children: Vec<usize>,
 }
 
@@ -694,11 +695,9 @@ struct LayoutBuilder {
     level_options: Vec<NestedBandLevelOptions>,
     nodes: Vec<Node>,
     global_order: Vec<IndexMap<String, NestedBandPathComponent>>,
-    domain_paths: Vec<NestedBandPath>,
     leaf_node_by_path: HashMap<Vec<String>, usize>,
     nodes_by_level_key: HashMap<(usize, String), Vec<usize>>,
-    measure_cache: Vec<Option<Span>>,
-    template_cache: HashMap<(usize, String), Span>,
+    measure_cache: HashMap<(usize, Vec<usize>), Span>,
 }
 
 impl LayoutBuilder {
@@ -709,15 +708,12 @@ impl LayoutBuilder {
             nodes: vec![Node {
                 level: None,
                 component: None,
-                parent: None,
                 children: Vec::new(),
             }],
             global_order: vec![IndexMap::new(); paths.field_names.len()],
-            domain_paths: Vec::new(),
             leaf_node_by_path: HashMap::new(),
             nodes_by_level_key: HashMap::new(),
-            measure_cache: vec![None],
-            template_cache: HashMap::new(),
+            measure_cache: HashMap::new(),
         };
 
         for path in paths.paths {
@@ -728,7 +724,7 @@ impl LayoutBuilder {
     }
 
     fn solve(&mut self, config: &ScaleConfig) -> Result<NestedBandLayout, AvengerScaleError> {
-        let root_span = self.measure_children(0, 0)?;
+        let root_span = self.measure_children(&[0], 0)?;
         let (range_start, range_end) = config.numeric_interval_range()?;
         if !range_start.is_finite() || !range_end.is_finite() {
             return Err(AvengerScaleError::InvalidScalePropertyValue(format!(
@@ -754,7 +750,15 @@ impl LayoutBuilder {
             range_max,
             reverse: range_end < range_start,
         };
-        self.layout_children(0, 0, range_min, leaf_bandwidth, &mut solved)?;
+        self.layout_children(
+            Some(0),
+            &[0],
+            Vec::new(),
+            0,
+            range_min,
+            leaf_bandwidth,
+            &mut solved,
+        )?;
         Ok(solved.finish())
     }
 
@@ -784,10 +788,8 @@ impl LayoutBuilder {
                 self.nodes.push(Node {
                     level: Some(level),
                     component: Some(component.clone()),
-                    parent: Some(parent),
                     children: Vec::new(),
                 });
-                self.measure_cache.push(None);
                 self.nodes[parent].children.push(child);
                 self.nodes_by_level_key
                     .entry((level, component.key.clone()))
@@ -798,52 +800,32 @@ impl LayoutBuilder {
         }
 
         self.leaf_node_by_path.insert(path_key, parent);
-        self.domain_paths.push(path);
-    }
-
-    fn measure_node(&mut self, node: usize) -> Result<Span, AvengerScaleError> {
-        if let Some(span) = self.measure_cache[node] {
-            return Ok(span);
-        }
-
-        let level = self.nodes[node].level.ok_or_else(|| {
-            AvengerScaleError::InternalError("Cannot measure virtual nested band root".to_string())
-        })?;
-        let span = if level == self.field_names.len() - 1 {
-            Span::LEAF
-        } else {
-            self.measure_children(node, level + 1)?
-        };
-        self.measure_cache[node] = Some(span);
-        Ok(span)
     }
 
     fn measure_children(
         &mut self,
-        node: usize,
+        source_nodes: &[usize],
         child_level: usize,
     ) -> Result<Span, AvengerScaleError> {
         if child_level >= self.field_names.len() {
             return Ok(Span::ZERO);
         }
 
-        let keys = self.child_keys(node, child_level);
+        let cache_key = (child_level, source_nodes.to_vec());
+        if let Some(span) = self.measure_cache.get(&cache_key) {
+            return Ok(*span);
+        }
+
+        let keys = self.template_child_keys(source_nodes, child_level);
         if keys.is_empty() {
             return Ok(Span::ZERO);
         }
 
         let mut units = 0.0;
         let mut fixed = 0.0;
-        let uses_shared_template = child_level > 0
-            && self.level_options[child_level].nest_scope == NestedBandNestScope::Shared;
         for key in &keys {
-            let span = if uses_shared_template {
-                self.template_measure(child_level, key)?
-            } else if let Some(child) = self.child_with_key(node, key) {
-                self.measure_node(child)?
-            } else {
-                self.template_measure(child_level, key)?
-            };
+            let child_sources = self.template_child_source_nodes(source_nodes, child_level, key);
+            let span = self.measure_band(&child_sources, child_level)?;
             units += span.units;
             fixed += span.fixed;
         }
@@ -853,44 +835,31 @@ impl LayoutBuilder {
         let (inner_units, inner_fixed) = gap_span(option.padding_inner, option.padding_inner_px);
         let (outer_units, outer_fixed) = gap_span(option.padding_outer, option.padding_outer_px);
 
-        Ok(Span {
+        let span = Span {
             units: units + gap_count * inner_units + 2.0 * outer_units,
             fixed: fixed + gap_count * inner_fixed + 2.0 * outer_fixed,
-        })
+        };
+        self.measure_cache.insert(cache_key, span);
+        Ok(span)
     }
 
-    fn template_measure(&mut self, level: usize, key: &str) -> Result<Span, AvengerScaleError> {
-        let cache_key = (level, key.to_string());
-        if let Some(span) = self.template_cache.get(&cache_key).copied() {
-            return Ok(span);
-        }
+    fn measure_band(
+        &mut self,
+        source_nodes: &[usize],
+        level: usize,
+    ) -> Result<Span, AvengerScaleError> {
         if level == self.field_names.len() - 1 {
-            self.template_cache.insert(cache_key, Span::LEAF);
-            return Ok(Span::LEAF);
+            Ok(Span::LEAF)
+        } else {
+            self.measure_children(source_nodes, level + 1)
         }
-
-        let nodes = self
-            .nodes_by_level_key
-            .get(&(level, key.to_string()))
-            .cloned()
-            .unwrap_or_default();
-        let mut span = Span::ZERO;
-        for node in nodes {
-            let node_span = self.measure_node(node)?;
-            span.units = span.units.max(node_span.units);
-            span.fixed = span.fixed.max(node_span.fixed);
-        }
-
-        if span.units == 0.0 && span.fixed == 0.0 {
-            span = Span::LEAF;
-        }
-        self.template_cache.insert(cache_key, span);
-        Ok(span)
     }
 
     fn layout_children(
         &mut self,
-        node: usize,
+        concrete_node: Option<usize>,
+        source_nodes: &[usize],
+        path_prefix: Vec<NestedBandPathComponent>,
         child_level: usize,
         start: f32,
         leaf_bandwidth: f32,
@@ -900,7 +869,7 @@ impl LayoutBuilder {
             return Ok(());
         }
 
-        let keys = self.child_keys(node, child_level);
+        let keys = self.template_child_keys(source_nodes, child_level);
         if keys.is_empty() {
             return Ok(());
         }
@@ -916,56 +885,99 @@ impl LayoutBuilder {
             option.padding_outer_px,
             leaf_bandwidth,
         );
-        let uses_shared_template =
-            child_level > 0 && option.nest_scope == NestedBandNestScope::Shared;
         let mut cursor = start + outer_gap;
 
         for key in keys {
-            let child = self.child_with_key(node, &key);
-            let span = if uses_shared_template {
-                self.template_measure(child_level, &key)?
-            } else if let Some(child) = child {
-                self.measure_node(child)?
-            } else {
-                self.template_measure(child_level, &key)?
-            };
+            let concrete_child = concrete_node.and_then(|node| self.child_with_key(node, &key));
+            let child_sources = self.template_child_source_nodes(source_nodes, child_level, &key);
+            let span = self.measure_band(&child_sources, child_level)?;
             let width = span.px(leaf_bandwidth);
             let end = cursor + width;
-            if let Some(child) = child {
-                solved.record_axis_band(self, child, cursor, end);
-                self.layout_children(child, child_level + 1, cursor, leaf_bandwidth, solved)?;
-            } else if let Some(component) = self.global_order[child_level].get(&key) {
-                let mut path = self.node_path(node);
+            if let Some(component) =
+                self.template_component(concrete_child, &child_sources, child_level, &key)
+            {
+                let mut path = path_prefix.clone();
                 path.push(component.clone());
-                solved.record_virtual_axis_band(child_level, component, path, cursor, end);
+                solved.record_axis_band_for_path(
+                    child_level,
+                    &component,
+                    path.clone(),
+                    cursor,
+                    end,
+                    concrete_child.is_some(),
+                );
+                self.layout_children(
+                    concrete_child,
+                    &child_sources,
+                    path,
+                    child_level + 1,
+                    cursor,
+                    leaf_bandwidth,
+                    solved,
+                )?;
             }
             cursor = end + inner_gap;
         }
         Ok(())
     }
 
-    fn child_keys(&self, node: usize, child_level: usize) -> Vec<String> {
+    fn template_child_keys(&self, source_nodes: &[usize], child_level: usize) -> Vec<String> {
         if child_level == 0
             || self.level_options[child_level].nest_scope == NestedBandNestScope::Free
         {
-            self.nodes[node]
-                .children
-                .iter()
-                .filter_map(|child| {
+            let mut keys = IndexMap::new();
+            for node in source_nodes {
+                for child in &self.nodes[*node].children {
                     let child = &self.nodes[*child];
-                    (child.level == Some(child_level)).then(|| {
-                        child
-                            .component
-                            .as_ref()
-                            .expect("child component")
-                            .key
-                            .clone()
-                    })
-                })
-                .collect()
+                    if child.level == Some(child_level) {
+                        let component = child.component.as_ref().expect("child component");
+                        keys.entry(component.key.clone()).or_insert(());
+                    }
+                }
+            }
+            keys.keys().cloned().collect()
         } else {
             self.global_order[child_level].keys().cloned().collect()
         }
+    }
+
+    fn template_child_source_nodes(
+        &self,
+        source_nodes: &[usize],
+        child_level: usize,
+        key: &str,
+    ) -> Vec<usize> {
+        if child_level > 0
+            && self.level_options[child_level].nest_scope == NestedBandNestScope::Shared
+        {
+            return self
+                .nodes_by_level_key
+                .get(&(child_level, key.to_string()))
+                .cloned()
+                .unwrap_or_default();
+        }
+
+        source_nodes
+            .iter()
+            .filter_map(|node| self.child_with_key(*node, key))
+            .collect()
+    }
+
+    fn template_component(
+        &self,
+        concrete_node: Option<usize>,
+        source_nodes: &[usize],
+        level: usize,
+        key: &str,
+    ) -> Option<NestedBandPathComponent> {
+        concrete_node
+            .and_then(|node| self.nodes[node].component.clone())
+            .or_else(|| {
+                source_nodes
+                    .first()
+                    .and_then(|node| self.nodes[*node].component.clone())
+            })
+            .or_else(|| self.global_order[level].get(key).cloned())
     }
 
     fn child_with_key(&self, node: usize, key: &str) -> Option<usize> {
@@ -975,18 +987,6 @@ impl LayoutBuilder {
                 .as_ref()
                 .is_some_and(|component| component.key == key)
         })
-    }
-
-    fn node_path(&self, mut node: usize) -> Vec<NestedBandPathComponent> {
-        let mut path = Vec::new();
-        while let Some(parent) = self.nodes[node].parent {
-            if let Some(component) = self.nodes[node].component.clone() {
-                path.push(component);
-            }
-            node = parent;
-        }
-        path.reverse();
-        path
     }
 }
 
@@ -1011,33 +1011,6 @@ impl SolvedLayoutBuilder {
             axis_bands: self.axis_bands,
             band_by_prefix: self.band_by_prefix,
         }
-    }
-
-    fn record_axis_band(
-        &mut self,
-        builder: &LayoutBuilder,
-        node: usize,
-        logical_start: f32,
-        logical_end: f32,
-    ) {
-        let level = builder.nodes[node].level.expect("axis node level");
-        let component = builder.nodes[node]
-            .component
-            .as_ref()
-            .expect("axis node component");
-        let path = builder.node_path(node);
-        self.record_axis_band_for_path(level, component, path, logical_start, logical_end, true);
-    }
-
-    fn record_virtual_axis_band(
-        &mut self,
-        level: usize,
-        component: &NestedBandPathComponent,
-        path: Vec<NestedBandPathComponent>,
-        logical_start: f32,
-        logical_end: f32,
-    ) {
-        self.record_axis_band_for_path(level, component, path, logical_start, logical_end, false);
     }
 
     fn record_axis_band_for_path(
@@ -1280,6 +1253,18 @@ mod tests {
             .collect()
     }
 
+    fn axis_path_labels(bands: &[NestedBandAxisBand]) -> Vec<Vec<&str>> {
+        bands
+            .iter()
+            .map(|band| {
+                band.path
+                    .iter()
+                    .map(|component| component.label.as_str())
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
     #[test]
     fn nested_band_free_layout_has_variable_parent_spans_and_constant_leaf_bandwidth() {
         let domain = utf8_struct(&[
@@ -1338,6 +1323,105 @@ mod tests {
 
         let values = utf8_struct(&[("cyl", vec![Some("6")]), ("mfr", vec![Some("toyota")])]);
         assert_eq!(positions(&scale, &values), vec![None]);
+    }
+
+    #[test]
+    fn nested_band_shared_parent_records_virtual_free_leaf_descendants() {
+        let domain = utf8_struct(&[
+            (
+                "year",
+                vec![Some("2024"), Some("2024"), Some("2025"), Some("2025")],
+            ),
+            (
+                "quarter",
+                vec![Some("Q1"), Some("Q2"), Some("Q1"), Some("Q2")],
+            ),
+            (
+                "month",
+                vec![Some("Jan"), Some("Apr"), Some("Jan"), Some("May")],
+            ),
+        ]);
+        let scale = NestedBandScale::configured(domain.clone(), (0.0, 600.0))
+            .with_option("nest_scopes", "free,shared,free");
+        let layout = nested_band_layout(&scale.config).expect("layout");
+
+        assert_eq!(layout.leaf_bandwidth(), 100.0);
+        let leaf_bands = layout.axis_bands(2).expect("leaf bands");
+        assert_eq!(
+            axis_path_labels(leaf_bands),
+            vec![
+                vec!["2024", "Q1", "Jan"],
+                vec!["2024", "Q2", "Apr"],
+                vec!["2024", "Q2", "May"],
+                vec!["2025", "Q1", "Jan"],
+                vec!["2025", "Q2", "Apr"],
+                vec!["2025", "Q2", "May"],
+            ]
+        );
+
+        let year_2024 = &layout.axis_bands(0).expect("year bands")[0];
+        let year_2024_leaves = leaf_bands
+            .iter()
+            .filter(|band| band.path[0].label == "2024")
+            .collect::<Vec<_>>();
+        assert_eq!(year_2024_leaves.first().unwrap().start, year_2024.start);
+        assert_eq!(year_2024_leaves.last().unwrap().end, year_2024.end);
+
+        let virtual_values = utf8_struct(&[
+            ("year", vec![Some("2024"), Some("2025"), Some("2025")]),
+            ("quarter", vec![Some("Q2"), Some("Q2"), Some("Q2")]),
+            ("month", vec![Some("May"), Some("Apr"), Some("May")]),
+        ]);
+        assert_eq!(
+            positions(&scale, &virtual_values),
+            vec![None, None, Some(500.0)]
+        );
+
+        let inverted = scale
+            .invert_range_interval((250.0, 250.0))
+            .expect("invert virtual leaf");
+        assert_eq!(inverted.len(), 0);
+    }
+
+    #[test]
+    fn nested_band_shared_missing_non_leaf_records_virtual_descendants_recursively() {
+        let domain = utf8_struct(&[
+            ("region", vec![Some("A"), Some("A"), Some("B")]),
+            ("category", vec![Some("cars"), Some("cars"), Some("trucks")]),
+            ("maker", vec![Some("ford"), Some("toyota"), Some("volvo")]),
+        ]);
+        let scale = NestedBandScale::configured(domain.clone(), (0.0, 600.0))
+            .with_option("nest_scopes", "free,shared,free");
+        let layout = nested_band_layout(&scale.config).expect("layout");
+
+        let leaf_bands = layout.axis_bands(2).expect("leaf bands");
+        assert_eq!(
+            axis_path_labels(leaf_bands),
+            vec![
+                vec!["A", "cars", "ford"],
+                vec!["A", "cars", "toyota"],
+                vec!["A", "trucks", "volvo"],
+                vec!["B", "cars", "ford"],
+                vec!["B", "cars", "toyota"],
+                vec!["B", "trucks", "volvo"],
+            ]
+        );
+        assert_eq!(
+            positions(&scale, &domain),
+            vec![Some(0.0), Some(100.0), Some(500.0)]
+        );
+
+        let virtual_values = utf8_struct(&[
+            ("region", vec![Some("A"), Some("B")]),
+            ("category", vec![Some("trucks"), Some("cars")]),
+            ("maker", vec![Some("volvo"), Some("ford")]),
+        ]);
+        assert_eq!(positions(&scale, &virtual_values), vec![None, None]);
+
+        let inverted = scale
+            .invert_range_interval((450.0, 450.0))
+            .expect("invert recursively virtual leaf");
+        assert_eq!(inverted.len(), 0);
     }
 
     #[test]
