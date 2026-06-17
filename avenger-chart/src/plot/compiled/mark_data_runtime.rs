@@ -1251,13 +1251,15 @@ pub(crate) async fn prepare_mark_data(
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
+    use avenger_chart_scales::NestedBand;
     use avenger_chart_transforms::{
         Aggregate, Bin, Calculate, Filter, Fold, Impute, JoinAggregate, Select, Window,
     };
+    use avenger_scales::scales::nested_band::NestedBandScale;
     use avenger_scales::scales::{ConfiguredScale, ScaleConfig};
     use datafusion::{
         arrow::{
-            array::Float64Array,
+            array::{ArrayRef, Float64Array, StringArray, StructArray},
             compute::cast,
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
@@ -1265,7 +1267,7 @@ mod tests {
         functions_aggregate::average::avg,
         functions_window::expr_fn::row_number,
         logical_expr::{Expr, col},
-        prelude::SessionContext,
+        prelude::{SessionContext, named_struct},
     };
     use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
     use indexmap::IndexMap;
@@ -1321,6 +1323,24 @@ mod tests {
         ctx.read_batch(batch).expect("test dataframe")
     }
 
+    fn nested_category_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("group", DataType::Utf8, false),
+            Field::new("member", DataType::Utf8, false),
+            Field::new("value", DataType::Float64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec!["A", "A", "B"])) as ArrayRef,
+                Arc::new(StringArray::from(vec!["one", "two", "one"])) as ArrayRef,
+                Arc::new(Float64Array::from(vec![10.0, 20.0, 30.0])) as ArrayRef,
+            ],
+        )
+        .expect("test nested batch");
+        ctx.read_batch(batch).expect("test nested dataframe")
+    }
+
     async fn scoped_facet_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
         ctx.sql(
             "SELECT * FROM (VALUES \
@@ -1372,6 +1392,32 @@ mod tests {
         }
         .with_domain_interval((0.0, 10.0))
         .with_range_interval((0.0, 100.0));
+        ConfiguredScaleWithSpec::with_range_binding(
+            scale,
+            configured,
+            ScaleRangeBinding::Independent,
+        )
+    }
+
+    fn nested_domain_array(groups: Vec<&str>, members: Vec<&str>) -> ArrayRef {
+        Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("group", DataType::Utf8, false)),
+                Arc::new(StringArray::from(groups)) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("member", DataType::Utf8, false)),
+                Arc::new(StringArray::from(members)) as ArrayRef,
+            ),
+        ])) as ArrayRef
+    }
+
+    fn nested_band_scale() -> ConfiguredScaleWithSpec {
+        let scale = Scale::<NestedBand>::new().into_auto();
+        let configured = NestedBandScale::configured(
+            nested_domain_array(vec!["A", "A", "B"], vec!["one", "two", "one"]),
+            (0.0, 300.0),
+        );
         ConfiguredScaleWithSpec::with_range_binding(
             scale,
             configured,
@@ -1516,6 +1562,90 @@ mod tests {
         let data_batch = prepared.data_batch.expect("array data");
         assert_eq!(values_as_f64(&data_batch, "x"), vec![0.0, 50.0, 100.0]);
         assert_eq!(values_as_f64(&data_batch, "y"), vec![100.0, 50.0, 0.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_evaluates_nested_band_leaf_boundaries()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = nested_category_dataframe(&session);
+        let plot_node = plot_data_node(&df)?;
+        let nested = named_struct(vec![
+            lit("group"),
+            col("group"),
+            lit("member"),
+            col("member"),
+        ]);
+        let mark = Rect::new()
+            .x_with(nested, |x| x.band(0.0))
+            .x2_with(col(":x"), |x| x.band(1.0))
+            .y_with(lit(0.0), |y| y.no_scale())
+            .y2_with(col("value"), |y| y.no_scale());
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let eval_ctx = eval_context(session);
+        let scales = HashMap::from([("x".to_string(), nested_band_scale())]);
+
+        let prepared = prepare_mark_data(MarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: Some(&plot_node),
+            provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
+            eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
+            scales: &scales,
+            plot_width: 300.0,
+            plot_height: 100.0,
+        })
+        .await?
+        .expect("prepared data");
+
+        let data_batch = prepared.data_batch.expect("array data");
+        assert_eq!(values_as_f64(&data_batch, "x"), vec![0.0, 100.0, 200.0]);
+        assert_eq!(values_as_f64(&data_batch, "x2"), vec![100.0, 200.0, 300.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_evaluates_nested_band_level_boundaries()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = nested_category_dataframe(&session);
+        let plot_node = plot_data_node(&df)?;
+        let nested = named_struct(vec![
+            lit("group"),
+            col("group"),
+            lit("member"),
+            col("member"),
+        ]);
+        let mark = Rect::new()
+            .x_with(nested, |x| x.level_band(0, 0.0))
+            .x2_with(col(":x"), |x| x.level_band(0, 1.0))
+            .y_with(lit(0.0), |y| y.no_scale())
+            .y2_with(col("value"), |y| y.no_scale());
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let eval_ctx = eval_context(session);
+        let scales = HashMap::from([("x".to_string(), nested_band_scale())]);
+
+        let prepared = prepare_mark_data(MarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: Some(&plot_node),
+            provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
+            eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
+            scales: &scales,
+            plot_width: 300.0,
+            plot_height: 100.0,
+        })
+        .await?
+        .expect("prepared data");
+
+        let data_batch = prepared.data_batch.expect("array data");
+        assert_eq!(values_as_f64(&data_batch, "x"), vec![0.0, 0.0, 200.0]);
+        assert_eq!(values_as_f64(&data_batch, "x2"), vec![200.0, 200.0, 300.0]);
         Ok(())
     }
 
