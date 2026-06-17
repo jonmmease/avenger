@@ -758,6 +758,12 @@ where
                 )));
             }
         };
+        if level_count == 0 {
+            return Err(AvengerChartError::InvalidArgument(
+                "NestedBand scales require struct-valued position data with at least one field"
+                    .to_string(),
+            ));
+        }
         if let Some(config) =
             nested_band_config_for_channel(channel, prepared_marks, coord_transform, ctx)?
         {
@@ -3607,6 +3613,49 @@ mod tests {
             x_scale.configured().domain().data_type(),
             DataType::Struct(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn nested_band_zero_field_struct_reports_invalid_argument() {
+        let ctx = SessionContext::new();
+        let empty_struct = Arc::new(StructArray::new_empty_fields(1, None)) as ArrayRef;
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("empty", empty_struct.data_type().clone(), false),
+            Field::new("value", DataType::Float64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                empty_struct,
+                Arc::new(Float64Array::from(vec![1.0])) as ArrayRef,
+            ],
+        )
+        .unwrap();
+        let data = ctx.read_batch(batch).unwrap();
+        let mut channels = IndexMap::new();
+        channels.insert("x".to_string(), ChannelValue::from(col("empty")));
+        channels.insert("y".to_string(), ChannelValue::from(col("value")));
+        let mark = Arc::new(TestCompiledMark::new(data, channels)) as Arc<dyn CompiledMark>;
+        let coord_transform = TestCoordTransform;
+
+        let err = build_scale_builder_from_marks(
+            &[mark],
+            &HashMap::new(),
+            &coord_transform,
+            &None,
+            None,
+            &eval_ctx(&ctx),
+            &Theme::light(),
+        )
+        .await
+        .expect_err("zero-field struct position should be rejected");
+
+        match err {
+            AvengerChartError::InvalidArgument(message) => {
+                assert!(message.contains("at least one field"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[tokio::test]
