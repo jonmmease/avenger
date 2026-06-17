@@ -825,6 +825,10 @@ impl LayoutBuilder {
             if let Some(child) = child {
                 solved.record_axis_band(self, child, cursor, end);
                 self.layout_children(child, child_level + 1, cursor, leaf_bandwidth, solved)?;
+            } else if let Some(component) = self.global_order[child_level].get(&key) {
+                let mut path = self.node_path(node);
+                path.push(component.clone());
+                solved.record_virtual_axis_band(child_level, component, path, cursor, end);
             }
             cursor = end + inner_gap;
         }
@@ -913,6 +917,29 @@ impl SolvedLayoutBuilder {
             .as_ref()
             .expect("axis node component");
         let path = builder.node_path(node);
+        self.record_axis_band_for_path(level, component, path, logical_start, logical_end, true);
+    }
+
+    fn record_virtual_axis_band(
+        &mut self,
+        level: usize,
+        component: &NestedBandPathComponent,
+        path: Vec<NestedBandPathComponent>,
+        logical_start: f32,
+        logical_end: f32,
+    ) {
+        self.record_axis_band_for_path(level, component, path, logical_start, logical_end, false);
+    }
+
+    fn record_axis_band_for_path(
+        &mut self,
+        level: usize,
+        component: &NestedBandPathComponent,
+        path: Vec<NestedBandPathComponent>,
+        logical_start: f32,
+        logical_end: f32,
+        index_for_scaling: bool,
+    ) {
         let start = self.coord(logical_start);
         let end = self.coord(logical_end);
         let axis_band = NestedBandAxisBand {
@@ -925,8 +952,10 @@ impl SolvedLayoutBuilder {
             center: (start + end) / 2.0,
             bandwidth: (end - start).abs(),
         };
-        let key = path.iter().map(|component| component.key.clone()).collect();
-        self.band_by_prefix.insert((level, key), axis_band.clone());
+        if index_for_scaling {
+            let key = path.iter().map(|component| component.key.clone()).collect();
+            self.band_by_prefix.insert((level, key), axis_band.clone());
+        }
         self.axis_bands[level].push(axis_band);
     }
 
@@ -1055,6 +1084,20 @@ mod tests {
             positions(&scale, &domain),
             vec![Some(0.0), Some(75.0), Some(150.0)]
         );
+
+        let leaf_bands = layout.axis_bands(1).expect("leaf bands");
+        assert_eq!(
+            leaf_bands
+                .iter()
+                .map(|band| band.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ford", "toyota", "ford", "toyota"]
+        );
+        assert_eq!(leaf_bands[3].start, 225.0);
+        assert_eq!(leaf_bands[3].end, 300.0);
+
+        let values = utf8_struct(&[("cyl", vec![Some("6")]), ("mfr", vec![Some("toyota")])]);
+        assert_eq!(positions(&scale, &values), vec![None]);
     }
 
     #[test]
