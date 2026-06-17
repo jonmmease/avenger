@@ -73,7 +73,10 @@ pub(crate) fn event_streams_for_plot_bindings(
     AvengerAppError,
 > {
     let event_datum_types = compiled_plot.event_datum_types();
-    event_streams_for_bindings(
+    let event_coord_types = compiled_plot
+        .event_coord_types(ctx)
+        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+    event_streams_for_bindings_with_coord_types(
         compiled_plot.event_bindings(),
         ctx,
         compiled_plot.param_specs(),
@@ -81,6 +84,7 @@ pub(crate) fn event_streams_for_plot_bindings(
         compiled_plot.store_specs(),
         compiled_plot.cursor_params(),
         &event_datum_types,
+        &event_coord_types,
     )
 }
 
@@ -99,9 +103,37 @@ pub(crate) fn event_streams_for_bindings(
     )>,
     AvengerAppError,
 > {
+    event_streams_for_bindings_with_coord_types(
+        bindings,
+        ctx,
+        param_specs,
+        selection_specs,
+        store_specs,
+        cursor_params,
+        event_datum_types,
+        &IndexMap::new(),
+    )
+}
+
+fn event_streams_for_bindings_with_coord_types(
+    bindings: &[ChartEventBinding],
+    ctx: &SessionContext,
+    param_specs: &IndexMap<String, CompiledParamSpec>,
+    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+    store_specs: &IndexMap<String, CompiledStoreSpec>,
+    cursor_params: &[String],
+    event_datum_types: &IndexMap<String, DataType>,
+    event_coord_types: &IndexMap<String, DataType>,
+) -> Result<
+    Vec<(
+        EventStreamConfig,
+        Arc<dyn EventStreamHandler<ChartAppState>>,
+    )>,
+    AvengerAppError,
+> {
     let mut streams = Vec::new();
     for (binding_index, binding) in bindings.iter().enumerate() {
-        let runtime = Arc::new(CompiledChartEventBinding::compile(
+        let runtime = Arc::new(CompiledChartEventBinding::compile_with_event_coord_types(
             binding_index,
             binding,
             ctx,
@@ -110,6 +142,7 @@ pub(crate) fn event_streams_for_bindings(
             store_specs,
             cursor_params,
             event_datum_types,
+            event_coord_types,
         )?);
         streams.push((
             runtime.event_stream_config.clone(),
@@ -496,6 +529,7 @@ enum SceneQueryClauseIdExpression {
 }
 
 impl CompiledChartEventBinding {
+    #[cfg(test)]
     fn compile(
         binding_index: usize,
         binding: &ChartEventBinding,
@@ -505,6 +539,30 @@ impl CompiledChartEventBinding {
         store_specs: &IndexMap<String, CompiledStoreSpec>,
         cursor_params: &[String],
         event_datum_types: &IndexMap<String, DataType>,
+    ) -> Result<Self, AvengerAppError> {
+        Self::compile_with_event_coord_types(
+            binding_index,
+            binding,
+            ctx,
+            param_specs,
+            selection_specs,
+            store_specs,
+            cursor_params,
+            event_datum_types,
+            &IndexMap::new(),
+        )
+    }
+
+    fn compile_with_event_coord_types(
+        binding_index: usize,
+        binding: &ChartEventBinding,
+        ctx: &SessionContext,
+        param_specs: &IndexMap<String, CompiledParamSpec>,
+        selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+        store_specs: &IndexMap<String, CompiledStoreSpec>,
+        cursor_params: &[String],
+        event_datum_types: &IndexMap<String, DataType>,
+        event_coord_types: &IndexMap<String, DataType>,
     ) -> Result<Self, AvengerAppError> {
         binding
             .validate()
@@ -624,7 +682,12 @@ impl CompiledChartEventBinding {
             }
         }
 
-        let schema = event_schema(param_specs, &interaction_requests, event_datum_types);
+        let schema = event_schema(
+            param_specs,
+            &interaction_requests,
+            event_datum_types,
+            event_coord_types,
+        );
         let allowed_columns = schema
             .fields()
             .iter()
@@ -3855,6 +3918,7 @@ fn compile_low_level_stream_filter(
         &IndexMap::new(),
         &event::InteractionColumnRequests::default(),
         &IndexMap::new(),
+        &IndexMap::new(),
     );
     let allowed_columns = schema
         .fields()
@@ -3918,6 +3982,7 @@ fn event_schema(
     param_specs: &IndexMap<String, CompiledParamSpec>,
     interaction: &event::InteractionColumnRequests,
     event_datum_types: &IndexMap<String, DataType>,
+    event_coord_types: &IndexMap<String, DataType>,
 ) -> Arc<Schema> {
     let mut fields = vec![
         Field::new(event::EVENT_TYPE_FIELD, DataType::Utf8, true),
@@ -3967,39 +4032,41 @@ fn event_schema(
         ));
     }
 
-    // Derived coordinate columns invert to a single channel value (Float64).
+    // Derived coordinate columns invert to a single channel value. Continuous
+    // coordinate inversion returns Float64; categorical scales return their
+    // domain value type, including Struct for nested categorical coordinates.
     for channel in interaction.current_coord.iter() {
         fields.push(Field::new(
             event::event_coord_column_name(channel),
-            DataType::Float64,
+            event_coord_type(channel, event_coord_types),
             true,
         ));
     }
     for channel in interaction.start_coord.iter() {
         fields.push(Field::new(
             event::start_coord_column_name(channel),
-            DataType::Float64,
+            event_coord_type(channel, event_coord_types),
             true,
         ));
     }
     for channel in interaction.event_at_start_coord.iter() {
         fields.push(Field::new(
             event::event_at_start_coord_column_name(channel),
-            DataType::Float64,
+            event_coord_type(channel, event_coord_types),
             true,
         ));
     }
     for channel in interaction.event_at_start_clipped_coord.iter() {
         fields.push(Field::new(
             event::event_at_start_clipped_coord_column_name(channel),
-            DataType::Float64,
+            event_coord_type(channel, event_coord_types),
             true,
         ));
     }
     for channel in interaction.previous_coord.iter() {
         fields.push(Field::new(
             event::previous_coord_column_name(channel),
-            DataType::Float64,
+            event_coord_type(channel, event_coord_types),
             true,
         ));
     }
@@ -4103,6 +4170,13 @@ fn event_schema(
     }
 
     schema_from_fields(fields)
+}
+
+fn event_coord_type(channel: &str, event_coord_types: &IndexMap<String, DataType>) -> DataType {
+    event_coord_types
+        .get(channel)
+        .cloned()
+        .unwrap_or(DataType::Float64)
 }
 
 /// Pre-resolved inputs for building a one-row event batch.
@@ -5278,7 +5352,10 @@ mod tests {
         ctx: &SessionContext,
         binding_index: usize,
     ) -> ChartEventBindingHandler {
-        let runtime = CompiledChartEventBinding::compile(
+        let event_coord_types = compiled
+            .event_coord_types(ctx)
+            .expect("infer event coord types");
+        let runtime = CompiledChartEventBinding::compile_with_event_coord_types(
             binding_index,
             &compiled.event_bindings()[binding_index],
             ctx,
@@ -5287,6 +5364,7 @@ mod tests {
             compiled.store_specs(),
             compiled.cursor_params(),
             &compiled.event_datum_types(),
+            &event_coord_types,
         )
         .expect("compile binding runtime");
         ChartEventBindingHandler {
@@ -6821,6 +6899,13 @@ mod tests {
         nested_key_clause_with_scope(CoordinationScope::Shared)
     }
 
+    fn nested_key_event_coord_clause() -> SelectionClauseUpdate {
+        SelectionClauseUpdate::equality(lit("active"))
+            .facet_scope(CoordinationScope::Shared)
+            .dimension_named("nested_key", col("nested_key"), event::event_coord("x"))
+            .build()
+    }
+
     fn nested_key_clause_with_scope(facet_scope: CoordinationScope) -> SelectionClauseUpdate {
         SelectionClauseUpdate::equality(lit("active"))
             .facet_scope(facet_scope)
@@ -6900,6 +6985,24 @@ mod tests {
             .expect("team string array");
         assert_eq!(quarter.value(0), expected_quarter);
         assert_eq!(team.value(0), expected_team);
+    }
+
+    fn assert_nested_event_coord_schema(handler: &ChartEventBindingHandler) {
+        let schema = handler.runtime.program.schema();
+        let field = schema
+            .field_with_name(&event::event_coord_column_name("x"))
+            .expect("event coord x schema field");
+        let DataType::Struct(fields) = field.data_type() else {
+            panic!(
+                "expected struct-typed event coord x, got {:?}",
+                field.data_type()
+            );
+        };
+        let names = fields
+            .iter()
+            .map(|field| field.name().as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["quarter", "team"]);
     }
 
     async fn faceted_nested_grouped_bar_state_and_handler(
@@ -7716,6 +7819,41 @@ mod tests {
         assert!(
             status.rerender,
             "click should patch selection; metrics={:?}",
+            state.event_metrics().await
+        );
+        assert!(status.rebuild_geometry);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].id, "active");
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_eq!(dimensions.len(), 1);
+        assert_eq!(dimensions[0].id, "nested_key");
+        assert_nested_key_value(&dimensions[0].value, "Q2", "East");
+    }
+
+    #[tokio::test]
+    async fn bar_click_can_select_nested_struct_from_event_coord() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("value").is_not_null())
+            .filter(event::event_coord("x").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(nested_key_event_coord_clause()),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            nested_grouped_bar_state_and_handler(binding).await;
+        assert_nested_event_coord_schema(&handler);
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(
+            status.rerender,
+            "event coord click should patch selection; metrics={:?}",
             state.event_metrics().await
         );
         assert!(status.rebuild_geometry);

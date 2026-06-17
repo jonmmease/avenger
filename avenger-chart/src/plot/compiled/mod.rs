@@ -28,7 +28,11 @@ use std::{
 };
 
 use datafusion::{
-    arrow::datatypes::DataType, common::ScalarValue, dataframe::DataFrame, prelude::SessionContext,
+    arrow::datatypes::DataType,
+    common::{DFSchema, ScalarValue},
+    dataframe::DataFrame,
+    logical_expr::{Expr, ExprSchemable, LogicalPlan},
+    prelude::SessionContext,
 };
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
@@ -36,11 +40,12 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use avenger_chart_core::{
-    AvengerChartError, AxisSpec, CompiledGuide, CompiledMark, CompiledParamSpec,
+    AvengerChartError, AxisSpec, ChannelValue, CompiledGuide, CompiledMark, CompiledParamSpec,
     CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot, CompiledSubplotPayload,
     CoordMeasurement, CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext,
     Legend, LogicalPlanNodeExt, ScaleRangeBinding, SerializableDataFrame, SerializableDataType,
     SerializableScalarMap, Theme, TimeContext, ToolMetadata, channel::strip_trailing_numbers,
+    resolve_all_channel_refs,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
@@ -263,6 +268,60 @@ impl CompiledPlot {
             .iter()
             .map(|field| (field.name.clone(), field.data_type.clone()))
             .collect()
+    }
+
+    /// Infer app event-coordinate column types from invertible coordinate
+    /// channel scale inputs.
+    ///
+    /// Continuous coordinates keep the app's default `Float64` event-column
+    /// type. Categorical coordinates override that default with their domain
+    /// value type, so nested band coordinates expose struct-valued readback with
+    /// the original level field names.
+    pub fn event_coord_types(
+        &self,
+        ctx: &SessionContext,
+    ) -> Result<IndexMap<String, DataType>, AvengerChartError> {
+        let mut types = IndexMap::new();
+        self.collect_event_coord_types(ctx, &mut types)?;
+        Ok(types)
+    }
+
+    fn collect_event_coord_types(
+        &self,
+        ctx: &SessionContext,
+        out: &mut IndexMap<String, DataType>,
+    ) -> Result<(), AvengerChartError> {
+        let plot_df = self.data.as_ref().and_then(|node| {
+            node.to_logical_plan(ctx)
+                .ok()
+                .map(|plan| DataFrame::new(ctx.state().clone(), plan))
+        });
+        collect_event_coord_types_from_marks(
+            self.coord_transform.as_ref(),
+            &self.marks,
+            plot_df.as_ref(),
+            ctx,
+            out,
+        )?;
+
+        for mark in &self.marks {
+            if let Some(subplot) = crate::concat::compiled_subplot(mark.as_ref()) {
+                subplot
+                    .compiled_subplot()
+                    .collect_event_coord_types(ctx, out)?;
+            }
+            if let Some(subplot) = crate::facet::marks::facet::facet_subplot_ref(mark.as_ref()) {
+                subplot
+                    .compiled_subplot()
+                    .collect_event_coord_types(ctx, out)?;
+            }
+            if let Some(subplot) = mark.as_positioned_subplot() {
+                compiled_subplot_payload_child_plot(subplot.payload())
+                    .collect_event_coord_types(ctx, out)?;
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) fn infer_event_datum_fields(
@@ -500,6 +559,144 @@ fn collect_event_datum_types_from_schema(
             out.insert(name.clone(), field.data_type().clone());
         }
     }
+}
+
+fn collect_event_coord_types_from_marks(
+    coord_transform: &dyn CoordinateSystemTransform,
+    marks: &[Arc<dyn CompiledMark>],
+    plot_df: Option<&DataFrame>,
+    ctx: &SessionContext,
+    out: &mut IndexMap<String, DataType>,
+) -> Result<(), AvengerChartError> {
+    let invertible = coord_transform.interaction_invertible_channels();
+    if invertible.is_empty() {
+        return Ok(());
+    }
+
+    for mark in marks {
+        let mark_df = mark
+            .data_context()
+            .dataframe_with_context(ctx)
+            .or_else(|| plot_df.cloned());
+        let channels = resolve_all_channel_refs(mark.data_context().channels(), ctx)
+            .unwrap_or_else(|_| mark.data_context().channels().clone());
+
+        for channel in invertible {
+            if out.contains_key(*channel) {
+                continue;
+            }
+            let Some(data_type) = infer_event_coord_type_for_channel(
+                coord_transform,
+                mark.as_ref(),
+                &channels,
+                mark_df.as_ref(),
+                ctx,
+                channel,
+            )?
+            else {
+                continue;
+            };
+            out.insert((*channel).to_string(), data_type);
+        }
+    }
+
+    Ok(())
+}
+
+fn infer_event_coord_type_for_channel(
+    coord_transform: &dyn CoordinateSystemTransform,
+    mark: &dyn CompiledMark,
+    channels: &IndexMap<String, ChannelValue>,
+    dataframe: Option<&DataFrame>,
+    ctx: &SessionContext,
+    target_channel: &str,
+) -> Result<Option<DataType>, AvengerChartError> {
+    for (channel_name, channel_value) in channels {
+        if !channel_maps_to_event_coord_scale(
+            coord_transform,
+            channel_name,
+            channel_value,
+            target_channel,
+        ) {
+            continue;
+        }
+
+        let Some(input_type) = infer_scale_input_data_type(channel_value, dataframe, ctx) else {
+            continue;
+        };
+        let preferred = mark.preferred_scale_type(channel_name, &input_type);
+        let is_categorical_coord = matches!(
+            preferred,
+            Some(avenger_chart_core::ScaleTypePreference::Band)
+                | Some(avenger_chart_core::ScaleTypePreference::Point)
+                | Some(avenger_chart_core::ScaleTypePreference::NestedBand)
+        ) || categorical_event_coord_type(&input_type);
+
+        if is_categorical_coord {
+            return Ok(Some(input_type));
+        }
+    }
+
+    Ok(None)
+}
+
+fn channel_maps_to_event_coord_scale(
+    coord_transform: &dyn CoordinateSystemTransform,
+    channel_name: &str,
+    channel_value: &ChannelValue,
+    target_channel: &str,
+) -> bool {
+    if !coord_transform.channel_uses_scale(channel_name) {
+        return false;
+    }
+
+    channel_value
+        .get_scale_name(channel_name)
+        .map(|scale_name| scale_name == target_channel)
+        .unwrap_or(channel_name == target_channel)
+}
+
+fn infer_scale_input_data_type(
+    channel_value: &ChannelValue,
+    dataframe: Option<&DataFrame>,
+    ctx: &SessionContext,
+) -> Option<DataType> {
+    let expr = channel_value.scale_input_expr(ctx)?;
+    if let Some(df) = dataframe.filter(|df| !is_empty_relation(df)) {
+        return infer_expr_data_type(&expr, df);
+    }
+    if expr.column_refs().is_empty() {
+        expr.get_type(&DFSchema::empty()).ok()
+    } else {
+        None
+    }
+}
+
+fn infer_expr_data_type(expr: &Expr, df: &DataFrame) -> Option<DataType> {
+    match expr {
+        Expr::Column(col) => df
+            .schema()
+            .field_with_unqualified_name(&col.name)
+            .ok()
+            .map(|field| field.data_type().clone()),
+        _ => df
+            .clone()
+            .select(vec![expr.clone().alias("__event_coord_type")])
+            .ok()
+            .map(|projected| projected.schema().field(0).data_type().clone()),
+    }
+}
+
+fn categorical_event_coord_type(data_type: &DataType) -> bool {
+    match data_type {
+        DataType::Struct(_) | DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => true,
+        DataType::Dictionary(_, value_type) => categorical_event_coord_type(value_type.as_ref()),
+        _ => false,
+    }
+}
+
+fn is_empty_relation(df: &DataFrame) -> bool {
+    matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_))
 }
 
 pub(crate) fn compiled_subplot_payload_child_plot_arc(
