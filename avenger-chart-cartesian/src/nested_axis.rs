@@ -129,9 +129,10 @@ pub(crate) fn make_nested_axis_marks(
                 .into(),
             );
             if level < level_count - 1 {
-                axis_group
-                    .marks
-                    .push(make_level_boundaries(bands, config, label_layouts[level])?.into());
+                axis_group.marks.push(
+                    make_level_boundaries(bands, config, label_layouts[level], range.0, range.1)?
+                        .into(),
+                );
             }
         }
     }
@@ -360,13 +361,13 @@ fn make_level_boundaries(
     bands: &[NestedBandAxisBand],
     config: &AxisConfig,
     layout: NestedAxisLevelLabelLayout,
+    outer_start: f32,
+    outer_end: f32,
 ) -> Result<SceneRuleMark, AvengerChartError> {
-    let Some(first) = bands.first() else {
+    let positions = level_boundary_positions(bands, outer_start, outer_end);
+    if positions.is_empty() {
         return Ok(SceneRuleMark::default());
     };
-    let mut positions = Vec::with_capacity(bands.len() + 1);
-    positions.push(first.start);
-    positions.extend(bands.iter().map(|band| band.end));
 
     let (x, x2, y, y2) = match config.orientation {
         AxisOrientation::Left => (
@@ -406,6 +407,26 @@ fn make_level_boundaries(
         stroke_width: 1.0.into(),
         ..Default::default()
     })
+}
+
+fn level_boundary_positions(
+    bands: &[NestedBandAxisBand],
+    outer_start: f32,
+    outer_end: f32,
+) -> Vec<f32> {
+    if bands.is_empty() {
+        return Vec::new();
+    };
+
+    let mut positions = Vec::with_capacity(bands.len() + 1);
+    positions.push(outer_start);
+    positions.extend(
+        bands
+            .windows(2)
+            .map(|pair| (pair[0].end + pair[1].start) / 2.0),
+    );
+    positions.push(outer_end);
+    positions
 }
 
 fn make_title(
@@ -611,7 +632,10 @@ mod tests {
         datatypes::Field,
     };
 
-    use super::{NestedAxisLevelGuideConfig, make_nested_axis_marks, nested_axis_title};
+    use super::{
+        NestedAxisLevelGuideConfig, level_boundary_positions, make_nested_axis_marks,
+        nested_axis_title,
+    };
 
     fn utf8_struct(columns: &[(&str, Vec<&str>)]) -> ArrayRef {
         let columns = columns
@@ -642,6 +666,13 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 1e-3,
+            "expected {actual} to be close to {expected}"
+        );
     }
 
     #[test]
@@ -677,6 +708,28 @@ mod tests {
             axis_elements.marks.len() >= 5,
             "expected axis line, ticks, two label levels, boundary, and title"
         );
+    }
+
+    #[test]
+    fn nested_axis_level_boundaries_center_internal_group_gaps() {
+        let domain = utf8_struct(&[
+            ("cylinders", vec!["4", "4", "6"]),
+            ("manufacturer", vec!["ford", "toyota", "ford"]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 370.0))
+            .with_option("padding_inner_levels", "0.3,0")
+            .with_option("padding_outer_levels", "0.2,0");
+        let parent_bands = nested_axis_bands(&scale.config, 0).expect("parent bands");
+
+        assert_close(parent_bands[0].start, 20.0);
+        assert_close(parent_bands[0].end, 220.0);
+        assert_close(parent_bands[1].start, 250.0);
+        assert_close(parent_bands[1].end, 350.0);
+
+        let positions = level_boundary_positions(&parent_bands, 0.0, 370.0);
+        assert_close(positions[0], 0.0);
+        assert_close(positions[1], 235.0);
+        assert_close(positions[2], 370.0);
     }
 
     #[test]
