@@ -18,7 +18,10 @@ use avenger_scales::scales::{
     nested_band::{NestedBandAxisBand, nested_axis_bands, nested_band_layout},
 };
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
-use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
+use avenger_text::{
+    measurement::{TextMeasurementConfig, TextMeasurer, default_text_measurer},
+    types::{FontStyle, FontWeight, TextAlign, TextBaseline},
+};
 
 const TICK_LENGTH: f32 = 5.0;
 const TEXT_MARGIN: f32 = 3.0;
@@ -27,7 +30,6 @@ const TITLE_FONT_SIZE: f32 = 12.0;
 const TICK_FONT_SIZE: f32 = 12.0;
 const PIXEL_OFFSET: f32 = 0.5;
 const LEVEL_GAP: f32 = 8.0;
-const TEXT_WIDTH_FACTOR: f32 = 0.56;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct NestedAxisLevelGuideConfig {
@@ -513,6 +515,8 @@ fn nested_axis_level_label_layouts(
     level_configs: Option<&BTreeMap<usize, NestedAxisLevelGuideConfig>>,
 ) -> Vec<NestedAxisLevelLabelLayout> {
     let font_size = config.label_font_size.unwrap_or(TICK_FONT_SIZE);
+    let font_weight = FontWeight::Number(config.label_font_weight.unwrap_or(400.0));
+    let font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
     let tick_len = config.tick_length.unwrap_or(TICK_LENGTH);
     let leaf_level = level_bands.len().saturating_sub(1);
     let ticks_visible = level_visible(level_configs, leaf_level);
@@ -533,7 +537,14 @@ fn nested_axis_level_label_layouts(
             continue;
         }
         let angle = level_label_angle(level, leaf_level, config, level_config);
-        let extent = level_label_cross_extent(&level_bands[level], font_size, angle, is_vertical);
+        let extent = level_label_cross_extent(
+            &level_bands[level],
+            font_family,
+            font_size,
+            &font_weight,
+            angle,
+            is_vertical,
+        );
         layouts[level] = NestedAxisLevelLabelLayout {
             label_distance,
             boundary_outer: label_distance + extent + LEVEL_GAP * 0.5,
@@ -563,23 +574,40 @@ fn level_label_angle(
 
 fn level_label_cross_extent(
     bands: &[NestedBandAxisBand],
+    font_family: &str,
     font_size: f32,
+    font_weight: &FontWeight,
     angle: f32,
     is_vertical: bool,
 ) -> f32 {
-    let label_width = bands
+    let measurer = default_text_measurer();
+    let (max_width, max_height) = bands
         .iter()
-        .map(|band| band.label.chars().count() as f32 * font_size * TEXT_WIDTH_FACTOR)
-        .fold(font_size, f32::max);
+        .map(|band| {
+            let bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+                text: &band.label,
+                font: font_family,
+                font_size,
+                font_weight,
+                font_style: &FontStyle::Normal,
+            });
+            (bounds.width, bounds.height)
+        })
+        .fold(
+            (0.0_f32, 0.0_f32),
+            |(max_width, max_height), (width, height)| {
+                (max_width.max(width), max_height.max(height))
+            },
+        );
     if is_vertical {
-        return label_width;
+        return max_width;
     }
 
     let radians = angle.to_radians().abs();
     if radians == 0.0 {
-        font_size
+        max_height
     } else {
-        (label_width * radians.sin().abs() + font_size * radians.cos().abs()).max(font_size)
+        max_width * radians.sin().abs() + max_height * radians.cos().abs()
     }
 }
 
