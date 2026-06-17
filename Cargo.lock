@@ -784,6 +784,7 @@ dependencies = [
  "avenger-chart-cartesian",
  "avenger-chart-core",
  "bincode",
+ "chrono",
  "datafusion",
  "datafusion-common",
  "datafusion-functions-aggregate",

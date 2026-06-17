@@ -10,6 +10,7 @@ mod kde;
 pub mod lump;
 mod select;
 mod stack;
+mod time_fill;
 mod time_levels;
 mod time_unit;
 mod window;
@@ -28,6 +29,7 @@ pub use kde::{CompiledKdeTransform, Kde, KdeOutput, KdeResolve};
 pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
+pub use time_fill::{CompiledTimeFillTransform, TimeFill, TimeFillExtentSpec, TimeFillOutput};
 pub use time_levels::{
     CompiledTimeLevelsTransform, TimeLevel, TimeLevelConfig, TimeLevelKey, TimeLevelKeys,
     TimeLevelLabel, TimeLevels, TimeLevelsOutput,
@@ -47,9 +49,10 @@ mod tests {
         record_batch::RecordBatch,
     };
     use avenger_chart_core::{
-        ChannelValue, CoordinationScope, DataTransform, DataTransformCompileContext,
-        DataTransformExecutionContext, DataTransformStage, DefaultLogicalExprNodeExt, Param,
-        TimeContext, WeekStart, collect_derived_scalar_ids, eval_to_scalars,
+        AvengerChartError, ChannelValue, CoordinationScope, DataTransform,
+        DataTransformCompileContext, DataTransformExecutionContext, DataTransformStage,
+        DefaultLogicalExprNodeExt, Param, TimeContext, WeekStart, collect_derived_scalar_ids,
+        eval_to_scalars,
     };
     use datafusion::common::ScalarValue;
     use datafusion::dataframe::DataFrame;
@@ -713,6 +716,44 @@ mod tests {
         batches
             .iter()
             .flat_map(|batch| float_values(batch, column))
+            .collect()
+    }
+
+    fn bool_values(batch: &RecordBatch, column: &str) -> Vec<Option<bool>> {
+        let values = batch
+            .column_by_name(column)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|index| (!values.is_null(index)).then(|| values.value(index)))
+            .collect()
+    }
+
+    fn bool_values_from_batches(batches: &[RecordBatch], column: &str) -> Vec<Option<bool>> {
+        batches
+            .iter()
+            .flat_map(|batch| bool_values(batch, column))
+            .collect()
+    }
+
+    fn string_values(batch: &RecordBatch, column: &str) -> Vec<Option<String>> {
+        let values = batch
+            .column_by_name(column)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|index| (!values.is_null(index)).then(|| values.value(index).to_string()))
+            .collect()
+    }
+
+    fn string_values_from_batches(batches: &[RecordBatch], column: &str) -> Vec<Option<String>> {
+        batches
+            .iter()
+            .flat_map(|batch| string_values(batch, column))
             .collect()
     }
 
@@ -2322,6 +2363,451 @@ mod tests {
         let json = serde_json::to_string(&decoded).expect("serialize decoded stage as json");
         assert!(json.contains("time_levels"));
         assert!(json.contains("America/New_York"));
+    }
+
+    fn period_month_dataframe(
+        ctx: &SessionContext,
+        rows: &[(i32, i32, Option<&str>, f64)],
+    ) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("period_year", DataType::Int32, false),
+                Field::new("period_month", DataType::Int32, false),
+                Field::new("segment", DataType::Utf8, true),
+                Field::new("total", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(Int32Array::from(
+                    rows.iter().map(|row| row.0).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(Int32Array::from(
+                    rows.iter().map(|row| row.1).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(StringArray::from(
+                    rows.iter().map(|row| row.2).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(Float64Array::from(
+                    rows.iter().map(|row| row.3).collect::<Vec<_>>(),
+                )) as _,
+            ],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn period_quarter_dataframe(ctx: &SessionContext, rows: &[(i32, i32, f64)]) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("period_year", DataType::Int32, false),
+                Field::new("period_quarter", DataType::Int32, false),
+                Field::new("total", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(Int32Array::from(
+                    rows.iter().map(|row| row.0).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(Int32Array::from(
+                    rows.iter().map(|row| row.1).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(Float64Array::from(
+                    rows.iter().map(|row| row.2).collect::<Vec<_>>(),
+                )) as _,
+            ],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn period_quarter_month_dataframe(
+        ctx: &SessionContext,
+        rows: &[(i32, i32, i32, f64)],
+    ) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("period_year", DataType::Int32, false),
+                Field::new("period_quarter", DataType::Int32, false),
+                Field::new("period_month", DataType::Int32, false),
+                Field::new("total", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(Int32Array::from(
+                    rows.iter().map(|row| row.0).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(Int32Array::from(
+                    rows.iter().map(|row| row.1).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(Int32Array::from(
+                    rows.iter().map(|row| row.2).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(Float64Array::from(
+                    rows.iter().map(|row| row.3).collect::<Vec<_>>(),
+                )) as _,
+            ],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn period_day_dataframe(ctx: &SessionContext, rows: &[(i32, i32, i32, f64)]) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("period_year", DataType::Int32, false),
+                Field::new("period_month", DataType::Int32, false),
+                Field::new("period_day", DataType::Int32, false),
+                Field::new("total", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(Int32Array::from(
+                    rows.iter().map(|row| row.0).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(Int32Array::from(
+                    rows.iter().map(|row| row.1).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(Int32Array::from(
+                    rows.iter().map(|row| row.2).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(Float64Array::from(
+                    rows.iter().map(|row| row.3).collect::<Vec<_>>(),
+                )) as _,
+            ],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn period_year_month_levels() -> TimeLevelKeys {
+        let (_stage, output) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .month()
+                .name("period"),
+        );
+        output.levels()
+    }
+
+    fn period_year_quarter_levels() -> TimeLevelKeys {
+        let (_stage, output) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .quarter()
+                .name("period"),
+        );
+        output.levels()
+    }
+
+    fn period_year_month_day_levels() -> TimeLevelKeys {
+        let (_stage, output) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .month()
+                .day_of_month()
+                .name("period"),
+        );
+        output.levels()
+    }
+
+    #[tokio::test]
+    async fn time_fill_month_default_extent_fills_missing_months() {
+        let ctx = SessionContext::new();
+        let dataframe =
+            period_month_dataframe(&ctx, &[(2024, 1, None, 10.0), (2024, 3, None, 30.0)]);
+        let (compiled_transform, output) = compile_transform(
+            TimeFill::new(col("total"))
+                .levels(period_year_month_levels())
+                .fill_value(lit(0.0))
+                .flag("was_time_filled"),
+        );
+        assert_eq!(output.value().to_string(), "total");
+        assert_eq!(output.flag().to_string(), "was_time_filled");
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = int32_values_from_batches(&batches, "period_month")
+            .into_iter()
+            .zip(float_values_from_batches(&batches, "total"))
+            .zip(bool_values_from_batches(&batches, "was_time_filled"))
+            .map(|((month, total), filled)| (month.unwrap(), total.unwrap(), filled.unwrap()))
+            .collect::<Vec<_>>();
+        rows.sort_by_key(|row| row.0);
+        assert_eq!(
+            rows,
+            vec![(1, 10.0, false), (2, 0.0, true), (3, 30.0, false)]
+        );
+    }
+
+    #[tokio::test]
+    async fn time_fill_quarter_default_extent_fills_missing_quarters() {
+        let ctx = SessionContext::new();
+        let dataframe = period_quarter_dataframe(&ctx, &[(2024, 1, 4.0), (2024, 3, 12.0)]);
+        let (compiled_transform, _) = compile_transform(
+            TimeFill::new(col("total"))
+                .levels(period_year_quarter_levels())
+                .fill_value(lit(0.0)),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = int32_values_from_batches(&batches, "period_quarter")
+            .into_iter()
+            .zip(float_values_from_batches(&batches, "total"))
+            .map(|(quarter, total)| (quarter.unwrap(), total.unwrap()))
+            .collect::<Vec<_>>();
+        rows.sort_by_key(|row| row.0);
+        assert_eq!(rows, vec![(1, 4.0), (2, 0.0), (3, 12.0)]);
+    }
+
+    #[tokio::test]
+    async fn time_fill_component_extent_adds_leading_and_trailing_periods() {
+        let ctx = SessionContext::new();
+        let dataframe = period_month_dataframe(&ctx, &[(2024, 2, None, 20.0)]);
+        let (compiled_transform, _) = compile_transform(
+            TimeFill::new(col("total"))
+                .levels(period_year_month_levels())
+                .extent([lit(2024_i32), lit(1_i32)], [lit(2024_i32), lit(4_i32)])
+                .fill_value(lit(0.0)),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = int32_values_from_batches(&batches, "period_month")
+            .into_iter()
+            .zip(float_values_from_batches(&batches, "total"))
+            .map(|(month, total)| (month.unwrap(), total.unwrap()))
+            .collect::<Vec<_>>();
+        rows.sort_by_key(|row| row.0);
+        assert_eq!(rows, vec![(1, 0.0), (2, 20.0), (3, 0.0), (4, 0.0)]);
+    }
+
+    #[tokio::test]
+    async fn time_fill_group_by_cross_joins_each_group_with_spine() {
+        let ctx = SessionContext::new();
+        let dataframe = period_month_dataframe(
+            &ctx,
+            &[
+                (2024, 1, Some("A"), 10.0),
+                (2024, 3, Some("A"), 30.0),
+                (2024, 2, Some("B"), 20.0),
+            ],
+        );
+        let (compiled_transform, _) = compile_transform(
+            TimeFill::new(col("total"))
+                .levels(period_year_month_levels())
+                .group_by([col("segment")])
+                .fill_value(lit(0.0)),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let segments = string_values_from_batches(&batches, "segment");
+        let months = int32_values_from_batches(&batches, "period_month");
+        let totals = float_values_from_batches(&batches, "total");
+        let mut rows = segments
+            .into_iter()
+            .zip(months)
+            .zip(totals)
+            .map(|((segment, month), total)| (segment.unwrap(), month.unwrap(), total.unwrap()))
+            .collect::<Vec<_>>();
+        rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), 1, 10.0),
+                ("A".to_string(), 2, 0.0),
+                ("A".to_string(), 3, 30.0),
+                ("B".to_string(), 1, 0.0),
+                ("B".to_string(), 2, 20.0),
+                ("B".to_string(), 3, 0.0),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn time_fill_rejects_invalid_extents_and_components() {
+        let ctx = SessionContext::new();
+        let dataframe = period_quarter_month_dataframe(&ctx, &[(2024, 1, 2, 20.0)]);
+
+        let wrong_count = TimeFill::new(col("total"))
+            .levels(period_year_month_levels())
+            .extent([lit(2024_i32)], [lit(2024_i32), lit(4_i32)])
+            .fill_value(lit(0.0))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free));
+        assert!(matches!(
+            wrong_count,
+            Err(AvengerChartError::InvalidArgument(_))
+        ));
+
+        let cases = [
+            (
+                TimeFill::new(col("total"))
+                    .levels(period_year_month_levels())
+                    .extent(
+                        [col("period_year"), lit(1_i32)],
+                        [lit(2024_i32), lit(4_i32)],
+                    )
+                    .fill_value(lit(0.0)),
+                "integer scalars",
+            ),
+            (
+                TimeFill::new(col("total"))
+                    .levels(period_year_month_levels())
+                    .extent([lit(2024.5), lit(1_i32)], [lit(2024_i32), lit(4_i32)])
+                    .fill_value(lit(0.0)),
+                "integer",
+            ),
+        ];
+
+        for (transform, expected) in cases {
+            let (compiled_transform, _) = compile_transform(transform);
+            let err = match avenger_chart_core::apply_compiled_data_transforms(
+                dataframe.clone(),
+                &[compiled_transform],
+                &DataTransformExecutionContext {
+                    session_context: &ctx,
+                    params: &IndexMap::new(),
+                    time_context: TimeContext::default(),
+                },
+            )
+            .await
+            {
+                Ok(_) => panic!("invalid extent should fail"),
+                Err(err) => err,
+            };
+            assert!(err.to_string().contains(expected), "{err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn time_fill_rejects_inconsistent_or_invalid_calendar_components() {
+        let ctx = SessionContext::new();
+        let dataframe = period_quarter_month_dataframe(&ctx, &[(2024, 1, 2, 20.0)]);
+        let (_stage, quarter_month) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .quarter()
+                .month()
+                .name("period"),
+        );
+        let inconsistent = TimeFill::new(col("total"))
+            .levels(quarter_month.levels())
+            .extent(
+                [lit(2024_i32), lit(2_i32), lit(2_i32)],
+                [lit(2024_i32), lit(2_i32), lit(2_i32)],
+            )
+            .fill_value(lit(0.0));
+        let (compiled_transform, _) = compile_transform(inconsistent);
+        let err = match avenger_chart_core::apply_compiled_data_transforms(
+            dataframe.clone(),
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+                time_context: TimeContext::default(),
+            },
+        )
+        .await
+        {
+            Ok(_) => panic!("inconsistent quarter/month should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("inconsistent"), "{err}");
+
+        let observed_inconsistent = TimeFill::new(col("total"))
+            .levels(quarter_month.levels())
+            .fill_value(lit(0.0));
+        let (compiled_transform, _) = compile_transform(observed_inconsistent);
+        let err = match avenger_chart_core::apply_compiled_data_transforms(
+            period_quarter_month_dataframe(&ctx, &[(2024, 2, 2, 20.0)]),
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+                time_context: TimeContext::default(),
+            },
+        )
+        .await
+        {
+            Ok(_) => panic!("observed inconsistent quarter/month should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("inconsistent"), "{err}");
+
+        let day_dataframe = period_day_dataframe(&ctx, &[(2024, 2, 28, 1.0)]);
+        let invalid_day = TimeFill::new(col("total"))
+            .levels(period_year_month_day_levels())
+            .extent(
+                [lit(2024_i32), lit(2_i32), lit(30_i32)],
+                [lit(2024_i32), lit(2_i32), lit(30_i32)],
+            )
+            .fill_value(lit(0.0));
+        let (compiled_transform, _) = compile_transform(invalid_day);
+        let err = match avenger_chart_core::apply_compiled_data_transforms(
+            day_dataframe,
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+                time_context: TimeContext::default(),
+            },
+        )
+        .await
+        {
+            Ok(_) => panic!("invalid day should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("invalid"));
+    }
+
+    #[tokio::test]
+    async fn time_fill_leap_year_day_range_is_valid() {
+        let ctx = SessionContext::new();
+        let dataframe = period_day_dataframe(&ctx, &[(2024, 2, 28, 1.0)]);
+        let (compiled_transform, _) = compile_transform(
+            TimeFill::new(col("total"))
+                .levels(period_year_month_day_levels())
+                .extent(
+                    [lit(2024_i32), lit(2_i32), lit(28_i32)],
+                    [lit(2024_i32), lit(3_i32), lit(1_i32)],
+                )
+                .fill_value(lit(0.0)),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(
+            int32_values_from_batches(&batches, "period_day"),
+            vec![Some(28), Some(29), Some(1)]
+        );
+        assert_eq!(
+            float_values_from_batches(&batches, "total"),
+            vec![Some(1.0), Some(0.0), Some(0.0)]
+        );
+    }
+
+    #[test]
+    fn time_fill_week_levels_return_unsupported_error_and_serializes() {
+        let levels = TimeLevelKeys {
+            levels: vec![TimeLevelKey {
+                level: TimeLevel::Week,
+                key_name: "period_week".to_string(),
+                label: TimeLevelLabel::Key,
+            }],
+        };
+        let err = match TimeFill::new(col("total"))
+            .levels(levels)
+            .fill_value(lit(0.0))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
+        {
+            Ok(_) => panic!("week time fill should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("week-number"));
+
+        let (stage, _output) = compile_transform(
+            TimeFill::new(col("total"))
+                .levels(period_year_month_levels())
+                .fill_value(lit(0.0))
+                .flag("was_time_filled"),
+        );
+        let bytes = bincode::serialize(&stage).expect("serialize time fill stage");
+        let decoded: DataTransformStage = bincode::deserialize(&bytes).expect("deserialize stage");
+        let json = serde_json::to_string(&decoded).expect("serialize decoded stage");
+        assert!(json.contains("time_fill"));
+        assert!(json.contains("was_time_filled"));
     }
 
     #[tokio::test]
