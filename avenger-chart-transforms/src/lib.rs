@@ -196,6 +196,49 @@ mod tests {
         ctx.read_batch(batch).unwrap()
     }
 
+    fn timestamp_ms(year: i32, month: u32, day: u32) -> i64 {
+        chrono::NaiveDate::from_ymd_opt(year, month, day)
+            .expect("valid test date")
+            .and_hms_opt(0, 0, 0)
+            .expect("valid test time")
+            .and_utc()
+            .timestamp_millis()
+    }
+
+    fn temporal_sales_dataframe(ctx: &SessionContext) -> DataFrame {
+        let rows = [
+            (timestamp_ms(2024, 1, 5), "A", 10.0),
+            (timestamp_ms(2024, 1, 20), "A", 5.0),
+            (timestamp_ms(2024, 3, 2), "A", 30.0),
+            (timestamp_ms(2024, 1, 7), "B", 4.0),
+            (timestamp_ms(2024, 3, 7), "B", 6.0),
+        ];
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new(
+                    "timestamp",
+                    DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Millisecond, None),
+                    false,
+                ),
+                Field::new("segment", DataType::Utf8, false),
+                Field::new("value", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(TimestampMillisecondArray::from(
+                    rows.iter().map(|row| row.0).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(StringArray::from(
+                    rows.iter().map(|row| row.1).collect::<Vec<_>>(),
+                )) as _,
+                Arc::new(Float64Array::from(
+                    rows.iter().map(|row| row.2).collect::<Vec<_>>(),
+                )) as _,
+            ],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
     fn window_dataframe(ctx: &SessionContext) -> DataFrame {
         let batch = RecordBatch::try_new(
             Arc::new(Schema::new(vec![
@@ -840,6 +883,91 @@ mod tests {
             assert_close(actual.2, expected.2);
             assert_close(actual.3, expected.3);
         }
+    }
+
+    fn period_segment_totals_from_batches(
+        batches: &[RecordBatch],
+        value_col: &str,
+    ) -> Vec<(i32, i32, String, f64)> {
+        let years = int32_values_from_batches(batches, "period_year");
+        let months = int32_values_from_batches(batches, "period_month");
+        let segments = string_values_from_batches(batches, "segment");
+        let values = float_values_from_batches(batches, value_col);
+        let mut rows = years
+            .into_iter()
+            .zip(months)
+            .zip(segments)
+            .zip(values)
+            .map(|(((year, month), segment), value)| {
+                (
+                    year.unwrap(),
+                    month.unwrap(),
+                    segment.unwrap(),
+                    value.unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|a, b| (a.0, a.1, &a.2).cmp(&(b.0, b.1, &b.2)));
+        rows
+    }
+
+    fn period_segment_fill_rows_from_batches(
+        batches: &[RecordBatch],
+    ) -> Vec<(i32, i32, String, f64, bool)> {
+        let years = int32_values_from_batches(batches, "period_year");
+        let months = int32_values_from_batches(batches, "period_month");
+        let segments = string_values_from_batches(batches, "segment");
+        let values = float_values_from_batches(batches, "total");
+        let filled = bool_values_from_batches(batches, "was_time_filled");
+        let mut rows = years
+            .into_iter()
+            .zip(months)
+            .zip(segments)
+            .zip(values)
+            .zip(filled)
+            .map(|((((year, month), segment), value), filled)| {
+                (
+                    year.unwrap(),
+                    month.unwrap(),
+                    segment.unwrap(),
+                    value.unwrap(),
+                    filled.unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|a, b| (a.0, a.1, &a.2).cmp(&(b.0, b.1, &b.2)));
+        rows
+    }
+
+    fn period_segment_stack_rows_from_batches(
+        batches: &[RecordBatch],
+    ) -> Vec<(i32, i32, String, f64, f64, f64)> {
+        let years = int32_values_from_batches(batches, "period_year");
+        let months = int32_values_from_batches(batches, "period_month");
+        let segments = string_values_from_batches(batches, "segment");
+        let values = float_values_from_batches(batches, "total");
+        let starts = float_values_from_batches(batches, "total_stack_start");
+        let ends = float_values_from_batches(batches, "total_stack_end");
+        let mut rows = years
+            .into_iter()
+            .zip(months)
+            .zip(segments)
+            .zip(values)
+            .zip(starts)
+            .zip(ends)
+            .map(|(((((year, month), segment), value), start), end)| {
+                (
+                    year.unwrap(),
+                    month.unwrap(),
+                    segment.unwrap(),
+                    value.unwrap(),
+                    start.unwrap(),
+                    end.unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|a, b| (a.0, a.1, &a.2).cmp(&(b.0, b.1, &b.2)));
+        rows
     }
 
     #[tokio::test]
@@ -2808,6 +2936,189 @@ mod tests {
         let json = serde_json::to_string(&decoded).expect("serialize decoded stage");
         assert!(json.contains("time_fill"));
         assert!(json.contains("was_time_filled"));
+    }
+
+    #[tokio::test]
+    async fn time_levels_aggregate_groups_by_generated_keys() {
+        let ctx = SessionContext::new();
+        let dataframe = temporal_sales_dataframe(&ctx);
+        let (period_transform, period) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .month()
+                .name("period"),
+        );
+        let (aggregate_transform, _) = compile_transform(
+            Aggregate::new()
+                .group_by(period.keys_with([col("segment")]))
+                .sum("total", col("value")),
+        );
+
+        let batches =
+            transformed_batches(&ctx, dataframe, vec![period_transform, aggregate_transform]).await;
+        assert_eq!(
+            period_segment_totals_from_batches(&batches, "total"),
+            vec![
+                (2024, 1, "A".to_string(), 15.0),
+                (2024, 1, "B".to_string(), 4.0),
+                (2024, 3, "A".to_string(), 30.0),
+                (2024, 3, "B".to_string(), 6.0),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn time_levels_aggregate_time_fill_produces_complete_month_grid() {
+        let ctx = SessionContext::new();
+        let dataframe = temporal_sales_dataframe(&ctx);
+        let (period_transform, period) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .month()
+                .name("period"),
+        );
+        let (aggregate_transform, aggregate) = compile_transform(
+            Aggregate::new()
+                .group_by(period.keys_with([col("segment")]))
+                .sum("total", col("value")),
+        );
+        let (fill_transform, _) = compile_transform(
+            TimeFill::new(aggregate.output("total"))
+                .levels(period.levels())
+                .group_by([col("segment")])
+                .fill_value(lit(0.0))
+                .flag("was_time_filled"),
+        );
+
+        let batches = transformed_batches(
+            &ctx,
+            dataframe,
+            vec![period_transform, aggregate_transform, fill_transform],
+        )
+        .await;
+        assert_eq!(
+            period_segment_fill_rows_from_batches(&batches),
+            vec![
+                (2024, 1, "A".to_string(), 15.0, false),
+                (2024, 1, "B".to_string(), 4.0, false),
+                (2024, 2, "A".to_string(), 0.0, true),
+                (2024, 2, "B".to_string(), 0.0, true),
+                (2024, 3, "A".to_string(), 30.0, false),
+                (2024, 3, "B".to_string(), 6.0, false),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn time_levels_time_fill_preserves_segment_groups_for_stack() {
+        let ctx = SessionContext::new();
+        let dataframe = temporal_sales_dataframe(&ctx);
+        let (period_transform, period) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .month()
+                .name("period"),
+        );
+        let (aggregate_transform, aggregate) = compile_transform(
+            Aggregate::new()
+                .group_by(period.keys_with([col("segment")]))
+                .sum("total", col("value")),
+        );
+        let (fill_transform, _) = compile_transform(
+            TimeFill::new(aggregate.output("total"))
+                .levels(period.levels())
+                .group_by([col("segment")])
+                .fill_value(lit(0.0))
+                .flag("was_time_filled"),
+        );
+
+        let batches = transformed_batches(
+            &ctx,
+            dataframe,
+            vec![period_transform, aggregate_transform, fill_transform],
+        )
+        .await;
+        let rows = period_segment_fill_rows_from_batches(&batches);
+        let month_segments = rows
+            .iter()
+            .map(|row| (row.1, row.2.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            month_segments,
+            vec![(1, "A"), (1, "B"), (2, "A"), (2, "B"), (3, "A"), (3, "B"),]
+        );
+    }
+
+    #[tokio::test]
+    async fn time_levels_aggregate_time_fill_stack_preserves_complete_leaf_paths() {
+        let ctx = SessionContext::new();
+        let dataframe = temporal_sales_dataframe(&ctx);
+        let (period_transform, period) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .month()
+                .name("period"),
+        );
+        let (aggregate_transform, aggregate) = compile_transform(
+            Aggregate::new()
+                .group_by(period.keys_with([col("segment")]))
+                .sum("total", col("value")),
+        );
+        let (fill_transform, filled) = compile_transform(
+            TimeFill::new(aggregate.output("total"))
+                .levels(period.levels())
+                .group_by([col("segment")])
+                .fill_value(lit(0.0)),
+        );
+        let (stack_transform, _) = compile_transform(
+            Stack::new(filled.value())
+                .group_by(period.keys())
+                .sort_by_exprs([col("segment")])
+                .name("total_stack"),
+        );
+
+        let batches = transformed_batches(
+            &ctx,
+            dataframe,
+            vec![
+                period_transform,
+                aggregate_transform,
+                fill_transform,
+                stack_transform,
+            ],
+        )
+        .await;
+        let rows = period_segment_stack_rows_from_batches(&batches);
+        assert_eq!(
+            rows.iter()
+                .map(|row| (row.0, row.1, row.2.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (2024, 1, "A"),
+                (2024, 1, "B"),
+                (2024, 2, "A"),
+                (2024, 2, "B"),
+                (2024, 3, "A"),
+                (2024, 3, "B"),
+            ]
+        );
+
+        for (year, month, _segment, total, start, end) in &rows {
+            if *month == 2 {
+                assert_eq!((*year, *total), (2024, 0.0));
+                assert_close(*start, *end);
+            }
+        }
+        let mut month_totals = rows.iter().map(|row| (row.1, (row.5 - row.4).abs())).fold(
+            indexmap::IndexMap::<i32, f64>::new(),
+            |mut totals, row| {
+                *totals.entry(row.0).or_insert(0.0) += row.1;
+                totals
+            },
+        );
+        assert_close(month_totals.swap_remove(&1).unwrap(), 19.0);
+        assert_close(month_totals.swap_remove(&2).unwrap(), 0.0);
+        assert_close(month_totals.swap_remove(&3).unwrap(), 36.0);
     }
 
     #[tokio::test]

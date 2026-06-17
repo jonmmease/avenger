@@ -4,7 +4,10 @@ use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 use datafusion::{
     arrow::{
-        array::{ArrayRef, Float32Array, Int32Array, StringArray},
+        array::{
+            ArrayRef, Float32Array, Float64Array, Int32Array, StringArray,
+            TimestampMillisecondArray,
+        },
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
@@ -137,6 +140,35 @@ fn temporal_numeric_label_df(ctx: &SessionContext) -> datafusion::dataframe::Dat
             Arc::new(Int32Array::from(vec![1, 1, 2, 1, 2, 2])) as ArrayRef,
             Arc::new(Int32Array::from(vec![1, 2, 4, 1, 4, 5])) as ArrayRef,
             Arc::new(Float32Array::from(vec![10.0, 16.0, 24.0, 12.0, 20.0, 28.0])) as ArrayRef,
+        ],
+    );
+    ctx.read_batch(batch).expect("dataframe")
+}
+
+fn temporal_fact_df(
+    ctx: &SessionContext,
+    rows: &[(i64, Option<&str>, f64)],
+) -> datafusion::dataframe::DataFrame {
+    let batch = record_batch(
+        vec![
+            Field::new(
+                "timestamp",
+                DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Millisecond, None),
+                false,
+            ),
+            Field::new("segment", DataType::Utf8, true),
+            Field::new("value", DataType::Float64, false),
+        ],
+        vec![
+            Arc::new(TimestampMillisecondArray::from(
+                rows.iter().map(|row| row.0).collect::<Vec<_>>(),
+            )) as ArrayRef,
+            Arc::new(StringArray::from(
+                rows.iter().map(|row| row.1).collect::<Vec<_>>(),
+            )) as ArrayRef,
+            Arc::new(Float64Array::from(
+                rows.iter().map(|row| row.2).collect::<Vec<_>>(),
+            )) as ArrayRef,
         ],
     );
     ctx.read_batch(batch).expect("dataframe")
@@ -417,6 +449,253 @@ async fn test_nested_position_temporal_nested_manual_numeric_keys_display_labels
         None,
         "nested_position",
         "temporal_nested_manual_numeric_keys_display_labels",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_temporal_nested_months_timefill_default_extent() {
+    let ctx = SessionContext::new();
+    let df = temporal_fact_df(
+        &ctx,
+        &[
+            (1_704_412_800_000, None, 14.0),
+            (1_705_708_800_000, None, 5.0),
+            (1_709_337_600_000, None, 18.0),
+            (1_717_459_200_000, None, 26.0),
+        ],
+    );
+
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Rect::new().transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .quarter()
+                .month()
+                .name("period"),
+            |mark, period| {
+                mark.transform(
+                    Aggregate::new()
+                        .group_by(period.keys())
+                        .sum("total", col("value")),
+                    |mark, aggregate| {
+                        mark.transform(
+                            TimeFill::new(aggregate.output("total"))
+                                .levels(period.levels())
+                                .fill_value(lit(0.0)),
+                            |mark, filled| {
+                                mark.x_with(period.nested(), |x| {
+                                    x.axis(|a| a.title("Month grouped by quarter").grid(false))
+                                        .level(0, |l| l.padding_inner(0.3).padding_outer(0.12))
+                                        .level(1, |l| {
+                                            l.nest_scope(NestScope::Shared)
+                                                .padding_inner(0.18)
+                                                .padding_outer(0.04)
+                                        })
+                                        .level(2, |l| {
+                                            l.padding_inner(0.04).axis(|a| a.label_angle(-90.0))
+                                        })
+                                })
+                                .x2_with(col(":x"), |x| x.band(1.0))
+                                .y_with(lit(0.0), |y| {
+                                    y.scale(|s| s.domain((0.0, 30.0)))
+                                        .axis(|a| a.title("Total").grid(true))
+                                })
+                                .y2(filled.value())
+                                .fill("#4c78a8")
+                                .stroke("#ffffff")
+                                .stroke_width(1.0)
+                            },
+                        )
+                    },
+                )
+            },
+        ),
+    );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile temporal timefill default extent");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "temporal_nested_months_timefill_default_extent",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_temporal_nested_months_timefill_explicit_extent() {
+    let ctx = SessionContext::new();
+    let df = temporal_fact_df(
+        &ctx,
+        &[
+            (1_707_868_800_000, None, 16.0),
+            (1_715_126_400_000, None, 22.0),
+        ],
+    );
+
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Rect::new().transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .quarter()
+                .month()
+                .name("period"),
+            |mark, period| {
+                mark.transform(
+                    Aggregate::new()
+                        .group_by(period.keys())
+                        .sum("total", col("value")),
+                    |mark, aggregate| {
+                        mark.transform(
+                            TimeFill::new(aggregate.output("total"))
+                                .levels(period.levels())
+                                .extent(
+                                    [lit(2024_i32), lit(1_i32), lit(1_i32)],
+                                    [lit(2024_i32), lit(4_i32), lit(12_i32)],
+                                )
+                                .fill_value(lit(0.0)),
+                            |mark, filled| {
+                                mark.x_with(period.nested(), |x| {
+                                    x.axis(|a| {
+                                        a.title("Explicit full-year month extent").grid(false)
+                                    })
+                                    .level(0, |l| l.padding_inner(0.26).padding_outer(0.1))
+                                    .level(1, |l| {
+                                        l.nest_scope(NestScope::Shared)
+                                            .padding_inner(0.14)
+                                            .padding_outer(0.04)
+                                    })
+                                    .level(2, |l| {
+                                        l.padding_inner(0.02).axis(|a| a.label_angle(-90.0))
+                                    })
+                                })
+                                .x2_with(col(":x"), |x| x.band(1.0))
+                                .y_with(lit(0.0), |y| {
+                                    y.scale(|s| s.domain((0.0, 25.0)))
+                                        .axis(|a| a.title("Total").grid(true))
+                                })
+                                .y2(filled.value())
+                                .fill("#7aa6c2")
+                                .stroke("#ffffff")
+                                .stroke_width(1.0)
+                            },
+                        )
+                    },
+                )
+            },
+        ),
+    );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile temporal timefill explicit extent");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "temporal_nested_months_timefill_explicit_extent",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_temporal_nested_grouped_stacked_months() {
+    let ctx = SessionContext::new();
+    let df = temporal_fact_df(
+        &ctx,
+        &[
+            (1_704_412_800_000, Some("Hardware"), 10.0),
+            (1_705_708_800_000, Some("Hardware"), 5.0),
+            (1_709_337_600_000, Some("Hardware"), 18.0),
+            (1_714_192_800_000, Some("Hardware"), 11.0),
+            (1_704_585_600_000, Some("Services"), 8.0),
+            (1_709_769_600_000, Some("Services"), 12.0),
+            (1_715_126_400_000, Some("Services"), 15.0),
+            (1_718_668_800_000, Some("Services"), 9.0),
+        ],
+    );
+
+    let plot = Plot::<Cartesian>::new()
+        .data(df)
+        .legend("fill", |legend| legend.title("Segment"))
+        .mark(
+            Rect::new().transform(
+                TimeLevels::new(col("timestamp"))
+                    .year()
+                    .quarter()
+                    .month()
+                    .name("period"),
+                |mark, period| {
+                    mark.transform(
+                        Aggregate::new()
+                            .group_by(period.keys_with([col("segment")]))
+                            .sum("total", col("value")),
+                        |mark, aggregate| {
+                            mark.transform(
+                                TimeFill::new(aggregate.output("total"))
+                                    .levels(period.levels())
+                                    .group_by([col("segment")])
+                                    .fill_value(lit(0.0)),
+                                |mark, filled| {
+                                    mark.transform(
+                                        Stack::new(filled.value())
+                                            .group_by(period.keys())
+                                            .sort_by_exprs([col("segment")])
+                                            .name("segment_stack"),
+                                        |mark, stack| {
+                                            mark.x_with(period.nested(), |x| {
+                                                x.axis(|a| {
+                                                    a.title("Monthly totals by segment").grid(false)
+                                                })
+                                                .level(0, |l| {
+                                                    l.padding_inner(0.28).padding_outer(0.12)
+                                                })
+                                                .level(1, |l| {
+                                                    l.nest_scope(NestScope::Shared)
+                                                        .padding_inner(0.16)
+                                                        .padding_outer(0.04)
+                                                })
+                                                .level(2, |l| {
+                                                    l.padding_inner(0.04)
+                                                        .axis(|a| a.label_angle(-90.0))
+                                                })
+                                            })
+                                            .x2_with(col(":x"), |x| x.band(1.0))
+                                            .y_with(stack.start(), |y| {
+                                                y.scale(|s| s.domain((0.0, 25.0)))
+                                                    .axis(|a| a.title("Stacked total").grid(true))
+                                            })
+                                            .y2(stack.end())
+                                            .fill_with(col("segment"), |fill| fill)
+                                            .stroke("#ffffff")
+                                            .stroke_width(1.0)
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
+                },
+            ),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile temporal grouped stacked months");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "temporal_nested_grouped_stacked_months",
     )
     .await;
 }
