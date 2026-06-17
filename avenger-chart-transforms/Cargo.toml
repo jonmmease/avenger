@@ -18,4 +18,6 @@ typetag = "0.2"
 
 [dev-dependencies]
 arrow = { workspace = true }
+bincode = "1.3"
+serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

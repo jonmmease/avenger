@@ -10,6 +10,7 @@ mod kde;
 pub mod lump;
 mod select;
 mod stack;
+mod time_levels;
 mod time_unit;
 mod window;
 
@@ -27,6 +28,10 @@ pub use kde::{CompiledKdeTransform, Kde, KdeOutput, KdeResolve};
 pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
+pub use time_levels::{
+    CompiledTimeLevelsTransform, TimeLevel, TimeLevelConfig, TimeLevelKey, TimeLevelKeys,
+    TimeLevelLabel, TimeLevels, TimeLevelsOutput,
+};
 pub use time_unit::{CompiledTimeUnitTransform, TimeUnit, TimeUnitOutput, TimeUnitPart};
 pub use window::{CompiledWindowTransform, Window, WindowExprSpec, WindowSortSpec};
 
@@ -35,7 +40,7 @@ mod tests {
     use super::*;
     use arrow::{
         array::{
-            Array, BooleanArray, Float64Array, Int64Array, StringArray, StructArray,
+            Array, BooleanArray, Float64Array, Int32Array, Int64Array, StringArray, StructArray,
             TimestampMillisecondArray, UInt64Array,
         },
         datatypes::{DataType, Field, Schema},
@@ -43,8 +48,8 @@ mod tests {
     };
     use avenger_chart_core::{
         ChannelValue, CoordinationScope, DataTransform, DataTransformCompileContext,
-        DataTransformExecutionContext, DataTransformStage, Param, TimeContext, WeekStart,
-        collect_derived_scalar_ids, eval_to_scalars,
+        DataTransformExecutionContext, DataTransformStage, DefaultLogicalExprNodeExt, Param,
+        TimeContext, WeekStart, collect_derived_scalar_ids, eval_to_scalars,
     };
     use datafusion::common::ScalarValue;
     use datafusion::dataframe::DataFrame;
@@ -661,6 +666,25 @@ mod tests {
         batches: &[RecordBatch],
     ) -> Vec<(Option<i64>, Option<i64>, Option<i64>)> {
         batches.iter().flat_map(timeunit_rows).collect()
+    }
+
+    fn int32_values(batch: &RecordBatch, column: &str) -> Vec<Option<i32>> {
+        let values = batch
+            .column_by_name(column)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap();
+        (0..batch.num_rows())
+            .map(|row| (!values.is_null(row)).then(|| values.value(row)))
+            .collect()
+    }
+
+    fn int32_values_from_batches(batches: &[RecordBatch], column: &str) -> Vec<Option<i32>> {
+        batches
+            .iter()
+            .flat_map(|batch| int32_values(batch, column))
+            .collect()
     }
 
     fn scalar_struct_field(struct_array: &StructArray, name: &str) -> ScalarValue {
@@ -1968,6 +1992,336 @@ mod tests {
             datafusion::arrow::array::types::IntervalMonthDayNanoType::to_parts(step),
             (1, 0, 0)
         );
+    }
+
+    #[tokio::test]
+    async fn time_levels_appends_expected_key_columns() {
+        const DAY_MS: i64 = 86_400_000;
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(45 * DAY_MS), None]);
+        let (compiled_transform, output) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .quarter()
+                .month()
+                .name("period"),
+        );
+
+        assert_eq!(output.key_name(TimeLevel::Year), "period_year");
+        assert_eq!(output.key(TimeLevel::Month).to_string(), "period_month");
+
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(
+            int32_values_from_batches(&batches, "period_year"),
+            vec![Some(1970), None]
+        );
+        assert_eq!(
+            int32_values_from_batches(&batches, "period_quarter"),
+            vec![Some(1), None]
+        );
+        assert_eq!(
+            int32_values_from_batches(&batches, "period_month"),
+            vec![Some(2), None]
+        );
+    }
+
+    #[test]
+    fn time_levels_output_helpers_describe_grouping_and_nested_channel() {
+        let (_compiled_transform, output) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .quarter()
+                .month_with(|level| level.label(TimeLevelLabel::MonthName))
+                .name("period"),
+        );
+
+        assert_eq!(
+            output
+                .keys()
+                .into_iter()
+                .map(|expr| expr.to_string())
+                .collect::<Vec<_>>(),
+            vec!["period_year", "period_quarter", "period_month"]
+        );
+        assert_eq!(
+            output
+                .keys_with([col("segment")])
+                .into_iter()
+                .map(|expr| expr.to_string())
+                .collect::<Vec<_>>(),
+            vec!["period_year", "period_quarter", "period_month", "segment"]
+        );
+
+        let levels = output.levels();
+        assert_eq!(
+            levels.levels,
+            vec![
+                TimeLevelKey {
+                    level: TimeLevel::Year,
+                    key_name: "period_year".to_string(),
+                    label: TimeLevelLabel::Year4,
+                },
+                TimeLevelKey {
+                    level: TimeLevel::Quarter,
+                    key_name: "period_quarter".to_string(),
+                    label: TimeLevelLabel::QuarterShort,
+                },
+                TimeLevelKey {
+                    level: TimeLevel::Month,
+                    key_name: "period_month".to_string(),
+                    label: TimeLevelLabel::MonthName,
+                },
+            ]
+        );
+
+        let ctx = SessionContext::new();
+        let nested = output.try_nested().expect("nested output");
+        let nested_spec = nested
+            .channel_value()
+            .get_nested_band_config()
+            .expect("nested metadata");
+        assert_eq!(
+            nested_spec.source_columns,
+            vec!["period_year", "period_quarter", "period_month"]
+        );
+        assert_eq!(
+            nested_spec
+                .level(2)
+                .and_then(|level| level.label_expr.as_ref())
+                .expect("month label")
+                .to_default_expr(&ctx)
+                .expect("label expr")
+                .to_string(),
+            "to_char(make_date(Int32(2000), period_month, Int32(1)), Utf8(\"%B\"))"
+        );
+    }
+
+    #[tokio::test]
+    async fn time_levels_local_timezone_overrides_parent_timezone() {
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(1_704_070_800_000)]);
+        let (compiled_transform, _) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .month()
+                .time_context(TimeContext::new().timezone("America/New_York"))
+                .name("period"),
+        );
+
+        let batches = transformed_batches_with_time_context(
+            &ctx,
+            dataframe,
+            vec![compiled_transform],
+            TimeContext::new().timezone("UTC"),
+        )
+        .await;
+        assert_eq!(
+            int32_values_from_batches(&batches, "period_year"),
+            vec![Some(2023)]
+        );
+        assert_eq!(
+            int32_values_from_batches(&batches, "period_month"),
+            vec![Some(12)]
+        );
+    }
+
+    #[tokio::test]
+    async fn time_levels_parent_timezone_is_used_when_local_timezone_is_omitted() {
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(1_704_070_800_000)]);
+        let (compiled_transform, _) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .month()
+                .name("period"),
+        );
+
+        let batches = transformed_batches_with_time_context(
+            &ctx,
+            dataframe,
+            vec![compiled_transform],
+            TimeContext::new().timezone("America/New_York"),
+        )
+        .await;
+        assert_eq!(
+            int32_values_from_batches(&batches, "period_year"),
+            vec![Some(2023)]
+        );
+        assert_eq!(
+            int32_values_from_batches(&batches, "period_month"),
+            vec![Some(12)]
+        );
+    }
+
+    #[tokio::test]
+    async fn time_levels_accepts_week_start_but_rejects_week_levels() {
+        let ctx = SessionContext::new();
+        let dataframe = time_dataframe(&ctx, vec![Some(0)]);
+        let (compiled_transform, _) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .time_context(TimeContext::new().week_start(WeekStart::Monday))
+                .name("period"),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        assert_eq!(
+            int32_values_from_batches(&batches, "period_year"),
+            vec![Some(1970)]
+        );
+
+        let err = match TimeLevels::new(col("timestamp"))
+            .level(TimeLevel::Week)
+            .name("period")
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
+        {
+            Ok(_) => panic!("week levels should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("does not support week-number or day-of-week levels"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn time_levels_generated_names_must_not_collide_with_input_columns() {
+        let ctx = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new(
+                    "timestamp",
+                    DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Millisecond, None),
+                    true,
+                ),
+                Field::new("period_year", DataType::Int32, true),
+            ])),
+            vec![
+                Arc::new(TimestampMillisecondArray::from(vec![Some(0)])) as _,
+                Arc::new(Int32Array::from(vec![Some(1970)])) as _,
+            ],
+        )
+        .unwrap();
+        let dataframe = ctx.read_batch(batch).unwrap();
+        let (compiled_transform, _) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .month()
+                .name("period"),
+        );
+
+        let err = match avenger_chart_core::apply_compiled_data_transforms(
+            dataframe,
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+                time_context: TimeContext::default(),
+            },
+        )
+        .await
+        {
+            Ok(_) => panic!("colliding output names should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("conflicts with an input column"));
+    }
+
+    #[test]
+    fn time_levels_rejects_aggregate_values_duplicate_levels_and_invalid_nested_chains() {
+        let aggregate_err = match TimeLevels::new(sum(col("value")))
+            .year()
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
+        {
+            Ok(_) => panic!("aggregate value should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            aggregate_err
+                .to_string()
+                .contains("does not accept aggregate expressions"),
+            "{aggregate_err}"
+        );
+
+        let duplicate_err = match TimeLevels::new(col("timestamp"))
+            .year()
+            .year()
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
+        {
+            Ok(_) => panic!("duplicate level should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            duplicate_err.to_string().contains("is duplicated"),
+            "{duplicate_err}"
+        );
+
+        let (_compiled_transform, output) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .month()
+                .year()
+                .name("period"),
+        );
+        let nested_err = output.try_nested().expect_err("invalid nested chain");
+        assert!(
+            nested_err
+                .to_string()
+                .contains("requires a supported hierarchical chain"),
+            "{nested_err}"
+        );
+    }
+
+    #[test]
+    fn time_levels_nested_accepts_supported_hierarchies() {
+        let cases = vec![
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .quarter()
+                .month()
+                .name("period"),
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .quarter()
+                .month()
+                .day_of_month()
+                .name("period"),
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .month()
+                .name("period"),
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .month()
+                .day_of_month()
+                .name("period"),
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .day_of_year()
+                .name("period"),
+        ];
+
+        for case in cases {
+            let (_compiled_transform, output) = compile_transform(case);
+            output.try_nested().expect("supported nested hierarchy");
+        }
+    }
+
+    #[test]
+    fn time_levels_compiled_transform_serializes() {
+        let (stage, _output) = compile_transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .quarter()
+                .month()
+                .time_context(TimeContext::new().timezone("America/New_York"))
+                .name("period"),
+        );
+
+        let bytes = bincode::serialize(&stage).expect("serialize transform stage");
+        let decoded: DataTransformStage = bincode::deserialize(&bytes).expect("deserialize stage");
+        let json = serde_json::to_string(&decoded).expect("serialize decoded stage as json");
+        assert!(json.contains("time_levels"));
+        assert!(json.contains("America/New_York"));
     }
 
     #[tokio::test]

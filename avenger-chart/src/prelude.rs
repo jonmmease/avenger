@@ -64,7 +64,9 @@ pub use avenger_chart_transforms::lump;
 pub use avenger_chart_transforms::{
     Aggregate, AggregateOutput, Bin, BinOutput, Calculate, CompiledKdeTransform, Filter, Fold,
     FoldOutput, Impute, ImputeOutput, JoinAggregate, Kde, KdeOutput, KdeResolve, Lump, LumpOutput,
-    Select, Stack, StackOffset, StackOutput, TimeUnit, TimeUnitOutput, TimeUnitPart, Window,
+    Select, Stack, StackOffset, StackOutput, TimeLevel, TimeLevelConfig, TimeLevelKey,
+    TimeLevelKeys, TimeLevelLabel, TimeLevels, TimeLevelsOutput, TimeUnit, TimeUnitOutput,
+    TimeUnitPart, Window,
 };
 
 // Re-export theme types
