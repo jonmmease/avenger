@@ -42,6 +42,61 @@ fn grouped_bar_df(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
     ctx.read_batch(batch).expect("dataframe")
 }
 
+fn grouped_stacked_bar_df(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+    let rows = [
+        ("Q1", "North", "Hardware", 18.0),
+        ("Q1", "North", "Software", 12.0),
+        ("Q1", "North", "Services", 9.0),
+        ("Q1", "South", "Hardware", 14.0),
+        ("Q1", "South", "Software", 10.0),
+        ("Q1", "South", "Services", 7.0),
+        ("Q1", "East", "Hardware", 16.0),
+        ("Q1", "East", "Software", 11.0),
+        ("Q1", "East", "Services", 8.0),
+        ("Q2", "North", "Hardware", 20.0),
+        ("Q2", "North", "Software", 15.0),
+        ("Q2", "North", "Services", 11.0),
+        ("Q2", "South", "Hardware", 12.0),
+        ("Q2", "South", "Software", 13.0),
+        ("Q2", "South", "Services", 8.0),
+        ("Q2", "East", "Hardware", 17.0),
+        ("Q2", "East", "Software", 14.0),
+        ("Q2", "East", "Services", 10.0),
+        ("Q3", "North", "Hardware", 22.0),
+        ("Q3", "North", "Software", 16.0),
+        ("Q3", "North", "Services", 12.0),
+        ("Q3", "South", "Hardware", 15.0),
+        ("Q3", "South", "Software", 14.0),
+        ("Q3", "South", "Services", 9.0),
+        ("Q3", "East", "Hardware", 19.0),
+        ("Q3", "East", "Software", 17.0),
+        ("Q3", "East", "Services", 11.0),
+    ];
+    let batch = record_batch(
+        vec![
+            Field::new("quarter", DataType::Utf8, false),
+            Field::new("team", DataType::Utf8, false),
+            Field::new("segment", DataType::Utf8, false),
+            Field::new("value", DataType::Float32, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(
+                rows.iter().map(|row| row.0).collect::<Vec<_>>(),
+            )) as ArrayRef,
+            Arc::new(StringArray::from(
+                rows.iter().map(|row| row.1).collect::<Vec<_>>(),
+            )) as ArrayRef,
+            Arc::new(StringArray::from(
+                rows.iter().map(|row| row.2).collect::<Vec<_>>(),
+            )) as ArrayRef,
+            Arc::new(Float32Array::from(
+                rows.iter().map(|row| row.3).collect::<Vec<_>>(),
+            )) as ArrayRef,
+        ],
+    );
+    ctx.read_batch(batch).expect("dataframe")
+}
+
 fn facet_nested_df(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
     let batch = record_batch(
         vec![
@@ -167,6 +222,52 @@ async fn test_nested_position_grouped_bar_shared_slots() {
         None,
         "nested_position",
         "grouped_bar_shared_slots",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_nested_position_grouped_stacked_bar() {
+    let ctx = SessionContext::new();
+
+    let plot = Plot::<Cartesian>::new()
+        .data(grouped_stacked_bar_df(&ctx))
+        .legend("fill", |legend| legend.title("Segment"))
+        .mark(
+            Rect::new().transform(
+                Stack::new(col("value"))
+                    .group_by([col("quarter"), col("team")])
+                    .sort_by_exprs([col("segment")])
+                    .name("segment_stack"),
+                |mark, stack| {
+                    mark.x_with(nested_x("quarter", "team"), |x| {
+                        x.axis(|a| a.title("Quarter / Team").grid(false))
+                            .level(0, |l| l.padding_inner(0.45).padding_outer(0.15))
+                            .level(1, |l| l.nest_scope(NestScope::Shared).padding_inner(0.08))
+                    })
+                    .x2_with(col(":x"), |x| x.band(1.0))
+                    .y_with(stack.start(), |y| {
+                        y.scale(|s| s.domain((0.0, 55.0)))
+                            .axis(|a| a.title("Value").grid(true))
+                    })
+                    .y2(stack.end())
+                    .fill_with(col("segment"), |fill| fill)
+                    .stroke("#ffffff")
+                    .stroke_width(1.0)
+                },
+            ),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile grouped stacked bar");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "nested_position",
+        "grouped_stacked_bar",
     )
     .await;
 }
