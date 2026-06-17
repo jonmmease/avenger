@@ -45,17 +45,18 @@ use avenger_chart_core::{
     CoordMeasurement, CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext,
     Legend, LogicalPlanNodeExt, ScaleRangeBinding, SerializableDataFrame, SerializableDataType,
     SerializableScalarMap, Theme, TimeContext, ToolMetadata, channel::strip_trailing_numbers,
-    resolve_all_channel_refs,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
 use crate::{
     event::ChartEventBinding,
+    facet::evaluated_facet_tree::EvaluatedFacetTree,
     layout::{
         ChartResizePolicy, ChildFrameContentMeasurement, ChildFrameContentSolver,
         ContentAllocation, ContentLayout, ContentLayoutSolver, FrameAllocation, FrameDemand,
         LayoutSpec, SinglePlotContentMeasurement, SinglePlotContentSolver,
     },
+    render::EvaluationContext,
 };
 
 pub use self::child_frame_container::ChildFrameContainerView;
@@ -203,6 +204,10 @@ pub struct CompiledPlot {
     #[serde(default)]
     pub(crate) event_datum_fields: Vec<EventDatumFieldSpec>,
 
+    /// Coordinate readback columns exposed by event bindings, with their compile-time types.
+    #[serde(default)]
+    pub(crate) event_coord_fields: Vec<EventDatumFieldSpec>,
+
     /// Static selection specs registered by the author.
     #[serde(default)]
     pub(crate) selection_specs: IndexMap<String, CompiledSelectionSpec>,
@@ -279,52 +284,97 @@ impl CompiledPlot {
     /// the original level field names.
     pub fn event_coord_types(
         &self,
-        ctx: &SessionContext,
+        _ctx: &SessionContext,
     ) -> Result<IndexMap<String, DataType>, AvengerChartError> {
-        let mut types = IndexMap::new();
-        self.collect_event_coord_types(ctx, &mut types)?;
-        Ok(types)
+        Ok(self
+            .event_coord_fields
+            .iter()
+            .map(|field| (field.name.clone(), field.data_type.clone()))
+            .collect())
     }
 
-    fn collect_event_coord_types(
+    pub(crate) async fn infer_event_coord_fields(
+        &self,
+        ctx: &SessionContext,
+    ) -> Result<Vec<EventDatumFieldSpec>, AvengerChartError> {
+        let mut requested = BTreeSet::new();
+        for binding in &self.event_bindings {
+            requested.extend(
+                crate::event::scan_chart_event_binding_interaction_columns(binding, ctx)?
+                    .all_channels(),
+            );
+        }
+        if requested.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut types = IndexMap::new();
+        self.collect_event_coord_types(ctx, &mut types, None)
+            .await?;
+        Ok(types
+            .into_iter()
+            .map(|(name, data_type)| EventDatumFieldSpec { name, data_type })
+            .collect())
+    }
+
+    async fn collect_event_coord_types(
         &self,
         ctx: &SessionContext,
         out: &mut IndexMap<String, DataType>,
+        inherited_plot_data: Option<&LogicalPlanNode>,
     ) -> Result<(), AvengerChartError> {
-        let plot_df = self.data.as_ref().and_then(|node| {
-            node.to_logical_plan(ctx)
-                .ok()
-                .map(|plan| DataFrame::new(ctx.state().clone(), plan))
-        });
+        let plot_data = self.data.as_ref().or(inherited_plot_data);
+        let eval_ctx = self.schema_inference_evaluation_context(ctx);
         collect_event_coord_types_from_marks(
             self.coord_transform.as_ref(),
             &self.marks,
-            plot_df.as_ref(),
+            plot_data,
             ctx,
+            &eval_ctx,
             out,
-        )?;
+        )
+        .await?;
 
         for mark in &self.marks {
             if let Some(subplot) = crate::concat::compiled_subplot(mark.as_ref()) {
-                subplot
-                    .compiled_subplot()
-                    .collect_event_coord_types(ctx, out)?;
+                Box::pin(
+                    subplot
+                        .compiled_subplot()
+                        .collect_event_coord_types(ctx, out, plot_data),
+                )
+                .await?;
             }
             if let Some(subplot) = crate::facet::marks::facet::facet_subplot_ref(mark.as_ref()) {
-                subplot
-                    .compiled_subplot()
-                    .collect_event_coord_types(ctx, out)?;
+                Box::pin(
+                    subplot
+                        .compiled_subplot()
+                        .collect_event_coord_types(ctx, out, plot_data),
+                )
+                .await?;
             }
             if let Some(subplot) = mark.as_positioned_subplot() {
-                compiled_subplot_payload_child_plot(subplot.payload())
-                    .collect_event_coord_types(ctx, out)?;
+                Box::pin(
+                    compiled_subplot_payload_child_plot(subplot.payload())
+                        .collect_event_coord_types(ctx, out, plot_data),
+                )
+                .await?;
             }
         }
 
         Ok(())
     }
 
-    pub(crate) fn infer_event_datum_fields(
+    fn schema_inference_evaluation_context(&self, ctx: &SessionContext) -> EvaluationContext {
+        EvaluationContext::new(
+            self.get_theme(),
+            Arc::new(ctx.clone()),
+            self.default_params.clone(),
+            Arc::new(EvaluatedFacetTree::empty()),
+        )
+        .with_time_context(self.time_context.clone())
+    }
+
+    pub(crate) async fn infer_event_datum_fields(
         &self,
         ctx: &SessionContext,
     ) -> Result<Vec<EventDatumFieldSpec>, AvengerChartError> {
@@ -341,7 +391,8 @@ impl CompiledPlot {
 
         let mut types = IndexMap::new();
         collect_reserved_event_datum_types(&requested, &mut types);
-        self.collect_event_datum_types(ctx, &requested, &mut types)?;
+        self.collect_event_datum_types(ctx, &requested, &mut types, None)
+            .await?;
         let missing = requested
             .iter()
             .filter(|field| !types.contains_key(*field))
@@ -359,13 +410,15 @@ impl CompiledPlot {
             .collect())
     }
 
-    fn collect_event_datum_types(
+    async fn collect_event_datum_types(
         &self,
         ctx: &SessionContext,
         requested: &BTreeSet<String>,
         out: &mut IndexMap<String, DataType>,
+        inherited_plot_data: Option<&LogicalPlanNode>,
     ) -> Result<(), AvengerChartError> {
-        if let Some(df) = self.data.as_ref().and_then(|node| {
+        let plot_data = self.data.as_ref().or(inherited_plot_data);
+        if let Some(df) = plot_data.and_then(|node| {
             node.to_logical_plan(ctx)
                 .ok()
                 .map(|plan| DataFrame::new(ctx.state().clone(), plan))
@@ -373,23 +426,42 @@ impl CompiledPlot {
             collect_event_datum_types_from_schema(&df, requested, out);
         }
 
+        let eval_ctx = self.schema_inference_evaluation_context(ctx);
+
         for mark in &self.marks {
-            if let Some(df) = mark.data_context().dataframe_with_context(ctx) {
+            let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
+                mark: mark.as_ref(),
+                plot_data,
+                provided_plot_df: None,
+                facet_data_scope: None,
+                eval_ctx: &eval_ctx,
+            }))
+            .await?;
+            if let Some(df) = prepared.dataframe.as_ref() {
                 collect_event_datum_types_from_schema(&df, requested, out);
             }
             if let Some(subplot) = crate::concat::compiled_subplot(mark.as_ref()) {
-                subplot
-                    .compiled_subplot()
-                    .collect_event_datum_types(ctx, requested, out)?;
+                Box::pin(
+                    subplot
+                        .compiled_subplot()
+                        .collect_event_datum_types(ctx, requested, out, plot_data),
+                )
+                .await?;
             }
             if let Some(subplot) = crate::facet::marks::facet::facet_subplot_ref(mark.as_ref()) {
-                subplot
-                    .compiled_subplot()
-                    .collect_event_datum_types(ctx, requested, out)?;
+                Box::pin(
+                    subplot
+                        .compiled_subplot()
+                        .collect_event_datum_types(ctx, requested, out, plot_data),
+                )
+                .await?;
             }
             if let Some(subplot) = mark.as_positioned_subplot() {
-                compiled_subplot_payload_child_plot(subplot.payload())
-                    .collect_event_datum_types(ctx, requested, out)?;
+                Box::pin(
+                    compiled_subplot_payload_child_plot(subplot.payload())
+                        .collect_event_datum_types(ctx, requested, out, plot_data),
+                )
+                .await?;
             }
         }
         Ok(())
@@ -561,11 +633,12 @@ fn collect_event_datum_types_from_schema(
     }
 }
 
-fn collect_event_coord_types_from_marks(
+async fn collect_event_coord_types_from_marks(
     coord_transform: &dyn CoordinateSystemTransform,
     marks: &[Arc<dyn CompiledMark>],
-    plot_df: Option<&DataFrame>,
+    plot_data: Option<&LogicalPlanNode>,
     ctx: &SessionContext,
+    eval_ctx: &EvaluationContext,
     out: &mut IndexMap<String, DataType>,
 ) -> Result<(), AvengerChartError> {
     let invertible = coord_transform.interaction_invertible_channels();
@@ -574,12 +647,16 @@ fn collect_event_coord_types_from_marks(
     }
 
     for mark in marks {
-        let mark_df = mark
-            .data_context()
-            .dataframe_with_context(ctx)
-            .or_else(|| plot_df.cloned());
-        let channels = resolve_all_channel_refs(mark.data_context().channels(), ctx)
-            .unwrap_or_else(|_| mark.data_context().channels().clone());
+        let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark: mark.as_ref(),
+            plot_data,
+            provided_plot_df: None,
+            facet_data_scope: None,
+            eval_ctx,
+        }))
+        .await?;
+        let mark_df = prepared.domain_dataframe.as_ref();
+        let channels = &prepared.domain_channels;
 
         for channel in invertible {
             if out.contains_key(*channel) {
@@ -588,8 +665,8 @@ fn collect_event_coord_types_from_marks(
             let Some(data_type) = infer_event_coord_type_for_channel(
                 coord_transform,
                 mark.as_ref(),
-                &channels,
-                mark_df.as_ref(),
+                channels,
+                mark_df,
                 ctx,
                 channel,
             )?

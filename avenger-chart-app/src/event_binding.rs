@@ -4506,7 +4506,9 @@ mod tests {
         },
     };
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
-    use datafusion::arrow::array::{Array, ArrayRef, Float64Array, StringArray};
+    use datafusion::arrow::array::{
+        Array, ArrayRef, Float64Array, Int32Array, StringArray, TimestampMillisecondArray,
+    };
 
     use super::*;
 
@@ -6994,6 +6996,200 @@ mod tests {
         assert_eq!(names, vec!["quarter", "team"]);
     }
 
+    async fn temporal_nested_bar_state_and_handler(
+        binding: ChartEventBinding,
+    ) -> (
+        ChartAppState,
+        ChartEventBindingHandler,
+        MarkInstance,
+        [f32; 2],
+    ) {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let selected = picked.predicate();
+        let df = ctx
+            .read_batch(temporal_nested_bar_batch())
+            .expect("temporal nested bar data");
+        let compiled = Plot::<Cartesian>::new()
+            .canvas_size(560.0, 380.0)
+            .add_selection(picked)
+            .data(df)
+            .mark(
+                Rect::new().transform(
+                    TimeLevels::new(col("timestamp"))
+                        .year()
+                        .quarter()
+                        .month()
+                        .name("period"),
+                    |mark, period| {
+                        mark.transform(
+                            Aggregate::new()
+                                .group_by(period.keys())
+                                .sum("total", col("value")),
+                            |mark, aggregate| {
+                                mark.x_with(period.nested(), |x| {
+                                    x.axis(|axis| axis.title("Month"))
+                                        .level(1, |level| level.nest_scope(NestScope::Shared))
+                                        .level(2, |level| {
+                                            level.axis(|axis| axis.label_angle(-90.0))
+                                        })
+                                })
+                                .x2_with(col(":x"), |x| x.band(1.0))
+                                .y(lit(0.0))
+                                .y2(aggregate.output("total"))
+                                .fill_with(lit("#b8beca"), |c| {
+                                    c.no_scale()
+                                        .when_value(selected, lit("#2563eb"))
+                                        .no_legend()
+                                })
+                            },
+                        )
+                    },
+                ),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile temporal nested bar plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial temporal nested bar build");
+        let datum_mark_instance =
+            retained_event_datum_mark_instance(&state, "total", ScalarValue::Float64(Some(18.0)))
+                .await;
+        let position = rect_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the March bar");
+        assert_eq!(
+            mark_instance.mark_path, datum_mark_instance.mark_path,
+            "rtree hit-test path should match retained event datum rows"
+        );
+        assert_eq!(
+            mark_instance.instance_index, datum_mark_instance.instance_index,
+            "rtree hit-test instance should match retained event datum rows"
+        );
+        (state, handler, mark_instance, position)
+    }
+
+    fn temporal_nested_source_column_clause() -> SelectionClauseUpdate {
+        SelectionClauseUpdate::equality(lit("active"))
+            .facet_scope(CoordinationScope::Shared)
+            .dimension_named("year", col("period_year"), event::datum("period_year"))
+            .dimension_named(
+                "quarter",
+                col("period_quarter"),
+                event::datum("period_quarter"),
+            )
+            .dimension_named("month", col("period_month"), event::datum("period_month"))
+            .build()
+    }
+
+    fn temporal_nested_bar_batch() -> RecordBatch {
+        let timestamp = [
+            1_704_412_800_000_i64,
+            1_705_708_800_000_i64,
+            1_709_337_600_000_i64,
+            1_712_880_000_000_i64,
+        ];
+        let value = [14.0, 5.0, 18.0, 22.0];
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new(
+                "timestamp",
+                DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Millisecond, None),
+                false,
+            ),
+            Field::new("value", DataType::Float64, false),
+        ]));
+
+        RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(TimestampMillisecondArray::from(timestamp.to_vec())) as ArrayRef,
+                Arc::new(Float64Array::from(value.to_vec())) as ArrayRef,
+            ],
+        )
+        .expect("temporal nested bar batch")
+    }
+
+    fn assert_temporal_nested_coord_value(
+        value: &ScalarValue,
+        year: i32,
+        quarter: i32,
+        month: i32,
+    ) {
+        let ScalarValue::Struct(struct_array) = value else {
+            panic!("expected temporal nested key struct value, got {value:?}");
+        };
+        assert_eq!(
+            struct_array.len(),
+            1,
+            "nested key scalar should contain one row"
+        );
+        let year_values = struct_array
+            .column_by_name("period_year")
+            .expect("year field")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("year int32 array");
+        let quarter_values = struct_array
+            .column_by_name("period_quarter")
+            .expect("quarter field")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("quarter int32 array");
+        let month_values = struct_array
+            .column_by_name("period_month")
+            .expect("month field")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("month int32 array");
+        assert_eq!(year_values.value(0), year);
+        assert_eq!(quarter_values.value(0), quarter);
+        assert_eq!(month_values.value(0), month);
+    }
+
+    fn assert_temporal_dimensions(
+        dimensions: &[avenger_chart_core::SelectionEqualityDimensionValue],
+        year: i32,
+        quarter: i32,
+        month: i32,
+    ) {
+        assert_eq!(dimensions.len(), 3);
+        assert_eq!(dimensions[0].id, "year");
+        assert_eq!(dimensions[0].value, ScalarValue::Int32(Some(year)));
+        assert_eq!(dimensions[1].id, "quarter");
+        assert_eq!(dimensions[1].value, ScalarValue::Int32(Some(quarter)));
+        assert_eq!(dimensions[2].id, "month");
+        assert_eq!(dimensions[2].value, ScalarValue::Int32(Some(month)));
+    }
+
+    fn assert_temporal_event_coord_schema(handler: &ChartEventBindingHandler) {
+        let schema = handler.runtime.program.schema();
+        let field = schema
+            .field_with_name(&event::event_coord_column_name("x"))
+            .expect("event coord x schema field");
+        let DataType::Struct(fields) = field.data_type() else {
+            panic!(
+                "expected struct-typed event coord x, got {:?}",
+                field.data_type()
+            );
+        };
+        let names = fields
+            .iter()
+            .map(|field| field.name().as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["period_year", "period_quarter", "period_month"]);
+    }
+
     async fn faceted_nested_grouped_bar_state_and_handler(
         binding: ChartEventBinding,
     ) -> (
@@ -7951,6 +8147,265 @@ mod tests {
             panic!("expected equality predicate");
         };
         assert_quarter_team_dimensions(dimensions, "Q2", "East");
+    }
+
+    #[tokio::test]
+    async fn temporal_nested_event_datum_uses_key_not_label() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("total").is_not_null())
+            .filter(event::datum("period_month").eq(lit(3_i32)))
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(temporal_nested_source_column_clause()),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            temporal_nested_bar_state_and_handler(binding).await;
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(
+            status.rerender,
+            "integer month datum filter should patch selection; metrics={:?}",
+            state.event_metrics().await
+        );
+        assert!(status.rebuild_geometry);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].id, "active");
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_temporal_dimensions(dimensions, 2024, 1, 3);
+    }
+
+    #[tokio::test]
+    async fn temporal_nested_click_selection_uses_year_quarter_month_dimensions() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("total").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(temporal_nested_source_column_clause()),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            temporal_nested_bar_state_and_handler(binding).await;
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(
+            status.rerender,
+            "temporal nested click should patch selection; metrics={:?}",
+            state.event_metrics().await
+        );
+        assert!(status.rebuild_geometry);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].id, "active");
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_temporal_dimensions(dimensions, 2024, 1, 3);
+    }
+
+    #[tokio::test]
+    async fn temporal_nested_event_coord_returns_key_only_struct() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("total").is_not_null())
+            .filter(event::event_coord("x").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(temporal_nested_source_column_clause()),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            temporal_nested_bar_state_and_handler(binding).await;
+        assert_temporal_event_coord_schema(&handler);
+        let scopes = state.interaction_scopes().await;
+        let scope = match route_interaction_scope(&scopes, Some(position), &channel_set(&["x"])) {
+            InteractionRoute::Scope(scope) => scope,
+            InteractionRoute::None => panic!("clicked temporal bar should route to a scope"),
+            InteractionRoute::Ambiguous => {
+                panic!("clicked temporal bar should route to one coordinate scope")
+            }
+        };
+        let inverted = invert_scene_point(scope, position, &["x"]).expect("invert temporal x");
+        assert_temporal_nested_coord_value(
+            inverted.get("x").expect("inverted x value"),
+            2024,
+            1,
+            3,
+        );
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(
+            status.rerender,
+            "event coord temporal click should patch selection; metrics={:?}",
+            state.event_metrics().await
+        );
+        assert!(status.rebuild_geometry);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_temporal_dimensions(dimensions, 2024, 1, 3);
+    }
+
+    #[tokio::test]
+    async fn temporal_nested_cross_filter_to_non_nested_chart() {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let selected = picked.predicate();
+        let df = ctx
+            .read_batch(temporal_nested_bar_batch())
+            .expect("temporal cross-filter data");
+
+        let nested_source = Rect::new().transform(
+            TimeLevels::new(col("timestamp"))
+                .year()
+                .quarter()
+                .month()
+                .name("period"),
+            |mark, period| {
+                mark.transform(
+                    Aggregate::new()
+                        .group_by(period.keys())
+                        .sum("total", col("value")),
+                    |mark, aggregate| {
+                        mark.x_with(period.nested(), |x| {
+                            x.axis(|axis| axis.title("Nested period"))
+                                .level(1, |level| level.nest_scope(NestScope::Shared))
+                                .level(2, |level| level.axis(|axis| axis.label_angle(-90.0)))
+                        })
+                        .x2_with(col(":x"), |x| x.band(1.0))
+                        .y(lit(0.0))
+                        .y2(aggregate.output("total"))
+                        .fill("#b8beca")
+                    },
+                )
+            },
+        );
+
+        let detail_overlay = Rect::new()
+            .transform(
+                TimeLevels::new(col("timestamp"))
+                    .year()
+                    .quarter()
+                    .month()
+                    .name("period"),
+                |mark, _period| mark,
+            )
+            .transform_no_output(Filter::new(selected), |mark| mark)
+            .transform(
+                Aggregate::new()
+                    .group_by([col("period_month")])
+                    .sum("selected_total", col("value")),
+                |mark, aggregate| {
+                    mark.x_with(col("period_month"), |x| {
+                        x.scale_with::<Band>(|scale| scale.padding_inner(0.2))
+                            .axis(|axis| axis.title("Selected month"))
+                    })
+                    .x2_with(col(":x"), |x| x.band(1.0))
+                    .y(lit(0.0))
+                    .y2(aggregate.output("selected_total"))
+                    .fill("#2563eb")
+                },
+            );
+        let detail_background = Rect::new()
+            .transform(
+                TimeLevels::new(col("timestamp"))
+                    .year()
+                    .quarter()
+                    .month()
+                    .name("period"),
+                |mark, _period| mark,
+            )
+            .transform(
+                Aggregate::new()
+                    .group_by([col("period_month")])
+                    .sum("month_total", col("value")),
+                |mark, aggregate| {
+                    mark.x_with(col("period_month"), |x| {
+                        x.scale_with::<Band>(|scale| scale.padding_inner(0.2))
+                            .axis(|axis| axis.title("Selected month"))
+                    })
+                    .x2_with(col(":x"), |x| x.band(1.0))
+                    .y(lit(0.0))
+                    .y2(aggregate.output("month_total"))
+                    .fill("#d1d5db")
+                },
+            );
+
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("total").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_clause(temporal_nested_source_column_clause()),
+            )
+            .exact();
+        let source_plot = Plot::<Cartesian>::new()
+            .data(df.clone())
+            .plot_size(300.0, 260.0)
+            .mark(nested_source)
+            .event_binding(binding);
+        let detail_plot = Plot::<Cartesian>::new()
+            .data(df)
+            .plot_size(240.0, 260.0)
+            .mark(detail_background)
+            .mark(detail_overlay);
+        let compiled = Plot::<HConcat>::new()
+            .canvas_size(720.0, 380.0)
+            .add_selection(picked)
+            .mark(Subplot::new(source_plot).key("source"))
+            .mark(Subplot::new(detail_plot).key("detail"))
+            .compile(&ctx)
+            .await
+            .expect("compile temporal nested cross-filter plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial temporal cross-filter scene");
+        assert!(
+            !has_blue_fill(&collect_rect_fills(&scene)),
+            "empty temporal selection should not render the non-nested detail overlay"
+        );
+
+        let datum_mark_instance =
+            retained_event_datum_mark_instance(&state, "total", ScalarValue::Float64(Some(18.0)))
+                .await;
+        let position = rect_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the temporal nested bar");
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(
+            status.rerender,
+            "temporal nested click should update the shared selection"
+        );
+
+        let updated_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("selected temporal cross-filter scene");
+        assert!(
+            has_blue_fill(&collect_rect_fills(&updated_scene)),
+            "temporal nested selection should filter the non-nested detail aggregate"
+        );
     }
 
     #[tokio::test]

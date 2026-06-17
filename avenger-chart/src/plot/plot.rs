@@ -690,11 +690,13 @@ impl<C: CoordinateSystem> Plot<C> {
             store_specs,
             event_bindings,
             event_datum_fields: Vec::new(),
+            event_coord_fields: Vec::new(),
             selection_specs,
             cursor_params,
             tool_metadata,
         };
-        compiled.event_datum_fields = compiled.infer_event_datum_fields(session_context)?;
+        compiled.event_datum_fields = compiled.infer_event_datum_fields(session_context).await?;
+        compiled.event_coord_fields = compiled.infer_event_coord_fields(session_context).await?;
 
         // 6. Validate scoped raw-domain params are shared at least as broadly as
         // the scales they drive (catches Free/Level pan misconfigurations early).
