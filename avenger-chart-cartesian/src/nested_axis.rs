@@ -1,3 +1,11 @@
+//! Nested categorical axis rendering.
+//!
+//! This follows the same outward-stacked guide-band shape as facet/container
+//! band guides: leaf ticks stay closest to the plot area, parent labels occupy
+//! progressively outer slabs, and separator rules show parent spans. The
+//! implementation stays local because facet band guides also own facet-specific
+//! visibility, slot ownership, and overflow-anchor policy.
+
 use std::collections::BTreeMap;
 
 use avenger_chart_core::AvengerChartError;

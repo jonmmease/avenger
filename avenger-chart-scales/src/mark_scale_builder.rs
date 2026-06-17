@@ -2542,6 +2542,16 @@ async fn cache_categorical_data(
     let ordered = ordered || nested_ordered;
 
     if !all_unique_values.is_empty() {
+        if let Some(config) = nested_band_config {
+            trace!(
+                channel,
+                configured_levels = config.levels.len(),
+                path_count = all_unique_values.len(),
+                ordered,
+                "cached nested-band categorical domain"
+            );
+        }
+
         let extents = if ordered {
             DataExtents::OrderedDiscrete(all_unique_values)
         } else {
