@@ -78,6 +78,13 @@ Cartesian and Polar guides live in `avenger-chart-cartesian` and
 `avenger-chart-polar`. Facet and concat guides live in the facade because they
 depend on facade-owned child-frame measurements.
 
+Nested Cartesian axes are guide bands rendered from `NestedBand` scale
+readback. Each visible nested level receives its own axis band. Leaf levels use
+leaf-band centers for ticks and labels, parent levels use span centers and
+separator rules, and hidden levels remain part of the scale geometry. The level
+axis config is stored on `NestedBandLevelSpec`, with outer channel axis config
+providing shared defaults.
+
 ## Ownership Rules
 
 Facet and child-frame legend ownership use the same scoped coordination
@@ -88,6 +95,11 @@ hoisted to that owner.
 The visual channel owns its legend. A coordinated `subplot_x` placement
 channel does not promote a `fill` legend; the `fill` channel's own coordination
 metadata controls that legend.
+
+Nested position levels also do not own legends. They are represented by the
+Cartesian axis. If the same field should have a legend, it must be encoded on a
+legendable visual channel such as `fill`, `stroke`, `shape`, `size`, or
+`opacity`.
 
 ## Axis Guide Visibility Policy
 

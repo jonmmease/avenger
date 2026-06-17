@@ -45,6 +45,12 @@ Built-in marker types such as `Linear`, `Log`, `Band`, and `Ordinal` live in
 `avenger-chart-scales`. Built-in type-specific methods live in extension traits
 such as `LinearScaleExt`, `BandScaleExt`, and `OrdinalScaleExt`.
 
+`NestedBand` is the categorical position scale for struct-valued Cartesian
+position data. It is inferred only for position channels. Struct field order
+defines nested level order, every field is treated as categorical, and the last
+field is the leaf band. `GenericPositionConfig::band(t)` addresses the leaf
+band, while `level_band(level, t)` addresses a specific ancestor or leaf span.
+
 ## Scale Builder
 
 `build_scale_builder_from_marks` builds a `ScaleBuilder` from compiled marks,
@@ -63,6 +69,38 @@ for a requested plot-area size. Its cached channel data is represented by
 `CompiledPlot::build_scales_from_builder` asks the coordinate transform for
 `ScaleRangeBinding` values, resolves default ranges, and returns
 `ConfiguredScaleWithSpec` values.
+
+## Nested Band Domains
+
+Nested band domains use `DomainKind::NestedCategorical` and preserve structured
+domain values rather than flattening paths to display strings. Domain extents
+store struct values with field order and field names so scale construction,
+axis labels, readback, and interaction inversion can recover the original
+hierarchical path.
+
+Per-level nested configuration lives on `NestedBandSpec`:
+
+- `domain(...)`, `domain_values(...)`, `order_by(...)`, `order_asc()`, and
+  `order_desc()` control one level's domain order;
+- `padding_inner`, `padding_outer`, `padding_inner_px`, and
+  `padding_outer_px` control spacing for that level;
+- `axis(...)` configures the axis band for that level;
+- `domain_scope(...)` controls how that level's domain is coordinated across
+  facets, repeat, and child-frame containers;
+- `nest_scope(...)` controls how a level's child domains are arranged inside
+  one nested scale.
+
+`NestScope::Free` gives each parent tuple its own child domain. Parent spans
+can have different widths, but the leaf bandwidth remains constant across the
+scale. `NestScope::Shared` gives every parent tuple the same child slots;
+missing combinations reserve visual space but do not produce data marks.
+`nest_scope(...)` is invalid on level 0 because the root level has no parent
+domain to share within.
+
+Facet and repeat coordination is independent from nested sharing. For example,
+a leaf level can use `domain_scope(CoordinationScope::Shared)` so every facet
+uses the same child ordering, while `nest_scope(NestScope::Free)` still keeps
+child sets scoped to each immediate parent tuple.
 
 ## Domain Coordination
 
@@ -120,6 +158,11 @@ coordination kind, owner path, and group id.
 Coordination belongs to the channel that declares it. Coordinating a position
 channel does not imply that visual channels such as `fill`, `stroke`, `size`,
 or `shape` coordinate their domains or hoist their legends.
+
+Nested position levels follow the same rule. They are position-domain levels
+and do not create legends. A grouped-bar chart that wants a legend for the
+inner group should encode that field on `fill`, `stroke`, `shape`, or another
+visual channel and configure that channel's legend normally.
 
 ## Repeat-Generated Groups
 

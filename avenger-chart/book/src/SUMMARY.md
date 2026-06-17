@@ -43,6 +43,7 @@
     - [Symlog](./docs/scales/symlog.md)
     - [Time](./docs/scales/time.md)
     - [Band](./docs/scales/band.md)
+    - [Nested Band](./docs/scales/nested-band.md)
     - [Point](./docs/scales/point.md)
     - [Ordinal](./docs/scales/ordinal.md)
     - [Threshold](./docs/scales/threshold.md)

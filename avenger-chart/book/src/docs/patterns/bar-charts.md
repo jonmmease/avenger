@@ -200,34 +200,51 @@ Ok(evaluated)
 
 ### Grouped Bars
 
-For comparing multiple series across categories, create grouped bar layouts:
+For comparing multiple series across categories, use a nested band x scale. The
+outer struct field is the group, and the inner field is the bar within each
+group. Hide the inner axis level for the standard grouped-bar presentation and
+use a regular fill legend for the inner series.
 
 ```rust,no_run
 use avenger_chart::prelude::*;
-use datafusion::prelude::*;
+use datafusion::prelude::{col, lit, named_struct};
 
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 # let ctx = SessionContext::new();
 // Prepare data with category and series columns
 # let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
+let nested_x = named_struct(vec![
+    lit("category"), col("category"),
+    lit("series"), col("series"),
+]);
+
 let plot = Plot::<Cartesian>::new()
     .data(df)
+    .legend("fill", |legend| legend.title("Series"))
     .mark(
         Rect::new()
-            .x(col("category"))
-            .x2_with(col(":x"), |c| c.band(0.8))
+            .x_with(nested_x, |x| {
+                x.axis(|axis| axis.title("Category").grid(false))
+                    .level(0, |level| level.padding_inner(0.45).padding_outer(0.15))
+                    .level(1, |level| {
+                        level
+                            .nest_scope(NestScope::Shared)
+                            .padding_inner(0.08)
+                            .axis(|axis| axis.visible(false))
+                    })
+            })
+            .x2_with(col(":x"), |x| x.band(1.0))
             .y(lit(0.0))
             .y2(col("value"))
-            .x_offset_with(col("series"), |c| {
-                c.scale_with::<Band>(|s| s.padding_inner(0.1))
-            })
-            .fill_with(col("series"), |c| {
-                c.scale_with::<Ordinal>(|s| s)
-            })
+            .fill(col("series"))
     );
 # Ok(())
 # }
 ```
+
+`NestScope::Shared` keeps the same inner slots under every category. When a
+series is missing for one category, Avenger leaves an empty slot instead of
+making the remaining bars wider.
 
 ### Stacked Bars
 
@@ -318,6 +335,8 @@ Band scales are essential for bar charts. Key concepts:
 - **`padding_inner`**: Controls space between bars (0.0 = no space, 1.0 = all space)
 - **`padding_outer`**: Controls space before first and after last bar
 - **`:x` and `:y`**: Special columns that reference the position channel's scaled value
+- **Nested bands**: Struct-valued position channels create grouped or nested
+  categorical axes; see [Nested Band scales](../scales/nested-band.md)
 
 ## Best Practices
 
@@ -339,5 +358,7 @@ Band scales are essential for bar charts. Key concepts:
 
 - Explore the [Rect mark reference](../marks/rect.md) for advanced features
 - Learn about [Band scales](../scales/band.md) for categorical positioning
+- Learn about [Nested Band scales](../scales/nested-band.md) for grouped bars
+  and nested categorical axes
 - See [Heatmaps](./heatmap-charts.md) for 2D categorical data
 - Review [Stacked layouts](../guides/stacking.md) for part-to-whole visualization

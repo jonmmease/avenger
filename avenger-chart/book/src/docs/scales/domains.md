@@ -693,7 +693,7 @@ This creates a bar chart with:
 ## See Also
 
 - [Scales Overview](./index.md) - Introduction to scales and the scale API
-- [Scale Types](./scale-types.md) - Reference guide to all 12 scale types
+- [Scale Types](./scale-types.md) - Reference guide to all 13 scale types
 - [Symbol Mark](../marks/symbol.md) - Scatter plots with automatic padding
 - [Line Mark](../marks/line.md) - Line charts with stroke padding
 - [Band Scale](./band.md) - Categorical positioning for bar charts

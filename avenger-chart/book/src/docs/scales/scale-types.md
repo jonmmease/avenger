@@ -1,6 +1,6 @@
 # Scale Types
 
-Avenger Chart provides 12 scale types organized into five categories. This reference guide helps you choose the right scale for your visualization needs.
+Avenger Chart provides 13 scale types organized into five categories. This reference guide helps you choose the right scale for your visualization needs.
 
 ## Scale Categories
 
@@ -25,6 +25,7 @@ Map temporal data with calendar-aware formatting:
 Map categorical data to spatial positions:
 
 - **[Band](./band.md)** - Categorical positioning with bands (bar charts)
+- **[Nested Band](./nested-band.md)** - Hierarchical categorical positioning (grouped bars, nested axes, heatmaps)
 - **[Point](./point.md)** - Categorical positioning at points (scatter plots)
 
 ### Categorical Mapping Scales
@@ -52,6 +53,7 @@ Map continuous domains to discrete outputs:
 | **Symlog** | Continuous | Continuous | Symmetric log | Data crossing zero, +/- values |
 | **Time** | Temporal | Continuous | None | Dates, timestamps, time series |
 | **Band** | Categorical | Intervals | Ordinal | Bar charts, categorical axes |
+| **Nested Band** | Struct-valued categorical | Nested intervals | Hierarchical ordinal | Grouped bars, nested categorical axes |
 | **Point** | Categorical | Points | Ordinal | Scatter plots with categories |
 | **Ordinal** | Categorical | Discrete | 1:1 mapping | Colors, shapes, sizes |
 | **Threshold** | Continuous | Discrete | Custom thresholds | Custom binning, choropleth maps |
@@ -67,7 +69,8 @@ Is your data temporal?
   └─ Yes → Time
   └─ No
       └─ Is it categorical?
-          ├─ Yes (bars) → Band
+          ├─ Yes (single-level bars) → Band
+          ├─ Yes (nested/grouped bars) → Nested Band
           ├─ Yes (dots) → Point
           └─ No (continuous)
               ├─ Normal range → Linear
@@ -100,6 +103,7 @@ What kind of data?
 
 - [Scales Overview](./index.md) - Introduction to scales with usage examples
 - [Domains](./domains.md) - Complete guide to domain specification, inference, and refinement
+- [Nested Band](./nested-band.md) - Struct-valued categorical positions
 - [Channels](../channels/index.md) - How to apply scales to visual channels
 - [Legends](../guides-axes-legends/legends.md) - Automatically generated scale legends
 - [Axes](../guides-axes-legends/axes.md) - Scale-aware coordinate axes

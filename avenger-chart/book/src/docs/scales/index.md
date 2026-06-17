@@ -2,7 +2,7 @@
 
 Scales are functions that transform data values from **data space** (the domain) into **visual space** (the range). They control how quantitative values map to positions, sizes, colors, and other visual properties.
 
-Avenger Chart provides [12 scale types](./scale-types.md) organized into five categories. See the [Scale Types Reference](./scale-types.md) for a complete comparison and decision guide.
+Avenger Chart provides [13 scale types](./scale-types.md) organized into five categories. See the [Scale Types Reference](./scale-types.md) for a complete comparison and decision guide.
 
 ## What is a Scale?
 
@@ -177,7 +177,7 @@ See individual [scale type pages](./scale-types.md) for scale-specific options l
 ## See Also
 
 - [Domains](./domains.md) - Complete guide to domain specification, inference, and refinement
-- [Scale Types](./scale-types.md) - Reference guide to all 12 scale types with decision trees
+- [Scale Types](./scale-types.md) - Reference guide to all 13 scale types with decision trees
 - [Channels](../channels/index.md) - How to apply scales to visual channels
 - [Understanding Expressions vs Literals](../channels/index.md#understanding-expressions-vs-literals) - When values are scaled vs bypass scaling
 - [Legends](../guides-axes-legends/legends.md) - Automatically generated scale legends
