@@ -596,7 +596,7 @@ mod tests {
     use std::{collections::BTreeMap, sync::Arc};
 
     use avenger_guides::axis::opts::{AxisConfig, AxisOrientation};
-    use avenger_scales::scales::nested_band::NestedBandScale;
+    use avenger_scales::scales::nested_band::{NestedBandScale, nested_axis_bands};
     use avenger_scenegraph::marks::mark::SceneMark;
     use datafusion::arrow::{
         array::{ArrayRef, StringArray, StructArray},
@@ -620,6 +620,20 @@ mod tests {
             })
             .collect::<Vec<_>>();
         Arc::new(StructArray::from(columns)) as ArrayRef
+    }
+
+    fn axis_text_lengths(axis: &avenger_scenegraph::marks::group::SceneGroup) -> Vec<u32> {
+        let SceneMark::Group(axis_elements) = &axis.marks[0] else {
+            panic!("expected axis element group");
+        };
+        axis_elements
+            .marks
+            .iter()
+            .filter_map(|mark| match mark {
+                SceneMark::Text(text) => Some(text.len),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -671,6 +685,86 @@ mod tests {
             nested_axis_title("", &layout, None),
             "manufacturer grouped by cylinders"
         );
+    }
+
+    #[test]
+    fn nested_axis_renders_label_groups_for_visible_levels() {
+        let domain = utf8_struct(&[
+            ("region", vec!["east", "east", "west", "west"]),
+            ("category", vec!["cars", "trucks", "cars", "trucks"]),
+            ("make", vec!["ford", "volvo", "toyota", "gm"]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 320.0));
+        let configs = BTreeMap::from([(
+            1,
+            NestedAxisLevelGuideConfig {
+                visible: false,
+                title: None,
+                title_visible: true,
+                label_angle: None,
+            },
+        )]);
+        let axis = make_nested_axis_marks(
+            &scale,
+            "",
+            [0.0, 0.0],
+            &AxisConfig {
+                orientation: AxisOrientation::Bottom,
+                dimensions: [320.0, 120.0],
+                labels_visible: Some(true),
+                title_visible: Some(true),
+                ..Default::default()
+            },
+            Some(&configs),
+        )
+        .expect("nested axis");
+
+        let label_lengths = axis_text_lengths(&axis)
+            .into_iter()
+            .filter(|len| *len > 1)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            label_lengths,
+            vec![4, 2],
+            "expected labels for visible leaf and parent levels only"
+        );
+    }
+
+    #[test]
+    fn nested_axis_visibility_does_not_change_scale_geometry() {
+        let domain = utf8_struct(&[
+            ("group", vec!["A", "A", "B"]),
+            ("member", vec!["one", "two", "one"]),
+        ]);
+        let scale = NestedBandScale::configured(domain, (0.0, 240.0));
+        let before = nested_axis_bands(&scale.config, 1).expect("leaf bands before");
+        let configs = BTreeMap::from([(
+            1,
+            NestedAxisLevelGuideConfig {
+                visible: false,
+                title: None,
+                title_visible: true,
+                label_angle: None,
+            },
+        )]);
+
+        make_nested_axis_marks(
+            &scale,
+            "Member grouped by group",
+            [0.0, 0.0],
+            &AxisConfig {
+                orientation: AxisOrientation::Bottom,
+                dimensions: [240.0, 120.0],
+                labels_visible: Some(true),
+                title_visible: Some(true),
+                ..Default::default()
+            },
+            Some(&configs),
+        )
+        .expect("nested axis");
+
+        let after = nested_axis_bands(&scale.config, 1).expect("leaf bands after");
+        assert_eq!(after, before);
     }
 
     #[test]
