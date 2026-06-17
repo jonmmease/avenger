@@ -32,8 +32,8 @@ use tracing::trace;
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledMark, CoordinateSystemTransformCore, DerivedScalarMap,
     EvaluationContext as CoreEvaluationContext, MarkDataMode, Maybe, NestScope, NestedBandSpec,
-    RadiusExpression, ScaleOrderingSpec, ScaleRange, ScaleTypePreference, Theme, TimeContext,
-    array_value_to_f64, collect_derived_scalar_ids, contains_aggregate,
+    RadiusExpression, ScalarValueHelpers, ScaleOrderingSpec, ScaleRange, ScaleTypePreference,
+    Theme, TimeContext, array_value_to_f64, collect_derived_scalar_ids, contains_aggregate,
     default_channel_value_for_eval, eval_to_scalars, params_to_datafusion,
     resolve_all_channel_refs, resolve_derived_scalars, scalar_total_cmp, strip_trailing_numbers,
 };
@@ -72,6 +72,9 @@ const SCALE_ORDER_COLUMN_PREFIX: &str = "__avenger_scale_order_col_";
 const NESTED_ORDER_PREFIX_COL_PREFIX: &str = "__avenger_nested_order_prefix_";
 const NESTED_ORDER_COMPONENT_COL: &str = "__avenger_nested_order_component__";
 const NESTED_ORDER_VALUE_COL: &str = "__avenger_nested_order_value__";
+const NESTED_LABEL_PREFIX_COL_PREFIX: &str = "__avenger_nested_label_prefix_";
+const NESTED_LABEL_COMPONENT_COL: &str = "__avenger_nested_label_component__";
+const NESTED_LABEL_VALUE_COL: &str = "__avenger_nested_label_value__";
 
 fn prepared_radius_from_serialized(
     radius: &RadiusExpression,
@@ -1977,6 +1980,266 @@ async fn apply_nested_level_domain_ordering(
     Ok((values, true))
 }
 
+async fn apply_nested_level_labels(
+    values: Vec<ScalarValue>,
+    config: Option<&NestedBandSpec>,
+    data_expressions: &[(Arc<DataFrame>, Expr)],
+    eval_ctx: &CoreEvaluationContext,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    derived_scalars: &DerivedScalarMap,
+) -> Result<Vec<ScalarValue>, AvengerChartError> {
+    let Some(config) = config else {
+        return Ok(values);
+    };
+    let labeled_levels = config
+        .levels
+        .iter()
+        .filter(|(_, level_config)| level_config.label_expr.is_some())
+        .map(|(level, _)| *level)
+        .collect::<HashSet<_>>();
+    if labeled_levels.is_empty() || values.is_empty() {
+        return Ok(values);
+    }
+
+    let Some(field_names) = nested_struct_field_names(&values) else {
+        return Ok(values);
+    };
+    let mut labels = HashMap::new();
+    for level in &labeled_levels {
+        let level_labels = collect_nested_level_labels(
+            data_expressions,
+            config,
+            &field_names,
+            *level,
+            eval_ctx,
+            ctx,
+            params,
+            derived_scalars,
+        )
+        .await?;
+        labels.extend(level_labels);
+    }
+
+    values
+        .into_iter()
+        .map(|value| {
+            label_nested_struct_domain_value(value, config, &field_names, &labeled_levels, &labels)
+        })
+        .collect()
+}
+
+async fn collect_nested_level_labels(
+    data_expressions: &[(Arc<DataFrame>, Expr)],
+    config: &NestedBandSpec,
+    field_names: &[String],
+    level: usize,
+    eval_ctx: &CoreEvaluationContext,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    derived_scalars: &DerivedScalarMap,
+) -> Result<HashMap<(usize, Vec<ScalarValue>, ScalarValue), String>, AvengerChartError> {
+    let Some(label_expr_node) = config
+        .level(level)
+        .and_then(|level| level.label_expr.as_ref())
+    else {
+        return Ok(HashMap::new());
+    };
+    let label_expr = resolve_derived_scalars(label_expr_node.to_expr(ctx)?, derived_scalars)?;
+    let prefix_len = nested_level_scope_prefix_len(config, level);
+    let level_field_name = field_names.get(level).ok_or_else(|| {
+        AvengerChartError::InvalidArgument(format!(
+            "Nested-band level {level} is invalid for struct position data"
+        ))
+    })?;
+
+    let mut projected_sources = Vec::with_capacity(data_expressions.len());
+    for (df, nested_expr) in data_expressions {
+        let mut select_exprs = Vec::new();
+        for prefix_level in 0..prefix_len {
+            select_exprs.push(
+                get_field(nested_expr.clone(), field_names[prefix_level].clone())
+                    .alias(nested_label_prefix_col(prefix_level)),
+            );
+        }
+        select_exprs.push(
+            get_field(nested_expr.clone(), level_field_name.clone())
+                .alias(NESTED_LABEL_COMPONENT_COL),
+        );
+        select_exprs.push(label_expr.clone().alias(NESTED_LABEL_VALUE_COL));
+
+        let projected = df.as_ref().clone().select(select_exprs).map_err(|err| {
+            AvengerChartError::InvalidArgument(format!(
+                "Nested-band level {level} label_with expression could not be evaluated for all contributing domain data sources: {err}"
+            ))
+        })?;
+        projected_sources.push(projected);
+    }
+
+    let mut sources = projected_sources.into_iter();
+    let Some(mut label_rows) = sources.next() else {
+        return Ok(HashMap::new());
+    };
+    for source in sources {
+        label_rows = label_rows.union(source).map_err(|err| {
+            AvengerChartError::InvalidArgument(format!(
+                "Nested-band level {level} label_with data sources must project compatible component and label column types: {err}"
+            ))
+        })?;
+    }
+
+    eval_ctx.record_scale_domain_collect();
+    let batches = if !params.is_empty() {
+        if let Some(param_values) = params_to_datafusion(params) {
+            label_rows
+                .with_param_values(param_values)?
+                .collect()
+                .await?
+        } else {
+            label_rows.collect().await?
+        }
+    } else {
+        label_rows.collect().await?
+    };
+
+    let mut labels = HashMap::new();
+    for batch in &batches {
+        let prefix_columns = (0..prefix_len)
+            .map(|prefix_level| {
+                batch
+                    .column_by_name(&nested_label_prefix_col(prefix_level))
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Nested-band level {level} label prefix column {prefix_level} not found"
+                        ))
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let component_column = batch
+            .column_by_name(NESTED_LABEL_COMPONENT_COL)
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Nested-band level {level} label component column not found"
+                ))
+            })?;
+        let label_column = batch
+            .column_by_name(NESTED_LABEL_VALUE_COL)
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Nested-band level {level} label value column not found"
+                ))
+            })?;
+
+        for row in 0..batch.num_rows() {
+            let prefix = prefix_columns
+                .iter()
+                .map(|column| ScalarValue::try_from_array(*column, row))
+                .collect::<Result<Vec<_>, _>>()?;
+            let component = ScalarValue::try_from_array(component_column, row)?;
+            let label_value = ScalarValue::try_from_array(label_column, row)?;
+            if label_value.is_null() {
+                continue;
+            }
+            let label = label_value.as_scalar_string()?;
+            let key = (level, prefix, component);
+            if let Some(existing) = labels.get(&key) {
+                if existing != &label {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Nested-band level {level} label_with expression produced multiple labels for the same domain key"
+                    )));
+                }
+            } else {
+                labels.insert(key, label);
+            }
+        }
+    }
+
+    Ok(labels)
+}
+
+fn label_nested_struct_domain_value(
+    value: ScalarValue,
+    config: &NestedBandSpec,
+    field_names: &[String],
+    labeled_levels: &HashSet<usize>,
+    labels: &HashMap<(usize, Vec<ScalarValue>, ScalarValue), String>,
+) -> Result<ScalarValue, AvengerChartError> {
+    let Some(components) = nested_struct_components(&value) else {
+        return Ok(value);
+    };
+    let labeled_components = components
+        .iter()
+        .enumerate()
+        .map(|(level, component)| {
+            if !labeled_levels.contains(&level) {
+                return Ok(component.clone());
+            }
+            let prefix_len = nested_level_scope_prefix_len(config, level);
+            let prefix = components[..prefix_len].to_vec();
+            let label = if let Some(label) = labels.get(&(level, prefix, component.clone())) {
+                label.clone()
+            } else {
+                nested_component_default_label(component)?
+            };
+            nested_labeled_component_scalar(component.clone(), label)
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+    nested_struct_scalar(field_names, &labeled_components)
+}
+
+fn nested_level_scope_prefix_len(config: &NestedBandSpec, level: usize) -> usize {
+    let scope = config
+        .level(level)
+        .and_then(|level_config| level_config.nest_scope)
+        .unwrap_or(NestScope::Free);
+    if level > 0 && scope == NestScope::Shared {
+        0
+    } else {
+        level
+    }
+}
+
+fn nested_label_prefix_col(level: usize) -> String {
+    format!("{NESTED_LABEL_PREFIX_COL_PREFIX}{level}__")
+}
+
+fn nested_component_default_label(component: &ScalarValue) -> Result<String, AvengerChartError> {
+    if component.is_null() {
+        Ok("null".to_string())
+    } else {
+        component
+            .as_scalar_string()
+            .map_err(AvengerChartError::DataFusionError)
+    }
+}
+
+fn nested_labeled_component_scalar(
+    key: ScalarValue,
+    label: String,
+) -> Result<ScalarValue, AvengerChartError> {
+    let key_array = ScalarValue::iter_to_array(std::iter::once(key)).map_err(|err| {
+        AvengerChartError::InternalError(format!(
+            "Failed to build nested-band label key component: {err}"
+        ))
+    })?;
+    let label_array = ScalarValue::iter_to_array(std::iter::once(ScalarValue::Utf8(Some(label))))
+        .map_err(|err| {
+        AvengerChartError::InternalError(format!(
+            "Failed to build nested-band label component: {err}"
+        ))
+    })?;
+    Ok(ScalarValue::Struct(Arc::new(StructArray::from(vec![
+        (
+            Arc::new(Field::new("key", key_array.data_type().clone(), true)),
+            key_array,
+        ),
+        (
+            Arc::new(Field::new("label", label_array.data_type().clone(), true)),
+            label_array,
+        ),
+    ]))))
+}
+
 async fn resolve_nested_level_domain_values(
     level: usize,
     domain: &ScaleDomain,
@@ -2576,6 +2839,16 @@ async fn cache_categorical_data(
     )
     .await?;
     let ordered = ordered || nested_ordered;
+    let all_unique_values = apply_nested_level_labels(
+        all_unique_values,
+        nested_band_config,
+        data_expressions,
+        eval_ctx,
+        _ctx,
+        params,
+        &derived_scalars,
+    )
+    .await?;
 
     if !all_unique_values.is_empty() {
         if let Some(config) = nested_band_config {
@@ -2931,6 +3204,53 @@ mod tests {
             .collect()
     }
 
+    fn nested_expr() -> Expr {
+        named_struct(vec![
+            lit("group"),
+            col("group"),
+            lit("member"),
+            col("member"),
+        ])
+    }
+
+    fn nested_domain_array(values: Vec<ScalarValue>) -> ArrayRef {
+        ScalarValue::iter_to_array(values.into_iter()).expect("nested domain array")
+    }
+
+    fn scaled_positions(
+        scale: &avenger_scales::scales::ConfiguredScale,
+        values: Vec<ScalarValue>,
+    ) -> Vec<Option<f32>> {
+        let values = nested_domain_array(values);
+        let scaled = scale.scale(&values).expect("scale");
+        let scaled = scaled.as_any().downcast_ref::<Float32Array>().unwrap();
+        (0..scaled.len())
+            .map(|index| {
+                if scaled.is_null(index) {
+                    None
+                } else {
+                    Some(scaled.value(index))
+                }
+            })
+            .collect()
+    }
+
+    fn nested_component_display_label(value: &ScalarValue, field_name: &str) -> String {
+        let ScalarValue::Struct(path) = value else {
+            panic!("expected nested struct path");
+        };
+        let component_column = path.column_by_name(field_name).expect("component field");
+        let component = ScalarValue::try_from_array(component_column, 0).expect("component scalar");
+        let ScalarValue::Struct(component) = component else {
+            panic!("expected labeled component struct");
+        };
+        let label = component.column_by_name("label").expect("label field");
+        match ScalarValue::try_from_array(label, 0).expect("label scalar") {
+            ScalarValue::Utf8(Some(label)) => label,
+            other => panic!("unexpected label scalar: {other:?}"),
+        }
+    }
+
     fn df(
         ctx: &SessionContext,
         categories: Vec<&str>,
@@ -2967,6 +3287,28 @@ mod tests {
                 Arc::new(StringArray::from(groups)),
                 Arc::new(StringArray::from(members)),
                 Arc::new(Float64Array::from(values)),
+            ],
+        )?;
+        ctx.read_batch(batch)
+    }
+
+    fn nested_label_df(
+        ctx: &SessionContext,
+        groups: Vec<&str>,
+        members: Vec<&str>,
+        labels: Vec<Option<&str>>,
+    ) -> datafusion::error::Result<DataFrame> {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("group", DataType::Utf8, false),
+            Field::new("member", DataType::Utf8, false),
+            Field::new("member_label", DataType::Utf8, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(groups)),
+                Arc::new(StringArray::from(members)),
+                Arc::new(StringArray::from(labels)),
             ],
         )?;
         ctx.read_batch(batch)
@@ -3221,6 +3563,265 @@ mod tests {
                 ("A".to_string(), "north".to_string()),
                 ("A".to_string(), "east".to_string()),
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_band_label_with_changes_axis_labels_not_positions() {
+        let ctx = SessionContext::new();
+        let data = nested_label_df(
+            &ctx,
+            vec!["A", "A"],
+            vec!["a", "b"],
+            vec![Some("Alpha"), Some("Beta")],
+        )
+        .unwrap();
+        let values = vec![nested_path("A", "a"), nested_path("A", "b")];
+        let mut config =
+            NestedBandSpec::from_source_columns(vec!["group".to_string(), "member".to_string()]);
+        config.level_mut(1).label_expr = Some(
+            datafusion_proto::protobuf::LogicalExprNode::from_expr(col("member_label"))
+                .expect("serialize label expr"),
+        );
+
+        let labeled_values = apply_nested_level_labels(
+            values.clone(),
+            Some(&config),
+            &[(Arc::new(data), nested_expr())],
+            &eval_ctx(&ctx),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+        let domain = nested_domain_array(labeled_values);
+        let scale =
+            avenger_scales::scales::nested_band::NestedBandScale::configured(domain, (0.0, 200.0));
+        let bands = avenger_scales::scales::nested_band::nested_axis_bands(&scale.config, 1)
+            .expect("axis bands");
+
+        assert_eq!(
+            bands
+                .iter()
+                .map(|band| band.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Alpha", "Beta"]
+        );
+        assert_eq!(
+            scaled_positions(&scale, values),
+            vec![Some(0.0), Some(100.0)]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_band_label_with_conflicting_labels_error() {
+        let ctx = SessionContext::new();
+        let data = nested_label_df(
+            &ctx,
+            vec!["A", "A"],
+            vec!["a", "a"],
+            vec![Some("Alpha"), Some("Different")],
+        )
+        .unwrap();
+        let mut config =
+            NestedBandSpec::from_source_columns(vec!["group".to_string(), "member".to_string()]);
+        config.level_mut(1).label_expr = Some(
+            datafusion_proto::protobuf::LogicalExprNode::from_expr(col("member_label"))
+                .expect("serialize label expr"),
+        );
+
+        let err = apply_nested_level_labels(
+            vec![nested_path("A", "a")],
+            Some(&config),
+            &[(Arc::new(data), nested_expr())],
+            &eval_ctx(&ctx),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .expect_err("conflicting labels");
+
+        assert!(
+            err.to_string().contains("multiple labels"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_band_label_with_free_level_scopes_labels_by_parent() {
+        let ctx = SessionContext::new();
+        let data = nested_label_df(
+            &ctx,
+            vec!["A", "B"],
+            vec!["x", "x"],
+            vec![Some("A-X"), Some("B-X")],
+        )
+        .unwrap();
+        let values = vec![nested_path("A", "x"), nested_path("B", "x")];
+        let mut config =
+            NestedBandSpec::from_source_columns(vec!["group".to_string(), "member".to_string()]);
+        config.level_mut(1).label_expr = Some(
+            datafusion_proto::protobuf::LogicalExprNode::from_expr(col("member_label"))
+                .expect("serialize label expr"),
+        );
+
+        let labeled_values = apply_nested_level_labels(
+            values,
+            Some(&config),
+            &[(Arc::new(data), nested_expr())],
+            &eval_ctx(&ctx),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            labeled_values
+                .iter()
+                .map(|value| nested_component_display_label(value, "member"))
+                .collect::<Vec<_>>(),
+            vec!["A-X", "B-X"]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_band_label_with_shared_level_collects_global_labels() {
+        let ctx = SessionContext::new();
+        let data = nested_label_df(
+            &ctx,
+            vec!["A", "B"],
+            vec!["x", "x"],
+            vec![Some("Shared X"), Some("Shared X")],
+        )
+        .unwrap();
+        let values = vec![nested_path("A", "x"), nested_path("B", "x")];
+        let mut config =
+            NestedBandSpec::from_source_columns(vec!["group".to_string(), "member".to_string()]);
+        config.level_mut(1).nest_scope = Some(NestScope::Shared);
+        config.level_mut(1).label_expr = Some(
+            datafusion_proto::protobuf::LogicalExprNode::from_expr(col("member_label"))
+                .expect("serialize label expr"),
+        );
+
+        let labeled_values = apply_nested_level_labels(
+            values,
+            Some(&config),
+            &[(Arc::new(data), nested_expr())],
+            &eval_ctx(&ctx),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            labeled_values
+                .iter()
+                .map(|value| nested_component_display_label(value, "member"))
+                .collect::<Vec<_>>(),
+            vec!["Shared X", "Shared X"]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_band_label_with_explicit_domain_falls_back_for_invented_keys() {
+        let ctx = SessionContext::new();
+        let data = nested_label_df(&ctx, vec!["A"], vec!["x"], vec![Some("Label X")]).unwrap();
+        let mut config =
+            NestedBandSpec::from_source_columns(vec!["group".to_string(), "member".to_string()]);
+        config.level_mut(1).nest_scope = Some(NestScope::Shared);
+        config.level_mut(1).domain =
+            Maybe::Set(ScaleDomain::new_discrete(vec![lit("x"), lit("y")]));
+        config.level_mut(1).label_expr = Some(
+            datafusion_proto::protobuf::LogicalExprNode::from_expr(col("member_label"))
+                .expect("serialize label expr"),
+        );
+
+        let (values, _) = apply_nested_level_domain_ordering(
+            vec![nested_path("A", "x")],
+            Some(&config),
+            &[],
+            &eval_ctx(&ctx),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+        let labeled_values = apply_nested_level_labels(
+            values,
+            Some(&config),
+            &[(Arc::new(data), nested_expr())],
+            &eval_ctx(&ctx),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            labeled_values
+                .iter()
+                .map(|value| nested_component_display_label(value, "member"))
+                .collect::<Vec<_>>(),
+            vec!["Label X", "y"]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_band_label_with_ordering_still_uses_key_domain() {
+        let ctx = SessionContext::new();
+        let data = nested_label_df(
+            &ctx,
+            vec!["A", "A"],
+            vec!["a", "b"],
+            vec![Some("Zulu"), Some("Alpha")],
+        )
+        .unwrap();
+        let mut config =
+            NestedBandSpec::from_source_columns(vec!["group".to_string(), "member".to_string()]);
+        config.level_mut(1).domain =
+            Maybe::Set(ScaleDomain::new_discrete(vec![lit("b"), lit("a")]));
+        config.level_mut(1).label_expr = Some(
+            datafusion_proto::protobuf::LogicalExprNode::from_expr(col("member_label"))
+                .expect("serialize label expr"),
+        );
+
+        let (values, _) = apply_nested_level_domain_ordering(
+            vec![nested_path("A", "a"), nested_path("A", "b")],
+            Some(&config),
+            &[],
+            &eval_ctx(&ctx),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+        let labeled_values = apply_nested_level_labels(
+            values,
+            Some(&config),
+            &[(Arc::new(data), nested_expr())],
+            &eval_ctx(&ctx),
+            &ctx,
+            &IndexMap::new(),
+            &DerivedScalarMap::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            labeled_values
+                .iter()
+                .map(|value| nested_component_display_label(value, "member"))
+                .collect::<Vec<_>>(),
+            vec!["Alpha", "Zulu"]
         );
     }
 
