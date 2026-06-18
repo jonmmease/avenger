@@ -340,10 +340,15 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
             }
         }
 
-        // Check mark paths are specified
+        // Resolved chart mark targets are compiled-mark paths. At runtime those
+        // marks can be wrapped by plot/data/facet scene groups, so accept both
+        // exact scene paths and scene paths with the compiled path as suffix.
         if let Some(paths) = &self.config.mark_paths {
             if let Some(mark_instance) = &context.mark_instance {
-                if !paths.contains(&mark_instance.mark_path) {
+                if !paths
+                    .iter()
+                    .any(|path| mark_path_matches_resolved_path(&mark_instance.mark_path, path))
+                {
                     return false;
                 }
             } else {
@@ -371,11 +376,50 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
     }
 }
 
+fn mark_path_matches_resolved_path(scene_path: &[usize], resolved_path: &[usize]) -> bool {
+    !resolved_path.is_empty()
+        && (scene_path == resolved_path
+            || (scene_path.len() > resolved_path.len() && scene_path.ends_with(resolved_path)))
+}
+
 #[cfg(test)]
 mod tests {
     use avenger_common::cursor::CursorStyle;
+    use avenger_geometry::rtree::SceneGraphRTree;
+    use avenger_scenegraph::marks::mark::MarkInstance;
+
+    use crate::{
+        scene::{ModifiersState, SceneGraphEvent, SceneGraphEventType, SceneMouseDownEvent},
+        window::MouseButton,
+    };
 
     use super::*;
+
+    fn empty_rtree() -> SceneGraphRTree {
+        SceneGraphRTree::from_scene_graph(&avenger_scenegraph::scene_graph::SceneGraph {
+            marks: Vec::new(),
+            width: 1.0,
+            height: 1.0,
+            origin: [0.0, 0.0],
+        })
+    }
+
+    fn mouse_down_with_path(path: Vec<usize>) -> (SceneGraphEvent, MarkInstance) {
+        let mark_instance = MarkInstance {
+            name: "my_box_plot.outliers".to_string(),
+            mark_path: path,
+            instance_index: Some(0),
+        };
+        (
+            SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: [1.0, 2.0],
+                button: MouseButton::Left,
+                mark_instance: Some(mark_instance.clone()),
+                modifiers: ModifiersState::default(),
+            }),
+            mark_instance,
+        )
+    }
 
     #[test]
     fn update_status_merge_prefers_newer_cursor() {
@@ -394,5 +438,38 @@ mod tests {
         assert!(merged.rerender);
         assert!(merged.rebuild_geometry);
         assert_eq!(merged.cursor, Some(CursorStyle::Grab));
+    }
+
+    #[test]
+    fn resolved_mark_paths_match_scene_path_suffixes() {
+        assert!(mark_path_matches_resolved_path(&[0, 1, 3], &[3]));
+        assert!(mark_path_matches_resolved_path(&[3], &[3]));
+        assert!(!mark_path_matches_resolved_path(&[0, 1, 4], &[3]));
+        assert!(!mark_path_matches_resolved_path(&[0, 1, 3], &[]));
+    }
+
+    #[test]
+    fn event_stream_resolved_mark_paths_select_only_matching_child_suffix() {
+        let config = EventStreamConfig {
+            types: vec![SceneGraphEventType::MouseDown],
+            mark_paths: Some(vec![vec![3]]),
+            ..Default::default()
+        };
+        let stream = EventStream::<()>::new(config, Arc::new(NoopHandler));
+        let rtree = empty_rtree();
+
+        let (matching_event, matching_mark) = mouse_down_with_path(vec![0, 1, 3]);
+        let matching_context = EventStreamContext {
+            mark_instance: Some(matching_mark),
+            ..Default::default()
+        };
+        assert!(stream.matches_event(&matching_event, &matching_context, &rtree));
+
+        let (sibling_event, sibling_mark) = mouse_down_with_path(vec![0, 1, 4]);
+        let sibling_context = EventStreamContext {
+            mark_instance: Some(sibling_mark),
+            ..Default::default()
+        };
+        assert!(!stream.matches_event(&sibling_event, &sibling_context, &rtree));
     }
 }

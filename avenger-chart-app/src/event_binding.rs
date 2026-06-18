@@ -2996,11 +2996,16 @@ fn scene_query_target_matches(
         return false;
     }
     if let Some(paths) = target.resolved_mark_paths()
-        && !paths.contains(&mark_instance.mark_path)
+        && !paths
+            .iter()
+            .any(|path| mark_path_matches_resolved_path(&mark_instance.mark_path, path))
     {
         return false;
     }
-    if !target.mark_ids().is_empty() && !target.mark_ids().contains(&mark_instance.name) {
+    if target.resolved_mark_paths().is_none()
+        && !target.mark_ids().is_empty()
+        && !target.mark_ids().contains(&mark_instance.name)
+    {
         return false;
     }
     if !target.subplot_ids().is_empty() {
@@ -3018,6 +3023,12 @@ fn scene_query_target_matches(
         }
     }
     true
+}
+
+fn mark_path_matches_resolved_path(scene_path: &[usize], resolved_path: &[usize]) -> bool {
+    !resolved_path.is_empty()
+        && (scene_path == resolved_path
+            || (scene_path.len() > resolved_path.len() && scene_path.ends_with(resolved_path)))
 }
 
 fn scene_query_selection_clauses_from_batch(
@@ -3892,7 +3903,7 @@ fn stream_config_for_chart_stream(
             param_specs,
         )?]);
     }
-    if !stream.mark_ids().is_empty() {
+    if stream.resolved_mark_paths().is_none() && !stream.mark_ids().is_empty() {
         let mark_ids = Arc::new(stream.mark_ids().iter().cloned().collect::<HashSet<_>>());
         config
             .filter
@@ -4652,6 +4663,22 @@ mod tests {
     }
 
     #[test]
+    fn stream_config_uses_resolved_mark_paths_without_name_filter() {
+        let ctx = SessionContext::new();
+        let stream = ChartEventStream::on(ChartEventType::MouseDown)
+            .mark("manual_box_plot")
+            .with_resolved_mark_paths(vec![vec![0], vec![1]]);
+        let config = stream_config_for_chart_stream(&stream, None, false, &ctx, &IndexMap::new())
+            .expect("stream config");
+
+        assert_eq!(config.mark_paths, Some(vec![vec![0], vec![1]]));
+        assert!(
+            config.filter.is_none(),
+            "resolved mark paths should not also install a mark-name filter"
+        );
+    }
+
+    #[test]
     fn scene_query_batch_rows_become_faceted_equality_clauses() {
         use datafusion::arrow::{
             array::StringArray,
@@ -4777,7 +4804,21 @@ mod tests {
             &event_datums
         ));
 
+        let target = SceneGeometryTarget::default().with_resolved_mark_paths(vec![vec![0]]);
+        assert!(scene_query_target_matches(
+            &target,
+            &mark_instance,
+            &event_datums
+        ));
+
         let target = SceneGeometryTarget::default().with_resolved_mark_paths(vec![vec![2, 1, 1]]);
+        assert!(!scene_query_target_matches(
+            &target,
+            &mark_instance,
+            &event_datums
+        ));
+
+        let target = SceneGeometryTarget::default().with_resolved_mark_paths(vec![vec![1]]);
         assert!(!scene_query_target_matches(
             &target,
             &mark_instance,

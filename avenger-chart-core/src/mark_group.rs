@@ -173,6 +173,13 @@ impl<C: CoordinateSystemCore> MarkGroup<C> {
         self
     }
 
+    #[doc(hidden)]
+    pub fn with_data_context(mut self, data: DataContext, data_mode: MarkDataMode) -> Self {
+        self.data = data;
+        self.data_mode = data_mode;
+        self
+    }
+
     /// Set the faceting data scope by level.
     pub fn facet_data_level(mut self, level: u8) -> Self {
         self.facet_data_scope = FacetDataScope::level(level);
@@ -269,6 +276,12 @@ impl<C: CoordinateSystemCore> PlotMark<C> {
         }
     }
 
+    pub fn from_invalid_argument(message: impl Into<String>) -> Self {
+        Self {
+            kind: PlotMarkKind::InvalidArgument(message.into()),
+        }
+    }
+
     #[doc(hidden)]
     pub fn kind(&self) -> &PlotMarkKind<C> {
         &self.kind
@@ -281,4 +294,5 @@ impl<C: CoordinateSystemCore> PlotMark<C> {
 pub enum PlotMarkKind<C: CoordinateSystemCore> {
     Primitive(Arc<dyn Mark<C>>),
     Group(MarkGroup<C>),
+    InvalidArgument(String),
 }

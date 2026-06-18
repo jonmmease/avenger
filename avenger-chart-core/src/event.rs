@@ -10,7 +10,7 @@ use crate::{
     AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, LegendSurfaceKind, Param,
     SelectionUpdate, SerializableExpr, StoreUpdate,
     scene_query::{SceneGeometryQueryGeometry, SceneQueryClauseId, SelectionSceneQuery},
-    validate_structural_id,
+    validate_mark_target_path, validate_structural_id,
 };
 use avenger_common::cursor::CursorStyle;
 use datafusion::{
@@ -314,7 +314,7 @@ impl ChartEventStream {
 
     pub fn validate(&self) -> Result<(), AvengerChartError> {
         for id in &self.mark_ids {
-            validate_structural_id("mark target", id)?;
+            validate_mark_target_path("mark", id)?;
         }
         Ok(())
     }
@@ -1646,6 +1646,24 @@ mod tests {
 
         let err = binding.validate().expect_err("duplicate assignment");
         assert!(err.to_string().contains("more than once"));
+    }
+
+    #[test]
+    fn event_stream_allows_dot_separated_mark_target_paths() {
+        let stream = ChartEventStream::on(ChartEventType::Click).mark("box_plot.outliers");
+        stream.validate().expect("dot-separated target is valid");
+    }
+
+    #[test]
+    fn event_stream_rejects_malformed_mark_target_paths() {
+        for target in ["", ".box", "box.", "box..outliers", "box outliers", "bøx"] {
+            let stream = ChartEventStream::on(ChartEventType::Click).mark(target);
+            let err = stream.validate().expect_err("target should be invalid");
+            assert!(
+                err.to_string().contains("Invalid mark target"),
+                "{target}: {err}"
+            );
+        }
     }
 
     #[test]

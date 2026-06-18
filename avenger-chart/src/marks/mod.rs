@@ -1,4 +1,5 @@
 pub mod area;
+pub mod box_plot;
 pub mod compiled_data_context;
 pub mod data_context;
 pub mod facet_data_scope;
@@ -29,3 +30,4 @@ pub use avenger_chart_core::{
 };
 pub use avenger_chart_marks::Subplot;
 pub use avenger_chart_polar::CompiledPolarSubplot;
+pub use box_plot::{BoxPlot, BoxPlotOrientation};

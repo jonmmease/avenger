@@ -1916,7 +1916,7 @@ impl CompiledPlot {
                 self.coord_transform.as_ref(),
             )
             .await?;
-        if let Some(id) = mark.state().id.as_deref() {
+        if let Some(id) = mark.state().public_target_path.as_deref() {
             for scene_mark in &mut marks {
                 set_scene_mark_name(scene_mark, id);
             }

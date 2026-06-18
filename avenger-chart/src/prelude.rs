@@ -77,6 +77,7 @@ pub use avenger_chart_core::Theme;
 pub use crate::facet::marks::{
     FacetColumnSubplotChannels, FacetRowSubplotChannels, FacetWrapSubplotChannels,
 };
+pub use crate::marks::box_plot::{BoxPlot, BoxPlotOrientation};
 pub use avenger_chart_cartesian::{
     CartesianAreaPositionChannels, CartesianImagePositionChannels, CartesianLinePositionChannels,
     CartesianPathPositionChannels, CartesianRectPositionChannels, CartesianRulePositionChannels,

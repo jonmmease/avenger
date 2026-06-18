@@ -193,8 +193,8 @@ pub use mark_channel_coercion::{
 pub use mark_group::{IntoPlotMark, MarkGroup, PlotMark, PlotMarkKind};
 pub use mark_render_context::MarkRenderContext;
 pub use mark_runtime_context::MarkRuntimeContext;
-pub use mark_state::validate_structural_id;
 pub use mark_state::{CompiledMarkState, MarkDataMode, MarkState};
+pub use mark_state::{validate_mark_target_path, validate_structural_id};
 pub use maybe::{Maybe, MaybeOptionalExpr};
 pub use nested_band::{
     NestScope, NestedBandLevelConfig, NestedBandLevelSpec, NestedBandSpec, PositionBoundary, nested,

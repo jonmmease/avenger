@@ -27,6 +27,24 @@ pub fn validate_structural_id(kind: &str, id: &str) -> Result<(), AvengerChartEr
     Ok(())
 }
 
+pub fn validate_mark_target_path(kind: &str, path: &str) -> Result<(), AvengerChartError> {
+    let mut segment_count = 0usize;
+    for segment in path.split('.') {
+        segment_count += 1;
+        validate_structural_id(kind, segment).map_err(|_| {
+            AvengerChartError::InvalidArgument(format!(
+                "Invalid {kind} target '{path}'; targets must be non-empty dot-separated ASCII ids"
+            ))
+        })?;
+    }
+    if segment_count == 0 {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Invalid {kind} target '{path}'; targets must be non-empty dot-separated ASCII ids"
+        )));
+    }
+    Ok(())
+}
+
 /// How a mark obtains rows when it has no explicit mark-level data.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MarkDataMode {
@@ -64,6 +82,8 @@ pub struct MarkState {
 pub struct CompiledMarkState {
     #[serde(default)]
     pub id: Option<String>,
+    #[serde(default)]
+    pub public_target_path: Option<String>,
     pub data: CompiledDataContext,
     #[serde(default)]
     pub data_mode: MarkDataMode,
@@ -104,6 +124,7 @@ impl CompiledMarkState {
         };
         Self {
             id: state.id.clone(),
+            public_target_path: None,
             data,
             data_mode: state.data_mode,
             mark_index: 0,
@@ -123,6 +144,12 @@ impl CompiledMarkState {
     #[doc(hidden)]
     pub fn with_mark_index(mut self, mark_index: usize) -> Self {
         self.mark_index = mark_index;
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_public_target_path(mut self, public_target_path: Option<String>) -> Self {
+        self.public_target_path = public_target_path;
         self
     }
 }

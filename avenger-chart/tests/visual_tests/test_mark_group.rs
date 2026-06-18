@@ -1,4 +1,10 @@
 use super::helpers::assert_visual_match_default;
+use avenger_chart::marks::box_plot::{
+    BOX_PLOT_MEDIAN_FIELD, BOX_PLOT_Q1_FIELD, BOX_PLOT_Q3_FIELD, BOX_PLOT_WHISKER_HIGH_FIELD,
+    BOX_PLOT_WHISKER_LOW_FIELD, boxplot_fence_stats, boxplot_summary_stats, boxplot_whisker_stats,
+    inlier_predicate as boxplot_inlier_predicate, outlier_predicate as boxplot_outlier_predicate,
+};
+use avenger_chart::param::Param;
 use avenger_chart::prelude::*;
 use datafusion::arrow::{
     array::{Float64Array, StringArray},
@@ -9,32 +15,79 @@ use datafusion::{
     dataframe::DataFrame,
     logical_expr::Expr,
     prelude::{SessionContext, col, lit},
+    scalar::ScalarValue,
 };
 use std::sync::Arc;
 
 fn box_plot_data(ctx: &SessionContext) -> DataFrame {
+    box_plot_data_from_group_values(
+        ctx,
+        &[
+            (
+                "Alpha",
+                [4.0, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 26.0].as_slice(),
+            ),
+            (
+                "Beta",
+                [1.0, 10.0, 11.5, 12.0, 13.0, 13.5, 14.0, 15.0, 16.0, 31.0].as_slice(),
+            ),
+            (
+                "Gamma",
+                [6.0, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 15.0].as_slice(),
+            ),
+            (
+                "Delta",
+                [16.0, 17.0, 17.5, 18.0, 18.5, 19.0, 20.0, 21.0, 22.0, 34.0].as_slice(),
+            ),
+        ],
+    )
+}
+
+fn box_plot_no_outliers_data(ctx: &SessionContext) -> DataFrame {
+    box_plot_data_from_group_values(
+        ctx,
+        &[
+            (
+                "Alpha",
+                [4.0, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0].as_slice(),
+            ),
+            (
+                "Beta",
+                [10.0, 11.0, 11.5, 12.0, 12.5, 13.0, 14.0, 14.5, 15.0, 16.0].as_slice(),
+            ),
+            (
+                "Gamma",
+                [16.0, 17.0, 17.5, 18.0, 18.5, 19.0, 20.0, 20.5, 21.0, 22.0].as_slice(),
+            ),
+        ],
+    )
+}
+
+fn box_plot_single_observation_data(ctx: &SessionContext) -> DataFrame {
+    box_plot_data_from_group_values(
+        ctx,
+        &[
+            ("Alpha", [8.0].as_slice()),
+            (
+                "Beta",
+                [10.0, 11.0, 11.5, 12.0, 12.5, 13.0, 14.0].as_slice(),
+            ),
+            (
+                "Gamma",
+                [16.0, 17.0, 17.5, 18.0, 18.5, 19.0, 20.0].as_slice(),
+            ),
+        ],
+    )
+}
+
+fn box_plot_data_from_group_values(
+    ctx: &SessionContext,
+    observations: &[(&str, &[f64])],
+) -> DataFrame {
     let mut groups = Vec::new();
     let mut values = Vec::new();
-    let observations = [
-        (
-            "Alpha",
-            [4.0, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 26.0].as_slice(),
-        ),
-        (
-            "Beta",
-            [1.0, 10.0, 11.5, 12.0, 13.0, 13.5, 14.0, 15.0, 16.0, 31.0].as_slice(),
-        ),
-        (
-            "Gamma",
-            [6.0, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 15.0].as_slice(),
-        ),
-        (
-            "Delta",
-            [16.0, 17.0, 17.5, 18.0, 18.5, 19.0, 20.0, 21.0, 22.0, 34.0].as_slice(),
-        ),
-    ];
 
-    for (group, group_values) in observations {
+    for (group, group_values) in observations.iter().copied() {
         for value in group_values {
             groups.push(group);
             values.push(*value);
@@ -56,31 +109,206 @@ fn box_plot_data(ctx: &SessionContext) -> DataFrame {
     ctx.read_batch(batch).expect("box plot dataframe")
 }
 
-fn fence_stats() -> JoinAggregate {
-    JoinAggregate::new()
-        .group_by([col("group")])
-        .approx_percentile_cont("q1", col("value"), 0.25)
-        .approx_percentile_cont("q3", col("value"), 0.75)
+fn grouped_box_plot_data(ctx: &SessionContext) -> DataFrame {
+    let mut categories = Vec::new();
+    let mut segments = Vec::new();
+    let mut values = Vec::new();
+    let observations = [
+        (
+            "Platform",
+            "SMB",
+            [12.0, 14.0, 15.0, 15.5, 16.0, 17.0, 18.5, 24.0].as_slice(),
+        ),
+        (
+            "Platform",
+            "Enterprise",
+            [18.0, 19.0, 21.0, 22.0, 22.5, 23.0, 24.0, 31.0].as_slice(),
+        ),
+        (
+            "Infrastructure",
+            "SMB",
+            [9.0, 10.0, 11.0, 12.0, 12.5, 13.0, 14.0, 19.0].as_slice(),
+        ),
+        (
+            "Infrastructure",
+            "Enterprise",
+            [20.0, 21.0, 23.0, 24.0, 24.5, 25.0, 26.0, 34.0].as_slice(),
+        ),
+        (
+            "Services",
+            "SMB",
+            [7.0, 8.0, 9.0, 9.5, 10.0, 11.0, 12.0, 18.0].as_slice(),
+        ),
+        (
+            "Services",
+            "Enterprise",
+            [14.0, 15.0, 16.0, 17.0, 17.5, 18.0, 19.0, 27.0].as_slice(),
+        ),
+    ];
+
+    for (category, segment, group_values) in observations {
+        for value in group_values {
+            categories.push(category);
+            segments.push(segment);
+            values.push(*value);
+        }
+    }
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("category", DataType::Utf8, false),
+        Field::new("segment", DataType::Utf8, false),
+        Field::new("value", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(categories)) as _,
+            Arc::new(StringArray::from(segments)) as _,
+            Arc::new(Float64Array::from(values)) as _,
+        ],
+    )
+    .expect("grouped box plot batch");
+    ctx.read_batch(batch).expect("grouped box plot dataframe")
 }
 
-fn lower_fence() -> Expr {
-    col("q1") - (col("q3") - col("q1")) * lit(1.5)
+fn sparse_grouped_box_plot_data(ctx: &SessionContext) -> DataFrame {
+    let mut categories = Vec::new();
+    let mut segments = Vec::new();
+    let mut values = Vec::new();
+    let observations = [
+        (
+            "Platform",
+            "SMB",
+            [12.0, 14.0, 15.0, 15.5, 16.0, 17.0, 18.5, 24.0].as_slice(),
+        ),
+        (
+            "Platform",
+            "Enterprise",
+            [18.0, 19.0, 21.0, 22.0, 22.5, 23.0, 24.0, 31.0].as_slice(),
+        ),
+        (
+            "Infrastructure",
+            "Enterprise",
+            [20.0, 21.0, 23.0, 24.0, 24.5, 25.0, 26.0, 34.0].as_slice(),
+        ),
+        (
+            "Services",
+            "SMB",
+            [7.0, 8.0, 9.0, 9.5, 10.0, 11.0, 12.0, 18.0].as_slice(),
+        ),
+    ];
+
+    for (category, segment, group_values) in observations {
+        for value in group_values {
+            categories.push(category);
+            segments.push(segment);
+            values.push(*value);
+        }
+    }
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("category", DataType::Utf8, false),
+        Field::new("segment", DataType::Utf8, false),
+        Field::new("value", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(categories)) as _,
+            Arc::new(StringArray::from(segments)) as _,
+            Arc::new(Float64Array::from(values)) as _,
+        ],
+    )
+    .expect("sparse grouped box plot batch");
+    ctx.read_batch(batch)
+        .expect("sparse grouped box plot dataframe")
 }
 
-fn upper_fence() -> Expr {
-    col("q3") + (col("q3") - col("q1")) * lit(1.5)
+fn faceted_grouped_box_plot_data(ctx: &SessionContext) -> DataFrame {
+    let mut regions = Vec::new();
+    let mut categories = Vec::new();
+    let mut segments = Vec::new();
+    let mut values = Vec::new();
+    let observations = [
+        (
+            "Platform",
+            "SMB",
+            [12.0, 14.0, 15.0, 15.5, 16.0, 17.0, 18.5, 24.0].as_slice(),
+        ),
+        (
+            "Platform",
+            "Enterprise",
+            [18.0, 19.0, 21.0, 22.0, 22.5, 23.0, 24.0, 31.0].as_slice(),
+        ),
+        (
+            "Infrastructure",
+            "SMB",
+            [9.0, 10.0, 11.0, 12.0, 12.5, 13.0, 14.0, 19.0].as_slice(),
+        ),
+        (
+            "Infrastructure",
+            "Enterprise",
+            [20.0, 21.0, 23.0, 24.0, 24.5, 25.0, 26.0, 34.0].as_slice(),
+        ),
+        (
+            "Services",
+            "SMB",
+            [7.0, 8.0, 9.0, 9.5, 10.0, 11.0, 12.0, 18.0].as_slice(),
+        ),
+        (
+            "Services",
+            "Enterprise",
+            [14.0, 15.0, 16.0, 17.0, 17.5, 18.0, 19.0, 27.0].as_slice(),
+        ),
+    ];
+
+    for (region, offset) in [("North", 0.0), ("South", 2.5)] {
+        for (category, segment, group_values) in observations {
+            for value in group_values {
+                regions.push(region);
+                categories.push(category);
+                segments.push(segment);
+                values.push(*value + offset);
+            }
+        }
+    }
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("region", DataType::Utf8, false),
+        Field::new("category", DataType::Utf8, false),
+        Field::new("segment", DataType::Utf8, false),
+        Field::new("value", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(regions)) as _,
+            Arc::new(StringArray::from(categories)) as _,
+            Arc::new(StringArray::from(segments)) as _,
+            Arc::new(Float64Array::from(values)) as _,
+        ],
+    )
+    .expect("faceted grouped box plot batch");
+    ctx.read_batch(batch)
+        .expect("faceted grouped box plot dataframe")
 }
 
 fn inlier_predicate() -> Expr {
-    col("value")
-        .gt_eq(lower_fence())
-        .and(col("value").lt_eq(upper_fence()))
+    boxplot_inlier_predicate(
+        col("value"),
+        col(BOX_PLOT_Q1_FIELD),
+        col(BOX_PLOT_Q3_FIELD),
+        1.5,
+    )
 }
 
 fn outlier_predicate() -> Expr {
-    col("value")
-        .lt(lower_fence())
-        .or(col("value").gt(upper_fence()))
+    boxplot_outlier_predicate(
+        col("value"),
+        col(BOX_PLOT_Q1_FIELD),
+        col(BOX_PLOT_Q3_FIELD),
+        1.5,
+    )
 }
 
 fn y_category_axis(value: CartesianPositionConfig) -> CartesianPositionConfig {
@@ -91,71 +319,73 @@ fn y_category_axis(value: CartesianPositionConfig) -> CartesianPositionConfig {
         .axis(|axis| axis.title("Group").grid(false))
 }
 
+fn x_category_axis(value: CartesianPositionConfig) -> CartesianPositionConfig {
+    value
+        .scale_with::<Band>(|scale| {
+            scale.domain_discrete(vec![lit("Alpha"), lit("Beta"), lit("Gamma"), lit("Delta")])
+        })
+        .axis(|axis| axis.title("Group").grid(false))
+}
+
 fn whisker_branch() -> MarkGroup<Cartesian> {
-    MarkGroup::new().id("box_whiskers").transform_no_output(
-        Filter::new(inlier_predicate()),
-        |group| {
-            group.transform(
-                Aggregate::new()
-                    .group_by([col("group")])
-                    .min("whisker_low", col("value"))
-                    .max("whisker_high", col("value")),
-                |group, whiskers| {
-                    group
-                        .mark(
-                            Rule::new()
-                                .x(whiskers.output("whisker_low"))
-                                .x2(whiskers.output("whisker_high"))
-                                .y_with(col("group"), |y| y.band(0.5))
-                                .y2_with(col("group"), |y| y.band(0.5))
-                                .stroke("#475569")
-                                .stroke_width(1.5)
-                                .zindex(1),
-                        )
-                        .mark(
-                            Rule::new()
-                                .x(whiskers.output("whisker_low"))
-                                .x2(whiskers.output("whisker_low"))
-                                .y_with(col("group"), |y| y.band(0.32))
-                                .y2_with(col("group"), |y| y.band(0.68))
-                                .stroke("#475569")
-                                .stroke_width(1.5)
-                                .zindex(2),
-                        )
-                        .mark(
-                            Rule::new()
-                                .x(whiskers.output("whisker_high"))
-                                .x2(whiskers.output("whisker_high"))
-                                .y_with(col("group"), |y| y.band(0.32))
-                                .y2_with(col("group"), |y| y.band(0.68))
-                                .stroke("#475569")
-                                .stroke_width(1.5)
-                                .zindex(2),
-                        )
-                },
-            )
-        },
-    )
+    MarkGroup::new().transform_no_output(Filter::new(inlier_predicate()), |group| {
+        group.transform(
+            boxplot_whisker_stats([col("group")], col("value")),
+            |group, whiskers| {
+                group
+                    .mark(
+                        Rule::new()
+                            .id("whiskers")
+                            .x(whiskers.output(BOX_PLOT_WHISKER_LOW_FIELD))
+                            .x2(whiskers.output(BOX_PLOT_WHISKER_HIGH_FIELD))
+                            .y_with(col("group"), |y| y.band(0.5))
+                            .y2_with(col("group"), |y| y.band(0.5))
+                            .stroke("#475569")
+                            .stroke_width(1.5)
+                            .zindex(1),
+                    )
+                    .mark(
+                        Rule::new()
+                            .id("lower_cap")
+                            .x(whiskers.output(BOX_PLOT_WHISKER_LOW_FIELD))
+                            .x2(whiskers.output(BOX_PLOT_WHISKER_LOW_FIELD))
+                            .y_with(col("group"), |y| y.band(0.32))
+                            .y2_with(col("group"), |y| y.band(0.68))
+                            .stroke("#475569")
+                            .stroke_width(1.5)
+                            .zindex(2),
+                    )
+                    .mark(
+                        Rule::new()
+                            .id("upper_cap")
+                            .x(whiskers.output(BOX_PLOT_WHISKER_HIGH_FIELD))
+                            .x2(whiskers.output(BOX_PLOT_WHISKER_HIGH_FIELD))
+                            .y_with(col("group"), |y| y.band(0.32))
+                            .y2_with(col("group"), |y| y.band(0.68))
+                            .stroke("#475569")
+                            .stroke_width(1.5)
+                            .zindex(2),
+                    )
+            },
+        )
+    })
 }
 
 fn box_summary_branch() -> MarkGroup<Cartesian> {
-    MarkGroup::new().id("box_summary").transform(
-        Aggregate::new()
-            .group_by([col("group")])
-            .approx_percentile_cont("q1", col("value"), 0.25)
-            .median("median", col("value"))
-            .approx_percentile_cont("q3", col("value"), 0.75),
+    MarkGroup::new().transform(
+        boxplot_summary_stats([col("group")], col("value")),
         |group, stats| {
             group
                 .mark(
                     Rect::new()
-                        .x_with(stats.output("q1"), |x| {
+                        .id("box")
+                        .x_with(stats.output(BOX_PLOT_Q1_FIELD), |x| {
                             x.scale_with::<Linear>(|scale| {
                                 scale.domain_interval(lit(0.0), lit(36.0))
                             })
                             .axis(|axis| axis.title("Value").grid(true))
                         })
-                        .x2(stats.output("q3"))
+                        .x2(stats.output(BOX_PLOT_Q3_FIELD))
                         .y_with(col("group"), |y| y_category_axis(y).band(0.26))
                         .y2_with(col("group"), |y| y.band(0.74))
                         .fill("#bfdbfe")
@@ -165,8 +395,9 @@ fn box_summary_branch() -> MarkGroup<Cartesian> {
                 )
                 .mark(
                     Rule::new()
-                        .x(stats.output("median"))
-                        .x2(stats.output("median"))
+                        .id("median")
+                        .x(stats.output(BOX_PLOT_MEDIAN_FIELD))
+                        .x2(stats.output(BOX_PLOT_MEDIAN_FIELD))
                         .y_with(col("group"), |y| y.band(0.24))
                         .y2_with(col("group"), |y| y.band(0.76))
                         .stroke("#1e3a8a")
@@ -178,36 +409,248 @@ fn box_summary_branch() -> MarkGroup<Cartesian> {
 }
 
 fn outlier_branch() -> MarkGroup<Cartesian> {
-    MarkGroup::new().id("box_outliers").transform_no_output(
-        Filter::new(outlier_predicate()),
+    MarkGroup::new().transform_no_output(Filter::new(outlier_predicate()), |group| {
+        group.mark(
+            Symbol::new()
+                .id("outliers")
+                .x(col("value"))
+                .y_with(col("group"), |y| y.band(0.5))
+                .fill("#f97316")
+                .stroke("#ffffff")
+                .stroke_width(1.25)
+                .size(95.0)
+                .zindex(5),
+        )
+    })
+}
+
+fn grouped_y_axis(value: CartesianPositionConfig, include_axis: bool) -> CartesianPositionConfig {
+    let value = value
+        .level(0, |level| level.padding_inner(0.38).padding_outer(0.12))
+        .level(1, |level| {
+            level
+                .nest_scope(NestScope::Shared)
+                .padding_inner(0.12)
+                .axis(|axis| axis.title("Segment"))
+        });
+    if include_axis {
+        value.axis(|axis| axis.title("Segment grouped by category").grid(false))
+    } else {
+        value
+    }
+}
+
+fn grouped_y_band(
+    value: CartesianPositionConfig,
+    band: f64,
+    include_axis: bool,
+) -> CartesianPositionConfig {
+    grouped_y_axis(value, include_axis).band(band)
+}
+
+fn grouped_whisker_branch() -> MarkGroup<Cartesian> {
+    MarkGroup::new().transform_no_output(Filter::new(inlier_predicate()), |group| {
+        group.transform(
+            boxplot_whisker_stats([col("category"), col("segment")], col("value")),
+            |group, whiskers| {
+                group
+                    .mark(
+                        Rule::new()
+                            .id("whiskers")
+                            .x(whiskers.output(BOX_PLOT_WHISKER_LOW_FIELD))
+                            .x2(whiskers.output(BOX_PLOT_WHISKER_HIGH_FIELD))
+                            .y_with(nested(["category", "segment"]), |y| {
+                                grouped_y_band(y, 0.5, false)
+                            })
+                            .y2_with(nested(["category", "segment"]), |y| {
+                                grouped_y_band(y, 0.5, false)
+                            })
+                            .stroke("#475569")
+                            .stroke_width(1.5)
+                            .zindex(1),
+                    )
+                    .mark(
+                        Rule::new()
+                            .id("lower_cap")
+                            .x(whiskers.output(BOX_PLOT_WHISKER_LOW_FIELD))
+                            .x2(whiskers.output(BOX_PLOT_WHISKER_LOW_FIELD))
+                            .y_with(nested(["category", "segment"]), |y| {
+                                grouped_y_band(y, 0.32, false)
+                            })
+                            .y2_with(nested(["category", "segment"]), |y| {
+                                grouped_y_band(y, 0.68, false)
+                            })
+                            .stroke("#475569")
+                            .stroke_width(1.5)
+                            .zindex(2),
+                    )
+                    .mark(
+                        Rule::new()
+                            .id("upper_cap")
+                            .x(whiskers.output(BOX_PLOT_WHISKER_HIGH_FIELD))
+                            .x2(whiskers.output(BOX_PLOT_WHISKER_HIGH_FIELD))
+                            .y_with(nested(["category", "segment"]), |y| {
+                                grouped_y_band(y, 0.32, false)
+                            })
+                            .y2_with(nested(["category", "segment"]), |y| {
+                                grouped_y_band(y, 0.68, false)
+                            })
+                            .stroke("#475569")
+                            .stroke_width(1.5)
+                            .zindex(2),
+                    )
+            },
+        )
+    })
+}
+
+fn grouped_box_summary_branch() -> MarkGroup<Cartesian> {
+    MarkGroup::new().transform(
+        boxplot_summary_stats([col("category"), col("segment")], col("value")),
+        |group, stats| {
+            group
+                .mark(
+                    Rect::new()
+                        .id("box")
+                        .x_with(stats.output(BOX_PLOT_Q1_FIELD), |x| {
+                            x.scale_with::<Linear>(|scale| {
+                                scale.domain_interval(lit(0.0), lit(36.0))
+                            })
+                            .axis(|axis| axis.title("Value").grid(true))
+                        })
+                        .x2(stats.output(BOX_PLOT_Q3_FIELD))
+                        .y_with(nested(["category", "segment"]), |y| {
+                            grouped_y_band(y, 0.26, true)
+                        })
+                        .y2_with(nested(["category", "segment"]), |y| {
+                            grouped_y_band(y, 0.74, false)
+                        })
+                        .fill_with(col("segment"), |fill| {
+                            fill.legend(|legend| legend.title("Segment"))
+                        })
+                        .stroke("#2563eb")
+                        .stroke_width(1.5)
+                        .zindex(3),
+                )
+                .mark(
+                    Rule::new()
+                        .id("median")
+                        .x(stats.output(BOX_PLOT_MEDIAN_FIELD))
+                        .x2(stats.output(BOX_PLOT_MEDIAN_FIELD))
+                        .y_with(nested(["category", "segment"]), |y| {
+                            grouped_y_band(y, 0.24, false)
+                        })
+                        .y2_with(nested(["category", "segment"]), |y| {
+                            grouped_y_band(y, 0.76, false)
+                        })
+                        .stroke("#1e3a8a")
+                        .stroke_width(2.2)
+                        .zindex(4),
+                )
+        },
+    )
+}
+
+fn grouped_outlier_branch() -> MarkGroup<Cartesian> {
+    MarkGroup::new().transform_no_output(Filter::new(outlier_predicate()), |group| {
+        group.mark(
+            Symbol::new()
+                .id("outliers")
+                .x(col("value"))
+                .y_with(nested(["category", "segment"]), |y| {
+                    grouped_y_band(y, 0.5, false)
+                })
+                .fill("#f97316")
+                .stroke("#ffffff")
+                .stroke_width(1.25)
+                .size(95.0)
+                .zindex(5),
+        )
+    })
+}
+
+fn grouped_fence_branch() -> MarkGroup<Cartesian> {
+    MarkGroup::new().transform_no_output(
+        boxplot_fence_stats([col("category"), col("segment")], col("value")),
         |group| {
-            group.mark(
-                Symbol::new()
-                    .x(col("value"))
-                    .y_with(col("group"), |y| y.band(0.5))
-                    .fill("#f97316")
-                    .stroke("#ffffff")
-                    .stroke_width(1.25)
-                    .size(95.0)
-                    .zindex(5),
-            )
+            group
+                .mark(grouped_whisker_branch())
+                .mark(grouped_outlier_branch())
         },
     )
 }
 
 fn fence_branch() -> MarkGroup<Cartesian> {
     MarkGroup::new()
-        .id("box_fences")
-        .transform_no_output(fence_stats(), |group| {
+        .transform_no_output(boxplot_fence_stats([col("group")], col("value")), |group| {
             group.mark(whisker_branch()).mark(outlier_branch())
         })
 }
 
 fn box_plot_group() -> MarkGroup<Cartesian> {
     MarkGroup::new()
-        .id("box_plot")
+        .id("manual_box_plot")
         .mark(fence_branch())
         .mark(box_summary_branch())
+}
+
+fn grouped_box_plot_group() -> MarkGroup<Cartesian> {
+    MarkGroup::new()
+        .id("manual_grouped_box_plot")
+        .mark(grouped_fence_branch())
+        .mark(grouped_box_summary_branch())
+}
+
+fn grouped_box_plot_mark(
+    id: &str,
+    inner_axis_visible: bool,
+    fill_column: &'static str,
+    legend_title: &'static str,
+) -> BoxPlot {
+    BoxPlot::new()
+        .id(id)
+        .x_with(col("value"), |x| {
+            x.scale_with::<Linear>(|scale| scale.domain_interval(lit(0.0), lit(36.0)))
+                .axis(|axis| axis.title("Value").grid(true))
+        })
+        .y_with(nested(["category", "segment"]), |y| {
+            y.axis(|axis| axis.title("Segment grouped by category").grid(false))
+                .level(0, |level| level.padding_inner(0.38).padding_outer(0.12))
+                .level(1, |level| {
+                    let level = level.nest_scope(NestScope::Shared).padding_inner(0.12);
+                    if inner_axis_visible {
+                        level.axis(|axis| axis.title("Segment"))
+                    } else {
+                        level.axis(|axis| axis.visible(false))
+                    }
+                })
+        })
+        .fill_with(col(fill_column), |fill| {
+            fill.legend(|legend| legend.title(legend_title))
+        })
+}
+
+fn box_plot_test_mark() -> BoxPlot {
+    BoxPlot::new()
+        .id("my_box_plot")
+        .x_with(col("value"), |x| {
+            x.scale_with::<Linear>(|scale| scale.domain_interval(lit(0.0), lit(36.0)))
+                .axis(|axis| axis.title("Value").grid(true))
+        })
+        .y_with(col("group"), |y| y_category_axis(y))
+}
+
+fn box_plot_auto_group_mark(id: &str, domain_max: f64) -> BoxPlot {
+    BoxPlot::new()
+        .id(id)
+        .x_with(col("value"), move |x| {
+            x.scale_with::<Linear>(move |scale| scale.domain_interval(lit(0.0), lit(domain_max)))
+                .axis(|axis| axis.title("Value").grid(true))
+        })
+        .y_with(col("group"), |y| {
+            y.scale_with::<Band>(|scale| scale)
+                .axis(|axis| axis.title("Group").grid(false))
+        })
 }
 
 #[tokio::test]
@@ -217,15 +660,768 @@ async fn box_plot_from_mark_group_branches() {
         .title("Box plot from MarkGroup branches")
         .canvas_size(720.0, 420.0)
         .data(box_plot_data(&ctx))
-        .mark(box_plot_group());
+        .mark(box_plot_group())
+        .event_binding(ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown).mark("manual_box_plot.outliers"),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        ));
 
     let compiled = plot.compile(&ctx).await.expect("compile box plot group");
+    let event_binding = compiled.event_bindings().first().expect("event binding");
+    let between = event_binding.between.as_ref().expect("between binding");
+    assert_eq!(
+        between.start.resolved_mark_paths(),
+        Some(&[vec![3usize]][..])
+    );
     assert_visual_match_default(
         &compiled,
         &ctx,
         None,
         "mark_group",
         "box_plot_from_mark_group_branches",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_from_mark_group_nested_band() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Grouped box plot from MarkGroup branches")
+        .canvas_size(780.0, 460.0)
+        .data(grouped_box_plot_data(&ctx))
+        .mark(grouped_box_plot_group())
+        .event_binding(ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown)
+                .mark("manual_grouped_box_plot.outliers"),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        ));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile grouped box plot group");
+    let event_binding = compiled.event_bindings().first().expect("event binding");
+    let between = event_binding.between.as_ref().expect("between binding");
+    assert_eq!(
+        between.start.resolved_mark_paths(),
+        Some(&[vec![3usize]][..])
+    );
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "mark_group",
+        "box_plot_from_mark_group_nested_band",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_compound_matches_mark_group_baseline() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Box plot from MarkGroup branches")
+        .canvas_size(720.0, 420.0)
+        .data(box_plot_data(&ctx))
+        .mark(box_plot_test_mark())
+        .event_binding(ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown).mark("my_box_plot.outliers"),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        ));
+
+    let compiled = plot.compile(&ctx).await.expect("compile box plot");
+    let event_binding = compiled.event_bindings().first().expect("event binding");
+    let between = event_binding.between.as_ref().expect("between binding");
+    assert_eq!(
+        between.start.resolved_mark_paths(),
+        Some(&[vec![3usize]][..])
+    );
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "mark_group",
+        "box_plot_from_mark_group_branches",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_compound_event_targets_resolve_standard_parts() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .data(box_plot_data(&ctx))
+        .mark(box_plot_test_mark())
+        .event_binding(ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown).mark("my_box_plot"),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        ))
+        .event_binding(ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown).mark("my_box_plot.box"),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        ))
+        .event_binding(ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown).mark("my_box_plot.outliers"),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        ));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile box plot target paths");
+    let resolved_start_paths = compiled
+        .event_bindings()
+        .iter()
+        .map(|binding| {
+            binding
+                .between
+                .as_ref()
+                .expect("between binding")
+                .start
+                .resolved_mark_paths()
+                .map(|paths| paths.to_vec())
+                .expect("resolved mark paths")
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        resolved_start_paths,
+        vec![
+            vec![
+                vec![0usize],
+                vec![1usize],
+                vec![2usize],
+                vec![3usize],
+                vec![4usize],
+                vec![5usize],
+            ],
+            vec![vec![4usize]],
+            vec![vec![3usize]],
+        ]
+    );
+}
+
+#[tokio::test]
+async fn box_plot_compound_unrooted_part_target_errors() {
+    let ctx = SessionContext::new();
+    let err = match Plot::<Cartesian>::new()
+        .data(box_plot_data(&ctx))
+        .mark(box_plot_test_mark())
+        .event_binding(ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown).mark("outliers"),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        ))
+        .compile(&ctx)
+        .await
+    {
+        Ok(_) => panic!("unrooted generated box plot part target should fail"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string().contains("Unknown mark target 'outliers'"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn box_plot_compound_part_event_datums_reflect_branch_rows() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .data(box_plot_data(&ctx))
+        .mark(box_plot_test_mark())
+        .event_binding(
+            ChartEventBinding::on_between_end(
+                ChartEventStream::on(ChartEventType::MouseDown).mark("my_box_plot.box"),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .filter(avenger_chart::event::datum(BOX_PLOT_Q1_FIELD).is_not_null())
+            .filter(avenger_chart::event::datum(BOX_PLOT_MEDIAN_FIELD).is_not_null())
+            .filter(avenger_chart::event::datum(BOX_PLOT_Q3_FIELD).is_not_null()),
+        )
+        .event_binding(
+            ChartEventBinding::on_between_end(
+                ChartEventStream::on(ChartEventType::MouseDown).mark("my_box_plot.outliers"),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .filter(avenger_chart::event::datum("value").is_not_null())
+            .filter(avenger_chart::event::datum(BOX_PLOT_Q1_FIELD).is_not_null())
+            .filter(avenger_chart::event::datum(BOX_PLOT_Q3_FIELD).is_not_null()),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile box plot datum bindings");
+    let event_datum_types = compiled.event_datum_types();
+    assert_eq!(
+        event_datum_types.get(BOX_PLOT_Q1_FIELD),
+        Some(&DataType::Float64)
+    );
+    assert_eq!(
+        event_datum_types.get(BOX_PLOT_MEDIAN_FIELD),
+        Some(&DataType::Float64)
+    );
+    assert_eq!(
+        event_datum_types.get(BOX_PLOT_Q3_FIELD),
+        Some(&DataType::Float64)
+    );
+    assert_eq!(event_datum_types.get("value"), Some(&DataType::Float64));
+
+    let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate plot");
+    let rows_for_path = |path: &[usize]| {
+        evaluated
+            .event_datums
+            .rows
+            .iter()
+            .find(|rows| rows.mark_path == path || rows.mark_path.ends_with(path))
+            .unwrap_or_else(|| {
+                let paths = evaluated
+                    .event_datums
+                    .rows
+                    .iter()
+                    .map(|rows| rows.mark_path.clone())
+                    .collect::<Vec<_>>();
+                panic!("missing retained event datum rows for path {path:?}; available: {paths:?}")
+            })
+    };
+
+    let box_rows = rows_for_path(&[4]);
+    assert_eq!(box_rows.rows.num_rows(), 4);
+    assert!(box_rows.rows.column_by_name(BOX_PLOT_Q1_FIELD).is_some());
+    assert!(
+        box_rows
+            .rows
+            .column_by_name(BOX_PLOT_MEDIAN_FIELD)
+            .is_some()
+    );
+    assert!(box_rows.rows.column_by_name(BOX_PLOT_Q3_FIELD).is_some());
+    assert!(
+        box_rows.rows.column_by_name("value").is_none(),
+        "summary box rows should not expose raw observation values"
+    );
+
+    let outlier_rows = rows_for_path(&[3]);
+    assert!(outlier_rows.rows.num_rows() > 0);
+    assert!(outlier_rows.rows.column_by_name("value").is_some());
+    assert!(
+        outlier_rows
+            .rows
+            .column_by_name(BOX_PLOT_Q1_FIELD)
+            .is_some()
+    );
+    assert!(
+        outlier_rows
+            .rows
+            .column_by_name(BOX_PLOT_Q3_FIELD)
+            .is_some()
+    );
+    assert!(
+        outlier_rows
+            .rows
+            .column_by_name(BOX_PLOT_MEDIAN_FIELD)
+            .is_none(),
+        "outlier rows are raw rows with joined fence stats, not summary rows"
+    );
+}
+
+#[tokio::test]
+async fn box_plot_compound_scene_query_targets_resolve_part_path() {
+    let ctx = SessionContext::new();
+    let compiled = Plot::<Cartesian>::new()
+        .data(box_plot_data(&ctx))
+        .mark(box_plot_test_mark())
+        .add_selection(Selection::new("picked"))
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::Click).set_selection(
+                "picked",
+                SelectionUpdate::replace_all_from_scene_query(SelectionSceneQuery::new(
+                    SceneGeometryQuery::rect(lit(0.0), lit(0.0), lit(10.0), lit(10.0))
+                        .mark("my_box_plot.outliers")
+                        .datum_field(SceneQueryDatumField::new("value")),
+                )),
+            ),
+        )
+        .compile(&ctx)
+        .await
+        .expect("compile box plot scene query target");
+
+    let binding = compiled.event_bindings().first().expect("event binding");
+    let SelectionUpdate::ReplaceAllFromSceneQuery { query } =
+        &binding.selection_assignments[0].update
+    else {
+        panic!("expected scene query selection update");
+    };
+    assert_eq!(
+        query.query.target.resolved_mark_paths(),
+        Some(&[vec![3usize]][..])
+    );
+}
+
+#[tokio::test]
+async fn box_plot_compound_part_ids_are_scoped_by_root() {
+    let ctx = SessionContext::new();
+    let compiled = Plot::<Cartesian>::new()
+        .data(box_plot_data(&ctx))
+        .mark(box_plot_test_mark().id("first_box_plot"))
+        .mark(box_plot_test_mark().id("second_box_plot"))
+        .event_binding(ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown)
+                .marks(["first_box_plot.outliers", "second_box_plot.outliers"]),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        ))
+        .compile(&ctx)
+        .await
+        .expect("compile sibling box plot part targets");
+
+    let binding = compiled.event_bindings().first().expect("event binding");
+    let between = binding.between.as_ref().expect("between binding");
+    assert_eq!(
+        between.start.resolved_mark_paths(),
+        Some(&[vec![3usize], vec![9usize]][..])
+    );
+}
+
+#[tokio::test]
+async fn box_plot_compound_with_pre_filter_transform_matches_baseline() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Box plot from MarkGroup branches")
+        .canvas_size(720.0, 420.0)
+        .data(box_plot_data(&ctx))
+        .mark(BoxPlot::new().id("filtered_box_plot").transform_no_output(
+            Filter::new(col("value").gt(lit(0.0))),
+            |box_plot| {
+                box_plot
+                    .x_with(col("value"), |x| {
+                        x.scale_with::<Linear>(|scale| scale.domain_interval(lit(0.0), lit(36.0)))
+                            .axis(|axis| axis.title("Value").grid(true))
+                    })
+                    .y_with(col("group"), |y| y_category_axis(y))
+            },
+        ));
+
+    let compiled = plot.compile(&ctx).await.expect("compile filtered box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "mark_group",
+        "box_plot_from_mark_group_branches",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_compound_horizontal() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Horizontal box plot")
+        .canvas_size(720.0, 420.0)
+        .data(box_plot_data(&ctx))
+        .mark(box_plot_test_mark());
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile horizontal box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_compound_horizontal",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_grouped_nested_band_fill_by_segment() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Grouped box plot")
+        .canvas_size(780.0, 460.0)
+        .data(grouped_box_plot_data(&ctx))
+        .mark(grouped_box_plot_mark(
+            "grouped_box_plot",
+            true,
+            "segment",
+            "Segment",
+        ))
+        .event_binding(ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown).mark("grouped_box_plot.outliers"),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        ));
+
+    let compiled = plot.compile(&ctx).await.expect("compile grouped box plot");
+    let event_binding = compiled.event_bindings().first().expect("event binding");
+    let between = event_binding.between.as_ref().expect("between binding");
+    assert_eq!(
+        between.start.resolved_mark_paths(),
+        Some(&[vec![3usize]][..])
+    );
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_grouped_nested_band_fill_by_segment",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_grouped_inner_axis_hidden() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Grouped box plot")
+        .canvas_size(780.0, 420.0)
+        .data(grouped_box_plot_data(&ctx))
+        .mark(grouped_box_plot_mark(
+            "grouped_box_plot",
+            false,
+            "segment",
+            "Segment",
+        ));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile grouped box plot with hidden inner axis");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_grouped_inner_axis_hidden",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_grouped_nested_band_sparse_segments() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Sparse grouped box plot")
+        .canvas_size(780.0, 460.0)
+        .data(sparse_grouped_box_plot_data(&ctx))
+        .mark(grouped_box_plot_mark(
+            "sparse_grouped_box_plot",
+            true,
+            "segment",
+            "Segment",
+        ));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile sparse grouped box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_grouped_nested_band_sparse_segments",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_grouped_nested_band_fill_by_category() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Grouped box plot by category")
+        .canvas_size(780.0, 460.0)
+        .data(grouped_box_plot_data(&ctx))
+        .mark(grouped_box_plot_mark(
+            "category_filled_box_plot",
+            true,
+            "category",
+            "Category",
+        ));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile category-filled grouped box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_grouped_nested_band_fill_by_category",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_invalid_fill_column_errors() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .data(grouped_box_plot_data(&ctx))
+        .mark(
+            BoxPlot::new()
+                .id("invalid_box_plot")
+                .x(col("value"))
+                .y(nested(["category", "segment"]))
+                .fill(col("region")),
+        );
+
+    let err = match plot.compile(&ctx).await {
+        Ok(_) => panic!("fill by an ungrouped column should fail"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string().contains("region"),
+        "error should name the invalid fill column: {err}"
+    );
+    assert!(
+        err.to_string().contains("category") && err.to_string().contains("segment"),
+        "error should list preserved grouping columns: {err}"
+    );
+}
+
+#[tokio::test]
+async fn box_plot_outlier_symbol_styling() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Styled box plot outliers")
+        .canvas_size(720.0, 420.0)
+        .data(box_plot_data(&ctx))
+        .mark(
+            BoxPlot::new()
+                .id("styled_outlier_box_plot")
+                .x_with(col("value"), |x| {
+                    x.scale_with::<Linear>(|scale| scale.domain_interval(lit(0.0), lit(36.0)))
+                        .axis(|axis| axis.title("Value").grid(true))
+                })
+                .y_with(col("group"), |y| y_category_axis(y))
+                .outliers(|outliers| {
+                    outliers
+                        .size(150.0)
+                        .fill("#ec4899")
+                        .stroke("#111827")
+                        .stroke_width(2.0)
+                        .shape("diamond")
+                        .angle(45.0)
+                        .opacity(0.85)
+                }),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile outlier-styled box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_outlier_symbol_styling",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_part_styling() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Styled box plot parts")
+        .canvas_size(720.0, 420.0)
+        .data(box_plot_data(&ctx))
+        .mark(
+            BoxPlot::new()
+                .id("styled_part_box_plot")
+                .x_with(col("value"), |x| {
+                    x.scale_with::<Linear>(|scale| scale.domain_interval(lit(0.0), lit(36.0)))
+                        .axis(|axis| axis.title("Value").grid(true))
+                })
+                .y_with(col("group"), |y| y_category_axis(y))
+                .box_body(|body| {
+                    body.fill("#fde68a")
+                        .stroke("#92400e")
+                        .stroke_width(2.0)
+                        .opacity(0.92)
+                        .band(0.20, 0.80)
+                })
+                .median(|median| median.stroke("#dc2626").stroke_width(3.0).band(0.16, 0.84))
+                .whiskers(|whiskers| whiskers.stroke("#0f766e").stroke_width(2.0).opacity(0.9))
+                .caps(|caps| caps.stroke("#0f766e").stroke_width(2.0).band(0.26, 0.74)),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile part-styled box plot");
+    assert_visual_match_default(&compiled, &ctx, None, "boxplot", "box_plot_part_styling").await;
+}
+
+#[tokio::test]
+async fn box_plot_scalar_param_style() {
+    let ctx = SessionContext::new();
+    let box_fill = Param::new("box_fill", ScalarValue::Utf8(Some("#e0f2fe".to_string())));
+    let median_width = Param::new("median_width", ScalarValue::Float32(Some(3.5)));
+    let plot = Plot::<Cartesian>::new()
+        .title("Param-styled box plot")
+        .canvas_size(720.0, 420.0)
+        .data(box_plot_data(&ctx))
+        .add_param(box_fill.clone())
+        .add_param(median_width.clone())
+        .mark(
+            BoxPlot::new()
+                .id("param_styled_box_plot")
+                .x_with(col("value"), |x| {
+                    x.scale_with::<Linear>(|scale| scale.domain_interval(lit(0.0), lit(36.0)))
+                        .axis(|axis| axis.title("Value").grid(true))
+                })
+                .y_with(col("group"), |y| y_category_axis(y))
+                .box_body(|body| {
+                    body.fill_with(box_fill.expr(), |fill| fill.no_scale())
+                        .stroke("#0369a1")
+                        .stroke_width(1.75)
+                })
+                .median(|median| {
+                    median
+                        .stroke("#7c3aed")
+                        .stroke_width_with(median_width.expr(), |stroke_width| {
+                            stroke_width.no_scale()
+                        })
+                }),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile param-styled box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_scalar_param_style",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_compound_vertical() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Vertical box plot")
+        .canvas_size(720.0, 420.0)
+        .data(box_plot_data(&ctx))
+        .mark(
+            BoxPlot::new()
+                .id("vertical_box_plot")
+                .vertical()
+                .x_with(col("group"), |x| x_category_axis(x))
+                .y_with(col("value"), |y| {
+                    y.scale_with::<Linear>(|scale| scale.domain_interval(lit(0.0), lit(36.0)))
+                        .axis(|axis| axis.title("Value").grid(true))
+                }),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile vertical box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_compound_vertical",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_no_outliers() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Box plot with no outliers")
+        .canvas_size(720.0, 390.0)
+        .data(box_plot_no_outliers_data(&ctx))
+        .mark(box_plot_auto_group_mark("no_outliers_box_plot", 22.0));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile no-outlier box plot");
+    assert_visual_match_default(&compiled, &ctx, None, "boxplot", "box_plot_no_outliers").await;
+}
+
+#[tokio::test]
+async fn box_plot_single_observation_group() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Box plot with a single-observation group")
+        .canvas_size(720.0, 390.0)
+        .data(box_plot_single_observation_data(&ctx))
+        .mark(box_plot_auto_group_mark(
+            "single_observation_box_plot",
+            22.0,
+        ));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile single-observation box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_single_observation_group",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_facet_nested_band_shared_segments() {
+    let ctx = SessionContext::new();
+    let cell = Plot::<Cartesian>::new().mark(
+        BoxPlot::new()
+            .id("facet_grouped_box_plot")
+            .x_with(col("value"), |x| {
+                x.with_domain_scope(CoordinationScope::Shared)
+                    .scale_with::<Linear>(|scale| scale.domain_interval(lit(0.0), lit(40.0)))
+                    .axis(|axis| axis.title("Value").grid(true))
+            })
+            .y_with(nested(["category", "segment"]), |y| {
+                y.with_domain_scope(CoordinationScope::Shared)
+                    .axis(|axis| axis.title("Segment grouped by category").grid(false))
+                    .level(0, |level| {
+                        level
+                            .domain_scope(CoordinationScope::Shared)
+                            .padding_inner(0.38)
+                            .padding_outer(0.12)
+                    })
+                    .level(1, |level| {
+                        level
+                            .domain_scope(CoordinationScope::Shared)
+                            .nest_scope(NestScope::Shared)
+                            .padding_inner(0.12)
+                            .axis(|axis| axis.visible(false))
+                    })
+            })
+            .fill_with(col("segment"), |fill| {
+                fill.legend(|legend| legend.title("Segment"))
+            }),
+    );
+    let plot = Plot::<FacetColumn>::new()
+        .title("Faceted grouped box plot")
+        .canvas_size(980.0, 500.0)
+        .data(faceted_grouped_box_plot_data(&ctx))
+        .mark(Subplot::new(cell).column(col("region")));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile faceted grouped box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_facet_nested_band_shared_segments",
     )
     .await;
 }

@@ -16,15 +16,16 @@ use avenger_chart_core::{
     CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
     CoordinationScope, DataContext, DomainCoordination, DomainCoordinationGroup, IntoExpr,
     IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param, PlotMark,
-    PlotMarkKind, RepeatContext, RepeatDomainCoordination, RepeatVariable, Selection, Store,
-    SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
+    PlotMarkKind, RepeatContext, RepeatDomainCoordination, RepeatVariable, SceneGeometryTarget,
+    Selection, SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme,
+    TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
 use crate::{
     concat::{GridConcat, HConcat, VConcat, WrapConcat},
-    event::{ChartEventBinding, rewrite_legend_event_binding_local_datums},
+    event::{ChartEventBinding, ChartEventStream, rewrite_legend_event_binding_local_datums},
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
     legend::ColorbarOverlay,
     repeat::{RepeatColumns, RepeatGrid, RepeatResolvedChildPlotSpec, RepeatRows, RepeatWrap},
@@ -498,7 +499,6 @@ impl<C: CoordinateSystem> Plot<C> {
             );
         }
         let flat_marks = flatten_plot_marks(&marks, tool_context.repeat_context())?;
-        validate_sibling_mark_ids(&flat_marks.marks)?;
         let resolved_mark_states =
             resolve_mark_states(&flat_marks.marks, tool_context.repeat_context())?;
 
@@ -550,8 +550,9 @@ impl<C: CoordinateSystem> Plot<C> {
                     .or_else(|| self.data.clone())
             };
 
-            let compiled_state =
-                CompiledMarkState::from_mark_state(mark_state, df_opt).with_mark_index(mark_index);
+            let compiled_state = CompiledMarkState::from_mark_state(mark_state, df_opt)
+                .with_mark_index(mark_index)
+                .with_public_target_path(flat_marks.public_target_paths[mark_index].clone());
             let compiled_mark = m
                 .compile_with_context(compiled_state, session_context, Some(erased_tool_context))
                 .await?;
@@ -656,6 +657,12 @@ impl<C: CoordinateSystem> Plot<C> {
         for binding in &event_bindings {
             binding.validate()?;
         }
+        event_bindings = event_bindings
+            .into_iter()
+            .map(|binding| {
+                resolve_event_binding_mark_targets(binding, &flat_marks.mark_target_registry)
+            })
+            .collect::<Result<_, AvengerChartError>>()?;
 
         let mut param_specs: IndexMap<String, CompiledParamSpec> = IndexMap::new();
         for spec in &param_source_specs {
@@ -1153,6 +1160,38 @@ struct FlattenedPlotMarks<C: CoordinateSystem> {
     marks: Vec<Arc<dyn Mark<C>>>,
     group_states: Vec<AuthoringMarkGroupState>,
     mark_group_indices: Vec<Option<usize>>,
+    public_target_paths: Vec<Option<String>>,
+    mark_target_registry: MarkTargetRegistry,
+}
+
+#[derive(Clone, Debug, Default)]
+struct MarkTargetRegistry {
+    paths: HashMap<String, Vec<Vec<usize>>>,
+}
+
+impl MarkTargetRegistry {
+    fn insert(
+        &mut self,
+        target: String,
+        mark_paths: Vec<Vec<usize>>,
+    ) -> Result<(), AvengerChartError> {
+        if self.paths.contains_key(&target) {
+            let message = if target.contains('.') {
+                format!("Duplicate mark target path '{target}'")
+            } else {
+                format!("Duplicate mark id '{target}' among sibling marks")
+            };
+            return Err(AvengerChartError::InvalidArgument(message));
+        }
+        self.paths.insert(target, mark_paths);
+        Ok(())
+    }
+
+    fn resolve(&self, target: &str) -> Result<Vec<Vec<usize>>, AvengerChartError> {
+        self.paths.get(target).cloned().ok_or_else(|| {
+            AvengerChartError::InvalidArgument(format!("Unknown mark target '{target}'"))
+        })
+    }
 }
 
 fn flatten_plot_marks<C: CoordinateSystem>(
@@ -1171,20 +1210,30 @@ fn flatten_plot_marks<C: CoordinateSystem>(
         marks: Vec::new(),
         group_states: Vec::new(),
         mark_group_indices: Vec::new(),
+        public_target_paths: Vec::new(),
+        mark_target_registry: MarkTargetRegistry::default(),
     };
-    flatten_plot_mark_elements(elements, None, repeat_context, &mut flat)?;
+    flatten_plot_mark_elements(elements, None, &[], repeat_context, &mut flat)?;
     Ok(flat)
 }
 
 fn flatten_plot_mark_elements<C: CoordinateSystem>(
     elements: &[PlotMark<C>],
     parent_group_index: Option<usize>,
+    public_path_prefix: &[String],
     repeat_context: &RepeatContext,
     flat: &mut FlattenedPlotMarks<C>,
-) -> Result<(), AvengerChartError> {
+) -> Result<Vec<usize>, AvengerChartError> {
+    let mut descendant_mark_indices = Vec::new();
     for element in elements {
         match element.kind() {
+            PlotMarkKind::InvalidArgument(message) => {
+                return Err(AvengerChartError::InvalidArgument(message.clone()));
+            }
             PlotMarkKind::Primitive(mark) => {
+                if let Some(id) = mark.state().id.as_deref() {
+                    validate_structural_id("mark", id)?;
+                }
                 if parent_group_index.is_some() {
                     let state = mark.state();
                     if state.has_explicit_data_source() {
@@ -1200,8 +1249,20 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                         ));
                     }
                 }
+                let mark_index = flat.marks.len();
+                let public_target_path = mark_public_target_path(
+                    mark.state().id.as_deref(),
+                    parent_group_index,
+                    public_path_prefix,
+                );
                 flat.marks.push(mark.clone());
                 flat.mark_group_indices.push(parent_group_index);
+                flat.public_target_paths.push(public_target_path.clone());
+                if let Some(public_target_path) = public_target_path {
+                    flat.mark_target_registry
+                        .insert(public_target_path, vec![vec![mark_index]])?;
+                }
+                descendant_mark_indices.push(mark_index);
             }
             PlotMarkKind::Group(group) => {
                 group.validate_id()?;
@@ -1210,6 +1271,8 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                         "MarkGroup must contain at least one child mark or group".to_string(),
                     ));
                 }
+                let group_public_path_prefix =
+                    group_public_path_prefix(public_path_prefix, group.id_ref());
                 let group_index = flat.group_states.len();
                 flat.group_states.push(AuthoringMarkGroupState {
                     id: group.id_ref().map(ToString::to_string),
@@ -1218,16 +1281,135 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                     data_mode: group.data_mode(),
                     facet_data_scope: group.facet_data_scope_value(),
                 });
-                flatten_plot_mark_elements(
+                let group_descendants = flatten_plot_mark_elements(
                     group.children(),
                     Some(group_index),
+                    &group_public_path_prefix,
                     repeat_context,
                     flat,
                 )?;
+                if group.id_ref().is_some() && !group_public_path_prefix.is_empty() {
+                    let group_target = group_public_path_prefix.join(".");
+                    let paths = group_descendants
+                        .iter()
+                        .map(|mark_index| vec![*mark_index])
+                        .collect();
+                    flat.mark_target_registry.insert(group_target, paths)?;
+                }
+                descendant_mark_indices.extend(group_descendants);
             }
         }
     }
-    Ok(())
+    Ok(descendant_mark_indices)
+}
+
+fn group_public_path_prefix(parent: &[String], group_id: Option<&str>) -> Vec<String> {
+    let mut prefix = parent.to_vec();
+    if let Some(group_id) = group_id {
+        prefix.push(group_id.to_string());
+    }
+    prefix
+}
+
+fn mark_public_target_path(
+    mark_id: Option<&str>,
+    parent_group_index: Option<usize>,
+    public_path_prefix: &[String],
+) -> Option<String> {
+    let mark_id = mark_id?;
+    if public_path_prefix.is_empty() {
+        parent_group_index.is_none().then(|| mark_id.to_string())
+    } else {
+        let mut segments = public_path_prefix.to_vec();
+        segments.push(mark_id.to_string());
+        Some(segments.join("."))
+    }
+}
+
+fn resolve_event_binding_mark_targets(
+    mut binding: ChartEventBinding,
+    registry: &MarkTargetRegistry,
+) -> Result<ChartEventBinding, AvengerChartError> {
+    if let Some(mut between) = binding.between.take() {
+        between.start = resolve_event_stream_mark_targets(between.start, registry)?;
+        between.end = resolve_event_stream_mark_targets(between.end, registry)?;
+        binding.between = Some(between);
+    }
+    for assignment in &mut binding.selection_assignments {
+        assignment.update =
+            resolve_selection_update_scene_query_mark_targets(assignment.update.clone(), registry)?;
+    }
+    Ok(binding)
+}
+
+fn resolve_event_stream_mark_targets(
+    stream: ChartEventStream,
+    registry: &MarkTargetRegistry,
+) -> Result<ChartEventStream, AvengerChartError> {
+    let paths = resolve_mark_target_paths(stream.mark_ids(), registry)?;
+    Ok(if paths.is_empty() {
+        stream
+    } else {
+        stream.with_resolved_mark_paths(paths)
+    })
+}
+
+fn resolve_selection_update_scene_query_mark_targets(
+    update: SelectionUpdate,
+    registry: &MarkTargetRegistry,
+) -> Result<SelectionUpdate, AvengerChartError> {
+    Ok(match update {
+        SelectionUpdate::ReplaceAllFromSceneQuery { query } => {
+            SelectionUpdate::ReplaceAllFromSceneQuery {
+                query: resolve_selection_scene_query_mark_targets(query, registry)?,
+            }
+        }
+        SelectionUpdate::ReplaceFromSceneQueryInScope { query } => {
+            SelectionUpdate::ReplaceFromSceneQueryInScope {
+                query: resolve_selection_scene_query_mark_targets(query, registry)?,
+            }
+        }
+        SelectionUpdate::UpsertFromSceneQuery { query } => SelectionUpdate::UpsertFromSceneQuery {
+            query: resolve_selection_scene_query_mark_targets(query, registry)?,
+        },
+        SelectionUpdate::ToggleFromSceneQuery { query } => SelectionUpdate::ToggleFromSceneQuery {
+            query: resolve_selection_scene_query_mark_targets(query, registry)?,
+        },
+        other => other,
+    })
+}
+
+fn resolve_selection_scene_query_mark_targets(
+    mut query: SelectionSceneQuery,
+    registry: &MarkTargetRegistry,
+) -> Result<SelectionSceneQuery, AvengerChartError> {
+    query.query.target = resolve_scene_geometry_target_mark_targets(query.query.target, registry)?;
+    Ok(query)
+}
+
+fn resolve_scene_geometry_target_mark_targets(
+    target: SceneGeometryTarget,
+    registry: &MarkTargetRegistry,
+) -> Result<SceneGeometryTarget, AvengerChartError> {
+    let paths = resolve_mark_target_paths(target.mark_ids(), registry)?;
+    Ok(if paths.is_empty() {
+        target
+    } else {
+        target.with_resolved_mark_paths(paths)
+    })
+}
+
+fn resolve_mark_target_paths(
+    targets: &[String],
+    registry: &MarkTargetRegistry,
+) -> Result<Vec<Vec<usize>>, AvengerChartError> {
+    let mut paths = Vec::new();
+    for target in targets {
+        paths.extend(registry.resolve(target)?);
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
 }
 
 fn compile_mark_group_states(
@@ -1578,24 +1760,6 @@ fn repeat_matrix_axis_title(
     }
 }
 
-fn validate_sibling_mark_ids<C: CoordinateSystem>(
-    marks: &[Arc<dyn Mark<C>>],
-) -> Result<(), AvengerChartError> {
-    let mut seen = HashSet::new();
-    for mark in marks {
-        let Some(id) = mark.state().id.as_deref() else {
-            continue;
-        };
-        validate_structural_id("mark", id)?;
-        if !seen.insert(id.to_string()) {
-            return Err(AvengerChartError::InvalidArgument(format!(
-                "Duplicate mark id '{id}' among sibling marks"
-            )));
-        }
-    }
-    Ok(())
-}
-
 fn legend_event_bindings(
     legends: &IndexMap<String, Legend>,
     session_context: &datafusion::prelude::SessionContext,
@@ -1651,7 +1815,7 @@ mod tests {
     use super::*;
     use crate::cartesian::Cartesian;
     use crate::concat::{GridConcat, HConcat, VConcat, WrapConcat, compiled_subplot};
-    use crate::event::{ChartEventBinding, ChartEventType};
+    use crate::event::{ChartEventBinding, ChartEventStream, ChartEventType};
     use crate::facet::coord::{FacetColumn, FacetWrap};
     use crate::facet::marks::{FacetColumnSubplotChannels, FacetWrapSubplotChannels};
     use crate::repeat::{RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap};
@@ -1665,9 +1829,9 @@ mod tests {
         DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
         DefaultLogicalExprNodeExt, DomainCoordinationGroup, IntoPlotMark, MarkGroup, PlotMark,
         RepeatContext, RepeatDomainCoordination, RepeatVariable, ResolvedRepeatVariable,
-        ScaleChannelConfig, SelectionClauseUpdate, SelectionPredicateUpdate, SelectionUpdate,
-        StoreRow, StoreUpdate, SubplotDataSource, collect_repeat_placeholder_kinds, repeat,
-        simplify_to_scalar_sync,
+        ScaleChannelConfig, SceneGeometryQuery, SelectionClauseUpdate, SelectionPredicateUpdate,
+        SelectionSceneQuery, SelectionUpdate, StoreRow, StoreUpdate, SubplotDataSource,
+        collect_repeat_placeholder_kinds, repeat, simplify_to_scalar_sync,
     };
     use avenger_chart_marks::{Rect, Subplot, Symbol};
     use avenger_chart_tools::PanScrollZoom;
@@ -1833,6 +1997,21 @@ mod tests {
             compiled.mark_group_index_by_mark,
             vec![None, Some(0), Some(0), None, None]
         );
+        let public_paths = compiled
+            .marks
+            .iter()
+            .map(|mark| mark.state().public_target_path.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            public_paths,
+            vec![
+                Some("a".to_string()),
+                Some("summary.b".to_string()),
+                Some("summary.c".to_string()),
+                Some("compound_symbol".to_string()),
+                Some("compound_rect".to_string()),
+            ]
+        );
     }
 
     #[tokio::test]
@@ -1854,6 +2033,205 @@ mod tests {
         assert_eq!(compiled.mark_groups[0].parent_group_index, None);
         assert_eq!(compiled.mark_groups[1].parent_group_index, Some(0));
         assert_eq!(compiled.mark_group_index_by_mark, vec![Some(1)]);
+        assert_eq!(
+            compiled.marks[0].state().public_target_path.as_deref(),
+            Some("outer.inner.leaf")
+        );
+    }
+
+    #[tokio::test]
+    async fn mark_group_event_targets_resolve_to_public_paths() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                MarkGroup::new()
+                    .id("manual_box_plot")
+                    .mark(Symbol::new().id("box").x(lit(1.0)).y(lit(1.0)))
+                    .mark(Symbol::new().id("outliers").x(lit(2.0)).y(lit(2.0))),
+            )
+            .event_binding(ChartEventBinding::on_between_end(
+                ChartEventStream::on(ChartEventType::MouseDown).mark("manual_box_plot.outliers"),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            ))
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let binding = compiled.event_bindings().first().expect("event binding");
+        let between = binding.between.as_ref().expect("between binding");
+        assert_eq!(
+            between.start.resolved_mark_paths(),
+            Some(&[vec![1usize]][..])
+        );
+        assert_eq!(
+            compiled.marks[1].state().public_target_path.as_deref(),
+            Some("manual_box_plot.outliers")
+        );
+    }
+
+    #[tokio::test]
+    async fn root_primitive_event_target_resolves_to_mark_path() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(Symbol::new().id("points").x(lit(1.0)).y(lit(1.0)))
+            .event_binding(ChartEventBinding::on_between_end(
+                ChartEventStream::on(ChartEventType::MouseDown).mark("points"),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            ))
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let binding = compiled.event_bindings().first().expect("event binding");
+        let between = binding.between.as_ref().expect("between binding");
+        assert_eq!(
+            between.start.resolved_mark_paths(),
+            Some(&[vec![0usize]][..])
+        );
+    }
+
+    #[tokio::test]
+    async fn mark_group_root_target_resolves_to_descendants() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                MarkGroup::new()
+                    .id("manual_box_plot")
+                    .mark(Symbol::new().id("box").x(lit(1.0)).y(lit(1.0)))
+                    .mark(Symbol::new().id("outliers").x(lit(2.0)).y(lit(2.0))),
+            )
+            .event_binding(ChartEventBinding::on_between_end(
+                ChartEventStream::on(ChartEventType::MouseDown).mark("manual_box_plot"),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            ))
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let binding = compiled.event_bindings().first().expect("event binding");
+        let between = binding.between.as_ref().expect("between binding");
+        assert_eq!(
+            between.start.resolved_mark_paths(),
+            Some(&[vec![0usize], vec![1usize]][..])
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_local_mark_target_without_root_group_is_invalid() {
+        let ctx = SessionContext::new();
+        let err = match Plot::<Cartesian>::new()
+            .mark(MarkGroup::new().mark(Symbol::new().id("outliers").x(lit(1.0)).y(lit(1.0))))
+            .event_binding(ChartEventBinding::on_between_end(
+                ChartEventStream::on(ChartEventType::MouseDown).mark("outliers"),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            ))
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("unrooted nested target should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("Unknown mark target 'outliers'"));
+    }
+
+    #[tokio::test]
+    async fn same_local_child_ids_under_different_roots_are_valid_targets() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                MarkGroup::new()
+                    .id("a")
+                    .mark(Symbol::new().id("outliers").x(lit(1.0)).y(lit(1.0))),
+            )
+            .mark(
+                MarkGroup::new()
+                    .id("b")
+                    .mark(Symbol::new().id("outliers").x(lit(2.0)).y(lit(2.0))),
+            )
+            .event_binding(ChartEventBinding::on_between_end(
+                ChartEventStream::on(ChartEventType::MouseDown).marks(["a.outliers", "b.outliers"]),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            ))
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let binding = compiled.event_bindings().first().expect("event binding");
+        let between = binding.between.as_ref().expect("between binding");
+        assert_eq!(
+            between.start.resolved_mark_paths(),
+            Some(&[vec![0usize], vec![1usize]][..])
+        );
+        assert_eq!(
+            compiled
+                .marks
+                .iter()
+                .map(|mark| mark.state().public_target_path.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Some("a.outliers".to_string()),
+                Some("b.outliers".to_string())
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_child_target_paths_under_same_root_error() {
+        let ctx = SessionContext::new();
+        let err = match Plot::<Cartesian>::new()
+            .mark(
+                MarkGroup::new()
+                    .id("a")
+                    .mark(Symbol::new().id("outliers").x(lit(1.0)).y(lit(1.0)))
+                    .mark(Symbol::new().id("outliers").x(lit(2.0)).y(lit(2.0))),
+            )
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("duplicate nested public target should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("Duplicate mark target path 'a.outliers'"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn scene_query_mark_targets_resolve_to_public_paths() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                MarkGroup::new()
+                    .id("manual_box_plot")
+                    .mark(Symbol::new().id("box").x(lit(1.0)).y(lit(1.0)))
+                    .mark(Symbol::new().id("outliers").x(lit(2.0)).y(lit(2.0))),
+            )
+            .add_selection(Selection::new("picked"))
+            .event_binding(
+                ChartEventBinding::on(ChartEventType::Click).set_selection(
+                    "picked",
+                    SelectionUpdate::replace_all_from_scene_query(SelectionSceneQuery::new(
+                        SceneGeometryQuery::rect(lit(0.0), lit(0.0), lit(10.0), lit(10.0))
+                            .mark("manual_box_plot.outliers"),
+                    )),
+                ),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let binding = compiled.event_bindings().first().expect("event binding");
+        let SelectionUpdate::ReplaceAllFromSceneQuery { query } =
+            &binding.selection_assignments[0].update
+        else {
+            panic!("expected scene query update");
+        };
+        assert_eq!(
+            query.query.target.resolved_mark_paths(),
+            Some(&[vec![1usize]][..])
+        );
     }
 
     #[tokio::test]

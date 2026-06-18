@@ -5,7 +5,7 @@ use serde_with::{FromInto, serde_as};
 
 use crate::{
     AvengerChartError, CoordinationScope, DefaultLogicalExprNodeExt, IntoExpr, SerializableExpr,
-    validate_structural_id,
+    validate_mark_target_path, validate_structural_id,
 };
 
 #[serde_as]
@@ -161,7 +161,7 @@ impl SceneGeometryTarget {
 
     pub fn validate(&self) -> Result<(), AvengerChartError> {
         for id in &self.mark_ids {
-            validate_structural_id("mark target", id)?;
+            validate_mark_target_path("mark", id)?;
         }
         for id in &self.subplot_ids {
             validate_structural_id("subplot target", id)?;
