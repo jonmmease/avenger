@@ -330,23 +330,13 @@ impl ChannelExpr {
     }
 
     /// Set the band parameter for this channel value.
-    pub fn band(self, band: f64) -> Self {
+    pub fn band(self, band: impl IntoExpr) -> Self {
         self.map_channel_value(|value| value.band(band))
     }
 
-    /// Set a row-wise band parameter expression for this channel value.
-    pub fn band_expr(self, band: impl IntoExpr) -> Self {
-        self.map_channel_value(|value| value.band_expr(band))
-    }
-
     /// Set the boundary for a specific nested-band level.
-    pub fn level_band(self, level: usize, band: f64) -> Self {
+    pub fn level_band(self, level: usize, band: impl IntoExpr) -> Self {
         self.map_channel_value(|value| value.level_band(level, band))
-    }
-
-    /// Set a row-wise boundary expression for a specific nested-band level.
-    pub fn level_band_expr(self, level: usize, band: impl IntoExpr) -> Self {
-        self.map_channel_value(|value| value.level_band_expr(level, band))
     }
 
     /// Set a custom scale name for this channel value.
@@ -980,24 +970,14 @@ impl ChannelValue {
         }
     }
 
-    /// Set the band parameter for this channel (only for scaled values)
-    pub fn band(self, band: f64) -> Self {
+    /// Set the band parameter for this channel.
+    pub fn band(self, band: impl IntoExpr) -> Self {
         self.with_position_boundary(PositionBoundary::band(band))
     }
 
-    /// Set a row-wise band parameter expression for this channel.
-    pub fn band_expr(self, band: impl IntoExpr) -> Self {
-        self.with_position_boundary(PositionBoundary::band_expr(band))
-    }
-
     /// Set the boundary for a specific nested-band level.
-    pub fn level_band(self, level: usize, band: f64) -> Self {
+    pub fn level_band(self, level: usize, band: impl IntoExpr) -> Self {
         self.with_position_boundary(PositionBoundary::level_band(level, band))
-    }
-
-    /// Set a row-wise boundary expression for a specific nested-band level.
-    pub fn level_band_expr(self, level: usize, band: impl IntoExpr) -> Self {
-        self.with_position_boundary(PositionBoundary::level_band_expr(level, band))
     }
 
     /// Set the position boundary for this channel.
@@ -1446,7 +1426,7 @@ mod tests {
         assert!(matches!(
             cv,
             ChannelValue::Scaled {
-                position_boundary: Some(PositionBoundary::Band { band: 0.5 }),
+                position_boundary: Some(PositionBoundary::BandExpr { .. }),
                 ..
             }
         ));
@@ -1477,30 +1457,27 @@ mod tests {
     fn nested_band_channel_value_level_band_stores_position_boundary() {
         let cv: ChannelValue = col("x").into();
         let cv = cv.level_band(1, 0.75);
-        assert_eq!(
+        assert!(matches!(
             cv.get_position_boundary(),
-            Some(PositionBoundary::LevelBand {
-                level: 1,
-                band: 0.75
-            })
-        );
+            Some(PositionBoundary::LevelBandExpr { level: 1, .. })
+        ));
     }
 
     #[test]
     fn nested_band_channel_value_band_stores_leaf_boundary() {
         let cv: ChannelValue = col("x").into();
         let cv = cv.band(1.0);
-        assert_eq!(
+        assert!(matches!(
             cv.get_position_boundary(),
-            Some(PositionBoundary::Band { band: 1.0 })
-        );
+            Some(PositionBoundary::BandExpr { .. })
+        ));
     }
 
     #[test]
-    fn nested_band_channel_value_band_expr_is_collected() {
+    fn nested_band_channel_value_dynamic_band_is_collected() {
         let ctx = SessionContext::new();
         let cv: ChannelValue = col("x").into();
-        let cv = cv.band_expr(col("dynamic_band"));
+        let cv = cv.band(col("dynamic_band"));
         assert!(matches!(
             cv.get_position_boundary(),
             Some(PositionBoundary::BandExpr { .. })
@@ -1516,13 +1493,10 @@ mod tests {
     #[test]
     fn nested_band_channel_expr_level_band_stores_position_boundary() {
         let expr = ChannelExpr::scaled(col("x")).level_band(0, 1.0);
-        assert_eq!(
+        assert!(matches!(
             expr.channel_value().get_position_boundary(),
-            Some(PositionBoundary::LevelBand {
-                level: 0,
-                band: 1.0
-            })
-        );
+            Some(PositionBoundary::LevelBandExpr { level: 0, .. })
+        ));
     }
 
     #[test]
@@ -1554,10 +1528,10 @@ mod tests {
         let serialized = bincode::serialize(&value).expect("serialize");
         let restored: ChannelValue = bincode::deserialize(&serialized).expect("deserialize");
 
-        assert_eq!(
+        assert!(matches!(
             restored.get_position_boundary(),
-            Some(PositionBoundary::Band { band: 0.0 })
-        );
+            Some(PositionBoundary::BandExpr { .. })
+        ));
     }
 
     #[test]

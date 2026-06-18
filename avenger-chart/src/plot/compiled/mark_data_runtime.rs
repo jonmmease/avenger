@@ -1493,8 +1493,8 @@ mod tests {
         zerod::ZeroDCoord,
     };
     use avenger_chart_core::{
-        CoordinationScope, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, Store,
-        StoreData, StoreRowValue,
+        CoordinationScope, Param, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN,
+        Store, StoreData, StoreRowValue,
     };
     use avenger_chart_marks::Rect;
     fn eval_context(session: Arc<SessionContext>) -> EvaluationContext {
@@ -1779,6 +1779,47 @@ mod tests {
             .y2_with(col("value"), |y| y.no_scale());
         let compiled_mark = mark.compile_untransformed(&session).await?;
         let eval_ctx = eval_context(session);
+        let scales = HashMap::from([("x".to_string(), nested_band_scale())]);
+
+        let prepared = prepare_mark_data(MarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: Some(&plot_node),
+            provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
+            prepared_base: None,
+            eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
+            scales: &scales,
+            plot_width: 300.0,
+            plot_height: 100.0,
+        })
+        .await?
+        .expect("prepared data");
+
+        let data_batch = prepared.data_batch.expect("array data");
+        assert_eq!(values_as_f64(&data_batch, "x"), vec![0.0, 100.0, 200.0]);
+        assert_eq!(values_as_f64(&data_batch, "x2"), vec![100.0, 200.0, 300.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_evaluates_nested_band_param_boundaries()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = nested_category_dataframe(&session);
+        let plot_node = plot_data_node(&df)?;
+        let band_end = Param::new("band_end", ScalarValue::Float64(Some(1.0)));
+        let mark = Rect::new()
+            .x_with(nested(["group", "member"]), |x| x.band(0.0))
+            .x2_with(col(":x"), |x| x.band(band_end.expr()))
+            .y_with(lit(0.0), |y| y.no_scale())
+            .y2_with(col("value"), |y| y.no_scale());
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let eval_ctx = eval_context(session.clone()).with_params(IndexMap::from([(
+            "band_end".to_string(),
+            ScalarValue::Float64(Some(1.0)),
+        )]));
         let scales = HashMap::from([("x".to_string(), nested_band_scale())]);
 
         let prepared = prepare_mark_data(MarkDataRequest {

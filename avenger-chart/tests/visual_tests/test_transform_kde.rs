@@ -201,7 +201,7 @@ async fn kde_grouped_density_lines() {
 }
 
 #[tokio::test]
-async fn kde_low_level_grouped_violin_band_expr() {
+async fn kde_low_level_grouped_violin_dynamic_band() {
     let ctx = SessionContext::new();
     let plot = Plot::<Cartesian>::new()
         .title("Low-level violin from KDE + area")
@@ -233,11 +233,11 @@ async fn kde_low_level_grouped_violin_band_expr() {
                                     mark.orientation("horizontal")
                                         .x_with(col("group"), |c| {
                                             c.scale_with::<Band>(|s| s.padding_inner(0.18))
-                                                .band_expr(col("__band_start"))
+                                                .band(col("__band_start"))
                                                 .axis(|a| a.title("Group"))
                                         })
                                         .x2_with(col("group"), |c| {
-                                            c.with_scale_name("x").band_expr(col("__band_end"))
+                                            c.with_scale_name("x").band(col("__band_end"))
                                         })
                                         .y_with(kde.value(), |c| c.axis(|a| a.title("Value")))
                                         .y2_with(kde.value(), |c| c.with_scale_name("y"))
@@ -260,7 +260,7 @@ async fn kde_low_level_grouped_violin_band_expr() {
         &ctx,
         None,
         "transform_kde",
-        "kde_low_level_grouped_violin_band_expr",
+        "kde_low_level_grouped_violin_dynamic_band",
     )
     .await;
 }
@@ -309,9 +309,9 @@ async fn kde_low_level_nested_violin_counts_shared_max() {
                                             .level(1, |l| {
                                                 l.nest_scope(NestScope::Shared).padding_inner(0.1)
                                             })
-                                            .band_expr(col("__band_start"))
+                                            .band(col("__band_start"))
                                         })
-                                        .x2_with(col(":x"), |x| x.band_expr(col("__band_end")))
+                                        .x2_with(col(":x"), |x| x.band(col("__band_end")))
                                         .y_with(kde.value(), |y| {
                                             y.scale(|s| s.domain((-2.4, 3.0)))
                                                 .axis(|a| a.title("Value").grid(true))
@@ -386,9 +386,9 @@ async fn kde_low_level_nested_violin_facet_counts_shared_max() {
                                                     .nest_scope(NestScope::Shared)
                                                     .padding_inner(0.1)
                                             })
-                                            .band_expr(col("__band_start"))
+                                            .band(col("__band_start"))
                                     })
-                                    .x2_with(col(":x"), |x| x.band_expr(col("__band_end")))
+                                    .x2_with(col(":x"), |x| x.band(col("__band_end")))
                                     .y_with(kde.value(), |y| {
                                         y.with_domain_scope(CoordinationScope::Shared)
                                             .scale(|s| s.domain((-2.4, 3.0)))

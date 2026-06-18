@@ -58,25 +58,15 @@ pub enum PositionBoundary {
 
 impl PositionBoundary {
     /// Construct a leaf-band boundary.
-    pub fn band(band: f64) -> Self {
-        Self::Band { band }
-    }
-
-    /// Construct a boundary inside an explicit nesting level.
-    pub fn level_band(level: usize, band: f64) -> Self {
-        Self::LevelBand { level, band }
-    }
-
-    /// Construct a row-wise leaf-band boundary.
-    pub fn band_expr(band: impl IntoExpr) -> Self {
+    pub fn band(band: impl IntoExpr) -> Self {
         Self::BandExpr {
             band: LogicalExprNode::from_default_expr(band.into_expr())
                 .expect("Failed to serialize band expression"),
         }
     }
 
-    /// Construct a row-wise boundary inside an explicit nesting level.
-    pub fn level_band_expr(level: usize, band: impl IntoExpr) -> Self {
+    /// Construct a boundary inside an explicit nesting level.
+    pub fn level_band(level: usize, band: impl IntoExpr) -> Self {
         Self::LevelBandExpr {
             level,
             band: LogicalExprNode::from_default_expr(band.into_expr())
@@ -474,12 +464,12 @@ mod tests {
         let restored: PositionBoundary = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(restored, boundary);
 
-        let boundary = PositionBoundary::band_expr(col("half_width"));
+        let boundary = PositionBoundary::band(col("half_width"));
         let json = serde_json::to_string(&boundary).expect("serialize");
         let restored: PositionBoundary = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(restored, boundary);
 
-        let boundary = PositionBoundary::level_band_expr(1, col("level_width"));
+        let boundary = PositionBoundary::level_band(1, col("level_width"));
         let json = serde_json::to_string(&boundary).expect("serialize");
         let restored: PositionBoundary = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(restored, boundary);
@@ -488,7 +478,7 @@ mod tests {
     #[test]
     fn position_boundary_exprs_are_collected() {
         let ctx = SessionContext::new();
-        let boundary = PositionBoundary::level_band_expr(1, col("dynamic_band"));
+        let boundary = PositionBoundary::level_band(1, col("dynamic_band"));
         let rendered = boundary
             .all_exprs(&ctx)
             .into_iter()

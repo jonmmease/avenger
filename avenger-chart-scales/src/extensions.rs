@@ -212,7 +212,7 @@ fn to_expr_with_interpolated_band(
         && !scale_supports_option(scale, "level")
     {
         return Err(AvengerChartError::InvalidArgument(format!(
-            "level_band_expr({level}, ...) requires a nested band scale"
+            "level_band({level}, ...) requires a nested band scale"
         )));
     }
 

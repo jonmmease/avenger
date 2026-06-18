@@ -44,17 +44,9 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
     }
 
     /// Set the band parameter.
-    pub fn band(self, band: f64) -> Self {
+    pub fn band(self, band: impl IntoExpr) -> Self {
         Self {
             inner: self.inner.band(band),
-            axis_config: self.axis_config,
-        }
-    }
-
-    /// Set a row-wise band parameter expression.
-    pub fn band_expr(self, band: impl IntoExpr) -> Self {
-        Self {
-            inner: self.inner.band_expr(band),
             axis_config: self.axis_config,
         }
     }
@@ -81,21 +73,11 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
     }
 
     /// Set the boundary for a specific nested categorical band level.
-    pub fn level_band(self, level: usize, band: f64) -> Self {
+    pub fn level_band(self, level: usize, band: impl IntoExpr) -> Self {
         Self {
             inner: self
                 .inner
                 .with_position_boundary(PositionBoundary::level_band(level, band)),
-            axis_config: self.axis_config,
-        }
-    }
-
-    /// Set a row-wise boundary expression for a specific nested categorical band level.
-    pub fn level_band_expr(self, level: usize, band: impl IntoExpr) -> Self {
-        Self {
-            inner: self
-                .inner
-                .with_position_boundary(PositionBoundary::level_band_expr(level, band)),
             axis_config: self.axis_config,
         }
     }
@@ -227,12 +209,9 @@ mod tests {
         assert_eq!(level.nest_scope, Some(NestScope::Shared));
         assert_eq!(level.padding_inner, Some(0.0));
         assert_eq!(level.padding_outer_px, Some(4.0));
-        assert_eq!(
+        assert!(matches!(
             config.inner.get_position_boundary(),
-            Some(PositionBoundary::LevelBand {
-                level: 1,
-                band: 1.0
-            })
-        );
+            Some(PositionBoundary::LevelBandExpr { level: 1, .. })
+        ));
     }
 }
