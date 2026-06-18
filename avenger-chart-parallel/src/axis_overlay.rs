@@ -26,6 +26,7 @@ pub struct ParallelAxisOverlay<C = Parallel> {
     width_px: f32,
     x_offset_px: f32,
     clip: bool,
+    show_child_chrome: bool,
     _phantom: PhantomData<C>,
 }
 
@@ -51,6 +52,7 @@ impl ParallelAxisOverlay<Parallel> {
             width_px: 64.0,
             x_offset_px: 0.0,
             clip: true,
+            show_child_chrome: false,
             _phantom: PhantomData,
         }
     }
@@ -76,6 +78,16 @@ impl ParallelAxisOverlay<Parallel> {
     /// Clip the entire child frame to the overlay plot-area rectangle.
     pub fn clip(mut self, clip: bool) -> Self {
         self.clip = clip;
+        self
+    }
+
+    /// Show guides, legends, titles, and subtitles emitted by the child plot.
+    ///
+    /// Child chrome is hidden by default because axis overlays are usually
+    /// narrow annotation surfaces whose y scale is already represented by the
+    /// parent parallel axis.
+    pub fn show_child_chrome(mut self, show_child_chrome: bool) -> Self {
+        self.show_child_chrome = show_child_chrome;
         self
     }
 
@@ -153,6 +165,7 @@ async fn compile_parallel_axis_overlay(
         width_px: overlay.width_px.max(1.0),
         x_offset_px: overlay.x_offset_px,
         clip: overlay.clip,
+        show_child_chrome: overlay.show_child_chrome,
     }))
 }
 
@@ -163,6 +176,8 @@ pub struct CompiledParallelAxisOverlay {
     width_px: f32,
     x_offset_px: f32,
     clip: bool,
+    #[serde(default)]
+    show_child_chrome: bool,
 }
 
 impl CompiledParallelAxisOverlay {
@@ -184,6 +199,10 @@ impl CompiledParallelAxisOverlay {
 
     pub fn clip(&self) -> bool {
         self.clip
+    }
+
+    pub fn show_child_chrome(&self) -> bool {
+        self.show_child_chrome
     }
 }
 
@@ -296,6 +315,7 @@ mod tests {
         .width_px(28.0)
         .x_offset_px(3.0)
         .clip(true)
+        .show_child_chrome(true)
         .zindex(12);
         let compiled_state =
             CompiledMarkState::from_mark_state(overlay.state(), None).with_mark_index(4);
@@ -312,6 +332,7 @@ mod tests {
         assert_eq!(compiled.width_px(), 28.0);
         assert_eq!(compiled.x_offset_px(), 3.0);
         assert!(compiled.clip());
+        assert!(compiled.show_child_chrome());
         assert_eq!(compiled.state().id.as_deref(), Some("speed_overlay"));
         assert_eq!(compiled.state().mark_index(), 4);
         assert_eq!(

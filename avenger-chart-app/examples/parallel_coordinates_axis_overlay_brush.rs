@@ -78,12 +78,9 @@ fn brush_overlay(
             ctx, value_min, value_max,
         ))
         .exclude_from_scale_domains()
-        .x_with(col("x_min"), |x| {
-            x.scale_with::<Linear>(|scale| scale.domain((0.0, 1.0)))
-                .axis(|axis| axis.visible(false))
-        })
+        .x(col("x_min"))
         .x2(col("x_max"))
-        .y_with(col("value_min"), |y| y.axis(|axis| axis.visible(false)))
+        .y(col("value_min"))
         .y2(col("value_max"))
         .fill(fill)
         .stroke("#1f2937")

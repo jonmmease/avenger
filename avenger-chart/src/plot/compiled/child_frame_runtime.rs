@@ -371,17 +371,18 @@ impl<'a> PreparedChildFramePlot<'a> {
         .await
     }
 
-    pub(crate) async fn measure_with_scale_overrides(
+    pub(crate) async fn measure_with_scale_fallbacks_and_overrides(
         &self,
         eval_ctx: &EvaluationContext,
         layout_spec: &EvaluatedLayoutSpec,
         facet_path: &[ScalarValue],
         domain_extents: &[&HashMap<String, DomainExtent>],
+        scale_fallbacks: HashMap<String, ConfiguredScaleWithSpec>,
         scale_overrides: HashMap<String, ConfiguredScaleWithSpec>,
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
         if !domain_extents.iter().all(|extents| extents.is_empty()) {
             return Err(AvengerChartError::InternalError(
-                "measure_with_scale_overrides does not support coordinated domain extents"
+                "measure_with_scale_fallbacks_and_overrides does not support coordinated domain extents"
                     .to_string(),
             ));
         }
@@ -401,6 +402,7 @@ impl<'a> PreparedChildFramePlot<'a> {
         let provider = ScaleOverrideProvider {
             builder: &self.scale_builder,
             plot: self.plot,
+            fallbacks: scale_fallbacks,
             overrides: scale_overrides,
         };
         Box::pin(self.plot.measure_plot_components(
@@ -417,6 +419,7 @@ impl<'a> PreparedChildFramePlot<'a> {
 struct ScaleOverrideProvider<'a> {
     builder: &'a ScaleBuilder,
     plot: &'a CompiledPlot,
+    fallbacks: HashMap<String, ConfiguredScaleWithSpec>,
     overrides: HashMap<String, ConfiguredScaleWithSpec>,
 }
 
@@ -437,6 +440,9 @@ impl<'a> ScaleProvider for ScaleOverrideProvider<'a> {
             params,
         ))
         .await?;
+        for (name, scale) in self.fallbacks.clone() {
+            scales.entry(name).or_insert(scale);
+        }
         scales.extend(self.overrides.clone());
         Ok(scales)
     }

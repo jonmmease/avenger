@@ -62,14 +62,9 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                     Rect::new()
                         .data(parallel_common::interval_dataframe(&ctx, 67.0, 84.0))
                         .exclude_from_scale_domains()
-                        .x_with(datafusion::prelude::col("x_min"), |x| {
-                            x.scale_with::<Linear>(|scale| scale.domain((0.0, 1.0)))
-                                .axis(|axis| axis.visible(false))
-                        })
+                        .x(datafusion::prelude::col("x_min"))
                         .x2(datafusion::prelude::col("x_max"))
-                        .y_with(datafusion::prelude::col("value_min"), |y| {
-                            y.axis(|axis| axis.visible(false))
-                        })
+                        .y(datafusion::prelude::col("value_min"))
                         .y2(datafusion::prelude::col("value_max"))
                         .fill("rgba(37, 99, 235, 0.16)")
                         .stroke("#2563eb")

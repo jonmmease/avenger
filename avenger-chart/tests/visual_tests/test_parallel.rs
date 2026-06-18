@@ -459,12 +459,9 @@ async fn parallel_axis_overlay_displaced_axis() {
         "stability",
         Plot::<Cartesian>::new().mark(
             Rect::new()
-                .x_with(lit(0.0), |x| {
-                    x.scale_with::<Linear>(|scale| scale.domain((0.0, 1.0)))
-                        .axis(|axis| axis.visible(false))
-                })
+                .x(lit(0.0))
                 .x2(lit(1.0))
-                .y_with(lit(74.0), |y| y.axis(|axis| axis.visible(false)))
+                .y(lit(74.0))
                 .y2(lit(82.0))
                 .fill("rgba(37, 99, 235, 0.16)")
                 .stroke("#2563eb")

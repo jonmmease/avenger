@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{CompiledMarkCore, CoordMeasurement, SubplotDataSource};
 use avenger_chart_parallel::{CompiledParallelAxisOverlay, ParallelTransform};
+use avenger_scales::scales::linear::LinearScale;
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
     mark::SceneMark,
@@ -16,7 +17,7 @@ use crate::{
         PreparedChildFramePlot, compiled_subplot_payload_child_plot,
     },
     render::RenderContext,
-    scales::ConfiguredScaleWithSpec,
+    scales::{ConfiguredScaleWithSpec, Linear, Scale, ScaleRangeBinding},
 };
 
 pub(crate) fn parallel_axis_overlay_ref(
@@ -92,6 +93,14 @@ fn data_selection_for_overlay(overlay: &CompiledParallelAxisOverlay) -> ChildFra
     }
 }
 
+fn normalized_overlay_x_scale(width_px: f32) -> ConfiguredScaleWithSpec {
+    ConfiguredScaleWithSpec::with_range_binding(
+        Scale::<Linear>::new().into_auto(),
+        LinearScale::configured((0.0, 1.0), (0.0, width_px.max(1.0))),
+        ScaleRangeBinding::Independent,
+    )
+}
+
 async fn prepare_overlay_child<'a>(
     overlay: &'a CompiledParallelAxisOverlay,
     data: Option<&DataFrame>,
@@ -106,6 +115,12 @@ async fn prepare_overlay_child<'a>(
     {
         return Err(AvengerChartError::InvalidArgument(
             "ParallelAxisOverlay child plots must use Cartesian coordinates".to_string(),
+        ));
+    }
+    if child_plot.scale_specs().contains_key("y") {
+        return Err(AvengerChartError::InvalidArgument(
+            "ParallelAxisOverlay child plots cannot define their own y scale; y is supplied by the selected parallel dimension"
+                .to_string(),
         ));
     }
 
@@ -147,12 +162,17 @@ async fn measure_overlay_child(
             Some(overlay.dimension_id()),
         ),
     );
+    let scale_fallbacks = HashMap::from([(
+        "x".to_string(),
+        normalized_overlay_x_scale(overlay.width_px()),
+    )]);
     let scale_overrides = HashMap::from([("y".to_string(), parent_scale.clone())]);
-    let measurement = Box::pin(prepared.measure_with_scale_overrides(
+    let measurement = Box::pin(prepared.measure_with_scale_fallbacks_and_overrides(
         &child_eval_ctx,
         &child_layout_spec,
         facet_path,
         &[],
+        scale_fallbacks,
         scale_overrides,
     ))
     .await?;
@@ -283,7 +303,7 @@ pub(crate) async fn render_parallel_axis_overlay_with_context(
             context.eval.push_event_datums(translated);
         }
         let child_chrome_event_datums = std::mem::take(&mut components.chrome_event_datums);
-        if !child_chrome_event_datums.is_empty() {
+        if overlay.show_child_chrome() && !child_chrome_event_datums.is_empty() {
             let translated = child_chrome_event_datums.into_iter().map(|mut rows| {
                 let mut path = Vec::with_capacity(rows.mark_path.len() + 1);
                 path.push(group_index);
@@ -303,10 +323,12 @@ pub(crate) async fn render_parallel_axis_overlay_with_context(
             ..Default::default()
         };
         let mut all_marks = vec![SceneMark::Group(data_marks_group)];
-        all_marks.extend(components.guide_marks);
-        all_marks.extend(components.legend_marks);
-        all_marks.extend(components.title_marks);
-        all_marks.extend(components.subtitle_marks);
+        if overlay.show_child_chrome() {
+            all_marks.extend(components.guide_marks);
+            all_marks.extend(components.legend_marks);
+            all_marks.extend(components.title_marks);
+            all_marks.extend(components.subtitle_marks);
+        }
         all_marks.extend(components.debug_marks);
 
         let clip = if overlay.clip() {
@@ -336,4 +358,288 @@ pub(crate) async fn render_parallel_axis_overlay_with_context(
     }
 
     Ok(marks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avenger_scenegraph::marks::{rect::SceneRectMark, symbol::SceneSymbolMark};
+    use datafusion::prelude::{SessionContext, col, lit};
+
+    use crate::event::{ChartEventBinding, ChartEventType};
+    use crate::prelude::*;
+
+    fn find_group_by_prefix<'a>(marks: &'a [SceneMark], prefix: &str) -> Option<&'a SceneGroup> {
+        for mark in marks {
+            if let SceneMark::Group(group) = mark {
+                if group.name.starts_with(prefix) {
+                    return Some(group);
+                }
+                if let Some(found) = find_group_by_prefix(&group.marks, prefix) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    fn first_rect_mark(marks: &[SceneMark]) -> Option<&SceneRectMark> {
+        for mark in marks {
+            match mark {
+                SceneMark::Rect(rect) => return Some(rect),
+                SceneMark::Group(group) => {
+                    if let Some(rect) = first_rect_mark(&group.marks) {
+                        return Some(rect);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn first_symbol_mark(marks: &[SceneMark]) -> Option<&SceneSymbolMark> {
+        for mark in marks {
+            match mark {
+                SceneMark::Symbol(symbol) => return Some(symbol),
+                SceneMark::Group(group) => {
+                    if let Some(symbol) = first_symbol_mark(&group.marks) {
+                        return Some(symbol);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn clip_dimensions(group: &SceneGroup) -> (f32, f32) {
+        let Clip::Rect { width, height, .. } = group.clip else {
+            panic!("expected rect clip");
+        };
+        (width, height)
+    }
+
+    fn first_rect_x2(rect: &SceneRectMark) -> f32 {
+        rect.x2
+            .as_ref()
+            .expect("x2")
+            .as_vec(rect.len as usize, rect.indices.as_ref())[0]
+    }
+
+    fn first_rect_y2(rect: &SceneRectMark) -> f32 {
+        rect.y2
+            .as_ref()
+            .expect("y2")
+            .as_vec(rect.len as usize, rect.indices.as_ref())[0]
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() <= 0.01,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    fn parallel_for_overlay_test() -> Parallel {
+        Parallel::new().dimension_with("speed", col("speed"), |d| {
+            d.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false).zero(false))
+                .axis(|axis| axis.visible(false))
+        })
+    }
+
+    #[tokio::test]
+    async fn axis_overlay_defaults_child_x_to_normalized_scale() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let data = ctx.sql("SELECT 50.0 AS speed").await?;
+        let overlay = ParallelAxisOverlay::new(
+            "speed",
+            Plot::<Cartesian>::new()
+                .mark(
+                    Rect::new()
+                        .x(lit(0.0))
+                        .x2(lit(1.0))
+                        .y(lit(25.0))
+                        .y2(lit(75.0))
+                        .fill("rgba(37, 99, 235, 0.20)")
+                        .stroke("#2563eb"),
+                )
+                .mark(
+                    Symbol::new()
+                        .x(lit(0.5))
+                        .y(lit(50.0))
+                        .size(25.0)
+                        .fill("#2563eb"),
+                ),
+        )
+        .id("speed_overlay")
+        .width_px(40.0);
+
+        let compiled = Plot::with_coord(parallel_for_overlay_test())
+            .canvas_size(220.0, 160.0)
+            .plot_size(120.0, 100.0)
+            .data(data)
+            .event_binding(
+                ChartEventBinding::on(ChartEventType::Click)
+                    .filter(crate::event::datum("speed").is_not_null()),
+            )
+            .mark(overlay)
+            .compile(&ctx)
+            .await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let overlay_group =
+            find_group_by_prefix(&evaluated.scene_graph.marks, "parallel_axis_overlay_")
+                .expect("overlay group should render");
+        assert_eq!(
+            overlay_group.marks.len(),
+            1,
+            "child guide/title/legend chrome should be suppressed by default"
+        );
+        let (clip_width, clip_height) = clip_dimensions(overlay_group);
+        assert_close(clip_width, 40.0);
+        assert_close(clip_height, 100.0);
+
+        let rect = first_rect_mark(&overlay_group.marks).expect("overlay rect should render");
+        assert_close(rect.x_vec()[0], 0.0);
+        assert_close(first_rect_x2(rect), clip_width);
+        assert_close(rect.y_vec()[0], clip_height * 0.75);
+        assert_close(first_rect_y2(rect), clip_height * 0.25);
+
+        let symbol =
+            first_symbol_mark(&overlay_group.marks).expect("center overlay symbol should render");
+        assert_close(symbol.x_vec()[0], clip_width * 0.5);
+        assert_close(symbol.y_vec()[0], clip_height * 0.5);
+
+        let overlay_event_rows = evaluated
+            .event_datums
+            .rows
+            .iter()
+            .filter(|rows| rows.subplot_id_path == ["speed_overlay"])
+            .collect::<Vec<_>>();
+        assert!(
+            overlay_event_rows.len() >= 2,
+            "rect and symbol child rows should be forwarded under the overlay id"
+        );
+        let source_speed = overlay_event_rows
+            .iter()
+            .find_map(|rows| {
+                rows.rows
+                    .column_by_name("speed")
+                    .and_then(|column| ScalarValue::try_from_array(column, 0).ok())
+            })
+            .expect("inherited source row should include speed");
+        assert_eq!(source_speed, ScalarValue::Float64(Some(50.0)));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn axis_overlay_child_categorical_x_keeps_local_scale() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let data = ctx
+            .sql("SELECT 50.0 AS speed, 'left' AS slot UNION ALL SELECT 60.0, 'right'")
+            .await?;
+        let overlay = ParallelAxisOverlay::new(
+            "speed",
+            Plot::<Cartesian>::new().mark(
+                Symbol::new()
+                    .x(col("slot"))
+                    .y(col("speed"))
+                    .size(60.0)
+                    .fill("#2563eb"),
+            ),
+        )
+        .width_px(48.0);
+
+        let compiled = Plot::with_coord(parallel_for_overlay_test())
+            .canvas_size(220.0, 160.0)
+            .plot_size(120.0, 100.0)
+            .data(data)
+            .mark(overlay)
+            .compile(&ctx)
+            .await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let overlay_group =
+            find_group_by_prefix(&evaluated.scene_graph.marks, "parallel_axis_overlay_")
+                .expect("overlay group should render");
+        let (clip_width, _) = clip_dimensions(overlay_group);
+        assert_close(clip_width, 48.0);
+
+        let symbol =
+            first_symbol_mark(&overlay_group.marks).expect("overlay symbols should render");
+        let xs = symbol.x_vec();
+        assert_eq!(xs.len(), 2);
+        assert!(xs.iter().all(|x| *x >= 0.0 && *x <= clip_width));
+        assert!(
+            (xs[0] - xs[1]).abs() > 1.0,
+            "categorical child x scale should place distinct categories"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn axis_overlay_unknown_dimension_errors() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let data = ctx.sql("SELECT 50.0 AS speed").await?;
+        let compiled = Plot::with_coord(parallel_for_overlay_test())
+            .canvas_size(220.0, 160.0)
+            .plot_size(120.0, 100.0)
+            .data(data)
+            .mark(ParallelAxisOverlay::new(
+                "missing",
+                Plot::<Cartesian>::new().mark(
+                    Rect::new()
+                        .x(lit(0.0))
+                        .x2(lit(1.0))
+                        .y(lit(25.0))
+                        .y2(lit(75.0)),
+                ),
+            ))
+            .compile(&ctx)
+            .await?;
+        let err = match compiled.evaluate(&ctx, None).await {
+            Ok(_) => panic!("unknown overlay dimension should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("ParallelAxisOverlay references unknown dimension 'missing'"),
+            "{err}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn axis_overlay_rejects_child_y_scale_override() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let data = ctx.sql("SELECT 50.0 AS speed").await?;
+        let compiled = Plot::with_coord(parallel_for_overlay_test())
+            .canvas_size(220.0, 160.0)
+            .plot_size(120.0, 100.0)
+            .data(data)
+            .mark(ParallelAxisOverlay::new(
+                "speed",
+                Plot::<Cartesian>::new().mark(
+                    Rect::new()
+                        .x(lit(0.0))
+                        .x2(lit(1.0))
+                        .y_with(lit(25.0), |y| {
+                            y.scale_with::<Linear>(|s| {
+                                s.domain((0.0, 100.0)).nice(false).zero(false)
+                            })
+                        })
+                        .y2(lit(75.0)),
+                ),
+            ))
+            .compile(&ctx)
+            .await?;
+        let err = match compiled.evaluate(&ctx, None).await {
+            Ok(_) => panic!("child y scale override should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("cannot define their own y scale"),
+            "{err}"
+        );
+        Ok(())
+    }
 }
