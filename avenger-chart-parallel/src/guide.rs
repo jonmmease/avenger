@@ -6,10 +6,16 @@ use avenger_chart_core::{
     serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_color::ColorOrGradient;
-use avenger_common::{types::StrokeCap, value::ScalarOrArray};
-use avenger_scales::scales::ConfiguredScale;
+use avenger_common::value::ScalarOrArray;
+use avenger_guides::axis::{
+    band::make_band_axis_marks,
+    numeric::make_numeric_axis_marks,
+    opts::{AxisConfig, AxisOrientation},
+    point::make_point_axis_marks,
+};
+use avenger_scales::scales::{ConfiguredScale, DomainKind, band::BandScale};
 use avenger_scenegraph::marks::{
-    group::Clip, mark::SceneMark, rect::SceneRectMark, rule::SceneRuleMark, text::SceneTextMark,
+    group::Clip, mark::SceneMark, rect::SceneRectMark, text::SceneTextMark,
 };
 use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 use datafusion::{
@@ -139,13 +145,13 @@ impl CompiledGuide for CompiledParallelGuide {
 
     async fn evaluate(
         &self,
-        _scales: &HashMap<String, ConfiguredScale>,
+        scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
         _plot_bounds: &LayoutBounds,
         _guide_overflow: &OverflowSpaceRequirement,
-        _theme: &Theme,
-        _params: &IndexMap<String, ScalarValue>,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
         _data_override: Option<&DataFrame>,
         _sharing_context: GuideSharingContext<'_>,
@@ -165,23 +171,23 @@ impl CompiledGuide for CompiledParallelGuide {
             .map(|datum| datum.title.clone())
             .collect::<Vec<_>>();
 
-        let axis_rules = SceneRuleMark {
-            name: "parallel_axis_rule".to_string(),
-            interactive: false,
-            clip: true,
-            len: count as u32,
-            gradients: Vec::new(),
-            stroke_dash: None,
-            x: ScalarOrArray::from(xs.clone()),
-            y: ScalarOrArray::new_scalar(0.0),
-            x2: ScalarOrArray::from(xs.clone()),
-            y2: ScalarOrArray::new_scalar(plot_height),
-            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.18, 0.18, 0.18, 1.0])),
-            stroke_width: ScalarOrArray::new_scalar(1.0),
-            stroke_cap: ScalarOrArray::new_scalar(StrokeCap::Butt),
-            indices: None,
-            zindex: Some(1),
-        };
+        let mut marks = Vec::with_capacity(count + 2);
+        for datum in &datums {
+            let scale = scales.get(&datum.scale_name).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing configured scale for parallel axis '{}'",
+                    datum.scale_name
+                ))
+            })?;
+            marks.push(make_axis_mark(
+                scale,
+                datum.display_x,
+                plot_width,
+                plot_height,
+                theme,
+                params,
+            )?);
+        }
 
         let hit_half_width = 54.0_f32;
         let title_hit_rect = SceneRectMark {
@@ -227,11 +233,9 @@ impl CompiledGuide for CompiledParallelGuide {
             zindex: Some(4),
         };
 
-        Ok(vec![
-            SceneMark::Rule(axis_rules),
-            SceneMark::Rect(title_hit_rect),
-            SceneMark::from(title_mark),
-        ])
+        marks.push(SceneMark::Rect(title_hit_rect));
+        marks.push(SceneMark::from(title_mark));
+        Ok(marks)
     }
 
     fn get_clip(
@@ -245,6 +249,68 @@ impl CompiledGuide for CompiledParallelGuide {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+fn make_axis_mark(
+    scale: &ConfiguredScale,
+    display_x: f32,
+    plot_width: f32,
+    plot_height: f32,
+    theme: &Theme,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<SceneMark, AvengerChartError> {
+    let axis_config = parallel_axis_config(plot_width, plot_height, theme, params);
+    let mut group = match scale.scale_impl.domain_kind() {
+        DomainKind::Categorical => match scale.scale_impl.scale_type() {
+            "band" => make_band_axis_marks(scale, "", [display_x, 0.0], &axis_config)?,
+            "point" => make_point_axis_marks(scale.clone(), "", [display_x, 0.0], &axis_config)?,
+            "ordinal" => {
+                let band_scale = BandScale::from_point_scale(scale);
+                make_band_axis_marks(&band_scale, "", [display_x, 0.0], &axis_config)?
+            }
+            scale_type => {
+                return Err(AvengerChartError::InternalError(format!(
+                    "Unsupported parallel categorical axis scale type '{scale_type}'"
+                )));
+            }
+        },
+        DomainKind::NestedCategorical => {
+            return Err(AvengerChartError::InternalError(
+                "Nested categorical scales are not supported on parallel axes".to_string(),
+            ));
+        }
+        DomainKind::Numeric | DomainKind::Temporal => {
+            make_numeric_axis_marks(scale, "", [display_x, 0.0], &axis_config)?
+        }
+    };
+    group.name = "parallel_axis".to_string();
+    Ok(SceneMark::Group(group))
+}
+
+fn parallel_axis_config(
+    plot_width: f32,
+    plot_height: f32,
+    theme: &Theme,
+    params: &IndexMap<String, ScalarValue>,
+) -> AxisConfig {
+    let axis_ctx =
+        theme.axis_context_with_params(Some("parallel"), Some("dimension"), params.clone());
+    let label_ctx = axis_ctx.child("label");
+
+    AxisConfig {
+        orientation: AxisOrientation::Left,
+        dimensions: [plot_width, plot_height],
+        grid: false,
+        domain_color: theme.stroke_color(&axis_ctx.child("domain")),
+        tick_color: theme.stroke_color(&axis_ctx.child("tick")),
+        label_color: theme.text_color(&label_ctx),
+        tick_length: theme.axis_tick_length(&axis_ctx),
+        label_font_size: theme.font_size(&label_ctx),
+        label_font_weight: theme.font_weight(&label_ctx),
+        label_font_family: theme.font_family(&label_ctx),
+        title_visible: Some(false),
+        ..AxisConfig::default()
     }
 }
 
@@ -280,11 +346,15 @@ fn axis_title(axis: &ParallelAxis, ctx: &SessionContext) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
     use avenger_chart_core::{
         AxisGuideVisibilityConfig, AxisPosition, AxisVisibility, ChildFrameGuideSharingView,
         CoordinationAxis, EmptyCoordMeasurement, FacetGuideSharingView, SharingLevel,
         guide_sharing::AxisOwnershipMode,
     };
+    use avenger_scales::scales::{linear::LinearScale, point::PointScale};
+    use datafusion::arrow::array::StringArray;
 
     #[test]
     fn ordered_axes_use_parallel_dimension_order() {
@@ -360,8 +430,12 @@ mod tests {
         let guide = CompiledParallelGuide { axes };
         let facet = TestFacetGuideSharingView;
         let child = TestChildFrameGuideSharingView;
+        let scales = HashMap::from([(
+            "speed".to_string(),
+            LinearScale::configured((0.0, 100.0), (200.0, 0.0)),
+        )]);
         let marks = futures::executor::block_on(guide.evaluate(
-            &HashMap::new(),
+            &scales,
             300.0,
             200.0,
             &LayoutBounds {
@@ -380,13 +454,74 @@ mod tests {
         ))
         .expect("evaluate guide");
 
-        assert!(matches!(&marks[0], SceneMark::Rule(rule) if rule.name == "parallel_axis_rule"));
+        assert!(matches!(&marks[0], SceneMark::Group(group) if group.name == "parallel_axis"));
         assert!(
             matches!(&marks[1], SceneMark::Rect(rect) if rect.name == "parallel_axis_title_hit" && rect.interactive)
         );
         assert!(
             matches!(&marks[2], SceneMark::Text(text) if text.name == "parallel_axis_title" && text.interactive)
         );
+    }
+
+    #[test]
+    fn guide_dispatches_numeric_and_point_axes() {
+        let ctx = SessionContext::new();
+        let mut axes = HashMap::new();
+        axes.insert(
+            "generated_speed".to_string(),
+            ParallelAxis::new()
+                .title("Speed")
+                .with_dimension_metadata("speed", 0),
+        );
+        axes.insert(
+            "generated_origin".to_string(),
+            ParallelAxis::new()
+                .title("Origin")
+                .with_dimension_metadata("origin", 1),
+        );
+        let guide = CompiledParallelGuide { axes };
+        let scales = HashMap::from([
+            (
+                "speed".to_string(),
+                LinearScale::configured((0.0, 100.0), (200.0, 0.0)),
+            ),
+            (
+                "origin".to_string(),
+                PointScale::configured(
+                    Arc::new(StringArray::from(vec!["EU", "JP", "US"])),
+                    (200.0, 0.0),
+                ),
+            ),
+        ]);
+        let facet = TestFacetGuideSharingView;
+        let child = TestChildFrameGuideSharingView;
+        let marks = futures::executor::block_on(guide.evaluate(
+            &scales,
+            300.0,
+            200.0,
+            &LayoutBounds {
+                x: 0.0,
+                y: 0.0,
+                width: 300.0,
+                height: 200.0,
+            },
+            &OverflowSpaceRequirement::default(),
+            &Theme::light(),
+            &IndexMap::new(),
+            &ctx,
+            None,
+            GuideSharingContext::new(&facet, &[], &child),
+            &EmptyCoordMeasurement,
+        ))
+        .expect("evaluate guide");
+
+        assert_eq!(marks.len(), 4);
+        assert!(matches!(&marks[0], SceneMark::Group(group) if group.name == "parallel_axis"));
+        assert!(matches!(&marks[1], SceneMark::Group(group) if group.name == "parallel_axis"));
+        assert!(
+            matches!(&marks[2], SceneMark::Rect(rect) if rect.name == "parallel_axis_title_hit")
+        );
+        assert!(matches!(&marks[3], SceneMark::Text(text) if text.name == "parallel_axis_title"));
     }
 
     struct TestFacetGuideSharingView;

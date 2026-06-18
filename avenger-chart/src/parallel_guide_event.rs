@@ -151,6 +151,7 @@ mod tests {
         guide_sharing::AxisOwnershipMode,
     };
     use avenger_chart_parallel::{CompiledParallelGuide, ParallelAxis};
+    use avenger_scales::scales::linear::LinearScale;
     use datafusion::{common::ScalarValue, prelude::SessionContext};
     use indexmap::IndexMap;
 
@@ -174,10 +175,20 @@ mod tests {
         );
         let concrete = CompiledParallelGuide { axes };
         let guide: Arc<dyn CompiledGuide> = Arc::new(concrete.clone());
+        let scales = HashMap::from([
+            (
+                "speed".to_string(),
+                LinearScale::configured((0.0, 100.0), (200.0, 0.0)),
+            ),
+            (
+                "cost".to_string(),
+                LinearScale::configured((0.0, 100.0), (200.0, 0.0)),
+            ),
+        ]);
         let facet = TestFacetGuideSharingView;
         let child = TestChildFrameGuideSharingView;
         let guide_marks = futures::executor::block_on(concrete.evaluate(
-            &HashMap::new(),
+            &scales,
             300.0,
             200.0,
             &LayoutBounds {
@@ -200,8 +211,8 @@ mod tests {
             .expect("parallel guide event datums");
 
         assert_eq!(event_rows.len(), 2);
-        assert_eq!(event_rows[0].mark_path, vec![2]);
-        assert_eq!(event_rows[1].mark_path, vec![3]);
+        assert_eq!(event_rows[0].mark_path, vec![3]);
+        assert_eq!(event_rows[1].mark_path, vec![4]);
         for rows in &event_rows {
             assert_eq!(rows.rows.num_rows(), 2);
             assert_eq!(
