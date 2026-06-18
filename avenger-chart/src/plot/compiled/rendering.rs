@@ -4920,6 +4920,13 @@ impl CompiledPlot {
                         coord_measurement_ref,
                     )
                     .await?;
+                let mut chrome_event_datums =
+                    crate::parallel_guide_event::parallel_guide_event_datums(
+                        self.compiled_guide.as_ref(),
+                        &guide_marks,
+                        plot_area_width,
+                        ctx,
+                    )?;
 
                 let rendered_legends = self
                     .render_legends_from_plan(
@@ -4934,6 +4941,7 @@ impl CompiledPlot {
                     rendered_legends.event_datums,
                     1 + guide_marks.len(),
                 );
+                chrome_event_datums.extend(legend_event_datums);
                 let legend_marks = rendered_legends.marks;
                 let legend_interaction_scopes = rendered_legends.interaction_scopes;
 
@@ -4972,7 +4980,7 @@ impl CompiledPlot {
                     title_marks,
                     subtitle_marks,
                     debug_marks,
-                    legend_event_datums,
+                    chrome_event_datums,
                     legend_interaction_scopes,
                 )
             } else {
@@ -5006,6 +5014,13 @@ impl CompiledPlot {
                         coord_measurement_ref,
                     )
                     .await?;
+                let mut chrome_event_datums =
+                    crate::parallel_guide_event::parallel_guide_event_datums(
+                        self.compiled_guide.as_ref(),
+                        &guide_marks,
+                        plot_area_width,
+                        ctx,
+                    )?;
 
                 // Create legend marks from the computed layout
                 // Legend positions from layout include the plot area offset, but we need them at (0,0)
@@ -5023,6 +5038,7 @@ impl CompiledPlot {
                     rendered_legends.event_datums,
                     1 + guide_marks.len(),
                 );
+                chrome_event_datums.extend(legend_event_datums);
                 let legend_interaction_scopes = rendered_legends.interaction_scopes;
 
                 // Translate frame chrome to be relative to the child plot-area origin.
@@ -5083,7 +5099,7 @@ impl CompiledPlot {
                     title_marks,
                     subtitle_marks,
                     debug_marks,
-                    legend_event_datums,
+                    chrome_event_datums,
                     legend_interaction_scopes,
                 )
             }

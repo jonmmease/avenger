@@ -17,5 +17,5 @@ pub use coord::{
 pub use frame::{
     ParallelAxisSlot, ParallelFrameGeometry, propose_axis_order, resolve_parallel_frame,
 };
-pub use guide::ParallelGuide;
+pub use guide::{CompiledParallelGuide, ParallelAxisGuideDatum, ParallelGuide};
 pub use line::{CompiledParallelLine, ParallelLine};

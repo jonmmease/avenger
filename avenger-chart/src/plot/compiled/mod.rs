@@ -808,6 +808,10 @@ fn collect_reserved_event_datum_types(
         LEGEND_BAND_CHANNEL_FIELD, LEGEND_CHANNEL_FIELD, LEGEND_ID_FIELD, LEGEND_INDEX_FIELD,
         LEGEND_LABEL_FIELD, LEGEND_NAME_FIELD, LEGEND_ORIENTATION_FIELD, LEGEND_SURFACE_KEY_FIELD,
         LEGEND_SURFACE_KIND_FIELD, LEGEND_VALUE_CHANNEL_FIELD, LEGEND_VALUE_FIELD,
+        PARALLEL_DIMENSION_ID_FIELD, PARALLEL_DISPLACEMENT_PX_FIELD,
+        PARALLEL_DISPLACEMENT_SLOTS_FIELD, PARALLEL_DISPLAY_X_FIELD, PARALLEL_EQUILIBRIUM_X_FIELD,
+        PARALLEL_ORDER_INDEX_FIELD, PARALLEL_SCALE_NAME_FIELD, PARALLEL_SURFACE_KIND_FIELD,
+        PARALLEL_TITLE_FIELD,
     };
 
     for (name, data_type) in [
@@ -822,6 +826,15 @@ fn collect_reserved_event_datum_types(
         (LEGEND_ORIENTATION_FIELD, DataType::Utf8),
         (LEGEND_VALUE_CHANNEL_FIELD, DataType::Utf8),
         (LEGEND_BAND_CHANNEL_FIELD, DataType::Utf8),
+        (PARALLEL_SURFACE_KIND_FIELD, DataType::Utf8),
+        (PARALLEL_DIMENSION_ID_FIELD, DataType::Utf8),
+        (PARALLEL_SCALE_NAME_FIELD, DataType::Utf8),
+        (PARALLEL_TITLE_FIELD, DataType::Utf8),
+        (PARALLEL_ORDER_INDEX_FIELD, DataType::Int64),
+        (PARALLEL_EQUILIBRIUM_X_FIELD, DataType::Float64),
+        (PARALLEL_DISPLAY_X_FIELD, DataType::Float64),
+        (PARALLEL_DISPLACEMENT_PX_FIELD, DataType::Float64),
+        (PARALLEL_DISPLACEMENT_SLOTS_FIELD, DataType::Float64),
     ] {
         if requested.contains(name) && !out.contains_key(name) {
             out.insert(name.to_string(), data_type);

@@ -9,7 +9,7 @@ use avenger_color::ColorOrGradient;
 use avenger_common::{types::StrokeCap, value::ScalarOrArray};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{
-    group::Clip, mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark,
+    group::Clip, mark::SceneMark, rect::SceneRectMark, rule::SceneRuleMark, text::SceneTextMark,
 };
 use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 use datafusion::{
@@ -64,6 +64,58 @@ pub struct CompiledParallelGuide {
     pub axes: HashMap<String, ParallelAxis>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParallelAxisGuideDatum {
+    pub dimension_id: String,
+    pub scale_name: String,
+    pub title: String,
+    pub order_index: usize,
+    pub equilibrium_x: f32,
+    pub display_x: f32,
+    pub displacement_px: f32,
+    pub displacement_slots: f32,
+}
+
+impl CompiledParallelGuide {
+    pub fn axis_guide_datums(
+        &self,
+        plot_width: f32,
+        ctx: &SessionContext,
+    ) -> Vec<ParallelAxisGuideDatum> {
+        let axes = ordered_axes(&self.axes);
+        let count = axes.len();
+        let step = if count > 1 {
+            plot_width / (count.saturating_sub(1) as f32)
+        } else {
+            0.0
+        };
+        axes.into_iter()
+            .enumerate()
+            .map(|(index, (channel, axis))| {
+                let equilibrium_x = if count <= 1 {
+                    plot_width / 2.0
+                } else {
+                    index as f32 * step
+                };
+                let dimension_id = axis
+                    .dimension_id
+                    .clone()
+                    .unwrap_or_else(|| channel.to_string());
+                ParallelAxisGuideDatum {
+                    scale_name: dimension_id.clone(),
+                    title: axis_title(axis, ctx),
+                    dimension_id,
+                    order_index: axis.order_index.unwrap_or(index),
+                    equilibrium_x,
+                    display_x: equilibrium_x,
+                    displacement_px: 0.0,
+                    displacement_slots: 0.0,
+                }
+            })
+            .collect()
+    }
+}
+
 #[async_trait::async_trait]
 #[typetag::serde]
 impl CompiledGuide for CompiledParallelGuide {
@@ -99,28 +151,18 @@ impl CompiledGuide for CompiledParallelGuide {
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let axes = ordered_axes(&self.axes);
-        if axes.is_empty() {
+        let datums = self.axis_guide_datums(plot_width, ctx);
+        if datums.is_empty() {
             return Ok(Vec::new());
         }
-        let count = axes.len();
-        let step = if count > 1 {
-            plot_width / (count.saturating_sub(1) as f32)
-        } else {
-            0.0
-        };
-        let xs = (0..count)
-            .map(|index| {
-                if count <= 1 {
-                    plot_width / 2.0
-                } else {
-                    index as f32 * step
-                }
-            })
-            .collect::<Vec<_>>();
-        let titles = axes
+        let count = datums.len();
+        let xs = datums
             .iter()
-            .map(|(_, axis)| axis_title(axis, ctx))
+            .map(|datum| datum.display_x)
+            .collect::<Vec<_>>();
+        let titles = datums
+            .iter()
+            .map(|datum| datum.title.clone())
             .collect::<Vec<_>>();
 
         let axis_rules = SceneRuleMark {
@@ -141,6 +183,29 @@ impl CompiledGuide for CompiledParallelGuide {
             zindex: Some(1),
         };
 
+        let hit_half_width = 54.0_f32;
+        let title_hit_rect = SceneRectMark {
+            name: "parallel_axis_title_hit".to_string(),
+            interactive: true,
+            clip: false,
+            len: count as u32,
+            gradients: Vec::new(),
+            x: ScalarOrArray::from(xs.iter().map(|x| *x - hit_half_width).collect::<Vec<_>>()),
+            y: ScalarOrArray::new_scalar(-34.0),
+            width: None,
+            height: None,
+            x2: Some(ScalarOrArray::from(
+                xs.iter().map(|x| *x + hit_half_width).collect::<Vec<_>>(),
+            )),
+            y2: Some(ScalarOrArray::new_scalar(2.0)),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            stroke_width: ScalarOrArray::new_scalar(0.0),
+            corner_radius: ScalarOrArray::new_scalar(0.0),
+            indices: None,
+            zindex: Some(3),
+        };
+
         let title_mark = SceneTextMark {
             name: "parallel_axis_title".to_string(),
             interactive: true,
@@ -159,11 +224,12 @@ impl CompiledGuide for CompiledParallelGuide {
             font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
             limit: ScalarOrArray::new_scalar(0.0),
             indices: None,
-            zindex: Some(2),
+            zindex: Some(4),
         };
 
         Ok(vec![
             SceneMark::Rule(axis_rules),
+            SceneMark::Rect(title_hit_rect),
             SceneMark::from(title_mark),
         ])
     }
@@ -214,6 +280,11 @@ fn axis_title(axis: &ParallelAxis, ctx: &SessionContext) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use avenger_chart_core::{
+        AxisGuideVisibilityConfig, AxisPosition, AxisVisibility, ChildFrameGuideSharingView,
+        CoordinationAxis, EmptyCoordMeasurement, FacetGuideSharingView, SharingLevel,
+        guide_sharing::AxisOwnershipMode,
+    };
 
     #[test]
     fn ordered_axes_use_parallel_dimension_order() {
@@ -245,5 +316,138 @@ mod tests {
 
         let defaulted = ParallelAxis::new().with_dimension_metadata("mpg", 0);
         assert_eq!(axis_title(&defaulted, &ctx), "mpg");
+    }
+
+    #[test]
+    fn axis_guide_datums_include_title_and_positions() {
+        let ctx = SessionContext::new();
+        let mut axes = HashMap::new();
+        axes.insert(
+            "generated_speed".to_string(),
+            ParallelAxis::new()
+                .title("Speed")
+                .with_dimension_metadata("speed", 0),
+        );
+        axes.insert(
+            "generated_cost".to_string(),
+            ParallelAxis::new()
+                .title("Cost")
+                .with_dimension_metadata("cost", 1),
+        );
+        let guide = CompiledParallelGuide { axes };
+        let datums = guide.axis_guide_datums(300.0, &ctx);
+
+        assert_eq!(datums.len(), 2);
+        assert_eq!(datums[0].dimension_id, "speed");
+        assert_eq!(datums[0].scale_name, "speed");
+        assert_eq!(datums[0].title, "Speed");
+        assert_eq!(datums[0].equilibrium_x, 0.0);
+        assert_eq!(datums[0].display_x, 0.0);
+        assert_eq!(datums[1].dimension_id, "cost");
+        assert_eq!(datums[1].equilibrium_x, 300.0);
+    }
+
+    #[test]
+    fn guide_renders_axis_title_hit_rects() {
+        let ctx = SessionContext::new();
+        let mut axes = HashMap::new();
+        axes.insert(
+            "generated_speed".to_string(),
+            ParallelAxis::new()
+                .title("Speed")
+                .with_dimension_metadata("speed", 0),
+        );
+        let guide = CompiledParallelGuide { axes };
+        let facet = TestFacetGuideSharingView;
+        let child = TestChildFrameGuideSharingView;
+        let marks = futures::executor::block_on(guide.evaluate(
+            &HashMap::new(),
+            300.0,
+            200.0,
+            &LayoutBounds {
+                x: 0.0,
+                y: 0.0,
+                width: 300.0,
+                height: 200.0,
+            },
+            &OverflowSpaceRequirement::default(),
+            &Theme::light(),
+            &IndexMap::new(),
+            &ctx,
+            None,
+            GuideSharingContext::new(&facet, &[], &child),
+            &EmptyCoordMeasurement,
+        ))
+        .expect("evaluate guide");
+
+        assert!(matches!(&marks[0], SceneMark::Rule(rule) if rule.name == "parallel_axis_rule"));
+        assert!(
+            matches!(&marks[1], SceneMark::Rect(rect) if rect.name == "parallel_axis_title_hit" && rect.interactive)
+        );
+        assert!(
+            matches!(&marks[2], SceneMark::Text(text) if text.name == "parallel_axis_title" && text.interactive)
+        );
+    }
+
+    struct TestFacetGuideSharingView;
+
+    impl FacetGuideSharingView for TestFacetGuideSharingView {
+        fn channel_axis_visibility_for_path_checked(
+            &self,
+            _path: &[ScalarValue],
+            _axis_position: AxisPosition,
+            _sharing_level: u8,
+        ) -> Option<AxisVisibility> {
+            None
+        }
+
+        fn channel_axis_visibility_for_path_checked_with_mode(
+            &self,
+            _path: &[ScalarValue],
+            _axis_position: AxisPosition,
+            _sharing_level: u8,
+            _ownership_mode: AxisOwnershipMode,
+        ) -> Option<AxisVisibility> {
+            None
+        }
+
+        fn is_jagged_for_axis(&self, _axis_position: AxisPosition) -> bool {
+            false
+        }
+
+        fn channel_domain_sharing_level(&self, _channel: &str) -> SharingLevel {
+            SharingLevel::FREE
+        }
+
+        fn effective_edge_indices_for_values_at_path(
+            &self,
+            _facet_path: &[ScalarValue],
+            _values: &[ScalarValue],
+        ) -> Option<(usize, usize)> {
+            None
+        }
+    }
+
+    struct TestChildFrameGuideSharingView;
+
+    impl ChildFrameGuideSharingView for TestChildFrameGuideSharingView {
+        fn position_indices(&self) -> Vec<usize> {
+            Vec::new()
+        }
+
+        fn level_counts(&self) -> Vec<usize> {
+            Vec::new()
+        }
+
+        fn level_axes(&self) -> Vec<CoordinationAxis> {
+            Vec::new()
+        }
+
+        fn axis_guide_visibility_config_for_axis(
+            &self,
+            _axis: CoordinationAxis,
+        ) -> AxisGuideVisibilityConfig {
+            AxisGuideVisibilityConfig::auto()
+        }
     }
 }

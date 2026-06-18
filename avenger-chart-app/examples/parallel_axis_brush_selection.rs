@@ -1,14 +1,15 @@
-//! Parallel coordinates with axis brushing.
-//!
-//! Drag near a vertical axis to brush a value interval on that dimension.
-//! Shift-drag another axis to add another brush; selected rows are the
-//! intersection of active dimension intervals. Selected lines render above the
-//! grey context lines and use a quality color scale.
-//!
-//! Run with:
-//! ```bash
-//! cargo run -p avenger-chart-app --example parallel_axis_brush_selection --features winit-wgpu
-//! ```
+// Parallel coordinates with axis brushing.
+//
+// Drag near a vertical axis to brush a value interval on that dimension.
+// Shift-drag another axis to add another brush; selected rows are the
+// intersection of active dimension intervals. Selected lines render above the
+// grey context lines and use a quality color scale.
+//
+// Run with:
+// ```bash
+// cargo run -p avenger-chart-app --example parallel_axis_brush_selection --features winit-wgpu
+// cargo run -p avenger-chart-app --example parallel_coordinates_axis_brush_intersection --features winit-wgpu
+// ```
 
 use std::sync::Arc;
 
