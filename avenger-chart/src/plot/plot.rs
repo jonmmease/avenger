@@ -26,7 +26,7 @@ use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPla
 
 use crate::{
     concat::{GridConcat, HConcat, VConcat, WrapConcat},
-    event::{ChartEventBinding, ChartEventStream, rewrite_legend_event_binding_local_datums},
+    event::{ChartEventBinding, ChartEventStream, rewrite_reserved_event_binding_local_datums},
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
     legend::ColorbarOverlay,
     repeat::{RepeatColumns, RepeatGrid, RepeatResolvedChildPlotSpec, RepeatRows, RepeatWrap},
@@ -691,6 +691,11 @@ impl<C: CoordinateSystem> Plot<C> {
             event_bindings.extend(artifacts.event_bindings);
             tool_metadata.extend(artifacts.metadata);
         }
+
+        event_bindings = event_bindings
+            .into_iter()
+            .map(|binding| rewrite_reserved_event_binding_local_datums(binding, session_context))
+            .collect::<Result<_, AvengerChartError>>()?;
 
         for binding in &event_bindings {
             binding.validate()?;
@@ -1884,7 +1889,7 @@ fn legend_event_bindings(
         legend.validate_event_surface()?;
         for binding in &legend.event_bindings {
             let binding =
-                rewrite_legend_event_binding_local_datums(binding.clone(), session_context)?
+                rewrite_reserved_event_binding_local_datums(binding.clone(), session_context)?
                     .with_legend_surface_target(
                         vec![channel_name.clone()],
                         vec![

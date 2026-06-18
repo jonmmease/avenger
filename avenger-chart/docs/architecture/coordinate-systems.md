@@ -28,7 +28,8 @@ flowchart TD
 ```
 
 `CoordinateSystemCore` declares required position channels. `CoordinateSystem`
-adds a guide type and creates a boxed `CoordinateSystemTransform`.
+adds a guide type, creates a boxed `CoordinateSystemTransform`, and may provide
+non-rendered coordinate-owned scale sources.
 
 `CoordinateSystemTransformCore` maps scaled position channels into
 `PlotGeometry`, provides default range bindings, and provides default scale
@@ -38,6 +39,27 @@ downcasting, and cloning.
 `CoordinateGuide` receives axes and compiled mark metadata, then builds a
 `CompiledGuide`. `CompiledGuide` measures guide overflow, renders guide marks,
 and returns a clip region.
+
+## Coordinate-Owned Scale Sources
+
+Most Cartesian and Polar scales are discovered from rendered mark channels.
+Some coordinate systems own positional dimensions directly, so the scale
+pipeline also accepts coordinate-owned scale sources. A coordinate scale source
+is a non-rendered channel context contributed by the coordinate system. It can
+define generated channels, scale names, axis configs, range bindings, data
+scope, and domain-sharing metadata without creating scene marks or public mark
+targets.
+
+Parallel coordinates use this path for one vertical scale per dimension. Each
+authored dimension has a stable dimension id, a generated internal channel, and
+a scale name equal to the dimension id. Parallel data marks request the
+generated scaled columns at render time, while event coordinate readback and
+axis guides expose the public dimension ids.
+
+Coordinate-owned scale sources participate in facet domain coordination and
+repeat placeholder resolution the same way rendered mark channels do. They do
+not create legends; ordinary mark style channels such as stroke and fill still
+use the regular scale and legend pipeline.
 
 ## Built-In Coordinate Crates
 
@@ -60,6 +82,18 @@ plot-area height. Cartesian positioned subplots use `subplot_x` and
 Default range bindings map `theta` to a fixed `0..2pi` interval and `r` to
 half the minimum plot-area dimension. Polar positioned subplots use `r` and
 `theta`.
+
+`avenger-chart-parallel` owns `Parallel`, `ParallelAxis`, `ParallelGuide`,
+`ParallelLine`, `ParallelSymbol`, `ParallelAxisOverlay`, and parallel frame
+state. `Parallel` is a wide-form coordinate system: each source row is one
+polyline, and each `.dimension(id, expr)` owns an independent vertical scale.
+Numeric dimensions infer linear scales; categorical dimensions infer point
+scales. Axis positions are frame geometry, not data scale values.
+
+Parallel axis overlays are coordinate-positioned child plots centered on a
+dimension axis. The child plot receives the selected dimension's y scale and a
+local x scale over the overlay width, so ordinary Cartesian marks and compound
+marks can draw brush rectangles, summaries, or distributions on top of an axis.
 
 ## Facade-Owned Layout Coordinates
 

@@ -45,6 +45,7 @@ flowchart TD
     Tools["avenger-chart-tools"]
     Cartesian["avenger-chart-cartesian"]
     Polar["avenger-chart-polar"]
+    Parallel["avenger-chart-parallel"]
     Chart["avenger-chart"]
 
     Core --> Marks
@@ -54,9 +55,11 @@ flowchart TD
     Core --> Tools
     Core --> Cartesian
     Core --> Polar
+    Core --> Parallel
     Core --> Chart
     Marks --> Cartesian
     Marks --> Polar
+    Marks --> Parallel
     Marks --> Chart
     Scales --> Chart
     Transforms --> Chart
@@ -64,6 +67,7 @@ flowchart TD
     Tools --> Chart
     Cartesian --> Chart
     Polar --> Chart
+    Parallel --> Chart
 ```
 
 Other workspace crates such as `avenger-color`, `avenger-layout`,
@@ -86,6 +90,7 @@ extension crates.
 | `avenger-chart-tools` | Built-in chart tools that expand into core tool contracts. `PanScrollZoom`, `BoxZoom`, `PointSelection`, and `LassoSelection` live here and emit generated params, selections, raw-domain scale edits, event bindings, marks, and tool metadata as needed. |
 | `avenger-chart-cartesian` | `Cartesian`, `CartesianGuide`, `CartesianAxis`, Cartesian channel/axis behavior, Cartesian render implementations for built-in data marks, and Cartesian `Subplot` placement channels `subplot_x` and `subplot_y`. |
 | `avenger-chart-polar` | `Polar`, `PolarGuide`, `PolarAxis`, polar channel/axis behavior, Polar `Symbol` render implementation, and Polar `Subplot` placement channels `r` and `theta`. |
+| `avenger-chart-parallel` | `Parallel`, `ParallelAxis`, `ParallelGuide`, parallel coordinate scale-source planning, `ParallelLine`, `ParallelSymbol`, `ParallelAxisOverlay`, parallel axis frame geometry, order/display state, and guide event datum metadata. |
 | `avenger-chart` | Facade exports plus `Plot`, `CompiledPlot`, facade `render::EvaluationContext`, facet, concat, repeat lowering, partitioning, child-frame measurement, chart frame/content layout solving, adapters over the `avenger-layout` solvers, generic positioned subplot measurement/rendering, transform runtime application, plot-level scale and legend planning, tool expansion application, WGPU/canvas rendering, and integration tests. |
 | `avenger-color` | Lower-level color and gradient data model, CSS/named color parsing, color-space conversion and mixing helpers, WCAG contrast helpers, and pure color-ramp interpolation. |
 | `avenger-layout` | Chart-independent geometry, track spacing, band/grid layout solves, region placement/readback, and one-round requirement alignment. |
@@ -99,7 +104,7 @@ crate still defines the behavior.
 
 | Facade module | Owner crates |
 | --- | --- |
-| `avenger_chart::prelude` | Common types from `avenger-chart-core`, built-in marks, built-in scales, built-in legend builders, Cartesian, Polar, facet, concat, rendering helpers. |
+| `avenger_chart::prelude` | Common types from `avenger-chart-core`, built-in marks, built-in scales, built-in legend builders, Cartesian, Polar, Parallel, facet, concat, rendering helpers. |
 | `avenger_chart::scales` | Core scale contracts plus built-in scale types and runtime helpers from `avenger-chart-scales`. |
 | `avenger_chart::legend` | Core legend contracts plus built-in legend builders and renderers from `avenger-chart-legend`. |
 | `avenger_chart::transforms` | Built-in transform authoring types and output handles from `avenger-chart-transforms`. |

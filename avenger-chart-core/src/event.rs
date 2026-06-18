@@ -1159,25 +1159,25 @@ pub fn interval_end(interval: impl IntoExpr) -> Expr {
     array_element(interval.into_expr(), lit(2_i64))
 }
 
-pub fn rewrite_legend_event_binding_local_datums(
+pub fn rewrite_reserved_event_binding_local_datums(
     mut binding: ChartEventBinding,
     ctx: &SessionContext,
 ) -> Result<ChartEventBinding, AvengerChartError> {
     for filter in &mut binding.filters {
-        rewrite_expr_node_legend_datums(filter, ctx)?;
+        rewrite_expr_node_reserved_datums(filter, ctx)?;
     }
     for assignment in &mut binding.assignments {
-        rewrite_expr_node_legend_datums(&mut assignment.expr, ctx)?;
+        rewrite_expr_node_reserved_datums(&mut assignment.expr, ctx)?;
     }
     for assignment in &mut binding.store_assignments {
-        rewrite_store_update_legend_datums(&mut assignment.update, ctx)?;
+        rewrite_store_update_reserved_datums(&mut assignment.update, ctx)?;
     }
     for assignment in &mut binding.selection_assignments {
-        rewrite_selection_update_legend_datums(&mut assignment.update, ctx)?;
+        rewrite_selection_update_reserved_datums(&mut assignment.update, ctx)?;
     }
     if let Some(between) = &mut binding.between {
-        rewrite_event_stream_legend_datums(&mut between.start, ctx)?;
-        rewrite_event_stream_legend_datums(&mut between.end, ctx)?;
+        rewrite_event_stream_reserved_datums(&mut between.start, ctx)?;
+        rewrite_event_stream_reserved_datums(&mut between.end, ctx)?;
     }
     Ok(binding)
 }
@@ -1186,17 +1186,17 @@ pub fn is_legend_item_only_datum_field(field: &str) -> bool {
     LEGEND_ITEM_ONLY_DATUM_FIELDS.contains(&field)
 }
 
-fn rewrite_event_stream_legend_datums(
+fn rewrite_event_stream_reserved_datums(
     stream: &mut ChartEventStream,
     ctx: &SessionContext,
 ) -> Result<(), AvengerChartError> {
     for filter in &mut stream.filters {
-        rewrite_expr_node_legend_datums(filter, ctx)?;
+        rewrite_expr_node_reserved_datums(filter, ctx)?;
     }
     Ok(())
 }
 
-fn rewrite_store_update_legend_datums(
+fn rewrite_store_update_reserved_datums(
     update: &mut StoreUpdate,
     ctx: &SessionContext,
 ) -> Result<(), AvengerChartError> {
@@ -1208,28 +1208,28 @@ fn rewrite_store_update_legend_datums(
         | StoreUpdate::ToggleRows { rows } => {
             for row in rows {
                 for value in row.fields.values_mut() {
-                    rewrite_expr_node_legend_datums(&mut value.expr, ctx)?;
+                    rewrite_expr_node_reserved_datums(&mut value.expr, ctx)?;
                 }
             }
         }
         StoreUpdate::UpdateByKey { key, fields } => {
             for value in key.fields.values_mut() {
-                rewrite_expr_node_legend_datums(&mut value.expr, ctx)?;
+                rewrite_expr_node_reserved_datums(&mut value.expr, ctx)?;
             }
             for value in fields.fields.values_mut() {
-                rewrite_expr_node_legend_datums(&mut value.expr, ctx)?;
+                rewrite_expr_node_reserved_datums(&mut value.expr, ctx)?;
             }
         }
         StoreUpdate::DeleteByKey { key } => {
             for value in key.fields.values_mut() {
-                rewrite_expr_node_legend_datums(&mut value.expr, ctx)?;
+                rewrite_expr_node_reserved_datums(&mut value.expr, ctx)?;
             }
         }
     }
     Ok(())
 }
 
-fn rewrite_selection_update_legend_datums(
+fn rewrite_selection_update_reserved_datums(
     update: &mut SelectionUpdate,
     ctx: &SessionContext,
 ) -> Result<(), AvengerChartError> {
@@ -1240,22 +1240,22 @@ fn rewrite_selection_update_legend_datums(
         | SelectionUpdate::UpsertClauses { clauses }
         | SelectionUpdate::ToggleClauses { clauses } => {
             for clause in clauses {
-                rewrite_expr_node_legend_datums(&mut clause.id.expr, ctx)?;
+                rewrite_expr_node_reserved_datums(&mut clause.id.expr, ctx)?;
                 match &mut clause.predicate {
                     crate::SelectionPredicateUpdate::Interval { dimensions } => {
                         for dimension in dimensions {
-                            rewrite_expr_node_legend_datums(&mut dimension.min.expr, ctx)?;
-                            rewrite_expr_node_legend_datums(&mut dimension.max.expr, ctx)?;
+                            rewrite_expr_node_reserved_datums(&mut dimension.min.expr, ctx)?;
+                            rewrite_expr_node_reserved_datums(&mut dimension.max.expr, ctx)?;
                         }
                     }
                     crate::SelectionPredicateUpdate::Equality { dimensions } => {
                         for dimension in dimensions {
-                            rewrite_expr_node_legend_datums(&mut dimension.value.expr, ctx)?;
+                            rewrite_expr_node_reserved_datums(&mut dimension.value.expr, ctx)?;
                         }
                     }
                     crate::SelectionPredicateUpdate::Predicate { values, .. } => {
                         for value in values {
-                            rewrite_expr_node_legend_datums(&mut value.value.expr, ctx)?;
+                            rewrite_expr_node_reserved_datums(&mut value.value.expr, ctx)?;
                         }
                     }
                 }
@@ -1264,59 +1264,59 @@ fn rewrite_selection_update_legend_datums(
         SelectionUpdate::DeleteClauses { ids }
         | SelectionUpdate::DeleteClausesInScope { ids, .. } => {
             for id in ids {
-                rewrite_expr_node_legend_datums(&mut id.expr, ctx)?;
+                rewrite_expr_node_reserved_datums(&mut id.expr, ctx)?;
             }
         }
         SelectionUpdate::ReplaceAllFromSceneQuery { query }
         | SelectionUpdate::ReplaceFromSceneQueryInScope { query }
         | SelectionUpdate::UpsertFromSceneQuery { query }
         | SelectionUpdate::ToggleFromSceneQuery { query } => {
-            rewrite_scene_query_legend_datums(query, ctx)?;
+            rewrite_scene_query_reserved_datums(query, ctx)?;
         }
     }
     Ok(())
 }
 
-fn rewrite_scene_query_legend_datums(
+fn rewrite_scene_query_reserved_datums(
     query: &mut SelectionSceneQuery,
     ctx: &SessionContext,
 ) -> Result<(), AvengerChartError> {
     match &mut query.query.geometry {
         SceneGeometryQueryGeometry::Rect { x0, y0, x1, y1 } => {
-            rewrite_expr_node_legend_datums(x0, ctx)?;
-            rewrite_expr_node_legend_datums(y0, ctx)?;
-            rewrite_expr_node_legend_datums(x1, ctx)?;
-            rewrite_expr_node_legend_datums(y1, ctx)?;
+            rewrite_expr_node_reserved_datums(x0, ctx)?;
+            rewrite_expr_node_reserved_datums(y0, ctx)?;
+            rewrite_expr_node_reserved_datums(x1, ctx)?;
+            rewrite_expr_node_reserved_datums(y1, ctx)?;
         }
         SceneGeometryQueryGeometry::Circle { cx, cy, radius } => {
-            rewrite_expr_node_legend_datums(cx, ctx)?;
-            rewrite_expr_node_legend_datums(cy, ctx)?;
-            rewrite_expr_node_legend_datums(radius, ctx)?;
+            rewrite_expr_node_reserved_datums(cx, ctx)?;
+            rewrite_expr_node_reserved_datums(cy, ctx)?;
+            rewrite_expr_node_reserved_datums(radius, ctx)?;
         }
         SceneGeometryQueryGeometry::Polygon { points } => {
-            rewrite_expr_node_legend_datums(points, ctx)?;
+            rewrite_expr_node_reserved_datums(points, ctx)?;
         }
     }
     if let SceneQueryClauseId::Expr(expr) = &mut query.clause_id {
-        rewrite_expr_node_legend_datums(expr, ctx)?;
+        rewrite_expr_node_reserved_datums(expr, ctx)?;
     }
     Ok(())
 }
 
-fn rewrite_expr_node_legend_datums(
+fn rewrite_expr_node_reserved_datums(
     node: &mut LogicalExprNode,
     ctx: &SessionContext,
 ) -> Result<(), AvengerChartError> {
     let expr = node.to_expr(ctx)?;
-    let rewritten = rewrite_expr_legend_datums(expr)?;
-    *node = expr_node(rewritten, "legend event local datum expression");
+    let rewritten = rewrite_expr_reserved_datums(expr)?;
+    *node = expr_node(rewritten, "reserved event local datum expression");
     Ok(())
 }
 
-fn rewrite_expr_legend_datums(expr: Expr) -> Result<Expr, AvengerChartError> {
+fn rewrite_expr_reserved_datums(expr: Expr) -> Result<Expr, AvengerChartError> {
     expr.transform(|candidate| {
         if let Expr::Column(column) = &candidate
-            && let Some(field) = legend_local_datum_reserved_field(&column.name)
+            && let Some(field) = reserved_local_datum_field(&column.name)
         {
             return Ok(Transformed::yes(col(event_datum_column_name(field))));
         }
@@ -1326,7 +1326,7 @@ fn rewrite_expr_legend_datums(expr: Expr) -> Result<Expr, AvengerChartError> {
     .map_err(|err| AvengerChartError::InvalidArgument(err.to_string()))
 }
 
-fn legend_local_datum_reserved_field(column_name: &str) -> Option<&'static str> {
+fn reserved_local_datum_field(column_name: &str) -> Option<&'static str> {
     let local = column_name.strip_prefix(EVENT_DATUM_PREFIX)?;
     match local {
         "value" => Some(LEGEND_VALUE_FIELD),
@@ -1340,6 +1340,15 @@ fn legend_local_datum_reserved_field(column_name: &str) -> Option<&'static str> 
         "orientation" => Some(LEGEND_ORIENTATION_FIELD),
         "value_channel" => Some(LEGEND_VALUE_CHANNEL_FIELD),
         "band_channel" => Some(LEGEND_BAND_CHANNEL_FIELD),
+        PARALLEL_SURFACE_KIND_FIELD => Some(PARALLEL_SURFACE_KIND_FIELD),
+        PARALLEL_DIMENSION_ID_FIELD => Some(PARALLEL_DIMENSION_ID_FIELD),
+        PARALLEL_SCALE_NAME_FIELD => Some(PARALLEL_SCALE_NAME_FIELD),
+        PARALLEL_TITLE_FIELD => Some(PARALLEL_TITLE_FIELD),
+        PARALLEL_ORDER_INDEX_FIELD => Some(PARALLEL_ORDER_INDEX_FIELD),
+        PARALLEL_EQUILIBRIUM_X_FIELD => Some(PARALLEL_EQUILIBRIUM_X_FIELD),
+        PARALLEL_DISPLAY_X_FIELD => Some(PARALLEL_DISPLAY_X_FIELD),
+        PARALLEL_DISPLACEMENT_PX_FIELD => Some(PARALLEL_DISPLACEMENT_PX_FIELD),
+        PARALLEL_DISPLACEMENT_SLOTS_FIELD => Some(PARALLEL_DISPLACEMENT_SLOTS_FIELD),
         _ => None,
     }
 }
@@ -1533,11 +1542,26 @@ pub fn scan_chart_event_binding_interaction_columns(
     for assignment in &binding.selection_assignments {
         collect_selection_update_exprs(&assignment.update, ctx, &mut exprs)?;
     }
+    if let Some(between) = &binding.between {
+        collect_event_stream_exprs(&between.start, ctx, &mut exprs)?;
+        collect_event_stream_exprs(&between.end, ctx, &mut exprs)?;
+    }
     let mut requests = scan_interaction_columns(&exprs);
     for assignment in &binding.selection_assignments {
         collect_selection_update_datum_requests(&assignment.update, &mut requests);
     }
     Ok(requests)
+}
+
+fn collect_event_stream_exprs(
+    stream: &ChartEventStream,
+    ctx: &SessionContext,
+    exprs: &mut Vec<Expr>,
+) -> Result<(), AvengerChartError> {
+    for filter in &stream.filters {
+        exprs.push(filter.to_expr(ctx)?);
+    }
+    Ok(())
 }
 
 fn collect_store_update_exprs(
@@ -1766,7 +1790,7 @@ mod tests {
                 )),
             );
 
-        let rewritten = rewrite_legend_event_binding_local_datums(binding, &ctx)
+        let rewritten = rewrite_reserved_event_binding_local_datums(binding, &ctx)
             .expect("legend local datum rewrite succeeds");
         let requests = scan_chart_event_binding_interaction_columns(&rewritten, &ctx)
             .expect("scan rewritten binding");
@@ -1790,7 +1814,7 @@ mod tests {
             .set_param("start_domain", start_domain("y"))
             .set_param("event_domain", event_domain("y"));
 
-        let rewritten = rewrite_legend_event_binding_local_datums(binding, &ctx)
+        let rewritten = rewrite_reserved_event_binding_local_datums(binding, &ctx)
             .expect("legend local datum rewrite succeeds");
         let requests = scan_chart_event_binding_interaction_columns(&rewritten, &ctx)
             .expect("scan rewritten binding");
@@ -1800,6 +1824,44 @@ mod tests {
         assert!(requests.event_at_start_clipped_coord.contains("y"));
         assert!(requests.start_domain.contains("y"));
         assert!(requests.current_domain.contains("y"));
+    }
+
+    #[test]
+    fn event_binding_rewrites_parallel_guide_datum_fields() {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::MouseDown)
+            .filter(parallel_dimension_id().eq(lit("speed")))
+            .set_param("drag_dimension", parallel_dimension_id())
+            .set_param("drag_display_x", parallel_display_x())
+            .set_param("drag_order_index", parallel_order_index());
+
+        let rewritten = rewrite_reserved_event_binding_local_datums(binding, &ctx)
+            .expect("parallel guide datum rewrite succeeds");
+        let requests = scan_chart_event_binding_interaction_columns(&rewritten, &ctx)
+            .expect("scan rewritten binding");
+        assert!(requests.current_datum.contains(PARALLEL_DIMENSION_ID_FIELD));
+        assert!(requests.current_datum.contains(PARALLEL_DISPLAY_X_FIELD));
+        assert!(requests.current_datum.contains(PARALLEL_ORDER_INDEX_FIELD));
+        assert!(
+            !requests
+                .current_datum
+                .contains(event_datum_column_name(PARALLEL_DIMENSION_ID_FIELD).as_str())
+        );
+    }
+
+    #[test]
+    fn event_binding_scan_includes_between_stream_filters() {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved).between(
+            ChartEventStream::on(ChartEventType::MouseDown)
+                .filter(parallel_dimension_id().eq(lit("speed"))),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        );
+        let rewritten = rewrite_reserved_event_binding_local_datums(binding, &ctx)
+            .expect("parallel guide datum rewrite succeeds");
+        let requests = scan_chart_event_binding_interaction_columns(&rewritten, &ctx)
+            .expect("scan rewritten binding");
+        assert!(requests.current_datum.contains(PARALLEL_DIMENSION_ID_FIELD));
     }
 
     #[test]
