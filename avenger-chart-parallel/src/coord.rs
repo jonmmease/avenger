@@ -16,6 +16,7 @@ use datafusion::{arrow::datatypes::DataType, common::ScalarValue, prelude::lit};
 use serde::{Deserialize, Serialize};
 
 use crate::{ParallelAxis, ParallelGuide};
+use crate::{ParallelFrameGeometry, resolve_parallel_frame};
 
 /// Prefix for hidden generated dimension channels.
 pub const PARALLEL_DIMENSION_CHANNEL_PREFIX: &str = "__avenger_parallel_dim_";
@@ -208,6 +209,10 @@ impl ParallelTransform {
         self.dimensions
             .iter()
             .find(|dimension| dimension.generated_channel == channel || dimension.id == channel)
+    }
+
+    pub fn resolve_frame(&self, width: f32) -> ParallelFrameGeometry {
+        resolve_parallel_frame(&self.dimensions, self.order.as_deref(), None, width)
     }
 }
 
