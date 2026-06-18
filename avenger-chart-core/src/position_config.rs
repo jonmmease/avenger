@@ -1,7 +1,8 @@
 use datafusion::logical_expr::Expr;
 
 use crate::{
-    Axis, ChannelConfig, ChannelValue, NestedBandLevelConfig, NestedBandSpec, PositionBoundary,
+    Axis, ChannelConfig, ChannelValue, IntoExpr, NestedBandLevelConfig, NestedBandSpec,
+    PositionBoundary,
 };
 
 /// Generic configuration for position channels across coordinate systems.
@@ -50,6 +51,14 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
         }
     }
 
+    /// Set a row-wise band parameter expression.
+    pub fn band_expr(self, band: impl IntoExpr) -> Self {
+        Self {
+            inner: self.inner.band_expr(band),
+            axis_config: self.axis_config,
+        }
+    }
+
     /// Configure one level of a nested categorical band position channel.
     pub fn level<F>(self, level: usize, f: F) -> Self
     where
@@ -77,6 +86,16 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
             inner: self
                 .inner
                 .with_position_boundary(PositionBoundary::level_band(level, band)),
+            axis_config: self.axis_config,
+        }
+    }
+
+    /// Set a row-wise boundary expression for a specific nested categorical band level.
+    pub fn level_band_expr(self, level: usize, band: impl IntoExpr) -> Self {
+        Self {
+            inner: self
+                .inner
+                .with_position_boundary(PositionBoundary::level_band_expr(level, band)),
             axis_config: self.axis_config,
         }
     }

@@ -36,12 +36,24 @@ pub enum NestScope {
 }
 
 /// A boundary request within a position scale's band hierarchy.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PositionBoundary {
     /// Boundary inside the leaf band.
     Band { band: f64 },
     /// Boundary inside a specific nesting level's band.
     LevelBand { level: usize, band: f64 },
+    /// Row-wise boundary inside the leaf band.
+    BandExpr {
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        band: LogicalExprNode,
+    },
+    /// Row-wise boundary inside a specific nesting level's band.
+    LevelBandExpr {
+        level: usize,
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        band: LogicalExprNode,
+    },
 }
 
 impl PositionBoundary {
@@ -55,10 +67,40 @@ impl PositionBoundary {
         Self::LevelBand { level, band }
     }
 
-    /// Return the band fraction.
-    pub fn band_fraction(self) -> f64 {
+    /// Construct a row-wise leaf-band boundary.
+    pub fn band_expr(band: impl IntoExpr) -> Self {
+        Self::BandExpr {
+            band: LogicalExprNode::from_default_expr(band.into_expr())
+                .expect("Failed to serialize band expression"),
+        }
+    }
+
+    /// Construct a row-wise boundary inside an explicit nesting level.
+    pub fn level_band_expr(level: usize, band: impl IntoExpr) -> Self {
+        Self::LevelBandExpr {
+            level,
+            band: LogicalExprNode::from_default_expr(band.into_expr())
+                .expect("Failed to serialize level-band expression"),
+        }
+    }
+
+    /// Return the constant band fraction, when this boundary is not row-wise.
+    pub fn band_fraction(&self) -> Option<f64> {
         match self {
-            PositionBoundary::Band { band } | PositionBoundary::LevelBand { band, .. } => band,
+            PositionBoundary::Band { band } | PositionBoundary::LevelBand { band, .. } => {
+                Some(*band)
+            }
+            PositionBoundary::BandExpr { .. } | PositionBoundary::LevelBandExpr { .. } => None,
+        }
+    }
+
+    /// Expressions referenced by this boundary.
+    pub fn all_exprs(&self, ctx: &SessionContext) -> Vec<Expr> {
+        match self {
+            PositionBoundary::Band { .. } | PositionBoundary::LevelBand { .. } => Vec::new(),
+            PositionBoundary::BandExpr { band } | PositionBoundary::LevelBandExpr { band, .. } => {
+                band.to_expr(ctx).ok().into_iter().collect()
+            }
         }
     }
 }
@@ -431,6 +473,28 @@ mod tests {
         let json = serde_json::to_string(&boundary).expect("serialize");
         let restored: PositionBoundary = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(restored, boundary);
+
+        let boundary = PositionBoundary::band_expr(col("half_width"));
+        let json = serde_json::to_string(&boundary).expect("serialize");
+        let restored: PositionBoundary = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(restored, boundary);
+
+        let boundary = PositionBoundary::level_band_expr(1, col("level_width"));
+        let json = serde_json::to_string(&boundary).expect("serialize");
+        let restored: PositionBoundary = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(restored, boundary);
+    }
+
+    #[test]
+    fn position_boundary_exprs_are_collected() {
+        let ctx = SessionContext::new();
+        let boundary = PositionBoundary::level_band_expr(1, col("dynamic_band"));
+        let rendered = boundary
+            .all_exprs(&ctx)
+            .into_iter()
+            .map(|expr| expr.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(rendered, vec!["dynamic_band"]);
     }
 
     #[test]

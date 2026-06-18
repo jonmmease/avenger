@@ -470,7 +470,7 @@ pub fn resolve_all_channel_refs(
                     ChannelValue::Scaled {
                         expr: resolved_expr,
                         scale_name: inherited_scale_name,
-                        position_boundary: *position_boundary,
+                        position_boundary: position_boundary.clone(),
                         scale_config: scale_config.clone(),
                         nested_band_config: inherited_nested_band_config,
                         legend_config: legend_config.clone(),

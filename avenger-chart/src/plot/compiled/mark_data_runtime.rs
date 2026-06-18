@@ -1187,7 +1187,7 @@ pub(crate) fn apply_channel_scale(
 
             let expr_df = expr.to_expr(ctx)?;
             if let Some(boundary) = position_boundary {
-                scale.to_expr_with_position_boundary(expr_df, *boundary)
+                scale.to_expr_with_position_boundary(expr_df, boundary, ctx)
             } else {
                 scale.to_expr(expr_df)
             }

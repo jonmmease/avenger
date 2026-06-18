@@ -11,12 +11,14 @@ use datafusion::{
         array::ArrayRef,
         datatypes::{DataType, Field, FieldRef},
     },
-    logical_expr::{Expr, ExprSchemable},
+    logical_expr::{Expr, ExprSchemable, cast},
+    prelude::SessionContext,
 };
 use datafusion_common::ScalarValue;
 
 use avenger_chart_core::{
-    AvengerChartError, ConfiguredScaleLegendExt, DomainValues, PositionBoundary,
+    AvengerChartError, ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, DomainValues,
+    PositionBoundary,
 };
 
 use crate::{ConfiguredScaleWithSpec, udf::create_scale_udf};
@@ -33,7 +35,8 @@ pub trait ConfiguredScaleDataFusionExt {
     fn to_expr_with_position_boundary(
         &self,
         input: Expr,
-        boundary: PositionBoundary,
+        boundary: &PositionBoundary,
+        ctx: &SessionContext,
     ) -> Result<Expr, AvengerChartError>;
 }
 
@@ -106,35 +109,15 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
         // - 0.5 = center of band (default)
         // - 1.0 = end of band
         // For non-band scales, this parameter is ignored
-        if self
-            .configured
-            .scale_impl
-            .option_definitions()
-            .iter()
-            .any(|def| def.name == "band")
-        {
-            // Clone config and add band option
-            let mut config = self.configured.config.clone();
-            config.options.insert(
-                "band".to_string(),
-                avenger_scales::scalar::Scalar::from_f32(band as f32),
-            );
-
-            // Create a temporary ConfiguredScale with the band option
-            let temp_configured = ConfiguredScale {
-                scale_impl: self.configured.scale_impl.clone(),
-                config,
-            };
-
-            // Create a new wrapper with the modified configured scale
-            let temp_wrapper = ConfiguredScaleWithSpec::with_range_binding(
-                self.spec().clone(),
-                temp_configured,
-                self.range_binding(),
+        if scale_supports_option(self, "band") {
+            to_expr_with_options(
+                self,
+                input,
+                vec![(
+                    "band".to_string(),
+                    avenger_scales::scalar::Scalar::from_f32(band as f32),
+                )],
             )
-            .with_derived_scalars(self.derived_scalars().clone());
-
-            temp_wrapper.to_expr(input)
         } else {
             // For non-band scales, ignore the band parameter
             self.to_expr(input)
@@ -144,45 +127,116 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
     fn to_expr_with_position_boundary(
         &self,
         input: Expr,
-        boundary: PositionBoundary,
+        boundary: &PositionBoundary,
+        ctx: &SessionContext,
     ) -> Result<Expr, AvengerChartError> {
         match boundary {
-            PositionBoundary::Band { band } => self.to_expr_with_band(input, band),
+            PositionBoundary::Band { band } => self.to_expr_with_band(input, *band),
             PositionBoundary::LevelBand { level, band } => {
-                let definitions = self.configured.scale_impl.option_definitions();
-                let supports_level = definitions.iter().any(|def| def.name == "level");
-                let supports_band = definitions.iter().any(|def| def.name == "band");
-                if !supports_level || !supports_band {
+                if !scale_supports_option(self, "level") || !scale_supports_option(self, "band") {
                     return Err(AvengerChartError::InvalidArgument(format!(
                         "level_band({level}, {band}) requires a nested band scale"
                     )));
                 }
 
-                let mut config = self.configured.config.clone();
-                config.options.insert(
-                    "level".to_string(),
-                    avenger_scales::scalar::Scalar::from_i32(level as i32),
-                );
-                config.options.insert(
-                    "band".to_string(),
-                    avenger_scales::scalar::Scalar::from_f32(band as f32),
-                );
-
-                let temp_configured = ConfiguredScale {
-                    scale_impl: self.configured.scale_impl.clone(),
-                    config,
-                };
-                let temp_wrapper = ConfiguredScaleWithSpec::with_range_binding(
-                    self.spec().clone(),
-                    temp_configured,
-                    self.range_binding(),
+                to_expr_with_options(
+                    self,
+                    input,
+                    vec![
+                        (
+                            "level".to_string(),
+                            avenger_scales::scalar::Scalar::from_i32(*level as i32),
+                        ),
+                        (
+                            "band".to_string(),
+                            avenger_scales::scalar::Scalar::from_f32(*band as f32),
+                        ),
+                    ],
                 )
-                .with_derived_scalars(self.derived_scalars().clone());
-
-                temp_wrapper.to_expr(input)
+            }
+            PositionBoundary::BandExpr { band } => {
+                let band = band.to_default_expr(ctx)?;
+                to_expr_with_interpolated_band(self, input, None, band)
+            }
+            PositionBoundary::LevelBandExpr { level, band } => {
+                let band = band.to_default_expr(ctx)?;
+                to_expr_with_interpolated_band(self, input, Some(*level), band)
             }
         }
     }
+}
+
+fn scale_supports_option(scale: &ConfiguredScaleWithSpec, name: &str) -> bool {
+    scale
+        .configured
+        .scale_impl
+        .option_definitions()
+        .iter()
+        .any(|def| def.name == name)
+}
+
+fn to_expr_with_options(
+    scale: &ConfiguredScaleWithSpec,
+    input: Expr,
+    options: Vec<(String, avenger_scales::scalar::Scalar)>,
+) -> Result<Expr, AvengerChartError> {
+    let mut config = scale.configured.config.clone();
+    for (key, value) in options {
+        config.options.insert(key, value);
+    }
+
+    let temp_configured = ConfiguredScale {
+        scale_impl: scale.configured.scale_impl.clone(),
+        config,
+    };
+    let temp_wrapper = ConfiguredScaleWithSpec::with_range_binding(
+        scale.spec().clone(),
+        temp_configured,
+        scale.range_binding(),
+    )
+    .with_derived_scalars(scale.derived_scalars().clone());
+
+    temp_wrapper.to_expr(input)
+}
+
+fn to_expr_with_interpolated_band(
+    scale: &ConfiguredScaleWithSpec,
+    input: Expr,
+    level: Option<usize>,
+    band: Expr,
+) -> Result<Expr, AvengerChartError> {
+    if !scale_supports_option(scale, "band") {
+        return scale.to_expr(input);
+    }
+    if let Some(level) = level
+        && !scale_supports_option(scale, "level")
+    {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "level_band_expr({level}, ...) requires a nested band scale"
+        )));
+    }
+
+    let static_options = |band: f32| {
+        let mut options = Vec::new();
+        if let Some(level) = level {
+            options.push((
+                "level".to_string(),
+                avenger_scales::scalar::Scalar::from_i32(level as i32),
+            ));
+        }
+        options.push((
+            "band".to_string(),
+            avenger_scales::scalar::Scalar::from_f32(band),
+        ));
+        options
+    };
+
+    let start = to_expr_with_options(scale, input.clone(), static_options(0.0))?;
+    let end = to_expr_with_options(scale, input, static_options(1.0))?;
+    let start = cast(start, DataType::Float64);
+    let end = cast(end, DataType::Float64);
+    let band = cast(band, DataType::Float64);
+    Ok(start.clone() + (end - start) * band)
 }
 
 fn scale_input_type(scale_type: &str, domain_type: &DataType) -> DataType {

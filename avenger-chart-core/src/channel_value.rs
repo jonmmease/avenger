@@ -14,7 +14,7 @@ use serde_with::{FromInto, serde_as};
 
 use crate::{
     AvengerChartError, Axis, CoordinationScope, DomainCoordination, DomainCoordinationGroup,
-    Legend, NestedBandSpec, PositionBoundary, ScaleConfigSpec, SerializableExpr,
+    IntoExpr, Legend, NestedBandSpec, PositionBoundary, ScaleConfigSpec, SerializableExpr,
     channel::strip_trailing_numbers,
 };
 
@@ -334,9 +334,19 @@ impl ChannelExpr {
         self.map_channel_value(|value| value.band(band))
     }
 
+    /// Set a row-wise band parameter expression for this channel value.
+    pub fn band_expr(self, band: impl IntoExpr) -> Self {
+        self.map_channel_value(|value| value.band_expr(band))
+    }
+
     /// Set the boundary for a specific nested-band level.
     pub fn level_band(self, level: usize, band: f64) -> Self {
         self.map_channel_value(|value| value.level_band(level, band))
+    }
+
+    /// Set a row-wise boundary expression for a specific nested-band level.
+    pub fn level_band_expr(self, level: usize, band: impl IntoExpr) -> Self {
+        self.map_channel_value(|value| value.level_band_expr(level, band))
     }
 
     /// Set a custom scale name for this channel value.
@@ -913,10 +923,14 @@ impl ChannelValue {
         match self {
             ChannelValue::Scaled {
                 expr,
+                position_boundary,
                 nested_band_config,
                 ..
             } => {
                 let mut exprs = expr.to_expr(ctx).ok().into_iter().collect::<Vec<_>>();
+                if let Some(boundary) = position_boundary {
+                    exprs.extend(boundary.all_exprs(ctx));
+                }
                 if let Some(config) = nested_band_config {
                     exprs.extend(config.all_exprs(ctx));
                 }
@@ -971,9 +985,19 @@ impl ChannelValue {
         self.with_position_boundary(PositionBoundary::band(band))
     }
 
+    /// Set a row-wise band parameter expression for this channel.
+    pub fn band_expr(self, band: impl IntoExpr) -> Self {
+        self.with_position_boundary(PositionBoundary::band_expr(band))
+    }
+
     /// Set the boundary for a specific nested-band level.
     pub fn level_band(self, level: usize, band: f64) -> Self {
         self.with_position_boundary(PositionBoundary::level_band(level, band))
+    }
+
+    /// Set a row-wise boundary expression for a specific nested-band level.
+    pub fn level_band_expr(self, level: usize, band: impl IntoExpr) -> Self {
+        self.with_position_boundary(PositionBoundary::level_band_expr(level, band))
     }
 
     /// Set the position boundary for this channel.
@@ -1009,7 +1033,7 @@ impl ChannelValue {
         match self {
             ChannelValue::Scaled {
                 position_boundary, ..
-            } => *position_boundary,
+            } => position_boundary.clone(),
             ChannelValue::Conditional { .. } | ChannelValue::Value { .. } => None,
         }
     }
@@ -1470,6 +1494,23 @@ mod tests {
             cv.get_position_boundary(),
             Some(PositionBoundary::Band { band: 1.0 })
         );
+    }
+
+    #[test]
+    fn nested_band_channel_value_band_expr_is_collected() {
+        let ctx = SessionContext::new();
+        let cv: ChannelValue = col("x").into();
+        let cv = cv.band_expr(col("dynamic_band"));
+        assert!(matches!(
+            cv.get_position_boundary(),
+            Some(PositionBoundary::BandExpr { .. })
+        ));
+        let rendered = cv
+            .all_exprs(&ctx)
+            .into_iter()
+            .map(|expr| expr.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(rendered, vec!["x", "dynamic_band"]);
     }
 
     #[test]

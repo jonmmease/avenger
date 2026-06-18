@@ -14,8 +14,9 @@ use serde_with::{FromInto, serde_as};
 use crate::{
     AvengerChartError, Axis, ChannelExpr, ChannelValue, ConditionalValue, CoordinationScope,
     DefaultLogicalExprNodeExt, DomainCoordination, IntoExpr, Legend, Maybe, NestedBandSpec,
-    RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, ScaleOrderingSpec,
-    ScaleRange, SerializableExpr, scale_domain::DomainExpr, simplify_to_scalar_sync,
+    PositionBoundary, RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain,
+    ScaleOrderingSpec, ScaleRange, SerializableExpr, scale_domain::DomainExpr,
+    simplify_to_scalar_sync,
 };
 
 const REPEAT_PLACEHOLDER_PREFIX: &str = "$__repeat_";
@@ -558,7 +559,7 @@ pub fn resolve_repeat_channel_value(
         } => ChannelValue::Scaled {
             expr: resolve_expr_node(expr, ctx)?,
             scale_name,
-            position_boundary,
+            position_boundary: resolve_position_boundary(position_boundary, ctx)?,
             scale_config: resolve_scale_config(scale_config, ctx)?,
             nested_band_config: resolve_nested_band_config(nested_band_config, ctx)?,
             legend_config: resolve_legend_config(legend_config, ctx)?,
@@ -605,6 +606,28 @@ pub fn resolve_repeat_channel_value(
         }
     };
     apply_repeat_domain_coordination_to_channel_value(resolved, origin, ctx)
+}
+
+fn resolve_position_boundary(
+    boundary: Option<PositionBoundary>,
+    ctx: &RepeatContext,
+) -> Result<Option<PositionBoundary>, AvengerChartError> {
+    Ok(match boundary {
+        Some(PositionBoundary::Band { band }) => Some(PositionBoundary::Band { band }),
+        Some(PositionBoundary::LevelBand { level, band }) => {
+            Some(PositionBoundary::LevelBand { level, band })
+        }
+        Some(PositionBoundary::BandExpr { band }) => Some(PositionBoundary::BandExpr {
+            band: resolve_expr_node(band, ctx)?,
+        }),
+        Some(PositionBoundary::LevelBandExpr { level, band }) => {
+            Some(PositionBoundary::LevelBandExpr {
+                level,
+                band: resolve_expr_node(band, ctx)?,
+            })
+        }
+        None => None,
+    })
 }
 
 fn repeat_domain_origin_channel_value(
