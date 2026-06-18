@@ -4,7 +4,7 @@ use datafusion::dataframe::DataFrame;
 
 use crate::{
     AvengerChartError, CoordinateSystemCore, CoordinationScope, DataContext, DataTransform,
-    DataTransformCompileContext, FacetDataScope, Mark, MarkDataMode, StoreData,
+    DataTransformCompileContext, FacetDataScope, Mark, MarkDataMode, ScaleInferenceHint, StoreData,
     validate_structural_id,
 };
 
@@ -20,6 +20,7 @@ pub struct MarkGroup<C: CoordinateSystemCore> {
     pub(crate) data_mode: MarkDataMode,
     pub(crate) facet_data_scope: FacetDataScope,
     pub(crate) children: Vec<PlotMark<C>>,
+    pub(crate) scale_inference_hints: Vec<ScaleInferenceHint>,
     _phantom: PhantomData<fn() -> C>,
 }
 
@@ -31,6 +32,7 @@ impl<C: CoordinateSystemCore> Default for MarkGroup<C> {
             data_mode: MarkDataMode::Inherit,
             facet_data_scope: FacetDataScope::FILTERED,
             children: Vec::new(),
+            scale_inference_hints: Vec::new(),
             _phantom: PhantomData,
         }
     }
@@ -219,6 +221,17 @@ impl<C: CoordinateSystemCore> MarkGroup<C> {
 
     pub fn children(&self) -> &[PlotMark<C>] {
         &self.children
+    }
+
+    #[doc(hidden)]
+    pub fn with_scale_inference_hint(mut self, hint: ScaleInferenceHint) -> Self {
+        self.scale_inference_hints.push(hint);
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn scale_inference_hints(&self) -> &[ScaleInferenceHint] {
+        &self.scale_inference_hints
     }
 
     #[doc(hidden)]

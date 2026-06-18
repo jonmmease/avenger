@@ -32,9 +32,9 @@ use tracing::trace;
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledMark, CoordinateSystemTransformCore, DerivedScalarMap,
     EvaluationContext as CoreEvaluationContext, MarkDataMode, Maybe, NestScope, NestedBandSpec,
-    RadiusExpression, ScalarValueHelpers, ScaleOrderingSpec, ScaleRange, ScaleTypePreference,
-    Theme, TimeContext, array_value_to_f64, collect_derived_scalar_ids, contains_aggregate,
-    default_channel_value_for_eval, eval_to_scalars, params_to_datafusion,
+    RadiusExpression, ScalarValueHelpers, ScaleInferenceHint, ScaleOrderingSpec, ScaleRange,
+    ScaleTypePreference, Theme, TimeContext, array_value_to_f64, collect_derived_scalar_ids,
+    contains_aggregate, default_channel_value_for_eval, eval_to_scalars, params_to_datafusion,
     resolve_all_channel_refs, resolve_derived_scalars, scalar_total_cmp, strip_trailing_numbers,
 };
 
@@ -57,6 +57,7 @@ pub struct PreparedScaleMark {
     pub domain_dataframe: Option<DataFrame>,
     pub domain_channels: IndexMap<String, ChannelValue>,
     pub derived_scalars: DerivedScalarMap,
+    pub scale_inference_hints: Vec<ScaleInferenceHint>,
 }
 
 #[derive(Clone)]
@@ -139,6 +140,7 @@ impl PreparedScaleMark {
             dataframe,
             channels,
             derived_scalars,
+            scale_inference_hints: Vec::new(),
         }
     }
 
@@ -157,7 +159,13 @@ impl PreparedScaleMark {
             domain_dataframe,
             domain_channels,
             derived_scalars,
+            scale_inference_hints: Vec::new(),
         }
+    }
+
+    pub fn with_scale_inference_hints(mut self, hints: Vec<ScaleInferenceHint>) -> Self {
+        self.scale_inference_hints = hints;
+        self
     }
 }
 
@@ -526,6 +534,49 @@ where
         .unwrap_or(channel_name == target_channel)
 }
 
+fn matching_scale_hint(
+    channel: &str,
+    prepared_marks: &[PreparedScaleMark],
+) -> Result<Option<ScaleTypePreference>, AvengerChartError> {
+    let mut preference = None;
+    for hint in prepared_marks
+        .iter()
+        .flat_map(|prepared| prepared.scale_inference_hints.iter())
+        .filter(|hint| hint.scale_name == channel)
+    {
+        match preference {
+            Some(existing) if existing != hint.preference => {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Conflicting compound mark scale inference hints for scale '{channel}': {existing:?} and {:?}",
+                    hint.preference
+                )));
+            }
+            Some(_) => {}
+            None => preference = Some(hint.preference),
+        }
+    }
+    Ok(preference)
+}
+
+fn has_nested_band_config_for_channel<C>(
+    channel: &str,
+    prepared_marks: &[PreparedScaleMark],
+    coord_transform: &C,
+    ctx: &SessionContext,
+) -> bool
+where
+    C: CoordinateSystemTransformCore + ?Sized,
+{
+    prepared_marks.iter().any(|prepared| {
+        let resolved = resolve_all_channel_refs(&prepared.channels, ctx)
+            .unwrap_or_else(|_| prepared.channels.clone());
+        resolved.iter().any(|(channel_name, channel_value)| {
+            channel_maps_to_scale(coord_transform, channel_name, channel_value, channel)
+                && channel_value.get_nested_band_config().is_some()
+        })
+    })
+}
+
 async fn build_scale_for_channel<C>(
     channel: &str,
     prepared_marks: &[PreparedScaleMark],
@@ -648,14 +699,25 @@ where
     }
 
     // If user provided an explicit scale type, prefer it over mark/data-type inference
+    let mut user_selected_scale_type = false;
     if let Some(user_scale) = &chosen_scale_config {
         if let Some(user_spec) = user_scale.get_scale_spec() {
             chosen_spec = Some(user_spec);
+            user_selected_scale_type = true;
         } else if let Some(range) = user_scale.get_range() {
             // If no explicit scale type but discrete range is set, infer ordinal scale
             if matches!(range, ScaleRange::Discrete(_)) {
                 chosen_spec = Some(Box::new(Ordinal));
+                user_selected_scale_type = true;
             }
+        }
+    }
+
+    if !user_selected_scale_type {
+        if has_nested_band_config_for_channel(channel, prepared_marks, coord_transform, ctx) {
+            chosen_spec = Some(scale_spec_for_preference(ScaleTypePreference::NestedBand));
+        } else if let Some(preference) = matching_scale_hint(channel, prepared_marks)? {
+            chosen_spec = Some(scale_spec_for_preference(preference));
         }
     }
 
@@ -3050,13 +3112,13 @@ mod tests {
     use indexmap::IndexMap;
 
     use super::*;
-    use crate::{Band, Linear, NestedBand};
+    use crate::{Band, Linear, NestedBand, Point};
     use avenger_chart_core::{
         ChannelDescriptor, ChannelExpr, CompiledDataContext, CompiledMarkCore, CompiledMarkState,
         MarkDataMode, MarkRuntimeContext, NestedBandLevelSpec, PlotGeometry, RepeatContext,
-        ResolvedDomain, ResolvedRepeatVariable, ScaleChannelValue, ScaleRange, ScaleRangeBinding,
-        ScaleTypePreference, SubplotGeometry, default_scale_type_for_data_type, nested,
-        repeat::column_name, resolve_repeat_channel_expr,
+        ResolvedDomain, ResolvedRepeatVariable, ScaleChannelValue, ScaleInferenceHint, ScaleRange,
+        ScaleRangeBinding, ScaleTypePreference, SubplotGeometry, default_scale_type_for_data_type,
+        nested, repeat::column_name, resolve_repeat_channel_expr,
     };
     use avenger_common::value::ScalarOrArray;
     use avenger_scenegraph::marks::mark::SceneMark;
@@ -3090,16 +3152,26 @@ mod tests {
     #[derive(serde::Serialize, serde::Deserialize)]
     struct TestCompiledMark {
         state: CompiledMarkState,
+        position_preference: Option<ScaleTypePreference>,
     }
 
     impl TestCompiledMark {
         fn new(dataframe: DataFrame, channels: IndexMap<String, ChannelValue>) -> Self {
+            Self::new_with_position_preference(dataframe, channels, None)
+        }
+
+        fn new_with_position_preference(
+            dataframe: DataFrame,
+            channels: IndexMap<String, ChannelValue>,
+            position_preference: Option<ScaleTypePreference>,
+        ) -> Self {
             Self {
                 state: CompiledMarkState {
                     id: None,
                     data: CompiledDataContext::new(Some(dataframe), Vec::new(), channels),
                     data_mode: MarkDataMode::Inherit,
                     mark_index: 0,
+                    public_target_path: None,
                     facet_data_scope: Default::default(),
                     exclude_from_scale_domains: false,
                     visible: None,
@@ -3107,6 +3179,7 @@ mod tests {
                     zindex: None,
                     axis_configs: HashMap::new(),
                 },
+                position_preference,
             }
         }
     }
@@ -3145,6 +3218,11 @@ mod tests {
             channel: &str,
             data_type: &DataType,
         ) -> Option<ScaleTypePreference> {
+            if matches!(channel, "x" | "x2" | "y" | "y2")
+                && let Some(preference) = self.position_preference
+            {
+                return Some(preference);
+            }
             if matches!(channel, "x" | "x2" | "y" | "y2")
                 && matches!(data_type, DataType::Struct(_))
             {
@@ -3357,6 +3435,130 @@ mod tests {
         _params: &IndexMap<String, ScalarValue>,
     ) -> Option<ScaleRange> {
         None
+    }
+
+    async fn configured_scales_for_prepared(
+        ctx: &SessionContext,
+        prepared_marks: Vec<PreparedScaleMark>,
+        scale_specs: HashMap<String, PlotScaleSpec>,
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
+        let coord_transform = TestCoordTransform;
+        let builder = build_scale_builder_from_prepared_marks(
+            &prepared_marks,
+            &scale_specs,
+            &coord_transform,
+            &eval_ctx(ctx),
+            &Theme::light(),
+        )
+        .await?;
+        let mut coord_ranges = HashMap::new();
+        coord_ranges.insert(
+            "x".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 300.0),
+        );
+        coord_ranges.insert(
+            "y".to_string(),
+            ScaleRangeBinding::fixed_interval(0.0, 200.0),
+        );
+        builder
+            .build_scales(
+                300.0,
+                200.0,
+                &coord_ranges,
+                &HashMap::new(),
+                &no_default_range,
+                &Theme::light(),
+                ctx,
+                &IndexMap::new(),
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn scale_hint_forces_band_over_point_preference() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "B"], vec![1.0, 2.0]).unwrap();
+        let mut channels = IndexMap::new();
+        channels.insert("y".to_string(), ChannelValue::from(col("category")));
+        channels.insert("x".to_string(), ChannelValue::from(col("value")));
+        let mark = Arc::new(TestCompiledMark::new_with_position_preference(
+            data.clone(),
+            channels.clone(),
+            Some(ScaleTypePreference::Point),
+        )) as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new())
+            .with_scale_inference_hints(vec![ScaleInferenceHint::new(
+                "y",
+                ScaleTypePreference::Band,
+            )]);
+
+        let scales = configured_scales_for_prepared(&ctx, vec![prepared], HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(
+            scales
+                .get("y")
+                .expect("y scale")
+                .configured()
+                .scale_impl
+                .scale_type(),
+            "band"
+        );
+    }
+
+    #[tokio::test]
+    async fn conflicting_scale_hints_error_without_explicit_scale_type() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "B"], vec![1.0, 2.0]).unwrap();
+        let mut channels = IndexMap::new();
+        channels.insert("y".to_string(), ChannelValue::from(col("category")));
+        let mark = Arc::new(TestCompiledMark::new(data.clone(), channels.clone()))
+            as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new())
+            .with_scale_inference_hints(vec![
+                ScaleInferenceHint::new("y", ScaleTypePreference::Band),
+                ScaleInferenceHint::new("y", ScaleTypePreference::Point),
+            ]);
+
+        let err = configured_scales_for_prepared(&ctx, vec![prepared], HashMap::new())
+            .await
+            .expect_err("conflicting hints should fail");
+        assert!(
+            err.to_string()
+                .contains("Conflicting compound mark scale inference hints"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_scale_type_wins_over_conflicting_scale_hints() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "B"], vec![1.0, 2.0]).unwrap();
+        let mut channels = IndexMap::new();
+        channels.insert(
+            "y".to_string(),
+            ChannelValue::from(col("category")).scale_with::<Point>(|scale| scale),
+        );
+        let mark = Arc::new(TestCompiledMark::new(data.clone(), channels.clone()))
+            as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new())
+            .with_scale_inference_hints(vec![
+                ScaleInferenceHint::new("y", ScaleTypePreference::Band),
+                ScaleInferenceHint::new("y", ScaleTypePreference::Point),
+            ]);
+
+        let scales = configured_scales_for_prepared(&ctx, vec![prepared], HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(
+            scales
+                .get("y")
+                .expect("y scale")
+                .configured()
+                .scale_impl
+                .scale_type(),
+            "point"
+        );
     }
 
     #[tokio::test]

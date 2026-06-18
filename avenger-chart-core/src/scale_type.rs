@@ -1,7 +1,8 @@
 use avenger_scales::scales::{RangeKind, ScaleImpl};
 use datafusion::arrow::datatypes::DataType;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ScaleTypePreference {
     Linear,
     Log,
@@ -16,6 +17,22 @@ pub enum ScaleTypePreference {
     Threshold,
     Quantile,
     Quantize,
+}
+
+/// Internal scale inference override supplied by compound marks.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ScaleInferenceHint {
+    pub scale_name: String,
+    pub preference: ScaleTypePreference,
+}
+
+impl ScaleInferenceHint {
+    pub fn new(scale_name: impl Into<String>, preference: ScaleTypePreference) -> Self {
+        Self {
+            scale_name: scale_name.into(),
+            preference,
+        }
+    }
 }
 
 /// Check if a scale represents a continuous scale based on its range kind.
@@ -53,5 +70,24 @@ pub fn default_scale_type_for_data_type(data_type: &DataType) -> Option<ScaleTyp
         | DataType::UInt64 => Some(ScaleTypePreference::Linear),
         // Default to None for unknown types
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scale_inference_hint_round_trips() {
+        let hint = ScaleInferenceHint::new("y", ScaleTypePreference::Band);
+        let json = serde_json::to_string(&hint).expect("serialize json");
+        let restored_json: ScaleInferenceHint =
+            serde_json::from_str(&json).expect("deserialize json");
+        assert_eq!(restored_json, hint);
+
+        let bytes = bincode::serialize(&hint).expect("serialize bincode");
+        let restored_bincode: ScaleInferenceHint =
+            bincode::deserialize(&bytes).expect("deserialize bincode");
+        assert_eq!(restored_bincode, hint);
     }
 }

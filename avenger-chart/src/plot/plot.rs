@@ -16,9 +16,9 @@ use avenger_chart_core::{
     CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
     CoordinationScope, DataContext, DomainCoordination, DomainCoordinationGroup, IntoExpr,
     IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param, PlotMark,
-    PlotMarkKind, RepeatContext, RepeatDomainCoordination, RepeatVariable, SceneGeometryTarget,
-    Selection, SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme,
-    TimeContext, compile_selections, validate_structural_id,
+    PlotMarkKind, RepeatContext, RepeatDomainCoordination, RepeatVariable, ScaleInferenceHint,
+    SceneGeometryTarget, Selection, SelectionSceneQuery, SelectionUpdate, Store,
+    SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -1169,6 +1169,7 @@ where
 struct AuthoringMarkGroupState {
     id: Option<String>,
     parent_group_index: Option<usize>,
+    scale_inference_hints: Vec<ScaleInferenceHint>,
     data: DataContext,
     data_mode: MarkDataMode,
     facet_data_scope: avenger_chart_core::FacetDataScope,
@@ -1314,6 +1315,7 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                 flat.group_states.push(AuthoringMarkGroupState {
                     id: group.id_ref().map(ToString::to_string),
                     parent_group_index,
+                    scale_inference_hints: group.scale_inference_hints().to_vec(),
                     data: group.data_context().resolve_repeat(repeat_context)?,
                     data_mode: group.data_mode(),
                     facet_data_scope: group.facet_data_scope_value(),
@@ -1471,6 +1473,7 @@ fn compile_mark_group_states(
             super::compiled::CompiledMarkGroupState {
                 id: group.id.clone(),
                 parent_group_index: group.parent_group_index,
+                scale_inference_hints: group.scale_inference_hints.clone(),
                 data,
                 data_mode: group.data_mode,
                 facet_data_scope: group.facet_data_scope,
@@ -1866,9 +1869,10 @@ mod tests {
         DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
         DefaultLogicalExprNodeExt, DomainCoordinationGroup, IntoPlotMark, MarkGroup, PlotMark,
         RepeatContext, RepeatDomainCoordination, RepeatVariable, ResolvedRepeatVariable,
-        ScaleChannelConfig, SceneGeometryQuery, SelectionClauseUpdate, SelectionPredicateUpdate,
-        SelectionSceneQuery, SelectionUpdate, StoreRow, StoreUpdate, SubplotDataSource,
-        collect_repeat_placeholder_kinds, repeat, simplify_to_scalar_sync,
+        ScaleChannelConfig, ScaleInferenceHint, ScaleTypePreference, SceneGeometryQuery,
+        SelectionClauseUpdate, SelectionPredicateUpdate, SelectionSceneQuery, SelectionUpdate,
+        StoreRow, StoreUpdate, SubplotDataSource, collect_repeat_placeholder_kinds, repeat,
+        simplify_to_scalar_sync,
     };
     use avenger_chart_marks::{Rect, Subplot, Symbol};
     use avenger_chart_tools::PanScrollZoom;
@@ -2412,17 +2416,85 @@ mod tests {
         let compiled = Plot::<Cartesian>::new()
             .mark(
                 MarkGroup::new()
+                    .id("outer")
+                    .with_scale_inference_hint(ScaleInferenceHint::new(
+                        "x",
+                        ScaleTypePreference::Point,
+                    ))
+                    .mark(
+                        MarkGroup::new()
+                            .id("inner")
+                            .with_scale_inference_hint(ScaleInferenceHint::new(
+                                "y",
+                                ScaleTypePreference::Band,
+                            ))
+                            .mark(Symbol::new().id("leaf").x(lit(1.0)).y(lit(1.0))),
+                    ),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        assert_eq!(
+            compiled.scale_inference_hints_for_mark(0).expect("hints"),
+            vec![
+                ScaleInferenceHint::new("x", ScaleTypePreference::Point),
+                ScaleInferenceHint::new("y", ScaleTypePreference::Band),
+            ]
+        );
+        let bytes = bincode::serialize(&compiled).expect("serialize");
+        let restored: CompiledPlot = bincode::deserialize(&bytes).expect("deserialize");
+        assert_eq!(restored.mark_groups.len(), 2);
+        assert_eq!(restored.mark_groups[0].id.as_deref(), Some("outer"));
+        assert_eq!(
+            restored.mark_groups[0].scale_inference_hints,
+            vec![ScaleInferenceHint::new("x", ScaleTypePreference::Point)]
+        );
+        assert_eq!(restored.mark_groups[1].id.as_deref(), Some("inner"));
+        assert_eq!(restored.mark_groups[1].parent_group_index, Some(0));
+        assert_eq!(
+            restored.mark_groups[1].scale_inference_hints,
+            vec![ScaleInferenceHint::new("y", ScaleTypePreference::Band)]
+        );
+        assert_eq!(restored.mark_group_index_by_mark, vec![Some(1)]);
+        assert_eq!(
+            restored.scale_inference_hints_for_mark(0).expect("hints"),
+            vec![
+                ScaleInferenceHint::new("x", ScaleTypePreference::Point),
+                ScaleInferenceHint::new("y", ScaleTypePreference::Band),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn compiled_plot_serializes_single_mark_group_metadata() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                MarkGroup::new()
                     .id("group")
+                    .with_scale_inference_hint(ScaleInferenceHint::new(
+                        "y",
+                        ScaleTypePreference::Band,
+                    ))
                     .mark(Symbol::new().id("leaf").x(lit(1.0)).y(lit(1.0))),
             )
             .compile(&ctx)
             .await
             .expect("compile");
 
+        assert_eq!(
+            compiled.scale_inference_hints_for_mark(0).expect("hints"),
+            vec![ScaleInferenceHint::new("y", ScaleTypePreference::Band)]
+        );
         let bytes = bincode::serialize(&compiled).expect("serialize");
         let restored: CompiledPlot = bincode::deserialize(&bytes).expect("deserialize");
         assert_eq!(restored.mark_groups.len(), 1);
         assert_eq!(restored.mark_groups[0].id.as_deref(), Some("group"));
+        assert_eq!(
+            restored.mark_groups[0].scale_inference_hints,
+            vec![ScaleInferenceHint::new("y", ScaleTypePreference::Band)]
+        );
         assert_eq!(restored.mark_group_index_by_mark, vec![Some(0)]);
     }
 

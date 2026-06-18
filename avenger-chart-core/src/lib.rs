@@ -224,7 +224,9 @@ pub use scale_range_binding::{
     PlotAreaDimension, PlotAreaRangeEndpoint, PlotAreaRangeExpr, ScaleRangeBinding,
 };
 pub use scale_spec::{Auto, ScaleSpec};
-pub use scale_type::{ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale};
+pub use scale_type::{
+    ScaleInferenceHint, ScaleTypePreference, default_scale_type_for_data_type, is_continuous_scale,
+};
 pub use scene_query::{
     SceneGeometryCoordinateSpace, SceneGeometryHitPolicy, SceneGeometryQuery,
     SceneGeometryQueryGeometry, SceneGeometryTarget, SceneQueryClauseId, SceneQueryDatumField,

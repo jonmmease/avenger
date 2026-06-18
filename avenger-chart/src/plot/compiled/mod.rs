@@ -44,8 +44,9 @@ use avenger_chart_core::{
     CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot,
     CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
     EvaluationContext as CoreEvaluationContext, FacetDataScope, Legend, LogicalPlanNodeExt,
-    MarkDataMode, ScaleRangeBinding, SerializableDataFrame, SerializableDataType,
-    SerializableScalarMap, Theme, TimeContext, ToolMetadata, channel::strip_trailing_numbers,
+    MarkDataMode, ScaleInferenceHint, ScaleRangeBinding, SerializableDataFrame,
+    SerializableDataType, SerializableScalarMap, Theme, TimeContext, ToolMetadata,
+    channel::strip_trailing_numbers,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
@@ -137,6 +138,8 @@ pub(crate) struct CompiledMarkGroupState {
     pub(crate) id: Option<String>,
     #[serde(default)]
     pub(crate) parent_group_index: Option<usize>,
+    #[serde(default)]
+    pub(crate) scale_inference_hints: Vec<ScaleInferenceHint>,
     #[serde(default)]
     pub(crate) data: CompiledDataContext,
     #[serde(default)]
@@ -274,6 +277,35 @@ impl CompiledPlot {
             .get(mark_index)
             .copied()
             .flatten()
+    }
+
+    pub(crate) fn scale_inference_hints_for_mark(
+        &self,
+        mark_index: usize,
+    ) -> Result<Vec<ScaleInferenceHint>, AvengerChartError> {
+        let Some(mut group_index) = self.mark_group_index_for_mark(mark_index) else {
+            return Ok(Vec::new());
+        };
+        let mut ancestry = Vec::new();
+        loop {
+            let group = self.mark_groups.get(group_index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Compiled mark group index {group_index} is out of bounds"
+                ))
+            })?;
+            ancestry.push(group_index);
+            if let Some(parent_index) = group.parent_group_index {
+                group_index = parent_index;
+            } else {
+                break;
+            }
+        }
+        ancestry.reverse();
+        let mut hints = Vec::new();
+        for group_index in ancestry {
+            hints.extend(self.mark_groups[group_index].scale_inference_hints.clone());
+        }
+        Ok(hints)
     }
 
     pub(crate) async fn prepare_mark_group_base_data(
@@ -828,6 +860,8 @@ async fn collect_event_coord_types_from_marks(
         };
         let mark_df = prepared.domain_dataframe.as_ref();
         let channels = &prepared.domain_channels;
+        let scale_inference_hints =
+            plot.scale_inference_hints_for_mark(mark.state().mark_index())?;
 
         for channel in invertible {
             if out.contains_key(*channel) {
@@ -840,6 +874,7 @@ async fn collect_event_coord_types_from_marks(
                 mark_df,
                 ctx,
                 channel,
+                &scale_inference_hints,
             )?
             else {
                 continue;
@@ -858,6 +893,7 @@ fn infer_event_coord_type_for_channel(
     dataframe: Option<&DataFrame>,
     ctx: &SessionContext,
     target_channel: &str,
+    scale_inference_hints: &[ScaleInferenceHint],
 ) -> Result<Option<DataType>, AvengerChartError> {
     for (channel_name, channel_value) in channels {
         if !channel_maps_to_event_coord_scale(
@@ -873,7 +909,16 @@ fn infer_event_coord_type_for_channel(
             continue;
         };
         let preferred = mark.preferred_scale_type(channel_name, &input_type);
+        let hinted_preference = scale_inference_hints
+            .iter()
+            .find(|hint| hint.scale_name == target_channel)
+            .map(|hint| hint.preference);
         let is_categorical_coord = matches!(
+            hinted_preference,
+            Some(avenger_chart_core::ScaleTypePreference::Band)
+                | Some(avenger_chart_core::ScaleTypePreference::Point)
+                | Some(avenger_chart_core::ScaleTypePreference::NestedBand)
+        ) || matches!(
             preferred,
             Some(avenger_chart_core::ScaleTypePreference::Band)
                 | Some(avenger_chart_core::ScaleTypePreference::Point)

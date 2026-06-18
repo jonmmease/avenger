@@ -68,7 +68,8 @@ async fn prepare_scale_mark_for_plot(
         prepared.domain_dataframe,
         prepared.domain_channels,
         prepared.derived_scalars,
-    ))
+    )
+    .with_scale_inference_hints(plot.scale_inference_hints_for_mark(mark.state().mark_index())?))
 }
 
 #[cfg(test)]
