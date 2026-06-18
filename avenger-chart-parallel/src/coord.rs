@@ -25,6 +25,9 @@ pub const PARALLEL_DIMENSION_CHANNEL_PREFIX: &str = "__avenger_parallel_dim_";
 /// Hidden event-coordinate channel for local plot-area x pixels.
 pub const PARALLEL_LOCAL_X_CHANNEL: &str = "__avenger_parallel_local_x";
 
+/// Hidden event-coordinate channel for local plot-area y pixels.
+pub const PARALLEL_LOCAL_Y_CHANNEL: &str = "__avenger_parallel_local_y";
+
 /// Position-channel configuration for a parallel-coordinate dimension.
 pub type ParallelDimensionConfig = GenericPositionConfig<ParallelAxis>;
 
@@ -264,7 +267,7 @@ impl CoordinateSystemTransformCore for ParallelTransform {
     }
 
     fn channel_uses_scale(&self, channel: &str) -> bool {
-        self.dimension_for_channel(channel).is_some()
+        !matches!(channel, PARALLEL_LOCAL_X_CHANNEL | PARALLEL_LOCAL_Y_CHANNEL)
     }
 
     fn is_position_scale_channel(&self, channel: &str) -> bool {
@@ -344,8 +347,9 @@ impl CoordinateSystemTransformCore for ParallelTransform {
     }
 
     fn interaction_invertible_channels(&self) -> Vec<String> {
-        let mut channels = Vec::with_capacity(self.dimensions.len() + 1);
+        let mut channels = Vec::with_capacity(self.dimensions.len() + 2);
         channels.push(PARALLEL_LOCAL_X_CHANNEL.to_string());
+        channels.push(PARALLEL_LOCAL_Y_CHANNEL.to_string());
         channels.extend(self.ordered_dimensions().into_iter().map(|d| d.id.clone()));
         channels
     }
@@ -360,6 +364,13 @@ impl CoordinateSystemTransformCore for ParallelTransform {
                 inverted.insert(
                     (*channel).to_string(),
                     ScalarValue::Float64(Some(request.local_point[0] as f64)),
+                );
+                continue;
+            }
+            if *channel == PARALLEL_LOCAL_Y_CHANNEL {
+                inverted.insert(
+                    (*channel).to_string(),
+                    ScalarValue::Float64(Some(request.local_point[1] as f64)),
                 );
                 continue;
             }
@@ -428,7 +439,7 @@ impl CoordinateSystemTransform for ParallelTransform {
 
 fn validate_dimension_id(id: &str) -> Result<(), AvengerChartError> {
     validate_structural_id("parallel dimension", id)?;
-    if id == PARALLEL_LOCAL_X_CHANNEL {
+    if id == PARALLEL_LOCAL_X_CHANNEL || id == PARALLEL_LOCAL_Y_CHANNEL {
         return Err(AvengerChartError::InvalidArgument(format!(
             "Invalid parallel dimension id '{id}': id is reserved for interaction readback"
         )));
@@ -593,6 +604,9 @@ mod tests {
             .dimension("mpg", col("mpg"))
             .create_transform();
         assert!(transform.channel_uses_scale(&generated_dimension_channel("mpg")));
+        assert!(transform.channel_uses_scale("stroke"));
+        assert!(!transform.channel_uses_scale(PARALLEL_LOCAL_X_CHANNEL));
+        assert!(!transform.channel_uses_scale(PARALLEL_LOCAL_Y_CHANNEL));
         assert!(transform.is_position_scale_channel(&generated_dimension_channel("mpg")));
         assert!(transform.is_position_scale_channel("mpg"));
         assert!(transform.default_range_binding("mpg").is_some());
@@ -610,6 +624,7 @@ mod tests {
             transform.interaction_invertible_channels(),
             vec![
                 PARALLEL_LOCAL_X_CHANNEL.to_string(),
+                PARALLEL_LOCAL_Y_CHANNEL.to_string(),
                 "weight".to_string(),
                 "mpg".to_string()
             ]
@@ -632,7 +647,7 @@ mod tests {
                 local_point: [32.0, 50.0],
                 plot_area_width: 300.0,
                 plot_area_height: 200.0,
-                channels: &[PARALLEL_LOCAL_X_CHANNEL, "mpg"],
+                channels: &[PARALLEL_LOCAL_X_CHANNEL, PARALLEL_LOCAL_Y_CHANNEL, "mpg"],
                 scales: &scales,
             })
             .expect("invert parallel interaction point");
@@ -640,6 +655,10 @@ mod tests {
         match inverted.get(PARALLEL_LOCAL_X_CHANNEL) {
             Some(ScalarValue::Float64(Some(value))) => assert!((value - 32.0).abs() < 1e-6),
             other => panic!("expected local x=32, got {other:?}"),
+        }
+        match inverted.get(PARALLEL_LOCAL_Y_CHANNEL) {
+            Some(ScalarValue::Float64(Some(value))) => assert!((value - 50.0).abs() < 1e-6),
+            other => panic!("expected local y=50, got {other:?}"),
         }
         match inverted.get("mpg") {
             Some(ScalarValue::Float64(Some(value))) => assert!((value - 30.0).abs() < 1e-6),

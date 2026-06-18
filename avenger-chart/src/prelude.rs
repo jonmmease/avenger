@@ -46,8 +46,8 @@ pub use avenger_chart_core::{
     SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField,
 };
 pub use avenger_chart_parallel::{
-    PARALLEL_LOCAL_X_CHANNEL, Parallel, ParallelAxis, ParallelDimensionConfig,
-    ParallelDimensionSpec, ParallelGuide, ParallelLine, ParallelTransform,
+    PARALLEL_LOCAL_X_CHANNEL, PARALLEL_LOCAL_Y_CHANNEL, Parallel, ParallelAxis,
+    ParallelDimensionConfig, ParallelDimensionSpec, ParallelGuide, ParallelLine, ParallelTransform,
 };
 pub use avenger_chart_polar::Polar;
 

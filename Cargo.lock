@@ -564,6 +564,7 @@ dependencies = [
  "avenger-app",
  "avenger-chart",
  "avenger-chart-core",
+ "avenger-color",
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",
@@ -575,9 +576,11 @@ dependencies = [
  "env_logger 0.10.2",
  "indexmap 2.9.0",
  "log",
+ "serde",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "typetag",
  "winit",
 ]
 

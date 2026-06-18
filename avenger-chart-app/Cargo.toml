@@ -13,6 +13,7 @@ winit-wgpu = [
 
 [dependencies]
 avenger-app = { path = "../avenger-app" }
+avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-core = { path = "../avenger-chart-core" }
@@ -27,8 +28,10 @@ datafusion = { workspace = true }
 datafusion-proto = "48.0.1"
 indexmap = { workspace = true }
 log = { workspace = true }
+serde = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync"] }
 tracing = { workspace = true }
+typetag = "0.2"
 winit = { workspace = true, optional = true }
 
 [dev-dependencies]
