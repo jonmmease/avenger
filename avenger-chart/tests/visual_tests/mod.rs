@@ -9,6 +9,7 @@ pub mod test_axis_guide_visibility_policy;
 pub mod test_bar;
 pub mod test_bar_defaults;
 pub mod test_bar_scale_color;
+pub mod test_box_plot;
 pub mod test_box_zoom_tool;
 pub mod test_cartesian_mark_channels;
 pub mod test_cartesian_scene_marks;
