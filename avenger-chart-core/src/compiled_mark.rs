@@ -22,6 +22,7 @@ use crate::{
 pub struct RenderedMarkData {
     pub marks: Vec<SceneMark>,
     pub source_row_indices: Option<Vec<Vec<usize>>>,
+    pub event_datum_rows: Option<Vec<RecordBatch>>,
 }
 
 impl RenderedMarkData {
@@ -29,6 +30,7 @@ impl RenderedMarkData {
         Self {
             marks,
             source_row_indices: None,
+            event_datum_rows: None,
         }
     }
 
@@ -39,6 +41,19 @@ impl RenderedMarkData {
         Self {
             marks,
             source_row_indices: Some(source_row_indices),
+            event_datum_rows: None,
+        }
+    }
+
+    pub fn with_source_row_indices_and_event_datum_rows(
+        marks: Vec<SceneMark>,
+        source_row_indices: Vec<Vec<usize>>,
+        event_datum_rows: Vec<RecordBatch>,
+    ) -> Self {
+        Self {
+            marks,
+            source_row_indices: Some(source_row_indices),
+            event_datum_rows: Some(event_datum_rows),
         }
     }
 }

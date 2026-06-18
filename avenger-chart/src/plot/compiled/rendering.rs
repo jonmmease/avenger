@@ -1,14 +1,15 @@
 //! Rendering pipeline for CompiledPlot
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
     time::Instant,
 };
 
 use arrow::{
-    array::{Float32Array, Float64Array, UInt32Array},
+    array::{ArrayRef, Float32Array, Float64Array, UInt32Array},
     compute::take,
+    datatypes::Schema,
     record_batch::RecordBatch,
 };
 use avenger_color::ColorOrGradient;
@@ -264,34 +265,105 @@ fn offset_flat_event_datum_rows(
 }
 
 fn event_datum_rows_for_rendered_marks(
-    rows: &RecordBatch,
+    source_rows: Option<&RecordBatch>,
     mark_count: usize,
     source_row_indices: Option<Vec<Vec<usize>>>,
+    generated_rows: Option<Vec<RecordBatch>>,
 ) -> Result<Vec<EvaluatedEventDatumRows>, AvengerChartError> {
-    let batches = if let Some(source_row_indices) = source_row_indices {
-        if source_row_indices.len() != mark_count {
-            return Err(AvengerChartError::InternalError(format!(
-                "rendered mark source row index count {} did not match scene mark count {mark_count}",
-                source_row_indices.len()
-            )));
-        }
-        source_row_indices
-            .iter()
-            .map(|indices| gather_record_batch_rows(rows, indices))
-            .collect::<Result<Vec<_>, _>>()?
+    let source_batches = if let Some(rows) = source_rows {
+        let batches = if let Some(source_row_indices) = source_row_indices {
+            if source_row_indices.len() != mark_count {
+                return Err(AvengerChartError::InternalError(format!(
+                    "rendered mark source row index count {} did not match scene mark count {mark_count}",
+                    source_row_indices.len()
+                )));
+            }
+            source_row_indices
+                .iter()
+                .map(|indices| gather_record_batch_rows(rows, indices))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            (0..mark_count).map(|_| rows.clone()).collect()
+        };
+        Some(batches)
     } else {
-        (0..mark_count).map(|_| rows.clone()).collect()
+        None
     };
 
-    Ok(batches
-        .into_iter()
-        .enumerate()
-        .map(|(mark_index, rows)| EvaluatedEventDatumRows {
+    if let Some(generated_rows) = generated_rows.as_ref()
+        && generated_rows.len() != mark_count
+    {
+        return Err(AvengerChartError::InternalError(format!(
+            "rendered mark generated event datum row count {} did not match scene mark count {mark_count}",
+            generated_rows.len()
+        )));
+    }
+
+    if source_batches.is_none() && generated_rows.is_none() {
+        return Ok(Vec::new());
+    }
+
+    let mut rows = Vec::with_capacity(mark_count);
+    for mark_index in 0..mark_count {
+        let source = source_batches
+            .as_ref()
+            .and_then(|batches| batches.get(mark_index));
+        let generated = generated_rows
+            .as_ref()
+            .and_then(|batches| batches.get(mark_index));
+        let Some(batch) = merge_event_datum_batches(source, generated)? else {
+            continue;
+        };
+        rows.push(EvaluatedEventDatumRows {
             mark_path: vec![mark_index],
             subplot_id_path: Vec::new(),
-            rows,
-        })
-        .collect())
+            rows: batch,
+        });
+    }
+    Ok(rows)
+}
+
+fn merge_event_datum_batches(
+    source: Option<&RecordBatch>,
+    generated: Option<&RecordBatch>,
+) -> Result<Option<RecordBatch>, AvengerChartError> {
+    let Some(generated) = generated else {
+        return Ok(source.cloned());
+    };
+    let Some(source) = source else {
+        return Ok(Some(generated.clone()));
+    };
+    if source.num_rows() != generated.num_rows() {
+        return Err(AvengerChartError::InternalError(format!(
+            "source event datum row count {} did not match generated event datum row count {}",
+            source.num_rows(),
+            generated.num_rows()
+        )));
+    }
+
+    let generated_schema = generated.schema();
+    let generated_names = generated_schema
+        .fields()
+        .iter()
+        .map(|field| field.name().as_str())
+        .collect::<HashSet<_>>();
+    let mut fields = Vec::new();
+    let mut columns: Vec<ArrayRef> = Vec::new();
+    for (field, column) in source.schema().fields().iter().zip(source.columns()) {
+        if generated_names.contains(field.name().as_str()) {
+            continue;
+        }
+        fields.push(field.as_ref().clone());
+        columns.push(column.clone());
+    }
+    for (field, column) in generated_schema.fields().iter().zip(generated.columns()) {
+        fields.push(field.as_ref().clone());
+        columns.push(column.clone());
+    }
+
+    RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)
+        .map(Some)
+        .map_err(AvengerChartError::ArrowError)
 }
 
 fn gather_record_batch_rows(
@@ -1998,11 +2070,14 @@ impl CompiledPlot {
         }
         let event_datums = prepared
             .event_datum_batch
-            .map(|rows| {
-                event_datum_rows_for_rendered_marks(&rows, marks.len(), rendered.source_row_indices)
-            })
-            .transpose()?
-            .unwrap_or_default();
+            .as_ref()
+            .map(|rows| rows as &RecordBatch);
+        let event_datums = event_datum_rows_for_rendered_marks(
+            event_datums,
+            marks.len(),
+            rendered.source_row_indices,
+            rendered.event_datum_rows,
+        )?;
         Ok(RenderedMarkOutput {
             marks,
             event_datums,
@@ -6914,7 +6989,7 @@ mod tests {
     use avenger_chart_polar::PolarSubplotPositionChannels;
     use datafusion::{
         arrow::{
-            array::{Float64Array, StringArray},
+            array::{Float64Array, Int64Array, StringArray},
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
         },
@@ -6949,7 +7024,12 @@ mod tests {
             vec![Arc::new(StringArray::from(vec!["A", "B", "C"]))],
         )?;
 
-        let rows = event_datum_rows_for_rendered_marks(&batch, 2, Some(vec![vec![0, 2], vec![1]]))?;
+        let rows = event_datum_rows_for_rendered_marks(
+            Some(&batch),
+            2,
+            Some(vec![vec![0, 2], vec![1]]),
+            None,
+        )?;
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].mark_path, vec![0]);
         assert_eq!(rows[1].mark_path, vec![1]);
@@ -6972,6 +7052,56 @@ mod tests {
             .downcast_ref::<StringArray>()
             .expect("string group");
         assert_eq!(second.value(0), "B");
+        Ok(())
+    }
+
+    #[test]
+    fn event_datum_rows_for_rendered_marks_merges_generated_rows() -> Result<(), AvengerChartError>
+    {
+        let source = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "group",
+                DataType::Utf8,
+                false,
+            )])),
+            vec![Arc::new(StringArray::from(vec!["A", "B", "C"]))],
+        )?;
+        let generated = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "dimension_index",
+                DataType::Int64,
+                false,
+            )])),
+            vec![Arc::new(Int64Array::from(vec![7, 7]))],
+        )?;
+
+        let rows = event_datum_rows_for_rendered_marks(
+            Some(&source),
+            1,
+            Some(vec![vec![2, 0]]),
+            Some(vec![generated]),
+        )?;
+        assert_eq!(rows.len(), 1);
+
+        let groups = rows[0]
+            .rows
+            .column_by_name("group")
+            .expect("group column")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("string group");
+        assert_eq!(groups.value(0), "C");
+        assert_eq!(groups.value(1), "A");
+
+        let dimension_indices = rows[0]
+            .rows
+            .column_by_name("dimension_index")
+            .expect("dimension index column")
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("int64 dimension index");
+        assert_eq!(dimension_indices.value(0), 7);
+        assert_eq!(dimension_indices.value(1), 7);
         Ok(())
     }
 

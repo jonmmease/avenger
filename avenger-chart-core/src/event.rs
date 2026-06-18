@@ -87,6 +87,7 @@ pub const LEGEND_VALUE_CHANNEL_FIELD: &str = "__legend_value_channel";
 pub const LEGEND_BAND_CHANNEL_FIELD: &str = "__legend_band_channel";
 pub const PARALLEL_SURFACE_KIND_FIELD: &str = "__parallel_surface_kind";
 pub const PARALLEL_SURFACE_KIND_DIMENSION_TITLE: &str = "dimension-title";
+pub const PARALLEL_SURFACE_KIND_POINT: &str = "point";
 pub const PARALLEL_DIMENSION_ID_FIELD: &str = "__parallel_dimension_id";
 pub const PARALLEL_SCALE_NAME_FIELD: &str = "__parallel_scale_name";
 pub const PARALLEL_TITLE_FIELD: &str = "__parallel_title";

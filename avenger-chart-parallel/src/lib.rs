@@ -6,6 +6,7 @@ mod coord;
 mod frame;
 mod guide;
 mod line;
+mod symbol;
 
 pub use axis::ParallelAxis;
 pub use axis_overlay::{CompiledParallelAxisOverlay, ParallelAxisOverlay};
@@ -19,3 +20,4 @@ pub use frame::{
 };
 pub use guide::{CompiledParallelGuide, ParallelAxisGuideDatum, ParallelGuide};
 pub use line::{CompiledParallelLine, ParallelLine};
+pub use symbol::{CompiledParallelSymbol, ParallelSymbol};
