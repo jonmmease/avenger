@@ -7,6 +7,7 @@ use avenger_chart_core::{
 };
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
+use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_guides::axis::{
     band::make_band_axis_marks,
     numeric::make_numeric_axis_marks,
@@ -17,7 +18,10 @@ use avenger_scales::scales::{ConfiguredScale, DomainKind, band::BandScale};
 use avenger_scenegraph::marks::{
     group::Clip, mark::SceneMark, rect::SceneRectMark, text::SceneTextMark,
 };
-use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+use avenger_text::{
+    measurement::{TextMeasurementConfig, TextMeasurer, default_text_measurer},
+    types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
+};
 use datafusion::{
     common::ScalarValue, dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext,
 };
@@ -29,6 +33,10 @@ use crate::frame::{
     ParallelFrameDimension, resolve_display_state, resolve_order_state,
     resolve_parallel_frame_dimensions,
 };
+
+const TITLE_FONT_SIZE: f32 = 12.0;
+const TITLE_Y_OFFSET: f32 = -12.0;
+const MIN_TITLE_OVERFLOW_TOP: f32 = 34.0;
 
 /// Parallel-coordinate guide configuration.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -168,20 +176,17 @@ impl CompiledParallelGuide {
 impl CompiledGuide for CompiledParallelGuide {
     async fn measure_overflow(
         &self,
-        _scales: &HashMap<String, ConfiguredScale>,
-        _plot_width: f32,
-        _plot_height: f32,
-        _theme: &Theme,
-        _params: &IndexMap<String, ScalarValue>,
+        scales: &HashMap<String, ConfiguredScale>,
+        plot_width: f32,
+        plot_height: f32,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
         _data_override: Option<&DataFrame>,
-        _ctx: &SessionContext,
+        ctx: &SessionContext,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        Ok(OverflowSpaceRequirement {
-            top: if self.axes.is_empty() { 0.0 } else { 34.0 },
-            ..OverflowSpaceRequirement::default()
-        })
+        measure_parallel_guide_overflow(self, scales, plot_width, plot_height, theme, params, ctx)
     }
 
     async fn evaluate(
@@ -267,13 +272,13 @@ impl CompiledGuide for CompiledParallelGuide {
             len: count as u32,
             text: ScalarOrArray::from(titles),
             x: ScalarOrArray::from(xs.iter().map(|x| plot_bounds.x + *x).collect::<Vec<_>>()),
-            y: ScalarOrArray::new_scalar(plot_bounds.y - 12.0),
+            y: ScalarOrArray::new_scalar(plot_bounds.y + TITLE_Y_OFFSET),
             align: ScalarOrArray::new_scalar(TextAlign::Center),
             baseline: ScalarOrArray::new_scalar(TextBaseline::Bottom),
             angle: ScalarOrArray::new_scalar(0.0),
             color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.12, 0.12, 0.12, 1.0])),
             font: ScalarOrArray::new_scalar("sans-serif".to_string()),
-            font_size: ScalarOrArray::new_scalar(12.0),
+            font_size: ScalarOrArray::new_scalar(TITLE_FONT_SIZE),
             font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Normal)),
             font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
             limit: ScalarOrArray::new_scalar(0.0),
@@ -297,6 +302,92 @@ impl CompiledGuide for CompiledParallelGuide {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+fn measure_parallel_guide_overflow(
+    guide: &CompiledParallelGuide,
+    scales: &HashMap<String, ConfiguredScale>,
+    plot_width: f32,
+    plot_height: f32,
+    theme: &Theme,
+    params: &IndexMap<String, ScalarValue>,
+    ctx: &SessionContext,
+) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+    let datums = guide.axis_guide_datums(plot_width, params, ctx)?;
+    if datums.is_empty() {
+        return Ok(OverflowSpaceRequirement::default());
+    }
+
+    let mut min_x = 0.0_f32;
+    let mut max_x = plot_width;
+    let mut min_y = 0.0_f32;
+    let mut max_y = plot_height;
+
+    for datum in &datums {
+        let scale = scales.get(&datum.scale_name).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Missing configured scale for parallel axis '{}'",
+                datum.scale_name
+            ))
+        })?;
+        let axis_mark = make_axis_mark(
+            scale,
+            datum.display_x,
+            0.0,
+            plot_width,
+            plot_height,
+            theme,
+            params,
+        )?;
+        let bbox = axis_mark.bounding_box();
+        let lower = bbox.lower();
+        let upper = bbox.upper();
+        min_x = min_x.min(lower[0]);
+        max_x = max_x.max(upper[0]);
+        min_y = min_y.min(lower[1]);
+        max_y = max_y.max(upper[1]);
+    }
+
+    measure_parallel_axis_titles(&datums, &mut min_x, &mut max_x, &mut min_y, &mut max_y);
+
+    Ok(OverflowSpaceRequirement {
+        top: (0.0 - min_y).max(MIN_TITLE_OVERFLOW_TOP),
+        bottom: (max_y - plot_height).max(0.0),
+        left: (0.0 - min_x).max(0.0),
+        right: (max_x - plot_width).max(0.0),
+    })
+}
+
+fn measure_parallel_axis_titles(
+    datums: &[ParallelAxisGuideDatum],
+    min_x: &mut f32,
+    max_x: &mut f32,
+    min_y: &mut f32,
+    max_y: &mut f32,
+) {
+    let measurer = default_text_measurer();
+    let font_weight = FontWeight::Name(FontWeightNameSpec::Normal);
+    for datum in datums {
+        if datum.title.trim().is_empty() {
+            continue;
+        }
+        let bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+            text: &datum.title,
+            font: "sans-serif",
+            font_size: TITLE_FONT_SIZE,
+            font_weight: &font_weight,
+            font_style: &FontStyle::Normal,
+        });
+        let origin = bounds.calculate_origin(
+            [datum.display_x, TITLE_Y_OFFSET],
+            &TextAlign::Center,
+            &TextBaseline::Bottom,
+        );
+        *min_x = (*min_x).min(origin[0]);
+        *max_x = (*max_x).max(origin[0] + bounds.width);
+        *min_y = (*min_y).min(origin[1]);
+        *max_y = (*max_y).max(origin[1] + bounds.height);
     }
 }
 

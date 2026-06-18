@@ -55,22 +55,37 @@ pub(crate) fn child_frame_domain_sharing_levels_for_plot(
     let mut coordinations = HashMap::new();
     for mark in &plot.marks {
         for (channel, channel_value) in mark.data_context().channels() {
-            let Some(coordination) = channel_value.get_domain_coordination() else {
-                continue;
-            };
-            let channel = strip_trailing_numbers(channel).to_string();
-            let sharing_level = SharingLevel::from(coordination.scope);
-            coordinations
-                .entry(channel)
-                .and_modify(|existing: &mut DomainCoordination| {
-                    if sharing_level > SharingLevel::from(existing.scope) {
-                        *existing = coordination.clone();
-                    }
-                })
-                .or_insert_with(|| coordination.clone());
+            collect_channel_domain_coordination(&mut coordinations, channel, channel_value);
+        }
+    }
+    for source in &plot.coordinate_scale_sources {
+        for (channel, channel_value) in source.data.channels() {
+            collect_channel_domain_coordination(&mut coordinations, channel, channel_value);
         }
     }
     coordinations
+}
+
+fn collect_channel_domain_coordination(
+    coordinations: &mut HashMap<String, DomainCoordination>,
+    channel: &str,
+    channel_value: &avenger_chart_core::ChannelValue,
+) {
+    let Some(coordination) = channel_value.get_domain_coordination() else {
+        return;
+    };
+    let scale_name = channel_value
+        .get_scale_name(channel)
+        .unwrap_or_else(|| strip_trailing_numbers(channel).to_string());
+    let sharing_level = SharingLevel::from(coordination.scope);
+    coordinations
+        .entry(scale_name)
+        .and_modify(|existing: &mut DomainCoordination| {
+            if sharing_level > SharingLevel::from(existing.scope) {
+                *existing = coordination.clone();
+            }
+        })
+        .or_insert_with(|| coordination.clone());
 }
 
 /// Extract local child-frame domain extents only for channels that request sharing.
@@ -195,10 +210,12 @@ pub(crate) fn coordinated_child_frame_domain_extents(
 mod tests {
     use crate::{
         container::{ChildFrameKey, ContainerPathSegment},
+        prelude::*,
         scales::domain_extent::DomainExtent,
     };
 
     use super::*;
+    use datafusion::prelude::{SessionContext, col};
 
     fn child_scope(
         ancestor: Option<&str>,
@@ -277,6 +294,35 @@ mod tests {
         let coordinated = coordinated_child_frame_domain_extents(&inputs);
 
         assert_eq!(coordinated, vec![HashMap::new()]);
+    }
+
+    #[tokio::test]
+    async fn child_frame_domain_sharing_levels_include_coordinate_scale_sources()
+    -> Result<(), avenger_chart_core::AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("mpg", col("mpg"), |dimension| dimension.free_domain())
+                .dimension("origin", col("origin")),
+        )
+        .compile(&ctx)
+        .await?;
+
+        let sharing = child_frame_domain_sharing_levels_for_plot(&compiled);
+
+        assert!(
+            sharing
+                .get("mpg")
+                .map(|coordination| SharingLevel::from(coordination.scope).is_free())
+                .unwrap_or(false)
+        );
+        assert_eq!(
+            sharing.get("origin").map(|coordination| coordination.scope),
+            None,
+            "implicit shared coordinate scales do not need explicit child-frame coordination"
+        );
+        assert!(!sharing.contains_key("__avenger_parallel_dim_mpg"));
+        Ok(())
     }
 
     #[test]

@@ -8,7 +8,9 @@ use avenger_chart_core::{
     AvengerChartError, Axis, ChannelValue, CoordinateScaleSource, CoordinateSystem,
     CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore, DataContext,
     GeneratedPositionSlot, GenericPositionConfig, IntoExpr, PlotAreaRangeEndpoint, PlotGeometry,
-    PointGeometry, PositionConfig, ScaleRangeBinding, ScaleTypePreference, validate_structural_id,
+    PointGeometry, PositionConfig, RepeatContext, ScaleRangeBinding, ScaleTypePreference,
+    repeat_placeholder_kind_from_id, resolve_repeat_channel_value, resolve_repeat_placeholders,
+    validate_structural_id,
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scales::scales::{DomainKind, ScaleImpl};
@@ -53,6 +55,11 @@ pub struct ParallelDimensionSpec {
 }
 
 /// Wide-form parallel-coordinate system.
+///
+/// Dimension ids are stable structural ids used as scale names, order-state
+/// values, guide event datum fields, and axis-overlay targets. Repeat
+/// placeholders are supported in dimension expressions and axis expressions,
+/// but not in dimension ids themselves.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Parallel {
     dimensions: Vec<ParallelDimensionSpec>,
@@ -183,6 +190,48 @@ impl CoordinateSystemCore for Parallel {
         }
 
         Ok(())
+    }
+
+    fn resolve_repeat(&self, ctx: &RepeatContext) -> Result<Self, AvengerChartError> {
+        let dimensions = self
+            .dimensions
+            .iter()
+            .map(|dimension| {
+                let axis = dimension
+                    .axis
+                    .as_ref()
+                    .map(|axis| {
+                        let mapped =
+                            axis.map_exprs(&mut |expr| resolve_repeat_placeholders(expr, ctx))?;
+                        mapped
+                            .as_any()
+                            .downcast_ref::<ParallelAxis>()
+                            .cloned()
+                            .ok_or_else(|| {
+                                AvengerChartError::InternalError(
+                                    "Parallel axis repeat resolution returned non-parallel axis"
+                                        .to_string(),
+                                )
+                            })
+                    })
+                    .transpose()?;
+                Ok(ParallelDimensionSpec {
+                    id: dimension.id.clone(),
+                    generated_channel: dimension.generated_channel.clone(),
+                    channel_value: resolve_repeat_channel_value(
+                        dimension.channel_value.clone(),
+                        ctx,
+                    )?,
+                    axis,
+                })
+            })
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        Ok(Self {
+            dimensions,
+            order: self.order.clone(),
+            order_state: self.order_state.clone(),
+            display_state: self.display_state.clone(),
+        })
     }
 }
 
@@ -516,6 +565,11 @@ impl CoordinateSystemTransform for ParallelTransform {
 }
 
 fn validate_dimension_id(id: &str) -> Result<(), AvengerChartError> {
+    if repeat_placeholder_kind_from_id(id).is_some() {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Invalid parallel dimension id '{id}': dimension ids must be stable structural ids; use a stable id and put repeat placeholders in the dimension expression instead"
+        )));
+    }
     validate_structural_id("parallel dimension", id)?;
     if id == PARALLEL_LOCAL_X_CHANNEL || id == PARALLEL_LOCAL_Y_CHANNEL {
         return Err(AvengerChartError::InvalidArgument(format!(
@@ -533,6 +587,7 @@ fn validate_dimension_id(id: &str) -> Result<(), AvengerChartError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use avenger_chart_core::repeat;
     use avenger_scales::scales::linear::LinearScale;
     use datafusion::{
         arrow::datatypes::DataType,
@@ -619,6 +674,14 @@ mod tests {
                 .to_string()
                 .contains("Invalid")
         );
+    }
+
+    #[test]
+    fn validate_rejects_repeat_placeholder_dimension_ids() {
+        let invalid = Parallel::new().dimension(repeat::column_name(), repeat::column());
+        let err = invalid.validate().unwrap_err().to_string();
+        assert!(err.contains("dimension ids must be stable"), "{err}");
+        assert!(err.contains("dimension expression"), "{err}");
     }
 
     #[test]

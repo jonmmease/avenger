@@ -1,17 +1,30 @@
-use crate::{AvengerChartError, CoordinateGuide, CoordinateScaleSource, CoordinateSystemTransform};
+use crate::{
+    AvengerChartError, CoordinateGuide, CoordinateScaleSource, CoordinateSystemTransform,
+    RepeatContext,
+};
 
 /// Core-safe coordinate-system authoring contract.
 ///
 /// This trait contains only the coordinate-system metadata needed by generic
 /// mark authoring. The top-level chart crate layers guide construction,
 /// serializable transform creation, and layout measurement on top.
-pub trait CoordinateSystemCore: Sized + Send + Sync + 'static {
+pub trait CoordinateSystemCore: Sized + Clone + Send + Sync + 'static {
     /// Get the names of position channels required by this coordinate system.
     fn required_channels(&self) -> &'static [&'static str];
 
     /// Validate coordinate-system authoring state before compilation.
     fn validate(&self) -> Result<(), AvengerChartError> {
         Ok(())
+    }
+
+    /// Resolve repeat placeholders in coordinate-owned authoring state.
+    ///
+    /// Most coordinate systems have no data expressions on the coordinate
+    /// itself and can use the default clone. Coordinates such as parallel
+    /// coordinates own scale-source channel expressions and should override
+    /// this so their runtime transform and coordinate scale sources agree.
+    fn resolve_repeat(&self, _ctx: &RepeatContext) -> Result<Self, AvengerChartError> {
+        Ok(self.clone())
     }
 }
 

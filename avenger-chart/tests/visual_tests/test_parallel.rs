@@ -90,6 +90,108 @@ fn mixed_parallel_data(ctx: &SessionContext) -> datafusion::dataframe::DataFrame
     ctx.read_batch(batch).expect("mixed parallel dataframe")
 }
 
+fn facet_parallel_data(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("panel", DataType::Utf8, false),
+        Field::new("team", DataType::Utf8, false),
+        Field::new("speed", DataType::Float64, false),
+        Field::new("efficiency", DataType::Float64, false),
+        Field::new("stability", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(vec![
+                "low", "low", "low", "low", "high", "high", "high", "high",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "north", "south", "east", "west", "north", "south", "east", "west",
+            ])),
+            Arc::new(Float64Array::from(vec![
+                22.0, 27.0, 31.0, 36.0, 76.0, 83.0, 91.0, 98.0,
+            ])),
+            Arc::new(Float64Array::from(vec![
+                0.31, 0.38, 0.44, 0.50, 0.69, 0.76, 0.83, 0.90,
+            ])),
+            Arc::new(Float64Array::from(vec![
+                42.0, 47.0, 51.0, 55.0, 68.0, 74.0, 81.0, 88.0,
+            ])),
+        ],
+    )
+    .expect("facet parallel test data");
+    ctx.read_batch(batch).expect("facet parallel dataframe")
+}
+
+fn facet_parallel_child(free_domains: bool) -> Plot<Parallel> {
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| {
+            let d = d.scale_with::<Linear>(|s| s).axis(|a| a.title("Speed"));
+            if free_domains {
+                d.free_domain()
+            } else {
+                d.share_domain()
+            }
+        })
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            let d = d
+                .scale_with::<Linear>(|s| s)
+                .axis(|a| a.title("Efficiency"));
+            if free_domains {
+                d.free_domain()
+            } else {
+                d.share_domain()
+            }
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            let d = d.scale_with::<Linear>(|s| s).axis(|a| a.title("Stability"));
+            if free_domains {
+                d.free_domain()
+            } else {
+                d.share_domain()
+            }
+        });
+
+    Plot::with_coord(coord)
+        .mark(
+            ParallelLine::new()
+                .stroke("#64748b")
+                .stroke_width(1.4)
+                .opacity(0.42),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("team"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.75)
+                .size(70.0)
+                .opacity(0.9),
+        )
+}
+
+fn repeat_parallel_cell() -> Plot<Parallel> {
+    let coord = Parallel::new()
+        .dimension_with("metric", repeat::column(), |d| {
+            d.axis(|a| a.title(repeat::column_title()))
+        })
+        .dimension_with("stability", col("stability"), |d| d.axis(|a| a.title("S")));
+
+    Plot::with_coord(coord)
+        .mark(
+            ParallelLine::new()
+                .stroke_with(col("group"), |stroke| stroke.no_legend())
+                .stroke_width(1.5)
+                .opacity(0.42),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.75)
+                .size(70.0)
+                .opacity(0.9),
+        )
+}
+
 #[tokio::test]
 async fn parallel_points_overlay() {
     let ctx = SessionContext::new();
@@ -168,6 +270,77 @@ async fn parallel_points_categorical_axis() {
         None,
         "parallel",
         "parallel_points_categorical_axis",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_facet_shared_domains() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<FacetColumn>::new()
+        .plot_size(260.0, 180.0)
+        .data(facet_parallel_data(&ctx))
+        .mark(Subplot::new(facet_parallel_child(false)).column(col("panel")));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile shared-domain parallel facets");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_facet_shared_domains",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_facet_free_domains() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<FacetColumn>::new()
+        .plot_size(260.0, 180.0)
+        .data(facet_parallel_data(&ctx))
+        .mark(Subplot::new(facet_parallel_child(true)).column(col("panel")));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile free-domain parallel facets");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_facet_free_domains",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_repeat_small_multiples() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<RepeatColumns>::new()
+        .canvas_size(680.0, 330.0)
+        .plot_size(215.0, 180.0)
+        .data(numeric_parallel_data(&ctx))
+        .columns([
+            RepeatVariable::new("speed", col("speed")).title("Speed"),
+            RepeatVariable::new("cost", col("cost")).title("Cost"),
+        ])
+        .cell(repeat_parallel_cell());
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile repeated parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_repeat_small_multiples",
     )
     .await;
 }

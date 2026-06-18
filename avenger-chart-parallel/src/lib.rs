@@ -1,4 +1,8 @@
 //! Parallel coordinates for `avenger-chart`.
+//!
+//! Parallel dimensions own the coordinate axes for their scale sources. Ordinary
+//! mark style channels such as fill, stroke, opacity, and shape continue to use
+//! the normal chart scale and legend pipeline.
 
 mod axis;
 mod axis_overlay;

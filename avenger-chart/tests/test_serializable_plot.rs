@@ -4,7 +4,8 @@ use avenger_chart::cartesian::{CartesianRectPositionChannels, CartesianSymbolPos
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::{CompiledPlot, Plot};
 use avenger_chart::prelude::{
-    Cartesian, CoordinationScope, NestScope, Parallel, ParallelLine, Rect,
+    Cartesian, CoordinationScope, Linear, NestScope, Parallel, ParallelAxisOverlay, ParallelLine,
+    ParallelSymbol, Rect, ScaleChannelConfig,
 };
 use datafusion::prelude::{SessionContext, col, lit};
 
@@ -75,14 +76,35 @@ async fn test_compiled_parallel_plot() {
         |dimension| dimension.axis(|axis| axis.title("Origin")),
     ))
     .data(df)
-    .mark(ParallelLine::new().stroke(col("origin")).opacity(0.6));
+    .mark(
+        ParallelAxisOverlay::new(
+            "mpg",
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .x_with(lit(0.0), |x| {
+                        x.scale_with::<Linear>(|scale| scale.domain((0.0, 1.0)))
+                            .axis(|axis| axis.visible(false))
+                    })
+                    .x2(lit(1.0))
+                    .y_with(lit(20.0), |y| y.axis(|axis| axis.visible(false)))
+                    .y2(lit(30.0))
+                    .fill("rgba(42, 115, 219, 0.18)"),
+            ),
+        )
+        .width_px(24.0),
+    )
+    .mark(ParallelLine::new().stroke(col("origin")).opacity(0.6))
+    .mark(ParallelSymbol::new().fill(col("origin")).size(64.0));
 
     let compiled = plot.compile(&ctx).await.unwrap();
     let json = serde_json::to_string_pretty(&compiled).unwrap();
     let _deserialized: CompiledPlot = serde_json::from_str(&json).unwrap();
 
     assert!(json.contains("ParallelTransform"));
+    assert!(json.contains("CompiledParallelAxisOverlay"));
     assert!(json.contains("CompiledParallelLine"));
+    assert!(json.contains("CompiledParallelSymbol"));
+    assert!(json.contains("compiled_guide"));
     assert!(json.contains("coordinate_scale_sources"));
     assert!(json.contains("__avenger_parallel_dim_mpg"));
 }

@@ -22,7 +22,9 @@ use datafusion::{
 use indexmap::IndexMap;
 use tracing::debug;
 
-use avenger_chart_core::{DomainCoordination, NestedBandSpec};
+use avenger_chart_core::{
+    ChannelValue, CompiledCoordinateScaleSource, DomainCoordination, NestedBandSpec,
+};
 
 pub use crate::partition::{PartitionContent, PartitionNode};
 
@@ -501,7 +503,7 @@ impl EvaluatedFacetTree {
 
         // Extract channel-domain coordination targets from the innermost marks.
         let (channel_domain_coordinations, channel_nested_band_configs) =
-            extract_channel_domain_metadata(&plot.marks);
+            extract_plot_channel_domain_metadata(plot);
 
         Ok(Self::init_with_caches(
             root,
@@ -1890,8 +1892,28 @@ impl EvaluatedFacetTree {
 ///
 /// This walks the mark tree to find the innermost (non-facet) marks and extracts
 /// scale-domain metadata.
+fn extract_plot_channel_domain_metadata(
+    plot: &CompiledPlot,
+) -> (
+    HashMap<String, DomainCoordination>,
+    HashMap<String, NestedBandSpec>,
+) {
+    extract_channel_domain_metadata_inner(&plot.marks, &plot.coordinate_scale_sources)
+}
+
+#[cfg(test)]
 fn extract_channel_domain_metadata(
     marks: &[Arc<dyn CompiledMark>],
+) -> (
+    HashMap<String, DomainCoordination>,
+    HashMap<String, NestedBandSpec>,
+) {
+    extract_channel_domain_metadata_inner(marks, &[])
+}
+
+fn extract_channel_domain_metadata_inner(
+    marks: &[Arc<dyn CompiledMark>],
+    coordinate_scale_sources: &[CompiledCoordinateScaleSource],
 ) -> (
     HashMap<String, DomainCoordination>,
     HashMap<String, NestedBandSpec>,
@@ -1905,7 +1927,7 @@ fn extract_channel_domain_metadata(
         if let Some(facet_mark) = facet_subplot_ref(mark.as_ref()) {
             // Recurse into subplot to find innermost marks
             let (inner_coordinations, inner_nested_band_configs) =
-                extract_channel_domain_metadata(&facet_mark.compiled_subplot().marks);
+                extract_plot_channel_domain_metadata(facet_mark.compiled_subplot());
             for (scale_name, coordination) in inner_coordinations {
                 coordinations
                     .entry(scale_name)
@@ -1924,33 +1946,24 @@ fn extract_channel_domain_metadata(
             }
         } else {
             // Non-facet mark - extract channel-domain coordination targets.
-            let data_context = mark.data_context();
-            for (channel, channel_value) in data_context.channels() {
-                let Some(scale_name) = channel_value.get_scale_name(channel) else {
-                    continue;
-                };
-                if let Some(config) = channel_value.get_nested_band_config().cloned() {
-                    if nested_config_has_level_coordination(&config) {
-                        nested_channels_with_level_coordination.insert(scale_name.clone());
-                    }
-                    nested_band_configs
-                        .entry(scale_name.clone())
-                        .or_insert(config);
-                }
-                if let Some(coordination) = channel_value.get_domain_coordination().cloned() {
-                    coordinations
-                        .entry(scale_name)
-                        .and_modify(|existing: &mut DomainCoordination| {
-                            if coordination.scope.to_level() > existing.scope.to_level() {
-                                *existing = coordination.clone();
-                            }
-                        })
-                        .or_insert(coordination);
-                } else {
-                    implicit_scaled_channels.insert(scale_name);
-                }
-            }
+            merge_channel_domain_metadata_from_channels(
+                mark.data_context().channels(),
+                &mut coordinations,
+                &mut nested_band_configs,
+                &mut implicit_scaled_channels,
+                &mut nested_channels_with_level_coordination,
+            );
         }
+    }
+
+    for source in coordinate_scale_sources {
+        merge_channel_domain_metadata_from_channels(
+            source.data.channels(),
+            &mut coordinations,
+            &mut nested_band_configs,
+            &mut implicit_scaled_channels,
+            &mut nested_channels_with_level_coordination,
+        );
     }
 
     for scale_name in &nested_channels_with_level_coordination {
@@ -1967,6 +1980,40 @@ fn extract_channel_domain_metadata(
     }
 
     (coordinations, nested_band_configs)
+}
+
+fn merge_channel_domain_metadata_from_channels(
+    channels: &IndexMap<String, ChannelValue>,
+    coordinations: &mut HashMap<String, DomainCoordination>,
+    nested_band_configs: &mut HashMap<String, NestedBandSpec>,
+    implicit_scaled_channels: &mut HashSet<String>,
+    nested_channels_with_level_coordination: &mut HashSet<String>,
+) {
+    for (channel, channel_value) in channels {
+        let Some(scale_name) = channel_value.get_scale_name(channel) else {
+            continue;
+        };
+        if let Some(config) = channel_value.get_nested_band_config().cloned() {
+            if nested_config_has_level_coordination(&config) {
+                nested_channels_with_level_coordination.insert(scale_name.clone());
+            }
+            nested_band_configs
+                .entry(scale_name.clone())
+                .or_insert(config);
+        }
+        if let Some(coordination) = channel_value.get_domain_coordination().cloned() {
+            coordinations
+                .entry(scale_name)
+                .and_modify(|existing: &mut DomainCoordination| {
+                    if coordination.scope.to_level() > existing.scope.to_level() {
+                        *existing = coordination.clone();
+                    }
+                })
+                .or_insert(coordination);
+        } else {
+            implicit_scaled_channels.insert(scale_name);
+        }
+    }
 }
 
 fn nested_config_has_level_coordination(config: &NestedBandSpec) -> bool {
@@ -3944,6 +3991,39 @@ mod tests {
 
         assert_eq!(fill.scope, CoordinationScope::Level(u8::MAX));
         assert_eq!(fill.group, DomainCoordinationGroup::ScaleName);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn extract_plot_channel_domain_metadata_includes_coordinate_scale_sources()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("mpg", col("mpg"), |dimension| dimension.free_domain())
+                .dimension("origin", col("origin")),
+        )
+        .compile(&ctx)
+        .await?;
+
+        let (coordinations, nested_configs) = extract_plot_channel_domain_metadata(&compiled);
+        let mpg = coordinations
+            .get("mpg")
+            .expect("parallel dimension domain coordination");
+        let origin = coordinations
+            .get("origin")
+            .expect("implicit parallel dimension domain coordination");
+
+        assert!(SharingLevel::from(mpg.scope).is_free());
+        assert_eq!(mpg.group, DomainCoordinationGroup::ScaleName);
+        assert!(SharingLevel::from(origin.scope).is_global());
+        assert!(!coordinations.contains_key("__avenger_parallel_dim_mpg"));
+        assert!(nested_configs.is_empty());
+
+        let tree = EvaluatedFacetTree::init_with_caches(None, coordinations, nested_configs);
+        assert!(SharingLevel::from(tree.channel_domain_coordination("mpg").scope).is_free());
+        assert!(tree.has_free_channel_domain_sharing());
 
         Ok(())
     }
