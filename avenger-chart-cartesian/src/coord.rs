@@ -115,8 +115,8 @@ impl CoordinateSystemTransformCore for Cartesian {
         options
     }
 
-    fn interaction_invertible_channels(&self) -> &'static [&'static str] {
-        &["x", "y"]
+    fn interaction_invertible_channels(&self) -> Vec<String> {
+        vec!["x".to_string(), "y".to_string()]
     }
 
     fn invert_interaction_point(
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn cartesian_interaction_invertible_channels_are_x_and_y() {
-        assert_eq!(Cartesian.interaction_invertible_channels(), &["x", "y"]);
+        assert_eq!(Cartesian.interaction_invertible_channels(), vec!["x", "y"]);
     }
 
     #[test]

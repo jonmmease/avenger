@@ -101,8 +101,8 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
     /// scopes. This keeps facet/concat container transforms from becoming bogus
     /// coordinate targets while their Cartesian leaf subplots still export
     /// scopes. The default is empty (no interaction inversion).
-    fn interaction_invertible_channels(&self) -> &'static [&'static str] {
-        &[]
+    fn interaction_invertible_channels(&self) -> Vec<String> {
+        Vec::new()
     }
 
     /// Invert a local plot-area point to data-space values for each channel.

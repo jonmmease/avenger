@@ -192,7 +192,7 @@ impl ToolCompileContext {
                         override_existing,
                         disable_nice_zero,
                     } => {
-                        if !invertible.contains(&channel.as_str()) {
+                        if !invertible.iter().any(|invertible| invertible == channel) {
                             continue;
                         }
                         let targets = scale_to_coord_channel
@@ -280,7 +280,10 @@ pub(crate) fn discover_tool_scale_targets(
     let invertible = coord_transform.interaction_invertible_channels();
     let mut targets = Vec::new();
     for (scale_name, coord_channel) in scale_to_coord_channel {
-        if !invertible.contains(&coord_channel.as_str()) {
+        if !invertible
+            .iter()
+            .any(|invertible| invertible == coord_channel)
+        {
             continue;
         }
         let coordination = scale_coordinations

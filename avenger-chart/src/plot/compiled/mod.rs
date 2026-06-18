@@ -904,8 +904,8 @@ async fn collect_event_coord_types_from_marks(
         let scale_inference_hints =
             plot.scale_inference_hints_for_mark(mark.state().mark_index())?;
 
-        for channel in invertible {
-            if out.contains_key(*channel) {
+        for channel in &invertible {
+            if out.contains_key(channel.as_str()) {
                 continue;
             }
             let Some(data_type) = infer_event_coord_type_for_channel(
@@ -914,13 +914,13 @@ async fn collect_event_coord_types_from_marks(
                 channels,
                 mark_df,
                 ctx,
-                channel,
+                channel.as_str(),
                 &scale_inference_hints,
             )?
             else {
                 continue;
             };
-            out.insert((*channel).to_string(), data_type);
+            out.insert(channel.clone(), data_type);
         }
     }
 

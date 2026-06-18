@@ -5231,12 +5231,16 @@ impl CompiledPlot {
                 .get(scale_name)
                 .map(String::as_str)
                 .unwrap_or_else(|| avenger_chart_core::channel::strip_trailing_numbers(scale_name));
-            if channels.contains(&coord) {
+            if channels.iter().any(|channel| channel == coord) {
                 channel_scales.insert(coord.to_string(), scale.configured().clone());
             }
         }
-        // Only export a scope when every requested channel has a configured scale.
-        if !channels.iter().all(|ch| channel_scales.contains_key(*ch)) {
+        // Only export a scope when every scale-backed interaction channel has
+        // a configured scale. Coordinate-local pixel channels can be inverted
+        // without scale state.
+        if !channels.iter().all(|ch| {
+            !self.coord_transform.channel_uses_scale(ch) || channel_scales.contains_key(ch)
+        }) {
             return Vec::new();
         }
         let scope_id = interaction_scope_content_id(&coord_node_path, &logical_facet_values);
@@ -5253,7 +5257,7 @@ impl CompiledPlot {
             subplot_id_path: Vec::new(),
             child_frame_path: Vec::new(),
             coord_transform: self.coord_transform.clone(),
-            channels: channels.iter().map(|channel| channel.to_string()).collect(),
+            channels,
             scales: channel_scales,
             sharing_owner_paths,
         }]

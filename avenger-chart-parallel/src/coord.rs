@@ -11,7 +11,7 @@ use avenger_chart_core::{
     PositionConfig, ScaleRangeBinding, ScaleTypePreference, validate_structural_id,
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
-use avenger_scales::scales::ScaleImpl;
+use avenger_scales::scales::{DomainKind, ScaleImpl};
 use datafusion::{arrow::datatypes::DataType, common::ScalarValue, prelude::lit};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,9 @@ use crate::{ParallelFrameGeometry, resolve_parallel_frame};
 
 /// Prefix for hidden generated dimension channels.
 pub const PARALLEL_DIMENSION_CHANNEL_PREFIX: &str = "__avenger_parallel_dim_";
+
+/// Hidden event-coordinate channel for local plot-area x pixels.
+pub const PARALLEL_LOCAL_X_CHANNEL: &str = "__avenger_parallel_local_x";
 
 /// Position-channel configuration for a parallel-coordinate dimension.
 pub type ParallelDimensionConfig = GenericPositionConfig<ParallelAxis>;
@@ -339,6 +342,77 @@ impl CoordinateSystemTransformCore for ParallelTransform {
             })
             .collect()
     }
+
+    fn interaction_invertible_channels(&self) -> Vec<String> {
+        let mut channels = Vec::with_capacity(self.dimensions.len() + 1);
+        channels.push(PARALLEL_LOCAL_X_CHANNEL.to_string());
+        channels.extend(self.ordered_dimensions().into_iter().map(|d| d.id.clone()));
+        channels
+    }
+
+    fn invert_interaction_point(
+        &self,
+        request: avenger_chart_core::InteractionPointInversionRequest<'_>,
+    ) -> Result<IndexMap<String, ScalarValue>, AvengerChartError> {
+        let mut inverted = IndexMap::new();
+        for channel in request.channels {
+            if *channel == PARALLEL_LOCAL_X_CHANNEL {
+                inverted.insert(
+                    (*channel).to_string(),
+                    ScalarValue::Float64(Some(request.local_point[0] as f64)),
+                );
+                continue;
+            }
+
+            let dimension = self.dimension_for_channel(channel).ok_or_else(|| {
+                AvengerChartError::InvalidArgument(format!(
+                    "Parallel coordinate inversion does not support channel '{channel}'"
+                ))
+            })?;
+            let scale = request.scales.get(&dimension.id).ok_or_else(|| {
+                AvengerChartError::InvalidArgument(format!(
+                    "Missing configured scale for parallel dimension '{}'",
+                    dimension.id
+                ))
+            })?;
+
+            let range_value = request.local_point[1];
+            let value = if matches!(
+                scale.scale_impl.domain_kind(),
+                DomainKind::Categorical | DomainKind::NestedCategorical
+            ) {
+                let values = scale
+                    .invert_range_interval((range_value, range_value))
+                    .map_err(|err| {
+                        AvengerChartError::InvalidArgument(format!(
+                            "Cannot invert parallel dimension '{}' (scale type {}): {err}",
+                            dimension.id,
+                            scale.scale_impl.scale_type()
+                        ))
+                    })?;
+                if values.is_empty() {
+                    continue;
+                }
+                ScalarValue::try_from_array(values.as_ref(), 0).map_err(|err| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "Cannot convert inverted parallel dimension '{}' value: {err}",
+                        dimension.id
+                    ))
+                })?
+            } else {
+                let value = scale.invert_scalar(range_value).map_err(|err| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "Cannot invert parallel dimension '{}' (scale type {}): {err}",
+                        dimension.id,
+                        scale.scale_impl.scale_type()
+                    ))
+                })?;
+                ScalarValue::Float64(Some(value as f64))
+            };
+            inverted.insert((*channel).to_string(), value);
+        }
+        Ok(inverted)
+    }
 }
 
 #[typetag::serde]
@@ -354,6 +428,11 @@ impl CoordinateSystemTransform for ParallelTransform {
 
 fn validate_dimension_id(id: &str) -> Result<(), AvengerChartError> {
     validate_structural_id("parallel dimension", id)?;
+    if id == PARALLEL_LOCAL_X_CHANNEL {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Invalid parallel dimension id '{id}': id is reserved for interaction readback"
+        )));
+    }
     if id.starts_with(PARALLEL_DIMENSION_CHANNEL_PREFIX) {
         return Err(AvengerChartError::InvalidArgument(format!(
             "Invalid parallel dimension id '{id}': ids may not start with '{PARALLEL_DIMENSION_CHANNEL_PREFIX}'"
@@ -365,6 +444,7 @@ fn validate_dimension_id(id: &str) -> Result<(), AvengerChartError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use avenger_scales::scales::linear::LinearScale;
     use datafusion::prelude::{SessionContext, col};
 
     #[test]
@@ -516,5 +596,54 @@ mod tests {
         assert!(transform.is_position_scale_channel(&generated_dimension_channel("mpg")));
         assert!(transform.is_position_scale_channel("mpg"));
         assert!(transform.default_range_binding("mpg").is_some());
+    }
+
+    #[test]
+    fn interaction_channels_include_local_x_and_ordered_dimensions() {
+        let transform = Parallel::new()
+            .dimension("mpg", col("mpg"))
+            .dimension("weight", col("weight"))
+            .order(["weight", "mpg"])
+            .create_transform();
+
+        assert_eq!(
+            transform.interaction_invertible_channels(),
+            vec![
+                PARALLEL_LOCAL_X_CHANNEL.to_string(),
+                "weight".to_string(),
+                "mpg".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn interaction_inverts_local_x_and_dimension_y() {
+        let transform = Parallel::new()
+            .dimension("mpg", col("mpg"))
+            .create_transform();
+        let mut scales = HashMap::new();
+        scales.insert(
+            "mpg".to_string(),
+            LinearScale::configured((0.0, 40.0), (200.0, 0.0)),
+        );
+
+        let inverted = transform
+            .invert_interaction_point(avenger_chart_core::InteractionPointInversionRequest {
+                local_point: [32.0, 50.0],
+                plot_area_width: 300.0,
+                plot_area_height: 200.0,
+                channels: &[PARALLEL_LOCAL_X_CHANNEL, "mpg"],
+                scales: &scales,
+            })
+            .expect("invert parallel interaction point");
+
+        match inverted.get(PARALLEL_LOCAL_X_CHANNEL) {
+            Some(ScalarValue::Float64(Some(value))) => assert!((value - 32.0).abs() < 1e-6),
+            other => panic!("expected local x=32, got {other:?}"),
+        }
+        match inverted.get("mpg") {
+            Some(ScalarValue::Float64(Some(value))) => assert!((value - 30.0).abs() < 1e-6),
+            other => panic!("expected mpg=30, got {other:?}"),
+        }
     }
 }
