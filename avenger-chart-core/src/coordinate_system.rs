@@ -1,4 +1,4 @@
-use crate::{CoordinateGuide, CoordinateSystemTransform};
+use crate::{CoordinateGuide, CoordinateScaleSource, CoordinateSystemTransform};
 
 /// Core-safe coordinate-system authoring contract.
 ///
@@ -23,4 +23,14 @@ pub trait CoordinateSystem: CoordinateSystemCore {
     /// Create a boxed coordinate-system transform for scale building and mark
     /// rendering.
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform>;
+
+    /// Non-rendered scale/domain sources owned by this coordinate system.
+    ///
+    /// Most coordinates return no sources because rendered marks declare all
+    /// scales through their channels. Coordinates with dynamic scale families
+    /// can return sources here so scale building, guide extraction, and domain
+    /// coordination see those scales before rendering.
+    fn coordinate_scale_sources(&self) -> Vec<CoordinateScaleSource> {
+        Vec::new()
+    }
 }

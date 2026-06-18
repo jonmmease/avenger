@@ -317,7 +317,7 @@ where
                 continue;
             }
             let base_channel = strip_trailing_numbers(&channel_name);
-            if !required.contains(base_channel) {
+            if !coord_transform.is_position_scale_channel(base_channel) {
                 continue;
             }
             if let Some(scale_name) = channel_value.get_scale_name(&channel_name) {
@@ -3104,7 +3104,7 @@ async fn cache_numeric_data(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{collections::HashSet, sync::Arc};
 
     use datafusion::{
         arrow::{
@@ -3134,6 +3134,40 @@ mod tests {
     impl CoordinateSystemTransformCore for TestCoordTransform {
         fn required_channels(&self) -> &'static [&'static str] {
             &["x", "y"]
+        }
+
+        fn transform(
+            &self,
+            _position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+            _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+            _plot_width: f32,
+            _plot_height: f32,
+        ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+            Ok(Box::new(SubplotGeometry::default()))
+        }
+
+        fn default_scale_options(
+            &self,
+            _channel: &str,
+            _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+        ) -> HashMap<String, ScalarValue> {
+            HashMap::new()
+        }
+    }
+
+    struct DynamicPositionCoordTransform;
+
+    impl CoordinateSystemTransformCore for DynamicPositionCoordTransform {
+        fn required_channels(&self) -> &'static [&'static str] {
+            &[]
+        }
+
+        fn channel_uses_scale(&self, channel: &str) -> bool {
+            channel.starts_with("dim_")
+        }
+
+        fn is_position_scale_channel(&self, channel: &str) -> bool {
+            channel.starts_with("dim_")
         }
 
         fn transform(
@@ -3478,6 +3512,51 @@ mod tests {
                 &IndexMap::new(),
             )
             .await
+    }
+
+    #[tokio::test]
+    async fn cartesian_positional_scale_discovery_is_unchanged() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "B"], vec![1.0, 2.0]).unwrap();
+        let mut channels = IndexMap::new();
+        channels.insert("x".to_string(), ChannelValue::from(col("value")));
+        channels.insert(
+            "x2".to_string(),
+            ChannelValue::from(col("value")).with_scale_name("x"),
+        );
+        channels.insert("y".to_string(), ChannelValue::from(col("category")));
+        let mark = Arc::new(TestCompiledMark::new(data.clone(), channels.clone()))
+            as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new());
+
+        let names =
+            positional_scale_names_for_prepared_marks(&[prepared], &TestCoordTransform, &ctx);
+
+        assert!(names.contains("x"));
+        assert!(names.contains("y"));
+        assert_eq!(names.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn dynamic_position_scale_hook_marks_non_required_channel_positional() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "B"], vec![1.0, 2.0]).unwrap();
+        let mut channels = IndexMap::new();
+        channels.insert(
+            "dim_height".to_string(),
+            ChannelValue::from(col("value")).with_scale_name("height"),
+        );
+        let mark = Arc::new(TestCompiledMark::new(data.clone(), channels.clone()))
+            as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new());
+
+        let names = positional_scale_names_for_prepared_marks(
+            &[prepared],
+            &DynamicPositionCoordTransform,
+            &ctx,
+        );
+
+        assert_eq!(names, HashSet::from(["height".to_string()]));
     }
 
     #[tokio::test]

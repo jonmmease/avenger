@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use datafusion::{
-    arrow::datatypes::DataType as ArrowDataType, common::ScalarValue, dataframe::DataFrame,
+    arrow::{datatypes::DataType as ArrowDataType, record_batch::RecordBatch},
+    common::ScalarValue,
+    dataframe::DataFrame,
 };
 #[cfg(test)]
 use datafusion_proto::protobuf::LogicalPlanNode;
@@ -14,8 +16,10 @@ use indexmap::IndexMap;
 #[cfg(test)]
 use avenger_chart_core::CoordinateSystemTransform;
 use avenger_chart_core::{
-    AvengerChartError, CompiledMark, EvaluationContext as CoreEvaluationContext, ResolvedDomain,
-    ScaleRange, Theme,
+    AvengerChartError, ChannelDescriptor, CompiledCoordinateScaleSource, CompiledDataContext,
+    CompiledMark, CompiledMarkCore, CompiledMarkState, CoordinateSystemTransformCore,
+    EvaluationContext as CoreEvaluationContext, MarkRuntimeContext, ResolvedDomain, ScaleRange,
+    Theme,
 };
 #[cfg(test)]
 use avenger_chart_scales::PlotScaleSpec;
@@ -28,6 +32,67 @@ use super::{
     CompiledPlot, LogicalMarkDataRequest, prepare_logical_mark_data,
     session::{ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope},
 };
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct CompiledCoordinateScaleSourceMark {
+    state: CompiledMarkState,
+}
+
+impl CompiledCoordinateScaleSourceMark {
+    fn new(source: &CompiledCoordinateScaleSource, mark_index: usize) -> Self {
+        Self {
+            state: CompiledMarkState {
+                id: None,
+                public_target_path: None,
+                data: source.data.clone(),
+                data_mode: source.data_mode,
+                mark_index,
+                facet_data_scope: source.facet_data_scope,
+                exclude_from_scale_domains: source.exclude_from_scale_domains,
+                visible: None,
+                details: None,
+                zindex: None,
+                axis_configs: source.axis_configs.clone(),
+            },
+        }
+    }
+}
+
+impl CompiledMarkCore for CompiledCoordinateScaleSourceMark {
+    fn state(&self) -> &CompiledMarkState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
+        &mut self.state
+    }
+
+    fn data_context(&self) -> &CompiledDataContext {
+        &self.state.data
+    }
+
+    fn mark_type(&self) -> &str {
+        "coordinate_scale_source"
+    }
+
+    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+        Vec::new()
+    }
+}
+
+#[typetag::serde]
+#[async_trait::async_trait]
+impl CompiledMark for CompiledCoordinateScaleSourceMark {
+    async fn render_from_data(
+        &self,
+        _data: Option<&RecordBatch>,
+        _scalars: &RecordBatch,
+        _context: &dyn MarkRuntimeContext,
+        _coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<Vec<avenger_scenegraph::marks::mark::SceneMark>, AvengerChartError> {
+        Ok(Vec::new())
+    }
+}
 
 async fn prepare_scale_mark_for_plot(
     plot: &CompiledPlot,
@@ -50,6 +115,7 @@ async fn prepare_scale_mark_for_plot(
     };
     let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
         mark: mark.as_ref(),
+        coord_transform: None,
         plot_data: plot.data.as_ref(),
         provided_plot_df: df_override,
         facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(
@@ -70,6 +136,37 @@ async fn prepare_scale_mark_for_plot(
         prepared.derived_scalars,
     )
     .with_scale_inference_hints(plot.scale_inference_hints_for_mark(mark.state().mark_index())?))
+}
+
+async fn prepare_coordinate_scale_source_for_plot(
+    source_mark: Arc<dyn CompiledMark>,
+    plot: &CompiledPlot,
+    df_override: Option<&DataFrame>,
+    eval_ctx: &crate::render::EvaluationContext,
+    facet_path: &[ScalarValue],
+) -> Result<PreparedScaleMark, AvengerChartError> {
+    let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
+        mark: source_mark.as_ref(),
+        coord_transform: None,
+        plot_data: plot.data.as_ref(),
+        provided_plot_df: df_override,
+        facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(
+            eval_ctx.facet_tree.as_ref(),
+            eval_ctx.facet_data_root(),
+            facet_path,
+        )),
+        prepared_base: None,
+        eval_ctx,
+    }))
+    .await?;
+    Ok(PreparedScaleMark::new_with_domain_source(
+        source_mark,
+        prepared.dataframe,
+        prepared.channels,
+        prepared.domain_dataframe,
+        prepared.domain_channels,
+        prepared.derived_scalars,
+    ))
 }
 
 #[cfg(test)]
@@ -93,6 +190,7 @@ pub(crate) async fn build_scale_builder_from_marks(
     for mark in compiled_marks {
         let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: mark.as_ref(),
+            coord_transform: None,
             plot_data: data.as_ref(),
             provided_plot_df: df_override.as_ref(),
             facet_data_scope: None,
@@ -150,7 +248,24 @@ pub(crate) async fn build_scale_builder_from_compiled_plot_with_render_context(
     eval_ctx: &crate::render::EvaluationContext,
     theme: &Theme,
 ) -> Result<ScaleBuilder, AvengerChartError> {
-    let mut prepared_marks = Vec::with_capacity(plot.marks.len());
+    let mut prepared_marks =
+        Vec::with_capacity(plot.marks.len() + plot.coordinate_scale_sources.len());
+    for (source_index, source) in plot.coordinate_scale_sources.iter().enumerate() {
+        let source_mark = Arc::new(CompiledCoordinateScaleSourceMark::new(
+            source,
+            plot.marks.len() + source_index,
+        )) as Arc<dyn CompiledMark>;
+        prepared_marks.push(
+            Box::pin(prepare_coordinate_scale_source_for_plot(
+                source_mark,
+                plot,
+                df_override.as_ref(),
+                eval_ctx,
+                &[],
+            ))
+            .await?,
+        );
+    }
     for mark in &plot.marks {
         prepared_marks.push(
             Box::pin(prepare_scale_mark_for_plot(
@@ -215,7 +330,24 @@ pub(crate) async fn build_scale_builder_from_compiled_plot_with_facet_scope(
         eval_ctx.record_scale_domain_cache_miss();
     }
     eval_ctx.record_scale_builder_build();
-    let mut prepared_marks = Vec::with_capacity(plot.marks.len());
+    let mut prepared_marks =
+        Vec::with_capacity(plot.marks.len() + plot.coordinate_scale_sources.len());
+    for (source_index, source) in plot.coordinate_scale_sources.iter().enumerate() {
+        let source_mark = Arc::new(CompiledCoordinateScaleSourceMark::new(
+            source,
+            plot.marks.len() + source_index,
+        )) as Arc<dyn CompiledMark>;
+        prepared_marks.push(
+            Box::pin(prepare_coordinate_scale_source_for_plot(
+                source_mark,
+                plot,
+                df_override.as_ref(),
+                eval_ctx,
+                facet_path,
+            ))
+            .await?,
+        );
+    }
     for mark in &plot.marks {
         prepared_marks.push(
             Box::pin(prepare_scale_mark_for_plot(
@@ -306,14 +438,72 @@ mod tests {
     use super::build_scale_builder_from_marks;
     use crate::prelude::*;
     use crate::render::RenderContext;
-    use avenger_chart_core::{EmptyCoordMeasurement, channel::strip_trailing_numbers};
+    use avenger_chart_core::{
+        CompiledCoordinateScaleSource, CompiledDataContext, CoordinateSystemTransform,
+        CoordinateSystemTransformCore, EmptyCoordMeasurement, FacetDataScope, MarkDataMode,
+        PlotGeometry, ScaleRangeBinding, SubplotGeometry, channel::strip_trailing_numbers,
+    };
     use avenger_chart_scales::ConfiguredScaleWithSpec;
+    use avenger_common::value::ScalarOrArray;
     use datafusion::arrow::array::{Float64Array, TimestampMillisecondArray};
     use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit as ArrowTimeUnit};
     use datafusion::arrow::record_batch::RecordBatch;
+    use datafusion::common::ScalarValue;
     use datafusion::prelude::SessionContext;
     use indexmap::IndexMap;
+    use std::any::Any;
+    use std::collections::HashMap;
     use std::sync::Arc;
+
+    #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    struct TestDynamicPositionTransform;
+
+    impl CoordinateSystemTransformCore for TestDynamicPositionTransform {
+        fn required_channels(&self) -> &'static [&'static str] {
+            &[]
+        }
+
+        fn channel_uses_scale(&self, channel: &str) -> bool {
+            channel == "dim_value"
+        }
+
+        fn is_position_scale_channel(&self, channel: &str) -> bool {
+            channel == "dim_value"
+        }
+
+        fn transform(
+            &self,
+            _position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+            _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+            _plot_width: f32,
+            _plot_height: f32,
+        ) -> Result<Box<dyn PlotGeometry>, super::AvengerChartError> {
+            Ok(Box::new(SubplotGeometry::default()))
+        }
+
+        fn default_range_binding(&self, channel: &str) -> Option<ScaleRangeBinding> {
+            (channel == "dim_value").then(|| ScaleRangeBinding::fixed_interval(200.0, 0.0))
+        }
+
+        fn default_scale_options(
+            &self,
+            _channel: &str,
+            _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+        ) -> HashMap<String, ScalarValue> {
+            HashMap::new()
+        }
+    }
+
+    #[typetag::serde]
+    impl CoordinateSystemTransform for TestDynamicPositionTransform {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+            Box::new(self.clone())
+        }
+    }
 
     async fn two_phase_build_scales(
         compiled: &super::CompiledPlot,
@@ -367,6 +557,65 @@ mod tests {
                 params,
             )
             .await
+    }
+
+    #[tokio::test]
+    async fn coordinate_scale_source_contributes_scale_domain() {
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Float64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(Float64Array::from(vec![2.0, 4.0, 8.0]))],
+        )
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+        let mut source_channels = IndexMap::new();
+        source_channels.insert(
+            "dim_value".to_string(),
+            ChannelValue::from(col("value")).with_scale_name("value_axis"),
+        );
+        let source = CompiledCoordinateScaleSource {
+            data: CompiledDataContext::new(Some(df.clone()), Vec::new(), source_channels),
+            data_mode: MarkDataMode::Inherit,
+            facet_data_scope: FacetDataScope::FILTERED,
+            exclude_from_scale_domains: false,
+            axis_configs: HashMap::new(),
+        };
+
+        let mut compiled = Plot::<Cartesian>::new()
+            .mark(Symbol::new().x(0.0).y(0.0))
+            .compile(&ctx)
+            .await
+            .expect("compile template plot");
+        compiled.coord_transform = Box::new(TestDynamicPositionTransform);
+        compiled.marks.clear();
+        compiled.coordinate_scale_sources = vec![source];
+        compiled.scale_specs.clear();
+        compiled.scale_to_coord_channel =
+            HashMap::from([("value_axis".to_string(), "dim_value".to_string())]);
+
+        let builder = super::build_scale_builder_from_compiled_plot(
+            &compiled,
+            None,
+            &avenger_chart_core::EvaluationContext::new(
+                compiled.get_theme(),
+                Arc::new(ctx.clone()),
+                IndexMap::new(),
+            )
+            .with_time_context(compiled.time_context.clone()),
+            compiled.get_theme().as_ref(),
+        )
+        .await
+        .expect("build scales");
+
+        assert!(
+            builder.channel_builders().contains_key("value_axis"),
+            "coordinate source should create a scale-domain builder"
+        );
     }
 
     #[tokio::test]

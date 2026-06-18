@@ -12,13 +12,14 @@ use indexmap::IndexMap;
 
 use avenger_chart_core::{
     AvengerChartError, Axis, AxisGuideVisibilityPolicy, AxisSpec, ChartTool, CompileContext,
-    CompiledDataContext, CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
-    CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
-    CoordinationScope, DataContext, DomainCoordination, DomainCoordinationGroup, IntoExpr,
-    IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param, PlotMark,
-    PlotMarkKind, RepeatContext, RepeatDomainCoordination, RepeatVariable, ScaleInferenceHint,
-    SceneGeometryTarget, Selection, SelectionSceneQuery, SelectionUpdate, Store,
-    SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
+    CompiledCoordinateScaleSource, CompiledDataContext, CompiledMark, CompiledMarkState,
+    CompiledParamSpec, CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide,
+    CoordinateScaleSource, CoordinateSystem, CoordinateSystemTransformCore, CoordinationScope,
+    DataContext, DomainCoordination, DomainCoordinationGroup, IntoExpr, IntoPlotMark, Legend,
+    LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param, PlotMark, PlotMarkKind, RepeatContext,
+    RepeatDomainCoordination, RepeatVariable, ScaleInferenceHint, SceneGeometryTarget, Selection,
+    SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme, TimeContext,
+    compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -444,11 +445,27 @@ impl<C: CoordinateSystem> Plot<C> {
         let tool_context = ToolCompileContext::from_parent(inherited_tool_context)
             .with_time_context(effective_time_context.clone());
         let coord_transform = self.coord_system.create_transform();
+        let coordinate_scale_sources = self.coord_system.coordinate_scale_sources();
+        let resolved_coordinate_scale_sources = resolve_coordinate_scale_sources(
+            &coordinate_scale_sources,
+            tool_context.repeat_context(),
+        )?;
 
         let mut pre_tool_axis_specs: HashMap<String, AxisSpec> = HashMap::new();
         let mut pre_tool_legends: IndexMap<String, Legend> = self.legends.clone();
         let mut pre_tool_scale_specs: HashMap<String, ScaleSpec> = self.scale_specs.clone();
         let mut pre_tool_scale_to_coord_channel: HashMap<String, String> = HashMap::new();
+        for source in &resolved_coordinate_scale_sources {
+            crate::plot::channel::extract_channel_configs_from_coordinate_source(
+                source,
+                session_context,
+                coord_transform.as_ref(),
+                &mut pre_tool_axis_specs,
+                &mut pre_tool_legends,
+                &mut pre_tool_scale_specs,
+                &mut pre_tool_scale_to_coord_channel,
+            )?;
+        }
         let pre_tool_flat_marks = flatten_plot_marks(&self.marks, tool_context.repeat_context())?;
         let pre_tool_mark_states =
             resolve_mark_states(&pre_tool_flat_marks.marks, tool_context.repeat_context())?;
@@ -465,6 +482,7 @@ impl<C: CoordinateSystem> Plot<C> {
         }
         let pre_tool_scale_coordination = scale_domain_coordinations_from_states(
             &pre_tool_mark_states,
+            &resolved_coordinate_scale_sources,
             coord_transform.as_ref(),
         )?;
         let tool_scale_targets = discover_tool_scale_targets(
@@ -505,6 +523,17 @@ impl<C: CoordinateSystem> Plot<C> {
             resolve_mark_states(&flat_marks.marks, tool_context.repeat_context())?;
 
         // 1. Extract and merge channel configs from all marks with proper SessionContext
+        for source in &resolved_coordinate_scale_sources {
+            crate::plot::channel::extract_channel_configs_from_coordinate_source(
+                source,
+                session_context,
+                coord_transform.as_ref(),
+                &mut axis_specs,
+                &mut legends,
+                &mut scale_specs,
+                &mut scale_to_coord_channel,
+            )?;
+        }
         for mark_state in &resolved_mark_states {
             crate::plot::channel::extract_channel_configs_from_state(
                 mark_state,
@@ -519,6 +548,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
         let scale_coordination = scale_domain_coordinations_from_states(
             &resolved_mark_states,
+            &resolved_coordinate_scale_sources,
             coord_transform.as_ref(),
         )?;
         tool_context.apply_scale_edits(
@@ -694,12 +724,19 @@ impl<C: CoordinateSystem> Plot<C> {
             store_specs.insert(spec.name.clone(), spec);
         }
 
+        let compiled_coordinate_scale_sources: Vec<CompiledCoordinateScaleSource> =
+            resolved_coordinate_scale_sources
+                .iter()
+                .map(|source| source.compile(self.data.clone()))
+                .collect();
+
         // 5. Build CompiledPlot (we do not store a persistent ScaleBuilder; it is
         // rebuilt per evaluation using current params for correctness.)
         let mut compiled = CompiledPlot {
             coord_transform,
             compiled_guide: Some(compiled_guide),
             marks: compiled_marks,
+            coordinate_scale_sources: compiled_coordinate_scale_sources,
             mark_groups,
             mark_group_index_by_mark: flat_marks.mark_group_indices,
             axis_specs,
@@ -1680,47 +1717,79 @@ fn resolve_repeat_variables(
 
 fn scale_domain_coordinations_from_states(
     states: &[MarkState],
+    coordinate_sources: &[CoordinateScaleSource],
     coord_transform: &dyn CoordinateSystemTransformCore,
 ) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
     let state_refs = states.iter().collect::<Vec<_>>();
-    scale_domain_coordinations_from_state_refs(&state_refs, coord_transform)
+    scale_domain_coordinations_from_state_refs(&state_refs, coordinate_sources, coord_transform)
 }
 
 fn scale_domain_coordinations_from_state_refs(
     states: &[&MarkState],
+    coordinate_sources: &[CoordinateScaleSource],
     coord_transform: &dyn CoordinateSystemTransformCore,
 ) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
     let mut result: HashMap<String, DomainCoordination> = HashMap::new();
+    let mut merge_coordination = |channel_name: &str,
+                                  channel_value: &avenger_chart_core::ChannelValue|
+     -> Result<(), AvengerChartError> {
+        if !coord_transform.channel_uses_scale(channel_name) {
+            return Ok(());
+        }
+        let Some(scale_name) = channel_value.get_scale_name(channel_name) else {
+            return Ok(());
+        };
+        let Some(coordination) = channel_value.get_domain_coordination() else {
+            return Ok(());
+        };
+        let coordination = coordination.clone();
+        match result.get_mut(&scale_name) {
+            Some(existing) => {
+                if existing.group != coordination.group {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "scale '{scale_name}' has incompatible domain groups"
+                    )));
+                }
+                if coordination.scope.to_level() > existing.scope.to_level() {
+                    existing.scope = coordination.scope;
+                }
+            }
+            None => {
+                result.insert(scale_name, coordination);
+            }
+        }
+        Ok(())
+    };
+
+    for source in coordinate_sources {
+        for (channel_name, channel_value) in source.data.channels() {
+            merge_coordination(channel_name, channel_value)?;
+        }
+    }
     for state in states {
         for (channel_name, channel_value) in state.data.channels() {
-            if !coord_transform.channel_uses_scale(channel_name) {
-                continue;
-            }
-            let Some(scale_name) = channel_value.get_scale_name(channel_name) else {
-                continue;
-            };
-            let Some(coordination) = channel_value.get_domain_coordination() else {
-                continue;
-            };
-            let coordination = coordination.clone();
-            match result.get_mut(&scale_name) {
-                Some(existing) => {
-                    if existing.group != coordination.group {
-                        return Err(AvengerChartError::InvalidArgument(format!(
-                            "scale '{scale_name}' has incompatible domain groups"
-                        )));
-                    }
-                    if coordination.scope.to_level() > existing.scope.to_level() {
-                        existing.scope = coordination.scope;
-                    }
-                }
-                None => {
-                    result.insert(scale_name, coordination);
-                }
-            }
+            merge_coordination(channel_name, channel_value)?;
         }
     }
     Ok(result)
+}
+
+fn resolve_coordinate_scale_sources(
+    sources: &[CoordinateScaleSource],
+    repeat_context: Option<&RepeatContext>,
+) -> Result<Vec<CoordinateScaleSource>, AvengerChartError> {
+    let empty_repeat_context;
+    let repeat_context = match repeat_context {
+        Some(repeat_context) => repeat_context,
+        None => {
+            empty_repeat_context = RepeatContext::default();
+            &empty_repeat_context
+        }
+    };
+    sources
+        .iter()
+        .map(|source| source.resolve_repeat(repeat_context))
+        .collect()
 }
 
 fn resolve_mark_states<C: CoordinateSystem>(

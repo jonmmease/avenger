@@ -38,6 +38,15 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
         true
     }
 
+    /// Whether a scale/channel name should be treated as positional.
+    ///
+    /// The default preserves the legacy static-channel contract. Coordinates
+    /// with runtime scale families can override this without pretending those
+    /// channels are required mark inputs.
+    fn is_position_scale_channel(&self, channel: &str) -> bool {
+        self.required_channels().contains(&channel)
+    }
+
     /// Transform position channels to coordinate system geometry.
     fn transform(
         &self,

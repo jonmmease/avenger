@@ -83,6 +83,7 @@ pub(crate) struct PreparedMarkData {
 
 pub(crate) struct MarkDataRequest<'a> {
     pub(crate) mark: &'a dyn CompiledMark,
+    pub(crate) coord_transform: Option<&'a dyn avenger_chart_core::CoordinateSystemTransformCore>,
     pub(crate) plot_data: Option<&'a LogicalPlanNode>,
     pub(crate) provided_plot_df: Option<&'a DataFrame>,
     pub(crate) facet_data_scope: Option<FacetDataScopeContext<'a>>,
@@ -97,6 +98,7 @@ pub(crate) struct MarkDataRequest<'a> {
 
 pub(crate) struct LogicalMarkDataRequest<'a> {
     pub(crate) mark: &'a dyn CompiledMark,
+    pub(crate) coord_transform: Option<&'a dyn avenger_chart_core::CoordinateSystemTransformCore>,
     pub(crate) plot_data: Option<&'a LogicalPlanNode>,
     pub(crate) provided_plot_df: Option<&'a DataFrame>,
     pub(crate) facet_data_scope: Option<FacetDataScopeContext<'a>>,
@@ -941,7 +943,20 @@ pub(crate) async fn prepare_logical_mark_data(
     request: LogicalMarkDataRequest<'_>,
 ) -> Result<PreparedLogicalMarkData, AvengerChartError> {
     let ctx = request.eval_ctx.session_context.as_ref();
-    let channels = resolve_all_channel_refs(request.mark.data_context().channels(), ctx)?;
+    let mut channels = resolve_all_channel_refs(request.mark.data_context().channels(), ctx)?;
+    if let Some(coord_transform) = request.coord_transform {
+        for (channel, value) in request
+            .mark
+            .coordinate_channel_dependencies(coord_transform)
+        {
+            if channels.contains_key(&channel) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Coordinate dependency channel '{channel}' conflicts with an authored mark channel"
+                )));
+            }
+            channels.insert(channel, value);
+        }
+    }
     let transform_initial_scope = transform_initial_facet_scope(
         request.mark.data_context().transforms(),
         request.mark.state().facet_data_scope,
@@ -1234,6 +1249,7 @@ pub(crate) async fn prepare_mark_data(
     } else {
         prepared_storage = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark,
+            coord_transform: request.coord_transform,
             plot_data: request.plot_data,
             provided_plot_df: request.provided_plot_df,
             facet_data_scope: request.facet_data_scope,
@@ -1286,8 +1302,10 @@ pub(crate) async fn prepare_mark_data(
             .join(", ");
         (facet_path, available_scales)
     };
+    let mut prepared_channel_names = HashSet::new();
     for channel_desc in &supported_channels {
         if let Some(channel_value) = channels.get(channel_desc.name) {
+            prepared_channel_names.insert(channel_desc.name.to_string());
             let scaled_expr = apply_channel_scale(
                 channel_desc.name,
                 channel_value,
@@ -1310,6 +1328,36 @@ pub(crate) async fn prepare_mark_data(
                 has_array_data = true;
             } else {
                 scalar_channels.push((channel_desc.name.to_string(), scaled_expr));
+            }
+        }
+    }
+    if let Some(coord_transform) = request.coord_transform {
+        for (channel_name, _value) in mark.coordinate_channel_dependencies(coord_transform) {
+            if prepared_channel_names.contains(&channel_name) {
+                continue;
+            }
+            let Some(channel_value) = channels.get(&channel_name) else {
+                continue;
+            };
+            let scaled_expr =
+                apply_channel_scale(&channel_name, channel_value, request.scales, ctx).map_err(
+                    |err| {
+                        let (facet_path, available_scales) = scale_error_context();
+                        AvengerChartError::InternalError(format!(
+                            "failed to scale mark '{}' coordinate dependency channel '{}' at facet path {} with scales [{}]: {}",
+                            mark.mark_type(),
+                            channel_name,
+                            facet_path,
+                            available_scales,
+                            err
+                        ))
+                    },
+                )?;
+            if scaled_expr.any_column_refs() {
+                array_channels.push((channel_name, scaled_expr));
+                has_array_data = true;
+            } else {
+                scalar_channels.push((channel_name, scaled_expr));
             }
         }
     }
@@ -1740,6 +1788,7 @@ mod tests {
         let eval_ctx = eval_context(session.clone()).with_facet_tree(Arc::new(facet_tree.clone()));
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: None,
             provided_plot_df: Some(&leaf_df),
             facet_data_scope: Some(FacetDataScopeContext::new(
@@ -1812,6 +1861,7 @@ mod tests {
 
         let prepared = prepare_mark_data(MarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: Some(&plot_node),
             provided_plot_df: None,
             facet_data_scope: None,
@@ -1849,6 +1899,7 @@ mod tests {
 
         let prepared = prepare_mark_data(MarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: Some(&plot_node),
             provided_plot_df: None,
             facet_data_scope: None,
@@ -1890,6 +1941,7 @@ mod tests {
 
         let prepared = prepare_mark_data(MarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: Some(&plot_node),
             provided_plot_df: None,
             facet_data_scope: None,
@@ -1927,6 +1979,7 @@ mod tests {
 
         let prepared = prepare_mark_data(MarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: Some(&plot_node),
             provided_plot_df: None,
             facet_data_scope: None,
@@ -1961,6 +2014,7 @@ mod tests {
 
         let prepared = prepare_mark_data(MarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: Some(&plot_node),
             provided_plot_df: None,
             facet_data_scope: None,
@@ -2028,6 +2082,7 @@ mod tests {
 
         let prepared = prepare_mark_data(MarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: Some(&plot_node),
             provided_plot_df: None,
             facet_data_scope: None,
@@ -2071,6 +2126,7 @@ mod tests {
 
         let result = prepare_mark_data(MarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: Some(&plot_node),
             provided_plot_df: None,
             facet_data_scope: None,
@@ -2101,6 +2157,7 @@ mod tests {
 
         let prepared = prepare_mark_data(MarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: None,
             provided_plot_df: None,
             facet_data_scope: None,
@@ -2134,6 +2191,7 @@ mod tests {
 
         let prepared = prepare_mark_data(MarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: None,
             provided_plot_df: Some(&df),
             facet_data_scope: None,
@@ -2174,6 +2232,7 @@ mod tests {
             eval_context(session.clone()).with_scoped_store_state(Arc::new(store_state.clone()));
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: None,
             provided_plot_df: None,
             facet_data_scope: None,
@@ -2197,6 +2256,7 @@ mod tests {
         let eval_ctx = eval_context(session.clone()).with_scoped_store_state(Arc::new(store_state));
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: None,
             provided_plot_df: None,
             facet_data_scope: None,
@@ -2229,6 +2289,7 @@ mod tests {
 
         let prepared = prepare_mark_data(MarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: None,
             provided_plot_df: None,
             facet_data_scope: None,
@@ -2299,6 +2360,7 @@ mod tests {
                 let compiled_mark = mark.compile_untransformed(&session).await?;
                 let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
                     mark: compiled_mark.as_ref(),
+                    coord_transform: None,
                     plot_data: None,
                     provided_plot_df: None,
                     facet_data_scope: Some(FacetDataScopeContext::new(
@@ -2350,6 +2412,7 @@ mod tests {
                 let compiled_mark = mark.compile_untransformed(&session).await?;
                 let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
                     mark: compiled_mark.as_ref(),
+                    coord_transform: None,
                     plot_data: None,
                     provided_plot_df: Some(&leaf_df),
                     facet_data_scope: Some(FacetDataScopeContext::new(
@@ -2463,6 +2526,7 @@ mod tests {
         let compiled_mark = mark.compile_untransformed(&session).await?;
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: None,
             provided_plot_df: Some(&df),
             facet_data_scope: None,
@@ -2510,6 +2574,7 @@ mod tests {
         let compiled_mark = mark.compile_untransformed(&session).await?;
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: None,
             provided_plot_df: Some(&df),
             facet_data_scope: None,
@@ -2688,6 +2753,7 @@ mod tests {
         let compiled_mark = mark.compile_untransformed(&session).await?;
         let err = match prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: None,
             provided_plot_df: Some(&df),
             facet_data_scope: None,
@@ -2806,6 +2872,7 @@ mod tests {
         let eval_ctx = eval_context(session.clone());
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
+            coord_transform: None,
             plot_data: None,
             provided_plot_df: Some(&leaf_df),
             facet_data_scope: Some(FacetDataScopeContext::new(

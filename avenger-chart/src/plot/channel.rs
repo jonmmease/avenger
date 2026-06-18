@@ -6,8 +6,9 @@ use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    Auto, AvengerChartError, Axis, AxisSpec, ChannelValue, CoordinateSystemTransformCore, Legend,
-    MarkState, Scale, resolve_all_channel_refs, strip_trailing_numbers,
+    Auto, AvengerChartError, Axis, AxisSpec, ChannelValue, CoordinateScaleSource,
+    CoordinateSystemTransformCore, Legend, MarkState, Scale, resolve_all_channel_refs,
+    strip_trailing_numbers,
 };
 use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
 
@@ -33,9 +34,9 @@ fn merge_axis_config(
     }
 }
 
-/// Extract scale, legend, and axis configurations from a mark state's channels.
-pub(crate) fn extract_channel_configs_from_state(
-    mark_state: &MarkState,
+fn extract_channel_configs_from_channels(
+    encodings: &IndexMap<String, ChannelValue>,
+    explicit_axis_configs: &HashMap<String, std::sync::Arc<dyn Axis>>,
     ctx: &SessionContext,
     coord_transform: &dyn CoordinateSystemTransformCore,
     axis_specs: &mut HashMap<String, AxisSpec>,
@@ -43,9 +44,6 @@ pub(crate) fn extract_channel_configs_from_state(
     scale_specs: &mut HashMap<String, ScaleSpec>,
     scale_to_coord_channel: &mut HashMap<String, String>,
 ) -> Result<(), AvengerChartError> {
-    // Get all channel encodings from the mark
-    let encodings = mark_state.data.channels();
-
     // Resolve channel references with the proper SessionContext
     let resolved_encodings = match resolve_all_channel_refs(encodings, ctx) {
         Ok(resolved) => resolved,
@@ -145,11 +143,56 @@ pub(crate) fn extract_channel_configs_from_state(
     // Extract explicit position-channel axis configurations from the mark after
     // ChannelValue defaults, so `.x_with(..., |c| c.axis(...))` overrides or
     // augments defaults carried by the value itself.
-    for (channel_name, axis_config) in mark_state.axis_configs.iter() {
+    for (channel_name, axis_config) in explicit_axis_configs.iter() {
         merge_axis_config(axis_specs, channel_name, axis_config.as_ref());
     }
 
     Ok(())
+}
+
+/// Extract scale, legend, and axis configurations from a mark state's channels.
+pub(crate) fn extract_channel_configs_from_state(
+    mark_state: &MarkState,
+    ctx: &SessionContext,
+    coord_transform: &dyn CoordinateSystemTransformCore,
+    axis_specs: &mut HashMap<String, AxisSpec>,
+    legends: &mut IndexMap<String, Legend>,
+    scale_specs: &mut HashMap<String, ScaleSpec>,
+    scale_to_coord_channel: &mut HashMap<String, String>,
+) -> Result<(), AvengerChartError> {
+    extract_channel_configs_from_channels(
+        mark_state.data.channels(),
+        &mark_state.axis_configs,
+        ctx,
+        coord_transform,
+        axis_specs,
+        legends,
+        scale_specs,
+        scale_to_coord_channel,
+    )
+}
+
+/// Extract scale, legend, and axis configurations from a coordinate-owned
+/// scale source.
+pub(crate) fn extract_channel_configs_from_coordinate_source(
+    source: &CoordinateScaleSource,
+    ctx: &SessionContext,
+    coord_transform: &dyn CoordinateSystemTransformCore,
+    axis_specs: &mut HashMap<String, AxisSpec>,
+    legends: &mut IndexMap<String, Legend>,
+    scale_specs: &mut HashMap<String, ScaleSpec>,
+    scale_to_coord_channel: &mut HashMap<String, String>,
+) -> Result<(), AvengerChartError> {
+    extract_channel_configs_from_channels(
+        source.data.channels(),
+        &source.axis_configs,
+        ctx,
+        coord_transform,
+        axis_specs,
+        legends,
+        scale_specs,
+        scale_to_coord_channel,
+    )
 }
 
 #[cfg(test)]

@@ -1683,6 +1683,7 @@ impl CompiledPlot {
             for mark in marks {
                 let Some(prepared) = prepare_mark_data_runtime(MarkDataRequest {
                     mark: mark.as_ref(),
+                    coord_transform: Some(&coord_transform),
                     plot_data: None,
                     provided_plot_df: None,
                     facet_data_scope: None,

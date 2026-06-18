@@ -616,6 +616,7 @@ async fn prepare_partitioned_positioned_subplot<'a>(
 
     let prepared_mark = Box::pin(prepare_mark_data_runtime(MarkDataRequest {
         mark: subplot.as_compiled_mark(),
+        coord_transform: Some(coord_transform),
         plot_data: None,
         provided_plot_df: data,
         facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(
@@ -744,6 +745,7 @@ async fn prepare_positioned_subplot<'a>(
 
     let prepared_mark = Box::pin(prepare_mark_data_runtime(MarkDataRequest {
         mark: subplot.as_compiled_mark(),
+        coord_transform: Some(coord_transform),
         plot_data: None,
         provided_plot_df: data,
         facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(

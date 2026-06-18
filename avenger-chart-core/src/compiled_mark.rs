@@ -13,7 +13,7 @@ use datafusion_common::ScalarValue as DatafusionScalarValue;
 use indexmap::IndexMap;
 
 use crate::{
-    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkState,
+    AvengerChartError, ChannelDescriptor, ChannelValue, CompiledDataContext, CompiledMarkState,
     CoordinateSystemTransformCore, EvaluationContext, LegendRendererSelection, MarkRenderContext,
     MarkRuntimeContext, PositionedSubplotMarkCore, RadiusExpression, ResolvedDomain, ScaleRange,
     ScaleTypePreference, Theme, default_scale_type_for_data_type, is_continuous_scale,
@@ -89,6 +89,18 @@ pub trait CompiledMarkCore: Any + Send + Sync {
     /// rendered scene marks.
     fn details_partition_continuous_geometry(&self) -> bool {
         false
+    }
+
+    /// Additional coordinate-provided channels needed during mark rendering.
+    ///
+    /// These channels are prepared only for runtime mark data. They do not make
+    /// the mark a public owner of the coordinate scale domains; coordinate scale
+    /// sources should provide that domain/guide planning input separately.
+    fn coordinate_channel_dependencies(
+        &self,
+        _coord: &dyn CoordinateSystemTransformCore,
+    ) -> IndexMap<String, ChannelValue> {
+        IndexMap::new()
     }
 
     /// Returns the default value for a channel if not explicitly mapped.

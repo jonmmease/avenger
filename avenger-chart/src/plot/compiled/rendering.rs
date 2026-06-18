@@ -1856,6 +1856,7 @@ impl CompiledPlot {
         };
         let prepared = prepare_mark_data_runtime(MarkDataRequest {
             mark,
+            coord_transform: Some(self.coord_transform.as_ref()),
             plot_data: self.data.as_ref(),
             provided_plot_df,
             facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(

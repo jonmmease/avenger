@@ -40,9 +40,9 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use avenger_chart_core::{
-    AvengerChartError, AxisSpec, ChannelValue, CompiledDataContext, CompiledGuide, CompiledMark,
-    CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot,
-    CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
+    AvengerChartError, AxisSpec, ChannelValue, CompiledCoordinateScaleSource, CompiledDataContext,
+    CompiledGuide, CompiledMark, CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec,
+    CompiledSubplotChildPlot, CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
     EvaluationContext as CoreEvaluationContext, FacetDataScope, Legend, LogicalPlanNodeExt,
     MarkDataMode, ScaleInferenceHint, ScaleRangeBinding, SerializableDataFrame,
     SerializableDataType, SerializableScalarMap, Theme, TimeContext, ToolMetadata,
@@ -175,6 +175,10 @@ pub struct CompiledPlot {
 
     /// Mark renderers
     pub(crate) marks: Vec<Arc<dyn CompiledMark>>,
+
+    /// Non-rendered coordinate-owned scale/domain sources.
+    #[serde(default)]
+    pub(crate) coordinate_scale_sources: Vec<CompiledCoordinateScaleSource>,
 
     /// Compiled recursive mark-group metadata.
     #[serde(default)]
@@ -647,6 +651,7 @@ impl CompiledPlot {
             };
             let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
                 mark: mark.as_ref(),
+                coord_transform: None,
                 plot_data,
                 provided_plot_df: inherited_df.as_ref(),
                 facet_data_scope: None,
@@ -877,6 +882,7 @@ async fn collect_event_coord_types_from_marks(
         };
         let prepared = match Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: mark.as_ref(),
+            coord_transform: None,
             plot_data,
             provided_plot_df,
             facet_data_scope: None,
