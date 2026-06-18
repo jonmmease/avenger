@@ -327,6 +327,8 @@ mod tests {
     use datafusion::arrow::datatypes::DataType;
     use datafusion::prelude::col;
 
+    use crate::coord::ParallelTransform;
+
     fn dims(ids: &[&str]) -> Vec<ParallelTransformDimension> {
         ids.iter()
             .map(|id| ParallelTransformDimension {
@@ -401,6 +403,52 @@ mod tests {
     }
 
     #[test]
+    fn propose_order_uses_supplied_nonuniform_slot_positions() {
+        let current = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
+        let slots = vec![
+            ParallelAxisSlot {
+                id: "alpha".to_string(),
+                generated_channel: "generated_alpha".to_string(),
+                scale_name: "alpha".to_string(),
+                equilibrium_index: 0,
+                equilibrium_x: 0.0,
+                display_x: 0.0,
+                displacement_px: 0.0,
+                displacement_slots: 0.0,
+            },
+            ParallelAxisSlot {
+                id: "beta".to_string(),
+                generated_channel: "generated_beta".to_string(),
+                scale_name: "beta".to_string(),
+                equilibrium_index: 1,
+                equilibrium_x: 80.0,
+                display_x: 80.0,
+                displacement_px: 0.0,
+                displacement_slots: 0.0,
+            },
+            ParallelAxisSlot {
+                id: "gamma".to_string(),
+                generated_channel: "generated_gamma".to_string(),
+                scale_name: "gamma".to_string(),
+                equilibrium_index: 2,
+                equilibrium_x: 250.0,
+                display_x: 250.0,
+                displacement_px: 0.0,
+                displacement_slots: 0.0,
+            },
+        ];
+
+        assert_eq!(
+            propose_axis_order(&current, "gamma", 40.0, &slots),
+            vec!["alpha".to_string(), "gamma".to_string(), "beta".to_string()]
+        );
+        assert_eq!(
+            propose_axis_order(&current, "alpha", 160.0, &slots),
+            vec!["beta".to_string(), "alpha".to_string(), "gamma".to_string()]
+        );
+    }
+
+    #[test]
     fn order_state_reads_valid_string_list_param() {
         let ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
         let params = IndexMap::from([("order".to_string(), string_list(&["c", "a", "b"]))]);
@@ -462,5 +510,61 @@ mod tests {
             .expect("display state")
             .is_none()
         );
+    }
+
+    #[test]
+    fn committed_order_state_applies_after_display_state_is_cleared() {
+        let transform = ParallelTransform {
+            dimensions: dims(&["a", "b", "c"]),
+            order: None,
+            order_state: Some(ParallelOrderState::param("order")),
+            display_state: Some(ParallelDisplayState::active_axis(
+                "active_dimension",
+                "display_x",
+            )),
+        };
+        let params = IndexMap::from([("order".to_string(), string_list(&["c", "a", "b"]))]);
+        let frame = transform
+            .resolve_frame_with_params(200.0, &params)
+            .expect("frame from committed order");
+
+        assert_eq!(
+            frame
+                .slots
+                .iter()
+                .map(|slot| (slot.id.as_str(), slot.display_x))
+                .collect::<Vec<_>>(),
+            vec![("c", 0.0), ("a", 100.0), ("b", 200.0)]
+        );
+    }
+
+    #[test]
+    fn serialized_parallel_transform_resolves_same_frame() {
+        let transform = ParallelTransform {
+            dimensions: dims(&["a", "b", "c"]),
+            order: Some(vec!["c".to_string(), "a".to_string(), "b".to_string()]),
+            order_state: Some(ParallelOrderState::param("order")),
+            display_state: Some(ParallelDisplayState::active_axis(
+                "active_dimension",
+                "display_x",
+            )),
+        };
+        let params = IndexMap::from([
+            ("order".to_string(), string_list(&["b", "c", "a"])),
+            (
+                "active_dimension".to_string(),
+                ScalarValue::Utf8(Some("c".to_string())),
+            ),
+            ("display_x".to_string(), ScalarValue::Float64(Some(42.0))),
+        ]);
+        let expected = transform
+            .resolve_frame_with_params(200.0, &params)
+            .expect("expected frame");
+        let json = serde_json::to_string(&transform).expect("serialize transform");
+        let decoded: ParallelTransform = serde_json::from_str(&json).expect("deserialize");
+        let actual = decoded
+            .resolve_frame_with_params(200.0, &params)
+            .expect("actual frame");
+        assert_eq!(actual, expected);
     }
 }

@@ -579,10 +579,58 @@ mod tests {
         let mpg = scales.get("mpg").expect("mpg scale").configured();
         assert_eq!(mpg.scale_impl.scale_type(), "linear");
         assert_eq!(mpg.numeric_interval_range().unwrap(), (300.0, 0.0));
+        assert!(
+            mpg.config.options.contains_key("nice"),
+            "parallel numeric dimensions should inherit nice=true by default"
+        );
+        assert!(
+            mpg.config.options.contains_key("round"),
+            "parallel numeric dimensions should inherit round=true by default"
+        );
+        assert!(
+            !mpg.config.options.contains_key("zero"),
+            "parallel dimensions should not force a zero baseline by default"
+        );
 
         let origin = scales.get("origin").expect("origin scale").configured();
         assert_eq!(origin.scale_impl.scale_type(), "point");
         assert_eq!(origin.numeric_interval_range().unwrap(), (300.0, 0.0));
+    }
+
+    #[tokio::test]
+    async fn parallel_timestamp_dimension_infers_time_scale() {
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "observed_at",
+            DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(TimestampMillisecondArray::from(vec![
+                1_704_067_200_000,
+                1_704_153_600_000,
+            ]))],
+        )
+        .expect("timestamp batch");
+        let df = ctx.read_batch(batch).expect("timestamp dataframe");
+        let compiled =
+            Plot::with_coord(Parallel::new().dimension("observed_at", col("observed_at")))
+                .data(df)
+                .compile(&ctx)
+                .await
+                .expect("compile parallel timestamp plot");
+
+        let scales = two_phase_build_scales(&compiled, 400.0, 300.0, &ctx, &IndexMap::new())
+            .await
+            .expect("build parallel timestamp scales");
+
+        let observed_at = scales
+            .get("observed_at")
+            .expect("observed_at scale")
+            .configured();
+        assert_eq!(observed_at.scale_impl.scale_type(), "time");
+        assert_eq!(observed_at.numeric_interval_range().unwrap(), (300.0, 0.0));
     }
 
     #[tokio::test]

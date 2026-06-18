@@ -13,7 +13,7 @@ use avenger_chart_core::{
     validate_structural_id,
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
-use avenger_scales::scales::{DomainKind, ScaleImpl};
+use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use datafusion::{arrow::datatypes::DataType, common::ScalarValue, prelude::lit};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -414,10 +414,18 @@ impl CoordinateSystemTransformCore for ParallelTransform {
 
     fn default_scale_options(
         &self,
-        _channel: &str,
-        _scale_impl: &dyn ScaleImpl,
+        channel: &str,
+        scale_impl: &dyn ScaleImpl,
     ) -> HashMap<String, ScalarValue> {
-        HashMap::new()
+        let mut options = HashMap::new();
+        if self.dimension_for_channel(channel).is_some()
+            && scale_impl.domain_kind() == DomainKind::Numeric
+            && scale_impl.range_kind() == RangeKind::Continuous
+        {
+            options.insert("nice".to_string(), ScalarValue::Boolean(Some(true)));
+            options.insert("round".to_string(), ScalarValue::Boolean(Some(true)));
+        }
+        options
     }
 
     fn preferred_scale_type(

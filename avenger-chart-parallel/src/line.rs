@@ -397,3 +397,252 @@ fn stroke_dash_at(values: &ScalarOrArray<Vec<f32>>, row: usize) -> Vec<f32> {
         ScalarOrArrayValue::Array(values) => values.get(row).cloned().unwrap_or_default(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use avenger_chart_core::{
+        CompiledDataContext, CompiledMarkState, CoordinateSystem, EmptyCoordMeasurement,
+        EvaluationContext, FacetDataScope, MarkDataMode, MarkRenderContext, MarkRuntimeContext,
+        Theme,
+    };
+    use datafusion::{
+        arrow::{
+            array::{ArrayRef, Float32Array, RecordBatch, StringArray},
+            datatypes::{DataType, Field, Schema},
+        },
+        common::ScalarValue,
+        prelude::{SessionContext, col},
+    };
+    use futures::executor::block_on;
+
+    use super::*;
+    use crate::{Parallel, generated_dimension_channel};
+
+    struct TestRuntimeContext {
+        eval: EvaluationContext,
+        measurement: EmptyCoordMeasurement,
+        plot_width: f32,
+        plot_height: f32,
+        facet_path: Vec<ScalarValue>,
+    }
+
+    impl TestRuntimeContext {
+        fn new(plot_width: f32, plot_height: f32) -> Self {
+            Self {
+                eval: EvaluationContext::new(
+                    Arc::new(Theme::light()),
+                    Arc::new(SessionContext::new()),
+                    IndexMap::new(),
+                ),
+                measurement: EmptyCoordMeasurement,
+                plot_width,
+                plot_height,
+                facet_path: Vec::new(),
+            }
+        }
+
+        fn with_params(mut self, params: IndexMap<String, ScalarValue>) -> Self {
+            self.eval = self.eval.with_params(params);
+            self
+        }
+    }
+
+    impl MarkRuntimeContext for TestRuntimeContext {
+        fn core_view(&self) -> MarkRenderContext<'_> {
+            MarkRenderContext::new(&self.eval, self.plot_width, self.plot_height)
+        }
+
+        fn coord_measurement(&self) -> &dyn avenger_chart_core::CoordMeasurement {
+            &self.measurement
+        }
+
+        fn facet_path(&self) -> &[ScalarValue] {
+            &self.facet_path
+        }
+    }
+
+    fn compiled_state() -> CompiledMarkState {
+        CompiledMarkState {
+            id: None,
+            public_target_path: None,
+            data: CompiledDataContext::default(),
+            data_mode: MarkDataMode::Inherit,
+            mark_index: 0,
+            facet_data_scope: FacetDataScope::default(),
+            exclude_from_scale_domains: false,
+            visible: None,
+            details: Some(vec!["id".to_string()]),
+            zindex: Some(8),
+            axis_configs: HashMap::new(),
+        }
+    }
+
+    fn scalar_batch() -> RecordBatch {
+        RecordBatch::new_empty(Arc::new(Schema::empty()))
+    }
+
+    fn prepared_data() -> RecordBatch {
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("id", DataType::Utf8, false),
+                Field::new(
+                    generated_dimension_channel("alpha"),
+                    DataType::Float32,
+                    true,
+                ),
+                Field::new(generated_dimension_channel("beta"), DataType::Float32, true),
+                Field::new("stroke", DataType::Utf8, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["row0", "row1"])) as ArrayRef,
+                Arc::new(Float32Array::from(vec![Some(10.0), Some(20.0)])),
+                Arc::new(Float32Array::from(vec![Some(30.0), None])),
+                Arc::new(StringArray::from(vec!["red", "blue"])),
+            ],
+        )
+        .expect("prepared parallel line data")
+    }
+
+    fn render_test_line() -> avenger_chart_core::RenderedMarkData {
+        render_test_line_with_coord_and_context(
+            Parallel::new()
+                .dimension("alpha", col("alpha"))
+                .dimension("beta", col("beta"))
+                .create_transform(),
+            TestRuntimeContext::new(100.0, 50.0),
+        )
+    }
+
+    fn render_test_line_with_coord_and_context(
+        coord: Box<dyn avenger_chart_core::CoordinateSystemTransform>,
+        context: TestRuntimeContext,
+    ) -> avenger_chart_core::RenderedMarkData {
+        let mark = CompiledParallelLine {
+            state: compiled_state(),
+        };
+        block_on(mark.render_mark_data(
+            Some(&prepared_data()),
+            &scalar_batch(),
+            &context,
+            coord.as_ref(),
+        ))
+        .expect("render parallel line")
+    }
+
+    #[test]
+    fn parallel_line_requests_generated_dimension_dependencies() {
+        let coord = Parallel::new()
+            .dimension("alpha", col("alpha"))
+            .dimension("beta", col("beta"))
+            .create_transform();
+        let mark = CompiledParallelLine {
+            state: compiled_state(),
+        };
+        let deps = mark.coordinate_channel_dependencies(coord.as_ref());
+        assert!(deps.contains_key(&generated_dimension_channel("alpha")));
+        assert!(deps.contains_key(&generated_dimension_channel("beta")));
+    }
+
+    #[test]
+    fn parallel_line_accepts_details_for_event_datum_retention() {
+        let mark = ParallelLine::<Parallel>::new().details(["id"]);
+        assert_eq!(mark.state.details.as_deref(), Some(&["id".to_string()][..]));
+    }
+
+    #[test]
+    fn parallel_line_renders_one_line_per_source_row_and_preserves_source_rows() {
+        let rendered = render_test_line();
+        assert_eq!(rendered.marks.len(), 2);
+        assert_eq!(
+            rendered
+                .source_row_indices
+                .as_ref()
+                .expect("source row indices"),
+            &vec![vec![0], vec![1]]
+        );
+
+        let first = match &rendered.marks[0] {
+            SceneMark::Line(mark) => mark,
+            _ => panic!("expected first line mark"),
+        };
+        assert_eq!(first.len, 2);
+        assert_eq!(first.zindex, Some(8));
+        match first.x.value() {
+            ScalarOrArrayValue::Array(values) => assert_eq!(values.as_slice(), &[0.0, 100.0]),
+            ScalarOrArrayValue::Scalar(_) => panic!("expected x array"),
+        }
+        match first.y.value() {
+            ScalarOrArrayValue::Array(values) => assert_eq!(values.as_slice(), &[10.0, 30.0]),
+            ScalarOrArrayValue::Scalar(_) => panic!("expected y array"),
+        }
+        match first.defined.value() {
+            ScalarOrArrayValue::Array(values) => assert_eq!(values.as_slice(), &[true, true]),
+            ScalarOrArrayValue::Scalar(_) => panic!("expected defined array"),
+        }
+    }
+
+    #[test]
+    fn parallel_line_marks_missing_dimension_vertices_undefined() {
+        let rendered = render_test_line();
+        let second = match &rendered.marks[1] {
+            SceneMark::Line(mark) => mark,
+            _ => panic!("expected second line mark"),
+        };
+        match second.y.value() {
+            ScalarOrArrayValue::Array(values) => {
+                assert_eq!(values[0], 20.0);
+                assert!(values[1].is_nan());
+            }
+            ScalarOrArrayValue::Scalar(_) => panic!("expected y array"),
+        }
+        match second.defined.value() {
+            ScalarOrArrayValue::Array(values) => assert_eq!(values.as_slice(), &[true, false]),
+            ScalarOrArrayValue::Scalar(_) => panic!("expected defined array"),
+        }
+    }
+
+    #[test]
+    fn parallel_line_uses_display_x_for_geometry() {
+        let coord = Parallel::new()
+            .dimension("alpha", col("alpha"))
+            .dimension("beta", col("beta"))
+            .active_axis_display_params("drag_dimension", "drag_display_x")
+            .create_transform();
+        let context = TestRuntimeContext::new(100.0, 50.0).with_params(IndexMap::from([
+            (
+                "drag_dimension".to_string(),
+                ScalarValue::Utf8(Some("beta".to_string())),
+            ),
+            (
+                "drag_display_x".to_string(),
+                ScalarValue::Float64(Some(72.0)),
+            ),
+        ]));
+        let rendered = render_test_line_with_coord_and_context(coord, context);
+        let first = match &rendered.marks[0] {
+            SceneMark::Line(mark) => mark,
+            _ => panic!("expected first line mark"),
+        };
+        match first.x.value() {
+            ScalarOrArrayValue::Array(values) => assert_eq!(values.as_slice(), &[0.0, 72.0]),
+            ScalarOrArrayValue::Scalar(_) => panic!("expected x array"),
+        }
+    }
+
+    #[test]
+    fn parallel_line_style_channels_can_vary_by_source_row() {
+        let rendered = render_test_line();
+        let first = match &rendered.marks[0] {
+            SceneMark::Line(mark) => mark,
+            _ => panic!("expected first line mark"),
+        };
+        let second = match &rendered.marks[1] {
+            SceneMark::Line(mark) => mark,
+            _ => panic!("expected second line mark"),
+        };
+        assert_eq!(first.stroke, ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0]));
+        assert_eq!(second.stroke, ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]));
+    }
+}

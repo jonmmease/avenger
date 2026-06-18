@@ -1955,6 +1955,7 @@ mod tests {
         simplify_to_scalar_sync,
     };
     use avenger_chart_marks::{Rect, Subplot, Symbol};
+    use avenger_chart_parallel::{Parallel, generated_dimension_channel};
     use avenger_chart_tools::PanScrollZoom;
     use avenger_chart_transforms::{Bin, Calculate};
     use datafusion::{
@@ -3806,6 +3807,68 @@ mod tests {
             collect_repeat_placeholder_kinds(&x_b)
                 .expect("collect")
                 .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn coordinate_scale_source_axis_configs_merge_into_compiled_axes() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::with_coord(Parallel::new().dimension_with("mpg", col("mpg"), |d| {
+            d.axis(|axis| axis.title("Miles per gallon"))
+        }))
+        .data(ctx.sql("SELECT 21.0 AS mpg").await.expect("data"))
+        .compile(&ctx)
+        .await
+        .expect("compile parallel plot");
+
+        assert!(
+            compiled
+                .axis_specs
+                .contains_key(&generated_dimension_channel("mpg")),
+            "coordinate-owned dimension axis should be merged into compiled axis specs"
+        );
+    }
+
+    #[tokio::test]
+    async fn coordinate_scale_sources_compile_without_rendered_marks() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::with_coord(Parallel::new().dimension("mpg", col("mpg")))
+            .data(ctx.sql("SELECT 21.0 AS mpg").await.expect("data"))
+            .compile(&ctx)
+            .await
+            .expect("compile parallel plot");
+
+        assert_eq!(
+            compiled.coordinate_scale_sources.len(),
+            1,
+            "parallel dimensions should compile one coordinate-owned scale source"
+        );
+        assert!(
+            compiled.marks.is_empty(),
+            "coordinate-owned scale sources must not become rendered compiled marks"
+        );
+    }
+
+    #[tokio::test]
+    async fn coordinate_scale_sources_round_trip_with_compiled_plot() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::with_coord(Parallel::new().dimension_with("mpg", col("mpg"), |d| {
+            d.axis(|axis| axis.title("Miles per gallon"))
+        }))
+        .data(ctx.sql("SELECT 21.0 AS mpg").await.expect("data"))
+        .compile(&ctx)
+        .await
+        .expect("compile parallel plot");
+
+        let encoded = bincode::serialize(&compiled).expect("serialize compiled plot");
+        let decoded: crate::plot::compiled::CompiledPlot =
+            bincode::deserialize(&encoded).expect("deserialize compiled plot");
+        assert_eq!(decoded.coordinate_scale_sources.len(), 1);
+        assert!(
+            decoded.coordinate_scale_sources[0]
+                .axis_configs
+                .contains_key(&generated_dimension_channel("mpg")),
+            "coordinate-owned axis configs should survive compiled plot serialization"
         );
     }
 
