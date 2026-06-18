@@ -398,7 +398,7 @@ impl<C: CoordinateSystem> Plot<C> {
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let root_tool_context = ToolCompileContext::root(self.time_context.clone());
-        self.compile_with_tool_context(session_context, Some(&root_tool_context), true)
+        Box::pin(self.compile_with_tool_context(session_context, Some(&root_tool_context), true))
             .await
     }
 
@@ -410,18 +410,20 @@ impl<C: CoordinateSystem> Plot<C> {
     ) -> Result<CompiledPlot, AvengerChartError> {
         match try_lower_repeat_plot(self, session_context)? {
             MaybeLoweredRepeatPlot::Lowered(lowered) => {
-                return lowered
-                    .compile_with_tool_context(session_context, inherited_tool_context, is_root)
-                    .await;
+                return Box::pin(lowered.compile_with_tool_context(
+                    session_context,
+                    inherited_tool_context,
+                    is_root,
+                ))
+                .await;
             }
             MaybeLoweredRepeatPlot::Original(plot) => {
-                return plot
-                    .compile_without_repeat_lowering(
-                        session_context,
-                        inherited_tool_context,
-                        is_root,
-                    )
-                    .await;
+                return Box::pin(plot.compile_without_repeat_lowering(
+                    session_context,
+                    inherited_tool_context,
+                    is_root,
+                ))
+                .await;
             }
         }
     }
@@ -946,15 +948,15 @@ impl<C: CoordinateSystem> Plot<C> {
 }
 
 enum MaybeLoweredRepeatPlot<C: CoordinateSystem> {
-    Original(Plot<C>),
-    Lowered(LoweredRepeatPlot),
+    Original(Box<Plot<C>>),
+    Lowered(Box<LoweredRepeatPlot>),
 }
 
 enum LoweredRepeatPlot {
-    Columns(Plot<HConcat>),
-    Rows(Plot<VConcat>),
-    Grid(Plot<GridConcat>),
-    Wrap(Plot<WrapConcat>),
+    Columns(Box<Plot<HConcat>>),
+    Rows(Box<Plot<VConcat>>),
+    Grid(Box<Plot<GridConcat>>),
+    Wrap(Box<Plot<WrapConcat>>),
 }
 
 impl LoweredRepeatPlot {
@@ -1009,36 +1011,52 @@ fn try_lower_repeat_plot<C: CoordinateSystem>(
         .downcast_ref::<RepeatColumns>()
         .cloned()
     {
-        return Ok(MaybeLoweredRepeatPlot::Lowered(LoweredRepeatPlot::Columns(
-            lower_repeat_columns_plot(plot, repeat, session_context)?,
+        return Ok(MaybeLoweredRepeatPlot::Lowered(Box::new(
+            LoweredRepeatPlot::Columns(Box::new(lower_repeat_columns_plot(
+                plot,
+                repeat,
+                session_context,
+            )?)),
         )));
     }
     if let Some(repeat) = (&plot.coord_system as &dyn Any)
         .downcast_ref::<RepeatRows>()
         .cloned()
     {
-        return Ok(MaybeLoweredRepeatPlot::Lowered(LoweredRepeatPlot::Rows(
-            lower_repeat_rows_plot(plot, repeat, session_context)?,
+        return Ok(MaybeLoweredRepeatPlot::Lowered(Box::new(
+            LoweredRepeatPlot::Rows(Box::new(lower_repeat_rows_plot(
+                plot,
+                repeat,
+                session_context,
+            )?)),
         )));
     }
     if let Some(repeat) = (&plot.coord_system as &dyn Any)
         .downcast_ref::<RepeatGrid>()
         .cloned()
     {
-        return Ok(MaybeLoweredRepeatPlot::Lowered(LoweredRepeatPlot::Grid(
-            lower_repeat_grid_plot(plot, repeat, session_context)?,
+        return Ok(MaybeLoweredRepeatPlot::Lowered(Box::new(
+            LoweredRepeatPlot::Grid(Box::new(lower_repeat_grid_plot(
+                plot,
+                repeat,
+                session_context,
+            )?)),
         )));
     }
     if let Some(repeat) = (&plot.coord_system as &dyn Any)
         .downcast_ref::<RepeatWrap>()
         .cloned()
     {
-        return Ok(MaybeLoweredRepeatPlot::Lowered(LoweredRepeatPlot::Wrap(
-            lower_repeat_wrap_plot(plot, repeat, session_context)?,
+        return Ok(MaybeLoweredRepeatPlot::Lowered(Box::new(
+            LoweredRepeatPlot::Wrap(Box::new(lower_repeat_wrap_plot(
+                plot,
+                repeat,
+                session_context,
+            )?)),
         )));
     }
 
-    Ok(MaybeLoweredRepeatPlot::Original(plot))
+    Ok(MaybeLoweredRepeatPlot::Original(Box::new(plot)))
 }
 
 #[allow(clippy::type_complexity)]
@@ -1161,7 +1179,22 @@ struct FlattenedPlotMarks<C: CoordinateSystem> {
     group_states: Vec<AuthoringMarkGroupState>,
     mark_group_indices: Vec<Option<usize>>,
     public_target_paths: Vec<Option<String>>,
+    /// Root marks and children of idless groups share this unqualified id
+    /// namespace even when the child id is not exposed as a public target.
+    unqualified_mark_ids: HashSet<String>,
     mark_target_registry: MarkTargetRegistry,
+}
+
+impl<C: CoordinateSystem> FlattenedPlotMarks<C> {
+    fn reserve_unqualified_mark_id(&mut self, id: &str) -> Result<(), AvengerChartError> {
+        if self.unqualified_mark_ids.insert(id.to_string()) {
+            Ok(())
+        } else {
+            Err(AvengerChartError::InvalidArgument(format!(
+                "Duplicate mark id '{id}' among sibling marks"
+            )))
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1211,6 +1244,7 @@ fn flatten_plot_marks<C: CoordinateSystem>(
         group_states: Vec::new(),
         mark_group_indices: Vec::new(),
         public_target_paths: Vec::new(),
+        unqualified_mark_ids: HashSet::new(),
         mark_target_registry: MarkTargetRegistry::default(),
     };
     flatten_plot_mark_elements(elements, None, &[], repeat_context, &mut flat)?;
@@ -1233,6 +1267,9 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
             PlotMarkKind::Primitive(mark) => {
                 if let Some(id) = mark.state().id.as_deref() {
                     validate_structural_id("mark", id)?;
+                    if public_path_prefix.is_empty() {
+                        flat.reserve_unqualified_mark_id(id)?;
+                    }
                 }
                 if parent_group_index.is_some() {
                     let state = mark.state();

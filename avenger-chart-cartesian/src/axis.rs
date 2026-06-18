@@ -505,7 +505,7 @@ pub async fn evaluate_cartesian_axis(
     sharing_context: GuideSharingContext<'_>,
     facet_sharing_level: SharingLevel,
     child_frame_sharing_level: SharingLevel,
-    nested_axis_levels: Option<&BTreeMap<usize, CartesianAxis>>,
+    nested_axis_levels: Option<&BTreeMap<usize, Box<CartesianAxis>>>,
 ) -> Result<SceneMark, AvengerChartError> {
     let visible = if let Some(visible_node) = axis.visible.as_option().and_then(|o| o.as_ref()) {
         let visible_expr =
@@ -759,7 +759,7 @@ pub async fn evaluate_cartesian_axis(
 }
 
 async fn evaluate_nested_axis_level_configs(
-    nested_axis_levels: Option<&BTreeMap<usize, CartesianAxis>>,
+    nested_axis_levels: Option<&BTreeMap<usize, Box<CartesianAxis>>>,
     channel: &str,
     ctx: &SessionContext,
     params: &indexmap::IndexMap<String, ScalarValue>,
@@ -774,6 +774,7 @@ async fn evaluate_nested_axis_level_configs(
 
     let mut configs = BTreeMap::new();
     for (level, axis) in nested_axis_levels {
+        let axis = axis.as_ref();
         let visible = if let Some(visible_node) = axis.visible.as_option().and_then(|o| o.as_ref())
         {
             let visible_expr =

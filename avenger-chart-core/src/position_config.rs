@@ -12,7 +12,7 @@ use crate::{
 #[derive(Clone)]
 pub struct GenericPositionConfig<A: Clone + Default + Send + Sync + 'static> {
     pub(crate) inner: ChannelValue,
-    pub(crate) axis_config: Option<A>,
+    pub(crate) axis_config: Option<Box<A>>,
 }
 
 impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
@@ -37,8 +37,8 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
     where
         F: FnOnce(A) -> A,
     {
-        let axis = self.axis_config.unwrap_or_default();
-        self.axis_config = Some(f(axis));
+        let axis = self.axis_config.map(|axis| *axis).unwrap_or_default();
+        self.axis_config = Some(Box::new(f(axis)));
         self
     }
 
@@ -96,7 +96,7 @@ impl<A: Clone + Default + Send + Sync + 'static> GenericPositionConfig<A> {
 
     /// Get the axis configuration if present.
     pub fn axis_config(&self) -> Option<&A> {
-        self.axis_config.as_ref()
+        self.axis_config.as_deref()
     }
 }
 
@@ -138,7 +138,7 @@ impl<A: Clone + Default + Send + Sync + 'static> PositionConfig for GenericPosit
     }
 
     fn take_axis_config(self) -> (ChannelValue, Option<Self::Axis>) {
-        (self.inner, self.axis_config)
+        (self.inner, self.axis_config.map(|axis| *axis))
     }
 
     fn into_inner(self) -> ChannelValue {

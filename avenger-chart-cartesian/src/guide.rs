@@ -53,7 +53,7 @@ pub struct CartesianGuide {
     pub(crate) channel_sharing_levels: HashMap<String, u8>,
     /// Nested-band per-level axis overrides extracted from position channels.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub(crate) nested_axis_levels: HashMap<String, BTreeMap<usize, CartesianAxis>>,
+    pub(crate) nested_axis_levels: HashMap<String, BTreeMap<usize, Box<CartesianAxis>>>,
 }
 
 impl std::fmt::Debug for CartesianGuide {
@@ -211,9 +211,10 @@ impl CoordinateGuide for CartesianGuide {
                         level_axes
                             .entry(*level)
                             .and_modify(|existing| {
-                                *existing = std::mem::take(existing).update(axis.clone());
+                                let updated = existing.as_ref().clone().update(axis.clone());
+                                *existing = Box::new(updated);
                             })
-                            .or_insert_with(|| axis.clone());
+                            .or_insert_with(|| Box::new(axis.clone()));
                     }
                 }
 
