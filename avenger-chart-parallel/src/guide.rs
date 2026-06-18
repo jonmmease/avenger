@@ -148,7 +148,7 @@ impl CompiledGuide for CompiledParallelGuide {
         scales: &HashMap<String, ConfiguredScale>,
         plot_width: f32,
         plot_height: f32,
-        _plot_bounds: &LayoutBounds,
+        plot_bounds: &LayoutBounds,
         _guide_overflow: &OverflowSpaceRequirement,
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
@@ -181,7 +181,8 @@ impl CompiledGuide for CompiledParallelGuide {
             })?;
             marks.push(make_axis_mark(
                 scale,
-                datum.display_x,
+                plot_bounds.x + datum.display_x,
+                plot_bounds.y,
                 plot_width,
                 plot_height,
                 theme,
@@ -196,14 +197,20 @@ impl CompiledGuide for CompiledParallelGuide {
             clip: false,
             len: count as u32,
             gradients: Vec::new(),
-            x: ScalarOrArray::from(xs.iter().map(|x| *x - hit_half_width).collect::<Vec<_>>()),
-            y: ScalarOrArray::new_scalar(-34.0),
+            x: ScalarOrArray::from(
+                xs.iter()
+                    .map(|x| plot_bounds.x + *x - hit_half_width)
+                    .collect::<Vec<_>>(),
+            ),
+            y: ScalarOrArray::new_scalar(plot_bounds.y - 34.0),
             width: None,
             height: None,
             x2: Some(ScalarOrArray::from(
-                xs.iter().map(|x| *x + hit_half_width).collect::<Vec<_>>(),
+                xs.iter()
+                    .map(|x| plot_bounds.x + *x + hit_half_width)
+                    .collect::<Vec<_>>(),
             )),
-            y2: Some(ScalarOrArray::new_scalar(2.0)),
+            y2: Some(ScalarOrArray::new_scalar(plot_bounds.y + 2.0)),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: ScalarOrArray::new_scalar(0.0),
@@ -218,8 +225,8 @@ impl CompiledGuide for CompiledParallelGuide {
             clip: false,
             len: count as u32,
             text: ScalarOrArray::from(titles),
-            x: ScalarOrArray::from(xs),
-            y: ScalarOrArray::new_scalar(-12.0),
+            x: ScalarOrArray::from(xs.iter().map(|x| plot_bounds.x + *x).collect::<Vec<_>>()),
+            y: ScalarOrArray::new_scalar(plot_bounds.y - 12.0),
             align: ScalarOrArray::new_scalar(TextAlign::Center),
             baseline: ScalarOrArray::new_scalar(TextBaseline::Bottom),
             angle: ScalarOrArray::new_scalar(0.0),
@@ -255,6 +262,7 @@ impl CompiledGuide for CompiledParallelGuide {
 fn make_axis_mark(
     scale: &ConfiguredScale,
     display_x: f32,
+    display_y: f32,
     plot_width: f32,
     plot_height: f32,
     theme: &Theme,
@@ -263,11 +271,13 @@ fn make_axis_mark(
     let axis_config = parallel_axis_config(plot_width, plot_height, theme, params);
     let mut group = match scale.scale_impl.domain_kind() {
         DomainKind::Categorical => match scale.scale_impl.scale_type() {
-            "band" => make_band_axis_marks(scale, "", [display_x, 0.0], &axis_config)?,
-            "point" => make_point_axis_marks(scale.clone(), "", [display_x, 0.0], &axis_config)?,
+            "band" => make_band_axis_marks(scale, "", [display_x, display_y], &axis_config)?,
+            "point" => {
+                make_point_axis_marks(scale.clone(), "", [display_x, display_y], &axis_config)?
+            }
             "ordinal" => {
                 let band_scale = BandScale::from_point_scale(scale);
-                make_band_axis_marks(&band_scale, "", [display_x, 0.0], &axis_config)?
+                make_band_axis_marks(&band_scale, "", [display_x, display_y], &axis_config)?
             }
             scale_type => {
                 return Err(AvengerChartError::InternalError(format!(
@@ -281,7 +291,7 @@ fn make_axis_mark(
             ));
         }
         DomainKind::Numeric | DomainKind::Temporal => {
-            make_numeric_axis_marks(scale, "", [display_x, 0.0], &axis_config)?
+            make_numeric_axis_marks(scale, "", [display_x, display_y], &axis_config)?
         }
     };
     group.name = "parallel_axis".to_string();
@@ -353,6 +363,7 @@ mod tests {
         CoordinationAxis, EmptyCoordMeasurement, FacetGuideSharingView, SharingLevel,
         guide_sharing::AxisOwnershipMode,
     };
+    use avenger_common::value::ScalarOrArrayValue;
     use avenger_scales::scales::{linear::LinearScale, point::PointScale};
     use datafusion::arrow::array::StringArray;
 
@@ -461,6 +472,73 @@ mod tests {
         assert!(
             matches!(&marks[2], SceneMark::Text(text) if text.name == "parallel_axis_title" && text.interactive)
         );
+    }
+
+    #[test]
+    fn guide_marks_are_offset_by_plot_bounds() {
+        let ctx = SessionContext::new();
+        let mut axes = HashMap::new();
+        axes.insert(
+            "generated_speed".to_string(),
+            ParallelAxis::new()
+                .title("Speed")
+                .with_dimension_metadata("speed", 0),
+        );
+        axes.insert(
+            "generated_cost".to_string(),
+            ParallelAxis::new()
+                .title("Cost")
+                .with_dimension_metadata("cost", 1),
+        );
+        let guide = CompiledParallelGuide { axes };
+        let facet = TestFacetGuideSharingView;
+        let child = TestChildFrameGuideSharingView;
+        let scales = HashMap::from([
+            (
+                "speed".to_string(),
+                LinearScale::configured((0.0, 100.0), (200.0, 0.0)),
+            ),
+            (
+                "cost".to_string(),
+                LinearScale::configured((0.0, 100.0), (200.0, 0.0)),
+            ),
+        ]);
+        let marks = futures::executor::block_on(guide.evaluate(
+            &scales,
+            300.0,
+            200.0,
+            &LayoutBounds {
+                x: 25.0,
+                y: 40.0,
+                width: 300.0,
+                height: 200.0,
+            },
+            &OverflowSpaceRequirement::default(),
+            &Theme::light(),
+            &IndexMap::new(),
+            &ctx,
+            None,
+            GuideSharingContext::new(&facet, &[], &child),
+            &EmptyCoordMeasurement,
+        ))
+        .expect("evaluate guide");
+
+        match &marks[0] {
+            SceneMark::Group(group) => assert_eq!(group.origin, [25.0, 40.0]),
+            _ => panic!("expected first parallel axis group"),
+        }
+        let rect = match &marks[2] {
+            SceneMark::Rect(rect) => rect,
+            _ => panic!("expected title hit rect"),
+        };
+        match rect.x.value() {
+            ScalarOrArrayValue::Array(values) => assert_eq!(values.as_slice(), &[-29.0, 271.0]),
+            ScalarOrArrayValue::Scalar(_) => panic!("expected title hit rect x array"),
+        }
+        match rect.y.value() {
+            ScalarOrArrayValue::Scalar(value) => assert_eq!(*value, 6.0),
+            ScalarOrArrayValue::Array(_) => panic!("expected title hit rect scalar y"),
+        }
     }
 
     #[test]
