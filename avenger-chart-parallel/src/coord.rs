@@ -13,6 +13,7 @@ use avenger_chart_core::{
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scales::scales::ScaleImpl;
 use datafusion::{arrow::datatypes::DataType, common::ScalarValue, prelude::lit};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{ParallelAxis, ParallelGuide};
@@ -160,6 +161,10 @@ impl CoordinateSystem for Parallel {
                 .map(|dimension| ParallelTransformDimension {
                     id: dimension.id.clone(),
                     generated_channel: dimension.generated_channel.clone(),
+                    channel_value: dimension
+                        .channel_value
+                        .clone()
+                        .with_scale_name(dimension.id.clone()),
                 })
                 .collect(),
             order: self.order.clone(),
@@ -196,6 +201,7 @@ impl CoordinateSystem for Parallel {
 pub struct ParallelTransformDimension {
     pub id: String,
     pub generated_channel: String,
+    pub channel_value: ChannelValue,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -213,6 +219,16 @@ impl ParallelTransform {
 
     pub fn resolve_frame(&self, width: f32) -> ParallelFrameGeometry {
         resolve_parallel_frame(&self.dimensions, self.order.as_deref(), None, width)
+    }
+
+    pub fn ordered_dimensions(&self) -> Vec<&ParallelTransformDimension> {
+        let Some(order) = self.order.as_deref() else {
+            return self.dimensions.iter().collect();
+        };
+        order
+            .iter()
+            .filter_map(|id| self.dimensions.iter().find(|dimension| dimension.id == *id))
+            .collect()
     }
 }
 
@@ -284,6 +300,21 @@ impl CoordinateSystemTransformCore for ParallelTransform {
             }
             _ => None,
         }
+    }
+
+    fn generated_position_channels(&self) -> IndexMap<String, ChannelValue> {
+        self.ordered_dimensions()
+            .into_iter()
+            .map(|dimension| {
+                (
+                    dimension.generated_channel.clone(),
+                    dimension
+                        .channel_value
+                        .clone()
+                        .with_scale_name(dimension.id.clone()),
+                )
+            })
+            .collect()
     }
 }
 

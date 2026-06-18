@@ -47,7 +47,7 @@ pub use avenger_chart_core::{
 };
 pub use avenger_chart_parallel::{
     Parallel, ParallelAxis, ParallelDimensionConfig, ParallelDimensionSpec, ParallelGuide,
-    ParallelTransform,
+    ParallelLine, ParallelTransform,
 };
 pub use avenger_chart_polar::Polar;
 

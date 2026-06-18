@@ -110,12 +110,15 @@ fn ordered_dimensions<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use avenger_chart_core::ChannelValue;
+    use datafusion::prelude::col;
 
     fn dims(ids: &[&str]) -> Vec<ParallelTransformDimension> {
         ids.iter()
             .map(|id| ParallelTransformDimension {
                 id: (*id).to_string(),
                 generated_channel: format!("generated_{id}"),
+                channel_value: ChannelValue::from(col(*id)).with_scale_name(*id),
             })
             .collect()
     }

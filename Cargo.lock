@@ -741,6 +741,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "avenger-chart-core",
+ "avenger-chart-marks",
+ "avenger-color",
  "avenger-common",
  "avenger-scales",
  "avenger-scenegraph",

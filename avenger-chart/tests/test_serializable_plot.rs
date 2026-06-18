@@ -3,7 +3,9 @@
 use avenger_chart::cartesian::{CartesianRectPositionChannels, CartesianSymbolPositionChannels};
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::{CompiledPlot, Plot};
-use avenger_chart::prelude::{Cartesian, CoordinationScope, NestScope, Parallel, Rect};
+use avenger_chart::prelude::{
+    Cartesian, CoordinationScope, NestScope, Parallel, ParallelLine, Rect,
+};
 use datafusion::prelude::{SessionContext, col, lit};
 
 #[tokio::test]
@@ -72,13 +74,15 @@ async fn test_compiled_parallel_plot() {
         col("origin"),
         |dimension| dimension.axis(|axis| axis.title("Origin")),
     ))
-    .data(df);
+    .data(df)
+    .mark(ParallelLine::new().stroke(col("origin")).opacity(0.6));
 
     let compiled = plot.compile(&ctx).await.unwrap();
     let json = serde_json::to_string_pretty(&compiled).unwrap();
     let _deserialized: CompiledPlot = serde_json::from_str(&json).unwrap();
 
     assert!(json.contains("ParallelTransform"));
+    assert!(json.contains("CompiledParallelLine"));
     assert!(json.contains("coordinate_scale_sources"));
     assert!(json.contains("__avenger_parallel_dim_mpg"));
 }

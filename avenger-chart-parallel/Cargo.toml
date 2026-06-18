@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+avenger-color = { path = "../avenger-color" }
 avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-chart-marks = { path = "../avenger-chart-marks" }
 avenger-common = { path = "../avenger-common" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }

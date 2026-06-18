@@ -5,7 +5,9 @@ use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use datafusion::{arrow::datatypes::DataType, common::ScalarValue};
 use indexmap::IndexMap;
 
-use crate::{AvengerChartError, PlotGeometry, ScaleRangeBinding, ScaleTypePreference};
+use crate::{
+    AvengerChartError, ChannelValue, PlotGeometry, ScaleRangeBinding, ScaleTypePreference,
+};
 
 /// Request to invert a local plot-area point back to data-space channel values.
 ///
@@ -86,6 +88,11 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
         _data_type: &DataType,
     ) -> Option<ScaleTypePreference> {
         None
+    }
+
+    /// Ordered generated position channels owned by the coordinate system.
+    fn generated_position_channels(&self) -> IndexMap<String, ChannelValue> {
+        IndexMap::new()
     }
 
     /// Coordinate channels this transform can invert from a local plot-area point.
