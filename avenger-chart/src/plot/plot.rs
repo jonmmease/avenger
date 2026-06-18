@@ -444,6 +444,7 @@ impl<C: CoordinateSystem> Plot<C> {
             .resolved_with_parent(&inherited_time_context);
         let tool_context = ToolCompileContext::from_parent(inherited_tool_context)
             .with_time_context(effective_time_context.clone());
+        self.coord_system.validate()?;
         let coord_transform = self.coord_system.create_transform();
         let coordinate_scale_sources = self.coord_system.coordinate_scale_sources();
         let resolved_coordinate_scale_sources = resolve_coordinate_scale_sources(

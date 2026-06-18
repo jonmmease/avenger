@@ -513,6 +513,7 @@ dependencies = [
  "avenger-chart-legend",
  "avenger-chart-marks",
  "avenger-chart-marks-statistical",
+ "avenger-chart-parallel",
  "avenger-chart-polar",
  "avenger-chart-scales",
  "avenger-chart-tools",
@@ -732,6 +733,24 @@ dependencies = [
  "pathdiff",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "avenger-chart-parallel"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-chart-core",
+ "avenger-common",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "datafusion",
+ "datafusion-proto",
+ "indexmap 2.9.0",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "typetag",
 ]
 
 [[package]]

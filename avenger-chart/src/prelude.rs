@@ -45,6 +45,10 @@ pub use avenger_chart_core::{
 pub use avenger_chart_core::{
     SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField,
 };
+pub use avenger_chart_parallel::{
+    Parallel, ParallelAxis, ParallelDimensionConfig, ParallelDimensionSpec, ParallelGuide,
+    ParallelTransform,
+};
 pub use avenger_chart_polar::Polar;
 
 // Re-export the Plot type

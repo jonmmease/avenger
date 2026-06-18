@@ -2,10 +2,10 @@ use std::{any::Any, collections::HashMap};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
-use datafusion::common::ScalarValue;
+use datafusion::{arrow::datatypes::DataType, common::ScalarValue};
 use indexmap::IndexMap;
 
-use crate::{AvengerChartError, PlotGeometry, ScaleRangeBinding};
+use crate::{AvengerChartError, PlotGeometry, ScaleRangeBinding, ScaleTypePreference};
 
 /// Request to invert a local plot-area point back to data-space channel values.
 ///
@@ -78,6 +78,15 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
         channel: &str,
         scale_impl: &dyn ScaleImpl,
     ) -> HashMap<String, ScalarValue>;
+
+    /// Coordinate-system semantic scale preference for a position scale.
+    fn preferred_scale_type(
+        &self,
+        _channel: &str,
+        _data_type: &DataType,
+    ) -> Option<ScaleTypePreference> {
+        None
+    }
 
     /// Coordinate channels this transform can invert from a local plot-area point.
     ///

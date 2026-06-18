@@ -23,6 +23,7 @@ members = [
     "avenger-chart-transforms",
     "avenger-chart-cartesian",
     "avenger-chart-polar",
+    "avenger-chart-parallel",
     "avenger-chart",
     "avenger-chart-app",
     "avenger-chart/avenger-chart-mdbook",

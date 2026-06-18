@@ -1,7 +1,5 @@
 //! Facade compatibility for scale building owned by `avenger-chart-scales`.
 
-#[cfg(test)]
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use datafusion::{
@@ -9,20 +7,14 @@ use datafusion::{
     common::ScalarValue,
     dataframe::DataFrame,
 };
-#[cfg(test)]
-use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
-#[cfg(test)]
-use avenger_chart_core::CoordinateSystemTransform;
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledCoordinateScaleSource, CompiledDataContext,
     CompiledMark, CompiledMarkCore, CompiledMarkState, CoordinateSystemTransformCore,
     EvaluationContext as CoreEvaluationContext, MarkRuntimeContext, ResolvedDomain, ScaleRange,
     Theme,
 };
-#[cfg(test)]
-use avenger_chart_scales::PlotScaleSpec;
 use avenger_chart_scales::{PreparedScaleMark, ScaleBuilder};
 use avenger_scales::scales::ScaleImpl;
 
@@ -167,57 +159,6 @@ async fn prepare_coordinate_scale_source_for_plot(
         prepared.domain_channels,
         prepared.derived_scalars,
     ))
-}
-
-#[cfg(test)]
-pub(crate) async fn build_scale_builder_from_marks(
-    compiled_marks: &[Arc<dyn CompiledMark>],
-    scale_specs: &HashMap<String, PlotScaleSpec>,
-    coord_transform: &Box<dyn CoordinateSystemTransform>,
-    data: &Option<LogicalPlanNode>,
-    df_override: Option<DataFrame>,
-    eval_ctx: &CoreEvaluationContext,
-    theme: &Theme,
-) -> Result<ScaleBuilder, AvengerChartError> {
-    let render_eval_ctx = crate::render::EvaluationContext::new(
-        eval_ctx.theme().clone(),
-        eval_ctx.session_context().clone(),
-        eval_ctx.params().clone(),
-        Arc::new(EvaluatedFacetTree::empty()),
-    )
-    .with_time_context(eval_ctx.time_context().clone());
-    let mut prepared_marks = Vec::with_capacity(compiled_marks.len());
-    for mark in compiled_marks {
-        let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
-            mark: mark.as_ref(),
-            coord_transform: None,
-            plot_data: data.as_ref(),
-            provided_plot_df: df_override.as_ref(),
-            facet_data_scope: None,
-            prepared_base: None,
-            eval_ctx: &render_eval_ctx,
-        }))
-        .await?;
-        prepared_marks.push(PreparedScaleMark::new_with_domain_source(
-            mark.clone(),
-            prepared.dataframe,
-            prepared.channels,
-            prepared.domain_dataframe,
-            prepared.domain_channels,
-            prepared.derived_scalars,
-        ));
-    }
-
-    Box::pin(
-        avenger_chart_scales::build_scale_builder_from_prepared_marks(
-            &prepared_marks,
-            scale_specs,
-            coord_transform.as_ref(),
-            eval_ctx,
-            theme,
-        ),
-    )
-    .await
 }
 
 pub(crate) async fn build_scale_builder_from_compiled_plot(
@@ -435,7 +376,6 @@ impl CompiledPlot {
 
 #[cfg(test)]
 mod tests {
-    use super::build_scale_builder_from_marks;
     use crate::prelude::*;
     use crate::render::RenderContext;
     use avenger_chart_core::{
@@ -515,11 +455,8 @@ mod tests {
     {
         use std::collections::HashMap;
 
-        let builder = build_scale_builder_from_marks(
-            &compiled.marks,
-            &compiled.scale_specs,
-            &compiled.coord_transform,
-            &compiled.data,
+        let builder = super::build_scale_builder_from_compiled_plot(
+            compiled,
             None,
             &avenger_chart_core::EvaluationContext::new(
                 compiled.get_theme(),
@@ -616,6 +553,36 @@ mod tests {
             builder.channel_builders().contains_key("value_axis"),
             "coordinate source should create a scale-domain builder"
         );
+    }
+
+    #[tokio::test]
+    async fn parallel_dimension_scales_infer_linear_point_and_vertical_range() {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (21.0, 'usa'), (28.0, 'japan')) AS t(mpg, origin)")
+            .await
+            .expect("parallel data");
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension("mpg", col("mpg"))
+                .dimension("origin", col("origin")),
+        )
+        .data(df)
+        .compile(&ctx)
+        .await
+        .expect("compile parallel plot");
+
+        let scales = two_phase_build_scales(&compiled, 400.0, 300.0, &ctx, &IndexMap::new())
+            .await
+            .expect("build parallel scales");
+
+        let mpg = scales.get("mpg").expect("mpg scale").configured();
+        assert_eq!(mpg.scale_impl.scale_type(), "linear");
+        assert_eq!(mpg.numeric_interval_range().unwrap(), (300.0, 0.0));
+
+        let origin = scales.get("origin").expect("origin scale").configured();
+        assert_eq!(origin.scale_impl.scale_type(), "point");
+        assert_eq!(origin.numeric_interval_range().unwrap(), (300.0, 0.0));
     }
 
     #[tokio::test]

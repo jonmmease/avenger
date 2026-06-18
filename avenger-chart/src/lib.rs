@@ -43,6 +43,10 @@ pub mod transforms {
 pub mod utils;
 pub mod zerod;
 
+pub mod parallel {
+    pub use avenger_chart_parallel::*;
+}
+
 pub use avenger_chart_core::{
     define_common_mark_channels, define_position_channels, impl_mark_base, impl_mark_trait_common,
     impl_supported_channels,

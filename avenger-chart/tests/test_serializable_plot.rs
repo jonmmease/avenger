@@ -3,7 +3,7 @@
 use avenger_chart::cartesian::{CartesianRectPositionChannels, CartesianSymbolPositionChannels};
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::{CompiledPlot, Plot};
-use avenger_chart::prelude::{Cartesian, CoordinationScope, NestScope, Rect};
+use avenger_chart::prelude::{Cartesian, CoordinationScope, NestScope, Parallel, Rect};
 use datafusion::prelude::{SessionContext, col, lit};
 
 #[tokio::test]
@@ -58,4 +58,27 @@ async fn test_compiled_plot_with_nested_position_metadata() {
     assert!(json.contains("nest_scope"));
     assert!(json.contains("domain_coordination"));
     assert!(json.contains("label_expr"));
+}
+
+#[tokio::test]
+async fn test_compiled_parallel_plot() {
+    let ctx = SessionContext::new();
+    let df = ctx
+        .sql("SELECT * FROM (VALUES (21.0, 'usa'), (28.0, 'japan')) AS t(mpg, origin)")
+        .await
+        .unwrap();
+    let plot = Plot::with_coord(Parallel::new().dimension("mpg", col("mpg")).dimension_with(
+        "origin",
+        col("origin"),
+        |dimension| dimension.axis(|axis| axis.title("Origin")),
+    ))
+    .data(df);
+
+    let compiled = plot.compile(&ctx).await.unwrap();
+    let json = serde_json::to_string_pretty(&compiled).unwrap();
+    let _deserialized: CompiledPlot = serde_json::from_str(&json).unwrap();
+
+    assert!(json.contains("ParallelTransform"));
+    assert!(json.contains("coordinate_scale_sources"));
+    assert!(json.contains("__avenger_parallel_dim_mpg"));
 }

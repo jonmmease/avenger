@@ -1,4 +1,4 @@
-use crate::{CoordinateGuide, CoordinateScaleSource, CoordinateSystemTransform};
+use crate::{AvengerChartError, CoordinateGuide, CoordinateScaleSource, CoordinateSystemTransform};
 
 /// Core-safe coordinate-system authoring contract.
 ///
@@ -8,6 +8,11 @@ use crate::{CoordinateGuide, CoordinateScaleSource, CoordinateSystemTransform};
 pub trait CoordinateSystemCore: Sized + Send + Sync + 'static {
     /// Get the names of position channels required by this coordinate system.
     fn required_channels(&self) -> &'static [&'static str];
+
+    /// Validate coordinate-system authoring state before compilation.
+    fn validate(&self) -> Result<(), AvengerChartError> {
+        Ok(())
+    }
 }
 
 /// Core coordinate-system authoring contract.

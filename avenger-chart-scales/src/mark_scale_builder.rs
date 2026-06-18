@@ -669,7 +669,9 @@ where
                 chosen_spec = if channel_value.get_nested_band_config().is_some() {
                     Some(scale_spec_for_preference(ScaleTypePreference::NestedBand))
                 } else {
-                    mark.preferred_scale_type(channel_name, &dt)
+                    coord_transform
+                        .preferred_scale_type(channel, &dt)
+                        .or_else(|| mark.preferred_scale_type(channel_name, &dt))
                         .map(scale_spec_for_preference)
                 };
                 break 'outer;
