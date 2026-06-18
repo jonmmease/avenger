@@ -17,6 +17,7 @@ pub mod symbol;
 pub mod text;
 pub mod trail;
 pub mod util;
+pub mod violin;
 
 pub use crate::concat::CompiledConcatSubplot;
 pub use avenger_chart_cartesian::CompiledCartesianSubplot;
@@ -32,3 +33,4 @@ pub use avenger_chart_core::{
 pub use avenger_chart_marks::Subplot;
 pub use avenger_chart_polar::CompiledPolarSubplot;
 pub use box_plot::{BoxPlot, BoxPlotOrientation};
+pub use violin::{Violin, ViolinOrientation, ViolinWidthNormalization};

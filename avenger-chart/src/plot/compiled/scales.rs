@@ -36,7 +36,7 @@ async fn prepare_scale_mark_for_plot(
     eval_ctx: &crate::render::EvaluationContext,
     facet_path: &[ScalarValue],
 ) -> Result<PreparedScaleMark, AvengerChartError> {
-    let prepared_base = match plot.mark_group_index_for_mark(mark.state().mark_index()) {
+    let prepared_base = match plot.data_group_index_for_mark(mark.state().mark_index()) {
         Some(group_index) => Some(
             Box::pin(plot.prepare_mark_group_base_data(
                 group_index,

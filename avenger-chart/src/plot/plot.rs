@@ -2374,6 +2374,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn data_transparent_groups_do_not_shadow_child_mark_data() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                MarkGroup::new()
+                    .id("transparent")
+                    .with_scale_inference_hint(ScaleInferenceHint::new(
+                        "x",
+                        ScaleTypePreference::Point,
+                    ))
+                    .mark(Symbol::new().id("leaf").x(col("x")).y(col("y"))),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        assert_eq!(compiled.mark_group_index_for_mark(0), Some(0));
+        assert_eq!(compiled.data_group_index_for_mark(0), None);
+        assert_eq!(
+            compiled.scale_inference_hints_for_mark(0).expect("hints"),
+            vec![ScaleInferenceHint::new("x", ScaleTypePreference::Point)]
+        );
+        assert_eq!(
+            compiled.marks[0].state().public_target_path.as_deref(),
+            Some("transparent.leaf")
+        );
+
+        let data = xy_dataframe(&ctx).await;
+        let _scales = compiled
+            .build_scales_for_dataframe(&data, 320.0, 240.0, &ctx, compiled.get_default_params())
+            .await
+            .expect("transparent group does not hide plot data");
+    }
+
+    #[tokio::test]
+    async fn data_transparent_nested_group_uses_parent_data_group() {
+        let ctx = SessionContext::new();
+        let data = xy_dataframe(&ctx).await;
+        let compiled = Plot::<Cartesian>::new()
+            .data(data.clone())
+            .mark(
+                MarkGroup::new().transform_no_output(CountingGroupTransform, |group| {
+                    group.mark(
+                        MarkGroup::new()
+                            .id("transparent")
+                            .mark(Symbol::new().id("leaf").x(col("x")).y(col("y"))),
+                    )
+                }),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        assert_eq!(compiled.mark_group_index_for_mark(0), Some(1));
+        assert_eq!(compiled.data_group_index_for_mark(0), Some(0));
+        let _scales = compiled
+            .build_scales_for_dataframe(&data, 320.0, 240.0, &ctx, compiled.get_default_params())
+            .await
+            .expect("build scales");
+    }
+
+    #[tokio::test]
     async fn nested_explicit_group_data_resets_parent_inheritance() {
         let ctx = SessionContext::new();
         let parent_data = xy_dataframe(&ctx).await;

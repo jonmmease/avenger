@@ -78,6 +78,7 @@ pub use crate::facet::marks::{
     FacetColumnSubplotChannels, FacetRowSubplotChannels, FacetWrapSubplotChannels,
 };
 pub use crate::marks::box_plot::{BoxPlot, BoxPlotOrientation};
+pub use crate::marks::violin::{Violin, ViolinOrientation, ViolinWidthNormalization};
 pub use avenger_chart_cartesian::{
     CartesianAreaPositionChannels, CartesianImagePositionChannels, CartesianLinePositionChannels,
     CartesianPathPositionChannels, CartesianRectPositionChannels, CartesianRulePositionChannels,

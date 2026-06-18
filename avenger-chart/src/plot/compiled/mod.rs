@@ -157,6 +157,13 @@ pub(crate) struct MarkGroupDataCacheKey {
 pub(crate) type MarkGroupDataCacheHandle =
     Arc<Mutex<HashMap<MarkGroupDataCacheKey, Arc<PreparedBaseData>>>>;
 
+fn is_data_transparent_group(group: &CompiledMarkGroupState) -> bool {
+    !group.data.has_explicit_data_source()
+        && group.data.transforms().is_empty()
+        && group.data_mode == MarkDataMode::Inherit
+        && group.facet_data_scope == FacetDataScope::FILTERED
+}
+
 #[serde_as]
 #[derive(Serialize, Deserialize)]
 pub struct CompiledPlot {
@@ -277,6 +284,17 @@ impl CompiledPlot {
             .get(mark_index)
             .copied()
             .flatten()
+    }
+
+    pub(crate) fn data_group_index_for_mark(&self, mark_index: usize) -> Option<usize> {
+        let mut group_index = self.mark_group_index_for_mark(mark_index)?;
+        loop {
+            let group = self.mark_groups.get(group_index)?;
+            if !is_data_transparent_group(group) {
+                return Some(group_index);
+            }
+            group_index = group.parent_group_index?;
+        }
     }
 
     pub(crate) fn scale_inference_hints_for_mark(
@@ -615,7 +633,7 @@ impl CompiledPlot {
         };
 
         for mark in &self.marks {
-            let prepared_base = match self.mark_group_index_for_mark(mark.state().mark_index()) {
+            let prepared_base = match self.data_group_index_for_mark(mark.state().mark_index()) {
                 Some(group_index) => Some(
                     Box::pin(self.prepare_mark_group_base_data(
                         group_index,
@@ -845,7 +863,7 @@ async fn collect_event_coord_types_from_marks(
     }
 
     for mark in marks {
-        let prepared_base = match plot.mark_group_index_for_mark(mark.state().mark_index()) {
+        let prepared_base = match plot.data_group_index_for_mark(mark.state().mark_index()) {
             Some(group_index) => Some(
                 Box::pin(plot.prepare_mark_group_base_data(
                     group_index,

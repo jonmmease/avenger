@@ -1842,7 +1842,7 @@ impl CompiledPlot {
         provided_plot_df: Option<&DataFrame>,
         facet_path: &[ScalarValue],
     ) -> Result<Option<PreparedMarkData>, AvengerChartError> {
-        let prepared_base = match self.mark_group_index_for_mark(mark.state().mark_index()) {
+        let prepared_base = match self.data_group_index_for_mark(mark.state().mark_index()) {
             Some(group_index) => Some(
                 Box::pin(self.prepare_mark_group_base_data(
                     group_index,
