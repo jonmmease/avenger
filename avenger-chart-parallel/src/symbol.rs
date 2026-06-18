@@ -35,7 +35,7 @@ use datafusion::{
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{Parallel, dimension_id_from_generated_channel};
+use crate::Parallel;
 
 /// Parallel-coordinate point overlay mark.
 ///
@@ -266,31 +266,26 @@ impl CompiledMark for CompiledParallelSymbol {
                 "ParallelSymbol requires inherited or explicit row data".to_string(),
             )
         })?;
-        let generated = coord.generated_position_channels();
-        if generated.is_empty() {
+        let mark_context = context.core_view();
+        let slots = coord.generated_position_slots(context.plot_width(), mark_context.params())?;
+        if slots.is_empty() {
             return Err(AvengerChartError::CoordinateSystemError(
                 "ParallelSymbol requires a Parallel coordinate system with at least one dimension"
                     .to_string(),
             ));
         }
 
-        let mark_context = context.core_view();
         let row_count = data.num_rows();
-        let dimension_count = generated.len();
-        let dimension_step = if dimension_count > 1 {
-            context.plot_width() / (dimension_count.saturating_sub(1) as f32)
-        } else {
-            0.0
-        };
+        let dimension_count = slots.len();
 
-        let dimension_values = generated
-            .keys()
-            .map(|channel| {
+        let dimension_values = slots
+            .iter()
+            .map(|slot| {
                 coerce_numeric_channel_with_renderer(
                     self,
                     Some(data),
                     scalars,
-                    channel,
+                    &slot.channel,
                     &mark_context,
                     f32::NAN,
                 )
@@ -373,15 +368,8 @@ impl CompiledMark for CompiledParallelSymbol {
         let mut marks = Vec::with_capacity(dimension_count);
         let mut source_row_indices = Vec::with_capacity(dimension_count);
         let mut event_datum_rows = Vec::with_capacity(dimension_count);
-        for (dimension_index, (channel, _)) in generated.iter().enumerate() {
-            let x = if dimension_count <= 1 {
-                context.plot_width() / 2.0
-            } else {
-                dimension_index as f32 * dimension_step
-            };
-            let dimension_id = dimension_id_from_generated_channel(channel)
-                .unwrap_or(channel)
-                .to_string();
+        for (dimension_index, slot) in slots.iter().enumerate() {
+            let x = slot.display_x;
             let values = &dimension_values[dimension_index];
             let mut y = Vec::new();
             let mut source_rows = Vec::new();
@@ -414,12 +402,7 @@ impl CompiledMark for CompiledParallelSymbol {
                 y_adjustment: None,
                 interactive: true,
             }));
-            event_datum_rows.push(parallel_point_event_datum_batch(
-                len,
-                &dimension_id,
-                dimension_index,
-                x,
-            )?);
+            event_datum_rows.push(parallel_point_event_datum_batch(len, slot)?);
             source_row_indices.push(source_rows);
         }
 
@@ -435,9 +418,7 @@ impl CompiledMark for CompiledParallelSymbol {
 
 fn parallel_point_event_datum_batch(
     len: usize,
-    dimension_id: &str,
-    order_index: usize,
-    x: f32,
+    slot: &avenger_chart_core::GeneratedPositionSlot,
 ) -> Result<RecordBatch, AvengerChartError> {
     let schema = Arc::new(Schema::new(vec![
         Field::new(PARALLEL_SURFACE_KIND_FIELD, DataType::Utf8, false),
@@ -453,13 +434,19 @@ fn parallel_point_event_datum_batch(
         schema,
         vec![
             Arc::new(StringArray::from(vec![PARALLEL_SURFACE_KIND_POINT; len])) as ArrayRef,
-            Arc::new(StringArray::from(vec![dimension_id; len])),
-            Arc::new(StringArray::from(vec![dimension_id; len])),
-            Arc::new(Int64Array::from(vec![order_index as i64; len])),
-            Arc::new(Float64Array::from(vec![f64::from(x); len])),
-            Arc::new(Float64Array::from(vec![f64::from(x); len])),
-            Arc::new(Float64Array::from(vec![0.0; len])),
-            Arc::new(Float64Array::from(vec![0.0; len])),
+            Arc::new(StringArray::from(vec![slot.id.as_str(); len])),
+            Arc::new(StringArray::from(vec![slot.scale_name.as_str(); len])),
+            Arc::new(Int64Array::from(vec![slot.order_index as i64; len])),
+            Arc::new(Float64Array::from(vec![f64::from(slot.equilibrium_x); len])),
+            Arc::new(Float64Array::from(vec![f64::from(slot.display_x); len])),
+            Arc::new(Float64Array::from(vec![
+                f64::from(slot.displacement_px);
+                len
+            ])),
+            Arc::new(Float64Array::from(vec![
+                f64::from(slot.displacement_slots);
+                len
+            ])),
         ],
     )
     .map_err(AvengerChartError::ArrowError)
@@ -536,14 +523,17 @@ mod tests {
         CompiledDataContext, CompiledMark, CompiledMarkState, CoordinateSystem,
         EmptyCoordMeasurement, EvaluationContext, FacetDataScope, MarkDataMode, MarkRenderContext,
         MarkRuntimeContext, Theme,
-        event::{PARALLEL_DIMENSION_ID_FIELD, PARALLEL_SURFACE_KIND_FIELD},
+        event::{
+            PARALLEL_DIMENSION_ID_FIELD, PARALLEL_DISPLACEMENT_PX_FIELD, PARALLEL_DISPLAY_X_FIELD,
+            PARALLEL_EQUILIBRIUM_X_FIELD, PARALLEL_SURFACE_KIND_FIELD,
+        },
     };
     use avenger_color::ColorOrGradient;
     use avenger_common::value::ScalarOrArrayValue;
     use avenger_scenegraph::marks::mark::SceneMark;
     use datafusion::{
         arrow::{
-            array::{ArrayRef, Float32Array, StringArray},
+            array::{ArrayRef, Float32Array, Float64Array, StringArray},
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
         },
@@ -577,6 +567,11 @@ mod tests {
                 plot_height,
                 facet_path: Vec::new(),
             }
+        }
+
+        fn with_params(mut self, params: IndexMap<String, ScalarValue>) -> Self {
+            self.eval = self.eval.with_params(params);
+            self
         }
     }
 
@@ -635,14 +630,22 @@ mod tests {
     }
 
     fn render_test_symbol() -> avenger_chart_core::RenderedMarkData {
-        let coord = Parallel::new()
-            .dimension("alpha", col("alpha"))
-            .dimension("beta", col("beta"))
-            .create_transform();
+        render_test_symbol_with_coord_and_context(
+            Parallel::new()
+                .dimension("alpha", col("alpha"))
+                .dimension("beta", col("beta"))
+                .create_transform(),
+            TestRuntimeContext::new(100.0, 50.0),
+        )
+    }
+
+    fn render_test_symbol_with_coord_and_context(
+        coord: Box<dyn avenger_chart_core::CoordinateSystemTransform>,
+        context: TestRuntimeContext,
+    ) -> avenger_chart_core::RenderedMarkData {
         let mark = CompiledParallelSymbol {
             state: compiled_state(),
         };
-        let context = TestRuntimeContext::new(100.0, 50.0);
         block_on(mark.render_mark_data(
             Some(&prepared_data()),
             &scalar_batch(),
@@ -725,6 +728,61 @@ mod tests {
             .downcast_ref::<StringArray>()
             .expect("surface kind string");
         assert_eq!(surface_kind.value(0), PARALLEL_SURFACE_KIND_POINT);
+    }
+
+    #[test]
+    fn parallel_symbol_uses_display_slots_and_event_datum_geometry() {
+        let coord = Parallel::new()
+            .dimension("alpha", col("alpha"))
+            .dimension("beta", col("beta"))
+            .active_axis_display_params("drag_dimension", "drag_display_x")
+            .create_transform();
+        let context = TestRuntimeContext::new(100.0, 50.0).with_params(IndexMap::from([
+            (
+                "drag_dimension".to_string(),
+                ScalarValue::Utf8(Some("beta".to_string())),
+            ),
+            (
+                "drag_display_x".to_string(),
+                ScalarValue::Float64(Some(72.0)),
+            ),
+        ]));
+        let rendered = render_test_symbol_with_coord_and_context(coord, context);
+        let second = match &rendered.marks[1] {
+            SceneMark::Symbol(mark) => mark,
+            _ => panic!("expected second dimension symbol mark"),
+        };
+        match second.x.value() {
+            ScalarOrArrayValue::Scalar(value) => assert_eq!(*value, 72.0),
+            ScalarOrArrayValue::Array(_) => panic!("expected scalar x for second dimension"),
+        }
+
+        let event_rows = rendered
+            .event_datum_rows
+            .as_ref()
+            .expect("generated event datum rows");
+        let beta_rows = &event_rows[1];
+        let equilibrium_x = beta_rows
+            .column_by_name(PARALLEL_EQUILIBRIUM_X_FIELD)
+            .expect("equilibrium x")
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("equilibrium x f64");
+        let display_x = beta_rows
+            .column_by_name(PARALLEL_DISPLAY_X_FIELD)
+            .expect("display x")
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("display x f64");
+        let displacement_px = beta_rows
+            .column_by_name(PARALLEL_DISPLACEMENT_PX_FIELD)
+            .expect("displacement")
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("displacement f64");
+        assert_eq!(equilibrium_x.value(0), 100.0);
+        assert_eq!(display_x.value(0), 72.0);
+        assert_eq!(displacement_px.value(0), -28.0);
     }
 
     #[test]

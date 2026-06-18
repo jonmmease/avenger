@@ -16,7 +16,8 @@ pub use coord::{
     dimension_id_from_generated_channel, generated_dimension_channel,
 };
 pub use frame::{
-    ParallelAxisSlot, ParallelFrameGeometry, propose_axis_order, resolve_parallel_frame,
+    ParallelAxisSlot, ParallelDisplayState, ParallelFrameGeometry, ParallelOrderState,
+    propose_axis_order, resolve_parallel_frame,
 };
 pub use guide::{CompiledParallelGuide, ParallelAxisGuideDatum, ParallelGuide};
 pub use line::{CompiledParallelLine, ParallelLine};

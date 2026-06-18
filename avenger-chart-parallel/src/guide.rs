@@ -25,6 +25,10 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::ParallelAxis;
+use crate::frame::{
+    ParallelFrameDimension, resolve_display_state, resolve_order_state,
+    resolve_parallel_frame_dimensions,
+};
 
 /// Parallel-coordinate guide configuration.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -86,37 +90,74 @@ impl CompiledParallelGuide {
     pub fn axis_guide_datums(
         &self,
         plot_width: f32,
+        params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
-    ) -> Vec<ParallelAxisGuideDatum> {
+    ) -> Result<Vec<ParallelAxisGuideDatum>, AvengerChartError> {
         let axes = ordered_axes(&self.axes);
-        let count = axes.len();
-        let step = if count > 1 {
-            plot_width / (count.saturating_sub(1) as f32)
-        } else {
-            0.0
-        };
-        axes.into_iter()
-            .enumerate()
-            .map(|(index, (channel, axis))| {
-                let equilibrium_x = if count <= 1 {
-                    plot_width / 2.0
-                } else {
-                    index as f32 * step
-                };
+        if axes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let base_order = axes
+            .iter()
+            .map(|(channel, axis)| {
+                axis.dimension_id
+                    .clone()
+                    .unwrap_or_else(|| (*channel).to_string())
+            })
+            .collect::<Vec<_>>();
+        let dimensions = axes
+            .iter()
+            .map(|(channel, axis)| {
+                let dimension_id = axis
+                    .dimension_id
+                    .clone()
+                    .unwrap_or_else(|| (*channel).to_string());
+                ParallelFrameDimension::new(dimension_id.clone(), (*channel).clone(), dimension_id)
+            })
+            .collect::<Vec<_>>();
+        let order_state = axes.iter().find_map(|(_, axis)| axis.order_state.as_ref());
+        let display_state = axes
+            .iter()
+            .find_map(|(_, axis)| axis.display_state.as_ref());
+        let param_order = resolve_order_state(order_state, params, &base_order)?;
+        let display_overrides = resolve_display_state(display_state, params, &base_order)?;
+        let frame = resolve_parallel_frame_dimensions(
+            &dimensions,
+            param_order.as_deref().or(Some(base_order.as_slice())),
+            display_overrides.as_ref(),
+            plot_width,
+        );
+        let axis_by_id = axes
+            .into_iter()
+            .map(|(channel, axis)| {
                 let dimension_id = axis
                     .dimension_id
                     .clone()
                     .unwrap_or_else(|| channel.to_string());
-                ParallelAxisGuideDatum {
-                    scale_name: dimension_id.clone(),
+                (dimension_id, axis)
+            })
+            .collect::<HashMap<_, _>>();
+        frame
+            .slots
+            .into_iter()
+            .map(|slot| {
+                let axis = axis_by_id.get(&slot.id).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing parallel axis metadata for dimension '{}'",
+                        slot.id
+                    ))
+                })?;
+                Ok(ParallelAxisGuideDatum {
+                    scale_name: slot.scale_name,
                     title: axis_title(axis, ctx),
-                    dimension_id,
-                    order_index: axis.order_index.unwrap_or(index),
-                    equilibrium_x,
-                    display_x: equilibrium_x,
-                    displacement_px: 0.0,
-                    displacement_slots: 0.0,
-                }
+                    dimension_id: slot.id,
+                    order_index: slot.equilibrium_index,
+                    equilibrium_x: slot.equilibrium_x,
+                    display_x: slot.display_x,
+                    displacement_px: slot.displacement_px,
+                    displacement_slots: slot.displacement_slots,
+                })
             })
             .collect()
     }
@@ -157,7 +198,7 @@ impl CompiledGuide for CompiledParallelGuide {
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let datums = self.axis_guide_datums(plot_width, ctx);
+        let datums = self.axis_guide_datums(plot_width, params, ctx)?;
         if datums.is_empty() {
             return Ok(Vec::new());
         }
@@ -416,7 +457,9 @@ mod tests {
                 .with_dimension_metadata("cost", 1),
         );
         let guide = CompiledParallelGuide { axes };
-        let datums = guide.axis_guide_datums(300.0, &ctx);
+        let datums = guide
+            .axis_guide_datums(300.0, &IndexMap::new(), &ctx)
+            .expect("guide datums");
 
         assert_eq!(datums.len(), 2);
         assert_eq!(datums[0].dimension_id, "speed");
@@ -426,6 +469,68 @@ mod tests {
         assert_eq!(datums[0].display_x, 0.0);
         assert_eq!(datums[1].dimension_id, "cost");
         assert_eq!(datums[1].equilibrium_x, 300.0);
+    }
+
+    #[test]
+    fn axis_guide_datums_use_order_and_display_state_params() {
+        let ctx = SessionContext::new();
+        let order_state = crate::ParallelOrderState::param("axis_order");
+        let display_state =
+            crate::ParallelDisplayState::active_axis("drag_dimension", "drag_display_x");
+        let mut axes = HashMap::new();
+        axes.insert(
+            "generated_speed".to_string(),
+            ParallelAxis::new()
+                .title("Speed")
+                .with_dimension_metadata("speed", 0)
+                .with_frame_state(Some(order_state.clone()), Some(display_state.clone())),
+        );
+        axes.insert(
+            "generated_cost".to_string(),
+            ParallelAxis::new()
+                .title("Cost")
+                .with_dimension_metadata("cost", 1)
+                .with_frame_state(Some(order_state), Some(display_state)),
+        );
+        let guide = CompiledParallelGuide { axes };
+        let params = IndexMap::from([
+            (
+                "axis_order".to_string(),
+                ScalarValue::List(ScalarValue::new_list(
+                    &[
+                        ScalarValue::Utf8(Some("cost".to_string())),
+                        ScalarValue::Utf8(Some("speed".to_string())),
+                    ],
+                    &datafusion::arrow::datatypes::DataType::Utf8,
+                    true,
+                )),
+            ),
+            (
+                "drag_dimension".to_string(),
+                ScalarValue::Utf8(Some("speed".to_string())),
+            ),
+            (
+                "drag_display_x".to_string(),
+                ScalarValue::Float64(Some(210.0)),
+            ),
+        ]);
+        let datums = guide
+            .axis_guide_datums(300.0, &params, &ctx)
+            .expect("guide datums");
+
+        assert_eq!(
+            datums
+                .iter()
+                .map(|datum| datum.dimension_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["cost", "speed"]
+        );
+        assert_eq!(datums[0].equilibrium_x, 0.0);
+        assert_eq!(datums[0].display_x, 0.0);
+        assert_eq!(datums[1].equilibrium_x, 300.0);
+        assert_eq!(datums[1].display_x, 210.0);
+        assert_eq!(datums[1].displacement_px, -90.0);
+        assert_eq!(datums[1].displacement_slots, -0.3);
     }
 
     #[test]

@@ -16,7 +16,8 @@ use avenger_chart_core::{
 };
 use avenger_chart_parallel::CompiledParallelGuide;
 use avenger_scenegraph::marks::mark::SceneMark;
-use datafusion::prelude::SessionContext;
+use datafusion::{common::ScalarValue, prelude::SessionContext};
+use indexmap::IndexMap;
 
 use crate::render::EvaluatedEventDatumRows;
 
@@ -24,6 +25,7 @@ pub(crate) fn parallel_guide_event_datums(
     guide: Option<&Arc<dyn CompiledGuide>>,
     guide_marks: &[SceneMark],
     plot_width: f32,
+    params: &IndexMap<String, ScalarValue>,
     ctx: &SessionContext,
 ) -> Result<Vec<EvaluatedEventDatumRows>, AvengerChartError> {
     let Some(parallel) =
@@ -31,7 +33,7 @@ pub(crate) fn parallel_guide_event_datums(
     else {
         return Ok(Vec::new());
     };
-    let axis_datums = parallel.axis_guide_datums(plot_width, ctx);
+    let axis_datums = parallel.axis_guide_datums(plot_width, params, ctx)?;
     if axis_datums.is_empty() {
         return Ok(Vec::new());
     }
@@ -207,8 +209,9 @@ mod tests {
         ))
         .expect("evaluate parallel guide");
 
-        let event_rows = parallel_guide_event_datums(Some(&guide), &guide_marks, 300.0, &ctx)
-            .expect("parallel guide event datums");
+        let event_rows =
+            parallel_guide_event_datums(Some(&guide), &guide_marks, 300.0, &IndexMap::new(), &ctx)
+                .expect("parallel guide event datums");
 
         assert_eq!(event_rows.len(), 2);
         assert_eq!(event_rows[0].mark_path, vec![3]);

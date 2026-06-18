@@ -9,6 +9,8 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
+use crate::{ParallelDisplayState, ParallelOrderState};
+
 /// Axis configuration for one parallel-coordinate dimension.
 #[serde_as]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -23,6 +25,12 @@ pub struct ParallelAxis {
     #[doc(hidden)]
     #[serde(default)]
     pub order_index: Option<usize>,
+    #[doc(hidden)]
+    #[serde(default)]
+    pub order_state: Option<ParallelOrderState>,
+    #[doc(hidden)]
+    #[serde(default)]
+    pub display_state: Option<ParallelDisplayState>,
 }
 
 impl ParallelAxis {
@@ -59,6 +67,12 @@ impl ParallelAxis {
         if other.order_index.is_some() {
             self.order_index = other.order_index;
         }
+        if other.order_state.is_some() {
+            self.order_state = other.order_state;
+        }
+        if other.display_state.is_some() {
+            self.display_state = other.display_state;
+        }
         self
     }
 
@@ -70,6 +84,17 @@ impl ParallelAxis {
     ) -> Self {
         self.dimension_id = Some(dimension_id.into());
         self.order_index = Some(order_index);
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_frame_state(
+        mut self,
+        order_state: Option<ParallelOrderState>,
+        display_state: Option<ParallelDisplayState>,
+    ) -> Self {
+        self.order_state = order_state;
+        self.display_state = display_state;
         self
     }
 }
@@ -126,6 +151,8 @@ impl Axis for ParallelAxis {
             title: map_maybe(&self.title, f)?,
             dimension_id: self.dimension_id.clone(),
             order_index: self.order_index,
+            order_state: self.order_state.clone(),
+            display_state: self.display_state.clone(),
         }))
     }
 }

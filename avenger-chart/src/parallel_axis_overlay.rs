@@ -185,7 +185,7 @@ pub(crate) async fn measure_parallel_axis_overlays(
         return Ok(None);
     }
 
-    let frame = transform.resolve_frame(plot_width);
+    let frame = transform.resolve_frame_with_params(plot_width, eval_ctx.params())?;
     let mut prepared = Vec::with_capacity(overlays.len());
     for overlay in &overlays {
         let slot = frame.slot(overlay.dimension_id()).ok_or_else(|| {

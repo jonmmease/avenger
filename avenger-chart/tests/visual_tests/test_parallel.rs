@@ -8,8 +8,23 @@ use datafusion::{
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    prelude::{SessionContext, col},
+    common::ScalarValue,
+    prelude::{SessionContext, col, lit},
 };
+use indexmap::IndexMap;
+
+fn parallel_drag_params(dimension_id: &str, display_x: f64) -> IndexMap<String, ScalarValue> {
+    IndexMap::from([
+        (
+            "drag_dimension".to_string(),
+            ScalarValue::Utf8(Some(dimension_id.to_string())),
+        ),
+        (
+            "drag_display_x".to_string(),
+            ScalarValue::Float64(Some(display_x)),
+        ),
+    ])
+}
 
 fn numeric_parallel_data(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
     let schema = Arc::new(Schema::new(vec![
@@ -153,6 +168,171 @@ async fn parallel_points_categorical_axis() {
         None,
         "parallel",
         "parallel_points_categorical_axis",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_static_reordered_axes() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")))
+        .order(["cost", "speed", "stability", "efficiency"]);
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#64748b")
+                .stroke_width(1.35)
+                .opacity(0.42),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.8)
+                .size(78.0)
+                .opacity(0.9),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile static reordered parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_static_reordered_axes",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_displaced_axis_preview() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")))
+        .active_axis_display_params("drag_dimension", "drag_display_x");
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .add_param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
+        .add_param(Param::new("drag_display_x", ScalarValue::Float64(None)))
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#94a3b8")
+                .stroke_width(1.3)
+                .opacity(0.45),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.8)
+                .size(82.0)
+                .opacity(0.92),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile displaced parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        Some(parallel_drag_params("efficiency", 245.0)),
+        "parallel",
+        "parallel_displaced_axis_preview",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_axis_overlay_displaced_axis() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")))
+        .active_axis_display_params("drag_dimension", "drag_display_x");
+
+    let stability_overlay = ParallelAxisOverlay::new(
+        "stability",
+        Plot::<Cartesian>::new().mark(
+            Rect::new()
+                .x_with(lit(0.0), |x| {
+                    x.scale_with::<Linear>(|scale| scale.domain((0.0, 1.0)))
+                        .axis(|axis| axis.visible(false))
+                })
+                .x2(lit(1.0))
+                .y_with(lit(74.0), |y| y.axis(|axis| axis.visible(false)))
+                .y2(lit(82.0))
+                .fill("rgba(37, 99, 235, 0.16)")
+                .stroke("#2563eb")
+                .stroke_width(1.4),
+        ),
+    )
+    .width_px(38.0)
+    .zindex(10);
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .add_param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
+        .add_param(Param::new("drag_display_x", ScalarValue::Float64(None)))
+        .data(numeric_parallel_data(&ctx))
+        .mark(stability_overlay)
+        .mark(
+            ParallelLine::new()
+                .stroke("#94a3b8")
+                .stroke_width(1.25)
+                .opacity(0.38),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.8)
+                .size(76.0)
+                .opacity(0.9),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile displaced overlay parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        Some(parallel_drag_params("stability", 260.0)),
+        "parallel",
+        "parallel_axis_overlay_displaced_axis",
     )
     .await;
 }

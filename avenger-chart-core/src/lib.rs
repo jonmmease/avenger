@@ -118,7 +118,8 @@ pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};
 pub use coordinate_scale_source::{CompiledCoordinateScaleSource, CoordinateScaleSource};
 pub use coordinate_system::{CoordinateSystem, CoordinateSystemCore};
 pub use coordinate_transform::{
-    CoordinateSystemTransform, CoordinateSystemTransformCore, InteractionPointInversionRequest,
+    CoordinateSystemTransform, CoordinateSystemTransformCore, GeneratedPositionSlot,
+    InteractionPointInversionRequest,
 };
 pub use coordination_values::{CoordinatedLayout, CoordinatedOverflow};
 pub use data_context::DataContext;

@@ -9,6 +9,23 @@ use crate::{
     AvengerChartError, ChannelValue, PlotGeometry, ScaleRangeBinding, ScaleTypePreference,
 };
 
+/// Display/equilibrium geometry for a generated position channel.
+///
+/// Coordinate systems with internally generated positional channels can return
+/// these slots so custom coordinate marks, guides, and event datum rows all
+/// share one frame calculation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeneratedPositionSlot {
+    pub channel: String,
+    pub id: String,
+    pub scale_name: String,
+    pub order_index: usize,
+    pub equilibrium_x: f32,
+    pub display_x: f32,
+    pub displacement_px: f32,
+    pub displacement_slots: f32,
+}
+
 /// Request to invert a local plot-area point back to data-space channel values.
 ///
 /// `local_point` is in the coordinate scope's local plot-area coordinates (the
@@ -93,6 +110,44 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
     /// Ordered generated position channels owned by the coordinate system.
     fn generated_position_channels(&self) -> IndexMap<String, ChannelValue> {
         IndexMap::new()
+    }
+
+    /// Resolved generated position slots for the current plot width and params.
+    fn generated_position_slots(
+        &self,
+        plot_width: f32,
+        _params: &IndexMap<String, ScalarValue>,
+    ) -> Result<Vec<GeneratedPositionSlot>, AvengerChartError> {
+        let generated = self.generated_position_channels();
+        let count = generated.len();
+        let step = if count > 1 {
+            plot_width / (count.saturating_sub(1) as f32)
+        } else {
+            0.0
+        };
+        Ok(generated
+            .into_iter()
+            .enumerate()
+            .map(|(index, (channel, value))| {
+                let equilibrium_x = if count <= 1 {
+                    plot_width / 2.0
+                } else {
+                    index as f32 * step
+                };
+                GeneratedPositionSlot {
+                    id: channel.clone(),
+                    scale_name: value
+                        .get_scale_name(&channel)
+                        .unwrap_or_else(|| channel.clone()),
+                    channel,
+                    order_index: index,
+                    equilibrium_x,
+                    display_x: equilibrium_x,
+                    displacement_px: 0.0,
+                    displacement_slots: 0.0,
+                }
+            })
+            .collect())
     }
 
     /// Coordinate channels this transform can invert from a local plot-area point.

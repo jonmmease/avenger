@@ -7,8 +7,8 @@ use std::{
 use avenger_chart_core::{
     AvengerChartError, Axis, ChannelValue, CoordinateScaleSource, CoordinateSystem,
     CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore, DataContext,
-    GenericPositionConfig, IntoExpr, PlotAreaRangeEndpoint, PlotGeometry, PointGeometry,
-    PositionConfig, ScaleRangeBinding, ScaleTypePreference, validate_structural_id,
+    GeneratedPositionSlot, GenericPositionConfig, IntoExpr, PlotAreaRangeEndpoint, PlotGeometry,
+    PointGeometry, PositionConfig, ScaleRangeBinding, ScaleTypePreference, validate_structural_id,
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scales::scales::{DomainKind, ScaleImpl};
@@ -16,8 +16,11 @@ use datafusion::{arrow::datatypes::DataType, common::ScalarValue, prelude::lit};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{ParallelAxis, ParallelGuide};
-use crate::{ParallelFrameGeometry, resolve_parallel_frame};
+use crate::frame::{resolve_display_state, resolve_order_state, validate_order_ids};
+use crate::{
+    ParallelAxis, ParallelDisplayState, ParallelFrameGeometry, ParallelGuide, ParallelOrderState,
+    resolve_parallel_frame,
+};
 
 /// Prefix for hidden generated dimension channels.
 pub const PARALLEL_DIMENSION_CHANNEL_PREFIX: &str = "__avenger_parallel_dim_";
@@ -54,6 +57,8 @@ pub struct ParallelDimensionSpec {
 pub struct Parallel {
     dimensions: Vec<ParallelDimensionSpec>,
     order: Option<Vec<String>>,
+    order_state: Option<ParallelOrderState>,
+    display_state: Option<ParallelDisplayState>,
 }
 
 impl Parallel {
@@ -97,12 +102,54 @@ impl Parallel {
         self
     }
 
+    pub fn order_state(mut self, state: ParallelOrderState) -> Self {
+        self.order_state = Some(state);
+        self
+    }
+
+    /// Read committed axis order from a runtime parameter.
+    ///
+    /// The parameter should contain a nullable list of dimension id strings.
+    /// Missing or null values fall back to static `order(...)` and then
+    /// declaration order.
+    pub fn order_param(self, param: impl Into<String>) -> Self {
+        self.order_state(ParallelOrderState::param(param))
+    }
+
+    pub fn display_state(mut self, state: ParallelDisplayState) -> Self {
+        self.display_state = Some(state);
+        self
+    }
+
+    /// Read an active dragged axis id and display x from runtime parameters.
+    ///
+    /// This drives transient drag previews without changing the committed
+    /// equilibrium order.
+    pub fn active_axis_display_params(
+        self,
+        dimension_id_param: impl Into<String>,
+        display_x_param: impl Into<String>,
+    ) -> Self {
+        self.display_state(ParallelDisplayState::active_axis(
+            dimension_id_param,
+            display_x_param,
+        ))
+    }
+
     pub fn dimensions(&self) -> &[ParallelDimensionSpec] {
         &self.dimensions
     }
 
     pub fn order_ids(&self) -> Option<&[String]> {
         self.order.as_deref()
+    }
+
+    pub fn order_state_ref(&self) -> Option<&ParallelOrderState> {
+        self.order_state.as_ref()
+    }
+
+    pub fn display_state_ref(&self) -> Option<&ParallelDisplayState> {
+        self.display_state.as_ref()
     }
 }
 
@@ -124,32 +171,15 @@ impl CoordinateSystemCore for Parallel {
         }
 
         if let Some(order) = &self.order {
-            if order.len() != self.dimensions.len() {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Parallel dimension order must contain exactly {} id(s), got {}",
-                    self.dimensions.len(),
-                    order.len()
-                )));
+            for id in order {
+                validate_dimension_id(id)?;
             }
             let ids = self
                 .dimensions
                 .iter()
-                .map(|dimension| dimension.id.as_str())
-                .collect::<HashSet<_>>();
-            let mut ordered = HashSet::new();
-            for id in order {
-                validate_dimension_id(id)?;
-                if !ids.contains(id.as_str()) {
-                    return Err(AvengerChartError::InvalidArgument(format!(
-                        "Parallel dimension order references unknown id '{id}'"
-                    )));
-                }
-                if !ordered.insert(id.as_str()) {
-                    return Err(AvengerChartError::InvalidArgument(format!(
-                        "Parallel dimension order repeats id '{id}'"
-                    )));
-                }
-            }
+                .map(|dimension| dimension.id.clone())
+                .collect::<Vec<_>>();
+            validate_order_ids(order, &ids, "Parallel dimension order")?;
         }
 
         Ok(())
@@ -174,6 +204,8 @@ impl CoordinateSystem for Parallel {
                 })
                 .collect(),
             order: self.order.clone(),
+            order_state: self.order_state.clone(),
+            display_state: self.display_state.clone(),
         })
     }
 
@@ -215,6 +247,7 @@ impl CoordinateSystem for Parallel {
                     .get(dimension.id.as_str())
                     .unwrap_or(&usize::MAX),
             );
+            axis = axis.with_frame_state(self.order_state.clone(), self.display_state.clone());
             axis_configs.insert(dimension.generated_channel.clone(), Arc::new(axis));
         }
 
@@ -237,6 +270,8 @@ pub struct ParallelTransformDimension {
 pub struct ParallelTransform {
     pub dimensions: Vec<ParallelTransformDimension>,
     pub order: Option<Vec<String>>,
+    pub order_state: Option<ParallelOrderState>,
+    pub display_state: Option<ParallelDisplayState>,
 }
 
 impl ParallelTransform {
@@ -248,6 +283,27 @@ impl ParallelTransform {
 
     pub fn resolve_frame(&self, width: f32) -> ParallelFrameGeometry {
         resolve_parallel_frame(&self.dimensions, self.order.as_deref(), None, width)
+    }
+
+    pub fn resolve_frame_with_params(
+        &self,
+        width: f32,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<ParallelFrameGeometry, AvengerChartError> {
+        let dimension_ids = self
+            .dimensions
+            .iter()
+            .map(|dimension| dimension.id.clone())
+            .collect::<Vec<_>>();
+        let param_order = resolve_order_state(self.order_state.as_ref(), params, &dimension_ids)?;
+        let display_overrides =
+            resolve_display_state(self.display_state.as_ref(), params, &dimension_ids)?;
+        Ok(resolve_parallel_frame(
+            &self.dimensions,
+            param_order.as_deref().or(self.order.as_deref()),
+            display_overrides.as_ref(),
+            width,
+        ))
     }
 
     pub fn ordered_dimensions(&self) -> Vec<&ParallelTransformDimension> {
@@ -344,6 +400,28 @@ impl CoordinateSystemTransformCore for ParallelTransform {
                 )
             })
             .collect()
+    }
+
+    fn generated_position_slots(
+        &self,
+        plot_width: f32,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<Vec<GeneratedPositionSlot>, AvengerChartError> {
+        Ok(self
+            .resolve_frame_with_params(plot_width, params)?
+            .slots
+            .into_iter()
+            .map(|slot| GeneratedPositionSlot {
+                channel: slot.generated_channel,
+                id: slot.id,
+                scale_name: slot.scale_name,
+                order_index: slot.equilibrium_index,
+                equilibrium_x: slot.equilibrium_x,
+                display_x: slot.display_x,
+                displacement_px: slot.displacement_px,
+                displacement_slots: slot.displacement_slots,
+            })
+            .collect())
     }
 
     fn interaction_invertible_channels(&self) -> Vec<String> {
@@ -456,7 +534,21 @@ fn validate_dimension_id(id: &str) -> Result<(), AvengerChartError> {
 mod tests {
     use super::*;
     use avenger_scales::scales::linear::LinearScale;
-    use datafusion::prelude::{SessionContext, col};
+    use datafusion::{
+        arrow::datatypes::DataType,
+        prelude::{SessionContext, col},
+    };
+
+    fn string_list(values: &[&str]) -> ScalarValue {
+        ScalarValue::List(ScalarValue::new_list(
+            &values
+                .iter()
+                .map(|value| ScalarValue::Utf8(Some((*value).to_string())))
+                .collect::<Vec<_>>(),
+            &DataType::Utf8,
+            true,
+        ))
+    }
 
     #[test]
     fn generated_dimension_channels_are_reversible() {
@@ -569,13 +661,25 @@ mod tests {
             .dimension_with("origin", col("origin"), |dimension| {
                 dimension.axis(|axis| axis.title("Origin"))
             })
-            .order(["origin", "mpg"]);
+            .order(["origin", "mpg"])
+            .order_param("axis_order")
+            .active_axis_display_params("drag_dimension", "drag_display_x");
         let json = serde_json::to_string(&parallel).expect("serialize");
         let decoded: Parallel = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(decoded.dimensions().len(), 2);
         assert_eq!(
             decoded.order_ids(),
             Some(["origin".to_string(), "mpg".to_string()].as_slice())
+        );
+        assert_eq!(
+            decoded.order_state_ref().map(|state| state.param.as_str()),
+            Some("axis_order")
+        );
+        assert_eq!(
+            decoded
+                .display_state_ref()
+                .map(|state| state.display_x_param.as_str()),
+            Some("drag_display_x")
         );
     }
 
@@ -629,6 +733,83 @@ mod tests {
                 "mpg".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn resolve_frame_with_params_uses_order_and_display_state() {
+        let transform = Parallel::new()
+            .dimension("speed", col("speed"))
+            .dimension("cost", col("cost"))
+            .dimension("stability", col("stability"))
+            .order_param("axis_order")
+            .active_axis_display_params("drag_dimension", "drag_display_x")
+            .create_transform();
+        let transform = transform
+            .as_any()
+            .downcast_ref::<ParallelTransform>()
+            .expect("parallel transform");
+        let params = IndexMap::from([
+            (
+                "axis_order".to_string(),
+                string_list(&["cost", "speed", "stability"]),
+            ),
+            (
+                "drag_dimension".to_string(),
+                ScalarValue::Utf8(Some("speed".to_string())),
+            ),
+            (
+                "drag_display_x".to_string(),
+                ScalarValue::Float64(Some(180.0)),
+            ),
+        ]);
+        let frame = transform
+            .resolve_frame_with_params(300.0, &params)
+            .expect("stateful frame");
+
+        assert_eq!(
+            frame
+                .slots
+                .iter()
+                .map(|slot| slot.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["cost", "speed", "stability"]
+        );
+        assert_eq!(frame.slot("cost").unwrap().equilibrium_x, 0.0);
+        assert_eq!(frame.slot("speed").unwrap().equilibrium_x, 150.0);
+        assert_eq!(frame.slot("speed").unwrap().display_x, 180.0);
+        assert_eq!(frame.slot("speed").unwrap().displacement_px, 30.0);
+        assert_eq!(frame.slot("stability").unwrap().equilibrium_x, 300.0);
+    }
+
+    #[test]
+    fn generated_position_slots_include_stateful_display_geometry() {
+        let transform = Parallel::new()
+            .dimension("speed", col("speed"))
+            .dimension("cost", col("cost"))
+            .active_axis_display_params("drag_dimension", "drag_display_x")
+            .create_transform();
+        let params = IndexMap::from([
+            (
+                "drag_dimension".to_string(),
+                ScalarValue::Utf8(Some("cost".to_string())),
+            ),
+            (
+                "drag_display_x".to_string(),
+                ScalarValue::Float64(Some(65.0)),
+            ),
+        ]);
+        let slots = transform
+            .generated_position_slots(100.0, &params)
+            .expect("generated slots");
+
+        assert_eq!(slots[0].id, "speed");
+        assert_eq!(slots[0].channel, generated_dimension_channel("speed"));
+        assert_eq!(slots[0].display_x, 0.0);
+        assert_eq!(slots[1].id, "cost");
+        assert_eq!(slots[1].channel, generated_dimension_channel("cost"));
+        assert_eq!(slots[1].equilibrium_x, 100.0);
+        assert_eq!(slots[1].display_x, 65.0);
+        assert_eq!(slots[1].displacement_px, -35.0);
     }
 
     #[test]

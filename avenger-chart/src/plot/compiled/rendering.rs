@@ -5000,6 +5000,7 @@ impl CompiledPlot {
                         self.compiled_guide.as_ref(),
                         &guide_marks,
                         plot_area_width,
+                        &merged_params,
                         ctx,
                     )?;
 
@@ -5094,6 +5095,7 @@ impl CompiledPlot {
                         self.compiled_guide.as_ref(),
                         &guide_marks,
                         plot_area_width,
+                        &merged_params,
                         ctx,
                     )?;
 

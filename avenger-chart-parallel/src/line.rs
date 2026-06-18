@@ -210,40 +210,27 @@ impl CompiledMark for CompiledParallelLine {
                 "ParallelLine requires inherited or explicit row data".to_string(),
             )
         })?;
-        let generated = coord.generated_position_channels();
-        if generated.is_empty() {
+        let mark_context = context.core_view();
+        let slots = coord.generated_position_slots(context.plot_width(), mark_context.params())?;
+        if slots.is_empty() {
             return Err(AvengerChartError::CoordinateSystemError(
                 "ParallelLine requires a Parallel coordinate system with at least one dimension"
                     .to_string(),
             ));
         }
 
-        let mark_context = context.core_view();
         let row_count = data.num_rows();
-        let dimension_count = generated.len();
-        let dimension_step = if dimension_count > 1 {
-            context.plot_width() / (dimension_count.saturating_sub(1) as f32)
-        } else {
-            0.0
-        };
-        let x_positions = (0..dimension_count)
-            .map(|index| {
-                if dimension_count <= 1 {
-                    context.plot_width() / 2.0
-                } else {
-                    index as f32 * dimension_step
-                }
-            })
-            .collect::<Vec<_>>();
+        let dimension_count = slots.len();
+        let x_positions = slots.iter().map(|slot| slot.display_x).collect::<Vec<_>>();
 
-        let dimension_values = generated
-            .keys()
-            .map(|channel| {
+        let dimension_values = slots
+            .iter()
+            .map(|slot| {
                 coerce_numeric_channel_with_renderer(
                     self,
                     Some(data),
                     scalars,
-                    channel,
+                    &slot.channel,
                     &mark_context,
                     f32::NAN,
                 )
