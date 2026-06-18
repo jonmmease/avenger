@@ -2380,10 +2380,7 @@ mod tests {
             .mark(
                 MarkGroup::new()
                     .id("transparent")
-                    .with_scale_inference_hint(ScaleInferenceHint::new(
-                        "x",
-                        ScaleTypePreference::Point,
-                    ))
+                    .scale_inference_hint(ScaleInferenceHint::new("x", ScaleTypePreference::Point))
                     .mark(Symbol::new().id("leaf").x(col("x")).y(col("y"))),
             )
             .compile(&ctx)
@@ -2479,14 +2476,11 @@ mod tests {
             .mark(
                 MarkGroup::new()
                     .id("outer")
-                    .with_scale_inference_hint(ScaleInferenceHint::new(
-                        "x",
-                        ScaleTypePreference::Point,
-                    ))
+                    .scale_inference_hint(ScaleInferenceHint::new("x", ScaleTypePreference::Point))
                     .mark(
                         MarkGroup::new()
                             .id("inner")
-                            .with_scale_inference_hint(ScaleInferenceHint::new(
+                            .scale_inference_hint(ScaleInferenceHint::new(
                                 "y",
                                 ScaleTypePreference::Band,
                             ))
@@ -2535,10 +2529,7 @@ mod tests {
             .mark(
                 MarkGroup::new()
                     .id("group")
-                    .with_scale_inference_hint(ScaleInferenceHint::new(
-                        "y",
-                        ScaleTypePreference::Band,
-                    ))
+                    .scale_inference_hint(ScaleInferenceHint::new("y", ScaleTypePreference::Band))
                     .mark(Symbol::new().id("leaf").x(lit(1.0)).y(lit(1.0))),
             )
             .compile(&ctx)

@@ -1,0 +1,13 @@
+[package]
+name = "avenger-chart-marks-statistical"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
+avenger-chart-marks = { path = "../avenger-chart-marks" }
+avenger-chart-transforms = { path = "../avenger-chart-transforms" }
+datafusion = { workspace = true }
+datafusion-proto = "48.0.1"
+serde = { workspace = true }

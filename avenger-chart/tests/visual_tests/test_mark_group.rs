@@ -1,10 +1,10 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::marks::box_plot::{
+use avenger_chart::prelude::*;
+use avenger_chart_marks_statistical::box_plot::{
     BOX_PLOT_MEDIAN_FIELD, BOX_PLOT_Q1_FIELD, BOX_PLOT_Q3_FIELD, BOX_PLOT_WHISKER_HIGH_FIELD,
     BOX_PLOT_WHISKER_LOW_FIELD, boxplot_fence_stats, boxplot_summary_stats, boxplot_whisker_stats,
     inlier_predicate as boxplot_inlier_predicate, outlier_predicate as boxplot_outlier_predicate,
 };
-use avenger_chart::prelude::*;
 use datafusion::arrow::{
     array::{Float64Array, StringArray},
     datatypes::{DataType, Field, Schema},

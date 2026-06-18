@@ -11,16 +11,12 @@ use avenger_chart_core::{
     DefaultLogicalExprNodeExt, FacetDataScope, Mark, MarkDataMode, MarkGroup, OpacityChannelConfig,
     PlotMark, PositionConfig, ShapeChannelConfig, SizeChannelConfig, StoreData,
     StrokeWidthChannelConfig,
+    compound::{CompoundGrouping, band_scale_hint, validate_preserved_style_channel},
 };
 use avenger_chart_marks::{Rect, Rule, Symbol};
 use avenger_chart_transforms::{Aggregate, Filter, JoinAggregate};
 use datafusion::prelude::{Expr, col, lit};
 use datafusion_proto::protobuf::LogicalExprNode;
-
-use crate::marks::compound::{
-    CompoundGrouping, band_scale_hint_for_grouping, compound_grouping_from_position,
-    validate_preserved_style_channel,
-};
 
 pub const BOX_PLOT_Q1_FIELD: &str = "q1";
 pub const BOX_PLOT_MEDIAN_FIELD: &str = "median";
@@ -686,12 +682,12 @@ impl BoxPlot {
         let mut root = MarkGroup::new()
             .with_data_context(self.data, self.data_mode)
             .facet_data_scope(self.facet_data_scope);
-        if let Some(hint) = band_scale_hint_for_grouping(
+        if let Some(hint) = band_scale_hint(
             &grouping,
             &group_channel.value,
             orientation.group_axis_name(),
         ) {
-            root = root.with_scale_inference_hint(hint);
+            root = root.scale_inference_hint(hint);
         }
         if let Some(id) = self.id {
             root = root.id(id);
@@ -1187,7 +1183,7 @@ fn box_plot_grouping(
     orientation: BoxPlotOrientation,
     channel: &BoxPlotPositionChannel,
 ) -> Result<CompoundGrouping, AvengerChartError> {
-    compound_grouping_from_position(
+    CompoundGrouping::from_position(
         &format!("BoxPlot {} grouping channel", orientation.group_axis_name()),
         &channel.expr,
         &channel.value,
@@ -1195,14 +1191,14 @@ fn box_plot_grouping(
 }
 
 fn group_key_exprs(channel: &BoxPlotPositionChannel) -> Vec<Expr> {
-    compound_grouping_from_position("BoxPlot grouping channel", &channel.expr, &channel.value)
+    CompoundGrouping::from_position("BoxPlot grouping channel", &channel.expr, &channel.value)
         .expect("BoxPlot grouping channel should be valid")
         .key_exprs
 }
 
 #[cfg(test)]
 fn group_key_names(channel: &BoxPlotPositionChannel) -> Vec<String> {
-    compound_grouping_from_position("BoxPlot grouping channel", &channel.expr, &channel.value)
+    CompoundGrouping::from_position("BoxPlot grouping channel", &channel.expr, &channel.value)
         .expect("BoxPlot grouping channel should be valid")
         .key_names
 }
@@ -1374,166 +1370,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{ChartEventBinding, ChartEventType, event_coord};
-    use crate::plot::Plot;
-    use avenger_chart_core::{ScaleChannelConfig, ScaleInferenceHint, ScaleTypePreference, nested};
-    use avenger_chart_scales::Point;
-    use datafusion::{
-        arrow::{
-            array::{ArrayRef, Float64Array, Int32Array, StringArray},
-            datatypes::{DataType, Field, Schema},
-            record_batch::RecordBatch,
-        },
-        prelude::{SessionContext, col},
-    };
-    use std::sync::Arc;
-
-    fn string_group_df(
-        ctx: &SessionContext,
-    ) -> datafusion::error::Result<datafusion::dataframe::DataFrame> {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("group", DataType::Utf8, false),
-            Field::new("value", DataType::Float64, false),
-        ]));
-        let batch = RecordBatch::try_new(
-            schema,
-            vec![
-                Arc::new(StringArray::from(vec!["A", "A", "B", "B"])) as ArrayRef,
-                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0])) as ArrayRef,
-            ],
-        )?;
-        ctx.read_batch(batch)
-    }
-
-    fn numeric_group_df(
-        ctx: &SessionContext,
-    ) -> datafusion::error::Result<datafusion::dataframe::DataFrame> {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("group_id", DataType::Int32, false),
-            Field::new("value", DataType::Float64, false),
-        ]));
-        let batch = RecordBatch::try_new(
-            schema,
-            vec![
-                Arc::new(Int32Array::from(vec![1, 1, 2, 2])) as ArrayRef,
-                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0])) as ArrayRef,
-            ],
-        )?;
-        ctx.read_batch(batch)
-    }
-
-    fn nested_group_df(
-        ctx: &SessionContext,
-    ) -> datafusion::error::Result<datafusion::dataframe::DataFrame> {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("category", DataType::Utf8, false),
-            Field::new("segment", DataType::Utf8, false),
-            Field::new("value", DataType::Float64, false),
-        ]));
-        let batch = RecordBatch::try_new(
-            schema,
-            vec![
-                Arc::new(StringArray::from(vec!["A", "A", "B", "B"])) as ArrayRef,
-                Arc::new(StringArray::from(vec!["one", "two", "one", "two"])) as ArrayRef,
-                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0])) as ArrayRef,
-            ],
-        )?;
-        ctx.read_batch(batch)
-    }
-
-    async fn scale_type_for_box_plot(
-        ctx: &SessionContext,
-        data: datafusion::dataframe::DataFrame,
-        mark: BoxPlot,
-        channel: &str,
-    ) -> String {
-        let compiled = Plot::<Cartesian>::new()
-            .data(data.clone())
-            .mark(mark)
-            .compile(ctx)
-            .await
-            .expect("compile box plot");
-        let scales = compiled
-            .build_scales_for_dataframe(&data, 300.0, 200.0, ctx, compiled.get_default_params())
-            .await
-            .expect("build scales");
-        scales
-            .get(channel)
-            .unwrap_or_else(|| panic!("{channel} scale"))
-            .configured()
-            .scale_impl
-            .scale_type()
-            .to_string()
-    }
-
-    #[tokio::test]
-    async fn value_domain_includes_all_generated_groups_and_outliers() {
-        let ctx = SessionContext::new();
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("group", DataType::Utf8, false),
-            Field::new("value", DataType::Float64, false),
-        ]));
-        let batch = RecordBatch::try_new(
-            schema,
-            vec![
-                Arc::new(StringArray::from(vec![
-                    "Alpha", "Alpha", "Alpha", "Alpha", "Alpha", "Alpha", "Alpha", "Alpha", "Beta",
-                    "Beta", "Beta", "Beta", "Beta", "Beta", "Beta", "Beta",
-                ])) as ArrayRef,
-                Arc::new(Float64Array::from(vec![
-                    4.0, 5.0, 5.5, 6.0, 6.5, 7.0, 8.0, 14.0, 8.0, 9.0, 9.5, 10.0, 10.5, 11.0, 12.0,
-                    18.0,
-                ])) as ArrayRef,
-            ],
-        )
-        .expect("batch");
-        let data = ctx.read_batch(batch).expect("data");
-        let compiled = Plot::<Cartesian>::new()
-            .data(data.clone())
-            .mark(BoxPlot::new().x(col("value")).y(col("group")))
-            .compile(&ctx)
-            .await
-            .expect("compile");
-        let eval_ctx = avenger_chart_core::EvaluationContext::new(
-            compiled.get_theme(),
-            Arc::new(ctx.clone()),
-            compiled.get_default_params().clone(),
-        );
-        let builder = crate::plot::compiled::scales::build_scale_builder_from_compiled_plot(
-            &compiled,
-            Some(data.clone()),
-            &eval_ctx,
-            compiled.get_theme().as_ref(),
-        )
-        .await
-        .expect("builder");
-        let positions = match builder.channel_builders().get("x") {
-            Some(avenger_chart_scales::ChannelScaleData::RadiusAware { position_data, .. }) => {
-                position_data
-            }
-            other => panic!("expected radius-aware x domain cache, got {other:?}"),
-        };
-        for expected in [4.0, 12.0, 14.0, 18.0] {
-            assert!(
-                positions.contains(&expected),
-                "x domain cache should include {expected}, got {positions:?}"
-            );
-        }
-        let scales = compiled
-            .build_scales_for_dataframe(&data, 300.0, 200.0, &ctx, compiled.get_default_params())
-            .await
-            .expect("scales");
-        let domain = scales
-            .get("x")
-            .expect("x")
-            .configured()
-            .numeric_interval_domain()
-            .expect("domain");
-        assert!(
-            domain.0 < 4.0 && domain.1 > 18.0,
-            "rule/symbol radius padding should expand beyond raw whisker/outlier values, got {domain:?}"
-        );
-    }
+    use avenger_chart_core::{ScaleInferenceHint, ScaleTypePreference, nested};
+    use datafusion::prelude::col;
 
     #[test]
     fn fence_expressions_match_tukey_formula() {
@@ -1698,83 +1536,5 @@ mod tests {
             .into_mark_group()
             .expect("box plot group");
         assert!(group.scale_inference_hints().is_empty());
-    }
-
-    #[tokio::test]
-    async fn box_plot_string_grouping_infers_band_scale() {
-        let ctx = SessionContext::new();
-        let data = string_group_df(&ctx).expect("dataframe");
-        let scale_type = scale_type_for_box_plot(
-            &ctx,
-            data,
-            BoxPlot::new().x(col("value")).y(col("group")),
-            "y",
-        )
-        .await;
-        assert_eq!(scale_type, "band");
-    }
-
-    #[tokio::test]
-    async fn box_plot_numeric_grouping_infers_band_scale() {
-        let ctx = SessionContext::new();
-        let data = numeric_group_df(&ctx).expect("dataframe");
-        let scale_type = scale_type_for_box_plot(
-            &ctx,
-            data,
-            BoxPlot::new().x(col("value")).y(col("group_id")),
-            "y",
-        )
-        .await;
-        assert_eq!(scale_type, "band");
-    }
-
-    #[tokio::test]
-    async fn box_plot_nested_grouping_infers_nested_band_scale() {
-        let ctx = SessionContext::new();
-        let data = nested_group_df(&ctx).expect("dataframe");
-        let scale_type = scale_type_for_box_plot(
-            &ctx,
-            data,
-            BoxPlot::new()
-                .x(col("value"))
-                .y(nested(["category", "segment"])),
-            "y",
-        )
-        .await;
-        assert_eq!(scale_type, "nested_band");
-    }
-
-    #[tokio::test]
-    async fn box_plot_explicit_grouping_scale_type_wins_over_hint() {
-        let ctx = SessionContext::new();
-        let data = string_group_df(&ctx).expect("dataframe");
-        let scale_type = scale_type_for_box_plot(
-            &ctx,
-            data,
-            BoxPlot::new()
-                .x(col("value"))
-                .y_with(col("group"), |y| y.scale_with::<Point>(|scale| scale)),
-            "y",
-        )
-        .await;
-        assert_eq!(scale_type, "point");
-    }
-
-    #[tokio::test]
-    async fn box_plot_hinted_grouping_axis_has_categorical_event_coord_type() {
-        let ctx = SessionContext::new();
-        let data = string_group_df(&ctx).expect("dataframe");
-        let compiled = Plot::<Cartesian>::new()
-            .data(data)
-            .mark(BoxPlot::new().x(col("value")).y(col("group")))
-            .event_binding(
-                ChartEventBinding::on(ChartEventType::Click).filter(event_coord("y").is_not_null()),
-            )
-            .compile(&ctx)
-            .await
-            .expect("compile box plot");
-
-        let coord_types = compiled.event_coord_types(&ctx).expect("event coord types");
-        assert_eq!(coord_types.get("y"), Some(&DataType::Utf8));
     }
 }

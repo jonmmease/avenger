@@ -1,7 +1,5 @@
 pub mod area;
-pub mod box_plot;
 pub mod compiled_data_context;
-pub(crate) mod compound;
 pub mod data_context;
 pub mod facet_data_scope;
 pub mod image;
@@ -17,7 +15,6 @@ pub mod symbol;
 pub mod text;
 pub mod trail;
 pub mod util;
-pub mod violin;
 
 pub use crate::concat::CompiledConcatSubplot;
 pub use avenger_chart_cartesian::CompiledCartesianSubplot;
@@ -31,6 +28,7 @@ pub use avenger_chart_core::{
     default_scale_type_for_data_type,
 };
 pub use avenger_chart_marks::Subplot;
+pub use avenger_chart_marks_statistical::{
+    BoxPlot, BoxPlotOrientation, Violin, ViolinOrientation, ViolinWidthNormalization,
+};
 pub use avenger_chart_polar::CompiledPolarSubplot;
-pub use box_plot::{BoxPlot, BoxPlotOrientation};
-pub use violin::{Violin, ViolinOrientation, ViolinWidthNormalization};

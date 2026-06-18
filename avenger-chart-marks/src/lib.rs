@@ -1,3 +1,8 @@
+//! Primitive chart mark builders.
+//!
+//! Compound/statistical marks that expand to groups of these primitives live in
+//! sibling crates such as `avenger-chart-marks-statistical`.
+
 pub mod area;
 pub mod compiled_data_context;
 pub mod data_context;

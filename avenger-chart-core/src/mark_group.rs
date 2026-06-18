@@ -12,7 +12,9 @@ use crate::{
 ///
 /// `MarkGroup` is authoring infrastructure only. It does not create scenegraph
 /// groups or independent render surfaces; compilation flattens primitive child
-/// marks while retaining group data metadata for runtime preparation.
+/// marks while retaining group data metadata for runtime preparation. External
+/// compound marks can lower themselves into `MarkGroup` values with generated
+/// primitive marks and transforms.
 #[derive(Clone)]
 pub struct MarkGroup<C: CoordinateSystemCore> {
     pub(crate) id: Option<String>,
@@ -175,7 +177,11 @@ impl<C: CoordinateSystemCore> MarkGroup<C> {
         self
     }
 
-    #[doc(hidden)]
+    /// Seed this group with an existing authoring data context.
+    ///
+    /// This is intended for compound marks that collect ordinary mark data and
+    /// transforms on their public builder, then lower into a root `MarkGroup`
+    /// without losing that accumulated data state.
     pub fn with_data_context(mut self, data: DataContext, data_mode: MarkDataMode) -> Self {
         self.data = data;
         self.data_mode = data_mode;
@@ -223,8 +229,12 @@ impl<C: CoordinateSystemCore> MarkGroup<C> {
         &self.children
     }
 
-    #[doc(hidden)]
-    pub fn with_scale_inference_hint(mut self, hint: ScaleInferenceHint) -> Self {
+    /// Add a scale type inference hint for descendant primitive marks.
+    ///
+    /// Compound marks use hints when their generated primitive marks do not
+    /// fully express the semantic scale preference. Explicit user-authored
+    /// scale configuration still wins over hints.
+    pub fn scale_inference_hint(mut self, hint: ScaleInferenceHint) -> Self {
         self.scale_inference_hints.push(hint);
         self
     }

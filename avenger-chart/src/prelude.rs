@@ -77,8 +77,6 @@ pub use avenger_chart_core::Theme;
 pub use crate::facet::marks::{
     FacetColumnSubplotChannels, FacetRowSubplotChannels, FacetWrapSubplotChannels,
 };
-pub use crate::marks::box_plot::{BoxPlot, BoxPlotOrientation};
-pub use crate::marks::violin::{Violin, ViolinOrientation, ViolinWidthNormalization};
 pub use avenger_chart_cartesian::{
     CartesianAreaPositionChannels, CartesianImagePositionChannels, CartesianLinePositionChannels,
     CartesianPathPositionChannels, CartesianRectPositionChannels, CartesianRulePositionChannels,
@@ -87,6 +85,9 @@ pub use avenger_chart_cartesian::{
 };
 pub use avenger_chart_marks::{
     Area, Image, Line, PathMark, Rect, Rule, Subplot, Symbol, Text, Trail,
+};
+pub use avenger_chart_marks_statistical::{
+    BoxPlot, BoxPlotOrientation, Violin, ViolinOrientation, ViolinWidthNormalization,
 };
 pub use avenger_chart_polar::PolarSymbolPositionChannels;
 

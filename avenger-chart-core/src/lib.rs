@@ -9,6 +9,7 @@ pub mod channel_resolution_error;
 pub mod channel_value;
 pub mod compiled_data_context;
 pub mod compiled_mark;
+pub mod compound;
 pub mod configured_scale_legend;
 pub mod container_sharing;
 pub mod coord_measurement;
@@ -104,6 +105,7 @@ pub use compiled_mark::{
     CompiledMark, CompiledMarkCore, RenderedMarkData, default_channel_value_for_eval,
     extract_channel_title_from_marks,
 };
+pub use compound::{CompoundGrouping, band_scale_hint, validate_preserved_style_channel};
 pub use configured_scale_legend::{ConfiguredScaleLegendExt, DomainValues};
 pub use container_sharing::{
     ContainerEdgeLevelProjection, SharingGroupEdge, enumeration_ancestor_path, is_group_end,

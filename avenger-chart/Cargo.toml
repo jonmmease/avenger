@@ -9,6 +9,7 @@ avenger-common = { path = "../avenger-common" }
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-legend = { path = "../avenger-chart-legend" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }
+avenger-chart-marks-statistical = { path = "../avenger-chart-marks-statistical" }
 avenger-chart-scales = { path = "../avenger-chart-scales" }
 avenger-chart-tools = { path = "../avenger-chart-tools" }
 avenger-chart-transforms = { path = "../avenger-chart-transforms" }

@@ -512,6 +512,7 @@ dependencies = [
  "avenger-chart-core",
  "avenger-chart-legend",
  "avenger-chart-marks",
+ "avenger-chart-marks-statistical",
  "avenger-chart-polar",
  "avenger-chart-scales",
  "avenger-chart-tools",
@@ -649,6 +650,7 @@ dependencies = [
  "avenger-chart-core",
  "avenger-chart-marks",
  "avenger-chart-polar",
+ "avenger-chart-transforms",
  "avenger-common",
  "avenger-guides",
  "avenger-scales",
@@ -699,6 +701,19 @@ dependencies = [
  "serde",
  "serde_with",
  "typetag",
+]
+
+[[package]]
+name = "avenger-chart-marks-statistical"
+version = "0.1.0"
+dependencies = [
+ "avenger-chart-cartesian",
+ "avenger-chart-core",
+ "avenger-chart-marks",
+ "avenger-chart-transforms",
+ "datafusion",
+ "datafusion-proto",
+ "serde",
 ]
 
 [[package]]

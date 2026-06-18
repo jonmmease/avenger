@@ -19,7 +19,11 @@ pub enum ScaleTypePreference {
     Quantize,
 }
 
-/// Internal scale inference override supplied by compound marks.
+/// Scale type inference override supplied by compound marks.
+///
+/// Hints let a compound mark describe the semantic scale it expects before its
+/// generated primitive marks participate in inference. They affect scale type
+/// selection only; explicit user-authored scale configuration takes precedence.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ScaleInferenceHint {
     pub scale_name: String,

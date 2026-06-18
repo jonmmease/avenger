@@ -9,16 +9,12 @@ use avenger_chart_core::{
     CoordinationScope, DataContext, DataTransform, DataTransformCompileContext,
     DefaultLogicalExprNodeExt, FacetDataScope, Mark, MarkDataMode, MarkGroup, OpacityChannelConfig,
     PlotMark, PositionConfig, StoreData, StrokeDashChannelConfig, StrokeWidthChannelConfig,
+    compound::{CompoundGrouping, band_scale_hint, validate_preserved_style_channel},
 };
 use avenger_chart_marks::Area;
 use avenger_chart_transforms::{Calculate, JoinAggregate, Kde, KdeResolve};
 use datafusion::prelude::{Expr, col, lit};
 use datafusion_proto::protobuf::LogicalExprNode;
-
-use crate::marks::compound::{
-    CompoundGrouping, band_scale_hint_for_grouping, compound_grouping_from_position,
-    validate_preserved_style_channel,
-};
 
 const VIOLIN_SAMPLE_FIELD: &str = "__avenger_violin_sample";
 const VIOLIN_DENSITY_FIELD: &str = "__avenger_violin_density";
@@ -511,12 +507,12 @@ impl Violin {
         let mut root = MarkGroup::new()
             .with_data_context(self.data, self.data_mode)
             .facet_data_scope(self.facet_data_scope);
-        if let Some(hint) = band_scale_hint_for_grouping(
+        if let Some(hint) = band_scale_hint(
             &grouping,
             &group_channel.value,
             orientation.group_axis_name(),
         ) {
-            root = root.with_scale_inference_hint(hint);
+            root = root.scale_inference_hint(hint);
         }
         if let Some(id) = self.id {
             root = root.id(id);
@@ -828,7 +824,7 @@ fn violin_grouping(
     orientation: ViolinOrientation,
     channel: &ViolinPositionChannel,
 ) -> Result<CompoundGrouping, AvengerChartError> {
-    compound_grouping_from_position(
+    CompoundGrouping::from_position(
         &format!("Violin {} grouping channel", orientation.group_axis_name()),
         &channel.expr,
         &channel.value,
@@ -858,76 +854,6 @@ fn validate_body_style_channels(
 mod tests {
     use super::*;
     use avenger_chart_core::{ScaleInferenceHint, ScaleTypePreference, nested};
-    use datafusion::{
-        arrow::{
-            array::{ArrayRef, Float64Array, StringArray},
-            datatypes::{DataType, Field, Schema},
-            record_batch::RecordBatch,
-        },
-        prelude::SessionContext,
-    };
-    use std::sync::Arc;
-
-    fn string_group_df(
-        ctx: &SessionContext,
-    ) -> datafusion::error::Result<datafusion::dataframe::DataFrame> {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("group", DataType::Utf8, false),
-            Field::new("value", DataType::Float64, false),
-        ]));
-        let batch = RecordBatch::try_new(
-            schema,
-            vec![
-                Arc::new(StringArray::from(vec!["A", "A", "B", "B"])) as ArrayRef,
-                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0])) as ArrayRef,
-            ],
-        )?;
-        ctx.read_batch(batch)
-    }
-
-    fn nested_group_df(
-        ctx: &SessionContext,
-    ) -> datafusion::error::Result<datafusion::dataframe::DataFrame> {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("category", DataType::Utf8, false),
-            Field::new("segment", DataType::Utf8, false),
-            Field::new("value", DataType::Float64, false),
-        ]));
-        let batch = RecordBatch::try_new(
-            schema,
-            vec![
-                Arc::new(StringArray::from(vec!["A", "A", "B", "B"])) as ArrayRef,
-                Arc::new(StringArray::from(vec!["one", "two", "one", "two"])) as ArrayRef,
-                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0])) as ArrayRef,
-            ],
-        )?;
-        ctx.read_batch(batch)
-    }
-
-    async fn scale_type_for_violin(
-        ctx: &SessionContext,
-        data: datafusion::dataframe::DataFrame,
-        mark: Violin,
-        channel: &str,
-    ) -> String {
-        let compiled = crate::plot::Plot::<Cartesian>::new()
-            .data(data.clone())
-            .mark(mark)
-            .compile(ctx)
-            .await
-            .expect("compile violin");
-        let scales = compiled
-            .build_scales_for_dataframe(&data, 300.0, 200.0, ctx, compiled.get_default_params())
-            .await
-            .expect("build scales");
-        scales
-            .get(channel)
-            .unwrap_or_else(|| panic!("{channel} scale"))
-            .configured()
-            .scale_impl
-            .scale_type()
-            .to_string()
-    }
 
     #[test]
     fn orientation_defaults_and_explicit_overrides() {
@@ -1045,35 +971,5 @@ mod tests {
                 .fill(col("unrelated")),
         );
         assert!(err.contains("references column 'unrelated'"), "{err}");
-    }
-
-    #[tokio::test]
-    async fn violin_string_grouping_infers_band_scale() {
-        let ctx = SessionContext::new();
-        let data = string_group_df(&ctx).expect("dataframe");
-        let scale_type = scale_type_for_violin(
-            &ctx,
-            data,
-            Violin::new().x(col("group")).y(col("value")),
-            "x",
-        )
-        .await;
-        assert_eq!(scale_type, "band");
-    }
-
-    #[tokio::test]
-    async fn violin_nested_grouping_infers_nested_band_scale() {
-        let ctx = SessionContext::new();
-        let data = nested_group_df(&ctx).expect("dataframe");
-        let scale_type = scale_type_for_violin(
-            &ctx,
-            data,
-            Violin::new()
-                .x(nested(["category", "segment"]))
-                .y(col("value")),
-            "x",
-        )
-        .await;
-        assert_eq!(scale_type, "nested_band");
     }
 }

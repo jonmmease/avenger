@@ -139,6 +139,15 @@ pub struct IsometricAxis {
     pub visible: bool,
 }
 
+impl Default for IsometricAxis {
+    fn default() -> Self {
+        Self {
+            channel: String::new(),
+            visible: true,
+        }
+    }
+}
+
 #[typetag::serde]
 impl Axis for IsometricAxis {
     fn update(&mut self, other: &dyn Axis) {

@@ -1,7 +1,9 @@
 use super::helpers::assert_visual_match_default;
-use avenger_chart::marks::box_plot::{BOX_PLOT_MEDIAN_FIELD, BOX_PLOT_Q1_FIELD, BOX_PLOT_Q3_FIELD};
 use avenger_chart::param::Param;
 use avenger_chart::prelude::*;
+use avenger_chart_marks_statistical::box_plot::{
+    BOX_PLOT_MEDIAN_FIELD, BOX_PLOT_Q1_FIELD, BOX_PLOT_Q3_FIELD,
+};
 use datafusion::arrow::{
     array::{Float64Array, StringArray},
     datatypes::{DataType, Field, Schema},

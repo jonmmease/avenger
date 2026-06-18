@@ -16,6 +16,7 @@ members = [
     "avenger-winit-wgpu",
     "avenger-chart-core",
     "avenger-chart-marks",
+    "avenger-chart-marks-statistical",
     "avenger-chart-legend",
     "avenger-chart-scales",
     "avenger-chart-tools",
