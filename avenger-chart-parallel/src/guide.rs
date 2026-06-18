@@ -2,8 +2,9 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{
     AvengerChartError, CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide,
-    GuideSharingContext, LayoutBounds, OverflowSpaceRequirement, Theme,
-    serialization::DefaultLogicalExprNodeExt,
+    GuideSharingContext, LayoutBounds, OverflowSpaceRequirement, ScalarValueHelpers, Theme,
+    eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr,
+    params_to_datafusion, serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
@@ -11,7 +12,7 @@ use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_guides::axis::{
     band::make_band_axis_marks,
     numeric::make_numeric_axis_marks,
-    opts::{AxisConfig, AxisOrientation},
+    opts::{AxisConfig, AxisOrientation, AxisTickSpacing},
     point::make_point_axis_marks,
 };
 use avenger_scales::scales::{ConfiguredScale, DomainKind, band::BandScale};
@@ -23,7 +24,11 @@ use avenger_text::{
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
 };
 use datafusion::{
-    common::ScalarValue, dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext,
+    arrow::array::{Array, StructArray},
+    common::ScalarValue,
+    dataframe::DataFrame,
+    logical_expr::Expr,
+    prelude::SessionContext,
 };
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -92,6 +97,18 @@ pub struct ParallelAxisGuideDatum {
     pub display_x: f32,
     pub displacement_px: f32,
     pub displacement_slots: f32,
+}
+
+#[derive(Clone, Debug)]
+struct EvaluatedParallelAxisGuideDatum {
+    datum: ParallelAxisGuideDatum,
+    visible: bool,
+    title_visible: bool,
+    title: String,
+    title_font_family: String,
+    title_font_size: f32,
+    title_font_weight: FontWeight,
+    axis_config: AxisConfig,
 }
 
 impl CompiledParallelGuide {
@@ -169,6 +186,50 @@ impl CompiledParallelGuide {
             })
             .collect()
     }
+
+    async fn evaluated_axis_guide_datums(
+        &self,
+        plot_width: f32,
+        plot_height: f32,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
+    ) -> Result<Vec<EvaluatedParallelAxisGuideDatum>, AvengerChartError> {
+        let datums = self.axis_guide_datums(plot_width, params, ctx)?;
+        let axis_by_id = self
+            .axes
+            .iter()
+            .map(|(channel, axis)| {
+                let dimension_id = axis
+                    .dimension_id
+                    .clone()
+                    .unwrap_or_else(|| channel.to_string());
+                (dimension_id, axis)
+            })
+            .collect::<HashMap<_, _>>();
+        let mut evaluated = Vec::with_capacity(datums.len());
+        for datum in datums {
+            let axis = axis_by_id.get(&datum.dimension_id).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing parallel axis metadata for dimension '{}'",
+                    datum.dimension_id
+                ))
+            })?;
+            evaluated.push(
+                evaluate_parallel_axis_datum(
+                    axis,
+                    datum,
+                    plot_width,
+                    plot_height,
+                    theme,
+                    params,
+                    ctx,
+                )
+                .await?,
+            );
+        }
+        Ok(evaluated)
+    }
 }
 
 #[async_trait::async_trait]
@@ -187,6 +248,7 @@ impl CompiledGuide for CompiledParallelGuide {
         _coord_measurement: Option<&dyn CoordMeasurement>,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         measure_parallel_guide_overflow(self, scales, plot_width, plot_height, theme, params, ctx)
+            .await
     }
 
     async fn evaluate(
@@ -203,36 +265,56 @@ impl CompiledGuide for CompiledParallelGuide {
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        let datums = self.axis_guide_datums(plot_width, params, ctx)?;
+        let datums = self
+            .evaluated_axis_guide_datums(plot_width, plot_height, theme, params, ctx)
+            .await?;
         if datums.is_empty() {
             return Ok(Vec::new());
         }
         let count = datums.len();
         let xs = datums
             .iter()
-            .map(|datum| datum.display_x)
+            .map(|datum| datum.datum.display_x)
             .collect::<Vec<_>>();
         let titles = datums
             .iter()
-            .map(|datum| datum.title.clone())
+            .map(|datum| {
+                if datum.visible && datum.title_visible {
+                    datum.title.clone()
+                } else {
+                    String::new()
+                }
+            })
+            .collect::<Vec<_>>();
+        let title_fonts = datums
+            .iter()
+            .map(|datum| datum.title_font_family.clone())
+            .collect::<Vec<_>>();
+        let title_font_sizes = datums
+            .iter()
+            .map(|datum| datum.title_font_size)
+            .collect::<Vec<_>>();
+        let title_font_weights = datums
+            .iter()
+            .map(|datum| datum.title_font_weight)
             .collect::<Vec<_>>();
 
         let mut marks = Vec::with_capacity(count + 2);
         for datum in &datums {
-            let scale = scales.get(&datum.scale_name).ok_or_else(|| {
+            if !datum.visible {
+                continue;
+            }
+            let scale = scales.get(&datum.datum.scale_name).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Missing configured scale for parallel axis '{}'",
-                    datum.scale_name
+                    datum.datum.scale_name
                 ))
             })?;
             marks.push(make_axis_mark(
                 scale,
-                plot_bounds.x + datum.display_x,
+                plot_bounds.x + datum.datum.display_x,
                 plot_bounds.y,
-                plot_width,
-                plot_height,
-                theme,
-                params,
+                &datum.axis_config,
             )?);
         }
 
@@ -277,9 +359,9 @@ impl CompiledGuide for CompiledParallelGuide {
             baseline: ScalarOrArray::new_scalar(TextBaseline::Bottom),
             angle: ScalarOrArray::new_scalar(0.0),
             color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.12, 0.12, 0.12, 1.0])),
-            font: ScalarOrArray::new_scalar("sans-serif".to_string()),
-            font_size: ScalarOrArray::new_scalar(TITLE_FONT_SIZE),
-            font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Normal)),
+            font: scalar_or_array_if_uniform(title_fonts),
+            font_size: scalar_or_array_if_uniform(title_font_sizes),
+            font_weight: scalar_or_array_if_uniform(title_font_weights),
             font_style: ScalarOrArray::new_scalar(FontStyle::Normal),
             limit: ScalarOrArray::new_scalar(0.0),
             indices: None,
@@ -305,7 +387,20 @@ impl CompiledGuide for CompiledParallelGuide {
     }
 }
 
-fn measure_parallel_guide_overflow(
+fn scalar_or_array_if_uniform<T>(values: Vec<T>) -> ScalarOrArray<T>
+where
+    T: Sync + Clone + PartialEq,
+{
+    let first = values.first().cloned();
+    if let Some(first) = first
+        && values.iter().all(|value| *value == first)
+    {
+        return ScalarOrArray::new_scalar(first);
+    }
+    ScalarOrArray::from(values)
+}
+
+async fn measure_parallel_guide_overflow(
     guide: &CompiledParallelGuide,
     scales: &HashMap<String, ConfiguredScale>,
     plot_width: f32,
@@ -314,7 +409,9 @@ fn measure_parallel_guide_overflow(
     params: &IndexMap<String, ScalarValue>,
     ctx: &SessionContext,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-    let datums = guide.axis_guide_datums(plot_width, params, ctx)?;
+    let datums = guide
+        .evaluated_axis_guide_datums(plot_width, plot_height, theme, params, ctx)
+        .await?;
     if datums.is_empty() {
         return Ok(OverflowSpaceRequirement::default());
     }
@@ -325,21 +422,16 @@ fn measure_parallel_guide_overflow(
     let mut max_y = plot_height;
 
     for datum in &datums {
-        let scale = scales.get(&datum.scale_name).ok_or_else(|| {
+        if !datum.visible {
+            continue;
+        }
+        let scale = scales.get(&datum.datum.scale_name).ok_or_else(|| {
             AvengerChartError::InternalError(format!(
                 "Missing configured scale for parallel axis '{}'",
-                datum.scale_name
+                datum.datum.scale_name
             ))
         })?;
-        let axis_mark = make_axis_mark(
-            scale,
-            datum.display_x,
-            0.0,
-            plot_width,
-            plot_height,
-            theme,
-            params,
-        )?;
+        let axis_mark = make_axis_mark(scale, datum.datum.display_x, 0.0, &datum.axis_config)?;
         let bbox = axis_mark.bounding_box();
         let lower = bbox.lower();
         let upper = bbox.upper();
@@ -347,6 +439,9 @@ fn measure_parallel_guide_overflow(
         max_x = max_x.max(upper[0]);
         min_y = min_y.min(lower[1]);
         max_y = max_y.max(upper[1]);
+        measure_parallel_categorical_tick_labels(
+            scale, datum, &mut min_x, &mut max_x, &mut min_y, &mut max_y,
+        )?;
     }
 
     measure_parallel_axis_titles(&datums, &mut min_x, &mut max_x, &mut min_y, &mut max_y);
@@ -359,28 +454,76 @@ fn measure_parallel_guide_overflow(
     })
 }
 
+fn measure_parallel_categorical_tick_labels(
+    scale: &ConfiguredScale,
+    datum: &EvaluatedParallelAxisGuideDatum,
+    min_x: &mut f32,
+    max_x: &mut f32,
+    min_y: &mut f32,
+    max_y: &mut f32,
+) -> Result<(), AvengerChartError> {
+    if !datum.axis_config.labels_visible.unwrap_or(true)
+        || !matches!(scale.scale_impl.domain_kind(), DomainKind::Categorical)
+    {
+        return Ok(());
+    }
+
+    let labels = scale
+        .format(scale.domain())
+        .map_err(|err| AvengerChartError::InternalError(err.to_string()))?
+        .as_vec(scale.domain().len(), None);
+    let measurer = default_text_measurer();
+    let font_family = datum
+        .axis_config
+        .label_font_family
+        .as_deref()
+        .unwrap_or("sans-serif");
+    let font_size = datum.axis_config.label_font_size.unwrap_or(12.0);
+    let font_weight = FontWeight::Number(datum.axis_config.label_font_weight.unwrap_or(400.0));
+    let tick_length = datum.axis_config.tick_length.unwrap_or(5.0);
+    let text_x = datum.datum.display_x - tick_length - 3.0;
+    for label in labels {
+        if label.trim().is_empty() {
+            continue;
+        }
+        let bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+            text: &label,
+            font: font_family,
+            font_size,
+            font_weight: &font_weight,
+            font_style: &FontStyle::Normal,
+        });
+        let origin =
+            bounds.calculate_origin([text_x, 0.0], &TextAlign::Right, &TextBaseline::Middle);
+        *min_x = (*min_x).min(origin[0]);
+        *max_x = (*max_x).max(origin[0] + bounds.width);
+        *min_y = (*min_y).min(origin[1]);
+        *max_y = (*max_y).max(origin[1] + bounds.height);
+    }
+    Ok(())
+}
+
 fn measure_parallel_axis_titles(
-    datums: &[ParallelAxisGuideDatum],
+    datums: &[EvaluatedParallelAxisGuideDatum],
     min_x: &mut f32,
     max_x: &mut f32,
     min_y: &mut f32,
     max_y: &mut f32,
 ) {
     let measurer = default_text_measurer();
-    let font_weight = FontWeight::Name(FontWeightNameSpec::Normal);
     for datum in datums {
-        if datum.title.trim().is_empty() {
+        if !datum.visible || !datum.title_visible || datum.title.trim().is_empty() {
             continue;
         }
         let bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
             text: &datum.title,
-            font: "sans-serif",
-            font_size: TITLE_FONT_SIZE,
-            font_weight: &font_weight,
+            font: &datum.title_font_family,
+            font_size: datum.title_font_size,
+            font_weight: &datum.title_font_weight,
             font_style: &FontStyle::Normal,
         });
         let origin = bounds.calculate_origin(
-            [datum.display_x, TITLE_Y_OFFSET],
+            [datum.datum.display_x, TITLE_Y_OFFSET],
             &TextAlign::Center,
             &TextBaseline::Bottom,
         );
@@ -395,21 +538,17 @@ fn make_axis_mark(
     scale: &ConfiguredScale,
     display_x: f32,
     display_y: f32,
-    plot_width: f32,
-    plot_height: f32,
-    theme: &Theme,
-    params: &IndexMap<String, ScalarValue>,
+    axis_config: &AxisConfig,
 ) -> Result<SceneMark, AvengerChartError> {
-    let axis_config = parallel_axis_config(plot_width, plot_height, theme, params);
     let mut group = match scale.scale_impl.domain_kind() {
         DomainKind::Categorical => match scale.scale_impl.scale_type() {
-            "band" => make_band_axis_marks(scale, "", [display_x, display_y], &axis_config)?,
+            "band" => make_band_axis_marks(scale, "", [display_x, display_y], axis_config)?,
             "point" => {
-                make_point_axis_marks(scale.clone(), "", [display_x, display_y], &axis_config)?
+                make_point_axis_marks(scale.clone(), "", [display_x, display_y], axis_config)?
             }
             "ordinal" => {
                 let band_scale = BandScale::from_point_scale(scale);
-                make_band_axis_marks(&band_scale, "", [display_x, display_y], &axis_config)?
+                make_band_axis_marks(&band_scale, "", [display_x, display_y], axis_config)?
             }
             scale_type => {
                 return Err(AvengerChartError::InternalError(format!(
@@ -423,37 +562,247 @@ fn make_axis_mark(
             ));
         }
         DomainKind::Numeric | DomainKind::Temporal => {
-            make_numeric_axis_marks(scale, "", [display_x, display_y], &axis_config)?
+            make_numeric_axis_marks(scale, "", [display_x, display_y], axis_config)?
         }
     };
     group.name = "parallel_axis".to_string();
     Ok(SceneMark::Group(group))
 }
 
-fn parallel_axis_config(
+async fn evaluate_parallel_axis_datum(
+    axis: &ParallelAxis,
+    datum: ParallelAxisGuideDatum,
     plot_width: f32,
     plot_height: f32,
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
-) -> AxisConfig {
+    ctx: &SessionContext,
+) -> Result<EvaluatedParallelAxisGuideDatum, AvengerChartError> {
     let axis_ctx =
         theme.axis_context_with_params(Some("parallel"), Some("dimension"), params.clone());
     let label_ctx = axis_ctx.child("label");
+    let title_ctx = axis_ctx.child("title");
 
-    AxisConfig {
+    let visible = if let Some(visible_node) = axis.visible.as_option().and_then(|o| o.as_ref()) {
+        let visible_expr = visible_node.to_default_expr(ctx)?;
+        evaluate_bool_expr(&visible_expr, ctx, params).await?
+    } else {
+        true
+    };
+    let grid = if let Some(grid_node) = axis.grid.as_option().and_then(|o| o.as_ref()) {
+        let grid_expr = grid_node.to_default_expr(ctx)?;
+        evaluate_bool_expr(&grid_expr, ctx, params).await?
+    } else {
+        false
+    };
+    let title_visible =
+        if let Some(show_title_node) = axis.show_title.as_option().and_then(|o| o.as_ref()) {
+            let show_title_expr = show_title_node.to_default_expr(ctx)?;
+            evaluate_bool_expr(&show_title_expr, ctx, params).await?
+        } else {
+            true
+        };
+    let title = if let Some(title_node) = axis.title.as_option().and_then(|o| o.as_ref()) {
+        let title_expr = title_node.to_default_expr(ctx)?;
+        evaluate_string_expr(&title_expr, ctx, params).await?
+    } else {
+        datum.title.clone()
+    };
+    let tick_count =
+        if let Some(tick_count_node) = axis.tick_count.as_option().and_then(|o| o.as_ref()) {
+            let tick_count_expr = tick_count_node.to_default_expr(ctx)?;
+            Some(evaluate_f32_expr(&tick_count_expr, ctx, params).await?)
+        } else {
+            None
+        };
+    let tick_start_step = evaluate_tick_spacing(axis, ctx, params).await?;
+    let label_angle =
+        if let Some(angle_node) = axis.label_angle.as_option().and_then(|o| o.as_ref()) {
+            let angle_expr = angle_node.to_default_expr(ctx)?;
+            Some(evaluate_f32_expr(&angle_expr, ctx, params).await?)
+        } else {
+            None
+        };
+    let format_number =
+        if let Some(format_node) = axis.format_number.as_option().and_then(|o| o.as_ref()) {
+            let format_expr = format_node.to_default_expr(ctx)?;
+            Some(evaluate_string_expr(&format_expr, ctx, params).await?)
+        } else {
+            None
+        };
+    let label_font_family =
+        if let Some(font_node) = axis.label_font_family.as_option().and_then(|o| o.as_ref()) {
+            let font_expr = font_node.to_default_expr(ctx)?;
+            Some(evaluate_string_expr(&font_expr, ctx, params).await?)
+        } else {
+            theme.font_family(&label_ctx)
+        };
+    let title_font_family =
+        if let Some(font_node) = axis.title_font_family.as_option().and_then(|o| o.as_ref()) {
+            let font_expr = font_node.to_default_expr(ctx)?;
+            evaluate_string_expr(&font_expr, ctx, params).await?
+        } else {
+            "sans-serif".to_string()
+        };
+    let title_font_size = TITLE_FONT_SIZE;
+    let title_font_weight = FontWeight::Name(FontWeightNameSpec::Normal);
+
+    let axis_config = AxisConfig {
         orientation: AxisOrientation::Left,
         dimensions: [plot_width, plot_height],
-        grid: false,
+        grid,
+        format_number,
+        title_font_size: Some(title_font_size),
         domain_color: theme.stroke_color(&axis_ctx.child("domain")),
         tick_color: theme.stroke_color(&axis_ctx.child("tick")),
+        grid_color: theme
+            .stroke_color(&axis_ctx.child("grid"))
+            .map(|mut color| {
+                if let Some(opacity) = theme.opacity(&axis_ctx.child("grid")) {
+                    color[3] = opacity;
+                }
+                color
+            }),
+        grid_width: theme.axis_grid_width(&axis_ctx),
         label_color: theme.text_color(&label_ctx),
+        title_color: theme.text_color(&title_ctx),
         tick_length: theme.axis_tick_length(&axis_ctx),
         label_font_size: theme.font_size(&label_ctx),
         label_font_weight: theme.font_weight(&label_ctx),
-        label_font_family: theme.font_family(&label_ctx),
+        label_angle,
+        title_font_weight: theme.font_weight(&title_ctx),
+        label_font_family,
+        title_font_family: Some(title_font_family.clone()),
         title_visible: Some(false),
+        tick_count,
+        tick_start_step,
         ..AxisConfig::default()
+    };
+
+    Ok(EvaluatedParallelAxisGuideDatum {
+        datum,
+        visible,
+        title_visible,
+        title,
+        title_font_family,
+        title_font_size,
+        title_font_weight,
+        axis_config,
+    })
+}
+
+async fn evaluate_tick_spacing(
+    axis: &ParallelAxis,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<Option<AxisTickSpacing>, AvengerChartError> {
+    let Some(spacing_node) = axis.tick_spacing.as_option().and_then(|o| o.as_ref()) else {
+        return Ok(None);
+    };
+    let spacing_expr = spacing_node.to_default_expr(ctx)?;
+    let spacing = evaluate_scalar_expr(&spacing_expr, ctx, params).await?;
+    Ok(Some(extract_tick_spacing(spacing)?))
+}
+
+async fn evaluate_scalar_expr(
+    expr: &Expr,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<ScalarValue, AvengerChartError> {
+    let scalars = eval_to_scalars(
+        vec![expr.clone()],
+        Some(ctx),
+        params_to_datafusion(params).as_ref(),
+    )
+    .await
+    .map_err(|err| {
+        AvengerChartError::InternalError(format!("Failed to evaluate scalar expression: {err}"))
+    })?;
+
+    scalars
+        .into_iter()
+        .next()
+        .ok_or_else(|| AvengerChartError::InternalError("No value returned".to_string()))
+}
+
+fn extract_tick_spacing(spacing: ScalarValue) -> Result<AxisTickSpacing, AvengerChartError> {
+    let ScalarValue::Struct(struct_array) = spacing else {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Parallel axis tick_spacing must evaluate to a struct with start and step fields, got {spacing}"
+        )));
+    };
+
+    if struct_array.len() != 1 {
+        return Err(AvengerChartError::InvalidArgument(
+            "Parallel axis tick_spacing struct must contain exactly one row".to_string(),
+        ));
     }
+
+    let start = tick_spacing_field(&struct_array, "start")?;
+    let step = tick_spacing_field(&struct_array, "step")?;
+    if let (Ok(start), Ok(step)) = (start.as_f32(), step.as_f32()) {
+        return Ok(AxisTickSpacing::Numeric { start, step });
+    }
+
+    let start_millis = tick_spacing_start_millis(&start)?;
+    let (months, days, nanos) = tick_spacing_interval_parts(&step)?;
+    Ok(AxisTickSpacing::Temporal {
+        start_millis,
+        months,
+        days,
+        nanos,
+    })
+}
+
+fn tick_spacing_field(
+    struct_array: &StructArray,
+    name: &str,
+) -> Result<ScalarValue, AvengerChartError> {
+    let (field_index, _) = struct_array
+        .fields()
+        .iter()
+        .enumerate()
+        .find(|(_, field)| field.name() == name)
+        .ok_or_else(|| {
+            AvengerChartError::InvalidArgument(format!(
+                "Parallel axis tick_spacing struct is missing required field '{name}'"
+            ))
+        })?;
+    let value =
+        ScalarValue::try_from_array(struct_array.column(field_index), 0).map_err(|err| {
+            AvengerChartError::InvalidArgument(format!(
+                "Failed to read parallel axis tick_spacing field '{name}': {err}"
+            ))
+        })?;
+    if value.is_null() {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Parallel axis tick_spacing field '{name}' must not be null"
+        )));
+    }
+    Ok(value)
+}
+
+fn tick_spacing_start_millis(start: &ScalarValue) -> Result<i64, AvengerChartError> {
+    match start {
+        ScalarValue::Date32(Some(days)) => Ok(i64::from(*days) * 86_400_000),
+        ScalarValue::Date64(Some(millis)) => Ok(*millis),
+        ScalarValue::TimestampSecond(Some(value), _) => Ok(*value * 1_000),
+        ScalarValue::TimestampMillisecond(Some(value), _) => Ok(*value),
+        ScalarValue::TimestampMicrosecond(Some(value), _) => Ok(*value / 1_000),
+        ScalarValue::TimestampNanosecond(Some(value), _) => Ok(*value / 1_000_000),
+        _ => Err(AvengerChartError::InvalidArgument(format!(
+            "Parallel axis temporal tick_spacing start must be a date or timestamp, got {start}"
+        ))),
+    }
+}
+
+fn tick_spacing_interval_parts(step: &ScalarValue) -> Result<(i32, i32, i64), AvengerChartError> {
+    let ScalarValue::IntervalMonthDayNano(Some(value)) = step else {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Parallel axis tick_spacing step must be numeric or an IntervalMonthDayNano scalar, got {step}"
+        )));
+    };
+    Ok(datafusion::arrow::array::types::IntervalMonthDayNanoType::to_parts(*value))
 }
 
 fn ordered_axes(axes: &HashMap<String, ParallelAxis>) -> Vec<(&String, &ParallelAxis)> {
@@ -796,6 +1145,261 @@ mod tests {
             matches!(&marks[2], SceneMark::Rect(rect) if rect.name == "parallel_axis_title_hit")
         );
         assert!(matches!(&marks[3], SceneMark::Text(text) if text.name == "parallel_axis_title"));
+    }
+
+    #[test]
+    fn parallel_axis_config_evaluates_visible_grid_tick_format_and_font_options() {
+        let ctx = SessionContext::new();
+        let axis = ParallelAxis::new()
+            .visible(true)
+            .title("Custom Speed")
+            .grid(true)
+            .tick_count(4.0)
+            .ticks_start_step(1.0, 2.0)
+            .label_angle(-45.0)
+            .format(".1f")
+            .title_font_family("serif")
+            .label_font_family("mono")
+            .show_title(false)
+            .with_dimension_metadata("speed", 0);
+        let guide = CompiledParallelGuide {
+            axes: HashMap::from([("generated_speed".to_string(), axis)]),
+        };
+        let datums = futures::executor::block_on(guide.evaluated_axis_guide_datums(
+            300.0,
+            200.0,
+            &Theme::light(),
+            &IndexMap::new(),
+            &ctx,
+        ))
+        .expect("evaluate axis config");
+
+        let datum = &datums[0];
+        assert!(datum.visible);
+        assert!(!datum.title_visible);
+        assert_eq!(datum.title, "Custom Speed");
+        assert_eq!(datum.title_font_family, "serif");
+        assert_eq!(
+            datum.axis_config.title_font_family.as_deref(),
+            Some("serif")
+        );
+        assert_eq!(datum.axis_config.label_font_family.as_deref(), Some("mono"));
+        assert!(datum.axis_config.grid);
+        assert_eq!(datum.axis_config.tick_count, Some(4.0));
+        assert_eq!(
+            datum.axis_config.tick_start_step,
+            Some(AxisTickSpacing::Numeric {
+                start: 1.0,
+                step: 2.0,
+            })
+        );
+        assert_eq!(datum.axis_config.label_angle, Some(-45.0));
+        assert_eq!(datum.axis_config.format_number.as_deref(), Some(".1f"));
+        assert_eq!(datum.axis_config.title_visible, Some(false));
+    }
+
+    #[test]
+    fn parallel_axis_grid_defaults_to_false() {
+        let ctx = SessionContext::new();
+        let guide = CompiledParallelGuide {
+            axes: HashMap::from([(
+                "generated_speed".to_string(),
+                ParallelAxis::new().with_dimension_metadata("speed", 0),
+            )]),
+        };
+        let datums = futures::executor::block_on(guide.evaluated_axis_guide_datums(
+            300.0,
+            200.0,
+            &Theme::light(),
+            &IndexMap::new(),
+            &ctx,
+        ))
+        .expect("evaluate default axis config");
+
+        assert!(!datums[0].axis_config.grid);
+    }
+
+    #[test]
+    fn visible_false_suppresses_axis_group_and_header_text() {
+        let ctx = SessionContext::new();
+        let mut axes = HashMap::new();
+        axes.insert(
+            "generated_speed".to_string(),
+            ParallelAxis::new()
+                .title("Speed")
+                .visible(false)
+                .with_dimension_metadata("speed", 0),
+        );
+        let guide = CompiledParallelGuide { axes };
+        let facet = TestFacetGuideSharingView;
+        let child = TestChildFrameGuideSharingView;
+        let scales = HashMap::from([(
+            "speed".to_string(),
+            LinearScale::configured((0.0, 100.0), (200.0, 0.0)),
+        )]);
+        let marks = futures::executor::block_on(guide.evaluate(
+            &scales,
+            300.0,
+            200.0,
+            &LayoutBounds {
+                x: 0.0,
+                y: 0.0,
+                width: 300.0,
+                height: 200.0,
+            },
+            &OverflowSpaceRequirement::default(),
+            &Theme::light(),
+            &IndexMap::new(),
+            &ctx,
+            None,
+            GuideSharingContext::new(&facet, &[], &child),
+            &EmptyCoordMeasurement,
+        ))
+        .expect("evaluate guide");
+
+        assert_eq!(marks.len(), 2);
+        assert!(
+            matches!(&marks[0], SceneMark::Rect(rect) if rect.name == "parallel_axis_title_hit")
+        );
+        let text = match &marks[1] {
+            SceneMark::Text(text) => text,
+            _ => panic!("expected title text mark"),
+        };
+        match text.text.value() {
+            ScalarOrArrayValue::Array(values) => assert_eq!(values.as_slice(), &["".to_string()]),
+            ScalarOrArrayValue::Scalar(value) => assert!(value.is_empty()),
+        }
+    }
+
+    #[test]
+    fn guide_renders_axes_at_display_x() {
+        let ctx = SessionContext::new();
+        let display_state =
+            crate::ParallelDisplayState::active_axis("drag_dimension", "drag_display_x");
+        let mut axes = HashMap::new();
+        axes.insert(
+            "generated_speed".to_string(),
+            ParallelAxis::new()
+                .title("Speed")
+                .with_dimension_metadata("speed", 0)
+                .with_frame_state(None, Some(display_state.clone())),
+        );
+        axes.insert(
+            "generated_cost".to_string(),
+            ParallelAxis::new()
+                .title("Cost")
+                .with_dimension_metadata("cost", 1)
+                .with_frame_state(None, Some(display_state)),
+        );
+        let guide = CompiledParallelGuide { axes };
+        let facet = TestFacetGuideSharingView;
+        let child = TestChildFrameGuideSharingView;
+        let scales = HashMap::from([
+            (
+                "speed".to_string(),
+                LinearScale::configured((0.0, 100.0), (200.0, 0.0)),
+            ),
+            (
+                "cost".to_string(),
+                LinearScale::configured((0.0, 100.0), (200.0, 0.0)),
+            ),
+        ]);
+        let params = IndexMap::from([
+            (
+                "drag_dimension".to_string(),
+                ScalarValue::Utf8(Some("speed".to_string())),
+            ),
+            (
+                "drag_display_x".to_string(),
+                ScalarValue::Float64(Some(210.0)),
+            ),
+        ]);
+        let marks = futures::executor::block_on(guide.evaluate(
+            &scales,
+            300.0,
+            200.0,
+            &LayoutBounds {
+                x: 25.0,
+                y: 40.0,
+                width: 300.0,
+                height: 200.0,
+            },
+            &OverflowSpaceRequirement::default(),
+            &Theme::light(),
+            &params,
+            &ctx,
+            None,
+            GuideSharingContext::new(&facet, &[], &child),
+            &EmptyCoordMeasurement,
+        ))
+        .expect("evaluate guide");
+
+        match &marks[0] {
+            SceneMark::Group(group) => assert_eq!(group.origin, [235.0, 40.0]),
+            _ => panic!("expected first parallel axis group"),
+        }
+        match &marks[1] {
+            SceneMark::Group(group) => assert_eq!(group.origin, [325.0, 40.0]),
+            _ => panic!("expected second parallel axis group"),
+        }
+    }
+
+    #[test]
+    fn guide_overflow_increases_for_long_categorical_labels() {
+        let ctx = SessionContext::new();
+        let mut axes = HashMap::new();
+        axes.insert(
+            "generated_category".to_string(),
+            ParallelAxis::new()
+                .title("Category")
+                .with_dimension_metadata("category", 0),
+        );
+        let guide = CompiledParallelGuide { axes };
+        let facet = TestFacetGuideSharingView;
+        let child = TestChildFrameGuideSharingView;
+        let short_scales = HashMap::from([(
+            "category".to_string(),
+            PointScale::configured(Arc::new(StringArray::from(vec!["A", "B"])), (200.0, 0.0)),
+        )]);
+        let long_scales = HashMap::from([(
+            "category".to_string(),
+            PointScale::configured(
+                Arc::new(StringArray::from(vec![
+                    "International growth markets and enterprise platform operations",
+                    "North America enterprise",
+                ])),
+                (200.0, 0.0),
+            ),
+        )]);
+        let short = futures::executor::block_on(guide.measure_overflow(
+            &short_scales,
+            80.0,
+            200.0,
+            &Theme::light(),
+            &IndexMap::new(),
+            None,
+            &ctx,
+            GuideSharingContext::new(&facet, &[], &child),
+            None,
+        ))
+        .expect("measure short labels");
+        let long = futures::executor::block_on(guide.measure_overflow(
+            &long_scales,
+            80.0,
+            200.0,
+            &Theme::light(),
+            &IndexMap::new(),
+            None,
+            &ctx,
+            GuideSharingContext::new(&facet, &[], &child),
+            None,
+        ))
+        .expect("measure long labels");
+
+        assert!(
+            long.left > short.left + 20.0,
+            "expected long labels to increase left overflow: short={short:?}, long={long:?}"
+        );
     }
 
     struct TestFacetGuideSharingView;

@@ -4,7 +4,10 @@ use avenger_chart_core::{
     AvengerChartError, Axis, IntoExpr, Maybe, MaybeOptionalExpr,
     serialization::DefaultLogicalExprNodeExt,
 };
-use datafusion::{logical_expr::Expr, prelude::SessionContext};
+use datafusion::{
+    logical_expr::Expr,
+    prelude::{SessionContext, lit, named_struct},
+};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -19,6 +22,22 @@ pub struct ParallelAxis {
     pub visible: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub title: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub grid: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub tick_count: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub tick_spacing: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub label_angle: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub format_number: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub title_font_family: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub label_font_family: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub show_title: Maybe<Option<LogicalExprNode>>,
     #[doc(hidden)]
     #[serde(default)]
     pub dimension_id: Option<String>,
@@ -54,12 +73,112 @@ impl ParallelAxis {
         self
     }
 
+    pub fn grid(mut self, grid: impl IntoExpr) -> Self {
+        self.grid = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(grid.into_expr())
+                .expect("failed to serialize parallel axis grid expression"),
+        ));
+        self
+    }
+
+    pub fn tick_count(mut self, count: impl IntoExpr) -> Self {
+        self.tick_count = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(count.into_expr())
+                .expect("failed to serialize parallel axis tick_count expression"),
+        ));
+        self
+    }
+
+    /// Generate numeric axis ticks from a struct expression with `start` and `step` fields.
+    pub fn tick_spacing(mut self, spacing: impl IntoExpr) -> Self {
+        self.tick_spacing = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(spacing.into_expr())
+                .expect("failed to serialize parallel axis tick_spacing expression"),
+        ));
+        self
+    }
+
+    /// Generate numeric axis ticks from `start + n * step`, clipped to the scale domain.
+    pub fn ticks_start_step(self, start: impl IntoExpr, step: impl IntoExpr) -> Self {
+        self.tick_spacing(named_struct(vec![
+            lit("start"),
+            start.into_expr(),
+            lit("step"),
+            step.into_expr(),
+        ]))
+    }
+
+    pub fn label_angle(mut self, angle: impl IntoExpr) -> Self {
+        self.label_angle = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(angle.into_expr())
+                .expect("failed to serialize parallel axis label_angle expression"),
+        ));
+        self
+    }
+
+    pub fn format(mut self, format: impl IntoExpr) -> Self {
+        self.format_number = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(format.into_expr())
+                .expect("failed to serialize parallel axis format expression"),
+        ));
+        self
+    }
+
+    pub fn title_font_family(mut self, font: impl IntoExpr) -> Self {
+        self.title_font_family = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(font.into_expr())
+                .expect("failed to serialize parallel axis title_font_family expression"),
+        ));
+        self
+    }
+
+    pub fn label_font_family(mut self, font: impl IntoExpr) -> Self {
+        self.label_font_family = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(font.into_expr())
+                .expect("failed to serialize parallel axis label_font_family expression"),
+        ));
+        self
+    }
+
+    /// Show or hide the dimension header title only.
+    pub fn show_title(mut self, show: impl IntoExpr) -> Self {
+        self.show_title = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(show.into_expr())
+                .expect("failed to serialize parallel axis show_title expression"),
+        ));
+        self
+    }
+
     pub fn update(mut self, other: Self) -> Self {
         if other.visible.is_set() {
             self.visible = other.visible;
         }
         if other.title.is_set() {
             self.title = other.title;
+        }
+        if other.grid.is_set() {
+            self.grid = other.grid;
+        }
+        if other.tick_count.is_set() {
+            self.tick_count = other.tick_count;
+        }
+        if other.tick_spacing.is_set() {
+            self.tick_spacing = other.tick_spacing;
+        }
+        if other.label_angle.is_set() {
+            self.label_angle = other.label_angle;
+        }
+        if other.format_number.is_set() {
+            self.format_number = other.format_number;
+        }
+        if other.title_font_family.is_set() {
+            self.title_font_family = other.title_font_family;
+        }
+        if other.label_font_family.is_set() {
+            self.label_font_family = other.label_font_family;
+        }
+        if other.show_title.is_set() {
+            self.show_title = other.show_title;
         }
         if other.dimension_id.is_some() {
             self.dimension_id = other.dimension_id;
@@ -124,11 +243,22 @@ impl Axis for ParallelAxis {
     }
 
     fn all_exprs(&self, ctx: &SessionContext) -> Vec<Expr> {
-        [&self.visible, &self.title]
-            .into_iter()
-            .filter_map(|maybe| maybe.as_option().and_then(|expr| expr.as_ref()))
-            .filter_map(|expr| expr.to_default_expr(ctx).ok())
-            .collect()
+        [
+            &self.visible,
+            &self.title,
+            &self.grid,
+            &self.tick_count,
+            &self.tick_spacing,
+            &self.label_angle,
+            &self.format_number,
+            &self.title_font_family,
+            &self.label_font_family,
+            &self.show_title,
+        ]
+        .into_iter()
+        .filter_map(|maybe| maybe.as_option().and_then(|expr| expr.as_ref()))
+        .filter_map(|expr| expr.to_default_expr(ctx).ok())
+        .collect()
     }
 
     fn map_exprs(
@@ -149,6 +279,14 @@ impl Axis for ParallelAxis {
         Ok(Box::new(ParallelAxis {
             visible: map_maybe(&self.visible, f)?,
             title: map_maybe(&self.title, f)?,
+            grid: map_maybe(&self.grid, f)?,
+            tick_count: map_maybe(&self.tick_count, f)?,
+            tick_spacing: map_maybe(&self.tick_spacing, f)?,
+            label_angle: map_maybe(&self.label_angle, f)?,
+            format_number: map_maybe(&self.format_number, f)?,
+            title_font_family: map_maybe(&self.title_font_family, f)?,
+            label_font_family: map_maybe(&self.label_font_family, f)?,
+            show_title: map_maybe(&self.show_title, f)?,
             dimension_id: self.dimension_id.clone(),
             order_index: self.order_index,
             order_state: self.order_state.clone(),
