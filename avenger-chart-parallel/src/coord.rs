@@ -174,6 +174,23 @@ impl CoordinateSystem for Parallel {
     fn coordinate_scale_sources(&self) -> Vec<CoordinateScaleSource> {
         let mut data = DataContext::default();
         let mut axis_configs: HashMap<String, Arc<dyn Axis>> = HashMap::new();
+        let order_index_by_id = self
+            .order
+            .as_ref()
+            .map(|order| {
+                order
+                    .iter()
+                    .enumerate()
+                    .map(|(index, id)| (id.as_str(), index))
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_else(|| {
+                self.dimensions
+                    .iter()
+                    .enumerate()
+                    .map(|(index, dimension)| (dimension.id.as_str(), index))
+                    .collect()
+            });
 
         for dimension in &self.dimensions {
             data = data.with_channel_value(
@@ -186,6 +203,12 @@ impl CoordinateSystem for Parallel {
             let mut axis = dimension.axis.clone().unwrap_or_default();
             axis.set_default_title_expr(lit(dimension.id.clone()))
                 .expect("literal parallel axis title should serialize");
+            axis = axis.with_dimension_metadata(
+                dimension.id.clone(),
+                *order_index_by_id
+                    .get(dimension.id.as_str())
+                    .unwrap_or(&usize::MAX),
+            );
             axis_configs.insert(dimension.generated_channel.clone(), Arc::new(axis));
         }
 

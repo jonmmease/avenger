@@ -17,6 +17,12 @@ pub struct ParallelAxis {
     pub visible: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub title: Maybe<Option<LogicalExprNode>>,
+    #[doc(hidden)]
+    #[serde(default)]
+    pub dimension_id: Option<String>,
+    #[doc(hidden)]
+    #[serde(default)]
+    pub order_index: Option<usize>,
 }
 
 impl ParallelAxis {
@@ -47,6 +53,23 @@ impl ParallelAxis {
         if other.title.is_set() {
             self.title = other.title;
         }
+        if other.dimension_id.is_some() {
+            self.dimension_id = other.dimension_id;
+        }
+        if other.order_index.is_some() {
+            self.order_index = other.order_index;
+        }
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_dimension_metadata(
+        mut self,
+        dimension_id: impl Into<String>,
+        order_index: usize,
+    ) -> Self {
+        self.dimension_id = Some(dimension_id.into());
+        self.order_index = Some(order_index);
         self
     }
 }
@@ -101,6 +124,8 @@ impl Axis for ParallelAxis {
         Ok(Box::new(ParallelAxis {
             visible: map_maybe(&self.visible, f)?,
             title: map_maybe(&self.title, f)?,
+            dimension_id: self.dimension_id.clone(),
+            order_index: self.order_index,
         }))
     }
 }
