@@ -231,6 +231,7 @@ async fn kde_low_level_grouped_violin_dynamic_band() {
                                     .expr("__band_end", lit(0.5) + col("__half_width")),
                                 |mark| {
                                     mark.orientation("horizontal")
+                                        .details(["group"])
                                         .x_with(col("group"), |c| {
                                             c.scale_with::<Band>(|s| s.padding_inner(0.18))
                                                 .band(col("__band_start"))
@@ -301,6 +302,7 @@ async fn kde_low_level_nested_violin_counts_shared_max() {
                                     .expr("__band_end", lit(0.5) + col("__half_width")),
                                 |mark| {
                                     mark.orientation("horizontal")
+                                        .details(["division", "team"])
                                         .x_with(nested(["division", "team"]), |x| {
                                             x.axis(|a| {
                                                 a.title("Team grouped by division").grid(false)
@@ -374,6 +376,7 @@ async fn kde_low_level_nested_violin_facet_counts_shared_max() {
                                 .expr("__band_end", lit(0.5) + col("__half_width")),
                             |mark| {
                                 mark.orientation("horizontal")
+                                    .details(["division", "team"])
                                     .x_with(nested(["division", "team"]), |x| {
                                         x.axis(|a| a.title("Team grouped by division").grid(false))
                                             .level(0, |l| {
@@ -428,6 +431,84 @@ async fn kde_low_level_nested_violin_facet_counts_shared_max() {
         None,
         "transform_kde",
         "kde_low_level_nested_violin_facet_counts_shared_max",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn kde_low_level_nested_violin_details_partition_coarse_fill() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Nested violin detail partitioning")
+        .subtitle("Fill is coarser than the detail fields that split each violin")
+        .canvas_size(800.0, 460.0)
+        .data(nested_violin_data(&ctx))
+        .mark(
+            Area::new().transform(
+                Kde::new(col("value"))
+                    .group_by([col("division"), col("team")])
+                    .counts(true)
+                    .bandwidth(0.3)
+                    .steps(120)
+                    .extent(-2.4, 3.0)
+                    .resolve(KdeResolve::Shared)
+                    .as_fields("sample", "density"),
+                |mark, kde| {
+                    mark.transform_no_output(
+                        JoinAggregate::new().max("__global_max_density", kde.density()),
+                        |mark| {
+                            mark.transform_no_output(
+                                Calculate::new()
+                                    .expr(
+                                        "__half_width",
+                                        lit(0.42) * col("density") / col("__global_max_density"),
+                                    )
+                                    .expr("__band_start", lit(0.5) - col("__half_width"))
+                                    .expr("__band_end", lit(0.5) + col("__half_width")),
+                                |mark| {
+                                    mark.orientation("horizontal")
+                                        .details(["division", "team"])
+                                        .x_with(nested(["division", "team"]), |x| {
+                                            x.axis(|a| {
+                                                a.title("Team grouped by division").grid(false)
+                                            })
+                                            .level(0, |l| l.padding_inner(0.34).padding_outer(0.12))
+                                            .level(1, |l| {
+                                                l.nest_scope(NestScope::Shared).padding_inner(0.1)
+                                            })
+                                            .band(col("__band_start"))
+                                        })
+                                        .x2_with(col(":x"), |x| x.band(col("__band_end")))
+                                        .y_with(kde.value(), |y| {
+                                            y.scale(|s| s.domain((-2.4, 3.0)))
+                                                .axis(|a| a.title("Value").grid(true))
+                                        })
+                                        .y2_with(kde.value(), |y| y.with_scale_name("y"))
+                                        .fill_with(col("division"), |fill| {
+                                            fill.legend(|l| l.title("Division"))
+                                        })
+                                        .stroke("#1f2937")
+                                        .stroke_width(0.9)
+                                        .opacity(0.72)
+                                        .order(ChannelValue::from(kde.value()).no_scale())
+                                },
+                            )
+                        },
+                    )
+                },
+            ),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile nested violin detail partition");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "transform_kde",
+        "kde_low_level_nested_violin_details_partition_coarse_fill",
     )
     .await;
 }

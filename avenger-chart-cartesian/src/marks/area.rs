@@ -3,7 +3,7 @@ use std::sync::Arc;
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
-    Mark, MarkRuntimeContext, ScaleTypePreference, apply_opacity_to_color,
+    Mark, MarkRuntimeContext, RenderedMarkData, ScaleTypePreference, apply_opacity_to_color,
     coerce_area_orientation_channel, coerce_bool_channel_with_renderer,
     coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
     coerce_opacity_channel_with_renderer, coerce_stroke_cap_channel_with_renderer,
@@ -27,7 +27,10 @@ use datafusion::{
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{Cartesian, marks::util};
+use crate::{
+    Cartesian,
+    marks::{detail::DetailColumns, util},
+};
 
 #[async_trait::async_trait]
 impl Mark<Cartesian> for Area<Cartesian> {
@@ -47,6 +50,12 @@ impl Mark<Cartesian> for Area<Cartesian> {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledCartesianArea {
     pub(crate) state: CompiledMarkState,
+}
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+struct AreaRenderPartitionKey {
+    details: Vec<ScalarValue>,
+    style: AreaPartitionKey,
 }
 
 impl CompiledMarkCore for CompiledCartesianArea {
@@ -159,6 +168,10 @@ impl CompiledMarkCore for CompiledCartesianArea {
         true
     }
 
+    fn details_partition_continuous_geometry(&self) -> bool {
+        true
+    }
+
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         area_channel_defaults(channel)
     }
@@ -226,6 +239,18 @@ impl CompiledMark for CompiledCartesianArea {
         context: &dyn MarkRuntimeContext,
         coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        self.render_mark_data(data, scalars, context, coord)
+            .await
+            .map(|rendered| rendered.marks)
+    }
+
+    async fn render_mark_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<RenderedMarkData, AvengerChartError> {
         let data = data.ok_or_else(|| {
             AvengerChartError::InternalError(
                 "Area mark requires array data for x and y positions".to_string(),
@@ -298,8 +323,9 @@ impl CompiledMark for CompiledCartesianArea {
             || width_array.is_some()
             || dash_array.is_some()
             || opacity_array.is_some();
+        let detail_columns = DetailColumns::from_mark_data(self, data)?;
 
-        if !has_varying_style {
+        if !has_varying_style && detail_columns.is_empty() {
             let fill = coerce_color_channel_with_renderer(
                 self,
                 None,
@@ -347,29 +373,32 @@ impl CompiledMark for CompiledCartesianArea {
             )?)
             .map(|dash| dash.first().cloned().unwrap_or_default());
 
-            return Ok(vec![
-                SceneAreaMark {
-                    name: "area".to_string(),
-                    clip: true,
-                    len: len as u32,
-                    orientation,
-                    gradients: vec![],
-                    x: start.x,
-                    y: start.y,
-                    x2: end.x,
-                    y2: end.y,
-                    defined,
-                    fill,
-                    stroke,
-                    stroke_width,
-                    stroke_cap,
-                    stroke_join,
-                    stroke_dash,
-                    zindex: self.state.zindex,
-                    interactive: true,
-                }
-                .into(),
-            ]);
+            return Ok(RenderedMarkData::with_source_row_indices(
+                vec![
+                    SceneAreaMark {
+                        name: "area".to_string(),
+                        clip: true,
+                        len: len as u32,
+                        orientation,
+                        gradients: vec![],
+                        x: start.x,
+                        y: start.y,
+                        x2: end.x,
+                        y2: end.y,
+                        defined,
+                        fill,
+                        stroke,
+                        stroke_width,
+                        stroke_cap,
+                        stroke_join,
+                        stroke_dash,
+                        zindex: self.state.zindex,
+                        interactive: true,
+                    }
+                    .into(),
+                ],
+                vec![(0..len).collect()],
+            ));
         }
 
         let fill_keys = fill_array
@@ -491,7 +520,7 @@ impl CompiledMark for CompiledCartesianArea {
         .cloned()
         .unwrap_or(1.0);
 
-        let mut groups: IndexMap<AreaPartitionKey, Vec<usize>> = IndexMap::new();
+        let mut groups: IndexMap<AreaRenderPartitionKey, Vec<usize>> = IndexMap::new();
         for i in 0..len {
             let key = AreaPartitionKey {
                 fill: dictionary_key(&fill_keys, i),
@@ -500,12 +529,18 @@ impl CompiledMark for CompiledCartesianArea {
                 dash: dictionary_key(&dash_keys, i),
                 opacity: dictionary_key(&opacity_keys, i),
             };
+            let key = AreaRenderPartitionKey {
+                details: detail_columns.key_for_row(i)?,
+                style: key,
+            };
             groups.entry(key).or_default().push(i);
         }
 
         let mut marks = Vec::new();
+        let mut source_row_indices = Vec::new();
         for (key, indices) in groups {
             let opacity = key
+                .style
                 .opacity
                 .and_then(|key| {
                     opacity_values
@@ -514,6 +549,7 @@ impl CompiledMark for CompiledCartesianArea {
                 })
                 .unwrap_or(opacity_default);
             let fill = key
+                .style
                 .fill
                 .and_then(|key| {
                     fill_values
@@ -522,6 +558,7 @@ impl CompiledMark for CompiledCartesianArea {
                 })
                 .unwrap_or_else(|| fill_default.clone());
             let stroke = key
+                .style
                 .stroke
                 .and_then(|key| {
                     stroke_values
@@ -530,6 +567,7 @@ impl CompiledMark for CompiledCartesianArea {
                 })
                 .unwrap_or_else(|| stroke_default.clone());
             let stroke_width = key
+                .style
                 .width
                 .and_then(|key| {
                     width_values
@@ -538,6 +576,7 @@ impl CompiledMark for CompiledCartesianArea {
                 })
                 .unwrap_or(width_default);
             let stroke_dash = key
+                .style
                 .dash
                 .and_then(|key| {
                     dash_values
@@ -567,9 +606,13 @@ impl CompiledMark for CompiledCartesianArea {
                 zindex: self.state.zindex,
                 interactive: true,
             }));
+            source_row_indices.push(indices);
         }
 
-        Ok(marks)
+        Ok(RenderedMarkData::with_source_row_indices(
+            marks,
+            source_row_indices,
+        ))
     }
 }
 

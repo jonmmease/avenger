@@ -19,6 +19,30 @@ use crate::{
     ScaleTypePreference, Theme, default_scale_type_for_data_type, is_continuous_scale,
 };
 
+pub struct RenderedMarkData {
+    pub marks: Vec<SceneMark>,
+    pub source_row_indices: Option<Vec<Vec<usize>>>,
+}
+
+impl RenderedMarkData {
+    pub fn new(marks: Vec<SceneMark>) -> Self {
+        Self {
+            marks,
+            source_row_indices: None,
+        }
+    }
+
+    pub fn with_source_row_indices(
+        marks: Vec<SceneMark>,
+        source_row_indices: Vec<Vec<usize>>,
+    ) -> Self {
+        Self {
+            marks,
+            source_row_indices: Some(source_row_indices),
+        }
+    }
+}
+
 /// Core-safe compiled mark metadata and planning behavior.
 ///
 /// This trait contains the compiled-mark surface needed for channel planning,
@@ -58,6 +82,12 @@ pub trait CompiledMarkCore: Any + Send + Sync {
 
     /// Whether this mark needs the full DataFrame as RecordBatch.
     fn wants_full_data_batch(&self) -> bool {
+        false
+    }
+
+    /// Whether detail fields should split continuous geometry into separate
+    /// rendered scene marks.
+    fn details_partition_continuous_geometry(&self) -> bool {
         false
     }
 
@@ -152,6 +182,18 @@ pub trait CompiledMark: CompiledMarkCore {
         context: &dyn MarkRuntimeContext,
         coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError>;
+
+    async fn render_mark_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<RenderedMarkData, AvengerChartError> {
+        self.render_from_data(data, scalars, context, coord)
+            .await
+            .map(RenderedMarkData::new)
+    }
 }
 
 /// Resolve a compiled mark's default channel value from the base evaluation context.

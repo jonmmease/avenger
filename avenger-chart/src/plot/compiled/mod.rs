@@ -545,14 +545,31 @@ impl CompiledPlot {
                     .current_datum,
             );
         }
+        let explicit_requested = requested.clone();
+        for mark in &self.marks {
+            if let Some(details) = mark.state().details.as_ref() {
+                requested.extend(details.iter().cloned());
+            }
+        }
         if requested.is_empty() {
             return Ok(Vec::new());
         }
 
         let mut types = IndexMap::new();
         collect_reserved_event_datum_types(&requested, &mut types);
-        self.collect_event_datum_types(ctx, &requested, &mut types, None)
-            .await?;
+        match self
+            .collect_event_datum_types(ctx, &requested, &mut types, None)
+            .await
+        {
+            Ok(()) => {}
+            Err(AvengerChartError::InternalError(message))
+                if explicit_requested.is_empty()
+                    && message == "Mark expressions reference columns but no data is available" =>
+            {
+                return Ok(Vec::new());
+            }
+            Err(err) => return Err(err),
+        }
         let missing = requested
             .iter()
             .filter(|field| !types.contains_key(*field))

@@ -101,7 +101,7 @@ pub use channel_resolution_error::{ChannelResolutionError, suggest_similar_chann
 pub use channel_value::{ChannelExpr, ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
 pub use compiled_mark::{
-    CompiledMark, CompiledMarkCore, default_channel_value_for_eval,
+    CompiledMark, CompiledMarkCore, RenderedMarkData, default_channel_value_for_eval,
     extract_channel_title_from_marks,
 };
 pub use configured_scale_legend::{ConfiguredScaleLegendExt, DomainValues};
@@ -193,7 +193,10 @@ pub use mark_channel_coercion::{
 pub use mark_group::{IntoPlotMark, MarkGroup, PlotMark, PlotMarkKind};
 pub use mark_render_context::MarkRenderContext;
 pub use mark_runtime_context::MarkRuntimeContext;
-pub use mark_state::{CompiledMarkState, MarkDataMode, MarkState};
+pub use mark_state::{
+    CompiledMarkState, DETAIL_ARRAY_COLUMN_PREFIX, MarkDataMode, MarkState,
+    detail_array_column_name,
+};
 pub use mark_state::{validate_mark_target_path, validate_structural_id};
 pub use maybe::{Maybe, MaybeOptionalExpr};
 pub use nested_band::{

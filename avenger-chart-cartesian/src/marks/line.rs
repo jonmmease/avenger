@@ -3,11 +3,11 @@ use std::sync::Arc;
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
-    Mark, MarkRuntimeContext, PointGeometry, RadiusExpression, ScaleTypePreference,
-    apply_opacity_to_color, coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
-    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
-    default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
-    serialization::DefaultLogicalExprNodeExt,
+    Mark, MarkRuntimeContext, PointGeometry, RadiusExpression, RenderedMarkData,
+    ScaleTypePreference, apply_opacity_to_color, coerce_bool_channel_with_renderer,
+    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+    coerce_opacity_channel_with_renderer, default_scale_type_for_data_type, impl_mark_trait_common,
+    is_continuous_scale, serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_chart_marks::{Line, PartitionKey, ensure_dictionary_array, line_channel_defaults};
 use avenger_color::ColorOrGradient;
@@ -26,7 +26,7 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::Cartesian;
+use crate::{Cartesian, marks::detail::DetailColumns};
 
 pub use avenger_chart_marks::ensure_dictionary_array as ensure_dictionary_array_fn;
 
@@ -49,6 +49,12 @@ impl Mark<Cartesian> for Line<Cartesian> {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledCartesianLine {
     pub(crate) state: CompiledMarkState,
+}
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+struct LineRenderPartitionKey {
+    details: Vec<ScalarValue>,
+    style: PartitionKey,
 }
 
 impl CompiledMarkCore for CompiledCartesianLine {
@@ -139,6 +145,10 @@ impl CompiledMarkCore for CompiledCartesianLine {
         true
     }
 
+    fn details_partition_continuous_geometry(&self) -> bool {
+        true
+    }
+
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         line_channel_defaults(channel)
     }
@@ -204,6 +214,18 @@ impl CompiledMark for CompiledCartesianLine {
         context: &dyn MarkRuntimeContext,
         coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        self.render_mark_data(data, scalars, context, coord)
+            .await
+            .map(|rendered| rendered.marks)
+    }
+
+    async fn render_mark_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<RenderedMarkData, AvengerChartError> {
         // For lines, we need array data for positions
         let data = data.ok_or_else(|| {
             AvengerChartError::InternalError(
@@ -268,6 +290,7 @@ impl CompiledMark for CompiledCartesianLine {
         let has_varying_width = width_array.is_some();
         let has_varying_dash = dash_array.is_some();
         let has_varying_opacity = opacity_array.is_some();
+        let detail_columns = DetailColumns::from_mark_data(self, data)?;
 
         // Extract scalar style properties
         // TODO: Implement proper coercion for stroke_cap and stroke_join when available
@@ -298,7 +321,12 @@ impl CompiledMark for CompiledCartesianLine {
             .unwrap_or(avenger_common::types::StrokeJoin::Miter);
 
         // Simple case: all style properties are uniform
-        if !has_varying_stroke && !has_varying_width && !has_varying_dash && !has_varying_opacity {
+        if !has_varying_stroke
+            && !has_varying_width
+            && !has_varying_dash
+            && !has_varying_opacity
+            && detail_columns.is_empty()
+        {
             let stroke_scalar = coerce_color_channel_with_renderer(
                 self,
                 None,
@@ -370,7 +398,10 @@ impl CompiledMark for CompiledCartesianLine {
                 interactive: true,
             };
 
-            return Ok(vec![SceneMark::Line(line_mark)]);
+            return Ok(RenderedMarkData::with_source_row_indices(
+                vec![SceneMark::Line(line_mark)],
+                vec![(0..len).collect()],
+            ));
         }
 
         // Complex case: need to partition based on varying style properties
@@ -499,7 +530,7 @@ impl CompiledMark for CompiledCartesianLine {
         .clamp(0.0, 1.0);
 
         // Build partition map
-        let mut partition_groups: IndexMap<PartitionKey, Vec<usize>> = IndexMap::new();
+        let mut partition_groups: IndexMap<LineRenderPartitionKey, Vec<usize>> = IndexMap::new();
 
         for i in 0..len {
             let key = PartitionKey {
@@ -516,11 +547,16 @@ impl CompiledMark for CompiledCartesianLine {
                     if dict.is_null(i) { None } else { Some(keys[i]) }
                 }),
             };
+            let key = LineRenderPartitionKey {
+                details: detail_columns.key_for_row(i)?,
+                style: key,
+            };
             partition_groups.entry(key).or_default().push(i);
         }
 
         // Create a line mark for each partition
         let mut scene_marks = Vec::new();
+        let mut source_row_indices = Vec::new();
 
         for (partition_key, indices) in partition_groups {
             if indices.is_empty() {
@@ -528,7 +564,7 @@ impl CompiledMark for CompiledCartesianLine {
             }
 
             // Get the values for this partition
-            let stroke_color = if let Some(key) = partition_key.stroke {
+            let stroke_color = if let Some(key) = partition_key.style.stroke {
                 if let Some(values) = &stroke_values {
                     values.as_vec(values.len(), None)[key].clone()
                 } else {
@@ -537,7 +573,7 @@ impl CompiledMark for CompiledCartesianLine {
             } else {
                 stroke_default.clone()
             };
-            let opacity_value = if let Some(key) = partition_key.opacity {
+            let opacity_value = if let Some(key) = partition_key.style.opacity {
                 if let Some(values) = &opacity_values {
                     values.as_vec(values.len(), None)[key]
                 } else {
@@ -548,7 +584,7 @@ impl CompiledMark for CompiledCartesianLine {
             };
             let stroke_color = apply_opacity_to_color(&stroke_color, opacity_value);
 
-            let stroke_width_value = if let Some(key) = partition_key.width {
+            let stroke_width_value = if let Some(key) = partition_key.style.width {
                 if let Some(values) = &width_values {
                     values.as_vec(values.len(), None)[key]
                 } else {
@@ -558,7 +594,7 @@ impl CompiledMark for CompiledCartesianLine {
                 width_default
             };
 
-            let stroke_dash_value = if let Some(key) = partition_key.dash {
+            let stroke_dash_value = if let Some(key) = partition_key.style.dash {
                 if let Some(values) = &dash_values {
                     let dash_vec = values.as_vec(values.len(), None)[key].clone();
                     if dash_vec.is_empty() {
@@ -626,8 +662,12 @@ impl CompiledMark for CompiledCartesianLine {
             };
 
             scene_marks.push(SceneMark::Line(line_mark));
+            source_row_indices.push(indices);
         }
 
-        Ok(scene_marks)
+        Ok(RenderedMarkData::with_source_row_indices(
+            scene_marks,
+            source_row_indices,
+        ))
     }
 }

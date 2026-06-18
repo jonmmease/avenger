@@ -30,7 +30,7 @@ use avenger_chart_core::{
     CompiledDataContext, CompiledSelectionSpec, DataTransformExecutionContext,
     DataTransformFacetContext, DataTransformStage, DerivedScalarMap, FacetDataScope, MarkDataMode,
     SelectionClause, SelectionCombine, SelectionPredicateSpec, SharingLevel, contains_aggregate,
-    params_to_datafusion, selection_clause_value_id_from_placeholder,
+    detail_array_column_name, params_to_datafusion, selection_clause_value_id_from_placeholder,
     selection_id_from_predicate_placeholder,
 };
 
@@ -1246,6 +1246,7 @@ pub(crate) async fn prepare_mark_data(
 
     let channels = &prepared_logical.channels;
     let df_ref = prepared_logical.dataframe.clone();
+    validate_mark_detail_fields(mark, df_ref.as_ref())?;
 
     let df = if let Some(df_ref) = df_ref {
         if let Some(sort_channel_name) = mark.sorting_channel() {
@@ -1305,11 +1306,19 @@ pub(crate) async fn prepare_mark_data(
                 ))
             })?;
             if channel_desc.allow_column_ref && scaled_expr.any_column_refs() {
-                array_channels.push((channel_desc.name, scaled_expr));
+                array_channels.push((channel_desc.name.to_string(), scaled_expr));
                 has_array_data = true;
             } else {
-                scalar_channels.push((channel_desc.name, scaled_expr));
+                scalar_channels.push((channel_desc.name.to_string(), scaled_expr));
             }
+        }
+    }
+    if mark.details_partition_continuous_geometry()
+        && let Some(details) = mark.state().details.as_deref()
+    {
+        for (index, field) in details.iter().enumerate() {
+            array_channels.push((detail_array_column_name(index), col(field)));
+            has_array_data = true;
         }
     }
 
@@ -1375,7 +1384,7 @@ pub(crate) async fn prepare_mark_data(
     } else if has_array_data {
         let mut select_exprs = vec![];
         for (name, expr) in &array_channels {
-            select_exprs.push(expr.clone().alias(*name));
+            select_exprs.push(expr.clone().alias(name));
         }
         let datafusion_params = params_to_datafusion(params);
         record_mark_data_array_collect(&request.evaluation_metrics);
@@ -1401,7 +1410,7 @@ pub(crate) async fn prepare_mark_data(
 
     let mut scalar_select_exprs = vec![];
     for (name, expr) in &scalar_channels {
-        scalar_select_exprs.push(expr.clone().alias(*name));
+        scalar_select_exprs.push(expr.clone().alias(name));
     }
     let scalar_batch = if !scalar_select_exprs.is_empty() {
         let datafusion_params = params_to_datafusion(params);
@@ -1443,6 +1452,63 @@ pub(crate) async fn prepare_mark_data(
             request.scales.clone(),
         ),
     }))
+}
+
+fn validate_mark_detail_fields(
+    mark: &dyn CompiledMark,
+    dataframe: Option<&DataFrame>,
+) -> Result<(), AvengerChartError> {
+    let Some(details) = mark.state().details.as_deref() else {
+        return Ok(());
+    };
+    if details.is_empty() {
+        return Ok(());
+    }
+
+    let mut seen = HashSet::new();
+    for field in details {
+        if field.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "{} mark details must be non-empty field names",
+                mark.mark_type()
+            )));
+        }
+        if !seen.insert(field) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "{} mark details contain duplicate field '{field}'",
+                mark.mark_type()
+            )));
+        }
+    }
+
+    let Some(dataframe) = dataframe else {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{} mark details require data fields, but this mark has no prepared dataframe",
+            mark.mark_type()
+        )));
+    };
+    let available = dataframe
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| field.name().clone())
+        .collect::<HashSet<_>>();
+    let missing = details
+        .iter()
+        .filter(|field| !available.contains(*field))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        let mut available = available.into_iter().collect::<Vec<_>>();
+        available.sort();
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{} mark details requested field(s) {} but the prepared mark data exposes [{}]",
+            mark.mark_type(),
+            missing.join(", "),
+            available.join(", ")
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1494,9 +1560,9 @@ mod tests {
     };
     use avenger_chart_core::{
         CoordinationScope, Param, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN,
-        Store, StoreData, StoreRowValue,
+        Store, StoreData, StoreRowValue, detail_array_column_name,
     };
-    use avenger_chart_marks::Rect;
+    use avenger_chart_marks::{Area, Rect};
     fn eval_context(session: Arc<SessionContext>) -> EvaluationContext {
         EvaluationContext::new(
             Arc::new(Theme::light()),
@@ -1912,6 +1978,116 @@ mod tests {
         let data_batch = prepared.data_batch.expect("inherited array data");
         assert_eq!(values_as_f64(&data_batch, "x"), vec![0.0, 5.0, 10.0]);
         assert!(prepared.scalar_batch.column_by_name("y").is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn mark_details_accept_string_arrays() {
+        let mark = Area::<Cartesian>::new().details(["group", "series"]);
+        assert_eq!(
+            mark.state().details.as_deref(),
+            Some(["group".to_string(), "series".to_string()].as_slice())
+        );
+    }
+
+    #[tokio::test]
+    async fn mark_details_are_event_datum_fields_without_bindings() -> Result<(), AvengerChartError>
+    {
+        let session = SessionContext::new();
+        let df = nested_category_dataframe(&session);
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x(col("value"))
+                    .y(col("value"))
+                    .details(["group"]),
+            )
+            .compile(&session)
+            .await?;
+
+        assert_eq!(
+            compiled.event_datum_types().get("group"),
+            Some(&DataType::Utf8)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn path_mark_details_are_projected_into_array_data() -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = nested_category_dataframe(&session);
+        let plot_node = plot_data_node(&df)?;
+        let mark = Area::<Cartesian>::new()
+            .with_channel_value("x", value_channel(col("value")))
+            .with_channel_value("y", value_channel(col("value")))
+            .details(["group", "member"]);
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let eval_ctx = eval_context(session);
+        let scales = HashMap::new();
+
+        let prepared = prepare_mark_data(MarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: Some(&plot_node),
+            provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
+            prepared_base: None,
+            eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
+            scales: &scales,
+            plot_width: 100.0,
+            plot_height: 100.0,
+        })
+        .await?
+        .expect("prepared data");
+
+        let data_batch = prepared.data_batch.expect("array data");
+        assert!(
+            data_batch
+                .column_by_name(&detail_array_column_name(0))
+                .is_some()
+        );
+        assert!(
+            data_batch
+                .column_by_name(&detail_array_column_name(1))
+                .is_some()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn missing_mark_detail_field_errors_after_transforms() -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = nested_category_dataframe(&session);
+        let plot_node = plot_data_node(&df)?;
+        let mark = Area::<Cartesian>::new()
+            .with_channel_value("x", value_channel(col("value")))
+            .with_channel_value("y", value_channel(col("value")))
+            .details(["missing"]);
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let eval_ctx = eval_context(session);
+        let scales = HashMap::new();
+
+        let result = prepare_mark_data(MarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            plot_data: Some(&plot_node),
+            provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
+            prepared_base: None,
+            eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
+            scales: &scales,
+            plot_width: 100.0,
+            plot_height: 100.0,
+        })
+        .await;
+        let err = match result {
+            Ok(_) => panic!("missing detail should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("missing"), "{err}");
         Ok(())
     }
 

@@ -13,6 +13,12 @@ use crate::{
     FacetDataScope, RepeatContext, SerializableExpr, resolve_repeat_placeholders,
 };
 
+pub const DETAIL_ARRAY_COLUMN_PREFIX: &str = "__avenger_detail_";
+
+pub fn detail_array_column_name(index: usize) -> String {
+    format!("{DETAIL_ARRAY_COLUMN_PREFIX}{index}")
+}
+
 pub fn validate_structural_id(kind: &str, id: &str) -> Result<(), AvengerChartError> {
     if id.is_empty()
         || id.contains('.')

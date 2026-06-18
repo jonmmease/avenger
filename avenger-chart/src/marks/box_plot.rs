@@ -9,13 +9,18 @@ use avenger_chart_core::{
     AngleChannelConfig, AvengerChartError, ChannelConfig, ChannelExpr, ChannelValue,
     ColorChannelConfig, CoordinationScope, DataContext, DataTransform, DataTransformCompileContext,
     DefaultLogicalExprNodeExt, FacetDataScope, Mark, MarkDataMode, MarkGroup, OpacityChannelConfig,
-    PlotMark, PositionConfig, ScaleInferenceHint, ScaleTypePreference, ShapeChannelConfig,
-    SizeChannelConfig, StoreData, StrokeWidthChannelConfig,
+    PlotMark, PositionConfig, ShapeChannelConfig, SizeChannelConfig, StoreData,
+    StrokeWidthChannelConfig,
 };
 use avenger_chart_marks::{Rect, Rule, Symbol};
 use avenger_chart_transforms::{Aggregate, Filter, JoinAggregate};
 use datafusion::prelude::{Expr, col, lit};
 use datafusion_proto::protobuf::LogicalExprNode;
+
+use crate::marks::compound::{
+    CompoundGrouping, band_scale_hint_for_grouping, compound_grouping_from_position,
+    validate_preserved_style_channel,
+};
 
 pub const BOX_PLOT_Q1_FIELD: &str = "q1";
 pub const BOX_PLOT_MEDIAN_FIELD: &str = "median";
@@ -640,18 +645,17 @@ impl BoxPlot {
         let value_channel = orientation.value_channel(&x, &y);
         let group_channel = orientation.group_channel(&x, &y);
         validate_box_plot_channels(orientation, value_channel, group_channel)?;
-        let group_keys = group_key_exprs(group_channel);
-        let group_key_names = group_key_names(group_channel);
+        let grouping = box_plot_grouping(orientation, group_channel)?;
         validate_summary_style_channels(
             self.fill.as_ref(),
             &self.box_style,
             &self.median_style,
             &self.whisker_style,
             &self.cap_style,
-            &group_key_names,
+            &grouping,
         )?;
         let fence_branch = MarkGroup::new().transform_no_output(
-            boxplot_fence_stats(group_keys.clone(), value_channel.expr.clone()),
+            boxplot_fence_stats(grouping.key_exprs.clone(), value_channel.expr.clone()),
             |group| {
                 group
                     .mark(whisker_branch(
@@ -682,15 +686,12 @@ impl BoxPlot {
         let mut root = MarkGroup::new()
             .with_data_context(self.data, self.data_mode)
             .facet_data_scope(self.facet_data_scope);
-        if group_channel.value.get_nested_band_config().is_none() {
-            let scale_name = group_channel
-                .value
-                .get_scale_name(orientation.group_axis_name())
-                .unwrap_or_else(|| orientation.group_axis_name().to_string());
-            root = root.with_scale_inference_hint(ScaleInferenceHint::new(
-                scale_name,
-                ScaleTypePreference::Band,
-            ));
+        if let Some(hint) = band_scale_hint_for_grouping(
+            &grouping,
+            &group_channel.value,
+            orientation.group_axis_name(),
+        ) {
+            root = root.with_scale_inference_hint(hint);
         }
         if let Some(id) = self.id {
             root = root.id(id);
@@ -755,18 +756,12 @@ impl BoxPlotOrientation {
 fn validate_box_plot_channels(
     orientation: BoxPlotOrientation,
     value_channel: &BoxPlotPositionChannel,
-    group_channel: &BoxPlotPositionChannel,
+    _group_channel: &BoxPlotPositionChannel,
 ) -> Result<(), AvengerChartError> {
     if value_channel.value.get_nested_band_config().is_some() {
         return Err(AvengerChartError::InvalidArgument(format!(
             "BoxPlot {} value channel cannot use nested band positioning; use {} for grouping or choose the opposite orientation",
             orientation.value_axis_name(),
-            orientation.group_axis_name()
-        )));
-    }
-    if group_key_names(group_channel).is_empty() {
-        return Err(AvengerChartError::InvalidArgument(format!(
-            "BoxPlot {} grouping channel must be a source column or nested([...]) expression",
             orientation.group_axis_name()
         )));
     }
@@ -1188,26 +1183,28 @@ where
     mark
 }
 
-fn group_key_exprs(channel: &BoxPlotPositionChannel) -> Vec<Expr> {
-    channel
-        .value
-        .get_nested_band_config()
-        .map(|nested| {
-            nested
-                .source_columns
-                .iter()
-                .map(|column| col(column.clone()))
-                .collect()
-        })
-        .unwrap_or_else(|| vec![channel.expr.clone()])
+fn box_plot_grouping(
+    orientation: BoxPlotOrientation,
+    channel: &BoxPlotPositionChannel,
+) -> Result<CompoundGrouping, AvengerChartError> {
+    compound_grouping_from_position(
+        &format!("BoxPlot {} grouping channel", orientation.group_axis_name()),
+        &channel.expr,
+        &channel.value,
+    )
 }
 
+fn group_key_exprs(channel: &BoxPlotPositionChannel) -> Vec<Expr> {
+    compound_grouping_from_position("BoxPlot grouping channel", &channel.expr, &channel.value)
+        .expect("BoxPlot grouping channel should be valid")
+        .key_exprs
+}
+
+#[cfg(test)]
 fn group_key_names(channel: &BoxPlotPositionChannel) -> Vec<String> {
-    channel
-        .value
-        .get_nested_band_config()
-        .map(|nested| nested.source_columns.clone())
-        .unwrap_or_else(|| simple_column_name(&channel.expr).into_iter().collect())
+    compound_grouping_from_position("BoxPlot grouping channel", &channel.expr, &channel.value)
+        .expect("BoxPlot grouping channel should be valid")
+        .key_names
 }
 
 fn validate_summary_style_channels(
@@ -1216,122 +1213,69 @@ fn validate_summary_style_channels(
     median_style: &BoxPlotRuleStyle,
     whisker_style: &BoxPlotRuleStyle,
     cap_style: &BoxPlotRuleStyle,
-    group_key_names: &[String],
+    grouping: &CompoundGrouping,
 ) -> Result<(), AvengerChartError> {
-    validate_aggregate_style_channel(
-        "BoxPlot fill",
-        fill.map(|fill| &fill.value),
-        group_key_names,
-    )?;
-    validate_aggregate_style_channel("BoxPlot box fill", box_style.fill.as_ref(), group_key_names)?;
-    validate_aggregate_style_channel(
-        "BoxPlot box stroke",
-        box_style.stroke.as_ref(),
-        group_key_names,
-    )?;
-    validate_aggregate_style_channel(
+    validate_preserved_style_channel("BoxPlot fill", fill.map(|fill| &fill.value), grouping)?;
+    validate_preserved_style_channel("BoxPlot box fill", box_style.fill.as_ref(), grouping)?;
+    validate_preserved_style_channel("BoxPlot box stroke", box_style.stroke.as_ref(), grouping)?;
+    validate_preserved_style_channel(
         "BoxPlot box stroke_width",
         box_style.stroke_width.as_ref(),
-        group_key_names,
+        grouping,
     )?;
-    validate_aggregate_style_channel(
-        "BoxPlot box opacity",
-        box_style.opacity.as_ref(),
-        group_key_names,
-    )?;
-    validate_aggregate_style_channel(
+    validate_preserved_style_channel("BoxPlot box opacity", box_style.opacity.as_ref(), grouping)?;
+    validate_preserved_style_channel(
         "BoxPlot median stroke",
         median_style.stroke.as_ref(),
-        group_key_names,
+        grouping,
     )?;
-    validate_aggregate_style_channel(
+    validate_preserved_style_channel(
         "BoxPlot median stroke_width",
         median_style.stroke_width.as_ref(),
-        group_key_names,
+        grouping,
     )?;
-    validate_aggregate_style_channel(
+    validate_preserved_style_channel(
         "BoxPlot median opacity",
         median_style.opacity.as_ref(),
-        group_key_names,
+        grouping,
     )?;
-    validate_aggregate_style_channel(
+    validate_preserved_style_channel(
         "BoxPlot whisker stroke",
         whisker_style.stroke.as_ref(),
-        group_key_names,
+        grouping,
     )?;
-    validate_aggregate_style_channel(
+    validate_preserved_style_channel(
         "BoxPlot whisker stroke_width",
         whisker_style.stroke_width.as_ref(),
-        group_key_names,
+        grouping,
     )?;
-    validate_aggregate_style_channel(
+    validate_preserved_style_channel(
         "BoxPlot whisker opacity",
         whisker_style.opacity.as_ref(),
-        group_key_names,
+        grouping,
     )?;
-    validate_aggregate_style_channel(
-        "BoxPlot cap stroke",
-        cap_style.stroke.as_ref(),
-        group_key_names,
-    )?;
-    validate_aggregate_style_channel(
+    validate_preserved_style_channel("BoxPlot cap stroke", cap_style.stroke.as_ref(), grouping)?;
+    validate_preserved_style_channel(
         "BoxPlot cap stroke_width",
         cap_style.stroke_width.as_ref(),
-        group_key_names,
+        grouping,
     )?;
-    validate_aggregate_style_channel(
-        "BoxPlot cap opacity",
-        cap_style.opacity.as_ref(),
-        group_key_names,
-    )?;
+    validate_preserved_style_channel("BoxPlot cap opacity", cap_style.opacity.as_ref(), grouping)?;
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_aggregate_style_channel(
     label: &str,
     value: Option<&ChannelValue>,
     group_key_names: &[String],
 ) -> Result<(), AvengerChartError> {
-    let Some(value) = value else {
-        return Ok(());
+    let grouping = CompoundGrouping {
+        key_exprs: Vec::new(),
+        key_names: group_key_names.to_vec(),
+        is_nested: false,
     };
-    if matches!(value, ChannelValue::Value { .. }) {
-        return Ok(());
-    }
-
-    let ctx = datafusion::prelude::SessionContext::new();
-    let Some(expr) = value.expr(&ctx) else {
-        return Err(AvengerChartError::InvalidArgument(format!(
-            "{label} must be a scalar value or a preserved grouping column"
-        )));
-    };
-    if matches!(expr, Expr::Placeholder(_)) {
-        return Ok(());
-    }
-    let Some(column) = simple_column_name(&expr) else {
-        return Err(AvengerChartError::InvalidArgument(format!(
-            "{label} expressions must be scalar values or preserved grouping columns"
-        )));
-    };
-    if group_key_names.iter().any(|name| name == &column) {
-        Ok(())
-    } else {
-        Err(AvengerChartError::InvalidArgument(format!(
-            "{label} references column '{column}', but box summary rows are grouped only by {}",
-            if group_key_names.is_empty() {
-                "the categorical position expression".to_string()
-            } else {
-                group_key_names.join(", ")
-            }
-        )))
-    }
-}
-
-fn simple_column_name(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Column(column) => Some(column.name.clone()),
-        _ => None,
-    }
+    validate_preserved_style_channel(label, value, &grouping)
 }
 
 pub fn boxplot_fence_stats<I, E, V>(group_keys: I, value_expr: V) -> JoinAggregate
@@ -1432,7 +1376,7 @@ mod tests {
     use super::*;
     use crate::event::{ChartEventBinding, ChartEventType, event_coord};
     use crate::plot::Plot;
-    use avenger_chart_core::{ScaleChannelConfig, nested};
+    use avenger_chart_core::{ScaleChannelConfig, ScaleInferenceHint, ScaleTypePreference, nested};
     use avenger_chart_scales::Point;
     use datafusion::{
         arrow::{

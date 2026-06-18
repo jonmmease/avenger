@@ -208,9 +208,13 @@ macro_rules! impl_mark_base {
                 self
             }
 
-            /// Set detail channels for tooltips/interactions.
-            pub fn details(mut self, details: Vec<String>) -> Self {
-                self.state.details = Some(details);
+            /// Set detail fields for tooltips, interactions, and path partitioning.
+            pub fn details<I, S>(mut self, details: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<String>,
+            {
+                self.state.details = Some(details.into_iter().map(Into::into).collect());
                 self
             }
 

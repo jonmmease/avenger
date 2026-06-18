@@ -6,7 +6,11 @@ use std::{
     time::Instant,
 };
 
-use arrow::array::{Float32Array, Float64Array};
+use arrow::{
+    array::{Float32Array, Float64Array, UInt32Array},
+    compute::take,
+    record_batch::RecordBatch,
+};
 use avenger_color::ColorOrGradient;
 use avenger_common::{types::LinearScaleAdjustment, value::ScalarOrArray};
 use avenger_geometry::rtree::SceneGraphRTree;
@@ -257,6 +261,63 @@ fn offset_flat_event_datum_rows(
             rows
         })
         .collect()
+}
+
+fn event_datum_rows_for_rendered_marks(
+    rows: &RecordBatch,
+    mark_count: usize,
+    source_row_indices: Option<Vec<Vec<usize>>>,
+) -> Result<Vec<EvaluatedEventDatumRows>, AvengerChartError> {
+    let batches = if let Some(source_row_indices) = source_row_indices {
+        if source_row_indices.len() != mark_count {
+            return Err(AvengerChartError::InternalError(format!(
+                "rendered mark source row index count {} did not match scene mark count {mark_count}",
+                source_row_indices.len()
+            )));
+        }
+        source_row_indices
+            .iter()
+            .map(|indices| gather_record_batch_rows(rows, indices))
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        (0..mark_count).map(|_| rows.clone()).collect()
+    };
+
+    Ok(batches
+        .into_iter()
+        .enumerate()
+        .map(|(mark_index, rows)| EvaluatedEventDatumRows {
+            mark_path: vec![mark_index],
+            subplot_id_path: Vec::new(),
+            rows,
+        })
+        .collect())
+}
+
+fn gather_record_batch_rows(
+    batch: &RecordBatch,
+    indices: &[usize],
+) -> Result<RecordBatch, AvengerChartError> {
+    let take_indices = UInt32Array::from(
+        indices
+            .iter()
+            .map(|index| {
+                u32::try_from(*index).map_err(|_| {
+                    AvengerChartError::InternalError(format!(
+                        "event datum row index {index} exceeded u32::MAX"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    let columns = batch
+        .columns()
+        .iter()
+        .map(|column| {
+            take(column.as_ref(), &take_indices, None).map_err(AvengerChartError::ArrowError)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    RecordBatch::try_new(batch.schema(), columns).map_err(AvengerChartError::ArrowError)
 }
 
 #[derive(Clone, Debug)]
@@ -1908,14 +1969,15 @@ impl CompiledPlot {
                 .map(RenderedMarkOutput::marks_only);
         }
 
-        let mut marks = mark
-            .render_from_data(
+        let rendered = mark
+            .render_mark_data(
                 prepared.data_batch.as_ref(),
                 &prepared.scalar_batch,
                 &render_ctx,
                 self.coord_transform.as_ref(),
             )
             .await?;
+        let mut marks = rendered.marks;
         if let Some(id) = mark.state().public_target_path.as_deref() {
             for scene_mark in &mut marks {
                 set_scene_mark_name(scene_mark, id);
@@ -1924,14 +1986,9 @@ impl CompiledPlot {
         let event_datums = prepared
             .event_datum_batch
             .map(|rows| {
-                (0..marks.len())
-                    .map(|mark_index| EvaluatedEventDatumRows {
-                        mark_path: vec![mark_index],
-                        subplot_id_path: Vec::new(),
-                        rows: rows.clone(),
-                    })
-                    .collect()
+                event_datum_rows_for_rendered_marks(&rows, marks.len(), rendered.source_row_indices)
             })
+            .transpose()?
             .unwrap_or_default();
         Ok(RenderedMarkOutput {
             marks,
@@ -6845,6 +6902,44 @@ mod tests {
             leaf_plot_width,
             leaf_plot_height,
         ))
+    }
+
+    #[test]
+    fn event_datum_rows_for_rendered_marks_gathers_source_indices() -> Result<(), AvengerChartError>
+    {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "group",
+                DataType::Utf8,
+                false,
+            )])),
+            vec![Arc::new(StringArray::from(vec!["A", "B", "C"]))],
+        )?;
+
+        let rows = event_datum_rows_for_rendered_marks(&batch, 2, Some(vec![vec![0, 2], vec![1]]))?;
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].mark_path, vec![0]);
+        assert_eq!(rows[1].mark_path, vec![1]);
+
+        let first = rows[0]
+            .rows
+            .column_by_name("group")
+            .expect("group column")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("string group");
+        assert_eq!(first.value(0), "A");
+        assert_eq!(first.value(1), "C");
+
+        let second = rows[1]
+            .rows
+            .column_by_name("group")
+            .expect("group column")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("string group");
+        assert_eq!(second.value(0), "B");
+        Ok(())
     }
 
     #[test]

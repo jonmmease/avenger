@@ -1,4 +1,5 @@
 pub mod area;
+mod detail;
 pub mod image;
 pub mod line;
 pub mod path;

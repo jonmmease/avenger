@@ -1,6 +1,7 @@
 pub mod area;
 pub mod box_plot;
 pub mod compiled_data_context;
+pub(crate) mod compound;
 pub mod data_context;
 pub mod facet_data_scope;
 pub mod image;

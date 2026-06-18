@@ -3,10 +3,11 @@ use std::sync::Arc;
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
-    Mark, MarkRuntimeContext, ResolvedDomain, ScaleRange, ScaleTypePreference, Theme,
-    apply_opacity_to_color, coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
-    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
-    default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
+    Mark, MarkRuntimeContext, RenderedMarkData, ResolvedDomain, ScaleRange, ScaleTypePreference,
+    Theme, apply_opacity_to_color, coerce_bool_channel_with_renderer,
+    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+    coerce_opacity_channel_with_renderer, default_scale_type_for_data_type, impl_mark_trait_common,
+    is_continuous_scale,
 };
 use avenger_chart_marks::{
     Trail, TrailPartitionKey, ensure_dictionary_array, trail_channel_defaults,
@@ -24,7 +25,10 @@ use datafusion::{
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{Cartesian, marks::util};
+use crate::{
+    Cartesian,
+    marks::{detail::DetailColumns, util},
+};
 
 #[async_trait::async_trait]
 impl Mark<Cartesian> for Trail<Cartesian> {
@@ -44,6 +48,12 @@ impl Mark<Cartesian> for Trail<Cartesian> {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledCartesianTrail {
     pub(crate) state: CompiledMarkState,
+}
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+struct TrailRenderPartitionKey {
+    details: Vec<ScalarValue>,
+    style: TrailPartitionKey,
 }
 
 impl CompiledMarkCore for CompiledCartesianTrail {
@@ -111,6 +121,10 @@ impl CompiledMarkCore for CompiledCartesianTrail {
     }
 
     fn supports_order(&self) -> bool {
+        true
+    }
+
+    fn details_partition_continuous_geometry(&self) -> bool {
         true
     }
 
@@ -218,6 +232,18 @@ impl CompiledMark for CompiledCartesianTrail {
         context: &dyn MarkRuntimeContext,
         coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        self.render_mark_data(data, scalars, context, coord)
+            .await
+            .map(|rendered| rendered.marks)
+    }
+
+    async fn render_mark_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<RenderedMarkData, AvengerChartError> {
         let data = data.ok_or_else(|| {
             AvengerChartError::InternalError(
                 "Trail mark requires array data for x and y positions".to_string(),
@@ -255,8 +281,9 @@ impl CompiledMark for CompiledCartesianTrail {
 
         let stroke_array = data.column_by_name("stroke");
         let opacity_array = data.column_by_name("opacity");
+        let detail_columns = DetailColumns::from_mark_data(self, data)?;
 
-        if stroke_array.is_none() && opacity_array.is_none() {
+        if stroke_array.is_none() && opacity_array.is_none() && detail_columns.is_empty() {
             let stroke = first_color(coerce_color_channel_with_renderer(
                 self,
                 None,
@@ -276,22 +303,25 @@ impl CompiledMark for CompiledCartesianTrail {
             .first()
             .cloned()
             .unwrap_or(1.0);
-            return Ok(vec![
-                SceneTrailMark {
-                    name: "trail".to_string(),
-                    clip: true,
-                    len: len as u32,
-                    gradients: vec![],
-                    stroke: apply_opacity_to_color(&stroke, opacity),
-                    x: position.x,
-                    y: position.y,
-                    size,
-                    defined,
-                    zindex: self.state.zindex,
-                    interactive: true,
-                }
-                .into(),
-            ]);
+            return Ok(RenderedMarkData::with_source_row_indices(
+                vec![
+                    SceneTrailMark {
+                        name: "trail".to_string(),
+                        clip: true,
+                        len: len as u32,
+                        gradients: vec![],
+                        stroke: apply_opacity_to_color(&stroke, opacity),
+                        x: position.x,
+                        y: position.y,
+                        size,
+                        defined,
+                        zindex: self.state.zindex,
+                        interactive: true,
+                    }
+                    .into(),
+                ],
+                vec![(0..len).collect()],
+            ));
         }
 
         let stroke_keys = stroke_array
@@ -347,18 +377,24 @@ impl CompiledMark for CompiledCartesianTrail {
         .cloned()
         .unwrap_or(1.0);
 
-        let mut groups: IndexMap<TrailPartitionKey, Vec<usize>> = IndexMap::new();
+        let mut groups: IndexMap<TrailRenderPartitionKey, Vec<usize>> = IndexMap::new();
         for i in 0..len {
             let key = TrailPartitionKey {
                 stroke: dictionary_key(&stroke_keys, i),
                 opacity: dictionary_key(&opacity_keys, i),
             };
+            let key = TrailRenderPartitionKey {
+                details: detail_columns.key_for_row(i)?,
+                style: key,
+            };
             groups.entry(key).or_default().push(i);
         }
 
         let mut marks = Vec::new();
+        let mut source_row_indices = Vec::new();
         for (key, indices) in groups {
             let stroke = key
+                .style
                 .stroke
                 .and_then(|key| {
                     stroke_values
@@ -367,6 +403,7 @@ impl CompiledMark for CompiledCartesianTrail {
                 })
                 .unwrap_or_else(|| stroke_default.clone());
             let opacity = key
+                .style
                 .opacity
                 .and_then(|key| {
                     opacity_values
@@ -388,9 +425,13 @@ impl CompiledMark for CompiledCartesianTrail {
                 zindex: self.state.zindex,
                 interactive: true,
             }));
+            source_row_indices.push(indices);
         }
 
-        Ok(marks)
+        Ok(RenderedMarkData::with_source_row_indices(
+            marks,
+            source_row_indices,
+        ))
     }
 }
 
