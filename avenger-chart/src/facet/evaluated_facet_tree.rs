@@ -804,6 +804,46 @@ impl EvaluatedFacetTree {
         full_path.iter().take(keep_physical).cloned().collect()
     }
 
+    pub(crate) fn partition_exprs_between_sharing_levels(
+        &self,
+        full_path: &[ScalarValue],
+        from_level: SharingLevel,
+        to_level: SharingLevel,
+    ) -> Vec<Expr> {
+        if full_path.is_empty() {
+            return Vec::new();
+        }
+
+        let from_path = self.sharing_owner_path(full_path, from_level.raw());
+        let to_path = self.sharing_owner_path(full_path, to_level.raw());
+        if to_path.len() <= from_path.len() || !to_path.starts_with(&from_path) {
+            return Vec::new();
+        }
+
+        let Some(root) = self.root.as_ref() else {
+            return Vec::new();
+        };
+
+        let mut exprs = Vec::new();
+        let mut current_node = root;
+        for (level_idx, value) in to_path.iter().enumerate() {
+            if level_idx >= from_path.len()
+                && let Some(field_expr) = current_node.field_expr.clone()
+            {
+                exprs.push(field_expr);
+            }
+
+            if level_idx + 1 < to_path.len() {
+                let Some(child) = current_node.child(value) else {
+                    return Vec::new();
+                };
+                current_node = child;
+            }
+        }
+
+        exprs
+    }
+
     fn is_jagged_for_axis_uncached(&self, axis_position: AxisPosition) -> bool {
         let Some(root) = &self.root else {
             return false;
@@ -4380,6 +4420,32 @@ mod tests {
         assert!(pred_str.contains("region"));
         assert!(pred_str.contains("dept"));
         assert!(pred_str.contains("team"));
+
+        let partition_exprs = spec.partition_exprs_between_sharing_levels(
+            &path,
+            SharingLevel::GLOBAL,
+            SharingLevel::FREE,
+        );
+        assert_eq!(
+            partition_exprs
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            vec!["region", "dept", "team"]
+        );
+
+        let partition_exprs = spec.partition_exprs_between_sharing_levels(
+            &path,
+            SharingLevel::from_raw(1),
+            SharingLevel::FREE,
+        );
+        assert_eq!(
+            partition_exprs
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            vec!["team"]
+        );
 
         // sharing_level=1 (Level(1)): skip last 1 level, include 2
         let pred = spec.cell_predicate(&path, 1);

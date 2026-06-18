@@ -349,7 +349,7 @@ async fn kde_low_level_nested_violin_facet_counts_shared_max() {
     let leaf = Plot::<Cartesian>::new().mark(
         Area::new().transform_shared(
             Kde::new(col("value"))
-                .group_by([col("market"), col("division"), col("team")])
+                .group_by([col("division"), col("team")])
                 .counts(true)
                 .bandwidth(0.3)
                 .steps(120)

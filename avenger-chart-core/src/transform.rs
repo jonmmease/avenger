@@ -5,12 +5,22 @@ use datafusion::{
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{AvengerChartError, CoordinationScope, DerivedScalarMap, TimeContext};
+use crate::{AvengerChartError, CoordinationScope, DerivedScalarMap, SharingLevel, TimeContext};
+
+#[derive(Clone, Debug)]
+pub struct DataTransformFacetContext {
+    pub transform_level: SharingLevel,
+    pub final_mark_level: SharingLevel,
+    /// Facet expressions needed to distinguish the final mark cells below this
+    /// transform's current sharing scope.
+    pub partition_exprs: Vec<Expr>,
+}
 
 pub struct DataTransformExecutionContext<'a> {
     pub session_context: &'a SessionContext,
     pub params: &'a IndexMap<String, ScalarValue>,
     pub time_context: TimeContext,
+    pub facet_context: Option<DataTransformFacetContext>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -206,6 +216,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await;
@@ -239,6 +250,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -276,6 +288,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await;

@@ -27,10 +27,11 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    CompiledDataContext, CompiledSelectionSpec, DataTransformExecutionContext, DataTransformStage,
-    DerivedScalarMap, FacetDataScope, MarkDataMode, SelectionClause, SelectionCombine,
-    SelectionPredicateSpec, SharingLevel, contains_aggregate, params_to_datafusion,
-    selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
+    CompiledDataContext, CompiledSelectionSpec, DataTransformExecutionContext,
+    DataTransformFacetContext, DataTransformStage, DerivedScalarMap, FacetDataScope, MarkDataMode,
+    SelectionClause, SelectionCombine, SelectionPredicateSpec, SharingLevel, contains_aggregate,
+    params_to_datafusion, selection_clause_value_id_from_placeholder,
+    selection_id_from_predicate_placeholder,
 };
 
 use crate::{
@@ -176,11 +177,6 @@ async fn apply_mark_data_transforms(
     }
     let dataframe = dataframe.unwrap_or_else(|| empty_dataframe(ctx));
     let transforms = scoped_transform_stages(transforms, mark_facet_data_scope)?;
-    let transform_ctx = DataTransformExecutionContext {
-        session_context: ctx,
-        params: eval_ctx.params(),
-        time_context: eval_ctx.time_context().clone(),
-    };
     let mut dataframe = dataframe;
     let mut derived_scalars = DerivedScalarMap::new();
     let mut current_level = transforms
@@ -221,6 +217,16 @@ async fn apply_mark_data_transforms(
         let transform = stage.transform.map_exprs(&mut |expr| {
             expand_selection_predicates(expr, eval_ctx, Some(&available_columns))
         })?;
+        let transform_ctx = DataTransformExecutionContext {
+            session_context: ctx,
+            params: eval_ctx.params(),
+            time_context: eval_ctx.time_context().clone(),
+            facet_context: transform_facet_context(
+                facet_data_scope,
+                current_level,
+                mark_facet_data_scope,
+            ),
+        };
         let result = transform.apply(dataframe, &transform_ctx).await?;
         dataframe = result.dataframe;
         for (id, expr) in result.derived_scalars {
@@ -300,6 +306,25 @@ fn transform_initial_facet_scope(
         level = level.max(SharingLevel::from(stage.scope));
     }
     FacetDataScope::from_sharing_level(level)
+}
+
+fn transform_facet_context(
+    facet_data_scope: Option<FacetDataScopeContext<'_>>,
+    transform_level: SharingLevel,
+    mark_facet_data_scope: FacetDataScope,
+) -> Option<DataTransformFacetContext> {
+    let scope = facet_data_scope?;
+    let final_mark_level = mark_facet_data_scope.sharing_level();
+    let partition_exprs = scope.facet_tree.partition_exprs_between_sharing_levels(
+        scope.full_path,
+        transform_level,
+        final_mark_level,
+    );
+    Some(DataTransformFacetContext {
+        transform_level,
+        final_mark_level,
+        partition_exprs,
+    })
 }
 
 fn filter_dataframe_to_transform_scope(

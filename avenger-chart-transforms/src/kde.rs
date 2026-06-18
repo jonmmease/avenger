@@ -22,7 +22,7 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
-use std::{f64::consts::PI, sync::Arc};
+use std::{collections::HashSet, f64::consts::PI, sync::Arc};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum KdeResolve {
@@ -245,13 +245,14 @@ impl CompiledDataTransform for CompiledKdeTransform {
         let steps = eval_steps(&self.steps, ctx).await?;
         let bandwidth = eval_bandwidth(&self.bandwidth, ctx).await?;
         let extent = eval_extent(self, ctx).await?;
-        let group_fields = group_fields(&dataframe, &self.group_by)?;
-        let projected = projected_kde_dataframe(dataframe, self, ctx)?;
+        let group_by = effective_group_by(&self.group_by, ctx)?;
+        let group_fields = group_fields(&dataframe, &group_by)?;
+        let projected = projected_kde_dataframe(dataframe, self, ctx, &group_by)?;
         let batches = projected
             .collect()
             .await
             .map_err(AvengerChartError::DataFusionError)?;
-        let groups = collect_groups(&batches, self.group_by.len())?;
+        let groups = collect_groups(&batches, group_by.len())?;
         let batch = kde_record_batch(self, &group_fields, groups, steps, bandwidth, extent)?;
         let dataframe = ctx
             .session_context
@@ -267,6 +268,28 @@ const KDE_VALUE: &str = "__avenger_kde_value";
 struct KdeGroup {
     key: Vec<ScalarValue>,
     values: Vec<f64>,
+}
+
+fn effective_group_by(
+    group_by: &[String],
+    ctx: &DataTransformExecutionContext<'_>,
+) -> Result<Vec<String>, AvengerChartError> {
+    let mut effective = group_by.to_vec();
+    let mut seen = effective.iter().cloned().collect::<HashSet<_>>();
+    if let Some(facet_context) = &ctx.facet_context {
+        for expr in &facet_context.partition_exprs {
+            let Some(name) = simple_column_name(expr) else {
+                return Err(AvengerChartError::InvalidArgument(
+                    "Kde facet partition expressions must be simple column references in v1"
+                        .to_string(),
+                ));
+            };
+            if seen.insert(name.clone()) {
+                effective.push(name);
+            }
+        }
+    }
+    Ok(effective)
 }
 
 fn group_fields(
@@ -296,13 +319,13 @@ fn projected_kde_dataframe(
     dataframe: DataFrame,
     payload: &CompiledKdeTransform,
     ctx: &DataTransformExecutionContext<'_>,
+    group_by: &[String],
 ) -> Result<DataFrame, AvengerChartError> {
     let value_expr = payload.value.to_default_expr(ctx.session_context)?;
     let value_expr = value_expr
         .cast_to(&DataType::Float64, dataframe.schema())
         .map_err(AvengerChartError::DataFusionError)?;
-    let mut exprs = payload
-        .group_by
+    let mut exprs = group_by
         .iter()
         .map(|name| col(name).alias(name))
         .collect::<Vec<_>>();

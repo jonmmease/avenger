@@ -50,9 +50,9 @@ mod tests {
     };
     use avenger_chart_core::{
         AvengerChartError, ChannelValue, CoordinationScope, DataTransform,
-        DataTransformCompileContext, DataTransformExecutionContext, DataTransformStage,
-        DefaultLogicalExprNodeExt, Param, TimeContext, WeekStart, collect_derived_scalar_ids,
-        eval_to_scalars,
+        DataTransformCompileContext, DataTransformExecutionContext, DataTransformFacetContext,
+        DataTransformStage, DefaultLogicalExprNodeExt, Param, SharingLevel, TimeContext, WeekStart,
+        collect_derived_scalar_ids, eval_to_scalars,
     };
     use datafusion::common::ScalarValue;
     use datafusion::dataframe::DataFrame;
@@ -65,7 +65,7 @@ mod tests {
     };
     use datafusion::prelude::SessionContext;
     use indexmap::IndexMap;
-    use std::sync::Arc;
+    use std::{collections::HashSet, sync::Arc};
 
     fn sample_dataframe(ctx: &SessionContext) -> DataFrame {
         let batch = RecordBatch::try_new(
@@ -368,6 +368,7 @@ mod tests {
                 session_context: ctx,
                 params,
                 time_context,
+                facet_context: None,
             },
         )
         .await
@@ -1324,6 +1325,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -1848,6 +1850,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await;
@@ -2155,6 +2158,7 @@ mod tests {
                     session_context: &ctx,
                     params: &IndexMap::new(),
                     time_context: TimeContext::default(),
+                    facet_context: None,
                 },
             )
             .await
@@ -2274,6 +2278,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -2527,6 +2532,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -2934,6 +2940,7 @@ mod tests {
                     session_context: &ctx,
                     params: &IndexMap::new(),
                     time_context: TimeContext::default(),
+                    facet_context: None,
                 },
             )
             .await
@@ -2971,6 +2978,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -2991,6 +2999,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -3016,6 +3025,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -3467,6 +3477,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -3494,6 +3505,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -3781,6 +3793,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -3944,6 +3957,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -4085,6 +4099,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn kde_adds_facet_partition_context_to_grouping() {
+        let ctx = SessionContext::new();
+        let dataframe = sample_dataframe(&ctx);
+        let (compiled_transform, _) = compile_transform(
+            Kde::new(col("value"))
+                .group_by([col("series")])
+                .bandwidth(1.0)
+                .steps(1),
+        );
+        let result = avenger_chart_core::apply_compiled_data_transforms(
+            dataframe,
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+                time_context: TimeContext::default(),
+                facet_context: Some(DataTransformFacetContext {
+                    transform_level: SharingLevel::GLOBAL,
+                    final_mark_level: SharingLevel::FREE,
+                    partition_exprs: vec![col("category")],
+                }),
+            },
+        )
+        .await
+        .expect("apply kde");
+        let batches = result.dataframe.collect().await.expect("collect kde");
+        assert_eq!(batches.len(), 1);
+        let batch = &batches[0];
+        assert_eq!(batch.schema().field(0).name(), "series");
+        assert_eq!(batch.schema().field(1).name(), "category");
+
+        let series = batch
+            .column_by_name("series")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let category = batch
+            .column_by_name("category")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let keys = (0..batch.num_rows())
+            .map(|row| {
+                (
+                    category.value(row).to_string(),
+                    series.value(row).to_string(),
+                )
+            })
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            keys,
+            HashSet::from([
+                ("A".to_string(), "s1".to_string()),
+                ("A".to_string(), "s2".to_string()),
+                ("A".to_string(), "s3".to_string()),
+                ("B".to_string(), "s1".to_string()),
+            ])
+        );
+    }
+
+    #[tokio::test]
     async fn kde_counts_scales_density_by_group_count() {
         let ctx = SessionContext::new();
         let dataframe = bin_dataframe_from_values(&ctx, vec![Some(0.0), Some(1.0), Some(2.0)]);
@@ -4184,6 +4261,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await
@@ -4242,6 +4320,7 @@ mod tests {
                 session_context: &ctx,
                 params: &IndexMap::new(),
                 time_context: TimeContext::default(),
+                facet_context: None,
             },
         )
         .await

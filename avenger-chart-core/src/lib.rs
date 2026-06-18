@@ -272,7 +272,7 @@ pub use tools::{
 };
 pub use transform::{
     CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DataTransformStage,
-    apply_compiled_data_transforms,
+    DataTransformExecutionContext, DataTransformFacetContext, DataTransformResult,
+    DataTransformStage, apply_compiled_data_transforms,
 };
 pub use zero_d::ZeroDCoord;
