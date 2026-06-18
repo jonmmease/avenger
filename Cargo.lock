@@ -752,6 +752,7 @@ dependencies = [
  "avenger-text",
  "datafusion",
  "datafusion-proto",
+ "futures",
  "indexmap 2.9.0",
  "serde",
  "serde_json",

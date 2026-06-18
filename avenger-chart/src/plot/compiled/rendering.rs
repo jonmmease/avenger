@@ -1941,6 +1941,18 @@ impl CompiledPlot {
                 .map(RenderedMarkOutput::marks_only);
         }
 
+        if let Some(overlay) = crate::parallel_axis_overlay::parallel_axis_overlay_ref(mark) {
+            let render_state = RenderState::new(plot_width, plot_height, scales.clone());
+            let render_ctx =
+                RenderContext::new(eval_ctx, &render_state, facet_path, coord_measurement);
+            return crate::parallel_axis_overlay::render_parallel_axis_overlay_with_context(
+                overlay,
+                &render_ctx,
+            )
+            .await
+            .map(RenderedMarkOutput::marks_only);
+        }
+
         let prepared = self
             .prepare_mark_data(
                 mark,

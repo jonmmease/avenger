@@ -20,13 +20,13 @@ use crate::{
     facet::evaluated_facet_tree::{EvaluatedFacetTree, FacetWrapLayoutContext},
     layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
     render::EvaluationContext,
-    scales::{DomainExtent, PlotScaleSpec, ScaleBuilder},
+    scales::{ConfiguredScaleWithSpec, DomainExtent, PlotScaleSpec, ScaleBuilder},
 };
 
 use super::{
     ChildFrameChannelDomainExtent, ChildFrameSharingLevel, CompiledPlot, ComponentsMeasurement,
     child_frame_domain_sharing_levels_for_plot, extract_child_frame_shared_domain_extents,
-    scale_provider::DynamicScaleProvider,
+    scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_compiled_plot_with_render_context,
     session::{ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope},
 };
@@ -369,6 +369,76 @@ impl<'a> PreparedChildFramePlot<'a> {
             domain_extents,
         ))
         .await
+    }
+
+    pub(crate) async fn measure_with_scale_overrides(
+        &self,
+        eval_ctx: &EvaluationContext,
+        layout_spec: &EvaluatedLayoutSpec,
+        facet_path: &[ScalarValue],
+        domain_extents: &[&HashMap<String, DomainExtent>],
+        scale_overrides: HashMap<String, ConfiguredScaleWithSpec>,
+    ) -> Result<ComponentsMeasurement, AvengerChartError> {
+        if !domain_extents.iter().all(|extents| extents.is_empty()) {
+            return Err(AvengerChartError::InternalError(
+                "measure_with_scale_overrides does not support coordinated domain extents"
+                    .to_string(),
+            ));
+        }
+
+        let mut child_eval_ctx = eval_ctx.clone();
+        let local_facet_path;
+        let facet_path = if let Some(facet_tree) = &self.local_facet_tree {
+            child_eval_ctx = child_eval_ctx
+                .with_facet_tree(facet_tree.clone())
+                .with_facet_data_root(self.facet_data_root.clone());
+            local_facet_path = Vec::new();
+            local_facet_path.as_slice()
+        } else {
+            facet_path
+        };
+
+        let provider = ScaleOverrideProvider {
+            builder: &self.scale_builder,
+            plot: self.plot,
+            overrides: scale_overrides,
+        };
+        Box::pin(self.plot.measure_plot_components(
+            &child_eval_ctx,
+            layout_spec,
+            &provider,
+            self.data_override.as_ref(),
+            facet_path,
+        ))
+        .await
+    }
+}
+
+struct ScaleOverrideProvider<'a> {
+    builder: &'a ScaleBuilder,
+    plot: &'a CompiledPlot,
+    overrides: HashMap<String, ConfiguredScaleWithSpec>,
+}
+
+#[async_trait::async_trait]
+impl<'a> ScaleProvider for ScaleOverrideProvider<'a> {
+    async fn build_scales(
+        &self,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        ctx: &SessionContext,
+        params: &indexmap::IndexMap<String, ScalarValue>,
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
+        let mut scales = Box::pin(self.plot.build_scales_from_builder(
+            self.builder,
+            plot_area_width,
+            plot_area_height,
+            ctx,
+            params,
+        ))
+        .await?;
+        scales.extend(self.overrides.clone());
+        Ok(scales)
     }
 }
 

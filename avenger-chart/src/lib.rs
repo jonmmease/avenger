@@ -23,6 +23,7 @@ pub mod layout;
 pub mod legend;
 pub mod marks;
 pub mod maybe;
+pub(crate) mod parallel_axis_overlay;
 pub mod param;
 pub(crate) mod partition;
 pub mod plot;
