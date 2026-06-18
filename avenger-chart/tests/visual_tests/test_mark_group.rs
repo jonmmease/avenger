@@ -80,6 +80,88 @@ fn box_plot_single_observation_data(ctx: &SessionContext) -> DataFrame {
     )
 }
 
+fn box_plot_all_outliers_data(ctx: &SessionContext) -> DataFrame {
+    box_plot_data_from_group_values(
+        ctx,
+        &[
+            (
+                "Alpha",
+                [4.0, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 28.0, 32.0].as_slice(),
+            ),
+            (
+                "Beta",
+                [10.0, 11.0, 11.5, 12.0, 12.5, 13.0, 14.0, 14.5, 15.0, 16.0].as_slice(),
+            ),
+            (
+                "Gamma",
+                [16.0, 17.0, 17.5, 18.0, 18.5, 19.0, 20.0, 20.5, 21.0, 22.0].as_slice(),
+            ),
+        ],
+    )
+}
+
+fn box_plot_null_values_data(ctx: &SessionContext) -> DataFrame {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("group", DataType::Utf8, true),
+        Field::new("value", DataType::Float64, true),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(vec![
+                Some("Alpha"),
+                Some("Alpha"),
+                Some("Alpha"),
+                Some("Alpha"),
+                Some("Alpha"),
+                Some("Alpha"),
+                Some("Alpha"),
+                Some("Beta"),
+                Some("Beta"),
+                Some("Beta"),
+                Some("Beta"),
+                Some("Beta"),
+                Some("Beta"),
+                Some("Beta"),
+                Some("Gamma"),
+                Some("Gamma"),
+                Some("Gamma"),
+                Some("Gamma"),
+                Some("Gamma"),
+                Some("Gamma"),
+                Some("Gamma"),
+                None,
+            ])) as _,
+            Arc::new(Float64Array::from(vec![
+                Some(4.0),
+                Some(5.0),
+                None,
+                Some(6.0),
+                Some(6.5),
+                Some(7.0),
+                Some(8.0),
+                Some(10.0),
+                None,
+                Some(11.5),
+                Some(12.0),
+                Some(12.5),
+                Some(13.0),
+                Some(14.0),
+                Some(16.0),
+                Some(17.0),
+                Some(17.5),
+                None,
+                Some(18.5),
+                Some(19.0),
+                Some(20.0),
+                Some(15.0),
+            ])) as _,
+        ],
+    )
+    .expect("nullable box plot batch");
+    ctx.read_batch(batch).expect("nullable box plot dataframe")
+}
+
 fn box_plot_data_from_group_values(
     ctx: &SessionContext,
     observations: &[(&str, &[f64])],
@@ -291,6 +373,178 @@ fn faceted_grouped_box_plot_data(ctx: &SessionContext) -> DataFrame {
     .expect("faceted grouped box plot batch");
     ctx.read_batch(batch)
         .expect("faceted grouped box plot dataframe")
+}
+
+fn sparse_faceted_grouped_box_plot_data(ctx: &SessionContext) -> DataFrame {
+    let mut regions = Vec::new();
+    let mut categories = Vec::new();
+    let mut segments = Vec::new();
+    let mut values = Vec::new();
+    let observations = [
+        (
+            "North",
+            "Platform",
+            "SMB",
+            [12.0, 14.0, 15.0, 15.5, 16.0, 17.0, 18.5, 24.0].as_slice(),
+        ),
+        (
+            "North",
+            "Platform",
+            "Enterprise",
+            [18.0, 19.0, 21.0, 22.0, 22.5, 23.0, 24.0, 31.0].as_slice(),
+        ),
+        (
+            "North",
+            "Infrastructure",
+            "Enterprise",
+            [20.0, 21.0, 23.0, 24.0, 24.5, 25.0, 26.0, 34.0].as_slice(),
+        ),
+        (
+            "South",
+            "Platform",
+            "SMB",
+            [13.0, 15.0, 16.0, 16.5, 17.0, 18.0, 19.5, 25.0].as_slice(),
+        ),
+        (
+            "South",
+            "Infrastructure",
+            "SMB",
+            [10.0, 11.0, 12.0, 13.0, 13.5, 14.0, 15.0, 20.0].as_slice(),
+        ),
+        (
+            "South",
+            "Services",
+            "Enterprise",
+            [16.0, 17.0, 18.0, 19.0, 19.5, 20.0, 21.0, 29.0].as_slice(),
+        ),
+    ];
+
+    for (region, category, segment, group_values) in observations {
+        for value in group_values {
+            regions.push(region);
+            categories.push(category);
+            segments.push(segment);
+            values.push(*value);
+        }
+    }
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("region", DataType::Utf8, false),
+        Field::new("category", DataType::Utf8, false),
+        Field::new("segment", DataType::Utf8, false),
+        Field::new("value", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(regions)) as _,
+            Arc::new(StringArray::from(categories)) as _,
+            Arc::new(StringArray::from(segments)) as _,
+            Arc::new(Float64Array::from(values)) as _,
+        ],
+    )
+    .expect("sparse faceted grouped box plot batch");
+    ctx.read_batch(batch)
+        .expect("sparse faceted grouped box plot dataframe")
+}
+
+fn facet_free_value_box_plot_data(ctx: &SessionContext) -> DataFrame {
+    let mut regions = Vec::new();
+    let mut groups = Vec::new();
+    let mut values = Vec::new();
+    let observations = [
+        (
+            "North",
+            "Alpha",
+            [4.0, 5.0, 5.5, 6.0, 6.5, 7.0, 8.0, 14.0].as_slice(),
+        ),
+        (
+            "North",
+            "Beta",
+            [8.0, 9.0, 9.5, 10.0, 10.5, 11.0, 12.0, 18.0].as_slice(),
+        ),
+        (
+            "South",
+            "Alpha",
+            [42.0, 45.0, 47.0, 48.0, 49.0, 50.0, 52.0, 64.0].as_slice(),
+        ),
+        (
+            "South",
+            "Beta",
+            [55.0, 58.0, 60.0, 61.0, 62.0, 63.0, 66.0, 78.0].as_slice(),
+        ),
+    ];
+    for (region, group, group_values) in observations {
+        for value in group_values {
+            regions.push(region);
+            groups.push(group);
+            values.push(*value);
+        }
+    }
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("region", DataType::Utf8, false),
+        Field::new("group", DataType::Utf8, false),
+        Field::new("value", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(regions)) as _,
+            Arc::new(StringArray::from(groups)) as _,
+            Arc::new(Float64Array::from(values)) as _,
+        ],
+    )
+    .expect("facet free value box plot batch");
+    ctx.read_batch(batch)
+        .expect("facet free value box plot dataframe")
+}
+
+fn repeat_box_plot_data(ctx: &SessionContext) -> DataFrame {
+    let mut categories = Vec::new();
+    let mut segments = Vec::new();
+    let mut throughput = Vec::new();
+    let mut latency = Vec::new();
+    let observations = [
+        ("Platform", "SMB", 14.0, 42.0),
+        ("Platform", "SMB", 15.0, 39.0),
+        ("Platform", "SMB", 16.0, 37.0),
+        ("Platform", "SMB", 18.0, 34.0),
+        ("Platform", "Enterprise", 21.0, 32.0),
+        ("Platform", "Enterprise", 22.5, 30.0),
+        ("Platform", "Enterprise", 24.0, 28.0),
+        ("Platform", "Enterprise", 31.0, 22.0),
+        ("Infrastructure", "SMB", 10.0, 48.0),
+        ("Infrastructure", "SMB", 12.0, 44.0),
+        ("Infrastructure", "SMB", 13.0, 42.0),
+        ("Infrastructure", "SMB", 19.0, 35.0),
+        ("Infrastructure", "Enterprise", 23.0, 30.0),
+        ("Infrastructure", "Enterprise", 24.5, 28.0),
+        ("Infrastructure", "Enterprise", 26.0, 25.0),
+        ("Infrastructure", "Enterprise", 34.0, 18.0),
+    ];
+    for (category, segment, throughput_value, latency_value) in observations {
+        categories.push(category);
+        segments.push(segment);
+        throughput.push(throughput_value);
+        latency.push(latency_value);
+    }
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("category", DataType::Utf8, false),
+        Field::new("segment", DataType::Utf8, false),
+        Field::new("throughput", DataType::Float64, false),
+        Field::new("latency", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(categories)) as _,
+            Arc::new(StringArray::from(segments)) as _,
+            Arc::new(Float64Array::from(throughput)) as _,
+            Arc::new(Float64Array::from(latency)) as _,
+        ],
+    )
+    .expect("repeat box plot batch");
+    ctx.read_batch(batch).expect("repeat box plot dataframe")
 }
 
 fn inlier_predicate() -> Expr {
@@ -630,6 +884,38 @@ fn grouped_box_plot_mark(
         })
 }
 
+fn ordered_grouped_box_plot_mark() -> BoxPlot {
+    BoxPlot::new()
+        .id("ordered_grouped_box_plot")
+        .x_with(col("value"), |x| {
+            x.scale_with::<Linear>(|scale| scale.domain_interval(lit(0.0), lit(36.0)))
+                .axis(|axis| axis.title("Value").grid(true))
+        })
+        .y_with(nested(["category", "segment"]), |y| {
+            y.axis(|axis| axis.title("Segment grouped by category").grid(false))
+                .level(0, |level| {
+                    level
+                        .domain_values(vec![
+                            lit("Services"),
+                            lit("Infrastructure"),
+                            lit("Platform"),
+                        ])
+                        .padding_inner(0.38)
+                        .padding_outer(0.12)
+                })
+                .level(1, |level| {
+                    level
+                        .nest_scope(NestScope::Shared)
+                        .domain_values(vec![lit("Enterprise"), lit("SMB")])
+                        .padding_inner(0.12)
+                        .axis(|axis| axis.title("Segment"))
+                })
+        })
+        .fill_with(col("segment"), |fill| {
+            fill.legend(|legend| legend.title("Segment"))
+        })
+}
+
 fn box_plot_test_mark() -> BoxPlot {
     BoxPlot::new()
         .id("my_box_plot")
@@ -713,6 +999,30 @@ async fn box_plot_from_mark_group_nested_band() {
         None,
         "mark_group",
         "box_plot_from_mark_group_nested_band",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_from_mark_group_faceted() {
+    let ctx = SessionContext::new();
+    let cell = Plot::<Cartesian>::new().mark(grouped_box_plot_group());
+    let plot = Plot::<FacetColumn>::new()
+        .title("Faceted box plot from MarkGroup branches")
+        .canvas_size(980.0, 500.0)
+        .data(faceted_grouped_box_plot_data(&ctx))
+        .mark(Subplot::new(cell).column(col("region")));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile faceted manual box plot group");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "mark_group",
+        "box_plot_from_mark_group_faceted",
     )
     .await;
 }
@@ -1155,6 +1465,29 @@ async fn box_plot_grouped_nested_band_fill_by_category() {
 }
 
 #[tokio::test]
+async fn box_plot_grouped_nested_band_ordered_segments() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Ordered grouped box plot")
+        .canvas_size(780.0, 460.0)
+        .data(grouped_box_plot_data(&ctx))
+        .mark(ordered_grouped_box_plot_mark());
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile ordered grouped box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_grouped_nested_band_ordered_segments",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn box_plot_invalid_fill_column_errors() {
     let ctx = SessionContext::new();
     let plot = Plot::<Cartesian>::new()
@@ -1375,6 +1708,49 @@ async fn box_plot_single_observation_group() {
 }
 
 #[tokio::test]
+async fn box_plot_all_outliers_in_one_group() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Box plot with separated outliers")
+        .canvas_size(720.0, 390.0)
+        .data(box_plot_all_outliers_data(&ctx))
+        .mark(box_plot_auto_group_mark("all_outliers_box_plot", 36.0));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile all-outliers box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_all_outliers_in_one_group",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_null_values_ignored() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Box plot with null values")
+        .canvas_size(720.0, 390.0)
+        .data(box_plot_null_values_data(&ctx))
+        .mark(box_plot_auto_group_mark("nullable_box_plot", 24.0));
+
+    let compiled = plot.compile(&ctx).await.expect("compile nullable box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_null_values_ignored",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn box_plot_facet_nested_band_shared_segments() {
     let ctx = SessionContext::new();
     let cell = Plot::<Cartesian>::new().mark(
@@ -1422,6 +1798,151 @@ async fn box_plot_facet_nested_band_shared_segments() {
         None,
         "boxplot",
         "box_plot_facet_nested_band_shared_segments",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_facet_free_value_domains() {
+    let ctx = SessionContext::new();
+    let cell = Plot::<Cartesian>::new().mark(
+        BoxPlot::new()
+            .id("facet_free_box_plot")
+            .x_with(col("value"), |x| {
+                x.with_domain_scope(CoordinationScope::Free)
+                    .axis(|axis| axis.title("Value").grid(true))
+            })
+            .y_with(col("group"), |y| {
+                y.scale_with::<Band>(|scale| scale)
+                    .axis(|axis| axis.title("Group").grid(false))
+            }),
+    );
+    let plot = Plot::<FacetColumn>::new()
+        .title("Faceted box plot with free value domains")
+        .canvas_size(920.0, 450.0)
+        .data(facet_free_value_box_plot_data(&ctx))
+        .mark(Subplot::new(cell).column(col("region")));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile free-domain faceted box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_facet_free_value_domains",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_facet_sparse_nested_segments() {
+    let ctx = SessionContext::new();
+    let cell = Plot::<Cartesian>::new().mark(
+        BoxPlot::new()
+            .id("facet_sparse_box_plot")
+            .x_with(col("value"), |x| {
+                x.with_domain_scope(CoordinationScope::Shared)
+                    .scale_with::<Linear>(|scale| scale.domain_interval(lit(0.0), lit(40.0)))
+                    .axis(|axis| axis.title("Value").grid(true))
+            })
+            .y_with(nested(["category", "segment"]), |y| {
+                y.with_domain_scope(CoordinationScope::Shared)
+                    .axis(|axis| axis.title("Segment grouped by category").grid(false))
+                    .level(0, |level| {
+                        level
+                            .domain_scope(CoordinationScope::Shared)
+                            .padding_inner(0.38)
+                            .padding_outer(0.12)
+                    })
+                    .level(1, |level| {
+                        level
+                            .domain_scope(CoordinationScope::Shared)
+                            .nest_scope(NestScope::Shared)
+                            .padding_inner(0.12)
+                            .axis(|axis| axis.visible(false))
+                    })
+            })
+            .fill_with(col("segment"), |fill| {
+                fill.legend(|legend| legend.title("Segment"))
+            }),
+    );
+    let plot = Plot::<FacetColumn>::new()
+        .title("Sparse faceted grouped box plot")
+        .canvas_size(980.0, 500.0)
+        .data(sparse_faceted_grouped_box_plot_data(&ctx))
+        .mark(Subplot::new(cell).column(col("region")));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile sparse faceted grouped box plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_facet_sparse_nested_segments",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn box_plot_repeat_nested_band() {
+    let ctx = SessionContext::new();
+    let cell = Plot::<Cartesian>::new().mark(
+        BoxPlot::new()
+            .id("repeat_box_plot")
+            .x_with(repeat::column(), |x| {
+                x.scale_with::<Linear>(|scale| scale.domain_interval(lit(0.0), lit(55.0)))
+                    .axis(|axis| axis.title(repeat::column_title()).grid(true))
+            })
+            .y_with(
+                nested(["category".to_string(), "segment".to_string()]),
+                |y| {
+                    y.with_domain_scope(CoordinationScope::Shared)
+                        .axis(|axis| axis.title("Segment grouped by category").grid(false))
+                        .level(0, |level| {
+                            level
+                                .domain_scope(CoordinationScope::Shared)
+                                .padding_inner(0.38)
+                                .padding_outer(0.12)
+                        })
+                        .level(1, |level| {
+                            level
+                                .domain_scope(CoordinationScope::Shared)
+                                .nest_scope(NestScope::Shared)
+                                .padding_inner(0.12)
+                                .axis(|axis| axis.visible(false))
+                        })
+                },
+            )
+            .fill_with(col("segment"), |fill| {
+                fill.legend(|legend| legend.title("Segment"))
+            }),
+    );
+    let plot = Plot::<RepeatColumns>::new()
+        .title("Repeated grouped box plots")
+        .canvas_size(980.0, 480.0)
+        .data(repeat_box_plot_data(&ctx))
+        .columns(vec![
+            RepeatVariable::field("throughput").title("Throughput"),
+            RepeatVariable::field("latency").title("Latency"),
+        ])
+        .cell(cell);
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile repeated grouped box plots");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "boxplot",
+        "box_plot_repeat_nested_band",
     )
     .await;
 }
