@@ -1653,8 +1653,10 @@ async fn cache_radius_aware_data(
             df_with_exprs.collect().await?
         };
 
-        if !batches.is_empty() && batches[0].num_rows() > 0 {
-            let batch = &batches[0];
+        for batch in &batches {
+            if batch.num_rows() == 0 {
+                continue;
+            }
             let position_array = batch.column_by_name("__position__").ok_or_else(|| {
                 AvengerChartError::InternalError("Position column not found".to_string())
             })?;
@@ -2983,33 +2985,34 @@ async fn cache_temporal_data(
             agg_df.collect().await?
         };
 
-        if !batches.is_empty() && batches[0].num_rows() > 0 {
-            let batch = &batches[0];
-            let min_scalar = ScalarValue::try_from_array(batch.column(0), 0)?;
-            let max_scalar = ScalarValue::try_from_array(batch.column(1), 0)?;
+        for batch in &batches {
+            for row in 0..batch.num_rows() {
+                let min_scalar = ScalarValue::try_from_array(batch.column(0), row)?;
+                let max_scalar = ScalarValue::try_from_array(batch.column(1), row)?;
 
-            let min_ts = match min_scalar {
-                ScalarValue::TimestampNanosecond(Some(ts), _) => ts,
-                ScalarValue::TimestampMicrosecond(Some(ts), _) => ts,
-                ScalarValue::TimestampMillisecond(Some(ts), _) => ts,
-                ScalarValue::TimestampSecond(Some(ts), _) => ts,
-                ScalarValue::Date32(Some(days)) => days as i64 * 86400000,
-                ScalarValue::Date64(Some(ms)) => ms,
-                _ => continue,
-            };
+                let min_ts = match min_scalar {
+                    ScalarValue::TimestampNanosecond(Some(ts), _) => ts,
+                    ScalarValue::TimestampMicrosecond(Some(ts), _) => ts,
+                    ScalarValue::TimestampMillisecond(Some(ts), _) => ts,
+                    ScalarValue::TimestampSecond(Some(ts), _) => ts,
+                    ScalarValue::Date32(Some(days)) => days as i64 * 86400000,
+                    ScalarValue::Date64(Some(ms)) => ms,
+                    _ => continue,
+                };
 
-            let max_ts = match max_scalar {
-                ScalarValue::TimestampNanosecond(Some(ts), _) => ts,
-                ScalarValue::TimestampMicrosecond(Some(ts), _) => ts,
-                ScalarValue::TimestampMillisecond(Some(ts), _) => ts,
-                ScalarValue::TimestampSecond(Some(ts), _) => ts,
-                ScalarValue::Date32(Some(days)) => days as i64 * 86400000,
-                ScalarValue::Date64(Some(ms)) => ms,
-                _ => continue,
-            };
+                let max_ts = match max_scalar {
+                    ScalarValue::TimestampNanosecond(Some(ts), _) => ts,
+                    ScalarValue::TimestampMicrosecond(Some(ts), _) => ts,
+                    ScalarValue::TimestampMillisecond(Some(ts), _) => ts,
+                    ScalarValue::TimestampSecond(Some(ts), _) => ts,
+                    ScalarValue::Date32(Some(days)) => days as i64 * 86400000,
+                    ScalarValue::Date64(Some(ms)) => ms,
+                    _ => continue,
+                };
 
-            global_min_ts = Some(global_min_ts.map_or(min_ts, |current| current.min(min_ts)));
-            global_max_ts = Some(global_max_ts.map_or(max_ts, |current| current.max(max_ts)));
+                global_min_ts = Some(global_min_ts.map_or(min_ts, |current| current.min(min_ts)));
+                global_max_ts = Some(global_max_ts.map_or(max_ts, |current| current.max(max_ts)));
+            }
         }
     }
 
@@ -3063,21 +3066,24 @@ async fn cache_numeric_data(
             agg_df.collect().await?
         };
 
-        if !batches.is_empty() && batches[0].num_rows() > 0 {
-            let batch = &batches[0];
+        for batch in &batches {
             let min_col = batch.column(0);
             let max_col = batch.column(1);
 
-            // Skip if min/max are NULL (all values were NULL from conditional literals)
-            if min_col.is_null(0) || max_col.is_null(0) {
-                continue;
+            for row in 0..batch.num_rows() {
+                // Skip if min/max are NULL (all values were NULL from conditional literals)
+                if min_col.is_null(row) || max_col.is_null(row) {
+                    continue;
+                }
+
+                let min_val = array_value_to_f64(min_col, row, dt)?;
+                let max_val = array_value_to_f64(max_col, row, dt)?;
+
+                global_min_val =
+                    Some(global_min_val.map_or(min_val, |current| current.min(min_val)));
+                global_max_val =
+                    Some(global_max_val.map_or(max_val, |current| current.max(max_val)));
             }
-
-            let min_val = array_value_to_f64(min_col, 0, dt)?;
-            let max_val = array_value_to_f64(max_col, 0, dt)?;
-
-            global_min_val = Some(global_min_val.map_or(min_val, |current| current.min(min_val)));
-            global_max_val = Some(global_max_val.map_or(max_val, |current| current.max(max_val)));
         }
     }
 

@@ -171,46 +171,47 @@ impl DomainInferrer {
             df_with_exprs.collect().await?
         };
 
-        if batches.is_empty() || batches[0].num_rows() == 0 {
-            return Ok(None);
-        }
-
-        let batch = &batches[0];
-        let position_array = batch.column_by_name(POSITION_COL).ok_or_else(|| {
-            AvengerChartError::InternalError(format!(
-                "Column '{}' not found in batch",
-                POSITION_COL
-            ))
-        })?;
-        let radius_lower_array = batch.column_by_name(RADIUS_LOWER_COL).ok_or_else(|| {
-            AvengerChartError::InternalError(format!(
-                "Column '{}' not found in batch",
-                RADIUS_LOWER_COL
-            ))
-        })?;
-        let radius_upper_array = batch.column_by_name(RADIUS_UPPER_COL).ok_or_else(|| {
-            AvengerChartError::InternalError(format!(
-                "Column '{}' not found in batch",
-                RADIUS_UPPER_COL
-            ))
-        })?;
-
         // Cast to Float64
         use datafusion::arrow::{compute::cast, datatypes::DataType as ArrowDataType};
 
-        let position_f64 = cast(position_array, &ArrowDataType::Float64)?;
-        let radius_lower_f64 = cast(radius_lower_array, &ArrowDataType::Float64)?;
-        let radius_upper_f64 = cast(radius_upper_array, &ArrowDataType::Float64)?;
+        let mut position_vec = Vec::new();
+        let mut radius_lower_vec = Vec::new();
+        let mut radius_upper_vec = Vec::new();
+        for batch in &batches {
+            if batch.num_rows() == 0 {
+                continue;
+            }
+            let position_array = batch.column_by_name(POSITION_COL).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Column '{}' not found in batch",
+                    POSITION_COL
+                ))
+            })?;
+            let radius_lower_array = batch.column_by_name(RADIUS_LOWER_COL).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Column '{}' not found in batch",
+                    RADIUS_LOWER_COL
+                ))
+            })?;
+            let radius_upper_array = batch.column_by_name(RADIUS_UPPER_COL).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Column '{}' not found in batch",
+                    RADIUS_UPPER_COL
+                ))
+            })?;
 
-        // Extract values as slices
-        let positions = position_f64.as_primitive::<Float64Type>();
-        let radius_lower = radius_lower_f64.as_primitive::<Float64Type>();
-        let radius_upper = radius_upper_f64.as_primitive::<Float64Type>();
+            let position_f64 = cast(position_array, &ArrowDataType::Float64)?;
+            let radius_lower_f64 = cast(radius_lower_array, &ArrowDataType::Float64)?;
+            let radius_upper_f64 = cast(radius_upper_array, &ArrowDataType::Float64)?;
 
-        // Convert to vectors, filtering out nulls
-        let position_vec: Vec<f64> = positions.iter().flatten().collect();
-        let radius_lower_vec: Vec<f64> = radius_lower.iter().flatten().collect();
-        let radius_upper_vec: Vec<f64> = radius_upper.iter().flatten().collect();
+            let positions = position_f64.as_primitive::<Float64Type>();
+            let radius_lower = radius_lower_f64.as_primitive::<Float64Type>();
+            let radius_upper = radius_upper_f64.as_primitive::<Float64Type>();
+
+            position_vec.extend(positions.iter().flatten());
+            radius_lower_vec.extend(radius_lower.iter().flatten());
+            radius_upper_vec.extend(radius_upper.iter().flatten());
+        }
 
         // Validate matching lengths
         let pos_len = position_vec.len();

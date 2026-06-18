@@ -1466,6 +1466,75 @@ mod tests {
             .to_string()
     }
 
+    #[tokio::test]
+    async fn value_domain_includes_all_generated_groups_and_outliers() {
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("group", DataType::Utf8, false),
+            Field::new("value", DataType::Float64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec![
+                    "Alpha", "Alpha", "Alpha", "Alpha", "Alpha", "Alpha", "Alpha", "Alpha", "Beta",
+                    "Beta", "Beta", "Beta", "Beta", "Beta", "Beta", "Beta",
+                ])) as ArrayRef,
+                Arc::new(Float64Array::from(vec![
+                    4.0, 5.0, 5.5, 6.0, 6.5, 7.0, 8.0, 14.0, 8.0, 9.0, 9.5, 10.0, 10.5, 11.0, 12.0,
+                    18.0,
+                ])) as ArrayRef,
+            ],
+        )
+        .expect("batch");
+        let data = ctx.read_batch(batch).expect("data");
+        let compiled = Plot::<Cartesian>::new()
+            .data(data.clone())
+            .mark(BoxPlot::new().x(col("value")).y(col("group")))
+            .compile(&ctx)
+            .await
+            .expect("compile");
+        let eval_ctx = avenger_chart_core::EvaluationContext::new(
+            compiled.get_theme(),
+            Arc::new(ctx.clone()),
+            compiled.get_default_params().clone(),
+        );
+        let builder = crate::plot::compiled::scales::build_scale_builder_from_compiled_plot(
+            &compiled,
+            Some(data.clone()),
+            &eval_ctx,
+            compiled.get_theme().as_ref(),
+        )
+        .await
+        .expect("builder");
+        let positions = match builder.channel_builders().get("x") {
+            Some(avenger_chart_scales::ChannelScaleData::RadiusAware { position_data, .. }) => {
+                position_data
+            }
+            other => panic!("expected radius-aware x domain cache, got {other:?}"),
+        };
+        for expected in [4.0, 12.0, 14.0, 18.0] {
+            assert!(
+                positions.contains(&expected),
+                "x domain cache should include {expected}, got {positions:?}"
+            );
+        }
+        let scales = compiled
+            .build_scales_for_dataframe(&data, 300.0, 200.0, &ctx, compiled.get_default_params())
+            .await
+            .expect("scales");
+        let domain = scales
+            .get("x")
+            .expect("x")
+            .configured()
+            .numeric_interval_domain()
+            .expect("domain");
+        assert!(
+            domain.0 < 4.0 && domain.1 > 18.0,
+            "rule/symbol radius padding should expand beyond raw whisker/outlier values, got {domain:?}"
+        );
+    }
+
     #[test]
     fn fence_expressions_match_tukey_formula() {
         assert_eq!(

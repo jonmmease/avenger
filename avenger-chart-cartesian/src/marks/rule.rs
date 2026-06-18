@@ -3,17 +3,24 @@ use std::sync::Arc;
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
-    Mark, MarkRuntimeContext, ScaleTypePreference, apply_opacity_to_color_channel,
-    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-    coerce_opacity_channel_with_renderer, coerce_stroke_cap_channel_values_with_renderer,
-    coerce_stroke_dash_channel, default_scale_type_for_data_type, impl_mark_trait_common,
-    is_continuous_scale,
+    Mark, MarkRuntimeContext, RadiusExpression, ScaleTypePreference,
+    apply_opacity_to_color_channel, coerce_color_channel_with_renderer,
+    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
+    coerce_stroke_cap_channel_values_with_renderer, coerce_stroke_dash_channel,
+    default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
+    serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_chart_marks::{Rule, rule_channel_defaults};
 use avenger_common::types::StrokeCap;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{mark::SceneMark, rule::SceneRuleMark};
-use datafusion::{arrow::array::RecordBatch, arrow::datatypes::DataType, common::ScalarValue};
+use datafusion::{
+    arrow::array::RecordBatch,
+    arrow::datatypes::DataType,
+    common::ScalarValue,
+    logical_expr::{Expr, lit},
+};
+use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 
 use crate::{Cartesian, marks::util};
@@ -116,6 +123,23 @@ impl CompiledMarkCore for CompiledCartesianRule {
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         rule_channel_defaults(channel)
+    }
+
+    fn radius_expression(
+        &self,
+        dimension: &str,
+        resolve_channel: &dyn Fn(&str) -> Expr,
+    ) -> Option<RadiusExpression> {
+        match dimension {
+            "x" | "y" => {
+                let stroke_width_expr = resolve_channel("stroke_width");
+                let radius_expr = stroke_width_expr / lit(2.0);
+                let radius_expr_node = LogicalExprNode::from_default_expr(radius_expr)
+                    .expect("Failed to serialize expr");
+                Some(RadiusExpression::Symmetric(radius_expr_node))
+            }
+            _ => None,
+        }
     }
 
     fn preferred_scale_type(
