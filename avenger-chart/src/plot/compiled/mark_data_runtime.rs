@@ -1597,6 +1597,7 @@ mod tests {
             marks::facet::{FacetColumnSubplotChannels, FacetRowSubplotChannels},
         },
         marks::{ChannelValue, Mark, Subplot, symbol::Symbol},
+        parallel::{Parallel, ParallelLine, generated_dimension_channel},
         plot::{
             Plot,
             compiled::session::{ScopedStoreAssignment, ScopedStoreState, StoreStateUpdate},
@@ -1607,10 +1608,10 @@ mod tests {
         zerod::ZeroDCoord,
     };
     use avenger_chart_core::{
-        ChannelDescriptor, CompiledMarkCore, CompiledMarkState, CoordinateSystemTransformCore,
-        CoordinationScope, Param, PlotGeometry, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
-        STORE_REVISION_COLUMN, Store, StoreData, StoreRowValue, SubplotGeometry,
-        detail_array_column_name,
+        ChannelDescriptor, CompiledMarkCore, CompiledMarkState, CoordinateSystem,
+        CoordinateSystemTransformCore, CoordinationScope, Param, PlotGeometry, STORE_NAME_COLUMN,
+        STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, Store, StoreData, StoreRowValue,
+        SubplotGeometry, detail_array_column_name,
     };
     use avenger_chart_marks::{Area, Rect};
 
@@ -2037,6 +2038,57 @@ mod tests {
         let event_datum_batch = prepared.event_datum_batch.expect("event datum batch");
         assert_eq!(values_as_f64(&event_datum_batch, "x"), vec![0.0, 5.0, 10.0]);
         assert!(event_datum_batch.column_by_name("dim_value").is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_provides_parallel_line_generated_dimensions()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = xy_dataframe(&session);
+        let plot_node = plot_data_node(&df)?;
+        let mark = ParallelLine::new();
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let coord = Parallel::new()
+            .dimension("x", col("x"))
+            .dimension("y", col("y"))
+            .create_transform();
+        let eval_ctx = eval_context(session);
+        let scales = HashMap::from([
+            ("x".to_string(), linear_scale()),
+            ("y".to_string(), linear_scale()),
+        ]);
+
+        let prepared = prepare_mark_data(MarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            coord_transform: Some(coord.as_ref()),
+            plot_data: Some(&plot_node),
+            provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
+            prepared_base: None,
+            eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
+            scales: &scales,
+            plot_width: 100.0,
+            plot_height: 100.0,
+        })
+        .await?
+        .expect("prepared parallel line data");
+
+        let data_batch = prepared.data_batch.expect("parallel line array data");
+        let x_generated = generated_dimension_channel("x");
+        let y_generated = generated_dimension_channel("y");
+        assert_eq!(
+            values_as_f64(&data_batch, &x_generated),
+            vec![0.0, 50.0, 100.0]
+        );
+        assert_eq!(
+            values_as_f64(&data_batch, &y_generated),
+            vec![100.0, 50.0, 0.0]
+        );
+        assert!(data_batch.column_by_name("x").is_none());
+        assert!(data_batch.column_by_name("y").is_none());
         Ok(())
     }
 
