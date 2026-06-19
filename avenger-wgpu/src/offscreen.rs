@@ -174,6 +174,23 @@ impl OffscreenTargetPool {
         &mut self.targets[index]
     }
 
+    pub fn acquire_next_excluding_generation(
+        &mut self,
+        excluded_generation: Option<u64>,
+    ) -> Option<&mut OffscreenTarget> {
+        let selected_index = (0..self.targets.len()).find_map(|_| {
+            let index = self.next_index;
+            self.next_index = (self.next_index + 1) % self.targets.len();
+            if Some(self.targets[index].generation) == excluded_generation {
+                None
+            } else {
+                Some(index)
+            }
+        });
+
+        selected_index.map(|index| &mut self.targets[index])
+    }
+
     pub fn len(&self) -> usize {
         self.targets.len()
     }

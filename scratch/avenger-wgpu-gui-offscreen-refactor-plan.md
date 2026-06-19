@@ -742,9 +742,9 @@ examples/iris-pan-zoom/wasm-pack build --target web --release
 
 Commit:
 
-- [ ] Commit Phase 7.
+- [x] Commit Phase 7.
 - Suggested message: `refactor(wgpu): update wgpu dependency for gui integration`
-- Commit hash: TBD
+- Commit hash: `01ee00cf`
 
 ## Phase 8 - Async Frame Publishing Core
 
@@ -752,27 +752,47 @@ Purpose: provide the background exact render and latest-frame handoff primitives
 
 Tasks:
 
-- [ ] Create a small frame-publishing module, either in `avenger-wgpu` or a GUI-support crate.
-- [ ] Define `RenderedFrame`.
-- [ ] Define `FrameGeneration`.
-- [ ] Define `LatestFrame`.
-- [ ] Define `FramePublisher`.
-- [ ] Ensure GUI readers can grab the latest completed frame without blocking.
-- [ ] Ensure background writers never overwrite a texture currently sampled by the GUI.
-- [ ] Use generation IDs to discard stale renders.
-- [ ] Add a cancellation/drop-stale policy.
-- [ ] Add a "render in progress" flag.
-- [ ] Add metrics:
+- [x] Create a small frame-publishing module, either in `avenger-wgpu` or a GUI-support crate.
+- [x] Define `RenderedFrame`.
+- [x] Define `FrameGeneration`.
+- [x] Define `LatestFrame`.
+- [x] Define `FramePublisher`.
+- [x] Ensure GUI readers can grab the latest completed frame without blocking.
+- [x] Add offscreen-pool support for avoiding the latest sampled texture generation.
+- [x] Use generation IDs to discard stale renders.
+- [x] Add a cancellation/drop-stale policy.
+- [x] Add a "render in progress" flag.
+- [x] Add metrics:
   - scene evaluation time,
   - `set_scene` time,
   - prepare time,
   - command encode time,
   - submit time,
   - texture publish time.
-- [ ] In Phase 8, implement CPU scene evaluation / scene publication as the background work.
-- [ ] In Phase 8, keep GPU upload/render in the egui render preparation path for simpler WGPU ownership.
-- [ ] Do not implement full background GPU submission until Phase 11.
-- [ ] Document this staged decision here and in Phase 13 architecture docs.
+- [x] In Phase 8, provide primitives for CPU scene evaluation / scene publication as the background work.
+- [x] In Phase 8, keep GPU upload/render out of the publisher so it can remain in the egui render preparation path for simpler WGPU ownership.
+- [x] Do not implement full background GPU submission until Phase 11.
+- [ ] Document this staged decision in Phase 13 architecture docs.
+
+Phase 8 notes, 2026-06-19:
+
+- Added public `avenger_wgpu::frame_publisher` primitives:
+  - `FrameGeneration`,
+  - `FrameRenderMetrics`,
+  - `RenderedFrame<T>`,
+  - `LatestFrame<T>`,
+  - `FramePublisher<T>`,
+  - `FrameRenderTicket<T>`,
+  - `BeginFrameError`,
+  - `PublishResult`.
+- `LatestFrame<T>` uses `arc-swap` so GUI readers can clone an `Arc<RenderedFrame<T>>` snapshot with an atomic load instead of taking a mutex.
+- `FramePublisher<T>` provides request generation, begin-render, stale detection, publish, cancel, in-progress tracking, and status counters.
+- Dropping an unpublished `FrameRenderTicket<T>` cancels the in-progress render automatically.
+- Publishing a generation older than the latest requested generation returns `PublishResult::DroppedStale` and does not update the latest frame.
+- Added `OffscreenTargetPool::acquire_next_excluding_generation` so GUI integrations can avoid rendering into the generation currently being presented.
+- The texture-overwrite guarantee is staged: Phase 8 provides the latest-generation exclusion primitive, and the egui integration must use it with double/triple buffering and latest-frame snapshots. Full background GPU submission and stronger retention/fence policy remain Phase 11 work.
+- No background GPU submission was added. The publisher payload is generic so Phase 10 can publish CPU-evaluated scene/frame metadata first, while GPU upload/render stays in the egui preparation path.
+- Added unit tests for generation allocation, latest-frame snapshots, stale publish discard, stale begin discard, in-progress rejection, and ticket-drop cancellation.
 
 Recommended initial policy:
 
@@ -784,8 +804,20 @@ Validation:
 
 ```bash
 cargo fmt --all
+cargo check -p avenger-wgpu
+cargo test -p avenger-wgpu --lib
 cargo test -p avenger-wgpu
 ```
+
+Phase 8 validation results, 2026-06-19:
+
+- `cargo fmt --all`: passed.
+- `cargo check -p avenger-wgpu`: passed.
+- `cargo test -p avenger-wgpu --lib`: passed, 33 tests.
+- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+  - `case_090` / `residuals_colorscale`, diff `0.026578`,
+  - `case_119` / `geoScale`, diff `0.016531`,
+  - `case_120` / `maptile_background`, diff `0.012998`.
 
 Commit:
 
