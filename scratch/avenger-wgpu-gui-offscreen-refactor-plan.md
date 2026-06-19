@@ -951,11 +951,11 @@ Tasks:
 - [ ] Convert egui keyboard events to `WindowEvent::KeyboardInput`.
 - [ ] Route pointer events only when the pointer is hovered, dragging, or otherwise captured by the plot widget.
 - [ ] Route wheel events only when the pointer is hovered over the plot widget.
-- [ ] Request plot focus on click/drag start.
+- [x] Request plot focus on click/drag start.
 - [ ] Route keyboard events only when the plot widget has focus.
 - [x] Route widget resize to `CanvasResize`.
 - [ ] Add debounced or settled resize routing to `CanvasResizeSettled` if needed by chart resize behavior.
-- [ ] Ensure the translated Avenger events are dispatched through the Avenger app/eventstream path, not through winit.
+- [x] Ensure the translated Avenger events are dispatched through the Avenger app/eventstream path, not through winit.
 - [ ] Add translator tests for:
   - coordinate conversion,
   - hover filtering,
@@ -969,7 +969,7 @@ Tasks:
 - [x] Re-register/update the texture when the offscreen texture is recreated because of size/format changes.
 - [x] Paint latest frame texture into widget rect.
 - [x] Keep `show(ui)` non-blocking: it may allocate the rect, route input, enqueue work, update texture registration, and paint the latest completed frame, but it must not wait for exact evaluation or rendering.
-- [ ] During drag, request repaint every frame.
+- [x] During drag, request repaint every frame.
 - [ ] On background frame publish, request repaint.
 - [ ] Add an example app with:
   - chart widget,
@@ -1065,7 +1065,10 @@ Phase 10 progress notes, 2026-06-19:
 - Added a nonblocking event queue on `AvengerPlotHandle`. `Plot::show(ui)` queues translated events without awaiting app updates, and `dispatch_pending_events().await` can route them through an owned `AvengerApp::update_with_status` outside the egui paint path.
 - Added low-level `render_scene_to_texture(render_state, scene_graph, dimensions)` on `AvengerPlotHandle`. It renders a caller-provided `SceneGraph` into a handle-owned triple-buffered `OffscreenTargetPool`, registers/updates the latest target with `egui-wgpu`, and reuses the same `TextureId`.
 - `Plot::show(ui)` paints the latest registered texture into the allocated widget rect without waiting for evaluation or rendering.
-- This is not yet the full Phase 10 MVP. Pending work includes wiring an owned `AvengerApp` into the example/runtime path, connecting scene updates to `render_scene_to_texture`, richer drag/wheel/keyboard translation, repaint scheduling, and a runnable `basic_chart` example.
+- Added `AvengerApp::scene_graph_arc` and `AvengerApp::rebuild_scene_graph` so native widget param changes can force an exact chart rebuild outside the window-event path.
+- Added a `basic_chart` eframe example that uses a normal egui slider to call `set_param("point_size", value)`, rebuilds the scene, renders it into an egui-registered offscreen texture, displays the plot widget, dispatches queued plot events through `AvengerApp`, and requests repaint while dragging.
+- The example uses eframe's WGPU path with `default-features = false` and `features = ["default_fonts", "wgpu"]`. Enabling eframe's default glow/glutin path conflicted with the workspace's locked `glutin_wgl_sys` version.
+- This is not yet the full Phase 10 MVP. Pending work includes a checkbox/toggle param in the example, richer drag/wheel/keyboard translation, resize-settled routing if needed, repaint on background publish, and manual runtime validation of the native example.
 - Progress commit hashes: `cdc4ee5d`, `b01ee84e`, `67eb684d`
 
 Phase 10 partial validation, 2026-06-19:
@@ -1078,6 +1081,8 @@ Phase 10 partial validation, 2026-06-19:
 - `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests.
 - `cargo check -p avenger-egui`: passed after adding offscreen texture registration.
 - `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests, after adding offscreen texture registration.
+- `cargo check -p avenger-egui --features eframe --example basic_chart`: passed.
+- `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests, after adding the app rebuild hook and example.
 - `cargo tree -i wgpu --workspace`: reports a single `wgpu v27.0.1`, including `egui-wgpu v0.33.3`.
 
 Implementation note:

@@ -17,10 +17,17 @@ avenger-wgpu = { path = "../avenger-wgpu" }
 
 egui = { workspace = true }
 egui-wgpu = { workspace = true }
-eframe = { version = "0.33.3", optional = true, default-features = false, features = ["wgpu"] }
+eframe = { version = "0.33.3", optional = true, default-features = false, features = [
+    "default_fonts",
+    "wgpu",
+] }
 datafusion = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
 avenger-chart = { path = "../avenger-chart" }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+
+[[example]]
+name = "basic_chart"
+required-features = ["eframe"]

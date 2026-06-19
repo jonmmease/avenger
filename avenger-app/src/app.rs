@@ -175,4 +175,33 @@ where
     pub fn scene_graph(&self) -> &SceneGraph {
         &self.scene_graph
     }
+
+    pub fn scene_graph_arc(&self) -> Arc<SceneGraph> {
+        self.scene_graph.clone()
+    }
+
+    pub async fn rebuild_scene_graph(
+        &mut self,
+        rebuild_geometry: bool,
+    ) -> Result<Arc<SceneGraph>, AvengerAppError> {
+        let scene_graph = match self
+            .scene_graph_builder
+            .build(self.event_stream_manager.state_mut())
+            .await
+        {
+            Ok(scene_graph) => scene_graph,
+            Err(e) => {
+                eprintln!("Failed to build scene graph: {e:?}");
+                return Err(AvengerAppError::InternalError(
+                    "Failed to build scene graph".to_string(),
+                ));
+            }
+        };
+
+        self.scene_graph = Arc::new(scene_graph);
+        if rebuild_geometry {
+            self.rtree = SceneGraphRTree::from_scene_graph(&self.scene_graph);
+        }
+        Ok(self.scene_graph.clone())
+    }
 }

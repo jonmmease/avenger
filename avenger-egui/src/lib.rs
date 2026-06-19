@@ -126,6 +126,22 @@ impl AvengerPlotHandle {
         Ok(updates)
     }
 
+    pub async fn current_scene_graph(&self) -> Option<Arc<SceneGraph>> {
+        let app = self.app.as_ref()?;
+        Some(app.lock().await.scene_graph_arc())
+    }
+
+    pub async fn rebuild_scene_graph(
+        &self,
+        rebuild_geometry: bool,
+    ) -> Result<Option<Arc<SceneGraph>>, AvengerAppError> {
+        let Some(app) = &self.app else {
+            return Ok(None);
+        };
+        let mut app = app.lock().await;
+        app.rebuild_scene_graph(rebuild_geometry).await.map(Some)
+    }
+
     pub fn render_scene_to_texture(
         &self,
         render_state: &egui_wgpu::RenderState,
