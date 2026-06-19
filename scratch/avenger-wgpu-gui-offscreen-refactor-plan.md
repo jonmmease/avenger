@@ -466,9 +466,9 @@ Phase 3 validation results, 2026-06-19:
 
 Commit:
 
-- [ ] Commit Phase 3.
+- [x] Commit Phase 3.
 - Suggested message: `refactor(wgpu): encode marks into provided command encoders`
-- Commit hash: TBD
+- Commit hash: `b58fa971`
 
 ## Phase 4 - Add Offscreen Render Targets and Pooling
 
@@ -476,24 +476,31 @@ Purpose: make the GUI texture route first-class.
 
 Tasks:
 
-- [ ] Create `avenger-wgpu/src/offscreen.rs`.
-- [ ] Add `OffscreenTarget`.
-- [ ] Add `OffscreenTargetDescriptor`.
-- [ ] Add `OffscreenTarget::new`.
-- [ ] Add `OffscreenTarget::resize_or_recreate`.
-- [ ] Add `OffscreenTargetPool`.
-- [ ] Support double buffering.
-- [ ] Support optional triple buffering for background render plus GUI sampling.
-- [ ] Track texture generation IDs.
-- [ ] Track size, scale, format, and sample count.
-- [ ] Use texture usages:
+- [x] Create `avenger-wgpu/src/offscreen.rs`.
+- [x] Add `OffscreenTarget`.
+- [x] Add `OffscreenTargetDescriptor`.
+- [x] Add `OffscreenTarget::new`.
+- [x] Add `OffscreenTarget::resize_or_recreate`.
+- [x] Add `OffscreenTargetPool`.
+- [x] Support double buffering.
+- [x] Support optional triple buffering for background render plus GUI sampling.
+- [x] Track texture generation IDs.
+- [x] Track size, scale, format, sample count, and usage.
+- [x] Use texture usages:
   - `RENDER_ATTACHMENT`
   - `TEXTURE_BINDING`
   - `COPY_SRC`
-- [ ] Add a renderer convenience method:
+- [x] Add renderer convenience methods:
 
 ```rust
-pub fn render_to_offscreen(
+fn encode_to_offscreen_commands(
+    &mut self,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    target: &mut OffscreenTarget,
+) -> Result<Vec<wgpu::CommandBuffer>, AvengerWgpuError>;
+
+fn render_to_offscreen(
     &mut self,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -501,18 +508,41 @@ pub fn render_to_offscreen(
 ) -> Result<RenderedOffscreenFrame, AvengerWgpuError>;
 ```
 
-- [ ] Ensure offscreen render does not submit implicitly unless the method name says it does.
-- [ ] Provide both low-level encode and high-level submit helpers if needed.
-- [ ] Implement `OffscreenTargetPool` in `avenger-wgpu`.
-- [ ] Let `avenger-egui` own an `OffscreenTargetPool` instance for each plot handle/widget because egui owns the WGPU device/queue and texture registration lifecycle.
-- [ ] Document this ownership decision in this file and in Phase 13 architecture docs.
+- [x] Ensure offscreen render does not submit implicitly unless the method name says it does.
+- [x] Provide both low-level encode and high-level submit helpers if needed.
+- [x] Implement `OffscreenTargetPool` in `avenger-wgpu`.
+- [x] Document that `avenger-egui` should own an `OffscreenTargetPool` instance for each plot handle/widget because egui owns the WGPU device/queue and texture registration lifecycle.
+- [ ] Document this ownership decision in Phase 13 architecture docs.
+
+Phase 4 notes, 2026-06-19:
+
+- Added public `avenger_wgpu::offscreen` types for target allocation and pooling.
+- `OffscreenTargetDescriptor::new` defaults usage to `RENDER_ATTACHMENT | TEXTURE_BINDING | COPY_SRC`, matching the GUI texture path and the optional readback/debug path.
+- `OffscreenTarget::resize_or_recreate` recreates when physical extent, format, sample count, usage, or scale changes.
+- `OffscreenTargetPool` supports arbitrary pool sizes plus `double_buffered` and `triple_buffered` constructors. It hands out targets round-robin with monotonically increasing generation IDs on allocation/recreation.
+- Added `RenderedOffscreenFrame` metadata so later frame-publishing code can carry generation, extent, format, and sample count without exposing texture ownership details.
+- Added internal `AvengerRendererCore::build_frame_commands`, `encode_to_offscreen_commands`, and `render_to_offscreen` helpers. The low-level encode helper returns command buffers without submitting; the method named `render_to_offscreen` submits to the queue.
+- These renderer helpers remain `pub(crate)` in this phase because the public renderer facade is not established yet. Phase 5/6 should introduce or expose the public `AvengerWgpuRenderer` boundary after `PngCanvas` and `WindowCanvas` are rebuilt on the core/offscreen path.
+- The future `avenger-egui` crate should own one `OffscreenTargetPool` per plot handle/widget. That crate will receive egui-wgpu's device/queue/renderer context, register the latest target with egui, and repaint the most recent completed generation.
 
 Validation:
 
 ```bash
 cargo fmt --all
+cargo check -p avenger-wgpu
+cargo test -p avenger-wgpu --lib
 cargo test -p avenger-wgpu
 ```
+
+Phase 4 validation results, 2026-06-19:
+
+- `cargo fmt --all`: passed.
+- `cargo check -p avenger-wgpu`: passed.
+- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+  - `case_090` / `residuals_colorscale`, diff `0.026578`,
+  - `case_119` / `geoScale`, diff `0.016531`,
+  - `case_120` / `maptile_background`, diff `0.012998`.
 
 Commit:
 

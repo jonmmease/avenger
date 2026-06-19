@@ -18,7 +18,9 @@ use crate::{
         multi::{MultiMarkRenderResources, MultiMarkRenderer},
         text::TextAtlasBuilderTrait,
     },
-    target::AvengerRenderTarget,
+    offscreen::{OffscreenTarget, RenderedOffscreenFrame},
+    target::{AvengerRenderTarget, WHITE_CLEAR},
+    zindex_layers::compute_zindex_layers,
 };
 
 #[derive(Clone)]
@@ -180,6 +182,134 @@ impl AvengerRendererCore {
             });
         }
         background_encoder.finish()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn build_frame_commands(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        target: AvengerRenderTarget<'_>,
+        overlay: Option<CanvasFrameOverlay>,
+    ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
+        debug_assert_eq!(target.format, self.texture_format);
+        debug_assert_eq!(target.sample_count, self.sample_count);
+
+        self.commit_all_multi_renderers();
+        let marks = self.marks.clone();
+        let zindices: Vec<i32> = marks.iter().map(|m| m.zindex).collect();
+        let layers = if zindices.is_empty() {
+            vec![]
+        } else {
+            compute_zindex_layers(zindices)
+        };
+
+        let background_command = self.make_background_command(device, target);
+        let mut commands = vec![background_command];
+
+        let multi_render_resources = self.multi_render_resources.clone();
+        let text_bind_groups = self.build_text_bind_groups(device, queue);
+        let prepared =
+            self.shared_multi
+                .prepare(device, queue, target.extent, &multi_render_resources);
+
+        let mut mark_encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Avenger Mark Render Encoder"),
+        });
+        let mut encoded_marks = false;
+        let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
+        for (min_z, max_z) in layers {
+            for mark in &marks {
+                if mark.zindex >= min_z && mark.zindex <= max_z {
+                    match &mark.renderer {
+                        MarkRenderer::Multi { batch_range } => pending.push(batch_range.clone()),
+                        MarkRenderer::Instanced {
+                            renderer,
+                            x_adjustment,
+                            y_adjustment,
+                        } => {
+                            if !pending.is_empty() {
+                                self.shared_multi.encode_multi_ranges_into(
+                                    &mut mark_encoder,
+                                    target.extent,
+                                    target.view,
+                                    target.resolve_target,
+                                    &multi_render_resources,
+                                    &text_bind_groups,
+                                    &prepared,
+                                    &pending,
+                                );
+                                pending.clear();
+                            }
+                            renderer.encode_into(
+                                device,
+                                &mut mark_encoder,
+                                target.view,
+                                target.resolve_target,
+                                *x_adjustment,
+                                *y_adjustment,
+                            );
+                            encoded_marks = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !pending.is_empty() {
+            self.shared_multi.encode_multi_ranges_into(
+                &mut mark_encoder,
+                target.extent,
+                target.view,
+                target.resolve_target,
+                &multi_render_resources,
+                &text_bind_groups,
+                &prepared,
+                &pending,
+            );
+            encoded_marks = true;
+        }
+
+        if encoded_marks {
+            commands.push(mark_encoder.finish());
+        }
+
+        if let Some(command) = self.make_frame_overlay_command(
+            device,
+            queue,
+            overlay,
+            target.extent,
+            target.view,
+            target.resolve_target,
+            &text_bind_groups,
+        )? {
+            commands.push(command);
+        }
+
+        Ok(commands)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn encode_to_offscreen_commands(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        target: &mut OffscreenTarget,
+    ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
+        let render_target = target.render_target(WHITE_CLEAR);
+        self.build_frame_commands(device, queue, render_target, None)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn render_to_offscreen(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        target: &mut OffscreenTarget,
+    ) -> Result<RenderedOffscreenFrame, AvengerWgpuError> {
+        let commands = self.encode_to_offscreen_commands(device, queue, target)?;
+        queue.submit(commands);
+        Ok(RenderedOffscreenFrame::from(&*target))
     }
 
     pub(crate) fn set_current_zindex(&mut self, zindex: i32) {
