@@ -1062,7 +1062,8 @@ Phase 10 progress notes, 2026-06-19:
 - Added `Plot::new(&handle).show(ui)` as the primary widget-shaped API.
 - Added `PlotOutput` with `egui::Response`, param-change helpers, reserved empty `selection_changes`, lightweight placeholder `FrameStatus`, and translated Avenger `WindowEvent`s.
 - Added `EguiEventTranslator` with widget-local coordinate conversion, cursor enter/leave/move, simple click input, and widget resize to `CanvasResize`.
-- This is not yet the full Phase 10 MVP. Pending work includes dispatching translated events through `AvengerApp`, richer drag/wheel/keyboard translation, egui-wgpu texture registration, offscreen rendering/painting, repaint scheduling, and a runnable `basic_chart` example.
+- Added a nonblocking event queue on `AvengerPlotHandle`. `Plot::show(ui)` queues translated events without awaiting app updates, and `dispatch_pending_events().await` can route them through an owned `AvengerApp::update_with_status` outside the egui paint path.
+- This is not yet the full Phase 10 MVP. Pending work includes wiring an owned `AvengerApp` into the example/runtime path, richer drag/wheel/keyboard translation, egui-wgpu texture registration, offscreen rendering/painting, repaint scheduling, and a runnable `basic_chart` example.
 - Progress commit hash: `cdc4ee5d`
 
 Phase 10 partial validation, 2026-06-19:
@@ -1071,8 +1072,8 @@ Phase 10 partial validation, 2026-06-19:
 - `cargo check -p avenger-wgpu`: passed after adding the public renderer facade.
 - `cargo test -p avenger-wgpu --lib`: passed, 33 tests.
 - `cargo check -p avenger-egui`: passed.
-- `cargo test -p avenger-egui --lib`: passed, 3 tests.
-- `cargo test -p avenger-egui`: passed, 3 tests plus doc-tests.
+- `cargo test -p avenger-egui --lib`: passed, 6 tests.
+- `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests.
 - `cargo tree -i wgpu --workspace`: reports a single `wgpu v27.0.1`, including `egui-wgpu v0.33.3`.
 
 Implementation note:

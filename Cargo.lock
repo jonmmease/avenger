@@ -900,6 +900,7 @@ name = "avenger-egui"
 version = "0.1.0"
 dependencies = [
  "avenger-app",
+ "avenger-chart",
  "avenger-chart-app",
  "avenger-common",
  "avenger-eventstream",

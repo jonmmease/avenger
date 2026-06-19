@@ -1,28 +1,49 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex as StdMutex};
 
+use avenger_app::{
+    app::{AppUpdate, AvengerApp},
+    error::AvengerAppError,
+};
 use avenger_chart_app::{
     ChartAppState, IntoChartParamValue, ParamChange, ParamSetResult, ParamSnapshot,
 };
+use avenger_common::time::Instant;
 use avenger_eventstream::window::{
     CanvasResizeEvent, ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput,
 };
 use datafusion::scalar::ScalarValue;
+use tokio::sync::Mutex as AsyncMutex;
 
 pub use egui;
 
 #[derive(Clone)]
 pub struct AvengerPlotHandle {
     state: ChartAppState,
-    observed: Arc<Mutex<ObservedState>>,
-    event_translator: Arc<Mutex<EguiEventTranslator>>,
+    app: Option<Arc<AsyncMutex<AvengerApp<ChartAppState>>>>,
+    observed: Arc<StdMutex<ObservedState>>,
+    event_translator: Arc<StdMutex<EguiEventTranslator>>,
+    pending_events: Arc<StdMutex<Vec<WindowEvent>>>,
 }
 
 impl AvengerPlotHandle {
     pub fn new(state: ChartAppState) -> Self {
         Self {
             state,
-            observed: Arc::new(Mutex::new(ObservedState::default())),
-            event_translator: Arc::new(Mutex::new(EguiEventTranslator::default())),
+            app: None,
+            observed: Arc::new(StdMutex::new(ObservedState::default())),
+            event_translator: Arc::new(StdMutex::new(EguiEventTranslator::default())),
+            pending_events: Arc::new(StdMutex::new(Vec::new())),
+        }
+    }
+
+    pub fn from_app(mut app: AvengerApp<ChartAppState>) -> Self {
+        let state = app.app_state_mut().clone();
+        Self {
+            state,
+            app: Some(Arc::new(AsyncMutex::new(app))),
+            observed: Arc::new(StdMutex::new(ObservedState::default())),
+            event_translator: Arc::new(StdMutex::new(EguiEventTranslator::default())),
+            pending_events: Arc::new(StdMutex::new(Vec::new())),
         }
     }
 
@@ -56,6 +77,43 @@ impl AvengerPlotHandle {
 
     pub fn param_bool(&self, name: &str) -> Option<bool> {
         self.state.param_bool(name)
+    }
+
+    pub fn queue_events(&self, events: impl IntoIterator<Item = WindowEvent>) {
+        self.pending_events
+            .lock()
+            .expect("avenger egui pending-event lock poisoned")
+            .extend(events);
+    }
+
+    pub fn take_pending_events(&self) -> Vec<WindowEvent> {
+        std::mem::take(
+            &mut *self
+                .pending_events
+                .lock()
+                .expect("avenger egui pending-event lock poisoned"),
+        )
+    }
+
+    pub fn pending_event_count(&self) -> usize {
+        self.pending_events
+            .lock()
+            .expect("avenger egui pending-event lock poisoned")
+            .len()
+    }
+
+    pub async fn dispatch_pending_events(&self) -> Result<Vec<AppUpdate>, AvengerAppError> {
+        let events = self.take_pending_events();
+        let Some(app) = &self.app else {
+            return Ok(Vec::new());
+        };
+
+        let mut updates = Vec::with_capacity(events.len());
+        let mut app = app.lock().await;
+        for event in events {
+            updates.push(app.update_with_status(&event, Instant::now()).await?);
+        }
+        Ok(updates)
     }
 
     fn param_changes_since_last_show(&self) -> Vec<ParamChange> {
@@ -117,6 +175,7 @@ impl<'a> Plot<'a> {
                 .expect("avenger egui event-translator lock poisoned")
                 .translate_frame(rect, &response, input)
         });
+        self.handle.queue_events(events.iter().cloned());
         let param_changes = self.handle.param_changes_since_last_show();
         let selection_changes = Vec::new();
         if !param_changes.is_empty() || !selection_changes.is_empty() {
@@ -269,7 +328,30 @@ pub fn scalar_f64(value: f64) -> ScalarValue {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use avenger_chart::prelude as chart;
+    use avenger_chart_app::ChartAppOptions;
+    use datafusion::prelude::SessionContext;
+
     use super::*;
+
+    async fn test_handle() -> AvengerPlotHandle {
+        let ctx = SessionContext::new();
+        let width = chart::Param::new("width", scalar_f64(640.0));
+        let compiled = chart::Plot::<chart::Cartesian>::new()
+            .add_param(width)
+            .compile(&ctx)
+            .await
+            .expect("compile egui test plot");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        AvengerPlotHandle::new(ChartAppState::new(
+            session,
+            policy,
+            ChartAppOptions::default(),
+        ))
+    }
 
     fn response_for_size(size: egui::Vec2) -> egui::Response {
         let ctx = egui::Context::default();
@@ -289,6 +371,61 @@ mod tests {
         let rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(300.0, 200.0));
 
         assert_eq!(local_position(rect, egui::pos2(35.0, 70.0)), [25.0, 50.0]);
+    }
+
+    #[tokio::test]
+    async fn handle_queues_and_takes_pending_events() {
+        let handle = test_handle().await;
+        let event = WindowEvent::CanvasResize(CanvasResizeEvent {
+            size: [300.0, 200.0],
+        });
+
+        handle.queue_events([event.clone()]);
+
+        assert_eq!(handle.pending_event_count(), 1);
+        assert_eq!(handle.take_pending_events(), vec![event]);
+        assert_eq!(handle.pending_event_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_without_owned_app_drains_events_without_updates() {
+        let handle = test_handle().await;
+        handle.queue_events([WindowEvent::CanvasResize(CanvasResizeEvent {
+            size: [300.0, 200.0],
+        })]);
+
+        let updates = handle
+            .dispatch_pending_events()
+            .await
+            .expect("dispatch without owned app");
+
+        assert!(updates.is_empty());
+        assert_eq!(handle.pending_event_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn plot_show_queues_translated_resize_events() {
+        let handle = test_handle().await;
+        let ctx = egui::Context::default();
+        let mut output_events = Vec::new();
+
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default()
+                .show(ctx, |ui| {
+                    output_events = Plot::new(&handle)
+                        .desired_size(egui::vec2(320.0, 240.0))
+                        .show(ui)
+                        .events;
+                })
+                .inner;
+        });
+
+        assert!(
+            output_events
+                .iter()
+                .any(|event| matches!(event, WindowEvent::CanvasResize(_)))
+        );
+        assert_eq!(handle.pending_event_count(), output_events.len());
     }
 
     #[test]

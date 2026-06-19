@@ -19,6 +19,8 @@ egui = { workspace = true }
 egui-wgpu = { workspace = true }
 eframe = { version = "0.33.3", optional = true, default-features = false, features = ["wgpu"] }
 datafusion = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
+avenger-chart = { path = "../avenger-chart" }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
