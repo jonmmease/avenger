@@ -1069,7 +1069,7 @@ Phase 10 progress notes, 2026-06-19:
 - Added a `basic_chart` eframe example that uses a normal egui slider to call `set_param("point_size", value)`, rebuilds the scene, renders it into an egui-registered offscreen texture, displays the plot widget, dispatches queued plot events through `AvengerApp`, and requests repaint while dragging.
 - The example uses eframe's WGPU path with `default-features = false` and `features = ["default_fonts", "wgpu"]`. Enabling eframe's default glow/glutin path conflicted with the workspace's locked `glutin_wgl_sys` version.
 - This is not yet the full Phase 10 MVP. Pending work includes a checkbox/toggle param in the example, richer drag/wheel/keyboard translation, resize-settled routing if needed, repaint on background publish, and manual runtime validation of the native example.
-- Progress commit hashes: `cdc4ee5d`, `b01ee84e`, `67eb684d`
+- Progress commit hashes: `cdc4ee5d`, `b01ee84e`, `67eb684d`, `07dafe63`
 
 Phase 10 partial validation, 2026-06-19:
 
