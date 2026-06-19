@@ -670,6 +670,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn axis_overlay_store_child_data_replaces_parent_data() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let parent_data = ctx.sql("SELECT 80.0 AS speed").await?;
+        let store_batch = ctx
+            .sql("SELECT 25.0 AS speed")
+            .await?
+            .collect()
+            .await?
+            .into_iter()
+            .next()
+            .expect("store batch");
+        let overlay = ParallelAxisOverlay::new(
+            "speed",
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .data_store(StoreData::new("axis_overlay_rows"))
+                    .x(lit(0.0))
+                    .x2(lit(1.0))
+                    .y(col("speed"))
+                    .y2(lit(0.0)),
+            ),
+        )
+        .width_px(40.0);
+        let compiled = Plot::with_coord(parallel_for_overlay_test())
+            .canvas_size(220.0, 160.0)
+            .plot_size(120.0, 100.0)
+            .data(parent_data)
+            .add_store(Store::from_record_batch("axis_overlay_rows", store_batch))
+            .mark(overlay)
+            .compile(&ctx)
+            .await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let overlay_group =
+            find_group_by_prefix(&evaluated.scene_graph.marks, "parallel_axis_overlay_")
+                .expect("overlay group should render");
+        let rect = first_rect_mark(&overlay_group.marks).expect("store child rect should render");
+
+        assert_close(rect.y_vec()[0], 75.0);
+        assert_close(first_rect_y2(rect), 100.0);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn axis_overlay_and_parallel_line_keep_authored_zindex() -> Result<(), AvengerChartError>
     {
         let ctx = SessionContext::new();
