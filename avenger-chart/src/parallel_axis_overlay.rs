@@ -289,6 +289,16 @@ pub(crate) async fn render_parallel_axis_overlay_with_context(
         .await?;
 
         let group_index = marks.len();
+        let child_scopes = std::mem::take(&mut components.interaction_scopes);
+        if !child_scopes.is_empty() {
+            let translated = child_scopes.into_iter().map(|mut scope| {
+                scope.bounds.x += child.origin[0];
+                scope.bounds.y += child.origin[1];
+                scope.prepend_subplot_id(overlay.state().id.as_deref());
+                scope
+            });
+            context.eval.push_interaction_scopes(translated);
+        }
         let child_event_datums = std::mem::take(&mut components.event_datums);
         if !child_event_datums.is_empty() {
             let translated = child_event_datums.into_iter().map(|mut rows| {
@@ -774,6 +784,57 @@ mod tests {
             .collect::<Vec<_>>();
         y_values.sort_by(|a, b| a.total_cmp(b));
         assert_eq!(y_values, vec![25.0, 75.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn axis_overlay_child_event_inversion_uses_injected_y_scale()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let data = ctx.sql("SELECT 50.0 AS speed").await?;
+        let overlay = ParallelAxisOverlay::new(
+            "speed",
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .x(lit(0.0))
+                    .x2(lit(1.0))
+                    .y(lit(25.0))
+                    .y2(lit(75.0)),
+            ),
+        )
+        .id("speed_overlay")
+        .width_px(40.0);
+        let compiled = Plot::with_coord(parallel_for_overlay_test())
+            .canvas_size(220.0, 160.0)
+            .plot_size(120.0, 100.0)
+            .data(data)
+            .mark(overlay)
+            .compile(&ctx)
+            .await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let scope = evaluated
+            .interaction
+            .scopes
+            .iter()
+            .find(|scope| {
+                scope.channels == vec!["x".to_string(), "y".to_string()]
+                    && scope.subplot_id_path == vec!["speed_overlay".to_string()]
+            })
+            .expect("axis overlay child Cartesian interaction scope");
+
+        let inverted = scope.coord_transform.invert_interaction_point(
+            avenger_chart_core::InteractionPointInversionRequest {
+                local_point: [20.0, 75.0],
+                plot_area_width: scope.plot_area_width,
+                plot_area_height: scope.plot_area_height,
+                channels: &["y"],
+                scales: &scope.scales,
+            },
+        )?;
+        match inverted.get("y") {
+            Some(ScalarValue::Float64(Some(value))) => assert!((value - 25.0).abs() < 1e-6),
+            other => panic!("expected injected y scale to invert 75px to speed=25, got {other:?}"),
+        }
         Ok(())
     }
 
