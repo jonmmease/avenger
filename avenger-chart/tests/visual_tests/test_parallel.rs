@@ -190,44 +190,81 @@ fn facet_parallel_data(ctx: &SessionContext) -> datafusion::dataframe::DataFrame
     ctx.read_batch(batch).expect("facet parallel dataframe")
 }
 
+fn numeric_parallel_coord() -> Parallel {
+    Parallel::new()
+        .dimension_with("speed", |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", |d| d.axis(|a| a.title("Efficiency")))
+        .dimension_with("stability", |d| d.axis(|a| a.title("Stability")))
+        .dimension_with("cost", |d| d.axis(|a| a.title("Cost")))
+}
+
+fn numeric_parallel_line() -> ParallelLine {
+    ParallelLine::new()
+        .dimension("speed", col("speed"))
+        .dimension("efficiency", col("efficiency"))
+        .dimension("stability", col("stability"))
+        .dimension("cost", col("cost"))
+}
+
+fn numeric_parallel_symbol() -> ParallelSymbol {
+    ParallelSymbol::new()
+        .dimension("speed", col("speed"))
+        .dimension("efficiency", col("efficiency"))
+        .dimension("stability", col("stability"))
+        .dimension("cost", col("cost"))
+}
+
+fn mixed_parallel_coord() -> Parallel {
+    Parallel::new()
+        .dimension_with("latency", |d| d.axis(|a| a.title("Latency")))
+        .dimension_with("tier", |d| d.axis(|a| a.title("Tier")))
+        .dimension_with("quality", |d| d.axis(|a| a.title("Quality")))
+}
+
+fn mixed_parallel_line() -> ParallelLine {
+    ParallelLine::new()
+        .dimension("latency", col("latency"))
+        .dimension_with("tier", col("tier"), |d| d.scale_with::<Point>(|s| s))
+        .dimension("quality", col("quality"))
+}
+
+fn mixed_parallel_symbol() -> ParallelSymbol {
+    ParallelSymbol::new()
+        .dimension("latency", col("latency"))
+        .dimension_with("tier", col("tier"), |d| d.scale_with::<Point>(|s| s))
+        .dimension("quality", col("quality"))
+}
+
 fn facet_parallel_child(free_domains: bool) -> Plot<Parallel> {
     let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| {
-            let d = d.scale_with::<Linear>(|s| s).axis(|a| a.title("Speed"));
-            if free_domains {
-                d.free_domain()
-            } else {
-                d.share_domain()
-            }
-        })
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            let d = d
-                .scale_with::<Linear>(|s| s)
-                .axis(|a| a.title("Efficiency"));
-            if free_domains {
-                d.free_domain()
-            } else {
-                d.share_domain()
-            }
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            let d = d.scale_with::<Linear>(|s| s).axis(|a| a.title("Stability"));
-            if free_domains {
-                d.free_domain()
-            } else {
-                d.share_domain()
-            }
-        });
+        .dimension_with("speed", |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", |d| d.axis(|a| a.title("Efficiency")))
+        .dimension_with("stability", |d| d.axis(|a| a.title("Stability")));
+
+    let configure_domain = |d: ParallelDimensionConfig| {
+        let d = d.scale_with::<Linear>(|s| s);
+        if free_domains {
+            d.free_domain()
+        } else {
+            d.share_domain()
+        }
+    };
 
     Plot::with_coord(coord)
         .mark(
             ParallelLine::new()
+                .dimension_with("speed", col("speed"), configure_domain)
+                .dimension_with("efficiency", col("efficiency"), configure_domain)
+                .dimension_with("stability", col("stability"), configure_domain)
                 .stroke("#64748b")
                 .stroke_width(1.4)
                 .opacity(0.42),
         )
         .mark(
             ParallelSymbol::new()
+                .dimension("speed", col("speed"))
+                .dimension("efficiency", col("efficiency"))
+                .dimension("stability", col("stability"))
                 .fill_with(col("team"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.75)
@@ -238,20 +275,22 @@ fn facet_parallel_child(free_domains: bool) -> Plot<Parallel> {
 
 fn repeat_parallel_cell() -> Plot<Parallel> {
     let coord = Parallel::new()
-        .dimension_with("metric", repeat::column(), |d| {
-            d.axis(|a| a.title(repeat::column_title()))
-        })
-        .dimension_with("stability", col("stability"), |d| d.axis(|a| a.title("S")));
+        .dimension_with("metric", |d| d.axis(|a| a.title(repeat::column_title())))
+        .dimension_with("stability", |d| d.axis(|a| a.title("S")));
 
     Plot::with_coord(coord)
         .mark(
             ParallelLine::new()
+                .dimension("metric", repeat::column())
+                .dimension("stability", col("stability"))
                 .stroke_with(col("group"), |stroke| stroke.no_legend())
                 .stroke_width(1.5)
                 .opacity(0.42),
         )
         .mark(
             ParallelSymbol::new()
+                .dimension("metric", repeat::column())
+                .dimension("stability", col("stability"))
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.75)
@@ -263,28 +302,20 @@ fn repeat_parallel_cell() -> Plot<Parallel> {
 #[tokio::test]
 async fn parallel_points_overlay() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let plot = Plot::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#94a3b8")
                 .stroke_width(1.3)
                 .opacity(0.45),
         )
         .mark(
-            ParallelSymbol::new()
+            numeric_parallel_symbol()
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.8)
@@ -299,28 +330,20 @@ async fn parallel_points_overlay() {
 #[tokio::test]
 async fn parallel_missing_values() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let plot = Plot::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(missing_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke_with(col("group"), |stroke| stroke.no_legend())
                 .stroke_width(2.0)
                 .opacity(0.65),
         )
         .mark(
-            ParallelSymbol::new()
+            numeric_parallel_symbol()
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.8)
@@ -338,18 +361,14 @@ async fn parallel_missing_values() {
 #[tokio::test]
 async fn parallel_numeric_basic() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension("speed", col("speed"))
-        .dimension("efficiency", col("efficiency"))
-        .dimension("stability", col("stability"))
-        .dimension("cost", col("cost"));
+    let coord = Parallel::new();
 
     let plot = Plot::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#64748b")
                 .stroke_width(1.45)
                 .opacity(0.46),
@@ -365,22 +384,14 @@ async fn parallel_numeric_basic() {
 #[tokio::test]
 async fn parallel_color_by_category() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let plot = Plot::with_coord(coord)
         .canvas_size(720.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke_with(col("group"), |stroke| {
                     stroke.legend(|legend| legend.title("Group"))
                 })
@@ -406,31 +417,27 @@ async fn parallel_color_by_category() {
 async fn parallel_numeric_axes() {
     let ctx = SessionContext::new();
     let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| {
-            d.axis(|a| a.title("Speed").tick_count(6.0))
-        })
-        .dimension_with("efficiency", col("efficiency"), |d| {
+        .dimension_with("speed", |d| d.axis(|a| a.title("Speed").tick_count(6.0)))
+        .dimension_with("efficiency", |d| {
             d.axis(|a| a.title("Efficiency").tick_count(5.0))
         })
-        .dimension_with("stability", col("stability"), |d| {
+        .dimension_with("stability", |d| {
             d.axis(|a| a.title("Stability").tick_count(6.0))
         })
-        .dimension_with("cost", col("cost"), |d| {
-            d.axis(|a| a.title("Cost").tick_count(6.0))
-        });
+        .dimension_with("cost", |d| d.axis(|a| a.title("Cost").tick_count(6.0)));
 
     let plot = Plot::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#94a3b8")
                 .stroke_width(1.25)
                 .opacity(0.42),
         )
         .mark(
-            ParallelSymbol::new()
+            numeric_parallel_symbol()
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.75)
@@ -448,23 +455,14 @@ async fn parallel_numeric_axes() {
 #[tokio::test]
 async fn parallel_mixed_numeric_categorical() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("latency", col("latency"), |d| {
-            d.axis(|a| a.title("Latency"))
-        })
-        .dimension_with("tier", col("tier"), |d| {
-            d.scale_with::<Point>(|s| s).axis(|a| a.title("Tier"))
-        })
-        .dimension_with("quality", col("quality"), |d| {
-            d.axis(|a| a.title("Quality"))
-        });
+    let coord = mixed_parallel_coord();
 
     let plot = Plot::with_coord(coord)
         .canvas_size(560.0, 340.0)
         .plot_size(430.0, 205.0)
         .data(mixed_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            mixed_parallel_line()
                 .stroke_with(col("tier"), |stroke| stroke.no_legend())
                 .stroke_width(1.55)
                 .opacity(0.52),
@@ -488,25 +486,23 @@ async fn parallel_mixed_numeric_categorical() {
 async fn parallel_long_axis_labels() {
     let ctx = SessionContext::new();
     let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| {
+        .dimension_with("speed", |d| {
             d.axis(|a| a.title("Maximum observed operating speed"))
         })
-        .dimension_with("efficiency", col("efficiency"), |d| {
+        .dimension_with("efficiency", |d| {
             d.axis(|a| a.title("Energy conversion efficiency ratio"))
         })
-        .dimension_with("stability", col("stability"), |d| {
+        .dimension_with("stability", |d| {
             d.axis(|a| a.title("Long term stability score"))
         })
-        .dimension_with("cost", col("cost"), |d| {
-            d.axis(|a| a.title("Estimated lifecycle cost"))
-        });
+        .dimension_with("cost", |d| d.axis(|a| a.title("Estimated lifecycle cost")));
 
     let plot = Plot::with_coord(coord)
         .canvas_size(1120.0, 380.0)
         .plot_size(880.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#64748b")
                 .stroke_width(1.35)
                 .opacity(0.44),
@@ -530,29 +526,25 @@ async fn parallel_long_axis_labels() {
 async fn parallel_axis_grid_enabled() {
     let ctx = SessionContext::new();
     let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| {
+        .dimension_with("speed", |d| {
             d.axis(|a| a.title("Speed").grid(true).tick_count(6.0))
         })
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+        .dimension_with("efficiency", |d| d.axis(|a| a.title("Efficiency")))
+        .dimension_with("stability", |d| d.axis(|a| a.title("Stability")))
+        .dimension_with("cost", |d| d.axis(|a| a.title("Cost")));
 
     let plot = Plot::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#64748b")
                 .stroke_width(1.4)
                 .opacity(0.52),
         )
         .mark(
-            ParallelSymbol::new()
+            numeric_parallel_symbol()
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.8)
@@ -577,29 +569,20 @@ async fn parallel_axis_grid_enabled() {
 #[tokio::test]
 async fn parallel_points_categorical_axis() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("latency", col("latency"), |d| {
-            d.axis(|a| a.title("Latency"))
-        })
-        .dimension_with("tier", col("tier"), |d| {
-            d.scale_with::<Point>(|s| s).axis(|a| a.title("Tier"))
-        })
-        .dimension_with("quality", col("quality"), |d| {
-            d.axis(|a| a.title("Quality"))
-        });
+    let coord = mixed_parallel_coord();
 
     let plot = Plot::with_coord(coord)
         .canvas_size(560.0, 340.0)
         .plot_size(430.0, 205.0)
         .data(mixed_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            mixed_parallel_line()
                 .stroke_with(col("tier"), |stroke| stroke.no_legend())
                 .stroke_width(1.5)
                 .opacity(0.38),
         )
         .mark(
-            ParallelSymbol::new()
+            mixed_parallel_symbol()
                 .fill_with(col("tier"), |fill| fill.no_legend())
                 .stroke("#1f2937")
                 .stroke_width(0.75)
@@ -694,29 +677,20 @@ async fn parallel_repeat_small_multiples() {
 #[tokio::test]
 async fn parallel_static_reordered_axes() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")))
-        .order(["cost", "speed", "stability", "efficiency"]);
+    let coord = numeric_parallel_coord().order(["cost", "speed", "stability", "efficiency"]);
 
     let plot = Plot::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#64748b")
                 .stroke_width(1.35)
                 .opacity(0.42),
         )
         .mark(
-            ParallelSymbol::new()
+            numeric_parallel_symbol()
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.8)
@@ -741,16 +715,8 @@ async fn parallel_static_reordered_axes() {
 #[tokio::test]
 async fn parallel_displaced_axis_preview() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")))
-        .active_axis_display_params("drag_dimension", "drag_display_x");
+    let coord =
+        numeric_parallel_coord().active_axis_display_params("drag_dimension", "drag_display_x");
 
     let plot = Plot::with_coord(coord)
         .canvas_size(640.0, 360.0)
@@ -759,13 +725,13 @@ async fn parallel_displaced_axis_preview() {
         .add_param(Param::new("drag_display_x", ScalarValue::Float64(None)))
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#94a3b8")
                 .stroke_width(1.3)
                 .opacity(0.45),
         )
         .mark(
-            ParallelSymbol::new()
+            numeric_parallel_symbol()
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.8)
@@ -790,16 +756,8 @@ async fn parallel_displaced_axis_preview() {
 #[tokio::test]
 async fn parallel_axis_overlay_displaced_axis() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")))
-        .active_axis_display_params("drag_dimension", "drag_display_x");
+    let coord =
+        numeric_parallel_coord().active_axis_display_params("drag_dimension", "drag_display_x");
 
     let stability_overlay = ParallelAxisOverlay::new(
         "stability",
@@ -825,13 +783,13 @@ async fn parallel_axis_overlay_displaced_axis() {
         .data(numeric_parallel_data(&ctx))
         .mark(stability_overlay)
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#94a3b8")
                 .stroke_width(1.25)
                 .opacity(0.38),
         )
         .mark(
-            ParallelSymbol::new()
+            numeric_parallel_symbol()
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.8)
@@ -856,29 +814,21 @@ async fn parallel_axis_overlay_displaced_axis() {
 #[tokio::test]
 async fn parallel_selected_line_highlight() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let plot = Plot::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#cbd5e1")
                 .stroke_width(1.1)
                 .opacity(0.48)
                 .zindex(1),
         )
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .transform_no_output(Filter::new(col("id").eq(lit("a2"))), |mark| mark)
                 .stroke("#2563eb")
                 .stroke_width(3.0)
@@ -904,27 +854,25 @@ async fn parallel_selected_line_highlight() {
 async fn parallel_selected_axis_header() {
     let ctx = SessionContext::new();
     let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
+        .dimension_with("speed", |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", |d| d.axis(|a| a.title("Efficiency")))
+        .dimension_with("stability", |d| {
             d.axis(|a| a.title("Stability").title_color("#2563eb"))
         })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+        .dimension_with("cost", |d| d.axis(|a| a.title("Cost")));
 
     let plot = Plot::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#94a3b8")
                 .stroke_width(1.25)
                 .opacity(0.38),
         )
         .mark(
-            ParallelSymbol::new()
+            numeric_parallel_symbol()
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.75)
@@ -950,14 +898,12 @@ async fn parallel_selected_axis_header() {
 async fn parallel_reorder_drag_preview_state() {
     let ctx = SessionContext::new();
     let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
+        .dimension_with("speed", |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", |d| d.axis(|a| a.title("Efficiency")))
+        .dimension_with("stability", |d| {
             d.axis(|a| a.title("Stability").title_color("#2563eb"))
         })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")))
+        .dimension_with("cost", |d| d.axis(|a| a.title("Cost")))
         .active_axis_display_params("drag_dimension", "drag_display_x");
 
     let plot = Plot::with_coord(coord)
@@ -967,13 +913,13 @@ async fn parallel_reorder_drag_preview_state() {
         .add_param(Param::new("drag_display_x", ScalarValue::Float64(None)))
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#94a3b8")
                 .stroke_width(1.3)
                 .opacity(0.45),
         )
         .mark(
-            ParallelSymbol::new()
+            numeric_parallel_symbol()
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.8)
@@ -998,15 +944,7 @@ async fn parallel_reorder_drag_preview_state() {
 #[tokio::test]
 async fn parallel_axis_brush_intersection_selected_lines() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let speed_brush = ParallelAxisOverlay::new(
         "speed",
@@ -1056,14 +994,14 @@ async fn parallel_axis_brush_intersection_selected_lines() {
         .mark(speed_brush)
         .mark(stability_brush)
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#cbd5e1")
                 .stroke_width(1.05)
                 .opacity(0.42)
                 .zindex(1),
         )
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .transform_no_output(Filter::new(selected), |mark| mark)
                 .stroke_with(col("group"), |stroke| stroke.no_legend())
                 .stroke_width(2.8)
@@ -1088,15 +1026,7 @@ async fn parallel_axis_brush_intersection_selected_lines() {
 #[tokio::test]
 async fn parallel_axis_overlay_rect_basic() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let stability_overlay = ParallelAxisOverlay::new(
         "stability",
@@ -1117,6 +1047,7 @@ async fn parallel_axis_overlay_rect_basic() {
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
+        .mark(numeric_parallel_line().visible(false))
         .mark(stability_overlay);
 
     let compiled = plot
@@ -1136,15 +1067,7 @@ async fn parallel_axis_overlay_rect_basic() {
 #[tokio::test]
 async fn parallel_axis_overlay_rect_with_lines() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let speed_overlay = ParallelAxisOverlay::new(
         "speed",
@@ -1168,14 +1091,14 @@ async fn parallel_axis_overlay_rect_with_lines() {
         .data(numeric_parallel_data(&ctx))
         .mark(speed_overlay)
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke_with(col("group"), |stroke| stroke.no_legend())
                 .stroke_width(1.55)
                 .opacity(0.56)
                 .zindex(2),
         )
         .mark(
-            ParallelSymbol::new()
+            numeric_parallel_symbol()
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.75)
@@ -1201,15 +1124,7 @@ async fn parallel_axis_overlay_rect_with_lines() {
 #[tokio::test]
 async fn parallel_axis_overlay_symbols() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let efficiency_symbols = ParallelAxisOverlay::new(
         "efficiency",
@@ -1231,7 +1146,7 @@ async fn parallel_axis_overlay_symbols() {
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#94a3b8")
                 .stroke_width(1.2)
                 .opacity(0.34),
@@ -1255,18 +1170,7 @@ async fn parallel_axis_overlay_symbols() {
 #[tokio::test]
 async fn parallel_axis_overlay_reversed_scale() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| {
-            d.scale_with::<Linear>(|scale| scale.domain_interval(lit(64.0), lit(42.0)))
-                .axis(|a| a.title("Speed"))
-        })
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let speed_overlay = ParallelAxisOverlay::new(
         "speed",
@@ -1290,14 +1194,17 @@ async fn parallel_axis_overlay_reversed_scale() {
         .data(numeric_parallel_data(&ctx))
         .mark(speed_overlay)
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
+                .dimension_with("speed", col("speed"), |d| {
+                    d.scale_with::<Linear>(|scale| scale.domain_interval(lit(64.0), lit(42.0)))
+                })
                 .stroke_with(col("group"), |stroke| stroke.no_legend())
                 .stroke_width(1.55)
                 .opacity(0.56)
                 .zindex(2),
         )
         .mark(
-            ParallelSymbol::new()
+            numeric_parallel_symbol()
                 .fill_with(col("group"), |fill| fill.no_legend())
                 .stroke("#111827")
                 .stroke_width(0.75)
@@ -1323,15 +1230,7 @@ async fn parallel_axis_overlay_reversed_scale() {
 #[tokio::test]
 async fn parallel_axis_overlay_boxplot() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let speed_box = ParallelAxisOverlay::new(
         "speed",
@@ -1365,7 +1264,7 @@ async fn parallel_axis_overlay_boxplot() {
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#94a3b8")
                 .stroke_width(1.15)
                 .opacity(0.30),
@@ -1389,15 +1288,7 @@ async fn parallel_axis_overlay_boxplot() {
 #[tokio::test]
 async fn parallel_axis_overlay_violin() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let stability_violin = ParallelAxisOverlay::new(
         "stability",
@@ -1423,7 +1314,7 @@ async fn parallel_axis_overlay_violin() {
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#94a3b8")
                 .stroke_width(1.1)
                 .opacity(0.26),
@@ -1447,15 +1338,7 @@ async fn parallel_axis_overlay_violin() {
 #[tokio::test]
 async fn parallel_axis_overlay_violins_all_axes() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let violin_overlay = |dimension: &'static str,
                           bandwidth: f64,
@@ -1488,7 +1371,7 @@ async fn parallel_axis_overlay_violins_all_axes() {
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#64748b")
                 .stroke_width(1.05)
                 .opacity(0.20),
@@ -1543,15 +1426,7 @@ async fn parallel_axis_overlay_violins_all_axes() {
 #[tokio::test]
 async fn parallel_axis_overlay_grouped_boxplots() {
     let ctx = SessionContext::new();
-    let coord = Parallel::new()
-        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-        .dimension_with("efficiency", col("efficiency"), |d| {
-            d.axis(|a| a.title("Efficiency"))
-        })
-        .dimension_with("stability", col("stability"), |d| {
-            d.axis(|a| a.title("Stability"))
-        })
-        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+    let coord = numeric_parallel_coord();
 
     let cost_boxes = ParallelAxisOverlay::new(
         "cost",
@@ -1584,7 +1459,7 @@ async fn parallel_axis_overlay_grouped_boxplots() {
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
         .mark(
-            ParallelLine::new()
+            numeric_parallel_line()
                 .stroke("#94a3b8")
                 .stroke_width(1.1)
                 .opacity(0.28),

@@ -1,34 +1,34 @@
 # Parallel Coordinates
 
 Parallel coordinates are wide-form charts: each source row becomes one
-polyline, and each `Parallel::dimension(id, expr)` adds one vertical axis with
-its own scale.
+polyline, and each mark-owned `.dimension(id, expr)` binds data to a vertical
+axis with its own scale.
 
 ```rust
 use avenger_chart::prelude::*;
 use datafusion::prelude::{col, lit};
 
 let coord = Parallel::new()
-    .dimension_with("speed", col("speed"), |d| {
-        d.axis(|axis| axis.title("Speed"))
-    })
-    .dimension_with("efficiency", col("efficiency"), |d| {
-        d.axis(|axis| axis.title("Efficiency"))
-    })
-    .dimension_with("segment", col("segment"), |d| {
-        d.axis(|axis| axis.title("Segment"))
-    });
+    .dimension_with("speed", |d| d.axis(|axis| axis.title("Speed")))
+    .dimension_with("efficiency", |d| d.axis(|axis| axis.title("Efficiency")))
+    .dimension_with("segment", |d| d.axis(|axis| axis.title("Segment")));
 
 let plot = Plot::with_coord(coord)
     .data(df)
     .mark(
         ParallelLine::new()
+            .dimension("speed", col("speed"))
+            .dimension("efficiency", col("efficiency"))
+            .dimension("segment", col("segment"))
             .details(["sample_id"])
             .stroke(col("segment"))
             .opacity(0.5),
     )
     .mark(
         ParallelSymbol::new()
+            .dimension("speed", col("speed"))
+            .dimension("efficiency", col("efficiency"))
+            .dimension("segment", col("segment"))
             .fill(col("segment"))
             .size(24.0),
     );
@@ -37,14 +37,19 @@ let plot = Plot::with_coord(coord)
 ## Dimensions
 
 Dimension ids are stable structural ids. They are used as scale names, guide
-event datum values, axis-overlay targets, and order-state values. Repeat
-placeholders can appear in dimension expressions and axis expressions, but not
-in dimension ids.
+event datum values, axis-overlay targets, and order-state values.
+`ParallelLine::dimension(id, expr)`, `ParallelSymbol::dimension(id, expr)`, and
+future parallel marks own the expressions that feed each dimension scale.
+`Parallel::dimension_with(id, |d| ...)` configures a discovered dimension's
+frame/axis behavior by id.
+
+Repeat placeholders can appear in mark-owned dimension expressions and axis
+expressions, but not in dimension ids.
 
 Numeric dimensions infer linear scales. String dimensions infer point scales.
 Each dimension coordinates its own domain, so facets can share or free
 dimension domains independently using the normal channel configuration on
-`.dimension_with(...)`.
+mark-owned `.dimension_with(id, expr, |d| ...)`.
 
 ## Axis Overlays
 

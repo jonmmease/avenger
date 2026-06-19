@@ -14,7 +14,6 @@ pub mod configured_scale_legend;
 pub mod container_sharing;
 pub mod coord_measurement;
 pub mod coordinate_guide;
-pub mod coordinate_scale_source;
 pub mod coordinate_system;
 pub mod coordinate_transform;
 pub mod coordination_values;
@@ -115,7 +114,6 @@ pub use container_sharing::{
 };
 pub use coord_measurement::{CoordMeasurement, EmptyCoordMeasurement};
 pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};
-pub use coordinate_scale_source::{CompiledCoordinateScaleSource, CoordinateScaleSource};
 pub use coordinate_system::{CoordinateSystem, CoordinateSystemCore};
 pub use coordinate_transform::{
     CoordinateSystemTransform, CoordinateSystemTransformCore, GeneratedPositionSlot,

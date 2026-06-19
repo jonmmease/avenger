@@ -27,9 +27,10 @@ flowchart TD
     CompiledGuide --> Runtime
 ```
 
-`CoordinateSystemCore` declares required position channels. `CoordinateSystem`
-adds a guide type, creates a boxed `CoordinateSystemTransform`, and may provide
-non-rendered coordinate-owned scale sources.
+`CoordinateSystemCore` declares required position channels. It can also resolve
+open-ended frame configuration from mark states before the final coordinate
+transform is created. `CoordinateSystem` adds a guide type and creates a boxed
+`CoordinateSystemTransform`.
 
 `CoordinateSystemTransformCore` maps scaled position channels into
 `PlotGeometry`, provides default range bindings, and provides default scale
@@ -40,26 +41,24 @@ downcasting, and cloning.
 `CompiledGuide`. `CompiledGuide` measures guide overflow, renders guide marks,
 and returns a clip region.
 
-## Coordinate-Owned Scale Sources
+## Mark-Owned Open-Ended Dimensions
 
-Most Cartesian and Polar scales are discovered from rendered mark channels.
-Some coordinate systems own positional dimensions directly, so the scale
-pipeline also accepts coordinate-owned scale sources. A coordinate scale source
-is a non-rendered channel context contributed by the coordinate system. It can
-define generated channels, scale names, axis configs, range bindings, data
-scope, and domain-sharing metadata without creating scene marks or public mark
-targets.
+Most scales are discovered from rendered mark channels. Cartesian and Polar
+have fixed public position channels (`x`/`y`, `r`/`theta`). Parallel coordinates
+are open-ended instead: authors can introduce any number of dimension ids.
 
-Parallel coordinates use this path for one vertical scale per dimension. Each
-authored dimension has a stable dimension id, a generated internal channel, and
-a scale name equal to the dimension id. Parallel data marks request the
-generated scaled columns at render time, while event coordinate readback and
-axis guides expose the public dimension ids.
+Parallel keeps the same scale pipeline by making dimensions mark-owned.
+`ParallelLine::dimension(id, expr)` and `ParallelSymbol::dimension(id, expr)`
+insert hidden generated position channels whose scale names are the public
+dimension ids. The coordinate system then resolves its frame from the union of
+those mark channels before guide rendering, event coordinate readback, and
+axis overlays run.
 
-Coordinate-owned scale sources participate in facet domain coordination and
-repeat placeholder resolution the same way rendered mark channels do. They do
-not create legends; ordinary mark style channels such as stroke and fill still
-use the regular scale and legend pipeline.
+`Parallel::dimension_with(id, |d| ...)` configures frame/axis behavior for an
+already discovered dimension. It does not provide data and does not create a
+scale source. Scale type, domain, and sharing configuration belong on the
+mark-owned dimension channel, so facets and repeat cells use the same domain
+coordination machinery as ordinary rendered mark channels.
 
 ## Built-In Coordinate Crates
 
@@ -86,9 +85,9 @@ half the minimum plot-area dimension. Polar positioned subplots use `r` and
 `avenger-chart-parallel` owns `Parallel`, `ParallelAxis`, `ParallelGuide`,
 `ParallelLine`, `ParallelSymbol`, `ParallelAxisOverlay`, and parallel frame
 state. `Parallel` is a wide-form coordinate system: each source row is one
-polyline, and each `.dimension(id, expr)` owns an independent vertical scale.
-Numeric dimensions infer linear scales; categorical dimensions infer point
-scales. Axis positions are frame geometry, not data scale values.
+polyline, and parallel marks bind columns to dimension ids. Numeric dimensions
+infer linear scales; categorical dimensions infer point scales. Axis positions
+are frame geometry, not data scale values.
 
 Parallel axis overlays are coordinate-positioned child plots centered on a
 dimension axis. The child plot receives the selected dimension's y scale and a

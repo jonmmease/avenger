@@ -2,9 +2,9 @@ use std::{marker::PhantomData, sync::Arc};
 
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
-    CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
-    Mark, MarkRuntimeContext, RenderedMarkData, apply_opacity_to_color,
-    coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
+    CompiledMarkState, CoordinateSystemTransformCore, IntoExpr, LegendRendererKind,
+    LegendRendererSelection, Mark, MarkRuntimeContext, PositionConfig, RenderedMarkData,
+    apply_opacity_to_color, coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
     coerce_numeric_channel_with_renderer, define_common_mark_channels, impl_mark_base,
     impl_mark_trait_common,
 };
@@ -20,10 +20,9 @@ use datafusion::{
     arrow::{array::RecordBatch, datatypes::DataType},
     common::ScalarValue,
 };
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::Parallel;
+use crate::{Parallel, ParallelDimensionBinding, ParallelDimensionConfig};
 
 /// Polyline mark for wide-form parallel-coordinate rows.
 ///
@@ -45,6 +44,31 @@ pub struct ParallelLine<C = Parallel> {
 }
 
 impl_mark_base!(ParallelLine);
+
+impl ParallelLine<Parallel> {
+    pub fn dimension(self, id: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.dimension_with(id, expr, |dimension| dimension)
+    }
+
+    pub fn dimension_with<F>(self, id: impl Into<String>, expr: impl IntoExpr, configure: F) -> Self
+    where
+        F: FnOnce(ParallelDimensionConfig) -> ParallelDimensionConfig,
+    {
+        let binding = ParallelDimensionBinding::new(id, expr);
+        let generated_channel = binding.generated_channel.clone();
+        let id = binding.id.clone();
+        let config = ParallelDimensionConfig::new(binding.channel_value);
+        let (channel_value, axis_config) = configure(config).take_axis_config();
+        let mut mark =
+            self.with_channel_value(&generated_channel, channel_value.with_scale_name(id));
+        if let Some(axis_config) = axis_config {
+            mark.state
+                .axis_configs
+                .insert(generated_channel, Arc::new(axis_config));
+        }
+        mark
+    }
+}
 
 define_common_mark_channels! {
     ParallelLine {
@@ -164,13 +188,6 @@ impl CompiledMarkCore for CompiledParallelLine {
         line_channel_defaults(channel)
     }
 
-    fn coordinate_channel_dependencies(
-        &self,
-        coord: &dyn CoordinateSystemTransformCore,
-    ) -> IndexMap<String, avenger_chart_core::ChannelValue> {
-        coord.generated_position_channels()
-    }
-
     fn preferred_scale_type(
         &self,
         _channel: &str,
@@ -225,7 +242,12 @@ impl CompiledMark for CompiledParallelLine {
             )
         })?;
         let mark_context = context.core_view();
-        let slots = coord.generated_position_slots(context.plot_width(), mark_context.params())?;
+        let mark_channels = self.state.data.channels();
+        let slots = coord
+            .generated_position_slots(context.plot_width(), mark_context.params())?
+            .into_iter()
+            .filter(|slot| mark_channels.contains_key(&slot.channel))
+            .collect::<Vec<_>>();
         if slots.is_empty() {
             return Err(AvengerChartError::CoordinateSystemError(
                 "ParallelLine requires a Parallel coordinate system with at least one dimension"
@@ -430,6 +452,7 @@ mod tests {
         prelude::{SessionContext, col},
     };
     use futures::executor::block_on;
+    use indexmap::IndexMap;
 
     use super::*;
     use crate::{Parallel, generated_dimension_channel};
@@ -477,11 +500,24 @@ mod tests {
         }
     }
 
+    fn dimension_channels() -> IndexMap<String, avenger_chart_core::ChannelValue> {
+        IndexMap::from([
+            (
+                generated_dimension_channel("alpha"),
+                avenger_chart_core::ChannelValue::from(0.0).with_scale_name("alpha"),
+            ),
+            (
+                generated_dimension_channel("beta"),
+                avenger_chart_core::ChannelValue::from(0.0).with_scale_name("beta"),
+            ),
+        ])
+    }
+
     fn compiled_state() -> CompiledMarkState {
         CompiledMarkState {
             id: None,
             public_target_path: None,
-            data: CompiledDataContext::default(),
+            data: CompiledDataContext::new(None, Vec::new(), dimension_channels()),
             data_mode: MarkDataMode::Inherit,
             mark_index: 0,
             facet_data_scope: FacetDataScope::default(),
@@ -522,8 +558,8 @@ mod tests {
     fn render_test_line() -> avenger_chart_core::RenderedMarkData {
         render_test_line_with_coord_and_context(
             Parallel::new()
-                .dimension("alpha", col("alpha"))
-                .dimension("beta", col("beta"))
+                .dimension("alpha")
+                .dimension("beta")
                 .create_transform(),
             TestRuntimeContext::new(100.0, 50.0),
         )
@@ -546,17 +582,16 @@ mod tests {
     }
 
     #[test]
-    fn parallel_line_requests_generated_dimension_dependencies() {
-        let coord = Parallel::new()
-            .dimension("alpha", col("alpha"))
-            .dimension("beta", col("beta"))
-            .create_transform();
-        let mark = CompiledParallelLine {
-            state: compiled_state(),
-        };
-        let deps = mark.coordinate_channel_dependencies(coord.as_ref());
-        assert!(deps.contains_key(&generated_dimension_channel("alpha")));
-        assert!(deps.contains_key(&generated_dimension_channel("beta")));
+    fn parallel_line_dimension_adds_mark_owned_hidden_channel() {
+        let mark = ParallelLine::new().dimension("alpha", col("alpha"));
+        let channel = generated_dimension_channel("alpha");
+        let value = mark
+            .state()
+            .data
+            .channels()
+            .get(&channel)
+            .expect("hidden dimension channel");
+        assert_eq!(value.get_scale_name(&channel), Some("alpha".to_string()));
     }
 
     #[test]
@@ -620,8 +655,8 @@ mod tests {
     #[test]
     fn parallel_line_uses_display_x_for_geometry() {
         let coord = Parallel::new()
-            .dimension("alpha", col("alpha"))
-            .dimension("beta", col("beta"))
+            .dimension("alpha")
+            .dimension("beta")
             .active_axis_display_params("drag_dimension", "drag_display_x")
             .create_transform();
         let context = TestRuntimeContext::new(100.0, 50.0).with_params(IndexMap::from([

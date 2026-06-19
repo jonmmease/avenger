@@ -6,7 +6,7 @@ use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    Auto, AvengerChartError, Axis, AxisSpec, ChannelValue, CoordinateScaleSource,
+    Auto, AvengerChartError, Axis, AxisSpec, ChannelValue, CoordinateSystemCore,
     CoordinateSystemTransformCore, Legend, MarkState, Scale, resolve_all_channel_refs,
     strip_trailing_numbers,
 };
@@ -172,27 +172,14 @@ pub(crate) fn extract_channel_configs_from_state(
     )
 }
 
-/// Extract scale, legend, and axis configurations from a coordinate-owned
-/// scale source.
-pub(crate) fn extract_channel_configs_from_coordinate_source(
-    source: &CoordinateScaleSource,
-    ctx: &SessionContext,
-    coord_transform: &dyn CoordinateSystemTransformCore,
+/// Extract axis configurations owned by the resolved coordinate frame.
+pub(crate) fn extract_axis_configs_from_coordinate<C: CoordinateSystemCore>(
+    coord_system: &C,
     axis_specs: &mut HashMap<String, AxisSpec>,
-    legends: &mut IndexMap<String, Legend>,
-    scale_specs: &mut HashMap<String, ScaleSpec>,
-    scale_to_coord_channel: &mut HashMap<String, String>,
-) -> Result<(), AvengerChartError> {
-    extract_channel_configs_from_channels(
-        source.data.channels(),
-        &source.axis_configs,
-        ctx,
-        coord_transform,
-        axis_specs,
-        legends,
-        scale_specs,
-        scale_to_coord_channel,
-    )
+) {
+    for (channel_name, axis_config) in coord_system.coordinate_axis_configs() {
+        merge_axis_config(axis_specs, &channel_name, axis_config.as_ref());
+    }
 }
 
 #[cfg(test)]

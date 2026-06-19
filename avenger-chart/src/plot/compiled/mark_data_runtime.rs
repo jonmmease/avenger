@@ -98,7 +98,6 @@ pub(crate) struct MarkDataRequest<'a> {
 
 pub(crate) struct LogicalMarkDataRequest<'a> {
     pub(crate) mark: &'a dyn CompiledMark,
-    pub(crate) coord_transform: Option<&'a dyn avenger_chart_core::CoordinateSystemTransformCore>,
     pub(crate) plot_data: Option<&'a LogicalPlanNode>,
     pub(crate) provided_plot_df: Option<&'a DataFrame>,
     pub(crate) facet_data_scope: Option<FacetDataScopeContext<'a>>,
@@ -943,20 +942,7 @@ pub(crate) async fn prepare_logical_mark_data(
     request: LogicalMarkDataRequest<'_>,
 ) -> Result<PreparedLogicalMarkData, AvengerChartError> {
     let ctx = request.eval_ctx.session_context.as_ref();
-    let mut channels = resolve_all_channel_refs(request.mark.data_context().channels(), ctx)?;
-    if let Some(coord_transform) = request.coord_transform {
-        for (channel, value) in request
-            .mark
-            .coordinate_channel_dependencies(coord_transform)
-        {
-            if channels.contains_key(&channel) {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Coordinate dependency channel '{channel}' conflicts with an authored mark channel"
-                )));
-            }
-            channels.insert(channel, value);
-        }
-    }
+    let channels = resolve_all_channel_refs(request.mark.data_context().channels(), ctx)?;
     let transform_initial_scope = transform_initial_facet_scope(
         request.mark.data_context().transforms(),
         request.mark.state().facet_data_scope,
@@ -1249,7 +1235,6 @@ pub(crate) async fn prepare_mark_data(
     } else {
         prepared_storage = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark,
-            coord_transform: request.coord_transform,
             plot_data: request.plot_data,
             provided_plot_df: request.provided_plot_df,
             facet_data_scope: request.facet_data_scope,
@@ -1332,19 +1317,24 @@ pub(crate) async fn prepare_mark_data(
         }
     }
     if let Some(coord_transform) = request.coord_transform {
-        for (channel_name, _value) in mark.coordinate_channel_dependencies(coord_transform) {
-            if prepared_channel_names.contains(&channel_name) {
+        for (channel_name, channel_value) in channels.iter() {
+            if prepared_channel_names.contains(channel_name) {
                 continue;
             }
-            let Some(channel_value) = channels.get(&channel_name) else {
+            if !coord_transform.channel_uses_scale(channel_name) {
                 continue;
-            };
+            }
+            let base_channel = strip_trailing_numbers(channel_name);
+            if !coord_transform.is_position_scale_channel(base_channel) {
+                continue;
+            }
+            prepared_channel_names.insert(channel_name.to_string());
             let scaled_expr =
-                apply_channel_scale(&channel_name, channel_value, request.scales, ctx).map_err(
+                apply_channel_scale(channel_name, channel_value, request.scales, ctx).map_err(
                     |err| {
                         let (facet_path, available_scales) = scale_error_context();
                         AvengerChartError::InternalError(format!(
-                            "failed to scale mark '{}' coordinate dependency channel '{}' at facet path {} with scales [{}]: {}",
+                            "failed to scale mark '{}' dynamic position channel '{}' at facet path {} with scales [{}]: {}",
                             mark.mark_type(),
                             channel_name,
                             facet_path,
@@ -1354,10 +1344,10 @@ pub(crate) async fn prepare_mark_data(
                     },
                 )?;
             if scaled_expr.any_column_refs() {
-                array_channels.push((channel_name, scaled_expr));
+                array_channels.push((channel_name.to_string(), scaled_expr));
                 has_array_data = true;
             } else {
-                scalar_channels.push((channel_name, scaled_expr));
+                scalar_channels.push((channel_name.to_string(), scaled_expr));
             }
         }
     }
@@ -1608,121 +1598,10 @@ mod tests {
         zerod::ZeroDCoord,
     };
     use avenger_chart_core::{
-        ChannelDescriptor, CompiledMarkCore, CompiledMarkState, CoordinateSystem,
-        CoordinateSystemTransformCore, CoordinationScope, Param, PlotGeometry, STORE_NAME_COLUMN,
-        STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, Store, StoreData, StoreRowValue,
-        SubplotGeometry, detail_array_column_name,
+        CoordinateSystem, CoordinationScope, Param, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
+        STORE_REVISION_COLUMN, Store, StoreData, StoreRowValue, detail_array_column_name,
     };
     use avenger_chart_marks::{Area, Rect};
-
-    #[derive(Clone, serde::Serialize, serde::Deserialize)]
-    struct TestCoordinateDependencyMark {
-        state: CompiledMarkState,
-    }
-
-    impl TestCoordinateDependencyMark {
-        fn new() -> Self {
-            Self {
-                state: CompiledMarkState {
-                    id: None,
-                    public_target_path: None,
-                    data: CompiledDataContext::default(),
-                    data_mode: MarkDataMode::Inherit,
-                    mark_index: 0,
-                    facet_data_scope: FacetDataScope::default(),
-                    exclude_from_scale_domains: false,
-                    visible: None,
-                    details: None,
-                    zindex: None,
-                    axis_configs: HashMap::new(),
-                },
-            }
-        }
-    }
-
-    impl CompiledMarkCore for TestCoordinateDependencyMark {
-        fn state(&self) -> &CompiledMarkState {
-            &self.state
-        }
-
-        fn state_mut(&mut self) -> &mut CompiledMarkState {
-            &mut self.state
-        }
-
-        fn data_context(&self) -> &CompiledDataContext {
-            &self.state.data
-        }
-
-        fn mark_type(&self) -> &str {
-            "test_coordinate_dependency"
-        }
-
-        fn supported_channels(&self) -> Vec<ChannelDescriptor> {
-            Vec::new()
-        }
-
-        fn coordinate_channel_dependencies(
-            &self,
-            coord: &dyn CoordinateSystemTransformCore,
-        ) -> IndexMap<String, ChannelValue> {
-            coord.generated_position_channels()
-        }
-    }
-
-    #[typetag::serde]
-    #[async_trait::async_trait]
-    impl CompiledMark for TestCoordinateDependencyMark {
-        async fn render_from_data(
-            &self,
-            _data: Option<&RecordBatch>,
-            _scalars: &RecordBatch,
-            _context: &dyn avenger_chart_core::MarkRuntimeContext,
-            _coord: &dyn CoordinateSystemTransformCore,
-        ) -> Result<Vec<avenger_scenegraph::marks::mark::SceneMark>, AvengerChartError> {
-            Ok(Vec::new())
-        }
-    }
-
-    struct TestCoordinateDependencyTransform;
-
-    impl CoordinateSystemTransformCore for TestCoordinateDependencyTransform {
-        fn required_channels(&self) -> &'static [&'static str] {
-            &[]
-        }
-
-        fn channel_uses_scale(&self, channel: &str) -> bool {
-            channel == "dim_value"
-        }
-
-        fn is_position_scale_channel(&self, channel: &str) -> bool {
-            channel == "dim_value"
-        }
-
-        fn transform(
-            &self,
-            _position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
-            _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
-            _plot_width: f32,
-            _plot_height: f32,
-        ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
-            Ok(Box::new(SubplotGeometry::default()))
-        }
-
-        fn default_scale_options(
-            &self,
-            _channel: &str,
-            _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
-        ) -> HashMap<String, ScalarValue> {
-            HashMap::new()
-        }
-
-        fn generated_position_channels(&self) -> IndexMap<String, ChannelValue> {
-            IndexMap::from([(
-                "dim_value".to_string(),
-                ChannelValue::from(col("x")).with_scale_name("dim_value"),
-            )])
-        }
-    }
 
     fn eval_context(session: Arc<SessionContext>) -> EvaluationContext {
         EvaluationContext::new(
@@ -1901,7 +1780,6 @@ mod tests {
         let eval_ctx = eval_context(session.clone()).with_facet_tree(Arc::new(facet_tree.clone()));
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
-            coord_transform: None,
             plot_data: None,
             provided_plot_df: Some(&leaf_df),
             facet_data_scope: Some(FacetDataScopeContext::new(
@@ -1996,62 +1874,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prepare_mark_data_merges_coordinate_dependencies_without_event_datum_leakage()
-    -> Result<(), AvengerChartError> {
-        let session = Arc::new(SessionContext::new());
-        let df = xy_dataframe(&session);
-        let plot_node = plot_data_node(&df)?;
-        let mark = TestCoordinateDependencyMark::new();
-        let coord = TestCoordinateDependencyTransform;
-        let eval_ctx = eval_context(session).with_event_datum_fields(Arc::new(IndexMap::from([(
-            "x".to_string(),
-            DataType::Float64,
-        )])));
-        let scales = HashMap::from([("dim_value".to_string(), linear_scale())]);
-
-        let prepared = prepare_mark_data(MarkDataRequest {
-            mark: &mark,
-            coord_transform: Some(&coord),
-            plot_data: Some(&plot_node),
-            provided_plot_df: None,
-            facet_data_scope: None,
-            prepared_logical: None,
-            prepared_base: None,
-            eval_ctx: &eval_ctx,
-            evaluation_metrics: None,
-            scales: &scales,
-            plot_width: 100.0,
-            plot_height: 100.0,
-        })
-        .await?
-        .expect("prepared data");
-
-        let data_batch = prepared
-            .data_batch
-            .expect("coordinate dependency array data");
-        assert_eq!(
-            values_as_f64(&data_batch, "dim_value"),
-            vec![0.0, 50.0, 100.0]
-        );
-        assert!(data_batch.column_by_name("x").is_none());
-
-        let event_datum_batch = prepared.event_datum_batch.expect("event datum batch");
-        assert_eq!(values_as_f64(&event_datum_batch, "x"), vec![0.0, 5.0, 10.0]);
-        assert!(event_datum_batch.column_by_name("dim_value").is_none());
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn prepare_mark_data_provides_parallel_line_generated_dimensions()
     -> Result<(), AvengerChartError> {
         let session = Arc::new(SessionContext::new());
         let df = xy_dataframe(&session);
         let plot_node = plot_data_node(&df)?;
-        let mark = ParallelLine::new();
+        let mark = ParallelLine::new()
+            .dimension("x", col("x"))
+            .dimension("y", col("y"));
         let compiled_mark = mark.compile_untransformed(&session).await?;
         let coord = Parallel::new()
-            .dimension("x", col("x"))
-            .dimension("y", col("y"))
+            .dimension("x")
+            .dimension("y")
             .create_transform();
         let eval_ctx = eval_context(session);
         let scales = HashMap::from([
@@ -2442,7 +2276,6 @@ mod tests {
             eval_context(session.clone()).with_scoped_store_state(Arc::new(store_state.clone()));
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
-            coord_transform: None,
             plot_data: None,
             provided_plot_df: None,
             facet_data_scope: None,
@@ -2466,7 +2299,6 @@ mod tests {
         let eval_ctx = eval_context(session.clone()).with_scoped_store_state(Arc::new(store_state));
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
-            coord_transform: None,
             plot_data: None,
             provided_plot_df: None,
             facet_data_scope: None,
@@ -2570,7 +2402,6 @@ mod tests {
                 let compiled_mark = mark.compile_untransformed(&session).await?;
                 let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
                     mark: compiled_mark.as_ref(),
-                    coord_transform: None,
                     plot_data: None,
                     provided_plot_df: None,
                     facet_data_scope: Some(FacetDataScopeContext::new(
@@ -2622,7 +2453,6 @@ mod tests {
                 let compiled_mark = mark.compile_untransformed(&session).await?;
                 let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
                     mark: compiled_mark.as_ref(),
-                    coord_transform: None,
                     plot_data: None,
                     provided_plot_df: Some(&leaf_df),
                     facet_data_scope: Some(FacetDataScopeContext::new(
@@ -2736,7 +2566,6 @@ mod tests {
         let compiled_mark = mark.compile_untransformed(&session).await?;
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
-            coord_transform: None,
             plot_data: None,
             provided_plot_df: Some(&df),
             facet_data_scope: None,
@@ -2784,7 +2613,6 @@ mod tests {
         let compiled_mark = mark.compile_untransformed(&session).await?;
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
-            coord_transform: None,
             plot_data: None,
             provided_plot_df: Some(&df),
             facet_data_scope: None,
@@ -2963,7 +2791,6 @@ mod tests {
         let compiled_mark = mark.compile_untransformed(&session).await?;
         let err = match prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
-            coord_transform: None,
             plot_data: None,
             provided_plot_df: Some(&df),
             facet_data_scope: None,
@@ -3082,7 +2909,6 @@ mod tests {
         let eval_ctx = eval_context(session.clone());
         let prepared = prepare_logical_mark_data(LogicalMarkDataRequest {
             mark: compiled_mark.as_ref(),
-            coord_transform: None,
             plot_data: None,
             provided_plot_df: Some(&leaf_df),
             facet_data_scope: Some(FacetDataScopeContext::new(

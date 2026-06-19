@@ -7493,6 +7493,38 @@ mod tests {
         (state, handler, mark_instance, position)
     }
 
+    fn speed_cost_parallel_coord() -> Parallel {
+        Parallel::new()
+            .dimension_with("speed", |d| d.axis(|axis| axis.title("Speed")))
+            .dimension_with("cost", |d| d.axis(|axis| axis.title("Cost")))
+    }
+
+    fn speed_cost_parallel_line() -> ParallelLine {
+        ParallelLine::new()
+            .dimension("speed", col("speed"))
+            .dimension("cost", col("cost"))
+    }
+
+    fn speed_cost_parallel_symbol() -> ParallelSymbol {
+        ParallelSymbol::new()
+            .dimension("speed", col("speed"))
+            .dimension("cost", col("cost"))
+    }
+
+    fn speed_efficiency_cost_parallel_coord() -> Parallel {
+        Parallel::new()
+            .dimension_with("speed", |d| d.axis(|axis| axis.title("Speed")))
+            .dimension_with("efficiency", |d| d.axis(|axis| axis.title("Efficiency")))
+            .dimension_with("cost", |d| d.axis(|axis| axis.title("Cost")))
+    }
+
+    fn speed_efficiency_cost_parallel_line() -> ParallelLine {
+        ParallelLine::new()
+            .dimension("speed", col("speed"))
+            .dimension("efficiency", col("efficiency"))
+            .dimension("cost", col("cost"))
+    }
+
     async fn parallel_point_state_and_handler(
         binding: ChartEventBinding,
     ) -> (
@@ -7514,29 +7546,25 @@ mod tests {
             )
             .await
             .expect("parallel point data");
-        let compiled = Plot::with_coord(
-            Parallel::new()
-                .dimension("speed", col("speed"))
-                .dimension("cost", col("cost")),
-        )
-        .canvas_size(420.0, 320.0)
-        .plot_size(260.0, 180.0)
-        .add_selection(picked)
-        .data(df)
-        .mark(
-            ParallelSymbol::new()
-                .fill_with(lit("#b8beca"), |c| {
-                    c.no_scale()
-                        .when_value(selected, lit("#2563eb"))
-                        .no_legend()
-                })
-                .size(900.0)
-                .zindex(100),
-        )
-        .event_binding(binding)
-        .compile(&ctx)
-        .await
-        .expect("compile parallel point plot");
+        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+            .canvas_size(420.0, 320.0)
+            .plot_size(260.0, 180.0)
+            .add_selection(picked)
+            .data(df)
+            .mark(
+                speed_cost_parallel_symbol()
+                    .fill_with(lit("#b8beca"), |c| {
+                        c.no_scale()
+                            .when_value(selected, lit("#2563eb"))
+                            .no_legend()
+                    })
+                    .size(900.0)
+                    .zindex(100),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile parallel point plot");
         let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
         let policy = compiled.resize_policy();
         let session = Arc::new(compiled).instantiate(Arc::new(ctx));
@@ -8403,25 +8431,20 @@ mod tests {
         )
         .id("brush_overlay")
         .width_px(40.0);
-        let compiled = Plot::with_coord(
-            Parallel::new()
-                .dimension_with("speed", col("speed"), |d| {
-                    d.axis(|axis| axis.title("Speed"))
-                })
-                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
-        )
-        .canvas_size(420.0, 320.0)
-        .plot_size(260.0, 180.0)
-        .add_param(clicked_axis)
-        .add_param(clicked_min)
-        .add_param(clicked_max)
-        .add_store(Store::from_record_batch("axis_brush_boxes", store_batch))
-        .data(parent_data)
-        .mark(overlay)
-        .event_binding(binding)
-        .compile(&ctx)
-        .await
-        .expect("compile parallel overlay click plot");
+        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+            .canvas_size(420.0, 320.0)
+            .plot_size(260.0, 180.0)
+            .add_param(clicked_axis)
+            .add_param(clicked_min)
+            .add_param(clicked_max)
+            .add_store(Store::from_record_batch("axis_brush_boxes", store_batch))
+            .data(parent_data)
+            .mark(speed_cost_parallel_line().visible(false))
+            .mark(overlay)
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile parallel overlay click plot");
         let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
         let policy = compiled.resize_policy();
         let session = Arc::new(compiled).instantiate(Arc::new(ctx));
@@ -8589,40 +8612,34 @@ mod tests {
             .combine(SelectionCombine::Intersect)
             .empty_selects_nothing();
         let selected = brush.predicate();
-        let compiled = Plot::with_coord(
-            Parallel::new()
-                .dimension_with("speed", col("speed"), |d| {
-                    d.axis(|axis| axis.title("Speed"))
-                })
-                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
-        )
-        .canvas_size(420.0, 320.0)
-        .plot_size(260.0, 180.0)
-        .data(data)
-        .add_selection(brush)
-        .add_store(parallel_brush_store())
-        .mark(
-            ParallelLine::new()
-                .id("context_lines")
-                .stroke("#c4cbd5")
-                .stroke_width(1.1)
-                .opacity(0.42)
-                .zindex(1),
-        )
-        .mark(
-            ParallelLine::new()
-                .id("selected_lines")
-                .transform_no_output(Filter::new(selected), |mark| mark)
-                .stroke("#2563eb")
-                .stroke_width(2.3)
-                .opacity(0.95)
-                .zindex(20),
-        )
-        .mark(parallel_brush_overlay("speed"))
-        .event_binding(parallel_axis_drag_binding("speed", "speed", 0, 0.0, false))
-        .compile(&ctx)
-        .await
-        .expect("compile parallel brush plot");
+        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+            .canvas_size(420.0, 320.0)
+            .plot_size(260.0, 180.0)
+            .data(data)
+            .add_selection(brush)
+            .add_store(parallel_brush_store())
+            .mark(
+                speed_cost_parallel_line()
+                    .id("context_lines")
+                    .stroke("#c4cbd5")
+                    .stroke_width(1.1)
+                    .opacity(0.42)
+                    .zindex(1),
+            )
+            .mark(
+                speed_cost_parallel_line()
+                    .id("selected_lines")
+                    .transform_no_output(Filter::new(selected), |mark| mark)
+                    .stroke("#2563eb")
+                    .stroke_width(2.3)
+                    .opacity(0.95)
+                    .zindex(20),
+            )
+            .mark(parallel_brush_overlay("speed"))
+            .event_binding(parallel_axis_drag_binding("speed", "speed", 0, 0.0, false))
+            .compile(&ctx)
+            .await
+            .expect("compile parallel brush plot");
         let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
         let policy = compiled.resize_policy();
         let session = Arc::new(compiled).instantiate(Arc::new(ctx));
@@ -8711,50 +8728,44 @@ mod tests {
             .combine(SelectionCombine::Intersect)
             .empty_selects_nothing();
         let selected = brush.predicate();
-        let compiled = Plot::with_coord(
-            Parallel::new()
-                .dimension_with("speed", col("speed"), |d| {
-                    d.axis(|axis| axis.title("Speed"))
-                })
-                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
-        )
-        .canvas_size(420.0, 320.0)
-        .plot_size(260.0, 180.0)
-        .data(data)
-        .add_selection(brush)
-        .add_store(parallel_brush_store())
-        .mark(
-            ParallelLine::new()
-                .id("cost_color_scale_seed")
-                .stroke_with(col("cost"), |stroke| stroke.no_legend())
-                .stroke_width(0.0)
-                .opacity(0.0)
-                .zindex(0),
-        )
-        .mark(
-            ParallelLine::new()
-                .id("context_lines")
-                .stroke("#c4cbd5")
-                .stroke_width(1.1)
-                .opacity(0.42)
-                .zindex(1),
-        )
-        .mark(
-            ParallelLine::new()
-                .id("selected_lines")
-                .transform_no_output(Filter::new(selected), |mark| mark)
-                .stroke_with(col("cost"), |stroke| stroke.no_legend())
-                .stroke_width(2.3)
-                .opacity(0.95)
-                .zindex(20),
-        )
-        .mark(parallel_brush_overlay("speed"))
-        .mark(parallel_brush_overlay("cost"))
-        .event_binding(parallel_axis_drag_binding("speed", "speed", 0, 0.0, false))
-        .event_binding(parallel_axis_drag_binding("cost", "cost", 1, 260.0, true))
-        .compile(&ctx)
-        .await
-        .expect("compile parallel additive brush plot");
+        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+            .canvas_size(420.0, 320.0)
+            .plot_size(260.0, 180.0)
+            .data(data)
+            .add_selection(brush)
+            .add_store(parallel_brush_store())
+            .mark(
+                speed_cost_parallel_line()
+                    .id("cost_color_scale_seed")
+                    .stroke_with(col("cost"), |stroke| stroke.no_legend())
+                    .stroke_width(0.0)
+                    .opacity(0.0)
+                    .zindex(0),
+            )
+            .mark(
+                speed_cost_parallel_line()
+                    .id("context_lines")
+                    .stroke("#c4cbd5")
+                    .stroke_width(1.1)
+                    .opacity(0.42)
+                    .zindex(1),
+            )
+            .mark(
+                speed_cost_parallel_line()
+                    .id("selected_lines")
+                    .transform_no_output(Filter::new(selected), |mark| mark)
+                    .stroke_with(col("cost"), |stroke| stroke.no_legend())
+                    .stroke_width(2.3)
+                    .opacity(0.95)
+                    .zindex(20),
+            )
+            .mark(parallel_brush_overlay("speed"))
+            .mark(parallel_brush_overlay("cost"))
+            .event_binding(parallel_axis_drag_binding("speed", "speed", 0, 0.0, false))
+            .event_binding(parallel_axis_drag_binding("cost", "cost", 1, 260.0, true))
+            .compile(&ctx)
+            .await
+            .expect("compile parallel additive brush plot");
         let speed_handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
         let cost_handler = compile_handler_for_binding_index(&compiled, &ctx, 1);
         let policy = compiled.resize_policy();
@@ -8859,42 +8870,36 @@ mod tests {
             .combine(SelectionCombine::Intersect)
             .empty_selects_nothing();
         let selected = brush.predicate();
-        let compiled = Plot::with_coord(
-            Parallel::new()
-                .dimension_with("speed", col("speed"), |d| {
-                    d.axis(|axis| axis.title("Speed"))
-                })
-                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
-        )
-        .canvas_size(420.0, 320.0)
-        .plot_size(260.0, 180.0)
-        .data(data)
-        .add_selection(brush)
-        .add_store(parallel_brush_store())
-        .mark(
-            ParallelLine::new()
-                .id("context_lines")
-                .stroke("#c4cbd5")
-                .stroke_width(1.1)
-                .opacity(0.42)
-                .zindex(1),
-        )
-        .mark(
-            ParallelLine::new()
-                .id("selected_lines")
-                .transform_no_output(Filter::new(selected), |mark| mark)
-                .stroke("#2563eb")
-                .stroke_width(2.3)
-                .opacity(0.95)
-                .zindex(20),
-        )
-        .mark(parallel_brush_overlay("speed"))
-        .mark(parallel_brush_overlay("cost"))
-        .event_binding(parallel_axis_drag_binding("speed", "speed", 0, 0.0, false))
-        .event_binding(parallel_axis_drag_binding("cost", "cost", 1, 260.0, false))
-        .compile(&ctx)
-        .await
-        .expect("compile parallel replacement brush plot");
+        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+            .canvas_size(420.0, 320.0)
+            .plot_size(260.0, 180.0)
+            .data(data)
+            .add_selection(brush)
+            .add_store(parallel_brush_store())
+            .mark(
+                speed_cost_parallel_line()
+                    .id("context_lines")
+                    .stroke("#c4cbd5")
+                    .stroke_width(1.1)
+                    .opacity(0.42)
+                    .zindex(1),
+            )
+            .mark(
+                speed_cost_parallel_line()
+                    .id("selected_lines")
+                    .transform_no_output(Filter::new(selected), |mark| mark)
+                    .stroke("#2563eb")
+                    .stroke_width(2.3)
+                    .opacity(0.95)
+                    .zindex(20),
+            )
+            .mark(parallel_brush_overlay("speed"))
+            .mark(parallel_brush_overlay("cost"))
+            .event_binding(parallel_axis_drag_binding("speed", "speed", 0, 0.0, false))
+            .event_binding(parallel_axis_drag_binding("cost", "cost", 1, 260.0, false))
+            .compile(&ctx)
+            .await
+            .expect("compile parallel replacement brush plot");
         let speed_handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
         let cost_handler = compile_handler_for_binding_index(&compiled, &ctx, 1);
         let policy = compiled.resize_policy();
@@ -8970,24 +8975,18 @@ mod tests {
             .sql("SELECT 10.0 AS speed, 30.0 AS cost")
             .await
             .expect("parallel header data");
-        let compiled = Plot::with_coord(
-            Parallel::new()
-                .dimension_with("speed", col("speed"), |d| {
-                    d.axis(|axis| axis.title("Speed"))
-                })
-                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
-        )
-        .canvas_size(420.0, 320.0)
-        .plot_size(260.0, 180.0)
-        .add_param(drag_dimension)
-        .add_param(drag_start_x)
-        .add_param(drag_display_x)
-        .data(data)
-        .mark(ParallelLine::new())
-        .event_binding(binding)
-        .compile(&ctx)
-        .await
-        .expect("compile parallel header binding plot");
+        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+            .canvas_size(420.0, 320.0)
+            .plot_size(260.0, 180.0)
+            .add_param(drag_dimension)
+            .add_param(drag_start_x)
+            .add_param(drag_display_x)
+            .data(data)
+            .mark(speed_cost_parallel_line())
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile parallel header binding plot");
         let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
         let policy = compiled.resize_policy();
         let session = Arc::new(compiled).instantiate(Arc::new(ctx));
@@ -9067,30 +9066,24 @@ mod tests {
             .sql("SELECT 10.0 AS speed, 30.0 AS cost")
             .await
             .expect("parallel header data");
-        let compiled = Plot::with_coord(
-            Parallel::new()
-                .dimension_with("speed", col("speed"), |d| {
-                    d.axis(|axis| axis.title("Speed"))
-                })
-                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost")))
-                .active_axis_display_params(
-                    drag_dimension.name.clone(),
-                    drag_display_x.name.clone(),
-                ),
-        )
-        .canvas_size(420.0, 320.0)
-        .plot_size(260.0, 180.0)
-        .add_param(drag_dimension)
-        .add_param(drag_start_x)
-        .add_param(drag_display_x)
-        .data(data)
-        .mark(ParallelLine::new())
-        .mark(ParallelSymbol::new().fill("#2563eb").size(16.0))
-        .event_binding(start_binding)
-        .event_binding(preview_binding)
-        .compile(&ctx)
-        .await
-        .expect("compile parallel header drag preview plot");
+        let compiled =
+            Plot::with_coord(speed_cost_parallel_coord().active_axis_display_params(
+                drag_dimension.name.clone(),
+                drag_display_x.name.clone(),
+            ))
+            .canvas_size(420.0, 320.0)
+            .plot_size(260.0, 180.0)
+            .add_param(drag_dimension)
+            .add_param(drag_start_x)
+            .add_param(drag_display_x)
+            .data(data)
+            .mark(speed_cost_parallel_line())
+            .mark(speed_cost_parallel_symbol().fill("#2563eb").size(16.0))
+            .event_binding(start_binding)
+            .event_binding(preview_binding)
+            .compile(&ctx)
+            .await
+            .expect("compile parallel header drag preview plot");
         let start_handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
         let preview_handler = compile_handler_for_binding_index(&compiled, &ctx, 1);
         let policy = compiled.resize_policy();
@@ -9262,14 +9255,7 @@ mod tests {
             .await
             .expect("parallel header data");
         let compiled = Plot::with_coord(
-            Parallel::new()
-                .dimension_with("speed", col("speed"), |d| {
-                    d.axis(|axis| axis.title("Speed"))
-                })
-                .dimension_with("efficiency", col("efficiency"), |d| {
-                    d.axis(|axis| axis.title("Efficiency"))
-                })
-                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost")))
+            speed_efficiency_cost_parallel_coord()
                 .order_param(order_param.name.clone())
                 .active_axis_display_params(
                     drag_dimension.name.clone(),
@@ -9283,7 +9269,7 @@ mod tests {
         .add_param(drag_start_x)
         .add_param(drag_display_x)
         .data(data)
-        .mark(ParallelLine::new())
+        .mark(speed_efficiency_cost_parallel_line())
         .event_binding(start_binding)
         .event_binding(preview_binding)
         .event_binding(release_binding)

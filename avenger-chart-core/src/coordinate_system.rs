@@ -1,6 +1,7 @@
+use std::{collections::HashMap, sync::Arc};
+
 use crate::{
-    AvengerChartError, CoordinateGuide, CoordinateScaleSource, CoordinateSystemTransform,
-    RepeatContext,
+    AvengerChartError, Axis, CoordinateGuide, CoordinateSystemTransform, MarkState, RepeatContext,
 };
 
 /// Core-safe coordinate-system authoring contract.
@@ -19,12 +20,30 @@ pub trait CoordinateSystemCore: Sized + Clone + Send + Sync + 'static {
 
     /// Resolve repeat placeholders in coordinate-owned authoring state.
     ///
-    /// Most coordinate systems have no data expressions on the coordinate
-    /// itself and can use the default clone. Coordinates such as parallel
-    /// coordinates own scale-source channel expressions and should override
-    /// this so their runtime transform and coordinate scale sources agree.
+    /// Most coordinate systems have no expressions on the coordinate itself and
+    /// can use the default clone. Coordinates with expression-bearing frame or
+    /// guide metadata can override this; data-bearing position expressions
+    /// should usually live on mark channels.
     fn resolve_repeat(&self, _ctx: &RepeatContext) -> Result<Self, AvengerChartError> {
         Ok(self.clone())
+    }
+
+    /// Resolve coordinate-system state that depends on authored mark channels.
+    ///
+    /// Most coordinate systems have fixed position channels and can use the
+    /// default clone. Coordinates with open-ended position families, such as
+    /// parallel coordinates, can scan mark states to discover the frame they
+    /// should render.
+    fn resolve_from_mark_states(&self, _states: &[MarkState]) -> Result<Self, AvengerChartError> {
+        Ok(self.clone())
+    }
+
+    /// Axis configurations owned by the resolved coordinate frame.
+    ///
+    /// This is for frame metadata and coordinate-level guide overrides only;
+    /// data-bearing position channels should still live on marks.
+    fn coordinate_axis_configs(&self) -> HashMap<String, Arc<dyn Axis>> {
+        HashMap::new()
     }
 }
 
@@ -41,14 +60,4 @@ pub trait CoordinateSystem: CoordinateSystemCore {
     /// Create a boxed coordinate-system transform for scale building and mark
     /// rendering.
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform>;
-
-    /// Non-rendered scale/domain sources owned by this coordinate system.
-    ///
-    /// Most coordinates return no sources because rendered marks declare all
-    /// scales through their channels. Coordinates with dynamic scale families
-    /// can return sources here so scale building, guide extraction, and domain
-    /// coordination see those scales before rendering.
-    fn coordinate_scale_sources(&self) -> Vec<CoordinateScaleSource> {
-        Vec::new()
-    }
 }

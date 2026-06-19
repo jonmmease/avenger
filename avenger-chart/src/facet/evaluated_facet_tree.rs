@@ -22,9 +22,7 @@ use datafusion::{
 use indexmap::IndexMap;
 use tracing::debug;
 
-use avenger_chart_core::{
-    ChannelValue, CompiledCoordinateScaleSource, DomainCoordination, NestedBandSpec,
-};
+use avenger_chart_core::{ChannelValue, DomainCoordination, NestedBandSpec};
 
 pub use crate::partition::{PartitionContent, PartitionNode};
 
@@ -1898,7 +1896,7 @@ fn extract_plot_channel_domain_metadata(
     HashMap<String, DomainCoordination>,
     HashMap<String, NestedBandSpec>,
 ) {
-    extract_channel_domain_metadata_inner(&plot.marks, &plot.coordinate_scale_sources)
+    extract_channel_domain_metadata_inner(&plot.marks)
 }
 
 #[cfg(test)]
@@ -1908,12 +1906,11 @@ fn extract_channel_domain_metadata(
     HashMap<String, DomainCoordination>,
     HashMap<String, NestedBandSpec>,
 ) {
-    extract_channel_domain_metadata_inner(marks, &[])
+    extract_channel_domain_metadata_inner(marks)
 }
 
 fn extract_channel_domain_metadata_inner(
     marks: &[Arc<dyn CompiledMark>],
-    coordinate_scale_sources: &[CompiledCoordinateScaleSource],
 ) -> (
     HashMap<String, DomainCoordination>,
     HashMap<String, NestedBandSpec>,
@@ -1954,16 +1951,6 @@ fn extract_channel_domain_metadata_inner(
                 &mut nested_channels_with_level_coordination,
             );
         }
-    }
-
-    for source in coordinate_scale_sources {
-        merge_channel_domain_metadata_from_channels(
-            source.data.channels(),
-            &mut coordinations,
-            &mut nested_band_configs,
-            &mut implicit_scaled_channels,
-            &mut nested_channels_with_level_coordination,
-        );
     }
 
     for scale_name in &nested_channels_with_level_coordination {
@@ -3996,16 +3983,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extract_plot_channel_domain_metadata_includes_coordinate_scale_sources()
+    async fn extract_plot_channel_domain_metadata_includes_mark_owned_parallel_dimensions()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::with_coord(
-            Parallel::new()
-                .dimension_with("mpg", col("mpg"), |dimension| dimension.free_domain())
-                .dimension("origin", col("origin")),
-        )
-        .compile(&ctx)
-        .await?;
+        let compiled = Plot::<Parallel>::new()
+            .mark(
+                ParallelLine::new()
+                    .dimension_with("mpg", col("mpg"), |dimension| dimension.free_domain())
+                    .dimension("origin", col("origin")),
+            )
+            .compile(&ctx)
+            .await?;
 
         let (coordinations, nested_configs) = extract_plot_channel_domain_metadata(&compiled);
         let mpg = coordinations

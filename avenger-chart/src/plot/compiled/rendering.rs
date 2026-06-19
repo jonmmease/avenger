@@ -8216,14 +8216,21 @@ mod tests {
             ],
         )?;
         let df = ctx.read_batch(batch)?;
-        let coord = Parallel::new()
-            .dimension("speed", col("speed"))
-            .dimension("cost", col("cost"));
-        let compiled = Plot::with_coord(coord)
+        let compiled = Plot::<Parallel>::new()
             .data(df)
             .plot_size(220.0, 140.0)
-            .mark(ParallelLine::new().id("paths"))
-            .mark(ParallelSymbol::new().id("points"))
+            .mark(
+                ParallelLine::new()
+                    .id("paths")
+                    .dimension("speed", col("speed"))
+                    .dimension("cost", col("cost")),
+            )
+            .mark(
+                ParallelSymbol::new()
+                    .id("points")
+                    .dimension("speed", col("speed"))
+                    .dimension("cost", col("cost")),
+            )
             .compile(&ctx)
             .await?;
 

@@ -12,14 +12,13 @@ use indexmap::IndexMap;
 
 use avenger_chart_core::{
     AvengerChartError, Axis, AxisGuideVisibilityPolicy, AxisSpec, ChartTool, CompileContext,
-    CompiledCoordinateScaleSource, CompiledDataContext, CompiledMark, CompiledMarkState,
-    CompiledParamSpec, CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide,
-    CoordinateScaleSource, CoordinateSystem, CoordinateSystemTransformCore, CoordinationScope,
-    DataContext, DomainCoordination, DomainCoordinationGroup, IntoExpr, IntoPlotMark, Legend,
-    LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param, PlotMark, PlotMarkKind, RepeatContext,
-    RepeatDomainCoordination, RepeatVariable, ScaleInferenceHint, SceneGeometryTarget, Selection,
-    SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme, TimeContext,
-    compile_selections, validate_structural_id,
+    CompiledDataContext, CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
+    CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
+    CoordinationScope, DataContext, DomainCoordination, DomainCoordinationGroup, IntoExpr,
+    IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param, PlotMark,
+    PlotMarkKind, RepeatContext, RepeatDomainCoordination, RepeatVariable, ScaleInferenceHint,
+    SceneGeometryTarget, Selection, SelectionSceneQuery, SelectionUpdate, Store,
+    SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -449,50 +448,41 @@ impl<C: CoordinateSystem> Plot<C> {
         } else {
             self.coord_system.clone()
         };
-        coord_system.validate()?;
-        let coord_transform = coord_system.create_transform();
-        let coordinate_scale_sources = coord_system.coordinate_scale_sources();
-        let resolved_coordinate_scale_sources = resolve_coordinate_scale_sources(
-            &coordinate_scale_sources,
-            tool_context.repeat_context(),
-        )?;
-
         let mut pre_tool_axis_specs: HashMap<String, AxisSpec> = HashMap::new();
         let mut pre_tool_legends: IndexMap<String, Legend> = self.legends.clone();
         let mut pre_tool_scale_specs: HashMap<String, ScaleSpec> = self.scale_specs.clone();
         let mut pre_tool_scale_to_coord_channel: HashMap<String, String> = HashMap::new();
-        for source in &resolved_coordinate_scale_sources {
-            crate::plot::channel::extract_channel_configs_from_coordinate_source(
-                source,
-                session_context,
-                coord_transform.as_ref(),
-                &mut pre_tool_axis_specs,
-                &mut pre_tool_legends,
-                &mut pre_tool_scale_specs,
-                &mut pre_tool_scale_to_coord_channel,
-            )?;
-        }
         let pre_tool_flat_marks = flatten_plot_marks(&self.marks, tool_context.repeat_context())?;
         let pre_tool_mark_states =
             resolve_mark_states(&pre_tool_flat_marks.marks, tool_context.repeat_context())?;
+        let pre_tool_coord_system = coord_system.resolve_from_mark_states(&pre_tool_mark_states)?;
+        pre_tool_coord_system.validate()?;
+        let pre_tool_coord_transform = pre_tool_coord_system.create_transform();
+        crate::plot::channel::extract_axis_configs_from_coordinate(
+            &pre_tool_coord_system,
+            &mut pre_tool_axis_specs,
+        );
         for mark_state in &pre_tool_mark_states {
             crate::plot::channel::extract_channel_configs_from_state(
                 mark_state,
                 session_context,
-                coord_transform.as_ref(),
+                pre_tool_coord_transform.as_ref(),
                 &mut pre_tool_axis_specs,
                 &mut pre_tool_legends,
                 &mut pre_tool_scale_specs,
                 &mut pre_tool_scale_to_coord_channel,
             )?;
         }
+        crate::plot::channel::extract_axis_configs_from_coordinate(
+            &pre_tool_coord_system,
+            &mut pre_tool_axis_specs,
+        );
         let pre_tool_scale_coordination = scale_domain_coordinations_from_states(
             &pre_tool_mark_states,
-            &resolved_coordinate_scale_sources,
-            coord_transform.as_ref(),
+            pre_tool_coord_transform.as_ref(),
         )?;
         let tool_scale_targets = discover_tool_scale_targets(
-            coord_transform.as_ref(),
+            pre_tool_coord_transform.as_ref(),
             &pre_tool_scale_to_coord_channel,
             &pre_tool_scale_coordination,
         )?;
@@ -527,19 +517,12 @@ impl<C: CoordinateSystem> Plot<C> {
         let flat_marks = flatten_plot_marks(&marks, tool_context.repeat_context())?;
         let resolved_mark_states =
             resolve_mark_states(&flat_marks.marks, tool_context.repeat_context())?;
+        let coord_system = coord_system.resolve_from_mark_states(&resolved_mark_states)?;
+        coord_system.validate()?;
+        let coord_transform = coord_system.create_transform();
 
         // 1. Extract and merge channel configs from all marks with proper SessionContext
-        for source in &resolved_coordinate_scale_sources {
-            crate::plot::channel::extract_channel_configs_from_coordinate_source(
-                source,
-                session_context,
-                coord_transform.as_ref(),
-                &mut axis_specs,
-                &mut legends,
-                &mut scale_specs,
-                &mut scale_to_coord_channel,
-            )?;
-        }
+        crate::plot::channel::extract_axis_configs_from_coordinate(&coord_system, &mut axis_specs);
         for mark_state in &resolved_mark_states {
             crate::plot::channel::extract_channel_configs_from_state(
                 mark_state,
@@ -551,10 +534,10 @@ impl<C: CoordinateSystem> Plot<C> {
                 &mut scale_to_coord_channel,
             )?;
         }
+        crate::plot::channel::extract_axis_configs_from_coordinate(&coord_system, &mut axis_specs);
 
         let scale_coordination = scale_domain_coordinations_from_states(
             &resolved_mark_states,
-            &resolved_coordinate_scale_sources,
             coord_transform.as_ref(),
         )?;
         tool_context.apply_scale_edits(
@@ -735,19 +718,12 @@ impl<C: CoordinateSystem> Plot<C> {
             store_specs.insert(spec.name.clone(), spec);
         }
 
-        let compiled_coordinate_scale_sources: Vec<CompiledCoordinateScaleSource> =
-            resolved_coordinate_scale_sources
-                .iter()
-                .map(|source| source.compile(self.data.clone()))
-                .collect();
-
         // 5. Build CompiledPlot (we do not store a persistent ScaleBuilder; it is
         // rebuilt per evaluation using current params for correctness.)
         let mut compiled = CompiledPlot {
             coord_transform,
             compiled_guide: Some(compiled_guide),
             marks: compiled_marks,
-            coordinate_scale_sources: compiled_coordinate_scale_sources,
             mark_groups,
             mark_group_index_by_mark: flat_marks.mark_group_indices,
             axis_specs,
@@ -1728,16 +1704,14 @@ fn resolve_repeat_variables(
 
 fn scale_domain_coordinations_from_states(
     states: &[MarkState],
-    coordinate_sources: &[CoordinateScaleSource],
     coord_transform: &dyn CoordinateSystemTransformCore,
 ) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
     let state_refs = states.iter().collect::<Vec<_>>();
-    scale_domain_coordinations_from_state_refs(&state_refs, coordinate_sources, coord_transform)
+    scale_domain_coordinations_from_state_refs(&state_refs, coord_transform)
 }
 
 fn scale_domain_coordinations_from_state_refs(
     states: &[&MarkState],
-    coordinate_sources: &[CoordinateScaleSource],
     coord_transform: &dyn CoordinateSystemTransformCore,
 ) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
     let mut result: HashMap<String, DomainCoordination> = HashMap::new();
@@ -1772,35 +1746,12 @@ fn scale_domain_coordinations_from_state_refs(
         Ok(())
     };
 
-    for source in coordinate_sources {
-        for (channel_name, channel_value) in source.data.channels() {
-            merge_coordination(channel_name, channel_value)?;
-        }
-    }
     for state in states {
         for (channel_name, channel_value) in state.data.channels() {
             merge_coordination(channel_name, channel_value)?;
         }
     }
     Ok(result)
-}
-
-fn resolve_coordinate_scale_sources(
-    sources: &[CoordinateScaleSource],
-    repeat_context: Option<&RepeatContext>,
-) -> Result<Vec<CoordinateScaleSource>, AvengerChartError> {
-    let empty_repeat_context;
-    let repeat_context = match repeat_context {
-        Some(repeat_context) => repeat_context,
-        None => {
-            empty_repeat_context = RepeatContext::default();
-            &empty_repeat_context
-        }
-    };
-    sources
-        .iter()
-        .map(|source| source.resolve_repeat(repeat_context))
-        .collect()
 }
 
 fn resolve_mark_states<C: CoordinateSystem>(
@@ -3509,12 +3460,16 @@ mod tests {
         let data = ctx.sql("SELECT 50.0 AS speed, 100.0 AS cost").await?;
         let compiled = Plot::with_coord(
             Parallel::new()
-                .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
-                .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost"))),
+                .dimension_with("speed", |d| d.axis(|a| a.title("Speed")))
+                .dimension_with("cost", |d| d.axis(|a| a.title("Cost"))),
         )
         .plot_size(120.0, 100.0)
         .data(data)
-        .mark(ParallelLine::new())
+        .mark(
+            ParallelLine::new()
+                .dimension("speed", col("speed"))
+                .dimension("cost", col("cost")),
+        )
         .event_binding(
             ChartEventBinding::on(ChartEventType::Click)
                 .filter(
@@ -3586,22 +3541,24 @@ mod tests {
                 ) AS t(row_id, speed, cost)",
             )
             .await?;
-        let compiled = Plot::with_coord(
-            Parallel::new()
-                .dimension("speed", col("speed"))
-                .dimension("cost", col("cost")),
-        )
-        .plot_size(120.0, 100.0)
-        .data(data)
-        .mark(ParallelSymbol::new())
-        .event_binding(
-            ChartEventBinding::on(ChartEventType::Click)
-                .filter(crate::event::datum("row_id").is_not_null())
-                .filter(crate::event::parallel_dimension_id().is_not_null())
-                .filter(crate::event::parallel_surface_kind().eq(lit(PARALLEL_SURFACE_KIND_POINT))),
-        )
-        .compile(&ctx)
-        .await?;
+        let compiled = Plot::<Parallel>::new()
+            .plot_size(120.0, 100.0)
+            .data(data)
+            .mark(
+                ParallelSymbol::new()
+                    .dimension("speed", col("speed"))
+                    .dimension("cost", col("cost")),
+            )
+            .event_binding(
+                ChartEventBinding::on(ChartEventType::Click)
+                    .filter(crate::event::datum("row_id").is_not_null())
+                    .filter(crate::event::parallel_dimension_id().is_not_null())
+                    .filter(
+                        crate::event::parallel_surface_kind().eq(lit(PARALLEL_SURFACE_KIND_POINT)),
+                    ),
+            )
+            .compile(&ctx)
+            .await?;
 
         let evaluated = compiled.evaluate(&ctx, None).await?;
         let speed_point_rows = evaluated
@@ -3663,29 +3620,29 @@ mod tests {
         let selected = Selection::new("picked").empty_selects_nothing();
         let selected_predicate = selected.predicate();
         let compiled = Arc::new(
-            Plot::with_coord(
-                Parallel::new()
-                    .dimension("speed", col("speed"))
-                    .dimension("cost", col("cost")),
-            )
-            .plot_size(120.0, 100.0)
-            .data(data)
-            .add_selection(selected)
-            .mark(
-                ParallelLine::new()
-                    .id("context_lines")
-                    .stroke("#c4cbd5")
-                    .zindex(1),
-            )
-            .mark(
-                ParallelLine::new()
-                    .id("selected_lines")
-                    .transform_no_output(Filter::new(selected_predicate), |mark| mark)
-                    .stroke("#2563eb")
-                    .zindex(20),
-            )
-            .compile(ctx.as_ref())
-            .await?,
+            Plot::<Parallel>::new()
+                .plot_size(120.0, 100.0)
+                .data(data)
+                .add_selection(selected)
+                .mark(
+                    ParallelLine::new()
+                        .id("context_lines")
+                        .dimension("speed", col("speed"))
+                        .dimension("cost", col("cost"))
+                        .stroke("#c4cbd5")
+                        .zindex(1),
+                )
+                .mark(
+                    ParallelLine::new()
+                        .id("selected_lines")
+                        .dimension("speed", col("speed"))
+                        .dimension("cost", col("cost"))
+                        .transform_no_output(Filter::new(selected_predicate), |mark| mark)
+                        .stroke("#2563eb")
+                        .zindex(20),
+                )
+                .compile(ctx.as_ref())
+                .await?,
         );
         let mut session = compiled.instantiate(ctx);
         session.apply_selection_patch(vec![SelectionAssignment {
@@ -4069,12 +4026,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn coordinate_scale_source_axis_configs_merge_into_compiled_axes() {
+    async fn coordinate_axis_configs_merge_into_compiled_axes() {
         let ctx = SessionContext::new();
-        let compiled = Plot::with_coord(Parallel::new().dimension_with("mpg", col("mpg"), |d| {
-            d.axis(|axis| axis.title("Miles per gallon"))
-        }))
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("mpg", |d| d.axis(|axis| axis.title("Miles per gallon"))),
+        )
         .data(ctx.sql("SELECT 21.0 AS mpg").await.expect("data"))
+        .mark(ParallelLine::new().dimension("mpg", col("mpg")))
         .compile(&ctx)
         .await
         .expect("compile parallel plot");
@@ -4083,37 +4042,37 @@ mod tests {
             compiled
                 .axis_specs
                 .contains_key(&generated_dimension_channel("mpg")),
-            "coordinate-owned dimension axis should be merged into compiled axis specs"
+            "coordinate-level dimension axis should be merged into compiled axis specs"
         );
     }
 
     #[tokio::test]
-    async fn coordinate_scale_sources_compile_without_rendered_marks() {
+    async fn configured_parallel_dimension_without_mark_binding_errors() {
         let ctx = SessionContext::new();
-        let compiled = Plot::with_coord(Parallel::new().dimension("mpg", col("mpg")))
+        let err = match Plot::with_coord(Parallel::new().dimension("mpg"))
             .data(ctx.sql("SELECT 21.0 AS mpg").await.expect("data"))
             .compile(&ctx)
             .await
-            .expect("compile parallel plot");
+        {
+            Ok(_) => panic!("configured dimension without mark binding should fail"),
+            Err(err) => err,
+        };
 
-        assert_eq!(
-            compiled.coordinate_scale_sources.len(),
-            1,
-            "parallel dimensions should compile one coordinate-owned scale source"
-        );
         assert!(
-            compiled.marks.is_empty(),
-            "coordinate-owned scale sources must not become rendered compiled marks"
+            err.to_string().contains("no mark binds data"),
+            "unexpected error: {err}"
         );
     }
 
     #[tokio::test]
-    async fn coordinate_scale_sources_round_trip_with_compiled_plot() {
+    async fn coordinate_axis_configs_round_trip_with_compiled_plot() {
         let ctx = SessionContext::new();
-        let compiled = Plot::with_coord(Parallel::new().dimension_with("mpg", col("mpg"), |d| {
-            d.axis(|axis| axis.title("Miles per gallon"))
-        }))
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("mpg", |d| d.axis(|axis| axis.title("Miles per gallon"))),
+        )
         .data(ctx.sql("SELECT 21.0 AS mpg").await.expect("data"))
+        .mark(ParallelLine::new().dimension("mpg", col("mpg")))
         .compile(&ctx)
         .await
         .expect("compile parallel plot");
@@ -4121,12 +4080,11 @@ mod tests {
         let encoded = bincode::serialize(&compiled).expect("serialize compiled plot");
         let decoded: crate::plot::compiled::CompiledPlot =
             bincode::deserialize(&encoded).expect("deserialize compiled plot");
-        assert_eq!(decoded.coordinate_scale_sources.len(), 1);
         assert!(
-            decoded.coordinate_scale_sources[0]
-                .axis_configs
+            decoded
+                .axis_specs
                 .contains_key(&generated_dimension_channel("mpg")),
-            "coordinate-owned axis configs should survive compiled plot serialization"
+            "coordinate-level axis configs should survive compiled plot serialization"
         );
     }
 

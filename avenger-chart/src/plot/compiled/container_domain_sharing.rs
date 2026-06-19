@@ -58,11 +58,6 @@ pub(crate) fn child_frame_domain_sharing_levels_for_plot(
             collect_channel_domain_coordination(&mut coordinations, channel, channel_value);
         }
     }
-    for source in &plot.coordinate_scale_sources {
-        for (channel, channel_value) in source.data.channels() {
-            collect_channel_domain_coordination(&mut coordinations, channel, channel_value);
-        }
-    }
     coordinations
 }
 
@@ -297,16 +292,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn child_frame_domain_sharing_levels_include_coordinate_scale_sources()
+    async fn child_frame_domain_sharing_levels_include_mark_owned_parallel_dimensions()
     -> Result<(), avenger_chart_core::AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::with_coord(
-            Parallel::new()
-                .dimension_with("mpg", col("mpg"), |dimension| dimension.free_domain())
-                .dimension("origin", col("origin")),
-        )
-        .compile(&ctx)
-        .await?;
+        let compiled = Plot::<Parallel>::new()
+            .mark(
+                ParallelLine::new()
+                    .dimension_with("mpg", col("mpg"), |dimension| dimension.free_domain())
+                    .dimension("origin", col("origin")),
+            )
+            .compile(&ctx)
+            .await?;
 
         let sharing = child_frame_domain_sharing_levels_for_plot(&compiled);
 

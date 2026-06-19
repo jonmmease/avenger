@@ -70,11 +70,9 @@ async fn test_compiled_parallel_plot() {
         .sql("SELECT * FROM (VALUES (21.0, 'usa'), (28.0, 'japan')) AS t(mpg, origin)")
         .await
         .unwrap();
-    let plot = Plot::with_coord(Parallel::new().dimension("mpg", col("mpg")).dimension_with(
-        "origin",
-        col("origin"),
-        |dimension| dimension.axis(|axis| axis.title("Origin")),
-    ))
+    let plot = Plot::with_coord(Parallel::new().dimension_with("origin", |dimension| {
+        dimension.axis(|axis| axis.title("Origin"))
+    }))
     .data(df)
     .mark(
         ParallelAxisOverlay::new(
@@ -93,8 +91,20 @@ async fn test_compiled_parallel_plot() {
         )
         .width_px(24.0),
     )
-    .mark(ParallelLine::new().stroke(col("origin")).opacity(0.6))
-    .mark(ParallelSymbol::new().fill(col("origin")).size(64.0));
+    .mark(
+        ParallelSymbol::new()
+            .dimension("mpg", col("mpg"))
+            .dimension("origin", col("origin"))
+            .fill(col("origin"))
+            .size(64.0),
+    )
+    .mark(
+        ParallelLine::new()
+            .dimension("mpg", col("mpg"))
+            .dimension("origin", col("origin"))
+            .stroke(col("origin"))
+            .opacity(0.6),
+    );
 
     let compiled = plot.compile(&ctx).await.unwrap();
     let json = serde_json::to_string_pretty(&compiled).unwrap();
@@ -105,6 +115,6 @@ async fn test_compiled_parallel_plot() {
     assert!(json.contains("CompiledParallelLine"));
     assert!(json.contains("CompiledParallelSymbol"));
     assert!(json.contains("compiled_guide"));
-    assert!(json.contains("coordinate_scale_sources"));
+    assert!(!json.contains("coordinate_scale_sources"));
     assert!(json.contains("__avenger_parallel_dim_mpg"));
 }

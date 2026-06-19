@@ -111,16 +111,28 @@ pub fn demo_parallel() -> Parallel {
     NUMERIC_DIMENSIONS
         .iter()
         .fold(Parallel::new(), |coord, dimension| {
-            coord.dimension_with(dimension.id, col(dimension.field), |d| {
-                d.axis(|axis| axis.title(dimension.title))
-            })
+            coord.dimension_with(dimension.id, |d| d.axis(|axis| axis.title(dimension.title)))
         })
 }
 
 pub fn demo_parallel_with_segment_axis() -> Parallel {
-    demo_parallel().dimension_with("segment", col("segment"), |d| {
-        d.axis(|axis| axis.title("Segment"))
-    })
+    demo_parallel().dimension_with("segment", |d| d.axis(|axis| axis.title("Segment")))
+}
+
+pub fn demo_parallel_line() -> ParallelLine {
+    NUMERIC_DIMENSIONS
+        .iter()
+        .fold(ParallelLine::new(), |mark, dimension| {
+            mark.dimension(dimension.id, col(dimension.field))
+        })
+}
+
+pub fn demo_parallel_symbol() -> ParallelSymbol {
+    NUMERIC_DIMENSIONS
+        .iter()
+        .fold(ParallelSymbol::new(), |mark, dimension| {
+            mark.dimension(dimension.id, col(dimension.field))
+        })
 }
 
 pub fn interval_dataframe(ctx: &SessionContext, value_min: f64, value_max: f64) -> DataFrame {

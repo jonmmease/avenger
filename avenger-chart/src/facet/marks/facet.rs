@@ -1334,7 +1334,6 @@ fn build_physical_wrap_subplot(
         coord_transform: Box::new(FacetColumn),
         compiled_guide: Some(compiled_guide),
         marks: synthetic_marks,
-        coordinate_scale_sources: Vec::new(),
         mark_groups: Vec::new(),
         mark_group_index_by_mark: Vec::new(),
         axis_specs: Default::default(),

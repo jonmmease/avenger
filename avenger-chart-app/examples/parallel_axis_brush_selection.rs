@@ -94,11 +94,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .empty_selects_nothing();
     let selected = brush.predicate();
 
-    let coord = DIMENSIONS.iter().fold(Parallel::new(), |coord, dimension| {
-        coord.dimension_with(dimension.id, col(dimension.field), |d| {
-            d.axis(|axis| axis.title(dimension.title))
-        })
-    });
+    let coord = parallel_coord();
 
     let mut plot = Plot::with_coord(coord)
         .canvas_size(CANVAS_SIZE[0], CANVAS_SIZE[1])
@@ -110,7 +106,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         // Seed the selected-line color scale from all rows, even when the
         // current selection is empty.
         .mark(
-            ParallelLine::new()
+            parallel_line()
                 .id("quality_scale_seed")
                 .stroke_with(col("quality"), |stroke| stroke.no_legend())
                 .stroke_width(0.0)
@@ -118,7 +114,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .zindex(0),
         )
         .mark(
-            ParallelLine::new()
+            parallel_line()
                 .id("context_lines")
                 .stroke("#c4cbd5")
                 .stroke_width(1.1)
@@ -126,7 +122,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .zindex(1),
         )
         .mark(
-            ParallelLine::new()
+            parallel_line()
                 .id("selected_lines")
                 .transform_no_output(Filter::new(selected), |mark| mark)
                 .stroke_with(col("quality"), |stroke| stroke.no_legend())
@@ -158,6 +154,20 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     )
     .await
     .expect("build chart app")
+}
+
+fn parallel_coord() -> Parallel {
+    DIMENSIONS.iter().fold(Parallel::new(), |coord, dimension| {
+        coord.dimension_with(dimension.id, |d| d.axis(|axis| axis.title(dimension.title)))
+    })
+}
+
+fn parallel_line() -> ParallelLine {
+    DIMENSIONS
+        .iter()
+        .fold(ParallelLine::new(), |mark, dimension| {
+            mark.dimension(dimension.id, col(dimension.field))
+        })
 }
 
 fn axis_drag_binding(

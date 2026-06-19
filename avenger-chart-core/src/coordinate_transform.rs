@@ -5,9 +5,7 @@ use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use datafusion::{arrow::datatypes::DataType, common::ScalarValue};
 use indexmap::IndexMap;
 
-use crate::{
-    AvengerChartError, ChannelValue, PlotGeometry, ScaleRangeBinding, ScaleTypePreference,
-};
+use crate::{AvengerChartError, PlotGeometry, ScaleRangeBinding, ScaleTypePreference};
 
 /// Display/equilibrium geometry for a generated position channel.
 ///
@@ -107,47 +105,13 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
         None
     }
 
-    /// Ordered generated position channels owned by the coordinate system.
-    fn generated_position_channels(&self) -> IndexMap<String, ChannelValue> {
-        IndexMap::new()
-    }
-
     /// Resolved generated position slots for the current plot width and params.
     fn generated_position_slots(
         &self,
-        plot_width: f32,
+        _plot_width: f32,
         _params: &IndexMap<String, ScalarValue>,
     ) -> Result<Vec<GeneratedPositionSlot>, AvengerChartError> {
-        let generated = self.generated_position_channels();
-        let count = generated.len();
-        let step = if count > 1 {
-            plot_width / (count.saturating_sub(1) as f32)
-        } else {
-            0.0
-        };
-        Ok(generated
-            .into_iter()
-            .enumerate()
-            .map(|(index, (channel, value))| {
-                let equilibrium_x = if count <= 1 {
-                    plot_width / 2.0
-                } else {
-                    index as f32 * step
-                };
-                GeneratedPositionSlot {
-                    id: channel.clone(),
-                    scale_name: value
-                        .get_scale_name(&channel)
-                        .unwrap_or_else(|| channel.clone()),
-                    channel,
-                    order_index: index,
-                    equilibrium_x,
-                    display_x: equilibrium_x,
-                    displacement_px: 0.0,
-                    displacement_slots: 0.0,
-                }
-            })
-            .collect())
+        Ok(Vec::new())
     }
 
     /// Runtime parameter names that affect coordinate-owned geometry.

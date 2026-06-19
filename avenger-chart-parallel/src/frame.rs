@@ -373,9 +373,7 @@ fn nullable_scalar_f32(value: &ScalarValue) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use avenger_chart_core::ChannelValue;
     use datafusion::arrow::datatypes::DataType;
-    use datafusion::prelude::col;
 
     use crate::coord::ParallelTransform;
 
@@ -384,7 +382,7 @@ mod tests {
             .map(|id| ParallelTransformDimension {
                 id: (*id).to_string(),
                 generated_channel: format!("generated_{id}"),
-                channel_value: ChannelValue::from(col(*id)).with_scale_name(*id),
+                axis: None,
             })
             .collect()
     }

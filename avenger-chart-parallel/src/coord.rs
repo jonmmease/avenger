@@ -5,16 +5,15 @@ use std::{
 };
 
 use avenger_chart_core::{
-    AvengerChartError, Axis, ChannelValue, CoordinateScaleSource, CoordinateSystem,
-    CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore, DataContext,
-    GeneratedPositionSlot, GenericPositionConfig, IntoExpr, PlotAreaRangeEndpoint, PlotGeometry,
-    PointGeometry, PositionConfig, RepeatContext, ScaleRangeBinding, ScaleTypePreference,
-    repeat_placeholder_kind_from_id, resolve_repeat_channel_value, resolve_repeat_placeholders,
-    validate_structural_id,
+    AvengerChartError, Axis, ChannelValue, CoordinateSystem, CoordinateSystemCore,
+    CoordinateSystemTransform, CoordinateSystemTransformCore, GeneratedPositionSlot,
+    GenericPositionConfig, IntoExpr, MarkState, PlotAreaRangeEndpoint, PlotGeometry, PointGeometry,
+    RepeatContext, ScaleRangeBinding, ScaleTypePreference, repeat_placeholder_kind_from_id,
+    resolve_repeat_placeholders, validate_structural_id,
 };
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
-use datafusion::{arrow::datatypes::DataType, common::ScalarValue, prelude::lit};
+use datafusion::{arrow::datatypes::DataType, common::ScalarValue};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +35,33 @@ pub const PARALLEL_LOCAL_Y_CHANNEL: &str = "__avenger_parallel_local_y";
 /// Position-channel configuration for a parallel-coordinate dimension.
 pub type ParallelDimensionConfig = GenericPositionConfig<ParallelAxis>;
 
+/// Frame-level configuration for a parallel-coordinate dimension.
+///
+/// This configures guide/frame behavior for a dimension id that is bound by
+/// one or more marks. Scale and domain configuration belongs on mark-owned
+/// `ParallelLine::dimension_with(...)` and `ParallelSymbol::dimension_with(...)`
+/// channels.
+#[derive(Clone, Debug, Default)]
+pub struct ParallelFrameDimensionConfig {
+    axis_config: Option<Box<ParallelAxis>>,
+}
+
+impl ParallelFrameDimensionConfig {
+    /// Configure the guide axis for this dimension id.
+    pub fn axis<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(ParallelAxis) -> ParallelAxis,
+    {
+        let axis = self.axis_config.map(|axis| *axis).unwrap_or_default();
+        self.axis_config = Some(Box::new(f(axis)));
+        self
+    }
+
+    fn take_axis_config(self) -> Option<ParallelAxis> {
+        self.axis_config.map(|axis| *axis)
+    }
+}
+
 /// Return the hidden generated channel name for a dimension id.
 pub fn generated_dimension_channel(id: &str) -> String {
     format!("{PARALLEL_DIMENSION_CHANNEL_PREFIX}{id}")
@@ -50,16 +76,35 @@ pub fn dimension_id_from_generated_channel(channel: &str) -> Option<&str> {
 pub struct ParallelDimensionSpec {
     pub id: String,
     pub generated_channel: String,
-    pub channel_value: ChannelValue,
     pub axis: Option<ParallelAxis>,
 }
 
-/// Wide-form parallel-coordinate system.
+#[derive(Clone, Debug)]
+pub struct ParallelDimensionBinding {
+    pub id: String,
+    pub generated_channel: String,
+    pub channel_value: ChannelValue,
+}
+
+impl ParallelDimensionBinding {
+    pub fn new(id: impl Into<String>, value: impl IntoExpr) -> Self {
+        let id = id.into();
+        let generated_channel = generated_dimension_channel(&id);
+        let channel_value = ChannelValue::from(value.into_expr()).with_scale_name(id.clone());
+        Self {
+            id,
+            generated_channel,
+            channel_value,
+        }
+    }
+}
+
+/// Wide-form parallel-coordinate frame configuration.
 ///
 /// Dimension ids are stable structural ids used as scale names, order-state
-/// values, guide event datum fields, and axis-overlay targets. Repeat
-/// placeholders are supported in dimension expressions and axis expressions,
-/// but not in dimension ids themselves.
+/// values, guide event datum fields, and axis-overlay targets. Mark-owned
+/// dimension bindings provide the data expressions that feed each dimension
+/// scale. Coordinate-level dimensions configure an already discovered frame id.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Parallel {
     dimensions: Vec<ParallelDimensionSpec>,
@@ -73,28 +118,27 @@ impl Parallel {
         Self::default()
     }
 
-    pub fn dimension(self, id: impl Into<String>, expr: impl IntoExpr) -> Self {
-        self.dimension_with(id, expr, |dimension| dimension)
+    pub fn dimension(mut self, id: impl Into<String>) -> Self {
+        let id = id.into();
+        let generated_channel = generated_dimension_channel(&id);
+        self.dimensions.push(ParallelDimensionSpec {
+            id,
+            generated_channel,
+            axis: None,
+        });
+        self
     }
 
-    pub fn dimension_with<F>(
-        mut self,
-        id: impl Into<String>,
-        expr: impl IntoExpr,
-        configure: F,
-    ) -> Self
+    pub fn dimension_with<F>(mut self, id: impl Into<String>, configure: F) -> Self
     where
-        F: FnOnce(ParallelDimensionConfig) -> ParallelDimensionConfig,
+        F: FnOnce(ParallelFrameDimensionConfig) -> ParallelFrameDimensionConfig,
     {
         let id = id.into();
         let generated_channel = generated_dimension_channel(&id);
-        let config = ParallelDimensionConfig::new(ChannelValue::from(expr.into_expr()))
-            .with_scale_name(id.clone());
-        let (channel_value, axis) = configure(config).take_axis_config();
+        let axis = configure(ParallelFrameDimensionConfig::default()).take_axis_config();
         self.dimensions.push(ParallelDimensionSpec {
-            id: id.clone(),
+            id,
             generated_channel,
-            channel_value: channel_value.with_scale_name(id),
             axis,
         });
         self
@@ -186,7 +230,9 @@ impl CoordinateSystemCore for Parallel {
                 .iter()
                 .map(|dimension| dimension.id.clone())
                 .collect::<Vec<_>>();
-            validate_order_ids(order, &ids, "Parallel dimension order")?;
+            if !ids.is_empty() {
+                validate_order_ids(order, &ids, "Parallel dimension order")?;
+            }
         }
 
         Ok(())
@@ -218,10 +264,6 @@ impl CoordinateSystemCore for Parallel {
                 Ok(ParallelDimensionSpec {
                     id: dimension.id.clone(),
                     generated_channel: dimension.generated_channel.clone(),
-                    channel_value: resolve_repeat_channel_value(
-                        dimension.channel_value.clone(),
-                        ctx,
-                    )?,
                     axis,
                 })
             })
@@ -233,34 +275,62 @@ impl CoordinateSystemCore for Parallel {
             display_state: self.display_state.clone(),
         })
     }
-}
 
-impl CoordinateSystem for Parallel {
-    type Guide = ParallelGuide;
+    fn resolve_from_mark_states(&self, states: &[MarkState]) -> Result<Self, AvengerChartError> {
+        let mut discovered: IndexMap<String, String> = IndexMap::new();
+        for state in states {
+            for channel in state.data.channels().keys() {
+                let Some(id) = dimension_id_from_generated_channel(channel) else {
+                    continue;
+                };
+                validate_dimension_id(id)?;
+                discovered
+                    .entry(id.to_string())
+                    .or_insert_with(|| channel.clone());
+            }
+        }
 
-    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(ParallelTransform {
-            dimensions: self
-                .dimensions
+        let mut configured_by_id = self
+            .dimensions
+            .iter()
+            .map(|dimension| (dimension.id.as_str(), dimension))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        for id in configured_by_id.keys() {
+            if !discovered.contains_key(*id) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Parallel dimension '{id}' was configured on the coordinate system but no mark binds data for it"
+                )));
+            }
+        }
+
+        let mut dimensions = Vec::with_capacity(discovered.len());
+        for (id, generated_channel) in discovered {
+            let configured = configured_by_id.remove(id.as_str());
+            dimensions.push(ParallelDimensionSpec {
+                id,
+                generated_channel,
+                axis: configured.and_then(|dimension| dimension.axis.clone()),
+            });
+        }
+
+        if let Some(order) = &self.order {
+            let ids = dimensions
                 .iter()
-                .map(|dimension| ParallelTransformDimension {
-                    id: dimension.id.clone(),
-                    generated_channel: dimension.generated_channel.clone(),
-                    channel_value: dimension
-                        .channel_value
-                        .clone()
-                        .with_scale_name(dimension.id.clone()),
-                })
-                .collect(),
+                .map(|dimension| dimension.id.clone())
+                .collect::<Vec<_>>();
+            validate_order_ids(order, &ids, "Parallel dimension order")?;
+        }
+
+        Ok(Self {
+            dimensions,
             order: self.order.clone(),
             order_state: self.order_state.clone(),
             display_state: self.display_state.clone(),
         })
     }
 
-    fn coordinate_scale_sources(&self) -> Vec<CoordinateScaleSource> {
-        let mut data = DataContext::default();
-        let mut axis_configs: HashMap<String, Arc<dyn Axis>> = HashMap::new();
+    fn coordinate_axis_configs(&self) -> HashMap<String, Arc<dyn Axis>> {
         let order_index_by_id = self
             .order
             .as_ref()
@@ -279,32 +349,47 @@ impl CoordinateSystem for Parallel {
                     .collect()
             });
 
-        for dimension in &self.dimensions {
-            data = data.with_channel_value(
-                &dimension.generated_channel,
-                dimension
-                    .channel_value
+        self.dimensions
+            .iter()
+            .map(|dimension| {
+                let axis = dimension
+                    .axis
                     .clone()
-                    .with_scale_name(dimension.id.clone()),
-            );
-            let mut axis = dimension.axis.clone().unwrap_or_default();
-            axis.set_default_title_expr(lit(dimension.id.clone()))
-                .expect("literal parallel axis title should serialize");
-            axis = axis.with_dimension_metadata(
-                dimension.id.clone(),
-                *order_index_by_id
-                    .get(dimension.id.as_str())
-                    .unwrap_or(&usize::MAX),
-            );
-            axis = axis.with_frame_state(self.order_state.clone(), self.display_state.clone());
-            axis_configs.insert(dimension.generated_channel.clone(), Arc::new(axis));
-        }
+                    .unwrap_or_default()
+                    .with_dimension_metadata(
+                        dimension.id.clone(),
+                        *order_index_by_id
+                            .get(dimension.id.as_str())
+                            .unwrap_or(&usize::MAX),
+                    )
+                    .with_frame_state(self.order_state.clone(), self.display_state.clone());
+                (
+                    dimension.generated_channel.clone(),
+                    Arc::new(axis) as Arc<dyn Axis>,
+                )
+            })
+            .collect()
+    }
+}
 
-        vec![CoordinateScaleSource {
-            data,
-            axis_configs,
-            ..CoordinateScaleSource::default()
-        }]
+impl CoordinateSystem for Parallel {
+    type Guide = ParallelGuide;
+
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(ParallelTransform {
+            dimensions: self
+                .dimensions
+                .iter()
+                .map(|dimension| ParallelTransformDimension {
+                    id: dimension.id.clone(),
+                    generated_channel: dimension.generated_channel.clone(),
+                    axis: dimension.axis.clone(),
+                })
+                .collect(),
+            order: self.order.clone(),
+            order_state: self.order_state.clone(),
+            display_state: self.display_state.clone(),
+        })
     }
 }
 
@@ -312,7 +397,7 @@ impl CoordinateSystem for Parallel {
 pub struct ParallelTransformDimension {
     pub id: String,
     pub generated_channel: String,
-    pub channel_value: ChannelValue,
+    pub axis: Option<ParallelAxis>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -442,21 +527,6 @@ impl CoordinateSystemTransformCore for ParallelTransform {
             }
             _ => None,
         }
-    }
-
-    fn generated_position_channels(&self) -> IndexMap<String, ChannelValue> {
-        self.ordered_dimensions()
-            .into_iter()
-            .map(|dimension| {
-                (
-                    dimension.generated_channel.clone(),
-                    dimension
-                        .channel_value
-                        .clone()
-                        .with_scale_name(dimension.id.clone()),
-                )
-            })
-            .collect()
     }
 
     fn generated_position_slots(
@@ -633,23 +703,33 @@ mod tests {
     }
 
     #[test]
-    fn dimension_stores_id_expr_generated_channel_and_scale_name() {
-        let parallel = Parallel::new().dimension("mpg", col("mpg"));
+    fn dimension_stores_id_and_generated_channel() {
+        let parallel = Parallel::new().dimension("mpg");
         let dimension = &parallel.dimensions()[0];
         assert_eq!(dimension.id, "mpg");
         assert_eq!(
             dimension.generated_channel,
             generated_dimension_channel("mpg")
         );
+    }
+
+    #[test]
+    fn dimension_binding_stores_expr_generated_channel_and_scale_name() {
+        let binding = ParallelDimensionBinding::new("mpg", col("mpg"));
+        assert_eq!(binding.id, "mpg");
         assert_eq!(
-            dimension
+            binding.generated_channel,
+            generated_dimension_channel("mpg")
+        );
+        assert_eq!(
+            binding
                 .channel_value
-                .get_scale_name(&dimension.generated_channel),
+                .get_scale_name(&binding.generated_channel),
             Some("mpg".to_string())
         );
         let ctx = SessionContext::new();
         assert_eq!(
-            dimension
+            binding
                 .channel_value
                 .expr(&ctx)
                 .expect("dimension expression")
@@ -660,7 +740,7 @@ mod tests {
 
     #[test]
     fn dimension_with_stores_axis_config() {
-        let parallel = Parallel::new().dimension_with("origin", col("origin"), |dimension| {
+        let parallel = Parallel::new().dimension_with("origin", |dimension| {
             dimension.axis(|axis| axis.title("Origin"))
         });
         assert!(
@@ -675,9 +755,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_duplicate_and_invalid_ids() {
-        let duplicate = Parallel::new()
-            .dimension("mpg", col("mpg"))
-            .dimension("mpg", col("mpg2"));
+        let duplicate = Parallel::new().dimension("mpg").dimension("mpg");
         assert!(
             duplicate
                 .validate()
@@ -686,7 +764,7 @@ mod tests {
                 .contains("Duplicate")
         );
 
-        let invalid = Parallel::new().dimension("bad id", col("mpg"));
+        let invalid = Parallel::new().dimension("bad id");
         assert!(
             invalid
                 .validate()
@@ -698,24 +776,21 @@ mod tests {
 
     #[test]
     fn validate_rejects_repeat_placeholder_dimension_ids() {
-        let invalid = Parallel::new().dimension(repeat::column_name(), repeat::column());
+        let invalid = Parallel::new().dimension(repeat::column_name());
         let err = invalid.validate().unwrap_err().to_string();
         assert!(err.contains("dimension ids must be stable"), "{err}");
-        assert!(err.contains("dimension expression"), "{err}");
+        assert!(err.contains("stable id"), "{err}");
     }
 
     #[test]
     fn explicit_order_must_match_dimension_ids() {
         let parallel = Parallel::new()
-            .dimension("a", col("a"))
-            .dimension("b", col("b"))
+            .dimension("a")
+            .dimension("b")
             .order(["b", "a"]);
         parallel.validate().expect("valid order");
 
-        let missing = Parallel::new()
-            .dimension("a", col("a"))
-            .dimension("b", col("b"))
-            .order(["b"]);
+        let missing = Parallel::new().dimension("a").dimension("b").order(["b"]);
         assert!(
             missing
                 .validate()
@@ -725,8 +800,8 @@ mod tests {
         );
 
         let unknown = Parallel::new()
-            .dimension("a", col("a"))
-            .dimension("b", col("b"))
+            .dimension("a")
+            .dimension("b")
             .order(["b", "c"]);
         assert!(
             unknown
@@ -740,8 +815,8 @@ mod tests {
     #[test]
     fn serde_round_trip_preserves_dimensions_and_order() {
         let parallel = Parallel::new()
-            .dimension("mpg", col("mpg"))
-            .dimension_with("origin", col("origin"), |dimension| {
+            .dimension("mpg")
+            .dimension_with("origin", |dimension| {
                 dimension.axis(|axis| axis.title("Origin"))
             })
             .order(["origin", "mpg"])
@@ -767,29 +842,20 @@ mod tests {
     }
 
     #[test]
-    fn coordinate_scale_source_exposes_generated_dimension_channels() {
-        let parallel = Parallel::new().dimension("mpg", col("mpg")).dimension_with(
-            "origin",
-            col("origin"),
-            |dimension| dimension.axis(|axis| axis.title("Origin")),
-        );
-        let sources = parallel.coordinate_scale_sources();
-        assert_eq!(sources.len(), 1);
-        let channels = sources[0].data.channels();
-        assert!(channels.contains_key(&generated_dimension_channel("mpg")));
-        assert!(channels.contains_key(&generated_dimension_channel("origin")));
-        assert!(
-            sources[0]
-                .axis_configs
-                .contains_key(&generated_dimension_channel("origin"))
-        );
+    fn coordinate_axis_configs_expose_generated_dimension_axes() {
+        let parallel = Parallel::new()
+            .dimension("mpg")
+            .dimension_with("origin", |dimension| {
+                dimension.axis(|axis| axis.title("Origin"))
+            });
+        let axes = parallel.coordinate_axis_configs();
+        assert!(axes.contains_key(&generated_dimension_channel("mpg")));
+        assert!(axes.contains_key(&generated_dimension_channel("origin")));
     }
 
     #[test]
     fn transform_classifies_dimension_scales_as_positional() {
-        let transform = Parallel::new()
-            .dimension("mpg", col("mpg"))
-            .create_transform();
+        let transform = Parallel::new().dimension("mpg").create_transform();
         assert!(transform.channel_uses_scale(&generated_dimension_channel("mpg")));
         assert!(transform.channel_uses_scale("stroke"));
         assert!(!transform.channel_uses_scale(PARALLEL_LOCAL_X_CHANNEL));
@@ -802,8 +868,8 @@ mod tests {
     #[test]
     fn interaction_channels_include_local_x_and_ordered_dimensions() {
         let transform = Parallel::new()
-            .dimension("mpg", col("mpg"))
-            .dimension("weight", col("weight"))
+            .dimension("mpg")
+            .dimension("weight")
             .order(["weight", "mpg"])
             .create_transform();
 
@@ -821,9 +887,9 @@ mod tests {
     #[test]
     fn resolve_frame_with_params_uses_order_and_display_state() {
         let transform = Parallel::new()
-            .dimension("speed", col("speed"))
-            .dimension("cost", col("cost"))
-            .dimension("stability", col("stability"))
+            .dimension("speed")
+            .dimension("cost")
+            .dimension("stability")
             .order_param("axis_order")
             .active_axis_display_params("drag_dimension", "drag_display_x")
             .create_transform();
@@ -867,8 +933,8 @@ mod tests {
     #[test]
     fn generated_position_slots_include_stateful_display_geometry() {
         let transform = Parallel::new()
-            .dimension("speed", col("speed"))
-            .dimension("cost", col("cost"))
+            .dimension("speed")
+            .dimension("cost")
             .active_axis_display_params("drag_dimension", "drag_display_x")
             .create_transform();
         let params = IndexMap::from([
@@ -897,9 +963,7 @@ mod tests {
 
     #[test]
     fn interaction_inverts_local_x_and_dimension_y() {
-        let transform = Parallel::new()
-            .dimension("mpg", col("mpg"))
-            .create_transform();
+        let transform = Parallel::new().dimension("mpg").create_transform();
         let mut scales = HashMap::new();
         scales.insert(
             "mpg".to_string(),

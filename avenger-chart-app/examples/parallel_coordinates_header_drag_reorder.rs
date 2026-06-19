@@ -64,14 +64,14 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .title("Drag a dimension title to reorder axes")
         .data(parallel_common::demo_dataframe(&ctx))
         .mark(
-            ParallelLine::new()
+            parallel_common::demo_parallel_line()
                 .details(["sample_id"])
                 .stroke("#94a3b8")
                 .stroke_width(1.0)
                 .opacity(0.42),
         )
         .mark(
-            ParallelSymbol::new()
+            parallel_common::demo_parallel_symbol()
                 .fill(col("segment"))
                 .stroke("#ffffff")
                 .stroke_width(0.8)

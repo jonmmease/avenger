@@ -2,20 +2,21 @@ use std::{collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
-    CompiledMarkState, CoordinateSystemTransformCore, LegendRendererSelection, Mark,
-    MarkRuntimeContext, RenderedMarkData, ResolvedDomain, ScalarValueHelpers, ScaleRange,
-    ScaleTypePreference, Theme, apply_opacity_to_color_channel, coerce_color_channel_with_renderer,
-    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
-    default_scale_type_for_data_type,
+    CompiledMarkState, CoordinateSystemTransformCore, IntoExpr, LegendRendererSelection, Mark,
+    MarkRuntimeContext, PositionConfig, RenderedMarkData, ResolvedDomain, ScalarValueHelpers,
+    ScaleRange, ScaleTypePreference, Theme, apply_opacity_to_color_channel,
+    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
+    coerce_opacity_channel_with_renderer, default_scale_type_for_data_type,
+    define_common_mark_channels,
     event::{
         PARALLEL_DIMENSION_ID_FIELD, PARALLEL_DISPLACEMENT_PX_FIELD,
         PARALLEL_DISPLACEMENT_SLOTS_FIELD, PARALLEL_DISPLAY_X_FIELD, PARALLEL_EQUILIBRIUM_X_FIELD,
         PARALLEL_ORDER_INDEX_FIELD, PARALLEL_SCALE_NAME_FIELD, PARALLEL_SURFACE_KIND_FIELD,
         PARALLEL_SURFACE_KIND_POINT,
     },
-    impl_mark_trait_common, is_continuous_scale,
+    impl_mark_base, impl_mark_trait_common, is_continuous_scale,
 };
-use avenger_chart_marks::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind};
+use avenger_chart_marks::{symbol_channel_defaults, symbol_legend_renderer_kind};
 use avenger_color::ColorOrGradient;
 use avenger_common::{
     types::SymbolShape,
@@ -32,21 +33,81 @@ use datafusion::{
     common::ScalarValue,
     logical_expr::{Expr, lit},
 };
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::Parallel;
+use crate::{Parallel, ParallelDimensionBinding, ParallelDimensionConfig};
 
 /// Parallel-coordinate point overlay mark.
 ///
-/// This is an alias for the ordinary `Symbol` mark specialized to the
-/// `Parallel` coordinate system. It renders one symbol for each finite
-/// source-row/dimension intersection.
-pub type ParallelSymbol = Symbol<Parallel>;
+/// It renders one symbol for each finite source-row/dimension intersection.
+pub struct ParallelSymbol<C = Parallel> {
+    pub(crate) state: avenger_chart_core::MarkState,
+    pub(crate) _phantom: std::marker::PhantomData<C>,
+}
+
+impl_mark_base!(ParallelSymbol);
+
+impl ParallelSymbol<Parallel> {
+    pub fn dimension(self, id: impl Into<String>, expr: impl IntoExpr) -> Self {
+        self.dimension_with(id, expr, |dimension| dimension)
+    }
+
+    pub fn dimension_with<F>(self, id: impl Into<String>, expr: impl IntoExpr, configure: F) -> Self
+    where
+        F: FnOnce(ParallelDimensionConfig) -> ParallelDimensionConfig,
+    {
+        let binding = ParallelDimensionBinding::new(id, expr);
+        let generated_channel = binding.generated_channel.clone();
+        let id = binding.id.clone();
+        let config = ParallelDimensionConfig::new(binding.channel_value);
+        let (channel_value, axis_config) = configure(config).take_axis_config();
+        let mut mark =
+            self.with_channel_value(&generated_channel, channel_value.with_scale_name(id));
+        if let Some(axis_config) = axis_config {
+            mark.state
+                .axis_configs
+                .insert(generated_channel, Arc::new(axis_config));
+        }
+        mark
+    }
+}
+
+define_common_mark_channels! {
+    ParallelSymbol {
+        size: {
+            allow_column: true,
+            with_config: avenger_chart_core::SizeChannelConfig,
+        },
+        fill: {
+            allow_column: true,
+            with_config: avenger_chart_core::ColorChannelConfig,
+        },
+        stroke: {
+            allow_column: true,
+            with_config: avenger_chart_core::ColorChannelConfig,
+        },
+        stroke_width: {
+            allow_column: false,
+            with_config: avenger_chart_core::StrokeWidthChannelConfig,
+        },
+        shape: {
+            allow_column: true,
+            with_config: avenger_chart_core::ShapeChannelConfig,
+        },
+        angle: {
+            allow_column: true,
+            with_config: avenger_chart_core::AngleChannelConfig,
+        },
+        opacity: {
+            allow_column: true,
+            with_config: avenger_chart_core::OpacityChannelConfig,
+        },
+    }
+}
 
 #[async_trait::async_trait]
-impl Mark<Parallel> for Symbol<Parallel> {
-    impl_mark_trait_common!(Symbol);
+impl Mark<Parallel> for ParallelSymbol<Parallel> {
+    impl_mark_trait_common!(ParallelSymbol);
 
     async fn compile(
         &self,
@@ -130,13 +191,6 @@ impl CompiledMarkCore for CompiledParallelSymbol {
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         symbol_channel_defaults(channel)
-    }
-
-    fn coordinate_channel_dependencies(
-        &self,
-        coord: &dyn CoordinateSystemTransformCore,
-    ) -> IndexMap<String, avenger_chart_core::ChannelValue> {
-        coord.generated_position_channels()
     }
 
     fn preferred_legend_renderer(
@@ -267,7 +321,12 @@ impl CompiledMark for CompiledParallelSymbol {
             )
         })?;
         let mark_context = context.core_view();
-        let slots = coord.generated_position_slots(context.plot_width(), mark_context.params())?;
+        let mark_channels = self.state.data.channels();
+        let slots = coord
+            .generated_position_slots(context.plot_width(), mark_context.params())?
+            .into_iter()
+            .filter(|slot| mark_channels.contains_key(&slot.channel))
+            .collect::<Vec<_>>();
         if slots.is_empty() {
             return Err(AvengerChartError::CoordinateSystemError(
                 "ParallelSymbol requires a Parallel coordinate system with at least one dimension"
@@ -538,7 +597,7 @@ mod tests {
             record_batch::RecordBatch,
         },
         common::ScalarValue,
-        prelude::{SessionContext, col},
+        prelude::SessionContext,
     };
     use futures::executor::block_on;
     use indexmap::IndexMap;
@@ -589,11 +648,24 @@ mod tests {
         }
     }
 
+    fn dimension_channels() -> IndexMap<String, avenger_chart_core::ChannelValue> {
+        IndexMap::from([
+            (
+                generated_dimension_channel("alpha"),
+                avenger_chart_core::ChannelValue::from(0.0).with_scale_name("alpha"),
+            ),
+            (
+                generated_dimension_channel("beta"),
+                avenger_chart_core::ChannelValue::from(0.0).with_scale_name("beta"),
+            ),
+        ])
+    }
+
     fn compiled_state() -> CompiledMarkState {
         CompiledMarkState {
             id: None,
             public_target_path: None,
-            data: CompiledDataContext::default(),
+            data: CompiledDataContext::new(None, Vec::new(), dimension_channels()),
             data_mode: MarkDataMode::Inherit,
             mark_index: 0,
             facet_data_scope: FacetDataScope::default(),
@@ -632,8 +704,8 @@ mod tests {
     fn render_test_symbol() -> avenger_chart_core::RenderedMarkData {
         render_test_symbol_with_coord_and_context(
             Parallel::new()
-                .dimension("alpha", col("alpha"))
-                .dimension("beta", col("beta"))
+                .dimension("alpha")
+                .dimension("beta")
                 .create_transform(),
             TestRuntimeContext::new(100.0, 50.0),
         )
@@ -733,8 +805,8 @@ mod tests {
     #[test]
     fn parallel_symbol_uses_display_slots_and_event_datum_geometry() {
         let coord = Parallel::new()
-            .dimension("alpha", col("alpha"))
-            .dimension("beta", col("beta"))
+            .dimension("alpha")
+            .dimension("beta")
             .active_axis_display_params("drag_dimension", "drag_display_x")
             .create_transform();
         let context = TestRuntimeContext::new(100.0, 50.0).with_params(IndexMap::from([

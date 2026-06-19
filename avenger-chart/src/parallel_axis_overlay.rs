@@ -488,10 +488,16 @@ mod tests {
     }
 
     fn parallel_for_overlay_test() -> Parallel {
-        Parallel::new().dimension_with("speed", col("speed"), |d| {
-            d.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false).zero(false))
-                .axis(|axis| axis.visible(false))
-        })
+        Parallel::new()
+    }
+
+    fn speed_dimension_owner() -> ParallelLine {
+        ParallelLine::new()
+            .dimension_with("speed", col("speed"), |d| {
+                d.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false).zero(false))
+                    .axis(|axis| axis.visible(false))
+            })
+            .visible(false)
     }
 
     #[tokio::test]
@@ -529,6 +535,7 @@ mod tests {
                 ChartEventBinding::on(ChartEventType::Click)
                     .filter(crate::event::datum("speed").is_not_null()),
             )
+            .mark(speed_dimension_owner())
             .mark(overlay)
             .compile(&ctx)
             .await?;
@@ -600,6 +607,7 @@ mod tests {
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data)
+            .mark(speed_dimension_owner())
             .mark(overlay)
             .compile(&ctx)
             .await?;
@@ -629,10 +637,15 @@ mod tests {
         let data = ctx
             .sql("SELECT 50.0 AS speed UNION ALL SELECT 60.0 AS speed")
             .await?;
-        let compiled = Plot::with_coord(Parallel::new().dimension("speed", col("speed")))
+        let compiled = Plot::<Parallel>::new()
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data.clone())
+            .mark(
+                ParallelLine::new()
+                    .dimension("speed", col("speed"))
+                    .visible(false),
+            )
             .mark(ParallelAxisOverlay::new(
                 "speed",
                 Plot::<Cartesian>::new().mark(
@@ -682,6 +695,7 @@ mod tests {
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(parent_data)
+            .mark(speed_dimension_owner())
             .mark(overlay)
             .compile(&ctx)
             .await?;
@@ -726,6 +740,7 @@ mod tests {
             .plot_size(120.0, 100.0)
             .data(parent_data)
             .add_store(Store::from_record_batch("axis_overlay_rows", store_batch))
+            .mark(speed_dimension_owner())
             .mark(overlay)
             .compile(&ctx)
             .await?;
@@ -770,6 +785,7 @@ mod tests {
                     .field("value_max", DataType::Float64, false)
                     .primary_key(["id"]),
             )
+            .mark(speed_dimension_owner())
             .mark(overlay)
             .compile(&ctx)
             .await?;
@@ -818,6 +834,7 @@ mod tests {
                     .filter(crate::event::datum("value_min").is_not_null())
                     .filter(crate::event::datum("value_max").is_not_null()),
             )
+            .mark(speed_dimension_owner())
             .mark(overlay)
             .compile(&ctx)
             .await?;
@@ -882,7 +899,9 @@ mod tests {
             ),
         )
         .width_px(40.0);
-        let child = Plot::with_coord(parallel_for_overlay_test()).mark(overlay);
+        let child = Plot::with_coord(parallel_for_overlay_test())
+            .mark(speed_dimension_owner())
+            .mark(overlay);
         let compiled = Plot::<FacetColumn>::new()
             .plot_size(120.0, 100.0)
             .data(data)
@@ -932,6 +951,7 @@ mod tests {
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data)
+            .mark(speed_dimension_owner())
             .mark(overlay)
             .compile(&ctx)
             .await?;
@@ -982,7 +1002,13 @@ mod tests {
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data)
-            .mark(ParallelLine::new().zindex(1))
+            .mark(
+                ParallelLine::new()
+                    .dimension_with("speed", col("speed"), |d| {
+                        d.scale_with::<Linear>(|s| s.domain((0.0, 100.0)).nice(false).zero(false))
+                    })
+                    .zindex(1),
+            )
             .mark(overlay)
             .compile(&ctx)
             .await?;
@@ -1037,6 +1063,7 @@ mod tests {
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data)
+            .mark(speed_dimension_owner())
             .mark(ParallelAxisOverlay::new(
                 "speed",
                 Plot::<Cartesian>::new().mark(
