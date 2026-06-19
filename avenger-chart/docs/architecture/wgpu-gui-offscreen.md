@@ -198,6 +198,14 @@ The staged ownership split is:
 This avoids cross-thread mutation of renderer resources while still removing
 the expensive chart evaluation path from egui's immediate frame work.
 
+Release-mode manual testing of the `basic_chart` example kept this split for
+the initial implementation. Rapid slider changes published and dropped scene
+generations while the UI kept repainting the latest texture, pan events updated
+axes through Avenger event routing, and window resize regenerated offscreen
+textures without visible stalls or WGPU validation errors. Full background GPU
+submission remains a follow-up for charts where measured `set_scene`, encode,
+or submit timings become the frame-loop bottleneck.
+
 ## Metrics And Tracing
 
 `AvengerPlotHandle::metrics()` returns a `PlotMetrics` snapshot with counters
@@ -227,7 +235,10 @@ subscriber in the host app to inspect these diagnostics.
   rather than a custom `egui_wgpu::CallbackTrait` render pass.
 - GPU upload and offscreen rendering still occur on the egui frame thread.
   Phase 11 style background GPU submission requires separate renderer state
-  ownership, synchronization, and publish-after-submit rules.
+  ownership, synchronization, and publish-after-submit rules. On native
+  `wgpu 27.0.1`, `Device` and `Queue` are cloneable `Send + Sync` handles, so
+  a future worker can use cloned handles while owning independent renderer and
+  offscreen-target state.
 - WebAssembly may not support the same background worker and WGPU sharing
   model as native apps.
 - `selection_changes()` is reserved but not wired to chart selection snapshots

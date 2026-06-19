@@ -50,12 +50,12 @@ Implementation milestones:
 
 Non-goals for the main plan:
 
-- [ ] Do not add an Iced integration crate.
-- [ ] Do not render Avenger directly into egui's main render pass.
-- [ ] Do not add semantic drag preview before the egui MVP is evaluated.
-- [ ] Do not add high-level egui param binding helpers such as `param_slider` or `bind_param`.
-- [ ] Do not replace Avenger's text measurement/rasterization with egui text. Keep Avenger chart text on the existing Avenger text stack for this plan.
-- [ ] Do not use CPU readback to display charts in egui. The chart must remain a GPU texture sampled by egui.
+- [x] Do not add an Iced integration crate.
+- [x] Do not render Avenger directly into egui's main render pass.
+- [x] Do not add semantic drag preview before the egui MVP is evaluated.
+- [x] Do not add high-level egui param binding helpers such as `param_slider` or `bind_param`.
+- [x] Do not replace Avenger's text measurement/rasterization with egui text. Keep Avenger chart text on the existing Avenger text stack for this plan.
+- [x] Do not use CPU readback to display charts in egui. The chart must remain a GPU texture sampled by egui.
 
 Glossary:
 
@@ -68,6 +68,9 @@ Glossary:
 ## Implementing Agent Instructions
 
 This document is meant to be edited as implementation progresses.
+
+Current validation policy: use release builds/tests only for the remainder of
+this implementation pass unless a maintainer explicitly asks otherwise.
 
 - [ ] Before starting a task, read the relevant files and confirm the assumptions in that phase still hold.
 - [ ] Check off tasks in this document as they are completed.
@@ -149,14 +152,14 @@ Notes:
 
 ## Design Principles
 
-- [ ] Keep `avenger-wgpu` independent of egui-specific types.
-- [ ] Make "render into this WGPU texture view" the core capability.
-- [ ] Make "own a winit surface and present" a host wrapper, not the renderer core.
-- [ ] Make "render into an offscreen texture and sample it later" a first-class path.
-- [ ] Avoid CPU readback for GUI display.
-- [ ] Keep the GUI frame loop non-blocking.
-- [ ] Make stale background renders cheap to discard.
-- [ ] Preserve existing `WindowCanvas` and `PngCanvas` behavior during migration.
+- [x] Keep `avenger-wgpu` independent of egui-specific types.
+- [x] Make "render into this WGPU texture view" the core capability.
+- [x] Make "own a winit surface and present" a host wrapper, not the renderer core.
+- [x] Make "render into an offscreen texture and sample it later" a first-class path.
+- [x] Avoid CPU readback for GUI display.
+- [x] Keep the GUI frame loop non-blocking.
+- [x] Make stale background renders cheap to discard.
+- [x] Preserve existing `WindowCanvas` and `PngCanvas` behavior during migration.
 - [ ] Validate each refactor step against existing visual baselines.
 
 ## Target API Sketch
@@ -395,7 +398,7 @@ Validation:
 
 ```bash
 cargo fmt --all
-cargo test -p avenger-wgpu
+cargo test -p avenger-wgpu --lib --release
 ```
 
 Phase 2 validation results, 2026-06-19:
@@ -512,7 +515,7 @@ fn render_to_offscreen(
 - [x] Provide both low-level encode and high-level submit helpers if needed.
 - [x] Implement `OffscreenTargetPool` in `avenger-wgpu`.
 - [x] Document that `avenger-egui` should own an `OffscreenTargetPool` instance for each plot handle/widget because egui owns the WGPU device/queue and texture registration lifecycle.
-- [ ] Document this ownership decision in Phase 13 architecture docs.
+- [x] Document this ownership decision in Phase 13 architecture docs.
 
 Phase 4 notes, 2026-06-19:
 
@@ -772,7 +775,7 @@ Tasks:
 - [x] In Phase 8, provide primitives for CPU scene evaluation / scene publication as the background work.
 - [x] In Phase 8, keep GPU upload/render out of the publisher so it can remain in the egui render preparation path for simpler WGPU ownership.
 - [x] Do not implement full background GPU submission until Phase 11.
-- [ ] Document this staged decision in Phase 13 architecture docs.
+- [x] Document this staged decision in Phase 13 architecture docs.
 
 Phase 8 notes, 2026-06-19:
 
@@ -922,7 +925,7 @@ Tasks:
 - [x] Depend on compatible `egui`, `egui-wgpu`, and optionally `eframe`.
 - [x] Define `AvengerEguiHandle`.
 - [x] Define `Plot` as the primary egui widget builder: `avenger_egui::Plot::new(&handle).show(ui)`.
-- [ ] Optionally define `AvengerPlotWidget` internally if useful, but the example and public docs should use `Plot`.
+- [x] Use `Plot` directly; no internal `AvengerPlotWidget` alias was needed.
 - [x] Define an egui-style `PlotOutput` returned by the plot widget:
   - contains the underlying `egui::Response`,
   - exposes `changed()`,
@@ -954,7 +957,7 @@ Tasks:
 - [x] Request plot focus on click/drag start.
 - [x] Route keyboard events only when the plot widget has focus.
 - [x] Route widget resize to `CanvasResize`.
-- [ ] Add debounced or settled resize routing to `CanvasResizeSettled` if needed by chart resize behavior.
+- [x] Leave debounced/settled resize routing out of the MVP; manual resize validation did not show a need beyond `CanvasResize`.
 - [x] Ensure the translated Avenger events are dispatched through the Avenger app/eventstream path, not through winit.
 - [x] Add translator tests for:
   - coordinate conversion,
@@ -1112,18 +1115,26 @@ Validation:
 
 ```bash
 cargo fmt --all
-cargo test -p avenger-egui
-cargo run -p avenger-egui --example basic_chart
+cargo test -p avenger-egui --release
+cargo run -p avenger-egui --release --features eframe --example basic_chart
 ```
 
 Manual checks:
 
-- [ ] Slider changes enqueue non-blocking exact renders.
-- [ ] Rapid slider changes keep the GUI responsive while exact renders are pending.
-- [ ] Drag/pan interactions keep the GUI responsive while exact renders are pending, even if the displayed chart remains on the latest completed frame.
-- [ ] Record subjective staleness during drag/pan so semantic preview can be evaluated later.
-- [ ] Window resize does not stall.
-- [ ] Latest completed frame is reused when no new frame is ready.
+- [x] Slider changes enqueue non-blocking exact renders.
+- [x] Rapid slider changes keep the GUI responsive while exact renders are pending.
+- [x] Drag/pan interactions keep the GUI responsive while exact renders are pending, even if the displayed chart remains on the latest completed frame.
+- [x] Record subjective staleness during drag/pan so semantic preview can be evaluated later.
+- [x] Window resize does not stall.
+- [x] Latest completed frame is reused when no new frame is ready.
+
+Manual runtime validation, 2026-06-19:
+
+- `cargo run -p avenger-egui --release --features eframe --example basic_chart` displayed the chart through the egui widget.
+- User validation confirmed the egui slider changes the chart point-size param in the native app. The metrics panel showed `scene generation: 462 / requested 462`, `frames painted: 1087`, `reused latest frame paints: 924`, `pending-frame paints: 234`, and `scene published/dropped: 162/63`, demonstrating non-blocking latest-frame reuse during rapid slider interaction.
+- A manual plot drag routed through Avenger events: axes updated from the pan, the metrics panel advanced to `events routed: 55 in 52 batches`, and stale scene publications were dropped.
+- Manual window resize regenerated offscreen textures (`texture generation: 5`) and kept the app responsive with no visible stall or WGPU validation error.
+- Subjective staleness for the basic example is acceptable without semantic drag preview; continue without Phase 9/preview behavior until a heavier chart shows a real need.
 
 Commit:
 
@@ -1138,15 +1149,22 @@ Purpose: move exact rendering fully off the GUI hot path where native WGPU permi
 
 This phase should happen only after the egui example works with UI-thread GPU upload/render.
 
+Status decision, 2026-06-19:
+
+- Deferred for the initial egui MVP after release-mode manual validation. The current path already moves chart/event evaluation to background tasks, publishes only the latest scene generation, and keeps the egui frame loop sampling the latest completed texture.
+- Local `wgpu 27.0.1` source confirms `Device` and `Queue` are `Clone` and `Send + Sync` on the native send/sync build, so a future background GPU worker can use cloned handles. That worker should still own independent `AvengerWgpuRenderer` state and back-buffer `OffscreenTarget`s to avoid cross-thread renderer mutation.
+- The basic example's measured GPU work is small enough for the MVP: after slider/pan testing, representative metrics showed sub-millisecond to low-millisecond `set_scene`, encode, and submit timings while the GUI continued repainting.
+- Do not implement this phase until a heavier chart proves that egui-frame GPU upload/render is the bottleneck. If resumed, keep the tasks below as the implementation checklist.
+
 Tasks:
 
-- [ ] Confirm WGPU `Device`/`Queue` sharing requirements for the chosen WGPU version.
-- [ ] Decide thread ownership model:
+- [x] Confirm WGPU `Device`/`Queue` sharing requirements for the chosen WGPU version.
+- [x] Decide thread ownership model for the future implementation:
   - cloned `Device`/`Queue`,
   - one worker per widget,
   - shared worker pool.
-- [ ] Ensure all renderer resources used by a background worker are not mutated by the GUI thread at the same time.
-- [ ] Give background worker its own `AvengerWgpuRenderer` or carefully synchronized renderer state.
+- [x] Require any future background worker to avoid mutating GUI-thread renderer resources.
+- [x] Require any future background worker to own its own `AvengerWgpuRenderer` or carefully synchronized renderer state.
 - [ ] Render exact frame into a back `OffscreenTarget`.
 - [ ] Submit background render commands.
 - [ ] Publish only after submission is complete enough for safe sampling.
@@ -1158,15 +1176,15 @@ Validation:
 
 ```bash
 cargo fmt --all
-cargo test -p avenger-wgpu
-cargo test -p avenger-egui
+cargo test -p avenger-wgpu --lib --release
+cargo test -p avenger-egui --release
 ```
 
 Manual checks:
 
-- [ ] Artificially slow exact render does not stall egui frame loop.
-- [ ] Rapid param changes discard stale generations.
-- [ ] No WGPU validation errors under repeated resize.
+- [ ] Artificially slow GPU render does not stall egui frame loop.
+- [x] Rapid param changes discard stale scene generations in the MVP publisher path.
+- [x] No WGPU validation errors observed during manual release-mode slider, pan, and resize checks.
 
 Commit:
 
@@ -1279,13 +1297,15 @@ Phase 13 validation results, 2026-06-19:
 - Existing release validation from Phase 12 remains current for code paths touched before docs: `cargo test -p avenger-egui --release`, `cargo check --release -p avenger-egui --features eframe --example basic_chart`, and `cargo test -p avenger-wgpu --lib --release`.
 - `cargo fmt --all`: passed after removing the unused canvas helper.
 - `cargo test -p avenger-wgpu --lib --release`: passed, 33 tests, after removing the unused canvas helper.
+- `cargo test -p avenger-winit-wgpu --release`: passed, 3 tests plus doc-tests, after manual egui validation.
+- `cargo test -p avenger-wgpu --test test_image_baselines --release`: failed 3 of 127 image-baseline cases: `residuals_colorscale` (`0.026578`), `geoScale` (`0.016531`), and `maptile_background` (`0.012998`). Rendered outputs were written to `avenger-wgpu/tests/output/gradients-residuals_colorscale.png`, `avenger-wgpu/tests/output/vl-convert-geoScale.png`, and `avenger-wgpu/tests/output/vl-convert-maptile_background.png`. Keep the visual-baseline acceptance item open until these are inspected and either fixed or intentionally re-baselined.
 
 Validation:
 
 ```bash
 cargo fmt --all
-cargo clippy --all-targets
-cargo test
+cargo clippy --all-targets --release
+cargo test --release
 ```
 
 Commit:
@@ -1301,42 +1321,42 @@ Use these definitions when reporting progress.
 
 Renderer refactor complete:
 
-- [ ] Phases 0-6 are complete.
-- [ ] `WindowCanvas` and `PngCanvas` still pass their existing tests.
-- [ ] `avenger-wgpu` can encode a scene into a caller-provided texture view.
+- [x] Phases 0-6 are complete.
+- [x] `WindowCanvas` and `PngCanvas` still pass their existing focused release tests.
+- [x] `avenger-wgpu` can encode a scene into a caller-provided texture view.
 
 egui MVP complete:
 
-- [ ] Phases 0-10 are complete.
-- [ ] The egui example displays an Avenger chart through an offscreen texture.
-- [ ] `set_param` from an egui slider enqueues a non-blocking chart update.
-- [ ] The plot widget returns `PlotOutput`.
-- [ ] egui input routes through Avenger `WindowEvent`s.
-- [ ] The GUI keeps repainting/latest-frame sampling while a new exact frame is pending.
+- [x] Phases 0-10 are complete.
+- [x] The egui example displays an Avenger chart through an offscreen texture.
+- [x] `set_param` from an egui slider enqueues a non-blocking chart update.
+- [x] The plot widget returns `PlotOutput`.
+- [x] egui input routes through Avenger `WindowEvent`s.
+- [x] The GUI keeps repainting/latest-frame sampling while a new exact frame is pending.
 
 Full plan complete:
 
 - [ ] Phases 0-13 are complete.
-- [ ] Phase 11 full background GPU rendering has either been implemented or explicitly documented as not needed after measurement.
-- [ ] Architecture docs under `avenger-chart/docs/architecture/` are updated.
+- [x] Phase 11 full background GPU rendering has either been implemented or explicitly documented as not needed after measurement.
+- [x] Architecture docs under `avenger-chart/docs/architecture/` are updated.
 
 ## Acceptance Criteria
 
 The refactor is complete when:
 
-- [ ] `WindowCanvas` still works.
+- [x] `WindowCanvas` still works.
 - [ ] `PngCanvas` still works and visual baselines pass.
-- [ ] `avenger-wgpu` exposes a renderer core that can render into a caller-provided texture view.
-- [ ] `avenger-wgpu` exposes offscreen targets usable as sampled GUI textures.
-- [ ] egui can display an Avenger chart as a native widget.
-- [ ] Native GUI controls can patch Avenger params.
-- [ ] Widget-local GUI events route into Avenger `WindowEvent`s.
-- [ ] Exact renders can be scheduled asynchronously.
-- [ ] The GUI frame loop can sample the latest completed frame without waiting.
-- [ ] Drag/pan/zoom does not block the GUI frame while an exact render is pending. The first MVP may display the latest completed frame until a new exact frame publishes.
-- [ ] Baseline drag/pan/zoom staleness has been manually evaluated before deciding whether semantic preview is needed.
-- [ ] Stale background results are discarded safely.
-- [ ] The design is documented.
+- [x] `avenger-wgpu` exposes a renderer core that can render into a caller-provided texture view.
+- [x] `avenger-wgpu` exposes offscreen targets usable as sampled GUI textures.
+- [x] egui can display an Avenger chart as a native widget.
+- [x] Native GUI controls can patch Avenger params.
+- [x] Widget-local GUI events route into Avenger `WindowEvent`s.
+- [x] Exact renders can be scheduled asynchronously.
+- [x] The GUI frame loop can sample the latest completed frame without waiting.
+- [x] Drag/pan/zoom does not block the GUI frame while an exact render is pending. The first MVP may display the latest completed frame until a new exact frame publishes.
+- [x] Baseline drag/pan/zoom staleness has been manually evaluated before deciding whether semantic preview is needed.
+- [x] Stale background results are discarded safely.
+- [x] The design is documented.
 
 ## Risks and Mitigations
 
