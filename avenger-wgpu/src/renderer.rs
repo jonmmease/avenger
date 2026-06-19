@@ -121,16 +121,8 @@ impl AvengerRendererCore {
         &self.marks
     }
 
-    pub(crate) fn shared_multi(&self) -> &MultiMarkRenderer {
-        &self.shared_multi
-    }
-
     pub(crate) fn shared_multi_mut(&mut self) -> &mut MultiMarkRenderer {
         &mut self.shared_multi
-    }
-
-    pub(crate) fn multi_render_resources(&self) -> &MultiMarkRenderResources {
-        &self.multi_render_resources
     }
 
     pub(crate) fn text_atlas_builder_mut(&mut self) -> &mut dyn TextAtlasBuilderTrait {

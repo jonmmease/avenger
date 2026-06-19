@@ -599,9 +599,9 @@ Phase 5 validation results, 2026-06-19:
 
 Commit:
 
-- [ ] Commit Phase 5.
+- [x] Commit Phase 5.
 - Suggested message: `refactor(wgpu): render png output through renderer core`
-- Commit hash: TBD
+- Commit hash: `ddd57b1e`
 
 ## Phase 6 - Rebuild WindowCanvas as a Host Wrapper
 
@@ -609,34 +609,59 @@ Purpose: keep the existing winit integration working while proving the renderer 
 
 Tasks:
 
-- [ ] Reduce `WindowCanvas` to:
+- [x] Reduce `WindowCanvas` to:
   - winit `Window`,
   - WGPU `Surface`,
   - `SurfaceConfiguration`,
   - `Device`,
   - `Queue`,
-  - `AvengerWgpuRenderer`.
-- [ ] Make `WindowCanvas::render`:
+  - `AvengerRendererCore` for now.
+- [x] Make `WindowCanvas::render`:
   - acquire surface texture,
   - create surface texture view,
   - create target descriptor,
-  - call renderer prepare/encode,
+  - call renderer frame-command builder,
   - submit,
   - present.
-- [ ] Preserve surface resize behavior.
-- [ ] Preserve frame overlay behavior.
-- [ ] Preserve `WindowCanvas::set_scene`.
-- [ ] Preserve `Canvas` trait compatibility for downstream crates.
-- [ ] Run an existing winit example manually if practical.
+- [x] Preserve surface resize behavior.
+- [x] Preserve frame overlay behavior.
+- [x] Preserve `WindowCanvas::set_scene`.
+- [x] Preserve `Canvas` trait compatibility for downstream crates.
+- [x] Run an existing winit example manually if practical, otherwise record why it was skipped.
+
+Phase 6 notes, 2026-06-19:
+
+- `WindowCanvas` still owns the winit window, WGPU surface/configuration, device, queue, multisampled framebuffer, and renderer core.
+- `WindowCanvas::render` now acquires the surface texture, syncs resize state, builds a swapchain or multisampled `AvengerRenderTarget`, calls `AvengerRendererCore::build_frame_commands` with the optional frame overlay, submits, and presents.
+- Surface resize behavior is preserved through `sync_to_acquired_surface_texture` and `update_physical_size`.
+- Frame overlay rendering now flows through `build_frame_commands`, using the same text bind groups as the rest of the frame.
+- Removed renderer-core accessors that were only needed by the old duplicated host render loops.
+- A manual winit example run was skipped in this environment; `cargo test -p avenger-winit-wgpu` passed and covers the non-windowing frame/resize helper logic.
 
 Validation:
 
 ```bash
 cargo fmt --all
+cargo check -p avenger-wgpu
+cargo test -p avenger-wgpu --lib
 cargo test -p avenger-wgpu
 cargo test -p avenger-winit-wgpu
 cargo test -p avenger-chart-app --features winit-wgpu
+cargo test -p avenger-chart-app --features winit-wgpu --lib
 ```
+
+Phase 6 validation results, 2026-06-19:
+
+- `cargo fmt --all`: passed.
+- `cargo check -p avenger-wgpu`: passed.
+- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+  - `case_090` / `residuals_colorscale`, diff `0.026578`,
+  - `case_119` / `geoScale`, diff `0.016531`,
+  - `case_120` / `maptile_background`, diff `0.012998`.
+- `cargo test -p avenger-winit-wgpu`: passed, 3 tests.
+- `cargo test -p avenger-chart-app --features winit-wgpu`: failed before test execution because example `parallel_coordinates_header_drag_reorder.rs` references missing `ev::parallel_dimension_id()` and `ev::parallel_display_x()` helpers. This is the same pre-existing failure recorded in Phase 1.
+- `cargo test -p avenger-chart-app --features winit-wgpu --lib`: failed 3 existing event-binding tests around retained nested event datum rows. This is the same pre-existing failure recorded in Phase 1.
 
 Commit:
 

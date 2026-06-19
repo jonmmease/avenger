@@ -783,11 +783,9 @@ impl WindowCanvas<'_> {
             output_extent
         };
 
-        // Commit open multi-renderer
         self.renderer.commit_all_multi_renderers();
         let marks = self.renderer.marks().to_vec();
 
-        // Collect z-indices and compute layers
         let zindices: Vec<i32> = marks.iter().map(|m| m.zindex).collect();
         let layers = if zindices.is_empty() {
             vec![]
@@ -797,9 +795,8 @@ impl WindowCanvas<'_> {
         let layer_count = layers.len();
         let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&marks);
 
-        // Render background first
         let command_build_start = Instant::now();
-        let background_target = if sample_count > 1 {
+        let render_target = if sample_count > 1 {
             AvengerRenderTarget::multisampled(
                 &self.multisampled_framebuffer,
                 &view,
@@ -816,177 +813,12 @@ impl WindowCanvas<'_> {
                 WHITE_CLEAR,
             )
         };
-        let background_command = self
-            .renderer
-            .make_background_command(&self.device, background_target);
-        let mut commands = vec![background_command];
-
-        let multi_render_resources = self.renderer.multi_render_resources().clone();
-
-        // Build the shared text atlas bind groups ONCE per frame (instead of once per
-        // multi-renderer). Every renderer this frame registered into the same atlas, so
-        // these bind groups are page-correct for all of them.
-        let text_bind_groups = self
-            .renderer
-            .build_text_bind_groups(&self.device, &self.queue);
-
-        // Prepare the single shared multi-renderer ONCE per frame (uniform, gradient/
-        // image atlas bind groups, stencil buffer, combined vertex/index/clip buffers).
-        // Each z-run (a `MarkRenderer::Multi` batch range) is then encoded from this
-        // shared prep, so the 40-ish per-cell renderers' setup collapses to one.
-        let _prepare_start = Instant::now();
-        let prepared = self.renderer.shared_multi_mut().prepare(
+        let commands = self.renderer.build_frame_commands(
             &self.device,
             &self.queue,
-            render_target_extent,
-            &multi_render_resources,
-        );
-        tracing::debug!(
-            target: "avenger_wgpu::resize",
-            prepare_ms = _prepare_start.elapsed().as_secs_f64() * 1000.0,
-            "wgpu.prepare"
-        );
-
-        // Render marks by layer
-        // Coalesce consecutive multi-mark runs (in (layer, document) order) into one
-        // command buffer with merged render passes; instanced marks break a run and
-        // render on their own pipeline, interleaved.
-        let mut mark_encoder = self
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("Avenger Mark Render Encoder"),
-            });
-        let mut encoded_marks = false;
-        let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
-        for (min_z, max_z) in layers {
-            for mark in &marks {
-                if mark.zindex >= min_z && mark.zindex <= max_z {
-                    match &mark.renderer {
-                        MarkRenderer::Multi { batch_range } => pending.push(batch_range.clone()),
-                        MarkRenderer::Instanced {
-                            renderer,
-                            x_adjustment,
-                            y_adjustment,
-                        } => {
-                            if !pending.is_empty() {
-                                if sample_count > 1 {
-                                    self.renderer.shared_multi().encode_multi_ranges_into(
-                                        &mut mark_encoder,
-                                        render_target_extent,
-                                        &self.multisampled_framebuffer,
-                                        Some(&view),
-                                        &multi_render_resources,
-                                        &text_bind_groups,
-                                        &prepared,
-                                        &pending,
-                                    );
-                                } else {
-                                    self.renderer.shared_multi().encode_multi_ranges_into(
-                                        &mut mark_encoder,
-                                        render_target_extent,
-                                        &view,
-                                        None,
-                                        &multi_render_resources,
-                                        &text_bind_groups,
-                                        &prepared,
-                                        &pending,
-                                    );
-                                };
-                                pending.clear();
-                            }
-                            if sample_count > 1 {
-                                renderer.encode_into(
-                                    &self.device,
-                                    &mut mark_encoder,
-                                    &self.multisampled_framebuffer,
-                                    Some(&view),
-                                    *x_adjustment,
-                                    *y_adjustment,
-                                );
-                            } else {
-                                renderer.encode_into(
-                                    &self.device,
-                                    &mut mark_encoder,
-                                    &view,
-                                    None,
-                                    *x_adjustment,
-                                    *y_adjustment,
-                                );
-                            };
-                            encoded_marks = true;
-                        }
-                    }
-                }
-            }
-        }
-        if !pending.is_empty() {
-            if sample_count > 1 {
-                self.renderer.shared_multi().encode_multi_ranges_into(
-                    &mut mark_encoder,
-                    render_target_extent,
-                    &self.multisampled_framebuffer,
-                    Some(&view),
-                    &multi_render_resources,
-                    &text_bind_groups,
-                    &prepared,
-                    &pending,
-                );
-            } else {
-                self.renderer.shared_multi().encode_multi_ranges_into(
-                    &mut mark_encoder,
-                    render_target_extent,
-                    &view,
-                    None,
-                    &multi_render_resources,
-                    &text_bind_groups,
-                    &prepared,
-                    &pending,
-                );
-            };
-            encoded_marks = true;
-        }
-        if encoded_marks {
-            commands.push(mark_encoder.finish());
-        }
-
-        let frame_overlay_command = if sample_count > 1 {
-            let overlay_start = Instant::now();
-            let command = self.renderer.make_frame_overlay_command(
-                &self.device,
-                &self.queue,
-                self.frame_overlay,
-                render_target_extent,
-                &self.multisampled_framebuffer,
-                Some(&view),
-                &text_bind_groups,
-            )?;
-            tracing::trace!(
-                target: "avenger_wgpu::resize",
-                overlay_command_ms = overlay_start.elapsed().as_secs_f64() * 1000.0,
-                "wgpu.render overlay command"
-            );
-            command
-        } else {
-            let overlay_start = Instant::now();
-            let command = self.renderer.make_frame_overlay_command(
-                &self.device,
-                &self.queue,
-                self.frame_overlay,
-                render_target_extent,
-                &view,
-                None,
-                &text_bind_groups,
-            )?;
-            tracing::trace!(
-                target: "avenger_wgpu::resize",
-                overlay_command_ms = overlay_start.elapsed().as_secs_f64() * 1000.0,
-                "wgpu.render overlay command"
-            );
-            command
-        };
-        if let Some(command) = frame_overlay_command {
-            commands.push(command);
-        }
+            render_target,
+            self.frame_overlay,
+        )?;
 
         let command_build_elapsed = command_build_start.elapsed();
         let command_count = commands.len();
