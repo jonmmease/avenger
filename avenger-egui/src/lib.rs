@@ -7,11 +7,18 @@ use avenger_app::{
 use avenger_chart_app::{
     ChartAppState, IntoChartParamValue, ParamChange, ParamSetResult, ParamSnapshot,
 };
-use avenger_common::time::Instant;
+use avenger_common::{canvas::CanvasDimensions, time::Instant};
 use avenger_eventstream::window::{
     CanvasResizeEvent, ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput,
 };
+use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_wgpu::{
+    error::AvengerWgpuError,
+    offscreen::{OffscreenTargetDescriptor, OffscreenTargetPool},
+    renderer::{AvengerRendererConfig, AvengerWgpuRenderer},
+};
 use datafusion::scalar::ScalarValue;
+use egui_wgpu::wgpu;
 use tokio::sync::Mutex as AsyncMutex;
 
 pub use egui;
@@ -23,6 +30,7 @@ pub struct AvengerPlotHandle {
     observed: Arc<StdMutex<ObservedState>>,
     event_translator: Arc<StdMutex<EguiEventTranslator>>,
     pending_events: Arc<StdMutex<Vec<WindowEvent>>>,
+    gpu: Arc<StdMutex<Option<EguiPlotGpuState>>>,
 }
 
 impl AvengerPlotHandle {
@@ -33,6 +41,7 @@ impl AvengerPlotHandle {
             observed: Arc::new(StdMutex::new(ObservedState::default())),
             event_translator: Arc::new(StdMutex::new(EguiEventTranslator::default())),
             pending_events: Arc::new(StdMutex::new(Vec::new())),
+            gpu: Arc::new(StdMutex::new(None)),
         }
     }
 
@@ -44,6 +53,7 @@ impl AvengerPlotHandle {
             observed: Arc::new(StdMutex::new(ObservedState::default())),
             event_translator: Arc::new(StdMutex::new(EguiEventTranslator::default())),
             pending_events: Arc::new(StdMutex::new(Vec::new())),
+            gpu: Arc::new(StdMutex::new(None)),
         }
     }
 
@@ -116,6 +126,40 @@ impl AvengerPlotHandle {
         Ok(updates)
     }
 
+    pub fn render_scene_to_texture(
+        &self,
+        render_state: &egui_wgpu::RenderState,
+        scene_graph: &SceneGraph,
+        dimensions: CanvasDimensions,
+    ) -> Result<egui::TextureId, AvengerWgpuError> {
+        let mut gpu = self.gpu.lock().expect("avenger egui gpu lock poisoned");
+        let gpu = gpu.get_or_insert_with(|| {
+            EguiPlotGpuState::new(
+                &render_state.device,
+                dimensions,
+                wgpu::TextureFormat::Rgba8Unorm,
+            )
+        });
+        gpu.render_scene(render_state, scene_graph, dimensions)
+    }
+
+    pub fn texture_id(&self) -> Option<egui::TextureId> {
+        self.gpu
+            .lock()
+            .expect("avenger egui gpu lock poisoned")
+            .as_ref()
+            .and_then(|gpu| gpu.texture_id)
+    }
+
+    pub fn frame_status(&self) -> FrameStatus {
+        self.gpu
+            .lock()
+            .expect("avenger egui gpu lock poisoned")
+            .as_ref()
+            .map(EguiPlotGpuState::frame_status)
+            .unwrap_or_default()
+    }
+
     fn param_changes_since_last_show(&self) -> Vec<ParamChange> {
         let current_revision = self.state.param_revision();
         let mut observed = self
@@ -167,6 +211,14 @@ impl<'a> Plot<'a> {
         if response.clicked() || response.drag_started() {
             response.request_focus();
         }
+        if let Some(texture_id) = self.handle.texture_id() {
+            ui.painter().image(
+                texture_id,
+                rect,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+        }
 
         let events = ui.input(|input| {
             self.handle
@@ -186,8 +238,97 @@ impl<'a> Plot<'a> {
             response,
             param_changes,
             selection_changes,
-            frame_status: FrameStatus::default(),
+            frame_status: self.handle.frame_status(),
             events,
+        }
+    }
+}
+
+struct EguiPlotGpuState {
+    renderer: AvengerWgpuRenderer,
+    targets: OffscreenTargetPool,
+    texture_id: Option<egui::TextureId>,
+    registered_generation: Option<u64>,
+    format: wgpu::TextureFormat,
+}
+
+impl EguiPlotGpuState {
+    fn new(
+        device: &wgpu::Device,
+        dimensions: CanvasDimensions,
+        format: wgpu::TextureFormat,
+    ) -> Self {
+        let renderer = AvengerWgpuRenderer::new(
+            device,
+            AvengerRendererConfig::new(dimensions, format).with_sample_count(1),
+        );
+        let targets = OffscreenTargetPool::triple_buffered(
+            device,
+            OffscreenTargetDescriptor::new(dimensions, format)
+                .with_label("avenger-egui plot offscreen texture"),
+        );
+        Self {
+            renderer,
+            targets,
+            texture_id: None,
+            registered_generation: None,
+            format,
+        }
+    }
+
+    fn render_scene(
+        &mut self,
+        render_state: &egui_wgpu::RenderState,
+        scene_graph: &SceneGraph,
+        dimensions: CanvasDimensions,
+    ) -> Result<egui::TextureId, AvengerWgpuError> {
+        self.renderer.resize(dimensions);
+        self.renderer
+            .set_scene(&render_state.device, &render_state.queue, scene_graph)?;
+        self.targets.resize_or_recreate(
+            &render_state.device,
+            OffscreenTargetDescriptor::new(dimensions, self.format)
+                .with_label("avenger-egui plot offscreen texture"),
+        );
+
+        let target = if let Some(target) = self
+            .targets
+            .acquire_next_excluding_generation(self.registered_generation)
+        {
+            target
+        } else {
+            self.targets.acquire_next()
+        };
+        let rendered =
+            self.renderer
+                .render_to_offscreen(&render_state.device, &render_state.queue, target)?;
+
+        let mut egui_renderer = render_state.renderer.write();
+        let texture_id = if let Some(texture_id) = self.texture_id {
+            egui_renderer.update_egui_texture_from_wgpu_texture(
+                &render_state.device,
+                &target.view,
+                wgpu::FilterMode::Linear,
+                texture_id,
+            );
+            texture_id
+        } else {
+            egui_renderer.register_native_texture(
+                &render_state.device,
+                &target.view,
+                wgpu::FilterMode::Linear,
+            )
+        };
+        self.texture_id = Some(texture_id);
+        self.registered_generation = Some(rendered.generation);
+        Ok(texture_id)
+    }
+
+    fn frame_status(&self) -> FrameStatus {
+        FrameStatus {
+            latest_generation: self.registered_generation,
+            requested_generation: None,
+            render_pending: false,
         }
     }
 }

@@ -963,12 +963,12 @@ Tasks:
   - wheel filtering,
   - keyboard focus filtering,
   - resize event generation.
-- [ ] Register or update Avenger offscreen texture with egui-wgpu.
-- [ ] Prefer egui-wgpu native texture registration for the first MVP.
-- [ ] Keep and reuse a stable egui `TextureId` while the underlying offscreen texture remains compatible.
-- [ ] Re-register/update the texture when the offscreen texture is recreated because of size/format changes.
-- [ ] Paint latest frame texture into widget rect.
-- [ ] Keep `show(ui)` non-blocking: it may allocate the rect, route input, enqueue work, update texture registration, and paint the latest completed frame, but it must not wait for exact evaluation or rendering.
+- [x] Register or update Avenger offscreen texture with egui-wgpu.
+- [x] Prefer egui-wgpu native texture registration for the first MVP.
+- [x] Keep and reuse a stable egui `TextureId` while the underlying offscreen texture remains compatible.
+- [x] Re-register/update the texture when the offscreen texture is recreated because of size/format changes.
+- [x] Paint latest frame texture into widget rect.
+- [x] Keep `show(ui)` non-blocking: it may allocate the rect, route input, enqueue work, update texture registration, and paint the latest completed frame, but it must not wait for exact evaluation or rendering.
 - [ ] During drag, request repaint every frame.
 - [ ] On background frame publish, request repaint.
 - [ ] Add an example app with:
@@ -1063,7 +1063,9 @@ Phase 10 progress notes, 2026-06-19:
 - Added `PlotOutput` with `egui::Response`, param-change helpers, reserved empty `selection_changes`, lightweight placeholder `FrameStatus`, and translated Avenger `WindowEvent`s.
 - Added `EguiEventTranslator` with widget-local coordinate conversion, cursor enter/leave/move, simple click input, and widget resize to `CanvasResize`.
 - Added a nonblocking event queue on `AvengerPlotHandle`. `Plot::show(ui)` queues translated events without awaiting app updates, and `dispatch_pending_events().await` can route them through an owned `AvengerApp::update_with_status` outside the egui paint path.
-- This is not yet the full Phase 10 MVP. Pending work includes wiring an owned `AvengerApp` into the example/runtime path, richer drag/wheel/keyboard translation, egui-wgpu texture registration, offscreen rendering/painting, repaint scheduling, and a runnable `basic_chart` example.
+- Added low-level `render_scene_to_texture(render_state, scene_graph, dimensions)` on `AvengerPlotHandle`. It renders a caller-provided `SceneGraph` into a handle-owned triple-buffered `OffscreenTargetPool`, registers/updates the latest target with `egui-wgpu`, and reuses the same `TextureId`.
+- `Plot::show(ui)` paints the latest registered texture into the allocated widget rect without waiting for evaluation or rendering.
+- This is not yet the full Phase 10 MVP. Pending work includes wiring an owned `AvengerApp` into the example/runtime path, connecting scene updates to `render_scene_to_texture`, richer drag/wheel/keyboard translation, repaint scheduling, and a runnable `basic_chart` example.
 - Progress commit hashes: `cdc4ee5d`, `b01ee84e`
 
 Phase 10 partial validation, 2026-06-19:
@@ -1074,6 +1076,8 @@ Phase 10 partial validation, 2026-06-19:
 - `cargo check -p avenger-egui`: passed.
 - `cargo test -p avenger-egui --lib`: passed, 6 tests.
 - `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests.
+- `cargo check -p avenger-egui`: passed after adding offscreen texture registration.
+- `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests, after adding offscreen texture registration.
 - `cargo tree -i wgpu --workspace`: reports a single `wgpu v27.0.1`, including `egui-wgpu v0.33.3`.
 
 Implementation note:
