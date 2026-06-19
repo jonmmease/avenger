@@ -62,6 +62,51 @@ fn numeric_parallel_data(ctx: &SessionContext) -> datafusion::dataframe::DataFra
     ctx.read_batch(batch).expect("numeric parallel dataframe")
 }
 
+fn missing_parallel_data(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Utf8, false),
+        Field::new("group", DataType::Utf8, false),
+        Field::new("speed", DataType::Float64, true),
+        Field::new("efficiency", DataType::Float64, true),
+        Field::new("stability", DataType::Float64, true),
+        Field::new("cost", DataType::Float64, true),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(vec!["a0", "a1", "b0", "b1"])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["alpha", "alpha", "beta", "beta"])),
+            Arc::new(Float64Array::from(vec![
+                Some(48.0),
+                Some(62.0),
+                Some(44.0),
+                Some(57.0),
+            ])),
+            Arc::new(Float64Array::from(vec![
+                Some(0.62),
+                None,
+                Some(0.58),
+                Some(0.70),
+            ])),
+            Arc::new(Float64Array::from(vec![
+                Some(70.0),
+                Some(82.0),
+                None,
+                Some(78.0),
+            ])),
+            Arc::new(Float64Array::from(vec![
+                Some(115.0),
+                Some(142.0),
+                Some(100.0),
+                None,
+            ])),
+        ],
+    )
+    .expect("missing-value parallel test data");
+    ctx.read_batch(batch)
+        .expect("missing-value parallel dataframe")
+}
+
 fn mixed_parallel_data(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Utf8, false),
@@ -226,6 +271,45 @@ async fn parallel_points_overlay() {
 
     let compiled = plot.compile(&ctx).await.expect("compile parallel points");
     assert_visual_match_default(&compiled, &ctx, None, "parallel", "parallel_points_overlay").await;
+}
+
+#[tokio::test]
+async fn parallel_missing_values() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(missing_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke_with(col("group"), |stroke| stroke.no_legend())
+                .stroke_width(2.0)
+                .opacity(0.65),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.8)
+                .size(82.0)
+                .opacity(0.95),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile parallel missing values");
+    assert_visual_match_default(&compiled, &ctx, None, "parallel", "parallel_missing_values").await;
 }
 
 #[tokio::test]
