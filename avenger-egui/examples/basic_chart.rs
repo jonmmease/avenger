@@ -106,6 +106,8 @@ impl eframe::App for BasicChartApp {
             } else {
                 "render idle"
             });
+            ui.separator();
+            self.plot.show_metrics(ui);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {

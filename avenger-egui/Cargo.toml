@@ -23,6 +23,7 @@ eframe = { version = "0.33.3", optional = true, default-features = false, featur
 ] }
 datafusion = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time"] }
+tracing = { workspace = true }
 
 [dev-dependencies]
 avenger-chart = { path = "../avenger-chart" }

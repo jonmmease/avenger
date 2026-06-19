@@ -1,6 +1,6 @@
 use std::{
     sync::{Arc, Mutex as StdMutex},
-    time::Instant as StdInstant,
+    time::{Duration, Instant as StdInstant},
 };
 
 use avenger_app::{
@@ -20,9 +20,9 @@ use avenger_wgpu::{
     error::AvengerWgpuError,
     frame_publisher::{
         BeginFrameError, FrameGeneration, FramePublisher, FramePublisherStatus, FrameRenderMetrics,
-        RenderedFrame,
+        PublishResult, RenderedFrame,
     },
-    offscreen::{OffscreenTargetDescriptor, OffscreenTargetPool},
+    offscreen::{OffscreenTargetDescriptor, OffscreenTargetPool, RenderedOffscreenFrame},
     renderer::{AvengerRendererConfig, AvengerWgpuRenderer},
 };
 use datafusion::scalar::ScalarValue;
@@ -41,6 +41,7 @@ pub struct AvengerPlotHandle {
     scene_rebuild_request: Arc<StdMutex<Option<bool>>>,
     scene_publisher: FramePublisher<Arc<SceneGraph>>,
     scene_error: Arc<StdMutex<Option<String>>>,
+    metrics: Arc<StdMutex<PlotMetrics>>,
     gpu: Arc<StdMutex<Option<EguiPlotGpuState>>>,
 }
 
@@ -55,6 +56,7 @@ impl AvengerPlotHandle {
             scene_rebuild_request: Arc::new(StdMutex::new(None)),
             scene_publisher: FramePublisher::new(),
             scene_error: Arc::new(StdMutex::new(None)),
+            metrics: Arc::new(StdMutex::new(PlotMetrics::default())),
             gpu: Arc::new(StdMutex::new(None)),
         }
     }
@@ -70,6 +72,7 @@ impl AvengerPlotHandle {
             scene_rebuild_request: Arc::new(StdMutex::new(None)),
             scene_publisher: FramePublisher::new(),
             scene_error: Arc::new(StdMutex::new(None)),
+            metrics: Arc::new(StdMutex::new(PlotMetrics::default())),
             gpu: Arc::new(StdMutex::new(None)),
         }
     }
@@ -83,7 +86,21 @@ impl AvengerPlotHandle {
         name: impl Into<String>,
         value: impl IntoChartParamValue,
     ) -> ParamSetResult {
-        self.state.set_param(name, value)
+        let name = name.into();
+        let _span = tracing::debug_span!("avenger_egui.set_param", param = %name).entered();
+        let result = self.state.set_param(name, value);
+        update_metrics(&self.metrics, |metrics| {
+            metrics.param_set_calls += 1;
+            if result.changed {
+                metrics.param_changes_enqueued += 1;
+            }
+        });
+        tracing::debug!(
+            changed = result.changed,
+            revision = result.revision,
+            "plot param set"
+        );
+        result
     }
 
     pub fn param_snapshot(&self) -> ParamSnapshot {
@@ -107,6 +124,16 @@ impl AvengerPlotHandle {
     }
 
     pub fn queue_events(&self, events: impl IntoIterator<Item = WindowEvent>) {
+        let events: Vec<_> = events.into_iter().collect();
+        let count = events.len() as u64;
+        if count > 0 {
+            update_metrics(&self.metrics, |metrics| {
+                metrics.routed_event_batches += 1;
+                metrics.routed_events += count;
+                metrics.last_routed_event_count = count;
+            });
+            tracing::debug!(event_count = count, "queued avenger plot events");
+        }
         self.pending_events
             .lock()
             .expect("avenger egui pending-event lock poisoned")
@@ -171,6 +198,15 @@ impl AvengerPlotHandle {
     ) -> Option<FrameGeneration> {
         self.app.as_ref()?;
         let generation = self.scene_publisher.request_frame();
+        update_metrics(&self.metrics, |metrics| {
+            metrics.scene_rebuild_requests += 1;
+            metrics.last_requested_generation = Some(generation.get());
+        });
+        tracing::debug!(
+            generation = generation.get(),
+            rebuild_geometry,
+            "requested avenger scene rebuild"
+        );
         merge_scene_rebuild_request(&self.scene_rebuild_request, rebuild_geometry);
         self.spawn_scene_worker(runtime.clone(), repaint);
         Some(generation)
@@ -201,6 +237,14 @@ impl AvengerPlotHandle {
             return None;
         }
         let generation = self.scene_publisher.request_frame();
+        update_metrics(&self.metrics, |metrics| {
+            metrics.event_dispatch_requests += 1;
+            metrics.last_requested_generation = Some(generation.get());
+        });
+        tracing::debug!(
+            generation = generation.get(),
+            "requested avenger event dispatch"
+        );
         self.spawn_scene_worker(runtime.clone(), repaint);
         Some(generation)
     }
@@ -222,6 +266,54 @@ impl AvengerPlotHandle {
             .lock()
             .expect("avenger egui scene-error lock poisoned")
             .clone()
+    }
+
+    pub fn metrics(&self) -> PlotMetrics {
+        self.metrics
+            .lock()
+            .expect("avenger egui metrics lock poisoned")
+            .clone()
+    }
+
+    pub fn reset_metrics(&self) {
+        *self
+            .metrics
+            .lock()
+            .expect("avenger egui metrics lock poisoned") = PlotMetrics::default();
+    }
+
+    pub fn show_metrics(&self, ui: &mut egui::Ui) {
+        let metrics = self.metrics();
+        let status = self.frame_status();
+        ui.label(format!("frames painted: {}", metrics.frames_painted));
+        ui.label(format!(
+            "reused latest frame paints: {}",
+            metrics.reused_latest_frame_paints
+        ));
+        ui.label(format!(
+            "pending-frame paints: {}",
+            metrics.frames_painted_while_pending
+        ));
+        ui.label(format!(
+            "scene published/dropped: {}/{}",
+            metrics.scene_frames_published, metrics.stale_scene_frames_dropped
+        ));
+        ui.label(format!(
+            "events routed: {} in {} batches",
+            metrics.routed_events, metrics.routed_event_batches
+        ));
+        ui.label(format!(
+            "set_scene/encode/submit us: {}/{}/{}",
+            metrics.last_set_scene_us, metrics.last_command_encode_us, metrics.last_submit_us
+        ));
+        ui.label(format!(
+            "scene eval / texture publish us: {} / {}",
+            metrics.last_scene_evaluation_us, metrics.last_texture_publish_us
+        ));
+        ui.label(format!(
+            "latest texture/scene: {:?}/{:?}",
+            status.latest_generation, status.latest_scene_generation
+        ));
     }
 
     pub async fn current_scene_graph(&self) -> Option<Arc<SceneGraph>> {
@@ -254,7 +346,7 @@ impl AvengerPlotHandle {
                 wgpu::TextureFormat::Rgba8Unorm,
             )
         });
-        gpu.render_scene(render_state, scene_graph, dimensions)
+        gpu.render_scene(render_state, scene_graph, dimensions, &self.metrics)
     }
 
     pub fn texture_id(&self) -> Option<egui::TextureId> {
@@ -299,6 +391,41 @@ impl AvengerPlotHandle {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PlotMetrics {
+    pub param_set_calls: u64,
+    pub param_changes_enqueued: u64,
+    pub routed_event_batches: u64,
+    pub routed_events: u64,
+    pub last_routed_event_count: u64,
+    pub scene_rebuild_requests: u64,
+    pub event_dispatch_requests: u64,
+    pub scene_frames_published: u64,
+    pub stale_scene_frames_dropped: u64,
+    pub offscreen_texture_renders: u64,
+    pub texture_registrations: u64,
+    pub texture_updates: u64,
+    pub frames_painted: u64,
+    pub reused_latest_frame_paints: u64,
+    pub frames_painted_while_pending: u64,
+    pub last_requested_generation: Option<u64>,
+    pub last_published_scene_generation: Option<u64>,
+    pub last_painted_texture_generation: Option<u64>,
+    pub last_scene_evaluation_us: u64,
+    pub last_set_scene_us: u64,
+    pub last_command_encode_us: u64,
+    pub last_submit_us: u64,
+    pub last_texture_publish_us: u64,
+}
+
+fn update_metrics(metrics: &StdMutex<PlotMetrics>, update: impl FnOnce(&mut PlotMetrics)) {
+    update(&mut metrics.lock().expect("avenger egui metrics lock poisoned"));
+}
+
+fn duration_us(duration: Duration) -> u64 {
+    duration.as_micros().min(u128::from(u64::MAX)) as u64
+}
+
 #[derive(Clone, Debug, Default)]
 struct ObservedState {
     param_revision: u64,
@@ -311,6 +438,7 @@ struct SceneWorkerParts {
     scene_rebuild_request: Arc<StdMutex<Option<bool>>>,
     scene_publisher: FramePublisher<Arc<SceneGraph>>,
     scene_error: Arc<StdMutex<Option<String>>>,
+    metrics: Arc<StdMutex<PlotMetrics>>,
 }
 
 impl SceneWorkerParts {
@@ -321,10 +449,12 @@ impl SceneWorkerParts {
             scene_rebuild_request: handle.scene_rebuild_request.clone(),
             scene_publisher: handle.scene_publisher.clone(),
             scene_error: handle.scene_error.clone(),
+            metrics: handle.metrics.clone(),
         }
     }
 
     fn spawn(self, runtime: tokio::runtime::Handle, repaint: Option<egui::Context>) {
+        let _span = tracing::debug_span!("avenger_egui.spawn_scene_worker").entered();
         let ticket = match self.scene_publisher.try_begin_latest_render() {
             Ok(ticket) => ticket,
             Err(BeginFrameError::RenderInProgress { .. }) => return,
@@ -335,6 +465,7 @@ impl SceneWorkerParts {
         let task_runtime = runtime.clone();
 
         runtime.spawn(async move {
+            tracing::debug!(generation = generation.get(), "scene worker start");
             let start = StdInstant::now();
             let result = self.run_once().await;
             match result {
@@ -343,13 +474,42 @@ impl SceneWorkerParts {
                         .scene_error
                         .lock()
                         .expect("avenger egui scene-error lock poisoned") = None;
-                    let _ = ticket.publish(
+                    let scene_evaluation = start.elapsed();
+                    let publish_result = ticket.publish(
                         scene_graph,
                         FrameRenderMetrics {
-                            scene_evaluation: start.elapsed(),
+                            scene_evaluation,
                             ..FrameRenderMetrics::default()
                         },
                     );
+                    match publish_result {
+                        PublishResult::Published { generation } => {
+                            update_metrics(&self.metrics, |metrics| {
+                                metrics.scene_frames_published += 1;
+                                metrics.last_published_scene_generation = Some(generation.get());
+                                metrics.last_scene_evaluation_us = duration_us(scene_evaluation);
+                            });
+                            tracing::debug!(
+                                generation = generation.get(),
+                                scene_evaluation_us = duration_us(scene_evaluation),
+                                "published avenger scene frame"
+                            );
+                        }
+                        PublishResult::DroppedStale {
+                            generation,
+                            requested_generation,
+                        } => {
+                            update_metrics(&self.metrics, |metrics| {
+                                metrics.stale_scene_frames_dropped += 1;
+                            });
+                            tracing::debug!(
+                                generation = generation.get(),
+                                requested_generation = requested_generation.get(),
+                                "dropped stale avenger scene frame"
+                            );
+                        }
+                        PublishResult::Canceled { .. } => {}
+                    }
                 }
                 Ok(None) => {
                     let _ = ticket.cancel();
@@ -400,6 +560,7 @@ impl SceneWorkerParts {
         let mut app = app.lock().await;
         let mut scene_graph = None;
         for event in events {
+            tracing::debug!("dispatching plot event through avenger app");
             if let Some(update_scene) = app
                 .update_with_status(&event, AvengerInstant::now())
                 .await?
@@ -474,6 +635,7 @@ impl<'a> Plot<'a> {
     }
 
     pub fn show(self, ui: &mut egui::Ui) -> PlotOutput {
+        let _span = tracing::debug_span!("avenger_egui.plot_show").entered();
         let desired_size = self.desired_size.unwrap_or_else(|| {
             let available = ui.available_size_before_wrap();
             egui::vec2(available.x.max(320.0), available.y.max(240.0))
@@ -482,12 +644,31 @@ impl<'a> Plot<'a> {
         if response.clicked() || response.drag_started() {
             response.request_focus();
         }
+        let frame_status = self.handle.frame_status();
         if let Some(texture_id) = self.handle.texture_id() {
             ui.painter().image(
                 texture_id,
                 rect,
                 egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                 egui::Color32::WHITE,
+            );
+            update_metrics(&self.handle.metrics, |metrics| {
+                metrics.frames_painted += 1;
+                if frame_status.render_pending {
+                    metrics.frames_painted_while_pending += 1;
+                }
+                if let Some(generation) = frame_status.latest_generation {
+                    if metrics.last_painted_texture_generation == Some(generation) {
+                        metrics.reused_latest_frame_paints += 1;
+                    }
+                    metrics.last_painted_texture_generation = Some(generation);
+                }
+            });
+            tracing::debug!(
+                texture_generation = frame_status.latest_generation,
+                scene_generation = frame_status.latest_scene_generation,
+                render_pending = frame_status.render_pending,
+                "painted avenger plot texture"
             );
         }
 
@@ -510,7 +691,7 @@ impl<'a> Plot<'a> {
             response,
             param_changes,
             selection_changes,
-            frame_status: self.handle.frame_status(),
+            frame_status,
             events,
         }
     }
@@ -553,10 +734,13 @@ impl EguiPlotGpuState {
         render_state: &egui_wgpu::RenderState,
         scene_graph: &SceneGraph,
         dimensions: CanvasDimensions,
+        metrics: &StdMutex<PlotMetrics>,
     ) -> Result<egui::TextureId, AvengerWgpuError> {
         self.renderer.resize(dimensions);
+        let set_scene_start = StdInstant::now();
         self.renderer
             .set_scene(&render_state.device, &render_state.queue, scene_graph)?;
+        let set_scene_elapsed = set_scene_start.elapsed();
         self.targets.resize_or_recreate(
             &render_state.device,
             OffscreenTargetDescriptor::new(dimensions, self.format)
@@ -571,11 +755,22 @@ impl EguiPlotGpuState {
         } else {
             self.targets.acquire_next()
         };
-        let rendered =
-            self.renderer
-                .render_to_offscreen(&render_state.device, &render_state.queue, target)?;
+        let encode_start = StdInstant::now();
+        let commands = self.renderer.encode_to_offscreen_commands(
+            &render_state.device,
+            &render_state.queue,
+            target,
+        )?;
+        let encode_elapsed = encode_start.elapsed();
 
+        let submit_start = StdInstant::now();
+        render_state.queue.submit(commands);
+        let submit_elapsed = submit_start.elapsed();
+        let rendered = RenderedOffscreenFrame::from(&*target);
+
+        let texture_publish_start = StdInstant::now();
         let mut egui_renderer = render_state.renderer.write();
+        let reused_texture_id = self.texture_id.is_some();
         let texture_id = if let Some(texture_id) = self.texture_id {
             egui_renderer.update_egui_texture_from_wgpu_texture(
                 &render_state.device,
@@ -591,8 +786,29 @@ impl EguiPlotGpuState {
                 wgpu::FilterMode::Linear,
             )
         };
+        let texture_publish_elapsed = texture_publish_start.elapsed();
         self.texture_id = Some(texture_id);
         self.registered_generation = Some(rendered.generation);
+        update_metrics(metrics, |metrics| {
+            metrics.offscreen_texture_renders += 1;
+            if reused_texture_id {
+                metrics.texture_updates += 1;
+            } else {
+                metrics.texture_registrations += 1;
+            }
+            metrics.last_set_scene_us = duration_us(set_scene_elapsed);
+            metrics.last_command_encode_us = duration_us(encode_elapsed);
+            metrics.last_submit_us = duration_us(submit_elapsed);
+            metrics.last_texture_publish_us = duration_us(texture_publish_elapsed);
+        });
+        tracing::debug!(
+            texture_generation = rendered.generation,
+            set_scene_us = duration_us(set_scene_elapsed),
+            command_encode_us = duration_us(encode_elapsed),
+            submit_us = duration_us(submit_elapsed),
+            texture_publish_us = duration_us(texture_publish_elapsed),
+            "rendered avenger scene to egui texture"
+        );
         Ok(texture_id)
     }
 
@@ -1055,6 +1271,26 @@ mod tests {
         assert_eq!(handle.pending_event_count(), 1);
         assert_eq!(handle.take_pending_events(), vec![event]);
         assert_eq!(handle.pending_event_count(), 0);
+        let metrics = handle.metrics();
+        assert_eq!(metrics.routed_event_batches, 1);
+        assert_eq!(metrics.routed_events, 1);
+        assert_eq!(metrics.last_routed_event_count, 1);
+    }
+
+    #[tokio::test]
+    async fn set_param_updates_metrics() {
+        let handle = test_handle().await;
+
+        let changed = handle.set_param("width", 720.0);
+        let unchanged = handle.set_param("width", 720.0);
+
+        assert!(changed.changed);
+        assert!(!unchanged.changed);
+        let metrics = handle.metrics();
+        assert_eq!(metrics.param_set_calls, 2);
+        assert_eq!(metrics.param_changes_enqueued, 1);
+        handle.reset_metrics();
+        assert_eq!(handle.metrics(), PlotMetrics::default());
     }
 
     #[tokio::test]
@@ -1091,6 +1327,13 @@ mod tests {
         assert_eq!(status.latest_scene_generation, Some(generation.get()));
         assert!(!status.render_pending);
         assert!(handle.latest_scene_error().is_none());
+        let metrics = handle.metrics();
+        assert_eq!(metrics.scene_rebuild_requests, 1);
+        assert_eq!(metrics.scene_frames_published, 1);
+        assert_eq!(
+            metrics.last_published_scene_generation,
+            Some(generation.get())
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1113,6 +1356,10 @@ mod tests {
             .expect("latest scene after rapid rebuild requests");
         assert_eq!(latest.generation, second);
         assert_eq!(handle.param_f64("width"), Some(720.0));
+        let metrics = handle.metrics();
+        assert_eq!(metrics.scene_rebuild_requests, 2);
+        assert_eq!(metrics.last_requested_generation, Some(second.get()));
+        assert_eq!(metrics.last_published_scene_generation, Some(second.get()));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1133,6 +1380,9 @@ mod tests {
 
         assert_eq!(handle.pending_event_count(), 0);
         assert_eq!(handle.param_f64("width"), Some(720.0));
+        let metrics = handle.metrics();
+        assert_eq!(metrics.event_dispatch_requests, 1);
+        assert_eq!(metrics.scene_frames_published, 1);
     }
 
     #[tokio::test]
