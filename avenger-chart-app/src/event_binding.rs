@@ -7399,6 +7399,87 @@ mod tests {
         (state, handler, mark_instance, position)
     }
 
+    async fn parallel_point_state_and_handler(
+        binding: ChartEventBinding,
+    ) -> (
+        ChartAppState,
+        ChartEventBindingHandler,
+        MarkInstance,
+        [f32; 2],
+    ) {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let selected = picked.predicate();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('row0', 10.0, 30.0),
+                    ('row1', 20.0, 40.0),
+                    ('row2', 25.0, 45.0)
+                ) AS t(id, speed, cost)",
+            )
+            .await
+            .expect("parallel point data");
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension("speed", col("speed"))
+                .dimension("cost", col("cost")),
+        )
+        .canvas_size(420.0, 320.0)
+        .plot_size(260.0, 180.0)
+        .add_selection(picked)
+        .data(df)
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(lit("#b8beca"), |c| {
+                    c.no_scale()
+                        .when_value(selected, lit("#2563eb"))
+                        .no_legend()
+                })
+                .size(900.0)
+                .zindex(100),
+        )
+        .event_binding(binding)
+        .compile(&ctx)
+        .await
+        .expect("compile parallel point plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial parallel point build");
+        let datum_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            "id",
+            ScalarValue::Utf8(Some("row1".to_string())),
+        )
+        .await;
+        let mut position = symbol_instance_point(&scene, &datum_mark_instance);
+        // Parallel points sit exactly on their dimension axis. Move inside the
+        // enlarged symbol so the point, not the axis rule, is the hit target.
+        position[0] += 12.0;
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the row1 parallel point");
+        let clicked_id = {
+            let runtime = state.runtime.lock().await;
+            runtime
+                .last_event_datum_state
+                .datum_for_mark_instance(Some(&mark_instance), "id")
+        };
+        assert_eq!(
+            clicked_id,
+            Some(ScalarValue::Utf8(Some("row1".to_string()))),
+            "rtree hit-test instance should expose the clicked source row id"
+        );
+        (state, handler, mark_instance, position)
+    }
+
     fn colorbar_interval_clause(value_channel: &str) -> SelectionClauseUpdate {
         SelectionClauseUpdate::interval(lit("active"))
             .facet_scope(CoordinationScope::Shared)
@@ -8003,6 +8084,44 @@ mod tests {
             dimensions[0].value,
             ScalarValue::Utf8(Some("Beta".to_string())),
             "ev::datum should use the clicked aggregate bar's logical category"
+        );
+    }
+
+    #[tokio::test]
+    async fn parallel_point_click_updates_selection_by_source_row_id() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("id").is_not_null())
+            .filter(event::parallel_dimension_id().is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_all_clauses([SelectionClauseUpdate::equality(lit(
+                    "active",
+                ))
+                .facet_scope(CoordinationScope::Shared)
+                .dimension_named("id", col("id"), event::datum("id"))
+                .build()]),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            parallel_point_state_and_handler(binding).await;
+
+        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(status.rerender);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].id, "active");
+        assert_eq!(clauses[0].scope.sharing, CoordinationScope::Shared);
+        let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality predicate");
+        };
+        assert_eq!(dimensions.len(), 1);
+        assert_eq!(dimensions[0].id, "id");
+        assert_eq!(
+            dimensions[0].value,
+            ScalarValue::Utf8(Some("row1".to_string()))
         );
     }
 
