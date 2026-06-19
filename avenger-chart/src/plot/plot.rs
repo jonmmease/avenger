@@ -1953,11 +1953,16 @@ mod tests {
         SceneQueryDatumField, SelectionClauseUpdate, SelectionPredicateUpdate, SelectionSceneQuery,
         SelectionUpdate, StoreRow, StoreUpdate, SubplotDataSource,
         collect_repeat_placeholder_kinds,
-        event::{PARALLEL_DIMENSION_ID_FIELD, PARALLEL_TITLE_FIELD},
+        event::{
+            PARALLEL_DIMENSION_ID_FIELD, PARALLEL_SURFACE_KIND_FIELD, PARALLEL_SURFACE_KIND_POINT,
+            PARALLEL_TITLE_FIELD,
+        },
         repeat, simplify_to_scalar_sync,
     };
     use avenger_chart_marks::{Rect, Subplot, Symbol};
-    use avenger_chart_parallel::{Parallel, ParallelLine, generated_dimension_channel};
+    use avenger_chart_parallel::{
+        Parallel, ParallelLine, ParallelSymbol, generated_dimension_channel,
+    };
     use avenger_chart_tools::PanScrollZoom;
     use avenger_chart_transforms::{Bin, Calculate};
     use avenger_scenegraph::marks::mark::MarkInstance;
@@ -3527,6 +3532,80 @@ mod tests {
         let title = ScalarValue::try_from_array(queried.column_by_name("title").unwrap(), 0)?;
         assert_eq!(dimension, ScalarValue::Utf8(Some("speed".to_string())));
         assert_eq!(title, ScalarValue::Utf8(Some("Speed".to_string())));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parallel_symbol_event_datums_support_source_row_and_dimension_scene_query()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let data = ctx
+            .sql(
+                "SELECT * FROM (VALUES \
+                    ('r0', 10.0, 100.0), \
+                    ('r1', 20.0, 200.0) \
+                ) AS t(row_id, speed, cost)",
+            )
+            .await?;
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension("speed", col("speed"))
+                .dimension("cost", col("cost")),
+        )
+        .plot_size(120.0, 100.0)
+        .data(data)
+        .mark(ParallelSymbol::new())
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::Click)
+                .filter(crate::event::datum("row_id").is_not_null())
+                .filter(crate::event::parallel_dimension_id().is_not_null())
+                .filter(crate::event::parallel_surface_kind().eq(lit(PARALLEL_SURFACE_KIND_POINT))),
+        )
+        .compile(&ctx)
+        .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let speed_point_rows = evaluated
+            .event_datums
+            .rows
+            .iter()
+            .find(|rows| {
+                let Some(dimension_column) = rows.rows.column_by_name(PARALLEL_DIMENSION_ID_FIELD)
+                else {
+                    return false;
+                };
+                matches!(
+                    ScalarValue::try_from_array(dimension_column, 0),
+                    Ok(ScalarValue::Utf8(Some(value))) if value == "speed"
+                )
+            })
+            .expect("parallel speed point event datum rows");
+        let queried = evaluated.event_datums.datums_for_mark_instances(
+            [MarkInstance {
+                name: "parallel_symbol".to_string(),
+                mark_path: speed_point_rows.mark_path.clone(),
+                instance_index: Some(1),
+            }],
+            &[
+                SceneQueryDatumField::new("source_row").datum("row_id"),
+                SceneQueryDatumField::new("dimension").datum(PARALLEL_DIMENSION_ID_FIELD),
+                SceneQueryDatumField::new("surface").datum(PARALLEL_SURFACE_KIND_FIELD),
+            ],
+            &[],
+        )?;
+
+        assert_eq!(queried.num_rows(), 1);
+        let source_row =
+            ScalarValue::try_from_array(queried.column_by_name("source_row").unwrap(), 0)?;
+        let dimension =
+            ScalarValue::try_from_array(queried.column_by_name("dimension").unwrap(), 0)?;
+        let surface = ScalarValue::try_from_array(queried.column_by_name("surface").unwrap(), 0)?;
+        assert_eq!(source_row, ScalarValue::Utf8(Some("r1".to_string())));
+        assert_eq!(dimension, ScalarValue::Utf8(Some("speed".to_string())));
+        assert_eq!(
+            surface,
+            ScalarValue::Utf8(Some(PARALLEL_SURFACE_KIND_POINT.to_string()))
+        );
         Ok(())
     }
 
