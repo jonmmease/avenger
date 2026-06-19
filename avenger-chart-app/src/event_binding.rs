@@ -3268,19 +3268,13 @@ impl EventStreamHandler<ChartAppState> for ChartEventExactOnlyHandler {
 /// Whether an assignment's evaluated value is safe to write to a param.
 ///
 /// Derived interaction columns are null when a gesture has no routed scope, which
-/// makes domain-list expressions evaluate to a null or null-element list. Writing
-/// those would corrupt the target param (and can fail downstream scale building),
-/// so they are treated as no-ops unless the binding explicitly writes the
-/// param's list-shaped default value. Raw-domain reset bindings use that path to
-/// clear interaction domains back to the inferred/default scale domains.
+/// makes expressions evaluate to null or null-element lists. Writing those would
+/// corrupt target params (and can fail downstream scale building), so they are
+/// treated as no-ops unless the binding explicitly writes the param's default
+/// value. Reset bindings use that path to clear interaction params safely.
 fn assignment_value_is_writable(value: &ScalarValue, default_value: &ScalarValue) -> bool {
     use datafusion::arrow::array::Array;
-    if value == default_value
-        && matches!(
-            default_value,
-            ScalarValue::List(_) | ScalarValue::LargeList(_) | ScalarValue::FixedSizeList(_)
-        )
-    {
+    if value == default_value {
         return true;
     }
     match value {
@@ -4921,6 +4915,12 @@ mod tests {
     #[test]
     fn assignment_writable_allows_raw_domain_default_reset() {
         let default = Param::raw_domain("x_domain").default;
+        assert!(assignment_value_is_writable(&default, &default));
+    }
+
+    #[test]
+    fn assignment_writable_allows_nullable_scalar_default_reset() {
+        let default = ScalarValue::Utf8(None);
         assert!(assignment_value_is_writable(&default, &default));
     }
 
@@ -7668,6 +7668,45 @@ mod tests {
             .await
     }
 
+    async fn mouse_up_from_mark(
+        state: &mut ChartAppState,
+        handler: &ChartEventBindingHandler,
+        start_mark_instance: MarkInstance,
+        start_pos: [f32; 2],
+        end_pos: [f32; 2],
+    ) -> UpdateStatus {
+        let instant = Instant::now();
+        let start_event = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: start_pos,
+                button: MouseButton::Left,
+                mark_instance: Some(start_mark_instance.clone()),
+                modifiers: Default::default(),
+            }),
+            mark_instance: Some(start_mark_instance),
+            instant,
+        };
+        let context = EventStreamContext {
+            mark_instance: None,
+            current_event: None,
+            start_event: Some(start_event),
+            previous_event: None,
+        };
+        handler
+            .handle_with_context(
+                &SceneGraphEvent::MouseUp(SceneMouseUpEvent {
+                    position: end_pos,
+                    button: MouseButton::Left,
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &context,
+                state,
+                &empty_rtree(),
+            )
+            .await
+    }
+
     async fn click_mark(
         state: &mut ChartAppState,
         handler: &ChartEventBindingHandler,
@@ -8376,6 +8415,195 @@ mod tests {
         assert!(
             (*display_x - expected_display_x).abs() < 1e-6,
             "drag display x should track start x plus pointer dx"
+        );
+    }
+
+    #[tokio::test]
+    async fn parallel_axis_header_drag_release_commits_order_and_clears_preview_params() {
+        let ctx = SessionContext::new();
+        let order_param = Param::new(
+            "axis_order",
+            ScalarValue::List(ScalarValue::new_list(
+                &[
+                    ScalarValue::Utf8(Some("speed".to_string())),
+                    ScalarValue::Utf8(Some("efficiency".to_string())),
+                    ScalarValue::Utf8(Some("cost".to_string())),
+                ],
+                &DataType::Utf8,
+                true,
+            )),
+        );
+        let drag_dimension = Param::new("drag_dimension", ScalarValue::Utf8(None));
+        let drag_start_x = Param::new("drag_start_x", ScalarValue::Float64(None));
+        let drag_display_x = Param::new("drag_display_x", ScalarValue::Float64(None));
+        let start_binding = ChartEventBinding::on(ChartEventType::MouseDown)
+            .filter(event::button().eq(lit("left")))
+            .filter(
+                event::parallel_surface_kind()
+                    .eq(lit(event::PARALLEL_SURFACE_KIND_DIMENSION_TITLE)),
+            )
+            .set_param(&drag_dimension, event::parallel_dimension_id())
+            .set_param(&drag_start_x, event::parallel_display_x())
+            .set_param(&drag_display_x, event::parallel_display_x())
+            .preview();
+        let preview_binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .filter(event::param("drag_dimension").is_not_null())
+            .set_param("drag_display_x", event::param("drag_start_x") + event::dx())
+            .preview();
+        let release_binding = ChartEventBinding::on_between_end(
+            ChartEventStream::on(ChartEventType::MouseDown).filter(event::button().eq(lit("left"))),
+            ChartEventStream::on(ChartEventType::MouseUp),
+        )
+        .filter(event::param("drag_dimension").eq(lit("speed")))
+        .filter(event::param("drag_display_x").gt_eq(lit(195.0)))
+        .set_param(
+            &order_param,
+            lit(ScalarValue::List(ScalarValue::new_list(
+                &[
+                    ScalarValue::Utf8(Some("efficiency".to_string())),
+                    ScalarValue::Utf8(Some("cost".to_string())),
+                    ScalarValue::Utf8(Some("speed".to_string())),
+                ],
+                &DataType::Utf8,
+                true,
+            ))),
+        )
+        .set_param(&drag_dimension, lit(ScalarValue::Utf8(None)))
+        .set_param(&drag_start_x, lit(ScalarValue::Float64(None)))
+        .set_param(&drag_display_x, lit(ScalarValue::Float64(None)))
+        .exact();
+        let clear_binding = ChartEventBinding::on(ChartEventType::MouseUp)
+            .set_param(&drag_dimension, lit(ScalarValue::Utf8(None)))
+            .set_param(&drag_start_x, lit(ScalarValue::Float64(None)))
+            .set_param(&drag_display_x, lit(ScalarValue::Float64(None)))
+            .exact();
+        let data = ctx
+            .sql("SELECT 10.0 AS speed, 20.0 AS efficiency, 30.0 AS cost")
+            .await
+            .expect("parallel header data");
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("speed", col("speed"), |d| {
+                    d.axis(|axis| axis.title("Speed"))
+                })
+                .dimension_with("efficiency", col("efficiency"), |d| {
+                    d.axis(|axis| axis.title("Efficiency"))
+                })
+                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost")))
+                .order_param(order_param.name.clone())
+                .active_axis_display_params(
+                    drag_dimension.name.clone(),
+                    drag_display_x.name.clone(),
+                ),
+        )
+        .canvas_size(420.0, 320.0)
+        .plot_size(260.0, 180.0)
+        .add_param(order_param)
+        .add_param(drag_dimension)
+        .add_param(drag_start_x)
+        .add_param(drag_display_x)
+        .data(data)
+        .mark(ParallelLine::new())
+        .event_binding(start_binding)
+        .event_binding(preview_binding)
+        .event_binding(release_binding)
+        .event_binding(clear_binding)
+        .compile(&ctx)
+        .await
+        .expect("compile parallel header drag release plot");
+        let start_handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let preview_handler = compile_handler_for_binding_index(&compiled, &ctx, 1);
+        let release_handler = compile_handler_for_binding_index(&compiled, &ctx, 2);
+        let clear_handler = compile_handler_for_binding_index(&compiled, &ctx, 3);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial parallel header build");
+        let datum_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            event::PARALLEL_TITLE_FIELD,
+            ScalarValue::Utf8(Some("Speed".to_string())),
+        )
+        .await;
+        let start_pos = rect_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&start_pos)
+            .cloned()
+            .expect("rtree should pick the Speed title hit region");
+
+        let start_status = mouse_down_mark(
+            &mut state,
+            &start_handler,
+            Some(mark_instance.clone()),
+            start_pos,
+        )
+        .await;
+        assert!(start_status.rerender);
+        let move_status = cursor_drag_move_from_mark(
+            &mut state,
+            &preview_handler,
+            mark_instance.clone(),
+            start_pos,
+            [start_pos[0] + 230.0, start_pos[1]],
+        )
+        .await;
+        assert!(move_status.rerender);
+
+        let release_status = mouse_up_from_mark(
+            &mut state,
+            &release_handler,
+            mark_instance.clone(),
+            start_pos,
+            [start_pos[0] + 230.0, start_pos[1]],
+        )
+        .await;
+        assert!(release_status.rerender);
+        let _clear_status = mouse_up_from_mark(
+            &mut state,
+            &clear_handler,
+            mark_instance,
+            start_pos,
+            [start_pos[0] + 230.0, start_pos[1]],
+        )
+        .await;
+
+        let params = state.params().await;
+        assert_eq!(
+            params.get("axis_order"),
+            Some(&ScalarValue::List(ScalarValue::new_list(
+                &[
+                    ScalarValue::Utf8(Some("efficiency".to_string())),
+                    ScalarValue::Utf8(Some("cost".to_string())),
+                    ScalarValue::Utf8(Some("speed".to_string())),
+                ],
+                &DataType::Utf8,
+                true,
+            ))),
+            "release should commit the proposed axis order"
+        );
+        assert_eq!(
+            params.get("drag_dimension"),
+            Some(&ScalarValue::Utf8(None)),
+            "release should clear the active dimension"
+        );
+        assert_eq!(
+            params.get("drag_start_x"),
+            Some(&ScalarValue::Float64(None)),
+            "release should clear the start x"
+        );
+        assert_eq!(
+            params.get("drag_display_x"),
+            Some(&ScalarValue::Float64(None)),
+            "release should clear the preview display x"
         );
     }
 
