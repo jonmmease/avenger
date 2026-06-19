@@ -1138,10 +1138,10 @@ Manual runtime validation, 2026-06-19:
 
 Commit:
 
-- [ ] Commit Phase 10.
+- [x] Commit Phase 10.
 - Suggested message: `feat(egui): add offscreen avenger plot widget`
 - Implementation commits so far: `cdc4ee5d`, `b01ee84e`, `67eb684d`, `07dafe63`, `d5eaf801`, `83fa275c`, `b7f7ffef`
-- Final Phase 10 closure commit hash: TBD
+- Final Phase 10 closure commit hash: `3f71dbd1`
 
 ## Phase 11 - Full Background GPU Rendering
 
@@ -1241,15 +1241,15 @@ Validation:
 
 ```bash
 cargo fmt --all
-cargo test -p avenger-wgpu
+cargo test -p avenger-wgpu --lib --release
 ```
 
 Commit:
 
-- [ ] Commit Phase 12.
+- [x] Commit Phase 12.
 - Suggested message: `feat(wgpu): add gui render timing instrumentation`
 - Implementation commits so far: `c9bc20ed`
-- Final Phase 12 closure commit hash: TBD
+- Final Phase 12 closure commit hash: `3f71dbd1`
 
 ## Phase 13 - Documentation and Final Cleanup
 
@@ -1289,7 +1289,7 @@ Phase 13 progress notes, 2026-06-19:
 - Updated the root README with the `avenger-egui` crate entry and the release-mode `basic_chart` example command.
 - Removed the unused `make_background_command<C: Canvas>` compatibility helper from the pre-refactor canvas path.
 - Reviewed remaining obvious compatibility/dead-code markers in the touched WGPU/egui/app paths. No additional temporary GUI-refactor wrappers were identified for removal in this pass.
-- Remaining Phase 13 work: decide whether to close Phase 13 after final validation, or keep it open until manual egui validation and Phase 11 policy decisions are complete.
+- Manual egui validation and the Phase 11 policy decision are now recorded. Remaining work is outside Phase 13 docs/cleanup: inspect the three open WGPU image-baseline failures before declaring the full plan complete.
 
 Phase 13 validation results, 2026-06-19:
 
@@ -1310,10 +1310,10 @@ cargo test --release
 
 Commit:
 
-- [ ] Commit Phase 13.
+- [x] Commit Phase 13.
 - Suggested message: `docs(wgpu): document gui offscreen rendering architecture`
-- Implementation commits so far: `a6a2b118`, `86e3a6c6`, `179bea05`
-- Final Phase 13 closure commit hash: TBD
+- Implementation commits so far: `a6a2b118`, `86e3a6c6`, `179bea05`, `3f71dbd1`
+- Final Phase 13 closure commit hash: `3f71dbd1`
 
 ## Milestone Completion Definitions
 
