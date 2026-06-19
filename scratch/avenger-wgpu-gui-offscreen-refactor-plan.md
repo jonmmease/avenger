@@ -1379,9 +1379,10 @@ Manual checks:
 
 Commit:
 
-- [ ] Commit Phase 11.
+- [x] Commit Phase 11 worker-render milestone.
 - Suggested message: `feat(wgpu): support background offscreen exact rendering`
-- Commit hash: TBD
+- Implementation commit so far: `d5bfee4e`
+- Remaining Phase 11 work should use additional focused commits as checklist items above are completed.
 
 ## Phase 12 - Observability, Metrics, and Debugging
 
