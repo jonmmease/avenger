@@ -1950,14 +1950,17 @@ mod tests {
         DefaultLogicalExprNodeExt, DomainCoordinationGroup, IntoPlotMark, MarkGroup, PlotMark,
         RepeatContext, RepeatDomainCoordination, RepeatVariable, ResolvedRepeatVariable,
         ScaleChannelConfig, ScaleInferenceHint, ScaleTypePreference, SceneGeometryQuery,
-        SelectionClauseUpdate, SelectionPredicateUpdate, SelectionSceneQuery, SelectionUpdate,
-        StoreRow, StoreUpdate, SubplotDataSource, collect_repeat_placeholder_kinds, repeat,
-        simplify_to_scalar_sync,
+        SceneQueryDatumField, SelectionClauseUpdate, SelectionPredicateUpdate, SelectionSceneQuery,
+        SelectionUpdate, StoreRow, StoreUpdate, SubplotDataSource,
+        collect_repeat_placeholder_kinds,
+        event::{PARALLEL_DIMENSION_ID_FIELD, PARALLEL_TITLE_FIELD},
+        repeat, simplify_to_scalar_sync,
     };
     use avenger_chart_marks::{Rect, Subplot, Symbol};
-    use avenger_chart_parallel::{Parallel, generated_dimension_channel};
+    use avenger_chart_parallel::{Parallel, ParallelLine, generated_dimension_channel};
     use avenger_chart_tools::PanScrollZoom;
     use avenger_chart_transforms::{Bin, Calculate};
+    use avenger_scenegraph::marks::mark::MarkInstance;
     use datafusion::{
         arrow::{
             array::Float64Array,
@@ -3475,6 +3478,55 @@ mod tests {
             assert_eq!(rows.rows.num_rows(), 2);
             assert!(rows.rows.column_by_name("group_name").is_some());
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parallel_axis_title_event_datums_support_scene_query_fields()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let data = ctx.sql("SELECT 50.0 AS speed, 100.0 AS cost").await?;
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+                .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost"))),
+        )
+        .plot_size(120.0, 100.0)
+        .data(data)
+        .mark(ParallelLine::new())
+        .compile(&ctx)
+        .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let axis_title_rows = evaluated
+            .event_datums
+            .rows
+            .iter()
+            .find(|rows| {
+                rows.rows
+                    .column_by_name(PARALLEL_DIMENSION_ID_FIELD)
+                    .is_some()
+            })
+            .expect("parallel axis title event datum rows");
+        let queried = evaluated.event_datums.datums_for_mark_instances(
+            [MarkInstance {
+                name: "parallel_axis_title_hit".to_string(),
+                mark_path: axis_title_rows.mark_path.clone(),
+                instance_index: Some(0),
+            }],
+            &[
+                SceneQueryDatumField::new("dimension").datum(PARALLEL_DIMENSION_ID_FIELD),
+                SceneQueryDatumField::new("title").datum(PARALLEL_TITLE_FIELD),
+            ],
+            &[],
+        )?;
+
+        assert_eq!(queried.num_rows(), 1);
+        let dimension =
+            ScalarValue::try_from_array(queried.column_by_name("dimension").unwrap(), 0)?;
+        let title = ScalarValue::try_from_array(queried.column_by_name("title").unwrap(), 0)?;
+        assert_eq!(dimension, ScalarValue::Utf8(Some("speed".to_string())));
+        assert_eq!(title, ScalarValue::Utf8(Some("Speed".to_string())));
         Ok(())
     }
 
