@@ -743,6 +743,7 @@ name = "avenger-chart-parallel"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "avenger-chart-cartesian",
  "avenger-chart-core",
  "avenger-chart-marks",
  "avenger-color",

@@ -22,5 +22,6 @@ serde_with = "3.0"
 typetag = "0.2"
 
 [dev-dependencies]
+avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
 futures = { workspace = true }
 serde_json = { workspace = true }

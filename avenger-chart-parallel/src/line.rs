@@ -25,6 +25,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::Parallel;
 
+/// Polyline mark for wide-form parallel-coordinate rows.
+///
+/// `ParallelLine` is coordinate-specific: it implements `Mark<Parallel>`, not
+/// the generic Cartesian line-mark contract.
+///
+/// ```compile_fail
+/// use avenger_chart_cartesian::Cartesian;
+/// use avenger_chart_core::Mark;
+/// use avenger_chart_parallel::ParallelLine;
+///
+/// fn requires_cartesian_mark<M: Mark<Cartesian>>(_: M) {}
+///
+/// requires_cartesian_mark(ParallelLine::new());
+/// ```
 pub struct ParallelLine<C = Parallel> {
     pub(crate) state: avenger_chart_core::MarkState,
     pub(crate) _phantom: PhantomData<C>,
