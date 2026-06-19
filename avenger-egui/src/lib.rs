@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex as StdMutex};
+use std::{
+    sync::{Arc, Mutex as StdMutex},
+    time::Instant as StdInstant,
+};
 
 use avenger_app::{
     app::{AppUpdate, AvengerApp},
@@ -7,7 +10,7 @@ use avenger_app::{
 use avenger_chart_app::{
     ChartAppState, IntoChartParamValue, ParamChange, ParamSetResult, ParamSnapshot,
 };
-use avenger_common::{canvas::CanvasDimensions, time::Instant};
+use avenger_common::{canvas::CanvasDimensions, time::Instant as AvengerInstant};
 use avenger_eventstream::window::{
     CanvasResizeEvent, ElementState, Key, MouseButton, MouseScrollDelta, NamedKey,
     WindowCursorMoved, WindowEvent, WindowKeyboardInput, WindowMouseInput, WindowMouseWheel,
@@ -15,6 +18,10 @@ use avenger_eventstream::window::{
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::{
     error::AvengerWgpuError,
+    frame_publisher::{
+        BeginFrameError, FrameGeneration, FramePublisher, FramePublisherStatus, FrameRenderMetrics,
+        RenderedFrame,
+    },
     offscreen::{OffscreenTargetDescriptor, OffscreenTargetPool},
     renderer::{AvengerRendererConfig, AvengerWgpuRenderer},
 };
@@ -31,6 +38,9 @@ pub struct AvengerPlotHandle {
     observed: Arc<StdMutex<ObservedState>>,
     event_translator: Arc<StdMutex<EguiEventTranslator>>,
     pending_events: Arc<StdMutex<Vec<WindowEvent>>>,
+    scene_rebuild_request: Arc<StdMutex<Option<bool>>>,
+    scene_publisher: FramePublisher<Arc<SceneGraph>>,
+    scene_error: Arc<StdMutex<Option<String>>>,
     gpu: Arc<StdMutex<Option<EguiPlotGpuState>>>,
 }
 
@@ -42,6 +52,9 @@ impl AvengerPlotHandle {
             observed: Arc::new(StdMutex::new(ObservedState::default())),
             event_translator: Arc::new(StdMutex::new(EguiEventTranslator::default())),
             pending_events: Arc::new(StdMutex::new(Vec::new())),
+            scene_rebuild_request: Arc::new(StdMutex::new(None)),
+            scene_publisher: FramePublisher::new(),
+            scene_error: Arc::new(StdMutex::new(None)),
             gpu: Arc::new(StdMutex::new(None)),
         }
     }
@@ -54,6 +67,9 @@ impl AvengerPlotHandle {
             observed: Arc::new(StdMutex::new(ObservedState::default())),
             event_translator: Arc::new(StdMutex::new(EguiEventTranslator::default())),
             pending_events: Arc::new(StdMutex::new(Vec::new())),
+            scene_rebuild_request: Arc::new(StdMutex::new(None)),
+            scene_publisher: FramePublisher::new(),
+            scene_error: Arc::new(StdMutex::new(None)),
             gpu: Arc::new(StdMutex::new(None)),
         }
     }
@@ -122,9 +138,90 @@ impl AvengerPlotHandle {
         let mut updates = Vec::with_capacity(events.len());
         let mut app = app.lock().await;
         for event in events {
-            updates.push(app.update_with_status(&event, Instant::now()).await?);
+            updates.push(
+                app.update_with_status(&event, AvengerInstant::now())
+                    .await?,
+            );
         }
         Ok(updates)
+    }
+
+    pub fn request_scene_rebuild(
+        &self,
+        runtime: &tokio::runtime::Handle,
+        rebuild_geometry: bool,
+    ) -> Option<FrameGeneration> {
+        self.request_scene_rebuild_inner(runtime, rebuild_geometry, None)
+    }
+
+    pub fn request_scene_rebuild_with_repaint(
+        &self,
+        runtime: &tokio::runtime::Handle,
+        ctx: &egui::Context,
+        rebuild_geometry: bool,
+    ) -> Option<FrameGeneration> {
+        self.request_scene_rebuild_inner(runtime, rebuild_geometry, Some(ctx.clone()))
+    }
+
+    fn request_scene_rebuild_inner(
+        &self,
+        runtime: &tokio::runtime::Handle,
+        rebuild_geometry: bool,
+        repaint: Option<egui::Context>,
+    ) -> Option<FrameGeneration> {
+        self.app.as_ref()?;
+        let generation = self.scene_publisher.request_frame();
+        merge_scene_rebuild_request(&self.scene_rebuild_request, rebuild_geometry);
+        self.spawn_scene_worker(runtime.clone(), repaint);
+        Some(generation)
+    }
+
+    pub fn request_event_dispatch(
+        &self,
+        runtime: &tokio::runtime::Handle,
+    ) -> Option<FrameGeneration> {
+        self.request_event_dispatch_inner(runtime, None)
+    }
+
+    pub fn request_event_dispatch_with_repaint(
+        &self,
+        runtime: &tokio::runtime::Handle,
+        ctx: &egui::Context,
+    ) -> Option<FrameGeneration> {
+        self.request_event_dispatch_inner(runtime, Some(ctx.clone()))
+    }
+
+    fn request_event_dispatch_inner(
+        &self,
+        runtime: &tokio::runtime::Handle,
+        repaint: Option<egui::Context>,
+    ) -> Option<FrameGeneration> {
+        self.app.as_ref()?;
+        if self.pending_event_count() == 0 {
+            return None;
+        }
+        let generation = self.scene_publisher.request_frame();
+        self.spawn_scene_worker(runtime.clone(), repaint);
+        Some(generation)
+    }
+
+    pub fn latest_scene_frame(&self) -> Option<Arc<RenderedFrame<Arc<SceneGraph>>>> {
+        self.scene_publisher.latest_snapshot()
+    }
+
+    pub fn latest_scene_graph(&self) -> Option<Arc<SceneGraph>> {
+        self.latest_scene_frame().map(|frame| frame.payload.clone())
+    }
+
+    pub fn scene_frame_status(&self) -> FramePublisherStatus {
+        self.scene_publisher.status()
+    }
+
+    pub fn latest_scene_error(&self) -> Option<String> {
+        self.scene_error
+            .lock()
+            .expect("avenger egui scene-error lock poisoned")
+            .clone()
     }
 
     pub async fn current_scene_graph(&self) -> Option<Arc<SceneGraph>> {
@@ -169,12 +266,21 @@ impl AvengerPlotHandle {
     }
 
     pub fn frame_status(&self) -> FrameStatus {
-        self.gpu
+        let mut status = self
+            .gpu
             .lock()
             .expect("avenger egui gpu lock poisoned")
             .as_ref()
             .map(EguiPlotGpuState::frame_status)
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let scene_status = self.scene_publisher.status();
+        status.latest_scene_generation = scene_status
+            .latest_published_generation
+            .map(FrameGeneration::get);
+        status.requested_generation = (scene_status.requested_generation != FrameGeneration::ZERO)
+            .then_some(scene_status.requested_generation.get());
+        status.render_pending = scene_status.in_progress_generation.is_some();
+        status
     }
 
     fn param_changes_since_last_show(&self) -> Vec<ParamChange> {
@@ -187,11 +293,159 @@ impl AvengerPlotHandle {
         observed.param_revision = current_revision;
         changes
     }
+
+    fn spawn_scene_worker(&self, runtime: tokio::runtime::Handle, repaint: Option<egui::Context>) {
+        SceneWorkerParts::from_handle(self).spawn(runtime, repaint);
+    }
 }
 
 #[derive(Clone, Debug, Default)]
 struct ObservedState {
     param_revision: u64,
+}
+
+#[derive(Clone)]
+struct SceneWorkerParts {
+    app: Option<Arc<AsyncMutex<AvengerApp<ChartAppState>>>>,
+    pending_events: Arc<StdMutex<Vec<WindowEvent>>>,
+    scene_rebuild_request: Arc<StdMutex<Option<bool>>>,
+    scene_publisher: FramePublisher<Arc<SceneGraph>>,
+    scene_error: Arc<StdMutex<Option<String>>>,
+}
+
+impl SceneWorkerParts {
+    fn from_handle(handle: &AvengerPlotHandle) -> Self {
+        Self {
+            app: handle.app.clone(),
+            pending_events: handle.pending_events.clone(),
+            scene_rebuild_request: handle.scene_rebuild_request.clone(),
+            scene_publisher: handle.scene_publisher.clone(),
+            scene_error: handle.scene_error.clone(),
+        }
+    }
+
+    fn spawn(self, runtime: tokio::runtime::Handle, repaint: Option<egui::Context>) {
+        let ticket = match self.scene_publisher.try_begin_latest_render() {
+            Ok(ticket) => ticket,
+            Err(BeginFrameError::RenderInProgress { .. }) => return,
+            Err(BeginFrameError::Stale { .. }) => return,
+        };
+        let generation = ticket.generation();
+        let next = self.clone();
+        let task_runtime = runtime.clone();
+
+        runtime.spawn(async move {
+            let start = StdInstant::now();
+            let result = self.run_once().await;
+            match result {
+                Ok(Some(scene_graph)) => {
+                    *self
+                        .scene_error
+                        .lock()
+                        .expect("avenger egui scene-error lock poisoned") = None;
+                    let _ = ticket.publish(
+                        scene_graph,
+                        FrameRenderMetrics {
+                            scene_evaluation: start.elapsed(),
+                            ..FrameRenderMetrics::default()
+                        },
+                    );
+                }
+                Ok(None) => {
+                    let _ = ticket.cancel();
+                }
+                Err(err) => {
+                    *self
+                        .scene_error
+                        .lock()
+                        .expect("avenger egui scene-error lock poisoned") = Some(err.to_string());
+                    let _ = ticket.cancel();
+                }
+            }
+
+            if let Some(ctx) = &repaint {
+                ctx.request_repaint();
+            }
+
+            if next.scene_publisher.requested_generation() > generation {
+                merge_scene_rebuild_request(&next.scene_rebuild_request, true);
+            }
+            if next.has_more_work_after(generation) {
+                next.spawn(task_runtime, repaint);
+            }
+        });
+    }
+
+    async fn run_once(&self) -> Result<Option<Arc<SceneGraph>>, AvengerAppError> {
+        let events = std::mem::take(
+            &mut *self
+                .pending_events
+                .lock()
+                .expect("avenger egui pending-event lock poisoned"),
+        );
+        let rebuild_request = self
+            .scene_rebuild_request
+            .lock()
+            .expect("avenger egui scene-rebuild lock poisoned")
+            .take();
+
+        if events.is_empty() && rebuild_request.is_none() {
+            return Ok(None);
+        }
+
+        let Some(app) = &self.app else {
+            return Ok(None);
+        };
+
+        let mut app = app.lock().await;
+        let mut scene_graph = None;
+        for event in events {
+            if let Some(update_scene) = app
+                .update_with_status(&event, AvengerInstant::now())
+                .await?
+                .scene_graph
+            {
+                scene_graph = Some(update_scene);
+            }
+        }
+
+        match rebuild_request {
+            Some(true) => {
+                scene_graph = Some(app.rebuild_scene_graph(true).await?);
+            }
+            Some(false) if scene_graph.is_none() => {
+                scene_graph = Some(app.rebuild_scene_graph(false).await?);
+            }
+            _ => {}
+        }
+
+        Ok(scene_graph)
+    }
+
+    fn has_more_work_after(&self, generation: FrameGeneration) -> bool {
+        if self.scene_publisher.requested_generation() > generation {
+            return true;
+        }
+        if !self
+            .pending_events
+            .lock()
+            .expect("avenger egui pending-event lock poisoned")
+            .is_empty()
+        {
+            return true;
+        }
+        self.scene_rebuild_request
+            .lock()
+            .expect("avenger egui scene-rebuild lock poisoned")
+            .is_some()
+    }
+}
+
+fn merge_scene_rebuild_request(request: &StdMutex<Option<bool>>, rebuild_geometry: bool) {
+    let mut request = request
+        .lock()
+        .expect("avenger egui scene-rebuild lock poisoned");
+    *request = Some(request.unwrap_or(false) || rebuild_geometry);
 }
 
 pub struct Plot<'a> {
@@ -237,12 +491,13 @@ impl<'a> Plot<'a> {
             );
         }
 
+        let response_state = EguiResponseState::from_response(&response);
         let events = ui.input(|input| {
             self.handle
                 .event_translator
                 .lock()
                 .expect("avenger egui event-translator lock poisoned")
-                .translate_frame(rect, &response, input)
+                .translate_frame(rect, response_state, input)
         });
         self.handle.queue_events(events.iter().cloned());
         let param_changes = self.handle.param_changes_since_last_show();
@@ -344,6 +599,7 @@ impl EguiPlotGpuState {
     fn frame_status(&self) -> FrameStatus {
         FrameStatus {
             latest_generation: self.registered_generation,
+            latest_scene_generation: None,
             requested_generation: None,
             render_pending: false,
         }
@@ -387,6 +643,7 @@ impl PlotOutput {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FrameStatus {
     pub latest_generation: Option<u64>,
+    pub latest_scene_generation: Option<u64>,
     pub requested_generation: Option<u64>,
     pub render_pending: bool,
 }
@@ -395,6 +652,25 @@ pub struct FrameStatus {
 pub struct SelectionChange {
     pub name: String,
     pub revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EguiResponseState {
+    pub hovered: bool,
+    pub drag_started: bool,
+    pub drag_stopped: bool,
+    pub has_focus: bool,
+}
+
+impl EguiResponseState {
+    pub fn from_response(response: &egui::Response) -> Self {
+        Self {
+            hovered: response.hovered(),
+            drag_started: response.drag_started(),
+            drag_stopped: response.drag_stopped(),
+            has_focus: response.has_focus(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -408,12 +684,12 @@ impl EguiEventTranslator {
     pub fn translate_frame(
         &mut self,
         rect: egui::Rect,
-        response: &egui::Response,
+        response: EguiResponseState,
         input: &egui::InputState,
     ) -> Vec<WindowEvent> {
         let mut events = Vec::new();
         let pointer_pos = input.pointer.hover_pos();
-        let hovered = response.hovered();
+        let hovered = response.hovered;
 
         if hovered && !self.hovered {
             events.push(WindowEvent::CursorEntered);
@@ -422,7 +698,7 @@ impl EguiEventTranslator {
         }
         self.hovered = hovered;
 
-        if response.drag_started() {
+        if response.drag_started {
             self.pointer_captured = true;
         }
 
@@ -468,7 +744,7 @@ impl EguiEventTranslator {
                     }
                 }
                 egui::Event::Key { key, pressed, .. } => {
-                    if response.has_focus()
+                    if response.has_focus
                         && let Some(key) = egui_key_to_avenger(*key)
                     {
                         events.push(WindowEvent::KeyboardInput(WindowKeyboardInput {
@@ -492,7 +768,7 @@ impl EguiEventTranslator {
             }
         }
 
-        if response.drag_stopped() {
+        if response.drag_stopped {
             self.pointer_captured = false;
         }
 
@@ -606,7 +882,7 @@ mod tests {
     use std::sync::Arc;
 
     use avenger_chart::prelude as chart;
-    use avenger_chart_app::ChartAppOptions;
+    use avenger_chart_app::{ChartAppOptions, ChartResizeBinding, chart_avenger_app};
     use datafusion::prelude::SessionContext;
 
     use super::*;
@@ -626,6 +902,100 @@ mod tests {
             policy,
             ChartAppOptions::default(),
         ))
+    }
+
+    async fn test_app_handle(options: ChartAppOptions) -> AvengerPlotHandle {
+        let ctx = Arc::new(SessionContext::new());
+        let width = chart::Param::new("width", scalar_f64(640.0));
+        let compiled = chart::Plot::<chart::Cartesian>::new()
+            .add_param(width.clone())
+            .canvas_constraint(chart::CanvasConstraint::width(width.expr()))
+            .compile(ctx.as_ref())
+            .await
+            .expect("compile egui app test plot");
+        let app = chart_avenger_app(compiled, ctx, options)
+            .await
+            .expect("build egui test app");
+        AvengerPlotHandle::from_app(app)
+    }
+
+    async fn wait_for_scene_generation(handle: &AvengerPlotHandle, generation: FrameGeneration) {
+        for _ in 0..1_000 {
+            if handle
+                .latest_scene_frame()
+                .is_some_and(|frame| frame.generation == generation)
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        panic!(
+            "scene generation {} was not published; status={:?}, error={:?}",
+            generation.get(),
+            handle.frame_status(),
+            handle.latest_scene_error()
+        );
+    }
+
+    fn raw_input(events: Vec<egui::Event>) -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            events,
+            ..Default::default()
+        }
+    }
+
+    fn plot_events_on_ctx(
+        ctx: &egui::Context,
+        handle: &AvengerPlotHandle,
+        raw_input: egui::RawInput,
+    ) -> Vec<WindowEvent> {
+        let mut output_events = Vec::new();
+        let _ = ctx.run(raw_input, |ctx| {
+            egui::CentralPanel::default()
+                .show(ctx, |ui| {
+                    output_events = Plot::new(handle)
+                        .desired_size(egui::vec2(320.0, 240.0))
+                        .show(ui)
+                        .events;
+                })
+                .inner;
+        });
+        output_events
+    }
+
+    fn pointer_button(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        }
+    }
+
+    fn key_event(key: egui::Key, pressed: bool) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        }
+    }
+
+    fn contains_mouse_wheel(events: &[WindowEvent]) -> bool {
+        events
+            .iter()
+            .any(|event| matches!(event, WindowEvent::MouseWheel(_)))
+    }
+
+    fn contains_keyboard_input(events: &[WindowEvent]) -> bool {
+        events
+            .iter()
+            .any(|event| matches!(event, WindowEvent::KeyboardInput(_)))
     }
 
     fn response_for_size(size: egui::Vec2) -> egui::Response {
@@ -703,6 +1073,68 @@ mod tests {
         assert_eq!(handle.pending_event_count(), 0);
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn scene_rebuild_request_publishes_latest_scene() {
+        let handle = test_app_handle(ChartAppOptions::default()).await;
+
+        let generation = handle
+            .request_scene_rebuild(&tokio::runtime::Handle::current(), true)
+            .expect("request scene rebuild");
+
+        assert_eq!(
+            handle.frame_status().requested_generation,
+            Some(generation.get())
+        );
+        wait_for_scene_generation(&handle, generation).await;
+
+        let status = handle.frame_status();
+        assert_eq!(status.latest_scene_generation, Some(generation.get()));
+        assert!(!status.render_pending);
+        assert!(handle.latest_scene_error().is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn rapid_scene_rebuild_requests_publish_newest_generation() {
+        let handle = test_app_handle(ChartAppOptions::default()).await;
+        handle.set_param("width", 700.0);
+        let first = handle
+            .request_scene_rebuild(&tokio::runtime::Handle::current(), true)
+            .expect("request first scene rebuild");
+        handle.set_param("width", 720.0);
+        let second = handle
+            .request_scene_rebuild(&tokio::runtime::Handle::current(), true)
+            .expect("request second scene rebuild");
+
+        assert!(second > first);
+        wait_for_scene_generation(&handle, second).await;
+
+        let latest = handle
+            .latest_scene_frame()
+            .expect("latest scene after rapid rebuild requests");
+        assert_eq!(latest.generation, second);
+        assert_eq!(handle.param_f64("width"), Some(720.0));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn event_dispatch_request_publishes_scene_for_routed_resize() {
+        let handle = test_app_handle(ChartAppOptions {
+            resize_binding: ChartResizeBinding::width("width"),
+            ..ChartAppOptions::default()
+        })
+        .await;
+        handle.queue_events([WindowEvent::CanvasResize(CanvasResizeEvent {
+            size: [720.0, 300.0],
+        })]);
+
+        let generation = handle
+            .request_event_dispatch(&tokio::runtime::Handle::current())
+            .expect("request event dispatch");
+        wait_for_scene_generation(&handle, generation).await;
+
+        assert_eq!(handle.pending_event_count(), 0);
+        assert_eq!(handle.param_f64("width"), Some(720.0));
+    }
+
     #[tokio::test]
     async fn plot_show_queues_translated_resize_events() {
         let handle = test_handle().await;
@@ -728,13 +1160,114 @@ mod tests {
         assert_eq!(handle.pending_event_count(), output_events.len());
     }
 
+    #[tokio::test]
+    async fn wheel_events_route_only_while_plot_is_hovered() {
+        let handle = test_handle().await;
+        let ctx = egui::Context::default();
+        let wheel = egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, 12.0),
+            modifiers: egui::Modifiers::default(),
+        };
+
+        let outside = plot_events_on_ctx(
+            &ctx,
+            &handle,
+            raw_input(vec![
+                egui::Event::PointerMoved(egui::pos2(700.0, 500.0)),
+                wheel.clone(),
+            ]),
+        );
+        assert!(!contains_mouse_wheel(&outside));
+
+        let inside = plot_events_on_ctx(
+            &ctx,
+            &handle,
+            raw_input(vec![
+                egui::Event::PointerMoved(egui::pos2(40.0, 40.0)),
+                wheel,
+            ]),
+        );
+        assert!(contains_mouse_wheel(&inside));
+    }
+
+    #[tokio::test]
+    async fn pointer_capture_routes_release_after_pointer_leaves_plot() {
+        let handle = test_handle().await;
+        let ctx = egui::Context::default();
+
+        let events = plot_events_on_ctx(
+            &ctx,
+            &handle,
+            raw_input(vec![
+                egui::Event::PointerMoved(egui::pos2(40.0, 40.0)),
+                pointer_button(egui::pos2(40.0, 40.0), true),
+                egui::Event::PointerMoved(egui::pos2(700.0, 500.0)),
+                pointer_button(egui::pos2(700.0, 500.0), false),
+            ]),
+        );
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                })
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                })
+            )
+        }));
+    }
+
+    #[tokio::test]
+    async fn keyboard_events_route_only_after_plot_focus() {
+        let handle = test_handle().await;
+        let ctx = egui::Context::default();
+
+        let unfocused = plot_events_on_ctx(
+            &ctx,
+            &handle,
+            raw_input(vec![key_event(egui::Key::A, true)]),
+        );
+        assert!(!contains_keyboard_input(&unfocused));
+
+        let _ = plot_events_on_ctx(
+            &ctx,
+            &handle,
+            raw_input(vec![
+                egui::Event::PointerMoved(egui::pos2(40.0, 40.0)),
+                pointer_button(egui::pos2(40.0, 40.0), true),
+                pointer_button(egui::pos2(40.0, 40.0), false),
+            ]),
+        );
+        let focused = plot_events_on_ctx(
+            &ctx,
+            &handle,
+            raw_input(vec![key_event(egui::Key::A, true)]),
+        );
+
+        assert!(contains_keyboard_input(&focused));
+    }
+
     #[test]
     fn translator_emits_canvas_resize_once_per_size() {
         let mut translator = EguiEventTranslator::default();
         let response = response_for_size(egui::vec2(300.0, 200.0));
         let input = egui::InputState::default();
 
-        let first = translator.translate_frame(response.rect, &response, &input);
+        let first = translator.translate_frame(
+            response.rect,
+            EguiResponseState::from_response(&response),
+            &input,
+        );
         assert_eq!(
             first.last(),
             Some(&WindowEvent::CanvasResize(CanvasResizeEvent {
@@ -742,7 +1275,11 @@ mod tests {
             }))
         );
 
-        let second = translator.translate_frame(response.rect, &response, &input);
+        let second = translator.translate_frame(
+            response.rect,
+            EguiResponseState::from_response(&response),
+            &input,
+        );
         assert!(
             !second
                 .iter()

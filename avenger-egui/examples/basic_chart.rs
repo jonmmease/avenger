@@ -10,7 +10,8 @@ use datafusion::{logical_expr::when, prelude::SessionContext, scalar::ScalarValu
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
         .build()
         .expect("build tokio runtime");
     let avenger_app = runtime.block_on(build_app());
@@ -33,6 +34,9 @@ fn main() -> eframe::Result<()> {
                 runtime,
                 plot,
                 scene,
+                scene_generation: 0,
+                rendered_scene_generation: None,
+                rendered_dimensions: None,
                 point_size: 120.0,
                 show_points: true,
                 last_error: None,
@@ -45,6 +49,9 @@ struct BasicChartApp {
     runtime: tokio::runtime::Runtime,
     plot: AvengerPlotHandle,
     scene: Arc<SceneGraph>,
+    scene_generation: u64,
+    rendered_scene_generation: Option<u64>,
+    rendered_dimensions: Option<CanvasDimensions>,
     point_size: f64,
     show_points: bool,
     last_error: Option<String>,
@@ -52,32 +59,23 @@ struct BasicChartApp {
 
 impl eframe::App for BasicChartApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        for update in self
-            .runtime
-            .block_on(self.plot.dispatch_pending_events())
-            .unwrap_or_default()
-        {
-            if let Some(scene) = update.scene_graph {
-                self.scene = scene;
-                ctx.request_repaint();
-            }
-            if update.status.rerender {
-                ctx.request_repaint();
-            }
-        }
+        self.poll_latest_scene(ctx);
+        self.last_error = self.plot.latest_scene_error();
 
         egui::SidePanel::left("controls").show(ctx, |ui| {
             let changed = ui
                 .add(egui::Slider::new(&mut self.point_size, 32.0..=240.0).text("Point size"))
                 .changed();
             if changed {
-                self.plot.set_param("point_size", self.point_size);
-                self.rebuild_chart(ctx);
+                if self.plot.set_param("point_size", self.point_size).changed {
+                    self.request_chart_rebuild(ctx);
+                }
             }
 
             if ui.checkbox(&mut self.show_points, "Show points").changed() {
-                self.plot.set_param("show_points", self.show_points);
-                self.rebuild_chart(ctx);
+                if self.plot.set_param("show_points", self.show_points).changed {
+                    self.request_chart_rebuild(ctx);
+                }
             }
 
             if let Some(error) = &self.last_error {
@@ -86,12 +84,28 @@ impl eframe::App for BasicChartApp {
 
             let status = self.plot.frame_status();
             ui.label(format!(
-                "generation: {}",
+                "texture generation: {}",
                 status
                     .latest_generation
                     .map(|generation| generation.to_string())
                     .unwrap_or_else(|| "none".to_string())
             ));
+            ui.label(format!(
+                "scene generation: {} / requested {}",
+                status
+                    .latest_scene_generation
+                    .map(|generation| generation.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                status
+                    .requested_generation
+                    .map(|generation| generation.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+            ));
+            ui.label(if status.render_pending {
+                "render pending"
+            } else {
+                "render idle"
+            });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -101,16 +115,17 @@ impl eframe::App for BasicChartApp {
                 scale: ctx.pixels_per_point(),
             };
 
-            if let Some(render_state) = frame.wgpu_render_state()
-                && let Err(err) =
-                    self.plot
-                        .render_scene_to_texture(render_state, &self.scene, dimensions)
-            {
-                self.last_error = Some(err.to_string());
-            }
+            self.render_latest_scene_if_needed(frame, dimensions);
 
             let output = Plot::new(&self.plot).desired_size(desired_size).show(ui);
+            if !output.events.is_empty() {
+                self.plot
+                    .request_event_dispatch_with_repaint(self.runtime.handle(), ctx);
+            }
             if output.response.dragged() {
+                ctx.request_repaint();
+            }
+            if output.frame_status.render_pending {
                 ctx.request_repaint();
             }
         });
@@ -118,16 +133,52 @@ impl eframe::App for BasicChartApp {
 }
 
 impl BasicChartApp {
-    fn rebuild_chart(&mut self, ctx: &egui::Context) {
-        match self.runtime.block_on(self.plot.rebuild_scene_graph(true)) {
-            Ok(Some(scene)) => {
-                self.scene = scene;
+    fn request_chart_rebuild(&mut self, ctx: &egui::Context) {
+        self.plot
+            .request_scene_rebuild_with_repaint(self.runtime.handle(), ctx, true);
+        ctx.request_repaint();
+    }
+
+    fn poll_latest_scene(&mut self, ctx: &egui::Context) {
+        if let Some(frame) = self.plot.latest_scene_frame() {
+            let generation = frame.generation.get();
+            if generation != self.scene_generation {
+                self.scene = frame.payload.clone();
+                self.scene_generation = generation;
                 ctx.request_repaint();
             }
-            Ok(None) => {}
-            Err(err) => self.last_error = Some(err.to_string()),
         }
     }
+
+    fn render_latest_scene_if_needed(
+        &mut self,
+        frame: &mut eframe::Frame,
+        dimensions: CanvasDimensions,
+    ) {
+        let dimensions_changed = self
+            .rendered_dimensions
+            .is_none_or(|rendered| !canvas_dimensions_eq(rendered, dimensions));
+        let scene_changed = self.rendered_scene_generation != Some(self.scene_generation);
+        if !dimensions_changed && !scene_changed {
+            return;
+        }
+
+        if let Some(render_state) = frame.wgpu_render_state()
+            && let Err(err) =
+                self.plot
+                    .render_scene_to_texture(render_state, &self.scene, dimensions)
+        {
+            self.last_error = Some(err.to_string());
+            return;
+        }
+
+        self.rendered_scene_generation = Some(self.scene_generation);
+        self.rendered_dimensions = Some(dimensions);
+    }
+}
+
+fn canvas_dimensions_eq(left: CanvasDimensions, right: CanvasDimensions) -> bool {
+    left.size == right.size && left.scale == right.scale
 }
 
 async fn build_app() -> AvengerApp<ChartAppState> {

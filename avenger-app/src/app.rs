@@ -13,7 +13,7 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use crate::error::AvengerAppError;
 
 #[async_trait]
-pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static> {
+pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static>: Send + Sync {
     async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError>;
 }
 
