@@ -361,9 +361,9 @@ Phase 1 validation results, 2026-06-19:
 
 Commit:
 
-- [ ] Commit Phase 1.
+- [x] Commit Phase 1.
 - Suggested message: `refactor(wgpu): extract reusable renderer state`
-- Commit hash: TBD
+- Commit hash: `2fe37940`
 
 ## Phase 2 - Introduce Explicit Render Targets
 
@@ -371,16 +371,25 @@ Purpose: make render target details explicit instead of implicit in `WindowCanva
 
 Tasks:
 
-- [ ] Add `AvengerRenderTarget<'a>`.
-- [ ] Add render target helpers for:
+- [x] Add `AvengerRenderTarget<'a>`.
+- [x] Add render target helpers for:
   - swapchain texture view,
   - offscreen texture view,
   - multisampled color target plus resolve target.
-- [ ] Replace hard-coded background clear with target-provided `load`.
-- [ ] Preserve default white clear for existing window/png behavior.
-- [ ] Move background clear encoding into renderer core.
-- [ ] Add a renderer method that builds commands for an arbitrary `AvengerRenderTarget`.
-- [ ] Keep existing command-buffer-returning API available until Phase 3 completes.
+- [x] Replace hard-coded background clear with target-provided `load`.
+- [x] Preserve default white clear for existing window/png behavior.
+- [x] Move background clear encoding into renderer core.
+- [x] Add a renderer method that builds commands for an arbitrary `AvengerRenderTarget`.
+- [x] Keep existing command-buffer-returning API available until Phase 3 completes.
+
+Phase 2 notes, 2026-06-19:
+
+- Added `AvengerRenderTarget<'a>` in `avenger-wgpu/src/target.rs`.
+- Added helpers for `swapchain`, `offscreen`, and `multisampled` targets.
+- Added `WHITE_CLEAR` as the default load op used by existing window and PNG behavior.
+- Moved background pass command encoding into `AvengerRendererCore::make_background_command`.
+- Left mark rendering on the existing command-buffer-returning APIs. Phase 3 will convert mark renderers to encode into caller-provided command encoders.
+- Kept `canvas::make_background_command` as a compatibility wrapper for the wasm canvas path.
 
 Validation:
 
@@ -388,6 +397,13 @@ Validation:
 cargo fmt --all
 cargo test -p avenger-wgpu
 ```
+
+Phase 2 validation results, 2026-06-19:
+
+- `cargo fmt --all`: passed.
+- `cargo check -p avenger-wgpu`: passed.
+- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
+- Full `cargo test -p avenger-wgpu` was not rerun in Phase 2; Phase 1 showed the only failures match the Phase 0 image baseline failures.
 
 Commit:
 

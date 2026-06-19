@@ -14,12 +14,11 @@ use image::imageops::crop_imm;
 use itertools::izip;
 use wgpu::{
     Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
-    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, LoadOp, MapMode, Operations,
-    Origin3d, PowerPreference, Queue, RenderPassColorAttachment, RenderPassDescriptor,
-    RequestAdapterError, RequestAdapterOptions, StoreOp, Surface, SurfaceConfiguration,
-    TexelCopyBufferInfo, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages,
-    TextureView, TextureViewDescriptor, Trace,
+    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, MapMode, Origin3d,
+    PowerPreference, Queue, RequestAdapterError, RequestAdapterOptions, Surface,
+    SurfaceConfiguration, TexelCopyBufferInfo, TexelCopyBufferLayout, TexelCopyTextureInfo,
+    Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureFormatFeatureFlags, TextureUsages, TextureView, TextureViewDescriptor, Trace,
 };
 use winit::{dpi::Size, event::WindowEvent, window::Window};
 
@@ -32,6 +31,7 @@ use crate::{
         text::{TextAtlasBuilderTrait, TextAtlasRegistration, TextInstance},
     },
     renderer::{mark_renderer_counts, AvengerRendererCore},
+    target::{AvengerRenderTarget, WHITE_CLEAR},
     zindex_layers::compute_zindex_layers,
 };
 
@@ -493,40 +493,37 @@ mod tests {
 }
 
 // Private shared canvas logic
+#[allow(dead_code)]
 pub(crate) fn make_background_command<C: Canvas>(
     canvas: &C,
     texture_view: &TextureView,
     resolve_target: Option<&TextureView>,
 ) -> CommandBuffer {
-    let mut background_encoder =
-        canvas
-            .device()
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("Render Background Encoder"),
-            });
-
-    {
-        let _render_pass = background_encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: texture_view,
-                resolve_target,
-                ops: Operations {
-                    load: LoadOp::Clear(wgpu::Color {
-                        r: 1.0,
-                        g: 1.0,
-                        b: 1.0,
-                        a: 1.0,
-                    }),
-                    store: StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
-    }
-    background_encoder.finish()
+    let dimensions = canvas.dimensions();
+    let extent = Extent3d {
+        width: dimensions.to_physical_width(),
+        height: dimensions.to_physical_height(),
+        depth_or_array_layers: 1,
+    };
+    let target = if let Some(resolve_target) = resolve_target {
+        AvengerRenderTarget::multisampled(
+            texture_view,
+            resolve_target,
+            extent,
+            canvas.texture_format(),
+            canvas.sample_count(),
+            WHITE_CLEAR,
+        )
+    } else {
+        AvengerRenderTarget::new(
+            texture_view,
+            extent,
+            canvas.texture_format(),
+            1,
+            WHITE_CLEAR,
+        )
+    };
+    AvengerRendererCore::make_background_command_for_target(canvas.device(), target)
 }
 
 pub(crate) fn make_wgpu_instance() -> wgpu::Instance {
@@ -803,11 +800,26 @@ impl WindowCanvas<'_> {
 
         // Render background first
         let command_build_start = Instant::now();
-        let background_command = if sample_count > 1 {
-            make_background_command(self, &self.multisampled_framebuffer, Some(&view))
+        let background_target = if sample_count > 1 {
+            AvengerRenderTarget::multisampled(
+                &self.multisampled_framebuffer,
+                &view,
+                render_target_extent,
+                self.renderer.texture_format(),
+                sample_count,
+                WHITE_CLEAR,
+            )
         } else {
-            make_background_command(self, &view, None)
+            AvengerRenderTarget::swapchain(
+                &view,
+                render_target_extent,
+                self.renderer.texture_format(),
+                WHITE_CLEAR,
+            )
         };
+        let background_command = self
+            .renderer
+            .make_background_command(&self.device, background_target);
         let mut commands = vec![background_command];
 
         let multi_render_resources = self.renderer.multi_render_resources().clone();
@@ -1162,17 +1174,6 @@ impl PngCanvas {
         let dimensions = self.renderer.dimensions();
         let marks = self.renderer.marks().to_vec();
 
-        // Build encoder for chart background
-        let background_command = if sample_count > 1 {
-            make_background_command(
-                self,
-                &self.multisampled_framebuffer,
-                Some(&self.texture_view),
-            )
-        } else {
-            make_background_command(self, &self.texture_view, None)
-        };
-
         // Collect z-indices and compute layers
         let zindices: Vec<i32> = marks.iter().map(|m| m.zindex).collect();
         let layers = if zindices.is_empty() {
@@ -1183,13 +1184,33 @@ impl PngCanvas {
         let layer_count = layers.len();
         let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&marks);
 
-        let mut commands = vec![background_command];
         let multi_render_resources = self.renderer.multi_render_resources().clone();
         let render_target_extent = Extent3d {
             width: dimensions.to_physical_width(),
             height: dimensions.to_physical_height(),
             depth_or_array_layers: 1,
         };
+        let background_target = if sample_count > 1 {
+            AvengerRenderTarget::multisampled(
+                &self.multisampled_framebuffer,
+                &self.texture_view,
+                render_target_extent,
+                self.renderer.texture_format(),
+                sample_count,
+                WHITE_CLEAR,
+            )
+        } else {
+            AvengerRenderTarget::offscreen(
+                &self.texture_view,
+                render_target_extent,
+                self.renderer.texture_format(),
+                WHITE_CLEAR,
+            )
+        };
+        let background_command = self
+            .renderer
+            .make_background_command(&self.device, background_target);
+        let mut commands = vec![background_command];
 
         // Build the shared text atlas bind groups ONCE per frame (instead of once per
         // multi-renderer). Every renderer this frame registered into the same atlas, so

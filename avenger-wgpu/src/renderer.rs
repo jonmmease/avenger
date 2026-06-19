@@ -5,7 +5,10 @@ use avenger_common::{
     canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
 };
 use avenger_scenegraph::marks::{group::Clip, rect::SceneRectMark};
-use wgpu::{BindGroup, CommandBuffer, Device, Extent3d, Queue, TextureFormat, TextureView};
+use wgpu::{
+    BindGroup, CommandBuffer, CommandEncoderDescriptor, Device, Extent3d, Operations, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TextureFormat, TextureView,
+};
 
 use crate::{
     canvas::{CanvasConfig, CanvasFrameOverlay, TextBuildCtor},
@@ -15,6 +18,7 @@ use crate::{
         multi::{MultiMarkRenderResources, MultiMarkRenderer},
         text::TextAtlasBuilderTrait,
     },
+    target::AvengerRenderTarget,
 };
 
 #[derive(Clone)]
@@ -140,6 +144,42 @@ impl AvengerRendererCore {
             text_atlas_size,
             &text_atlas_images,
         )
+    }
+
+    pub(crate) fn make_background_command(
+        &self,
+        device: &Device,
+        target: AvengerRenderTarget<'_>,
+    ) -> CommandBuffer {
+        debug_assert_eq!(target.format, self.texture_format);
+        Self::make_background_command_for_target(device, target)
+    }
+
+    pub(crate) fn make_background_command_for_target(
+        device: &Device,
+        target: AvengerRenderTarget<'_>,
+    ) -> CommandBuffer {
+        let mut background_encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Render Background Encoder"),
+        });
+
+        {
+            let _render_pass = background_encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: target.view,
+                    resolve_target: target.resolve_target,
+                    ops: Operations {
+                        load: target.load,
+                        store: StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+        }
+        background_encoder.finish()
     }
 
     pub(crate) fn set_current_zindex(&mut self, zindex: i32) {
