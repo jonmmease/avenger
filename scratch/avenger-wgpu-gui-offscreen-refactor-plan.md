@@ -1197,7 +1197,7 @@ Tasks:
   - reused latest-frame paints,
   - frames painted while an exact render is pending.
 - [x] Add an example debug overlay for egui.
-- [ ] Document recommended env vars for tracing.
+- [x] Document recommended env vars for tracing.
 - [ ] Add a small benchmark or profiling example.
 
 Phase 12 progress notes, 2026-06-19:
@@ -1208,7 +1208,7 @@ Phase 12 progress notes, 2026-06-19:
 - Added tracing instrumentation for param patching, queued plot events, scene rebuild/event-dispatch requests, scene worker lifecycle, Avenger app event dispatch, scene frame publish/drop, offscreen render timing, and GUI texture paint.
 - Updated the `basic_chart` example side panel to show the metrics readout.
 - Added metrics tests for param set calls, routed event batches/counts, scene publish counts, requested/published generation tracking, and event-dispatch publication.
-- Remaining Phase 12 work: document recommended tracing env vars and decide whether a benchmark/profiling example is worth adding after manual egui validation.
+- Remaining Phase 12 work: decide whether a benchmark/profiling example is worth adding after manual egui validation.
 
 Phase 12 validation results, 2026-06-19:
 
@@ -1217,6 +1217,7 @@ Phase 12 validation results, 2026-06-19:
 - `cargo check --release -p avenger-egui --features eframe --example basic_chart`: passed.
 - `cargo test -p avenger-wgpu --lib --release`: passed, 33 tests.
 - Earlier non-release `cargo test -p avenger-wgpu --lib` was interrupted by the local target directory filling the filesystem; `cargo clean` removed 94.2 GiB, and subsequent validation used release profile only.
+- Recommended tracing env var usage is now documented in `avenger-chart/docs/architecture/wgpu-gui-offscreen.md`.
 
 Validation:
 
@@ -1238,21 +1239,21 @@ Purpose: make the architecture maintainable.
 
 Tasks:
 
-- [ ] Add or update architecture docs under `avenger-chart/docs/architecture/`.
-- [ ] Prefer a focused document such as `avenger-chart/docs/architecture/wgpu-gui-offscreen.md`.
-- [ ] Link the new architecture document from the existing architecture docs index or nearest relevant architecture overview.
-- [ ] Document renderer core ownership.
-- [ ] Document host wrappers.
-- [ ] Document offscreen texture lifecycle.
-- [ ] Document async render lifecycle.
-- [ ] Document egui integration.
-- [ ] Document limitations:
+- [x] Add or update architecture docs under `avenger-chart/docs/architecture/`.
+- [x] Prefer a focused document such as `avenger-chart/docs/architecture/wgpu-gui-offscreen.md`.
+- [x] Link the new architecture document from the existing architecture docs index or nearest relevant architecture overview.
+- [x] Document renderer core ownership.
+- [x] Document host wrappers.
+- [x] Document offscreen texture lifecycle.
+- [x] Document async render lifecycle.
+- [x] Document egui integration.
+- [x] Document limitations:
   - texture format constraints,
   - WGPU version coupling,
   - wasm limitations,
   - background GPU render caveats,
   - direct rendering status.
-- [ ] Document explicit non-goals:
+- [x] Document explicit non-goals:
   - no Iced crate in this plan,
   - no direct egui render-pass integration in this plan,
   - no semantic drag preview until baseline staleness is evaluated,
@@ -1260,6 +1261,19 @@ Tasks:
 - [ ] Remove temporary compatibility wrappers if no longer needed.
 - [ ] Remove dead code from the old render path.
 - [ ] Update examples list.
+
+Phase 13 progress notes, 2026-06-19:
+
+- Added `avenger-chart/docs/architecture/wgpu-gui-offscreen.md`.
+- Linked the document from `avenger-chart/docs/architecture/README.md` and from `chart-apps-and-interaction.md`.
+- Documented `AvengerWgpuRenderer`, host wrappers, egui widget shape, event routing, offscreen texture lifecycle, latest-scene publishing, metrics/tracing, limitations, and explicit non-goals.
+- Documented the staged decision that background workers publish CPU scenegraphs while GPU upload/render stays on the egui frame for the MVP. Full background GPU submission remains a Phase 11 follow-up decision after manual measurement.
+- Remaining Phase 13 work: review whether there are temporary compatibility wrappers or dead old render paths to remove, and decide whether the example listing needs a separate update beyond the architecture docs.
+
+Phase 13 validation results, 2026-06-19:
+
+- Documentation links verified with `rg -n "wgpu-gui-offscreen" avenger-chart/docs/architecture`.
+- Existing release validation from Phase 12 remains current for code paths touched before docs: `cargo test -p avenger-egui --release`, `cargo check --release -p avenger-egui --features eframe --example basic_chart`, and `cargo test -p avenger-wgpu --lib --release`.
 
 Validation:
 
@@ -1273,7 +1287,8 @@ Commit:
 
 - [ ] Commit Phase 13.
 - Suggested message: `docs(wgpu): document gui offscreen rendering architecture`
-- Commit hash: TBD
+- Implementation commits so far: `a6a2b118`
+- Final Phase 13 closure commit hash: TBD
 
 ## Milestone Completion Definitions
 
