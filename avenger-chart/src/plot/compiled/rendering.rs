@@ -32,9 +32,9 @@ use indexmap::IndexMap;
 use tracing::{Level, debug, trace};
 
 use avenger_chart_core::{
-    AxisPosition, DerivedScalarsByChannel, FacetEmptyCellPolicy, FacetWrapColumnMode,
-    LegendPosition, ScalarValueHelpers, eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr,
-    maybe::Maybe, params_to_datafusion,
+    AxisPosition, CompiledGuide, DerivedScalarsByChannel, FacetEmptyCellPolicy,
+    FacetWrapColumnMode, LegendPosition, ScalarValueHelpers, eval_to_scalars, evaluate_bool_expr,
+    evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
 };
 
 use crate::{
@@ -262,6 +262,36 @@ fn offset_flat_event_datum_rows(
             rows
         })
         .collect()
+}
+
+fn guide_event_datum_rows(
+    guide: Option<&Arc<dyn CompiledGuide>>,
+    guide_marks: &[SceneMark],
+    plot_width: f32,
+    plot_height: f32,
+    params: &IndexMap<String, ScalarValue>,
+    ctx: &SessionContext,
+    coord_measurement: &dyn CoordMeasurement,
+) -> Result<Vec<EvaluatedEventDatumRows>, AvengerChartError> {
+    let Some(guide) = guide else {
+        return Ok(Vec::new());
+    };
+    Ok(guide
+        .event_datum_rows(
+            guide_marks,
+            plot_width,
+            plot_height,
+            params,
+            ctx,
+            coord_measurement,
+        )?
+        .into_iter()
+        .map(|rows| EvaluatedEventDatumRows {
+            mark_path: vec![1 + rows.guide_mark_index],
+            subplot_id_path: Vec::new(),
+            rows: rows.rows,
+        })
+        .collect())
 }
 
 fn event_datum_rows_for_rendered_marks(
@@ -2013,11 +2043,11 @@ impl CompiledPlot {
                 .map(RenderedMarkOutput::marks_only);
         }
 
-        if let Some(overlay) = crate::parallel_axis_overlay::parallel_axis_overlay_ref(mark) {
+        if let Some(overlay) = mark.as_coordinate_slot_overlay() {
             let render_state = RenderState::new(plot_width, plot_height, scales.clone());
             let render_ctx =
                 RenderContext::new(eval_ctx, &render_state, facet_path, coord_measurement);
-            return crate::parallel_axis_overlay::render_parallel_axis_overlay_with_context(
+            return crate::coordinate_slot_overlay::render_coordinate_slot_overlay_with_context(
                 overlay,
                 &render_ctx,
             )
@@ -4995,14 +5025,15 @@ impl CompiledPlot {
                         coord_measurement_ref,
                     )
                     .await?;
-                let mut chrome_event_datums =
-                    crate::parallel_guide_event::parallel_guide_event_datums(
-                        self.compiled_guide.as_ref(),
-                        &guide_marks,
-                        plot_area_width,
-                        &merged_params,
-                        ctx,
-                    )?;
+                let mut chrome_event_datums = guide_event_datum_rows(
+                    self.compiled_guide.as_ref(),
+                    &guide_marks,
+                    plot_area_width,
+                    plot_area_height,
+                    &merged_params,
+                    ctx,
+                    coord_measurement_ref,
+                )?;
 
                 let rendered_legends = self
                     .render_legends_from_plan(
@@ -5090,14 +5121,15 @@ impl CompiledPlot {
                         coord_measurement_ref,
                     )
                     .await?;
-                let mut chrome_event_datums =
-                    crate::parallel_guide_event::parallel_guide_event_datums(
-                        self.compiled_guide.as_ref(),
-                        &guide_marks,
-                        plot_area_width,
-                        &merged_params,
-                        ctx,
-                    )?;
+                let mut chrome_event_datums = guide_event_datum_rows(
+                    self.compiled_guide.as_ref(),
+                    &guide_marks,
+                    plot_area_width,
+                    plot_area_height,
+                    &merged_params,
+                    ctx,
+                    coord_measurement_ref,
+                )?;
 
                 // Create legend marks from the computed layout
                 // Legend positions from layout include the plot area offset, but we need them at (0,0)

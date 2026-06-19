@@ -3,6 +3,10 @@ name = "avenger-chart"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["parallel"]
+parallel = ["dep:avenger-chart-parallel"]
+
 [dependencies]
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
@@ -15,7 +19,7 @@ avenger-chart-tools = { path = "../avenger-chart-tools" }
 avenger-chart-transforms = { path = "../avenger-chart-transforms" }
 avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
 avenger-chart-polar = { path = "../avenger-chart-polar" }
-avenger-chart-parallel = { path = "../avenger-chart-parallel" }
+avenger-chart-parallel = { path = "../avenger-chart-parallel", optional = true }
 avenger-layout = { path = "../avenger-layout" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }

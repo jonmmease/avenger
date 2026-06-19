@@ -2,9 +2,9 @@ use std::{marker::PhantomData, sync::Arc};
 
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompileContext, CompiledDataContext, CompiledMark,
-    CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload, DataContext, FacetDataScope,
-    IntoPlotMark, Mark, MarkDataMode, MarkRuntimeContext, MarkState, PlotMark, RenderedMarkData,
-    SubplotChildPlotSpec, SubplotDataSource, validate_structural_id,
+    CompiledMarkCore, CompiledMarkState, CompiledSubplotPayload, CoordinateSlotOverlayMarkCore,
+    DataContext, FacetDataScope, IntoPlotMark, Mark, MarkDataMode, MarkRuntimeContext, MarkState,
+    PlotMark, RenderedMarkData, SubplotChildPlotSpec, SubplotDataSource, validate_structural_id,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{arrow::record_batch::RecordBatch, prelude::SessionContext};
@@ -227,8 +227,46 @@ impl CompiledMarkCore for CompiledParallelAxisOverlay {
         self
     }
 
+    fn as_coordinate_slot_overlay(&self) -> Option<&dyn CoordinateSlotOverlayMarkCore> {
+        Some(self)
+    }
+
     fn supported_channels(&self) -> Vec<ChannelDescriptor> {
         Vec::new()
+    }
+}
+
+impl CoordinateSlotOverlayMarkCore for CompiledParallelAxisOverlay {
+    fn payload(&self) -> &CompiledSubplotPayload {
+        &self.payload
+    }
+
+    fn slot_id(&self) -> &str {
+        &self.dimension_id
+    }
+
+    fn width_px(&self) -> f32 {
+        self.width_px
+    }
+
+    fn x_offset_px(&self) -> f32 {
+        self.x_offset_px
+    }
+
+    fn clip_child_frame(&self) -> bool {
+        self.clip
+    }
+
+    fn show_child_chrome(&self) -> bool {
+        self.show_child_chrome
+    }
+
+    fn overlay_label(&self) -> &'static str {
+        "ParallelAxisOverlay"
+    }
+
+    fn scene_group_prefix(&self) -> &'static str {
+        "parallel_axis_overlay"
     }
 }
 

@@ -2,9 +2,10 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{
     AvengerChartError, CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide,
-    GuideSharingContext, LayoutBounds, OverflowSpaceRequirement, ScalarValueHelpers, Theme,
-    eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr,
-    params_to_datafusion, serialization::DefaultLogicalExprNodeExt,
+    EventDatumFieldSpec, GuideEventDatumRows, GuideSharingContext, LayoutBounds,
+    OverflowSpaceRequirement, ScalarValueHelpers, Theme, eval_to_scalars, evaluate_bool_expr,
+    evaluate_f32_expr, evaluate_string_expr, params_to_datafusion,
+    serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_color::{ColorOrGradient, parse_color_string_strict};
 use avenger_common::value::ScalarOrArray;
@@ -24,7 +25,11 @@ use avenger_text::{
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
 };
 use datafusion::{
-    arrow::array::{Array, StructArray},
+    arrow::{
+        array::{Array, ArrayRef, Float64Array, Int64Array, StringArray, StructArray},
+        datatypes::{DataType, Field, Schema},
+        record_batch::RecordBatch,
+    },
     common::ScalarValue,
     dataframe::DataFrame,
     logical_expr::Expr,
@@ -34,6 +39,12 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::ParallelAxis;
+use crate::event::{
+    PARALLEL_DIMENSION_ID_FIELD, PARALLEL_DISPLACEMENT_PX_FIELD, PARALLEL_DISPLACEMENT_SLOTS_FIELD,
+    PARALLEL_DISPLAY_X_FIELD, PARALLEL_EQUILIBRIUM_X_FIELD, PARALLEL_ORDER_INDEX_FIELD,
+    PARALLEL_SCALE_NAME_FIELD, PARALLEL_SURFACE_KIND_DIMENSION_TITLE, PARALLEL_SURFACE_KIND_FIELD,
+    PARALLEL_TITLE_FIELD,
+};
 use crate::frame::{
     ParallelFrameDimension, resolve_display_state, resolve_order_state,
     resolve_parallel_frame_dimensions,
@@ -378,6 +389,39 @@ impl CompiledGuide for CompiledParallelGuide {
         Ok(marks)
     }
 
+    fn event_datum_field_specs(&self) -> Vec<EventDatumFieldSpec> {
+        parallel_axis_title_event_datum_field_specs()
+    }
+
+    fn event_datum_rows(
+        &self,
+        guide_marks: &[SceneMark],
+        plot_width: f32,
+        _plot_height: f32,
+        params: &IndexMap<String, ScalarValue>,
+        ctx: &SessionContext,
+        _coord_measurement: &dyn CoordMeasurement,
+    ) -> Result<Vec<GuideEventDatumRows>, AvengerChartError> {
+        let axis_datums = self.axis_guide_datums(plot_width, params, ctx)?;
+        if axis_datums.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = parallel_axis_title_event_datum_batch(axis_datums)?;
+        Ok(guide_marks
+            .iter()
+            .enumerate()
+            .filter_map(|(guide_mark_index, mark)| {
+                let name = scene_mark_name(mark)?;
+                matches!(name, "parallel_axis_title_hit" | "parallel_axis_title").then_some(
+                    GuideEventDatumRows {
+                        guide_mark_index,
+                        rows: rows.clone(),
+                    },
+                )
+            })
+            .collect())
+    }
+
     fn get_clip(
         &self,
         _plot_width: f32,
@@ -403,6 +447,116 @@ where
         return ScalarOrArray::new_scalar(first);
     }
     ScalarOrArray::from(values)
+}
+
+fn parallel_axis_title_event_datum_field_specs() -> Vec<EventDatumFieldSpec> {
+    vec![
+        EventDatumFieldSpec {
+            name: PARALLEL_SURFACE_KIND_FIELD.to_string(),
+            data_type: DataType::Utf8,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_DIMENSION_ID_FIELD.to_string(),
+            data_type: DataType::Utf8,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_SCALE_NAME_FIELD.to_string(),
+            data_type: DataType::Utf8,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_TITLE_FIELD.to_string(),
+            data_type: DataType::Utf8,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_ORDER_INDEX_FIELD.to_string(),
+            data_type: DataType::Int64,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_EQUILIBRIUM_X_FIELD.to_string(),
+            data_type: DataType::Float64,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_DISPLAY_X_FIELD.to_string(),
+            data_type: DataType::Float64,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_DISPLACEMENT_PX_FIELD.to_string(),
+            data_type: DataType::Float64,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_DISPLACEMENT_SLOTS_FIELD.to_string(),
+            data_type: DataType::Float64,
+        },
+    ]
+}
+
+fn parallel_axis_title_event_datum_batch(
+    datums: Vec<ParallelAxisGuideDatum>,
+) -> Result<RecordBatch, AvengerChartError> {
+    let len = datums.len();
+    let mut dimension_id = Vec::with_capacity(len);
+    let mut scale_name = Vec::with_capacity(len);
+    let mut title = Vec::with_capacity(len);
+    let mut order_index = Vec::with_capacity(len);
+    let mut equilibrium_x = Vec::with_capacity(len);
+    let mut display_x = Vec::with_capacity(len);
+    let mut displacement_px = Vec::with_capacity(len);
+    let mut displacement_slots = Vec::with_capacity(len);
+    for datum in datums {
+        dimension_id.push(datum.dimension_id);
+        scale_name.push(datum.scale_name);
+        title.push(datum.title);
+        order_index.push(datum.order_index as i64);
+        equilibrium_x.push(f64::from(datum.equilibrium_x));
+        display_x.push(f64::from(datum.display_x));
+        displacement_px.push(f64::from(datum.displacement_px));
+        displacement_slots.push(f64::from(datum.displacement_slots));
+    }
+    let schema = Arc::new(Schema::new(vec![
+        Field::new(PARALLEL_SURFACE_KIND_FIELD, DataType::Utf8, false),
+        Field::new(PARALLEL_DIMENSION_ID_FIELD, DataType::Utf8, false),
+        Field::new(PARALLEL_SCALE_NAME_FIELD, DataType::Utf8, false),
+        Field::new(PARALLEL_TITLE_FIELD, DataType::Utf8, false),
+        Field::new(PARALLEL_ORDER_INDEX_FIELD, DataType::Int64, false),
+        Field::new(PARALLEL_EQUILIBRIUM_X_FIELD, DataType::Float64, false),
+        Field::new(PARALLEL_DISPLAY_X_FIELD, DataType::Float64, false),
+        Field::new(PARALLEL_DISPLACEMENT_PX_FIELD, DataType::Float64, false),
+        Field::new(PARALLEL_DISPLACEMENT_SLOTS_FIELD, DataType::Float64, false),
+    ]));
+    RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(vec![
+                PARALLEL_SURFACE_KIND_DIMENSION_TITLE;
+                len
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(dimension_id)),
+            Arc::new(StringArray::from(scale_name)),
+            Arc::new(StringArray::from(title)),
+            Arc::new(Int64Array::from(order_index)),
+            Arc::new(Float64Array::from(equilibrium_x)),
+            Arc::new(Float64Array::from(display_x)),
+            Arc::new(Float64Array::from(displacement_px)),
+            Arc::new(Float64Array::from(displacement_slots)),
+        ],
+    )
+    .map_err(AvengerChartError::ArrowError)
+}
+
+fn scene_mark_name(mark: &SceneMark) -> Option<&str> {
+    match mark {
+        SceneMark::Arc(mark) => Some(mark.name.as_str()),
+        SceneMark::Area(mark) => Some(mark.name.as_str()),
+        SceneMark::Path(mark) => Some(mark.name.as_str()),
+        SceneMark::Symbol(mark) => Some(mark.name.as_str()),
+        SceneMark::Line(mark) => Some(mark.name.as_str()),
+        SceneMark::Trail(mark) => Some(mark.name.as_str()),
+        SceneMark::Rect(mark) => Some(mark.name.as_str()),
+        SceneMark::Rule(mark) => Some(mark.name.as_str()),
+        SceneMark::Text(mark) => Some(mark.name.as_str()),
+        SceneMark::Image(mark) => Some(mark.name.as_str()),
+        SceneMark::Group(mark) => Some(mark.name.as_str()),
+    }
 }
 
 async fn measure_parallel_guide_overflow(
@@ -859,12 +1013,12 @@ mod tests {
 
     use avenger_chart_core::{
         AxisGuideVisibilityConfig, AxisPosition, AxisVisibility, ChildFrameGuideSharingView,
-        CoordinationAxis, EmptyCoordMeasurement, FacetGuideSharingView, SharingLevel,
-        guide_sharing::AxisOwnershipMode,
+        CompiledGuide, CoordinationAxis, EmptyCoordMeasurement, FacetGuideSharingView,
+        SharingLevel, guide_sharing::AxisOwnershipMode,
     };
     use avenger_common::value::ScalarOrArrayValue;
     use avenger_scales::scales::{linear::LinearScale, point::PointScale};
-    use datafusion::arrow::array::StringArray;
+    use datafusion::arrow::array::{Float64Array, Int64Array, StringArray};
 
     #[test]
     fn ordered_axes_use_parallel_dimension_order() {
@@ -1035,6 +1189,124 @@ mod tests {
         assert!(
             matches!(&marks[2], SceneMark::Text(text) if text.name == "parallel_axis_title" && text.interactive)
         );
+    }
+
+    #[test]
+    fn guide_event_datum_rows_retain_title_rows() {
+        let ctx = SessionContext::new();
+        let mut axes = HashMap::new();
+        axes.insert(
+            "generated_speed".to_string(),
+            ParallelAxis::new()
+                .title("Speed")
+                .with_dimension_metadata("speed", 0),
+        );
+        axes.insert(
+            "generated_cost".to_string(),
+            ParallelAxis::new()
+                .title("Cost")
+                .with_dimension_metadata("cost", 1),
+        );
+        let guide = CompiledParallelGuide { axes };
+        let facet = TestFacetGuideSharingView;
+        let child = TestChildFrameGuideSharingView;
+        let scales = HashMap::from([
+            (
+                "speed".to_string(),
+                LinearScale::configured((0.0, 100.0), (200.0, 0.0)),
+            ),
+            (
+                "cost".to_string(),
+                LinearScale::configured((0.0, 100.0), (200.0, 0.0)),
+            ),
+        ]);
+        let guide_marks = futures::executor::block_on(guide.evaluate(
+            &scales,
+            300.0,
+            200.0,
+            &LayoutBounds {
+                x: 0.0,
+                y: 0.0,
+                width: 300.0,
+                height: 200.0,
+            },
+            &OverflowSpaceRequirement::default(),
+            &Theme::light(),
+            &IndexMap::new(),
+            &ctx,
+            None,
+            GuideSharingContext::new(&facet, &[], &child),
+            &EmptyCoordMeasurement,
+        ))
+        .expect("evaluate guide");
+
+        let event_rows = guide
+            .event_datum_rows(
+                &guide_marks,
+                300.0,
+                200.0,
+                &IndexMap::new(),
+                &ctx,
+                &EmptyCoordMeasurement,
+            )
+            .expect("parallel guide event datums");
+        let title_indices = guide_marks
+            .iter()
+            .enumerate()
+            .filter_map(|(index, mark)| {
+                let name = scene_mark_name(mark)?;
+                matches!(name, "parallel_axis_title_hit" | "parallel_axis_title").then_some(index)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(event_rows.len(), title_indices.len());
+        assert_eq!(
+            event_rows
+                .iter()
+                .map(|rows| rows.guide_mark_index)
+                .collect::<Vec<_>>(),
+            title_indices
+        );
+        for rows in &event_rows {
+            assert_eq!(rows.rows.num_rows(), 2);
+            assert_eq!(
+                rows.rows.schema().field(0).name(),
+                PARALLEL_SURFACE_KIND_FIELD
+            );
+        }
+
+        let retained = &event_rows[0].rows;
+        let surface_kind = retained
+            .column_by_name(PARALLEL_SURFACE_KIND_FIELD)
+            .and_then(|array| array.as_any().downcast_ref::<StringArray>())
+            .expect("surface kind column");
+        let dimensions = retained
+            .column_by_name(PARALLEL_DIMENSION_ID_FIELD)
+            .and_then(|array| array.as_any().downcast_ref::<StringArray>())
+            .expect("dimension id column");
+        let titles = retained
+            .column_by_name(PARALLEL_TITLE_FIELD)
+            .and_then(|array| array.as_any().downcast_ref::<StringArray>())
+            .expect("title column");
+        let order_indices = retained
+            .column_by_name(PARALLEL_ORDER_INDEX_FIELD)
+            .and_then(|array| array.as_any().downcast_ref::<Int64Array>())
+            .expect("order index column");
+        let display_x = retained
+            .column_by_name(PARALLEL_DISPLAY_X_FIELD)
+            .and_then(|array| array.as_any().downcast_ref::<Float64Array>())
+            .expect("display x column");
+
+        assert_eq!(surface_kind.value(0), PARALLEL_SURFACE_KIND_DIMENSION_TITLE);
+        assert_eq!(surface_kind.value(1), PARALLEL_SURFACE_KIND_DIMENSION_TITLE);
+        assert_eq!(dimensions.value(0), "speed");
+        assert_eq!(dimensions.value(1), "cost");
+        assert_eq!(titles.value(0), "Speed");
+        assert_eq!(titles.value(1), "Cost");
+        assert_eq!(order_indices.value(0), 0);
+        assert_eq!(order_indices.value(1), 1);
+        assert_eq!(display_x.value(0), 0.0);
+        assert_eq!(display_x.value(1), 300.0);
     }
 
     #[test]

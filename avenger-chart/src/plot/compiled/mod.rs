@@ -43,10 +43,9 @@ use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChannelValue, CompiledDataContext, CompiledGuide, CompiledMark,
     CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot,
     CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
-    EvaluationContext as CoreEvaluationContext, FacetDataScope, Legend, LogicalPlanNodeExt,
-    MarkDataMode, ScaleInferenceHint, ScaleRangeBinding, SerializableDataFrame,
-    SerializableDataType, SerializableScalarMap, Theme, TimeContext, ToolMetadata,
-    channel::strip_trailing_numbers,
+    EvaluationContext as CoreEvaluationContext, EventDatumFieldSpec, FacetDataScope, Legend,
+    LogicalPlanNodeExt, MarkDataMode, ScaleInferenceHint, ScaleRangeBinding, SerializableDataFrame,
+    SerializableScalarMap, Theme, TimeContext, ToolMetadata, channel::strip_trailing_numbers,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
@@ -117,14 +116,6 @@ pub(crate) use self::session::{
 };
 
 use super::title::{PlotSubtitle, PlotTitle};
-
-#[serde_as]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct EventDatumFieldSpec {
-    pub name: String,
-    #[serde_as(as = "FromInto<SerializableDataType>")]
-    pub data_type: DataType,
-}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct CompiledColorbarOverlayMarks {
@@ -538,19 +529,14 @@ impl CompiledPlot {
                 ))
                 .await?;
             }
-            if let Some(subplot) = mark.as_positioned_subplot() {
+            for payload in mark.child_plot_payloads() {
                 Box::pin(
-                    compiled_subplot_payload_child_plot(subplot.payload())
-                        .collect_event_coord_types(ctx, out, plot_data, Some(store_specs)),
-                )
-                .await?;
-            }
-            if let Some(overlay) =
-                crate::parallel_axis_overlay::parallel_axis_overlay_ref(mark.as_ref())
-            {
-                Box::pin(
-                    compiled_subplot_payload_child_plot(overlay.payload())
-                        .collect_event_coord_types(ctx, out, plot_data, Some(store_specs)),
+                    compiled_subplot_payload_child_plot(payload).collect_event_coord_types(
+                        ctx,
+                        out,
+                        plot_data,
+                        Some(store_specs),
+                    ),
                 )
                 .await?;
             }
@@ -653,6 +639,9 @@ impl CompiledPlot {
         }) {
             collect_event_datum_types_from_schema(&df, requested, out);
         }
+        if let Some(guide) = self.compiled_guide.as_ref() {
+            collect_event_datum_types_from_specs(guide.event_datum_field_specs(), requested, out)?;
+        }
 
         let eval_ctx = self.schema_inference_evaluation_context(ctx, Some(store_specs));
         let inherited_df = if self.data.is_none() {
@@ -666,6 +655,7 @@ impl CompiledPlot {
         };
 
         for mark in &self.marks {
+            collect_event_datum_types_from_specs(mark.event_datum_field_specs(), requested, out)?;
             if let Some(store_data) = mark.data_context().store_data()
                 && let Some(spec) = store_specs.get(&store_data.store_name)
             {
@@ -715,31 +705,15 @@ impl CompiledPlot {
                 ))
                 .await?;
             }
-            if let Some(subplot) = mark.as_positioned_subplot() {
+            for payload in mark.child_plot_payloads() {
                 Box::pin(
-                    compiled_subplot_payload_child_plot(subplot.payload())
-                        .collect_event_datum_types(
-                            ctx,
-                            requested,
-                            out,
-                            plot_data,
-                            Some(store_specs),
-                        ),
-                )
-                .await?;
-            }
-            if let Some(overlay) =
-                crate::parallel_axis_overlay::parallel_axis_overlay_ref(mark.as_ref())
-            {
-                Box::pin(
-                    compiled_subplot_payload_child_plot(overlay.payload())
-                        .collect_event_datum_types(
-                            ctx,
-                            requested,
-                            out,
-                            plot_data,
-                            Some(store_specs),
-                        ),
+                    compiled_subplot_payload_child_plot(payload).collect_event_datum_types(
+                        ctx,
+                        requested,
+                        out,
+                        plot_data,
+                        Some(store_specs),
+                    ),
                 )
                 .await?;
             }
@@ -866,10 +840,6 @@ fn collect_reserved_event_datum_types(
         LEGEND_BAND_CHANNEL_FIELD, LEGEND_CHANNEL_FIELD, LEGEND_ID_FIELD, LEGEND_INDEX_FIELD,
         LEGEND_LABEL_FIELD, LEGEND_NAME_FIELD, LEGEND_ORIENTATION_FIELD, LEGEND_SURFACE_KEY_FIELD,
         LEGEND_SURFACE_KIND_FIELD, LEGEND_VALUE_CHANNEL_FIELD, LEGEND_VALUE_FIELD,
-        PARALLEL_DIMENSION_ID_FIELD, PARALLEL_DISPLACEMENT_PX_FIELD,
-        PARALLEL_DISPLACEMENT_SLOTS_FIELD, PARALLEL_DISPLAY_X_FIELD, PARALLEL_EQUILIBRIUM_X_FIELD,
-        PARALLEL_ORDER_INDEX_FIELD, PARALLEL_SCALE_NAME_FIELD, PARALLEL_SURFACE_KIND_FIELD,
-        PARALLEL_TITLE_FIELD,
     };
 
     for (name, data_type) in [
@@ -884,20 +854,34 @@ fn collect_reserved_event_datum_types(
         (LEGEND_ORIENTATION_FIELD, DataType::Utf8),
         (LEGEND_VALUE_CHANNEL_FIELD, DataType::Utf8),
         (LEGEND_BAND_CHANNEL_FIELD, DataType::Utf8),
-        (PARALLEL_SURFACE_KIND_FIELD, DataType::Utf8),
-        (PARALLEL_DIMENSION_ID_FIELD, DataType::Utf8),
-        (PARALLEL_SCALE_NAME_FIELD, DataType::Utf8),
-        (PARALLEL_TITLE_FIELD, DataType::Utf8),
-        (PARALLEL_ORDER_INDEX_FIELD, DataType::Int64),
-        (PARALLEL_EQUILIBRIUM_X_FIELD, DataType::Float64),
-        (PARALLEL_DISPLAY_X_FIELD, DataType::Float64),
-        (PARALLEL_DISPLACEMENT_PX_FIELD, DataType::Float64),
-        (PARALLEL_DISPLACEMENT_SLOTS_FIELD, DataType::Float64),
     ] {
         if requested.contains(name) && !out.contains_key(name) {
             out.insert(name.to_string(), data_type);
         }
     }
+}
+
+fn collect_event_datum_types_from_specs(
+    specs: Vec<EventDatumFieldSpec>,
+    requested: &BTreeSet<String>,
+    out: &mut IndexMap<String, DataType>,
+) -> Result<(), AvengerChartError> {
+    for spec in specs {
+        if !requested.contains(&spec.name) {
+            continue;
+        }
+        if let Some(existing) = out.get(&spec.name) {
+            if existing != &spec.data_type {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Event datum field '{}' was declared with conflicting types {:?} and {:?}",
+                    spec.name, existing, spec.data_type
+                )));
+            }
+            continue;
+        }
+        out.insert(spec.name, spec.data_type);
+    }
+    Ok(())
 }
 
 pub(crate) fn compiled_subplot_payload_child_plot(

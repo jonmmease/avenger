@@ -153,22 +153,19 @@ pub(crate) async fn measure_coordinate_system_transform(
         return Ok(measurement);
     }
 
-    if let Some(parallel) = transform
-        .as_any()
-        .downcast_ref::<avenger_chart_parallel::ParallelTransform>()
-        && let Some(measurement) = Box::pin(
-            crate::parallel_axis_overlay::measure_parallel_axis_overlays(
-                parallel,
-                request.scales(),
-                request.plot_width(),
-                request.plot_height(),
-                request.eval_ctx(),
-                request.data(),
-                request.compiled_marks(),
-                request.facet_path(),
-            ),
-        )
-        .await?
+    if let Some(measurement) = Box::pin(
+        crate::coordinate_slot_overlay::measure_coordinate_slot_overlays(
+            transform,
+            request.scales(),
+            request.plot_width(),
+            request.plot_height(),
+            request.eval_ctx(),
+            request.data(),
+            request.compiled_marks(),
+            request.facet_path(),
+        ),
+    )
+    .await?
     {
         return Ok(measurement);
     }

@@ -85,17 +85,6 @@ pub const LEGEND_SURFACE_KIND_CONTINUOUS_COLORBAR: &str = "continuous-colorbar";
 pub const LEGEND_ORIENTATION_FIELD: &str = "__legend_orientation";
 pub const LEGEND_VALUE_CHANNEL_FIELD: &str = "__legend_value_channel";
 pub const LEGEND_BAND_CHANNEL_FIELD: &str = "__legend_band_channel";
-pub const PARALLEL_SURFACE_KIND_FIELD: &str = "__parallel_surface_kind";
-pub const PARALLEL_SURFACE_KIND_DIMENSION_TITLE: &str = "dimension-title";
-pub const PARALLEL_SURFACE_KIND_POINT: &str = "point";
-pub const PARALLEL_DIMENSION_ID_FIELD: &str = "__parallel_dimension_id";
-pub const PARALLEL_SCALE_NAME_FIELD: &str = "__parallel_scale_name";
-pub const PARALLEL_TITLE_FIELD: &str = "__parallel_title";
-pub const PARALLEL_ORDER_INDEX_FIELD: &str = "__parallel_order_index";
-pub const PARALLEL_EQUILIBRIUM_X_FIELD: &str = "__parallel_equilibrium_x";
-pub const PARALLEL_DISPLAY_X_FIELD: &str = "__parallel_display_x";
-pub const PARALLEL_DISPLACEMENT_PX_FIELD: &str = "__parallel_displacement_px";
-pub const PARALLEL_DISPLACEMENT_SLOTS_FIELD: &str = "__parallel_displacement_slots";
 pub const EVENT_PLOT_WIDTH_FIELD: &str = "__event_plot_width";
 pub const EVENT_PLOT_HEIGHT_FIELD: &str = "__event_plot_height";
 pub const START_PLOT_WIDTH_FIELD: &str = "__start_plot_width";
@@ -1021,51 +1010,6 @@ pub fn is_legend_item() -> Expr {
     legend_surface_kind().eq(lit(LEGEND_SURFACE_KIND_DISCRETE_ITEM))
 }
 
-/// Kind of parallel-coordinate guide surface under the pointer.
-pub fn parallel_surface_kind() -> Expr {
-    datum(PARALLEL_SURFACE_KIND_FIELD)
-}
-
-/// Stable dimension id associated with a parallel-coordinate guide surface.
-pub fn parallel_dimension_id() -> Expr {
-    datum(PARALLEL_DIMENSION_ID_FIELD)
-}
-
-/// Scale name associated with a parallel-coordinate guide surface.
-pub fn parallel_scale_name() -> Expr {
-    datum(PARALLEL_SCALE_NAME_FIELD)
-}
-
-/// Display title associated with a parallel-coordinate guide surface.
-pub fn parallel_title() -> Expr {
-    datum(PARALLEL_TITLE_FIELD)
-}
-
-/// Zero-based equilibrium order index for a parallel-coordinate dimension.
-pub fn parallel_order_index() -> Expr {
-    datum(PARALLEL_ORDER_INDEX_FIELD)
-}
-
-/// Equilibrium x position for a parallel-coordinate dimension header.
-pub fn parallel_equilibrium_x() -> Expr {
-    datum(PARALLEL_EQUILIBRIUM_X_FIELD)
-}
-
-/// Current display x position for a parallel-coordinate dimension header.
-pub fn parallel_display_x() -> Expr {
-    datum(PARALLEL_DISPLAY_X_FIELD)
-}
-
-/// Current display displacement from equilibrium, in pixels.
-pub fn parallel_displacement_px() -> Expr {
-    datum(PARALLEL_DISPLACEMENT_PX_FIELD)
-}
-
-/// Current display displacement from equilibrium, in axis-slot units.
-pub fn parallel_displacement_slots() -> Expr {
-    datum(PARALLEL_DISPLACEMENT_SLOTS_FIELD)
-}
-
 /// Current routed plot-area width in scene pixels.
 pub fn event_plot_width() -> Expr {
     col(EVENT_PLOT_WIDTH_FIELD)
@@ -1340,15 +1284,6 @@ fn reserved_local_datum_field(column_name: &str) -> Option<&'static str> {
         "orientation" => Some(LEGEND_ORIENTATION_FIELD),
         "value_channel" => Some(LEGEND_VALUE_CHANNEL_FIELD),
         "band_channel" => Some(LEGEND_BAND_CHANNEL_FIELD),
-        PARALLEL_SURFACE_KIND_FIELD => Some(PARALLEL_SURFACE_KIND_FIELD),
-        PARALLEL_DIMENSION_ID_FIELD => Some(PARALLEL_DIMENSION_ID_FIELD),
-        PARALLEL_SCALE_NAME_FIELD => Some(PARALLEL_SCALE_NAME_FIELD),
-        PARALLEL_TITLE_FIELD => Some(PARALLEL_TITLE_FIELD),
-        PARALLEL_ORDER_INDEX_FIELD => Some(PARALLEL_ORDER_INDEX_FIELD),
-        PARALLEL_EQUILIBRIUM_X_FIELD => Some(PARALLEL_EQUILIBRIUM_X_FIELD),
-        PARALLEL_DISPLAY_X_FIELD => Some(PARALLEL_DISPLAY_X_FIELD),
-        PARALLEL_DISPLACEMENT_PX_FIELD => Some(PARALLEL_DISPLACEMENT_PX_FIELD),
-        PARALLEL_DISPLACEMENT_SLOTS_FIELD => Some(PARALLEL_DISPLACEMENT_SLOTS_FIELD),
         _ => None,
     }
 }
@@ -1827,41 +1762,47 @@ mod tests {
     }
 
     #[test]
-    fn event_binding_rewrites_parallel_guide_datum_fields() {
+    fn event_binding_scan_detects_custom_datum_fields() {
+        const CUSTOM_DIMENSION_FIELD: &str = "__custom_dimension_id";
+        const CUSTOM_DISPLAY_FIELD: &str = "__custom_display_x";
+        const CUSTOM_ORDER_FIELD: &str = "__custom_order_index";
+
         let ctx = SessionContext::new();
         let binding = ChartEventBinding::on(ChartEventType::MouseDown)
-            .filter(parallel_dimension_id().eq(lit("speed")))
-            .set_param("drag_dimension", parallel_dimension_id())
-            .set_param("drag_display_x", parallel_display_x())
-            .set_param("drag_order_index", parallel_order_index());
+            .filter(datum(CUSTOM_DIMENSION_FIELD).eq(lit("speed")))
+            .set_param("drag_dimension", datum(CUSTOM_DIMENSION_FIELD))
+            .set_param("drag_display_x", datum(CUSTOM_DISPLAY_FIELD))
+            .set_param("drag_order_index", datum(CUSTOM_ORDER_FIELD));
 
         let rewritten = rewrite_reserved_event_binding_local_datums(binding, &ctx)
-            .expect("parallel guide datum rewrite succeeds");
+            .expect("custom datum rewrite succeeds");
         let requests = scan_chart_event_binding_interaction_columns(&rewritten, &ctx)
             .expect("scan rewritten binding");
-        assert!(requests.current_datum.contains(PARALLEL_DIMENSION_ID_FIELD));
-        assert!(requests.current_datum.contains(PARALLEL_DISPLAY_X_FIELD));
-        assert!(requests.current_datum.contains(PARALLEL_ORDER_INDEX_FIELD));
+        assert!(requests.current_datum.contains(CUSTOM_DIMENSION_FIELD));
+        assert!(requests.current_datum.contains(CUSTOM_DISPLAY_FIELD));
+        assert!(requests.current_datum.contains(CUSTOM_ORDER_FIELD));
         assert!(
             !requests
                 .current_datum
-                .contains(event_datum_column_name(PARALLEL_DIMENSION_ID_FIELD).as_str())
+                .contains(event_datum_column_name(CUSTOM_DIMENSION_FIELD).as_str())
         );
     }
 
     #[test]
     fn event_binding_scan_includes_between_stream_filters() {
+        const CUSTOM_DIMENSION_FIELD: &str = "__custom_dimension_id";
+
         let ctx = SessionContext::new();
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved).between(
             ChartEventStream::on(ChartEventType::MouseDown)
-                .filter(parallel_dimension_id().eq(lit("speed"))),
+                .filter(datum(CUSTOM_DIMENSION_FIELD).eq(lit("speed"))),
             ChartEventStream::on(ChartEventType::MouseUp),
         );
         let rewritten = rewrite_reserved_event_binding_local_datums(binding, &ctx)
-            .expect("parallel guide datum rewrite succeeds");
+            .expect("custom datum rewrite succeeds");
         let requests = scan_chart_event_binding_interaction_columns(&rewritten, &ctx)
             .expect("scan rewritten binding");
-        assert!(requests.current_datum.contains(PARALLEL_DIMENSION_ID_FIELD));
+        assert!(requests.current_datum.contains(CUSTOM_DIMENSION_FIELD));
     }
 
     #[test]

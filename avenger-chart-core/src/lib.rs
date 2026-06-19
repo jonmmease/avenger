@@ -25,6 +25,7 @@ pub mod domain_coordination;
 pub mod error;
 pub mod evaluation_context;
 pub mod event;
+pub mod event_datum;
 pub mod expr_eval;
 pub mod facet_axis;
 pub mod facet_data_scope;
@@ -102,8 +103,8 @@ pub use channel_resolution_error::{ChannelResolutionError, suggest_similar_chann
 pub use channel_value::{ChannelExpr, ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
 pub use compiled_mark::{
-    CompiledMark, CompiledMarkCore, RenderedMarkData, default_channel_value_for_eval,
-    extract_channel_title_from_marks,
+    CompiledMark, CompiledMarkCore, CoordinateSlotOverlayMarkCore, RenderedMarkData,
+    default_channel_value_for_eval, extract_channel_title_from_marks,
 };
 pub use compound::{CompoundGrouping, band_scale_hint, validate_preserved_style_channel};
 pub use configured_scale_legend::{ConfiguredScaleLegendExt, DomainValues};
@@ -142,6 +143,7 @@ pub use domain_coordination::{
 pub use error::AvengerChartError;
 pub use evaluation_context::{EvaluationContext, EvaluationDiagnostics};
 pub use event::*;
+pub use event_datum::{EventDatumFieldSpec, GuideEventDatumRows};
 pub use expr_eval::{
     evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_f64_expr,
     evaluate_i32_expr, evaluate_legend_orientation_expr, evaluate_legend_position_expr,

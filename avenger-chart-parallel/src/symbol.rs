@@ -2,19 +2,13 @@ use std::{collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
-    CompiledMarkState, CoordinateSystemTransformCore, IntoExpr, LegendRendererSelection, Mark,
-    MarkRuntimeContext, PositionConfig, RenderedMarkData, ResolvedDomain, ScalarValueHelpers,
-    ScaleRange, ScaleTypePreference, Theme, apply_opacity_to_color_channel,
-    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-    coerce_opacity_channel_with_renderer, default_scale_type_for_data_type,
-    define_common_mark_channels,
-    event::{
-        PARALLEL_DIMENSION_ID_FIELD, PARALLEL_DISPLACEMENT_PX_FIELD,
-        PARALLEL_DISPLACEMENT_SLOTS_FIELD, PARALLEL_DISPLAY_X_FIELD, PARALLEL_EQUILIBRIUM_X_FIELD,
-        PARALLEL_ORDER_INDEX_FIELD, PARALLEL_SCALE_NAME_FIELD, PARALLEL_SURFACE_KIND_FIELD,
-        PARALLEL_SURFACE_KIND_POINT,
-    },
-    impl_mark_base, impl_mark_trait_common, is_continuous_scale,
+    CompiledMarkState, CoordinateSystemTransformCore, EventDatumFieldSpec, IntoExpr,
+    LegendRendererSelection, Mark, MarkRuntimeContext, PositionConfig, RenderedMarkData,
+    ResolvedDomain, ScalarValueHelpers, ScaleRange, ScaleTypePreference, Theme,
+    apply_opacity_to_color_channel, coerce_color_channel_with_renderer,
+    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
+    default_scale_type_for_data_type, define_common_mark_channels, impl_mark_base,
+    impl_mark_trait_common, is_continuous_scale,
 };
 use avenger_chart_marks::{symbol_channel_defaults, symbol_legend_renderer_kind};
 use avenger_color::ColorOrGradient;
@@ -35,7 +29,15 @@ use datafusion::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{Parallel, ParallelDimensionBinding, ParallelDimensionConfig};
+use crate::{
+    Parallel, ParallelDimensionBinding, ParallelDimensionConfig,
+    event::{
+        PARALLEL_DIMENSION_ID_FIELD, PARALLEL_DISPLACEMENT_PX_FIELD,
+        PARALLEL_DISPLACEMENT_SLOTS_FIELD, PARALLEL_DISPLAY_X_FIELD, PARALLEL_EQUILIBRIUM_X_FIELD,
+        PARALLEL_ORDER_INDEX_FIELD, PARALLEL_SCALE_NAME_FIELD, PARALLEL_SURFACE_KIND_FIELD,
+        PARALLEL_SURFACE_KIND_POINT,
+    },
+};
 
 /// Parallel-coordinate point overlay mark.
 ///
@@ -191,6 +193,10 @@ impl CompiledMarkCore for CompiledParallelSymbol {
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         symbol_channel_defaults(channel)
+    }
+
+    fn event_datum_field_specs(&self) -> Vec<EventDatumFieldSpec> {
+        parallel_point_event_datum_field_specs()
     }
 
     fn preferred_legend_renderer(
@@ -475,6 +481,43 @@ impl CompiledMark for CompiledParallelSymbol {
     }
 }
 
+fn parallel_point_event_datum_field_specs() -> Vec<EventDatumFieldSpec> {
+    vec![
+        EventDatumFieldSpec {
+            name: PARALLEL_SURFACE_KIND_FIELD.to_string(),
+            data_type: DataType::Utf8,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_DIMENSION_ID_FIELD.to_string(),
+            data_type: DataType::Utf8,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_SCALE_NAME_FIELD.to_string(),
+            data_type: DataType::Utf8,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_ORDER_INDEX_FIELD.to_string(),
+            data_type: DataType::Int64,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_EQUILIBRIUM_X_FIELD.to_string(),
+            data_type: DataType::Float64,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_DISPLAY_X_FIELD.to_string(),
+            data_type: DataType::Float64,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_DISPLACEMENT_PX_FIELD.to_string(),
+            data_type: DataType::Float64,
+        },
+        EventDatumFieldSpec {
+            name: PARALLEL_DISPLACEMENT_SLOTS_FIELD.to_string(),
+            data_type: DataType::Float64,
+        },
+    ]
+}
+
 fn parallel_point_event_datum_batch(
     len: usize,
     slot: &avenger_chart_core::GeneratedPositionSlot,
@@ -582,10 +625,6 @@ mod tests {
         CompiledDataContext, CompiledMark, CompiledMarkState, CoordinateSystem,
         EmptyCoordMeasurement, EvaluationContext, FacetDataScope, MarkDataMode, MarkRenderContext,
         MarkRuntimeContext, Theme,
-        event::{
-            PARALLEL_DIMENSION_ID_FIELD, PARALLEL_DISPLACEMENT_PX_FIELD, PARALLEL_DISPLAY_X_FIELD,
-            PARALLEL_EQUILIBRIUM_X_FIELD, PARALLEL_SURFACE_KIND_FIELD,
-        },
     };
     use avenger_color::ColorOrGradient;
     use avenger_common::value::ScalarOrArrayValue;
@@ -598,6 +637,11 @@ mod tests {
         },
         common::ScalarValue,
         prelude::SessionContext,
+    };
+
+    use crate::event::{
+        PARALLEL_DIMENSION_ID_FIELD, PARALLEL_DISPLACEMENT_PX_FIELD, PARALLEL_DISPLAY_X_FIELD,
+        PARALLEL_EQUILIBRIUM_X_FIELD, PARALLEL_SURFACE_KIND_FIELD,
     };
     use futures::executor::block_on;
     use indexmap::IndexMap;

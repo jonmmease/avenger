@@ -13,6 +13,7 @@ pub mod channel;
 pub mod concat;
 #[doc(hidden)]
 pub mod container;
+pub(crate) mod coordinate_slot_overlay;
 pub mod coords;
 pub mod doc;
 pub mod error;
@@ -23,8 +24,6 @@ pub mod layout;
 pub mod legend;
 pub mod marks;
 pub mod maybe;
-pub(crate) mod parallel_axis_overlay;
-pub(crate) mod parallel_guide_event;
 pub mod param;
 pub(crate) mod partition;
 pub mod plot;
@@ -45,6 +44,7 @@ pub mod transforms {
 pub mod utils;
 pub mod zerod;
 
+#[cfg(feature = "parallel")]
 pub mod parallel {
     pub use avenger_chart_parallel::*;
 }

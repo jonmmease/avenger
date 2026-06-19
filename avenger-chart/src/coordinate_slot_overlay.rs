@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
-use avenger_chart_core::{CompiledMarkCore, CoordMeasurement, SubplotDataSource};
-use avenger_chart_parallel::{CompiledParallelAxisOverlay, ParallelTransform};
+use avenger_chart_core::{
+    CoordMeasurement, CoordinateSlotOverlayMarkCore, CoordinateSystemTransform, SubplotDataSource,
+};
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
@@ -20,40 +21,39 @@ use crate::{
     scales::{ConfiguredScaleWithSpec, Linear, Scale, ScaleRangeBinding},
 };
 
-pub(crate) fn parallel_axis_overlay_ref(
+pub(crate) fn coordinate_slot_overlay_ref(
     mark: &dyn CompiledMark,
-) -> Option<&CompiledParallelAxisOverlay> {
-    if mark.mark_type() != "parallel_axis_overlay" {
-        return None;
-    }
-    mark.as_any().downcast_ref::<CompiledParallelAxisOverlay>()
+) -> Option<&dyn CoordinateSlotOverlayMarkCore> {
+    mark.as_coordinate_slot_overlay()
 }
 
-fn parallel_axis_overlay_child_plot(overlay: &CompiledParallelAxisOverlay) -> &CompiledPlot {
+fn coordinate_slot_overlay_child_plot(
+    overlay: &dyn CoordinateSlotOverlayMarkCore,
+) -> &CompiledPlot {
     compiled_subplot_payload_child_plot(overlay.payload())
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct ParallelAxisOverlayCoordMeasurement {
-    children: Vec<ParallelAxisOverlayChildMeasurement>,
+pub(crate) struct CoordinateSlotOverlayCoordMeasurement {
+    children: Vec<CoordinateSlotOverlayChildMeasurement>,
 }
 
-impl ParallelAxisOverlayCoordMeasurement {
-    fn new(children: Vec<ParallelAxisOverlayChildMeasurement>) -> Self {
+impl CoordinateSlotOverlayCoordMeasurement {
+    fn new(children: Vec<CoordinateSlotOverlayChildMeasurement>) -> Self {
         Self { children }
     }
 
     fn children_for_mark(
         &self,
         mark_index: usize,
-    ) -> impl Iterator<Item = &ParallelAxisOverlayChildMeasurement> {
+    ) -> impl Iterator<Item = &CoordinateSlotOverlayChildMeasurement> {
         self.children
             .iter()
             .filter(move |child| child.mark_index == mark_index)
     }
 }
 
-impl CoordMeasurement for ParallelAxisOverlayCoordMeasurement {
+impl CoordMeasurement for CoordinateSlotOverlayCoordMeasurement {
     fn clone_box(&self) -> Box<dyn CoordMeasurement> {
         Box::new(self.clone())
     }
@@ -68,60 +68,66 @@ impl CoordMeasurement for ParallelAxisOverlayCoordMeasurement {
 }
 
 #[derive(Clone, Debug)]
-struct ParallelAxisOverlayChildMeasurement {
+struct CoordinateSlotOverlayChildMeasurement {
     child_index: usize,
     mark_index: usize,
-    dimension_id: String,
+    slot_id: String,
+    scene_group_prefix: &'static str,
     origin: [f32; 2],
     data_override: Option<DataFrame>,
     measurement: ComponentsMeasurement,
 }
 
-impl ParallelAxisOverlayChildMeasurement {
+impl CoordinateSlotOverlayChildMeasurement {
     fn group_name(&self) -> String {
         format!(
-            "parallel_axis_overlay_{}_{}_{}",
-            self.mark_index, self.child_index, self.dimension_id
+            "{}_{}_{}_{}",
+            self.scene_group_prefix, self.mark_index, self.child_index, self.slot_id
         )
     }
 }
 
-fn data_selection_for_overlay(overlay: &CompiledParallelAxisOverlay) -> ChildFrameDataSelection {
+fn data_selection_for_overlay(
+    overlay: &dyn CoordinateSlotOverlayMarkCore,
+) -> ChildFrameDataSelection {
     match overlay.payload().data_source() {
         SubplotDataSource::ExplicitChild => ChildFrameDataSelection::ExplicitChild,
         SubplotDataSource::InheritParent => ChildFrameDataSelection::InheritParent,
     }
 }
 
-fn normalized_overlay_x_scale(width_px: f32) -> ConfiguredScaleWithSpec {
+fn overlay_x_fallback_scale(domain: (f32, f32), width_px: f32) -> ConfiguredScaleWithSpec {
     ConfiguredScaleWithSpec::with_range_binding(
         Scale::<Linear>::new().into_auto(),
-        LinearScale::configured((0.0, 1.0), (0.0, width_px.max(1.0))),
+        LinearScale::configured(domain, (0.0, width_px.max(1.0))),
         ScaleRangeBinding::Independent,
     )
 }
 
 async fn prepare_overlay_child<'a>(
-    overlay: &'a CompiledParallelAxisOverlay,
+    overlay: &'a dyn CoordinateSlotOverlayMarkCore,
     data: Option<&DataFrame>,
     eval_ctx: &crate::render::EvaluationContext,
 ) -> Result<PreparedChildFramePlot<'a>, AvengerChartError> {
-    let child_plot = parallel_axis_overlay_child_plot(overlay);
+    let child_plot = coordinate_slot_overlay_child_plot(overlay);
     if child_plot
         .coord_transform
         .as_any()
         .downcast_ref::<crate::cartesian::Cartesian>()
         .is_none()
     {
-        return Err(AvengerChartError::InvalidArgument(
-            "ParallelAxisOverlay child plots must use Cartesian coordinates".to_string(),
-        ));
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{} child plots must use Cartesian coordinates",
+            overlay.overlay_label()
+        )));
     }
-    if child_plot.scale_specs().contains_key("y") {
-        return Err(AvengerChartError::InvalidArgument(
-            "ParallelAxisOverlay child plots cannot define their own y scale; y is supplied by the selected parallel dimension"
-                .to_string(),
-        ));
+    if let Some(channel) = overlay.parent_scale_override_channel()
+        && child_plot.scale_specs().contains_key(channel)
+    {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{} child plots cannot define their own {channel} scale; {channel} is supplied by the selected coordinate slot",
+            overlay.overlay_label()
+        )));
     }
 
     let data_selection = data_selection_for_overlay(overlay);
@@ -140,7 +146,7 @@ async fn prepare_overlay_child<'a>(
 
 #[allow(clippy::too_many_arguments)]
 async fn measure_overlay_child(
-    overlay: &CompiledParallelAxisOverlay,
+    overlay: &dyn CoordinateSlotOverlayMarkCore,
     prepared: &PreparedChildFramePlot<'_>,
     child_index: usize,
     child_count: usize,
@@ -149,24 +155,33 @@ async fn measure_overlay_child(
     plot_height: f32,
     eval_ctx: &crate::render::EvaluationContext,
     facet_path: &[ScalarValue],
-) -> Result<ParallelAxisOverlayChildMeasurement, AvengerChartError> {
+) -> Result<CoordinateSlotOverlayChildMeasurement, AvengerChartError> {
     let runtime = ChildFrameRuntime::new();
     let child_layout_spec = runtime.fixed_plot_area_layout_spec(overlay.width_px(), plot_height);
+    let state = overlay.payload().compiled_state();
     let child_eval_ctx = runtime.eval_context(
         eval_ctx,
         crate::container::ChildFrameSharingLevel::positioned_subplot(
             child_index,
             child_count,
-            overlay.state().mark_index(),
+            state.mark_index(),
             child_index,
-            Some(overlay.dimension_id()),
+            Some(overlay.slot_id()),
         ),
     );
-    let scale_fallbacks = HashMap::from([(
-        "x".to_string(),
-        normalized_overlay_x_scale(overlay.width_px()),
-    )]);
-    let scale_overrides = HashMap::from([("y".to_string(), parent_scale.clone())]);
+    let scale_fallbacks = overlay
+        .child_x_fallback_domain()
+        .map(|domain| {
+            HashMap::from([(
+                "x".to_string(),
+                overlay_x_fallback_scale(domain, overlay.width_px()),
+            )])
+        })
+        .unwrap_or_default();
+    let scale_overrides = overlay
+        .parent_scale_override_channel()
+        .map(|channel| HashMap::from([(channel.to_string(), parent_scale.clone())]))
+        .unwrap_or_default();
     let measurement = Box::pin(prepared.measure_with_scale_fallbacks_and_overrides(
         &child_eval_ctx,
         &child_layout_spec,
@@ -177,18 +192,19 @@ async fn measure_overlay_child(
     ))
     .await?;
 
-    Ok(ParallelAxisOverlayChildMeasurement {
+    Ok(CoordinateSlotOverlayChildMeasurement {
         child_index,
-        mark_index: overlay.state().mark_index(),
-        dimension_id: overlay.dimension_id().to_string(),
+        mark_index: state.mark_index(),
+        slot_id: overlay.slot_id().to_string(),
+        scene_group_prefix: overlay.scene_group_prefix(),
         origin,
         data_override: prepared.data_override().cloned(),
         measurement,
     })
 }
 
-pub(crate) async fn measure_parallel_axis_overlays(
-    transform: &ParallelTransform,
+pub(crate) async fn measure_coordinate_slot_overlays(
+    transform: &dyn CoordinateSystemTransform,
     scales: &HashMap<String, ConfiguredScaleWithSpec>,
     plot_width: f32,
     plot_height: f32,
@@ -199,26 +215,31 @@ pub(crate) async fn measure_parallel_axis_overlays(
 ) -> Result<Option<Box<dyn CoordMeasurement>>, AvengerChartError> {
     let overlays = compiled_marks
         .iter()
-        .filter_map(|mark| parallel_axis_overlay_ref(mark.as_ref()))
+        .filter_map(|mark| coordinate_slot_overlay_ref(mark.as_ref()))
         .collect::<Vec<_>>();
     if overlays.is_empty() {
         return Ok(None);
     }
 
-    let frame = transform.resolve_frame_with_params(plot_width, eval_ctx.params())?;
+    let slots = transform.generated_position_slots(plot_width, eval_ctx.params())?;
+    let slots_by_id = slots
+        .iter()
+        .map(|slot| (slot.id.as_str(), slot))
+        .collect::<HashMap<_, _>>();
     let mut prepared = Vec::with_capacity(overlays.len());
     for overlay in &overlays {
-        let slot = frame.slot(overlay.dimension_id()).ok_or_else(|| {
+        let slot = slots_by_id.get(overlay.slot_id()).copied().ok_or_else(|| {
             AvengerChartError::InvalidArgument(format!(
-                "ParallelAxisOverlay references unknown dimension '{}'",
-                overlay.dimension_id()
+                "{} references unknown coordinate slot '{}'",
+                overlay.overlay_label(),
+                overlay.slot_id()
             ))
         })?;
         let parent_scale = scales.get(&slot.scale_name).ok_or_else(|| {
             AvengerChartError::InternalError(format!(
-                "Missing scale '{}' for parallel axis overlay dimension '{}'",
+                "Missing scale '{}' for coordinate slot overlay '{}'",
                 slot.scale_name,
-                overlay.dimension_id()
+                overlay.slot_id()
             ))
         })?;
         let origin = [
@@ -227,7 +248,7 @@ pub(crate) async fn measure_parallel_axis_overlays(
         ];
         prepared.push((
             *overlay,
-            Box::pin(prepare_overlay_child(overlay, data, eval_ctx)).await?,
+            Box::pin(prepare_overlay_child(*overlay, data, eval_ctx)).await?,
             parent_scale.clone(),
             origin,
         ));
@@ -240,7 +261,7 @@ pub(crate) async fn measure_parallel_axis_overlays(
     {
         children.push(
             Box::pin(measure_overlay_child(
-                overlay,
+                *overlay,
                 prepared_child,
                 child_index,
                 child_count,
@@ -254,28 +275,30 @@ pub(crate) async fn measure_parallel_axis_overlays(
         );
     }
 
-    Ok(Some(Box::new(ParallelAxisOverlayCoordMeasurement::new(
+    Ok(Some(Box::new(CoordinateSlotOverlayCoordMeasurement::new(
         children,
     ))))
 }
 
-pub(crate) async fn render_parallel_axis_overlay_with_context(
-    overlay: &CompiledParallelAxisOverlay,
+pub(crate) async fn render_coordinate_slot_overlay_with_context(
+    overlay: &dyn CoordinateSlotOverlayMarkCore,
     context: &RenderContext<'_>,
 ) -> Result<Vec<SceneMark>, AvengerChartError> {
     let measurement = context
         .coord_measurement()
         .as_any()
-        .downcast_ref::<ParallelAxisOverlayCoordMeasurement>()
+        .downcast_ref::<CoordinateSlotOverlayCoordMeasurement>()
         .ok_or_else(|| {
-            AvengerChartError::InternalError(
-                "ParallelAxisOverlay marks require ParallelAxisOverlayCoordMeasurement".to_string(),
-            )
+            AvengerChartError::InternalError(format!(
+                "{} marks require CoordinateSlotOverlayCoordMeasurement",
+                overlay.overlay_label()
+            ))
         })?;
-    let child_plot = parallel_axis_overlay_child_plot(overlay);
+    let child_plot = coordinate_slot_overlay_child_plot(overlay);
     let mut marks = Vec::new();
+    let state = overlay.payload().compiled_state();
 
-    for child in measurement.children_for_mark(overlay.state().mark_index()) {
+    for child in measurement.children_for_mark(state.mark_index()) {
         let mut params = child_plot.get_default_params().clone();
         params.extend(context.eval.params.clone());
         let child_eval_ctx = context.eval.with_params(params);
@@ -294,7 +317,7 @@ pub(crate) async fn render_parallel_axis_overlay_with_context(
             let translated = child_scopes.into_iter().map(|mut scope| {
                 scope.bounds.x += child.origin[0];
                 scope.bounds.y += child.origin[1];
-                scope.prepend_subplot_id(overlay.state().id.as_deref());
+                scope.prepend_subplot_id(state.id.as_deref());
                 scope
             });
             context.eval.push_interaction_scopes(translated);
@@ -307,7 +330,7 @@ pub(crate) async fn render_parallel_axis_overlay_with_context(
                 path.push(0);
                 path.extend(rows.mark_path);
                 rows.mark_path = path;
-                rows.prepend_subplot_id(overlay.state().id.as_deref());
+                rows.prepend_subplot_id(state.id.as_deref());
                 rows
             });
             context.eval.push_event_datums(translated);
@@ -319,7 +342,7 @@ pub(crate) async fn render_parallel_axis_overlay_with_context(
                 path.push(group_index);
                 path.extend(rows.mark_path);
                 rows.mark_path = path;
-                rows.prepend_subplot_id(overlay.state().id.as_deref());
+                rows.prepend_subplot_id(state.id.as_deref());
                 rows
             });
             context.eval.push_event_datums(translated);
@@ -341,7 +364,7 @@ pub(crate) async fn render_parallel_axis_overlay_with_context(
         }
         all_marks.extend(components.debug_marks);
 
-        let clip = if overlay.clip() {
+        let clip = if overlay.clip_child_frame() {
             Clip::Rect {
                 x: 0.0,
                 y: 0.0,
@@ -362,7 +385,7 @@ pub(crate) async fn render_parallel_axis_overlay_with_context(
             stroke: None,
             stroke_width: None,
             stroke_offset: None,
-            zindex: overlay.state().zindex,
+            zindex: state.zindex,
             interactive: true,
         }));
     }
@@ -1049,7 +1072,7 @@ mod tests {
         };
         assert!(
             err.to_string()
-                .contains("ParallelAxisOverlay references unknown dimension 'missing'"),
+                .contains("ParallelAxisOverlay references unknown coordinate slot 'missing'"),
             "{err}"
         );
         Ok(())

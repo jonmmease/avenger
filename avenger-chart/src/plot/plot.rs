@@ -1905,16 +1905,17 @@ mod tests {
         SceneGeometryQuery, SceneQueryDatumField, Selection, SelectionClause,
         SelectionClauseUpdate, SelectionEqualityDimensionValue, SelectionPredicateSpec,
         SelectionPredicateUpdate, SelectionSceneQuery, SelectionUpdate, StoreRow, StoreUpdate,
-        SubplotDataSource, collect_repeat_placeholder_kinds,
-        event::{
-            PARALLEL_DIMENSION_ID_FIELD, PARALLEL_SURFACE_KIND_DIMENSION_TITLE,
-            PARALLEL_SURFACE_KIND_FIELD, PARALLEL_SURFACE_KIND_POINT, PARALLEL_TITLE_FIELD,
-        },
-        repeat, simplify_to_scalar_sync,
+        SubplotDataSource, collect_repeat_placeholder_kinds, repeat, simplify_to_scalar_sync,
     };
     use avenger_chart_marks::{Rect, Subplot, Symbol};
     use avenger_chart_parallel::{
-        Parallel, ParallelLine, ParallelSymbol, generated_dimension_channel,
+        Parallel, ParallelLine, ParallelSymbol,
+        event::{
+            PARALLEL_DIMENSION_ID_FIELD, PARALLEL_SURFACE_KIND_DIMENSION_TITLE,
+            PARALLEL_SURFACE_KIND_FIELD, PARALLEL_SURFACE_KIND_POINT, PARALLEL_TITLE_FIELD,
+            parallel_dimension_id, parallel_surface_kind, parallel_title,
+        },
+        generated_dimension_channel,
     };
     use avenger_chart_tools::PanScrollZoom;
     use avenger_chart_transforms::{Bin, Calculate, Filter};
@@ -3472,12 +3473,9 @@ mod tests {
         )
         .event_binding(
             ChartEventBinding::on(ChartEventType::Click)
-                .filter(
-                    crate::event::parallel_surface_kind()
-                        .eq(lit(PARALLEL_SURFACE_KIND_DIMENSION_TITLE)),
-                )
-                .filter(crate::event::parallel_dimension_id().is_not_null())
-                .filter(crate::event::parallel_title().is_not_null()),
+                .filter(parallel_surface_kind().eq(lit(PARALLEL_SURFACE_KIND_DIMENSION_TITLE)))
+                .filter(parallel_dimension_id().is_not_null())
+                .filter(parallel_title().is_not_null()),
         )
         .compile(&ctx)
         .await?;
@@ -3552,10 +3550,8 @@ mod tests {
             .event_binding(
                 ChartEventBinding::on(ChartEventType::Click)
                     .filter(crate::event::datum("row_id").is_not_null())
-                    .filter(crate::event::parallel_dimension_id().is_not_null())
-                    .filter(
-                        crate::event::parallel_surface_kind().eq(lit(PARALLEL_SURFACE_KIND_POINT)),
-                    ),
+                    .filter(parallel_dimension_id().is_not_null())
+                    .filter(parallel_surface_kind().eq(lit(PARALLEL_SURFACE_KIND_POINT))),
             )
             .compile(&ctx)
             .await?;

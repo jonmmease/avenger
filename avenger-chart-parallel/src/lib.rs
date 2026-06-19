@@ -8,6 +8,7 @@
 mod axis;
 mod axis_overlay;
 mod coord;
+pub mod event;
 mod frame;
 mod guide;
 mod line;
@@ -21,6 +22,7 @@ pub use coord::{
     ParallelFrameDimensionConfig, ParallelTransform, dimension_id_from_generated_channel,
     generated_dimension_channel,
 };
+pub use event::*;
 pub use frame::{
     ParallelAxisSlot, ParallelDisplayState, ParallelFrameGeometry, ParallelOrderState,
     propose_axis_order, resolve_parallel_frame,

@@ -4494,6 +4494,7 @@ mod tests {
 
     use avenger_app::app::SceneGraphBuilder;
     use avenger_chart::layout::LayoutBounds;
+    use avenger_chart::parallel::event as parallel_event;
     use avenger_chart::prelude::*;
     use avenger_chart::render::{
         EvaluatedChildFrameKind, InteractionScopeId, InteractionScopeKind,
@@ -6874,6 +6875,39 @@ mod tests {
             .expect("retained event datum row")
     }
 
+    async fn retained_rect_event_datum_mark_instance(
+        state: &ChartAppState,
+        scene: &SceneGraph,
+        field: &str,
+        target: ScalarValue,
+    ) -> MarkInstance {
+        let runtime = state.runtime.lock().await;
+        runtime
+            .last_event_datum_state
+            .rows
+            .iter()
+            .find_map(|rows| {
+                let column = rows.rows.column_by_name(field)?;
+                (0..column.len()).find_map(|index| {
+                    let value = ScalarValue::try_from_array(column, index).ok()?;
+                    if value != target {
+                        return None;
+                    }
+                    let (mark, _) = scene_mark_at_path_with_origin(
+                        &scene.marks,
+                        &rows.mark_path,
+                        scene.origin,
+                    )?;
+                    matches!(mark, SceneMark::Rect(_)).then(|| MarkInstance {
+                        name: "retained_event_datum".to_string(),
+                        mark_path: rows.mark_path.clone(),
+                        instance_index: Some(index),
+                    })
+                })
+            })
+            .expect("retained rect event datum row")
+    }
+
     async fn equality_bar_state_and_handler(
         binding: ChartEventBinding,
     ) -> (
@@ -8356,7 +8390,7 @@ mod tests {
         let binding = ChartEventBinding::on(ChartEventType::Click)
             .filter(event::button().eq(lit("left")))
             .filter(event::datum("id").is_not_null())
-            .filter(event::parallel_dimension_id().is_not_null())
+            .filter(parallel_event::parallel_dimension_id().is_not_null())
             .set_selection(
                 "picked",
                 SelectionUpdate::replace_all_clauses([SelectionClauseUpdate::equality(lit(
@@ -8964,12 +8998,12 @@ mod tests {
         let binding = ChartEventBinding::on(ChartEventType::MouseDown)
             .filter(event::button().eq(lit("left")))
             .filter(
-                event::parallel_surface_kind()
-                    .eq(lit(event::PARALLEL_SURFACE_KIND_DIMENSION_TITLE)),
+                parallel_event::parallel_surface_kind()
+                    .eq(lit(parallel_event::PARALLEL_SURFACE_KIND_DIMENSION_TITLE)),
             )
-            .set_param(&drag_dimension, event::parallel_dimension_id())
-            .set_param(&drag_start_x, event::parallel_display_x())
-            .set_param(&drag_display_x, event::parallel_display_x())
+            .set_param(&drag_dimension, parallel_event::parallel_dimension_id())
+            .set_param(&drag_start_x, parallel_event::parallel_display_x())
+            .set_param(&drag_display_x, parallel_event::parallel_display_x())
             .preview();
         let data = ctx
             .sql("SELECT 10.0 AS speed, 30.0 AS cost")
@@ -8995,9 +9029,10 @@ mod tests {
             .build(&mut state)
             .await
             .expect("initial parallel header build");
-        let datum_mark_instance = retained_event_datum_mark_instance(
+        let datum_mark_instance = retained_rect_event_datum_mark_instance(
             &state,
-            event::PARALLEL_TITLE_FIELD,
+            &scene,
+            parallel_event::PARALLEL_TITLE_FIELD,
             ScalarValue::Utf8(Some("Speed".to_string())),
         )
         .await;
@@ -9009,9 +9044,10 @@ mod tests {
             .expect("rtree should pick the Speed title hit region");
         let picked_dimension = {
             let runtime = state.runtime.lock().await;
-            runtime
-                .last_event_datum_state
-                .datum_for_mark_instance(Some(&mark_instance), event::PARALLEL_DIMENSION_ID_FIELD)
+            runtime.last_event_datum_state.datum_for_mark_instance(
+                Some(&mark_instance),
+                parallel_event::PARALLEL_DIMENSION_ID_FIELD,
+            )
         };
         assert_eq!(
             picked_dimension,
@@ -9046,12 +9082,12 @@ mod tests {
         let start_binding = ChartEventBinding::on(ChartEventType::MouseDown)
             .filter(event::button().eq(lit("left")))
             .filter(
-                event::parallel_surface_kind()
-                    .eq(lit(event::PARALLEL_SURFACE_KIND_DIMENSION_TITLE)),
+                parallel_event::parallel_surface_kind()
+                    .eq(lit(parallel_event::PARALLEL_SURFACE_KIND_DIMENSION_TITLE)),
             )
-            .set_param(&drag_dimension, event::parallel_dimension_id())
-            .set_param(&drag_start_x, event::parallel_display_x())
-            .set_param(&drag_display_x, event::parallel_display_x())
+            .set_param(&drag_dimension, parallel_event::parallel_dimension_id())
+            .set_param(&drag_start_x, parallel_event::parallel_display_x())
+            .set_param(&drag_display_x, parallel_event::parallel_display_x())
             .preview();
         let preview_binding = ChartEventBinding::on(ChartEventType::CursorMoved)
             .between(
@@ -9095,9 +9131,10 @@ mod tests {
             .expect("initial parallel header build");
         let initial_line_x = collect_line_x_coords(&scene);
         let initial_symbol_x = collect_symbol_x_coords(&scene);
-        let datum_mark_instance = retained_event_datum_mark_instance(
+        let datum_mark_instance = retained_rect_event_datum_mark_instance(
             &state,
-            event::PARALLEL_TITLE_FIELD,
+            &scene,
+            parallel_event::PARALLEL_TITLE_FIELD,
             ScalarValue::Utf8(Some("Speed".to_string())),
         )
         .await;
@@ -9207,12 +9244,12 @@ mod tests {
         let start_binding = ChartEventBinding::on(ChartEventType::MouseDown)
             .filter(event::button().eq(lit("left")))
             .filter(
-                event::parallel_surface_kind()
-                    .eq(lit(event::PARALLEL_SURFACE_KIND_DIMENSION_TITLE)),
+                parallel_event::parallel_surface_kind()
+                    .eq(lit(parallel_event::PARALLEL_SURFACE_KIND_DIMENSION_TITLE)),
             )
-            .set_param(&drag_dimension, event::parallel_dimension_id())
-            .set_param(&drag_start_x, event::parallel_display_x())
-            .set_param(&drag_display_x, event::parallel_display_x())
+            .set_param(&drag_dimension, parallel_event::parallel_dimension_id())
+            .set_param(&drag_start_x, parallel_event::parallel_display_x())
+            .set_param(&drag_display_x, parallel_event::parallel_display_x())
             .preview();
         let preview_binding = ChartEventBinding::on(ChartEventType::CursorMoved)
             .between(
@@ -9288,9 +9325,10 @@ mod tests {
             .build(&mut state)
             .await
             .expect("initial parallel header build");
-        let datum_mark_instance = retained_event_datum_mark_instance(
+        let datum_mark_instance = retained_rect_event_datum_mark_instance(
             &state,
-            event::PARALLEL_TITLE_FIELD,
+            &scene,
+            parallel_event::PARALLEL_TITLE_FIELD,
             ScalarValue::Utf8(Some("Speed".to_string())),
         )
         .await;
