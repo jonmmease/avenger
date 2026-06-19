@@ -386,6 +386,21 @@ mod tests {
         None
     }
 
+    fn collect_groups_by_prefix<'a>(
+        marks: &'a [SceneMark],
+        prefix: &str,
+        groups: &mut Vec<&'a SceneGroup>,
+    ) {
+        for mark in marks {
+            if let SceneMark::Group(group) = mark {
+                if group.name.starts_with(prefix) {
+                    groups.push(group);
+                }
+                collect_groups_by_prefix(&group.marks, prefix, groups);
+            }
+        }
+    }
+
     fn first_rect_mark(marks: &[SceneMark]) -> Option<&SceneRectMark> {
         for mark in marks {
             match mark {
@@ -709,6 +724,56 @@ mod tests {
 
         assert_close(rect.y_vec()[0], 75.0);
         assert_close(first_rect_y2(rect), 100.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn axis_overlay_inherited_child_data_respects_facet_scope()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let data = ctx
+            .sql(
+                "SELECT 'left' AS panel, 25.0 AS speed \
+                 UNION ALL SELECT 'right' AS panel, 75.0 AS speed",
+            )
+            .await?;
+        let overlay = ParallelAxisOverlay::new(
+            "speed",
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .x(lit(0.0))
+                    .x2(lit(1.0))
+                    .y(col("speed"))
+                    .y2(lit(0.0)),
+            ),
+        )
+        .width_px(40.0);
+        let child = Plot::with_coord(parallel_for_overlay_test()).mark(overlay);
+        let compiled = Plot::<FacetColumn>::new()
+            .plot_size(120.0, 100.0)
+            .data(data)
+            .mark(Subplot::new(child).column(col("panel")))
+            .compile(&ctx)
+            .await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let mut overlay_groups = Vec::new();
+        collect_groups_by_prefix(
+            &evaluated.scene_graph.marks,
+            "parallel_axis_overlay_",
+            &mut overlay_groups,
+        );
+        assert_eq!(overlay_groups.len(), 2);
+
+        let mut y_values = overlay_groups
+            .iter()
+            .map(|group| {
+                let rect = first_rect_mark(&group.marks).expect("facet overlay rect");
+                assert_eq!(rect.len, 1);
+                rect.y_vec()[0]
+            })
+            .collect::<Vec<_>>();
+        y_values.sort_by(|a, b| a.total_cmp(b));
+        assert_eq!(y_values, vec![25.0, 75.0]);
         Ok(())
     }
 
