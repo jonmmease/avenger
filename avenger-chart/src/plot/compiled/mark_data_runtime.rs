@@ -1607,10 +1607,122 @@ mod tests {
         zerod::ZeroDCoord,
     };
     use avenger_chart_core::{
-        CoordinationScope, Param, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN,
-        Store, StoreData, StoreRowValue, detail_array_column_name,
+        ChannelDescriptor, CompiledMarkCore, CompiledMarkState, CoordinateSystemTransformCore,
+        CoordinationScope, Param, PlotGeometry, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
+        STORE_REVISION_COLUMN, Store, StoreData, StoreRowValue, SubplotGeometry,
+        detail_array_column_name,
     };
     use avenger_chart_marks::{Area, Rect};
+
+    #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    struct TestCoordinateDependencyMark {
+        state: CompiledMarkState,
+    }
+
+    impl TestCoordinateDependencyMark {
+        fn new() -> Self {
+            Self {
+                state: CompiledMarkState {
+                    id: None,
+                    public_target_path: None,
+                    data: CompiledDataContext::default(),
+                    data_mode: MarkDataMode::Inherit,
+                    mark_index: 0,
+                    facet_data_scope: FacetDataScope::default(),
+                    exclude_from_scale_domains: false,
+                    visible: None,
+                    details: None,
+                    zindex: None,
+                    axis_configs: HashMap::new(),
+                },
+            }
+        }
+    }
+
+    impl CompiledMarkCore for TestCoordinateDependencyMark {
+        fn state(&self) -> &CompiledMarkState {
+            &self.state
+        }
+
+        fn state_mut(&mut self) -> &mut CompiledMarkState {
+            &mut self.state
+        }
+
+        fn data_context(&self) -> &CompiledDataContext {
+            &self.state.data
+        }
+
+        fn mark_type(&self) -> &str {
+            "test_coordinate_dependency"
+        }
+
+        fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+            Vec::new()
+        }
+
+        fn coordinate_channel_dependencies(
+            &self,
+            coord: &dyn CoordinateSystemTransformCore,
+        ) -> IndexMap<String, ChannelValue> {
+            coord.generated_position_channels()
+        }
+    }
+
+    #[typetag::serde]
+    #[async_trait::async_trait]
+    impl CompiledMark for TestCoordinateDependencyMark {
+        async fn render_from_data(
+            &self,
+            _data: Option<&RecordBatch>,
+            _scalars: &RecordBatch,
+            _context: &dyn avenger_chart_core::MarkRuntimeContext,
+            _coord: &dyn CoordinateSystemTransformCore,
+        ) -> Result<Vec<avenger_scenegraph::marks::mark::SceneMark>, AvengerChartError> {
+            Ok(Vec::new())
+        }
+    }
+
+    struct TestCoordinateDependencyTransform;
+
+    impl CoordinateSystemTransformCore for TestCoordinateDependencyTransform {
+        fn required_channels(&self) -> &'static [&'static str] {
+            &[]
+        }
+
+        fn channel_uses_scale(&self, channel: &str) -> bool {
+            channel == "dim_value"
+        }
+
+        fn is_position_scale_channel(&self, channel: &str) -> bool {
+            channel == "dim_value"
+        }
+
+        fn transform(
+            &self,
+            _position_channels: &HashMap<&str, avenger_common::value::ScalarOrArray<f32>>,
+            _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+            _plot_width: f32,
+            _plot_height: f32,
+        ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+            Ok(Box::new(SubplotGeometry::default()))
+        }
+
+        fn default_scale_options(
+            &self,
+            _channel: &str,
+            _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+        ) -> HashMap<String, ScalarValue> {
+            HashMap::new()
+        }
+
+        fn generated_position_channels(&self) -> IndexMap<String, ChannelValue> {
+            IndexMap::from([(
+                "dim_value".to_string(),
+                ChannelValue::from(col("x")).with_scale_name("dim_value"),
+            )])
+        }
+    }
+
     fn eval_context(session: Arc<SessionContext>) -> EvaluationContext {
         EvaluationContext::new(
             Arc::new(Theme::light()),
@@ -1879,6 +1991,52 @@ mod tests {
         let data_batch = prepared.data_batch.expect("array data");
         assert_eq!(values_as_f64(&data_batch, "x"), vec![0.0, 50.0, 100.0]);
         assert_eq!(values_as_f64(&data_batch, "y"), vec![100.0, 50.0, 0.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_merges_coordinate_dependencies_without_event_datum_leakage()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = xy_dataframe(&session);
+        let plot_node = plot_data_node(&df)?;
+        let mark = TestCoordinateDependencyMark::new();
+        let coord = TestCoordinateDependencyTransform;
+        let eval_ctx = eval_context(session).with_event_datum_fields(Arc::new(IndexMap::from([(
+            "x".to_string(),
+            DataType::Float64,
+        )])));
+        let scales = HashMap::from([("dim_value".to_string(), linear_scale())]);
+
+        let prepared = prepare_mark_data(MarkDataRequest {
+            mark: &mark,
+            coord_transform: Some(&coord),
+            plot_data: Some(&plot_node),
+            provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
+            prepared_base: None,
+            eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
+            scales: &scales,
+            plot_width: 100.0,
+            plot_height: 100.0,
+        })
+        .await?
+        .expect("prepared data");
+
+        let data_batch = prepared
+            .data_batch
+            .expect("coordinate dependency array data");
+        assert_eq!(
+            values_as_f64(&data_batch, "dim_value"),
+            vec![0.0, 50.0, 100.0]
+        );
+        assert!(data_batch.column_by_name("x").is_none());
+
+        let event_datum_batch = prepared.event_datum_batch.expect("event datum batch");
+        assert_eq!(values_as_f64(&event_datum_batch, "x"), vec![0.0, 5.0, 10.0]);
+        assert!(event_datum_batch.column_by_name("dim_value").is_none());
         Ok(())
     }
 
