@@ -931,7 +931,7 @@ Tasks:
   - exposes `param_changes()`,
   - reserves space for future `selection_changes()`,
   - includes lightweight frame/render status for debug UI.
-- [ ] Call `response.mark_changed()` when routed plot input causes observable Avenger param or selection changes.
+- [x] Call `response.mark_changed()` when routed plot input causes observable Avenger param or selection changes.
 - [x] Implement widget allocation with `Sense::click_and_drag()` for the first MVP.
 - [x] Keep builder options low-level and minimal:
   - `desired_size(Vec2)` if needed,
@@ -956,7 +956,7 @@ Tasks:
 - [x] Route widget resize to `CanvasResize`.
 - [ ] Add debounced or settled resize routing to `CanvasResizeSettled` if needed by chart resize behavior.
 - [x] Ensure the translated Avenger events are dispatched through the Avenger app/eventstream path, not through winit.
-- [ ] Add translator tests for:
+- [x] Add translator tests for:
   - coordinate conversion,
   - hover filtering,
   - active-drag routing after the pointer leaves the rect,
@@ -970,14 +970,14 @@ Tasks:
 - [x] Paint latest frame texture into widget rect.
 - [x] Keep `show(ui)` non-blocking: it may allocate the rect, route input, enqueue work, update texture registration, and paint the latest completed frame, but it must not wait for exact evaluation or rendering.
 - [x] During drag, request repaint every frame.
-- [ ] On background frame publish, request repaint.
+- [x] On background frame publish, request repaint.
 - [x] Add an example app with:
   - chart widget,
   - param slider,
   - checkbox/toggle param,
   - pan/zoom interaction,
   - visible metrics/debug panel.
-- [ ] Make the example app demonstrate a real egui control driving an Avenger param:
+- [x] Make the example app demonstrate a real egui control driving an Avenger param:
   - use an `eframe` app shell,
   - place controls in an egui side panel,
   - place the Avenger chart widget in the central panel,
@@ -1069,8 +1069,14 @@ Phase 10 progress notes, 2026-06-19:
 - Added a `basic_chart` eframe example that uses a normal egui slider to call `set_param("point_size", value)`, uses a checkbox to call `set_param("show_points", value)`, rebuilds the scene, renders it into an egui-registered offscreen texture, displays the plot widget, dispatches queued plot events through `AvengerApp`, and requests repaint while dragging.
 - The example uses eframe's WGPU path with `default-features = false` and `features = ["default_fonts", "wgpu"]`. Enabling eframe's default glow/glutin path conflicted with the workspace's locked `glutin_wgl_sys` version.
 - Expanded `EguiEventTranslator` to read `egui::InputState::raw.events` for pointer button press/release, wheel events, focus-gated keyboard events, and pointer-gone events.
-- This is not yet the full Phase 10 MVP. Pending work includes fuller translator tests for hover/capture/focus filtering, resize-settled routing if needed, repaint on background publish, async/latest-frame example behavior, and manual runtime validation of the native example.
-- Progress commit hashes: `cdc4ee5d`, `b01ee84e`, `67eb684d`, `07dafe63`, `d5eaf801`, `83fa275c`
+- Added background scene publishing to `AvengerPlotHandle` using the Phase 8 `FramePublisher<Arc<SceneGraph>>` primitive. The handle now exposes low-level `request_scene_rebuild(_with_repaint)` and `request_event_dispatch(_with_repaint)` APIs that schedule Avenger app work on a caller-provided Tokio runtime and publish only the latest completed scene.
+- The egui example now uses a multi-thread Tokio runtime, requests async scene rebuilds from normal egui slider/checkbox changes, dispatches queued plot events through the same async publisher path, polls the latest published scene, and keeps painting the latest rendered texture while new scene work is pending.
+- The example only re-renders the Avenger scene into the egui texture when the published scene generation or widget dimensions change.
+- Added `EguiResponseState` so `Plot::show` snapshots `Response` state before entering `ui.input(...)`. This avoids calling `response.has_focus()` while egui's input lock is held, which can deadlock.
+- Added translator tests for coordinate conversion, hover wheel filtering, active pointer capture/release after leaving the rect, keyboard focus filtering, and resize generation.
+- Added async publisher tests for single rebuild publication, rapid rebuild coalescing to the newest generation, and routed resize events publishing a scene through the Avenger app/eventstream path.
+- Phase 10 is close to implementation-complete. Remaining work is manual runtime validation of the native example, plus `CanvasResizeSettled` routing only if manual resize behavior shows it is needed. Selection observation remains a later pass.
+- Progress commit hashes: `cdc4ee5d`, `b01ee84e`, `67eb684d`, `07dafe63`, `d5eaf801`, `83fa275c`, `b7f7ffef`
 
 Phase 10 partial validation, 2026-06-19:
 
@@ -1089,6 +1095,10 @@ Phase 10 partial validation, 2026-06-19:
 - `cargo check -p avenger-egui --features eframe --example basic_chart`: passed after adding the checkbox-driven `show_points` param.
 - `cargo test -p avenger-egui`: passed, 8 tests plus doc-tests, after adding the checkbox-driven `show_points` param.
 - `cargo tree -i wgpu --workspace`: reports a single `wgpu v27.0.1`, including `egui-wgpu v0.33.3`.
+- `cargo test -p avenger-egui --lib`: passed, 14 tests, after adding async scene publishing and stronger event-translation coverage.
+- `cargo check -p avenger-egui --features eframe --example basic_chart`: passed after converting the example to async scene publication/latest-frame painting.
+- `cargo fmt --all`: passed after async scene publication changes.
+- `cargo test -p avenger-egui`: passed, 14 tests plus doc-tests, after async scene publication changes.
 
 Implementation note:
 
@@ -1119,7 +1129,8 @@ Commit:
 
 - [ ] Commit Phase 10.
 - Suggested message: `feat(egui): add offscreen avenger plot widget`
-- Commit hash: TBD
+- Implementation commits so far: `cdc4ee5d`, `b01ee84e`, `67eb684d`, `07dafe63`, `d5eaf801`, `83fa275c`, `b7f7ffef`
+- Final Phase 10 closure commit hash: TBD
 
 ## Phase 11 - Full Background GPU Rendering
 
