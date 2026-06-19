@@ -29,6 +29,7 @@ fn parallel_drag_params(dimension_id: &str, display_x: f64) -> IndexMap<String, 
 fn numeric_parallel_data(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Utf8, false),
+        Field::new("all", DataType::Utf8, false),
         Field::new("group", DataType::Utf8, false),
         Field::new("speed", DataType::Float64, false),
         Field::new("efficiency", DataType::Float64, false),
@@ -41,6 +42,9 @@ fn numeric_parallel_data(ctx: &SessionContext) -> datafusion::dataframe::DataFra
             Arc::new(StringArray::from(vec![
                 "a0", "a1", "a2", "a3", "b0", "b1", "b2", "b3",
             ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "all", "all", "all", "all", "all", "all", "all", "all",
+            ])),
             Arc::new(StringArray::from(vec![
                 "alpha", "alpha", "alpha", "alpha", "beta", "beta", "beta", "beta",
             ])),
@@ -802,6 +806,359 @@ async fn parallel_axis_overlay_symbols() {
         None,
         "parallel",
         "parallel_axis_overlay_symbols",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_axis_overlay_reversed_scale() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| {
+            d.scale_with::<Linear>(|scale| scale.domain_interval(lit(64.0), lit(42.0)))
+                .axis(|a| a.title("Speed"))
+        })
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let speed_overlay = ParallelAxisOverlay::new(
+        "speed",
+        Plot::<Cartesian>::new().mark(
+            Rect::new()
+                .x(lit(0.0))
+                .x2(lit(1.0))
+                .y(lit(47.0))
+                .y2(lit(57.0))
+                .fill("rgba(14, 165, 233, 0.14)")
+                .stroke("#0284c7")
+                .stroke_width(1.3),
+        ),
+    )
+    .width_px(42.0)
+    .zindex(-2);
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(speed_overlay)
+        .mark(
+            ParallelLine::new()
+                .stroke_with(col("group"), |stroke| stroke.no_legend())
+                .stroke_width(1.55)
+                .opacity(0.56)
+                .zindex(2),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.75)
+                .size(72.0)
+                .opacity(0.93)
+                .zindex(3),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile reversed-scale overlay parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_axis_overlay_reversed_scale",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_axis_overlay_boxplot() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let speed_box = ParallelAxisOverlay::new(
+        "speed",
+        Plot::<Cartesian>::new().mark(
+            BoxPlot::new()
+                .vertical()
+                .x_with(col("all"), |x| x.scale_with::<Band>(|scale| scale))
+                .y(col("speed"))
+                .box_body(|body| {
+                    body.fill("rgba(59, 130, 246, 0.28)")
+                        .stroke("#1d4ed8")
+                        .stroke_width(1.2)
+                })
+                .median(|rule| rule.stroke("#0f172a").stroke_width(1.4))
+                .whiskers(|rule| rule.stroke("#1d4ed8").stroke_width(1.0))
+                .caps(|rule| rule.stroke("#1d4ed8").stroke_width(1.0))
+                .outliers(|outliers| {
+                    outliers
+                        .fill("#f97316")
+                        .stroke("#7c2d12")
+                        .stroke_width(0.8)
+                        .size(44.0)
+                }),
+        ),
+    )
+    .width_px(58.0)
+    .zindex(5);
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#94a3b8")
+                .stroke_width(1.15)
+                .opacity(0.30),
+        )
+        .mark(speed_box);
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile overlay boxplot parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_axis_overlay_boxplot",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_axis_overlay_violin() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let stability_violin = ParallelAxisOverlay::new(
+        "stability",
+        Plot::<Cartesian>::new().mark(
+            Violin::new()
+                .x_with(col("all"), |x| x.scale_with::<Band>(|scale| scale))
+                .y(col("stability"))
+                .bandwidth(1.45)
+                .steps(96)
+                .density_extent(69.0, 83.0)
+                .width(0.78)
+                .fill("rgba(99, 102, 241, 0.34)")
+                .stroke("#4338ca")
+                .stroke_width(1.1)
+                .opacity(0.78),
+        ),
+    )
+    .width_px(64.0)
+    .zindex(4);
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#94a3b8")
+                .stroke_width(1.1)
+                .opacity(0.26),
+        )
+        .mark(stability_violin);
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile overlay violin parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_axis_overlay_violin",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_axis_overlay_violins_all_axes() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let violin_overlay = |dimension: &'static str,
+                          bandwidth: f64,
+                          start: f64,
+                          stop: f64,
+                          fill: &'static str,
+                          stroke: &'static str| {
+        ParallelAxisOverlay::new(
+            dimension,
+            Plot::<Cartesian>::new().mark(
+                Violin::new()
+                    .x_with(col("all"), |x| x.scale_with::<Band>(|scale| scale))
+                    .y(col(dimension))
+                    .bandwidth(bandwidth)
+                    .steps(80)
+                    .density_extent(start, stop)
+                    .width(0.72)
+                    .fill(fill)
+                    .stroke(stroke)
+                    .stroke_width(0.95)
+                    .opacity(0.64),
+            ),
+        )
+        .width_px(50.0)
+        .zindex(4)
+    };
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#64748b")
+                .stroke_width(1.05)
+                .opacity(0.20),
+        )
+        .mark(violin_overlay(
+            "speed",
+            2.2,
+            42.0,
+            64.0,
+            "rgba(59, 130, 246, 0.24)",
+            "#1d4ed8",
+        ))
+        .mark(violin_overlay(
+            "efficiency",
+            0.018,
+            0.56,
+            0.76,
+            "rgba(16, 185, 129, 0.24)",
+            "#047857",
+        ))
+        .mark(violin_overlay(
+            "stability",
+            1.45,
+            69.0,
+            83.0,
+            "rgba(99, 102, 241, 0.24)",
+            "#4338ca",
+        ))
+        .mark(violin_overlay(
+            "cost",
+            4.5,
+            95.0,
+            145.0,
+            "rgba(249, 115, 22, 0.22)",
+            "#c2410c",
+        ));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile all-axis overlay violins parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_axis_overlay_violins_all_axes",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_axis_overlay_grouped_boxplots() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let cost_boxes = ParallelAxisOverlay::new(
+        "cost",
+        Plot::<Cartesian>::new().mark(
+            BoxPlot::new()
+                .vertical()
+                .x_with(col("group"), |x| {
+                    x.scale_with::<Band>(|scale| scale.padding_inner(0.16))
+                })
+                .y(col("cost"))
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .box_body(|body| body.stroke("#111827").stroke_width(0.9).opacity(0.78))
+                .median(|rule| rule.stroke("#111827").stroke_width(1.2))
+                .whiskers(|rule| rule.stroke("#374151").stroke_width(0.9))
+                .caps(|rule| rule.stroke("#374151").stroke_width(0.9))
+                .outliers(|outliers| {
+                    outliers
+                        .fill("#f97316")
+                        .stroke("#7c2d12")
+                        .stroke_width(0.75)
+                        .size(38.0)
+                }),
+        ),
+    )
+    .width_px(78.0)
+    .zindex(5);
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#94a3b8")
+                .stroke_width(1.1)
+                .opacity(0.28),
+        )
+        .mark(cost_boxes);
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile grouped boxplot overlay parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_axis_overlay_grouped_boxplots",
     )
     .await;
 }
