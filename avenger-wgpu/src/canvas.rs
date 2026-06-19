@@ -574,6 +574,7 @@ pub(crate) async fn request_wgpu_device(
             } else {
                 wgpu::Limits::default()
             },
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: wgpu::MemoryHints::Performance,
             trace: Trace::Off,
         })

@@ -665,9 +665,9 @@ Phase 6 validation results, 2026-06-19:
 
 Commit:
 
-- [ ] Commit Phase 6.
+- [x] Commit Phase 6.
 - Suggested message: `refactor(wgpu): make window canvas a renderer host`
-- Commit hash: TBD
+- Commit hash: `c9085d40`
 
 ## Phase 7 - WGPU Upgrade
 
@@ -677,26 +677,62 @@ Do this before backend crates if version mismatch prevents texture/resource shar
 
 Tasks:
 
-- [ ] Update workspace `wgpu`.
-- [ ] Update WGPU API calls across `avenger-wgpu`.
-- [ ] Update WASM-specific WGPU features.
-- [ ] Update examples that directly depend on WGPU.
-- [ ] Re-check texture format feature queries.
-- [ ] Re-check surface configuration fields.
-- [ ] Re-check `Device::poll` usage.
-- [ ] Re-check command encoder, copy, and texture descriptor APIs.
-- [ ] Re-check validation errors around stencil/depth attachments.
-- [ ] Confirm native builds.
-- [ ] Confirm WASM builds if in scope for this phase.
+- [x] Update workspace `wgpu`.
+- [x] Update WGPU API calls across `avenger-wgpu`.
+- [x] Update WASM-specific WGPU features.
+- [x] Update examples that directly depend on WGPU.
+- [x] Re-check texture format feature queries.
+- [x] Re-check surface configuration fields.
+- [x] Re-check `Device::poll` usage.
+- [x] Re-check command encoder, copy, and texture descriptor APIs.
+- [x] Re-check validation errors around stencil/depth attachments.
+- [x] Confirm native builds.
+- [x] Record WASM build status for this phase.
+
+Phase 7 notes, 2026-06-19:
+
+- Updated the workspace and directly pinned example dependencies from `wgpu 25.0.2` to `wgpu 27.0.1`.
+- Updated the target-specific wasm WGPU pins in `avenger-wgpu`, `examples/wgpu-scales`, `examples/wgpu-winit`, and `examples/iris-pan-zoom` to `27.0.1` while preserving the existing `webgl`/`webgpu` features.
+- `cargo tree -i wgpu --workspace` now reports a single WGPU version: `wgpu v27.0.1`.
+- WGPU API migrations required in `avenger-wgpu`:
+  - add `experimental_features: wgpu::ExperimentalFeatures::disabled()` to `DeviceDescriptor`,
+  - use `wgpu::PollType::wait_indefinitely()` for readback polling,
+  - add `depth_slice: None` to 2D render-pass color attachments.
+- Texture format feature queries and surface configuration fields did not require code changes for `wgpu 27.0.1`.
+- Command encoder, copy, and texture descriptor APIs did not require code changes beyond the readback poll migration.
+- Stencil/depth attachment validation did not require code changes beyond adding `depth_slice: None` to color attachments.
+- Direct WGPU example crates were checked with:
+  `cargo check -p avenger-winit-wgpu -p wgpu-scales -p wgpu-winit -p iris`.
+- `examples/iris-pan-zoom` also needed `UpdateStatus { ..Default::default() }` updates for the existing `cursor` field; this was not a WGPU API change but was required to keep the direct WGPU example building.
+- Optional WASM build validation was not run in this phase. Native egui integration is the first target, and the optional wasm command can be revisited after the egui MVP works.
 
 Validation:
 
 ```bash
 cargo fmt --all
+cargo check -p avenger-wgpu
+cargo check -p avenger-winit-wgpu -p wgpu-scales -p wgpu-winit -p iris
+cargo tree -i wgpu --workspace
+cargo test -p avenger-wgpu --lib
 cargo test -p avenger-wgpu
 cargo test -p avenger-winit-wgpu
 cargo test -p avenger-chart visual_regression -- --nocapture
 ```
+
+Phase 7 validation results, 2026-06-19:
+
+- `cargo fmt --all`: passed.
+- `cargo check -p avenger-wgpu`: passed.
+- `cargo check -p avenger-winit-wgpu -p wgpu-scales -p wgpu-winit -p iris`: passed.
+- `cargo tree -i wgpu --workspace`: reports only `wgpu v27.0.1`.
+- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+  - `case_090` / `residuals_colorscale`, diff `0.026578`,
+  - `case_119` / `geoScale`, diff `0.016531`,
+  - `case_120` / `maptile_background`, diff `0.012998`.
+- `cargo test -p avenger-winit-wgpu`: passed, 3 tests.
+- `cargo test -p avenger-chart visual_regression -- --nocapture`: passed but selected zero tests under this filter (`618 filtered out` in `tests/visual_regression.rs`).
+- Optional wasm validation was not run.
 
 Optional WASM validation:
 

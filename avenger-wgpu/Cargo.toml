@@ -82,7 +82,7 @@ version = "0.0.8"
 version = "1.0.140"
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.wgpu]
-version = "25.0.2"
+version = "27.0.1"
 default-features = false
 
 [target."cfg(target_arch = \"wasm32\")".dependencies.web-sys]

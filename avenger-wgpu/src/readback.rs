@@ -76,7 +76,7 @@ impl TextureReadback {
         buffer_slice.map_async(MapMode::Read, move |result| {
             tx.send(result).ok();
         });
-        device.poll(wgpu::PollType::Wait).unwrap();
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
 
         let map_result = rx.receive().await.ok_or_else(|| {
             AvengerWgpuError::ConversionError("Texture readback callback was dropped".to_string())

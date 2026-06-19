@@ -461,6 +461,7 @@ impl EventStreamHandler<ChartState> for PanningClick {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                ..Default::default()
             };
         }
 
@@ -473,6 +474,7 @@ impl EventStreamHandler<ChartState> for PanningClick {
         UpdateStatus {
             rerender: false,
             rebuild_geometry: false,
+            ..Default::default()
         }
     }
 }
@@ -492,6 +494,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                ..Default::default()
             };
         };
 
@@ -525,6 +528,7 @@ impl EventStreamHandler<ChartState> for PanningDrag {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: false,
+            ..Default::default()
         }
     }
 }
@@ -544,6 +548,7 @@ impl EventStreamHandler<ChartState> for PanningRelease {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: true,
+            ..Default::default()
         }
     }
 }
@@ -563,6 +568,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                ..Default::default()
             };
         };
 
@@ -586,6 +592,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
             return UpdateStatus {
                 rerender: false,
                 rebuild_geometry: false,
+                ..Default::default()
             };
         }
 
@@ -613,6 +620,7 @@ impl EventStreamHandler<ChartState> for WheelZoom {
         UpdateStatus {
             rerender: true,
             rebuild_geometry: false,
+            ..Default::default()
         }
     }
 }

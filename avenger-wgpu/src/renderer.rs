@@ -163,6 +163,7 @@ impl AvengerRendererCore {
                 color_attachments: &[Some(RenderPassColorAttachment {
                     view: target.view,
                     resolve_target: target.resolve_target,
+                    depth_slice: None,
                     ops: Operations {
                         load: target.load,
                         store: StoreOp::Store,
