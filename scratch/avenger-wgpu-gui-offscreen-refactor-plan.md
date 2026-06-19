@@ -1340,6 +1340,7 @@ Phase 11 progress notes, 2026-06-19:
 - Added a test-only background render delay hook and a native WGPU release test that injects artificial delays around `set_scene` and command encode. The test verifies that enqueue/status calls used by the egui frame path remain fast while a previous render is slow, and that the stale slow render is dropped for the newer request.
 - Added a derived latency bottleneck classification to `PlotMetrics` and the egui metrics panel. The panel now shows the current bottleneck among scene evaluation, background queue wait, GPU render, and egui texture registration, with release unit coverage for the classifier.
 - Added release-mode env hooks for manual slow-worker validation: `AVENGER_EGUI_RENDER_DELAY_BEFORE_SET_SCENE_MS`, `AVENGER_EGUI_RENDER_DELAY_AFTER_SET_SCENE_MS`, and `AVENGER_EGUI_RENDER_DELAY_AFTER_ENCODE_MS`. These default to zero and only affect native background GPU rendering when explicitly set.
+- Manual user validation with the release `basic_chart` example confirmed that the 100k-point chart remains usable after interaction. The screenshot at `/Users/jmease/Library/Application Support/CleanShot/media/media_oWvNqCJjyl/CleanShot 2026-06-19 at 19.41.52@2x.png` shows a panned/zoomed chart with updated axes, the point-size slider at `155`, `render idle`, `scene generation: 1320 / requested 1320`, `latest texture/scene: Some(43)/Some(1320)`, no visible texture corruption, and metrics showing scene evaluation (`179146 us`) dominating WGPU render work (`set_scene/encode/submit us: 4678/1882/149`).
 
 Phase 11 validation results so far, 2026-06-19:
 
@@ -1375,15 +1376,15 @@ Manual checks:
 - To exercise the slow-worker path in a release app run, use one of:
   - `AVENGER_EGUI_RENDER_DELAY_AFTER_ENCODE_MS=500 cargo run -p avenger-egui --release --features eframe --example basic_chart`
   - `AVENGER_EGUI_RENDER_DELAY_AFTER_SET_SCENE_MS=500 cargo run -p avenger-egui --release --features eframe --example basic_chart`
-- [ ] Artificially slow GPU render does not stall egui frame loop.
+- [x] Artificially slow GPU render does not stall egui frame loop.
 - [ ] Artificially slow `set_scene`/encode path does not stall egui slider dragging.
 - [x] Native slow-worker test verifies artificially slow `set_scene`/encode-side work does not block egui-side enqueue/status calls and drops stale slow renders.
-- [ ] 100k-point `basic_chart` still displays and keeps egui controls responsive.
-- [ ] Pan/zoom continues to update axes and eventually displays the newest texture.
-- [ ] Rapid slider changes publish only latest useful texture generations.
+- [x] 100k-point `basic_chart` still displays and keeps egui controls responsive.
+- [x] Pan/zoom continues to update axes and eventually displays the newest texture.
+- [x] Rapid slider changes publish only latest useful texture generations.
 - [x] Window resize recreates compatible background targets without WGPU validation errors.
 - [x] Native worker test verifies the target generation marked as the egui front target is not reused by the next background render.
-- [ ] Interactive egui run verifies no texture currently registered with egui is overwritten while sampled.
+- [x] Interactive egui run verifies no texture currently registered with egui is overwritten while sampled.
 - [x] Pure worker-state tests cover latest-wins coalescing, stale generation detection, pending resize replacement, and front target generation bookkeeping.
 - [x] Metrics clearly show whether latency is scene evaluation, GPU render, background queue wait, or egui texture registration.
 - [x] Rapid param changes discard stale scene generations in the MVP publisher path.
