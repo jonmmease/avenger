@@ -1260,7 +1260,7 @@ Tasks:
   - no egui-backed Avenger text backend in this plan.
 - [ ] Remove temporary compatibility wrappers if no longer needed.
 - [ ] Remove dead code from the old render path.
-- [ ] Update examples list.
+- [x] Update examples list.
 
 Phase 13 progress notes, 2026-06-19:
 
@@ -1268,7 +1268,8 @@ Phase 13 progress notes, 2026-06-19:
 - Linked the document from `avenger-chart/docs/architecture/README.md` and from `chart-apps-and-interaction.md`.
 - Documented `AvengerWgpuRenderer`, host wrappers, egui widget shape, event routing, offscreen texture lifecycle, latest-scene publishing, metrics/tracing, limitations, and explicit non-goals.
 - Documented the staged decision that background workers publish CPU scenegraphs while GPU upload/render stays on the egui frame for the MVP. Full background GPU submission remains a Phase 11 follow-up decision after manual measurement.
-- Remaining Phase 13 work: review whether there are temporary compatibility wrappers or dead old render paths to remove, and decide whether the example listing needs a separate update beyond the architecture docs.
+- Updated the root README with the `avenger-egui` crate entry and the release-mode `basic_chart` example command.
+- Remaining Phase 13 work: review whether there are temporary compatibility wrappers or dead old render paths to remove.
 
 Phase 13 validation results, 2026-06-19:
 
@@ -1287,7 +1288,7 @@ Commit:
 
 - [ ] Commit Phase 13.
 - Suggested message: `docs(wgpu): document gui offscreen rendering architecture`
-- Implementation commits so far: `a6a2b118`
+- Implementation commits so far: `a6a2b118`, `86e3a6c6`
 - Final Phase 13 closure commit hash: TBD
 
 ## Milestone Completion Definitions
