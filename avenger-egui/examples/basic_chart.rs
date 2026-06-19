@@ -6,7 +6,7 @@ use avenger_chart_app::{ChartAppOptions, ChartAppState, ChartResizeBinding, char
 use avenger_common::canvas::CanvasDimensions;
 use avenger_egui::{AvengerPlotHandle, Plot};
 use avenger_scenegraph::scene_graph::SceneGraph;
-use datafusion::{prelude::SessionContext, scalar::ScalarValue};
+use datafusion::{logical_expr::when, prelude::SessionContext, scalar::ScalarValue};
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
@@ -34,6 +34,7 @@ fn main() -> eframe::Result<()> {
                 plot,
                 scene,
                 point_size: 120.0,
+                show_points: true,
                 last_error: None,
             }))
         }),
@@ -45,6 +46,7 @@ struct BasicChartApp {
     plot: AvengerPlotHandle,
     scene: Arc<SceneGraph>,
     point_size: f64,
+    show_points: bool,
     last_error: Option<String>,
 }
 
@@ -70,14 +72,12 @@ impl eframe::App for BasicChartApp {
                 .changed();
             if changed {
                 self.plot.set_param("point_size", self.point_size);
-                match self.runtime.block_on(self.plot.rebuild_scene_graph(true)) {
-                    Ok(Some(scene)) => {
-                        self.scene = scene;
-                        ctx.request_repaint();
-                    }
-                    Ok(None) => {}
-                    Err(err) => self.last_error = Some(err.to_string()),
-                }
+                self.rebuild_chart(ctx);
+            }
+
+            if ui.checkbox(&mut self.show_points, "Show points").changed() {
+                self.plot.set_param("show_points", self.show_points);
+                self.rebuild_chart(ctx);
             }
 
             if let Some(error) = &self.last_error {
@@ -117,9 +117,26 @@ impl eframe::App for BasicChartApp {
     }
 }
 
+impl BasicChartApp {
+    fn rebuild_chart(&mut self, ctx: &egui::Context) {
+        match self.runtime.block_on(self.plot.rebuild_scene_graph(true)) {
+            Ok(Some(scene)) => {
+                self.scene = scene;
+                ctx.request_repaint();
+            }
+            Ok(None) => {}
+            Err(err) => self.last_error = Some(err.to_string()),
+        }
+    }
+}
+
 async fn build_app() -> AvengerApp<ChartAppState> {
     let ctx = Arc::new(SessionContext::new());
     let point_size = Param::new("point_size", ScalarValue::Float64(Some(120.0)));
+    let show_points = Param::new("show_points", ScalarValue::Boolean(Some(true)));
+    let size = when(show_points.expr(), point_size.expr())
+        .otherwise(lit(0.0))
+        .expect("build point-size conditional");
     let df = ctx
         .sql(
             "SELECT * FROM (VALUES
@@ -139,13 +156,14 @@ async fn build_app() -> AvengerApp<ChartAppState> {
     let plot = avenger_chart::prelude::Plot::<Cartesian>::new()
         .canvas_size(760.0, 520.0)
         .add_param(point_size.clone())
+        .add_param(show_points)
         .data(df)
         .mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
                 .fill(col("group_name"))
-                .size(point_size.expr()),
+                .size(size),
         )
         .tool(PanScrollZoom::cartesian().settle_exact(true));
 

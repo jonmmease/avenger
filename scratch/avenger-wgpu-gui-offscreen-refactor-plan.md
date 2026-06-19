@@ -971,7 +971,7 @@ Tasks:
 - [x] Keep `show(ui)` non-blocking: it may allocate the rect, route input, enqueue work, update texture registration, and paint the latest completed frame, but it must not wait for exact evaluation or rendering.
 - [x] During drag, request repaint every frame.
 - [ ] On background frame publish, request repaint.
-- [ ] Add an example app with:
+- [x] Add an example app with:
   - chart widget,
   - param slider,
   - checkbox/toggle param,
@@ -1066,10 +1066,10 @@ Phase 10 progress notes, 2026-06-19:
 - Added low-level `render_scene_to_texture(render_state, scene_graph, dimensions)` on `AvengerPlotHandle`. It renders a caller-provided `SceneGraph` into a handle-owned triple-buffered `OffscreenTargetPool`, registers/updates the latest target with `egui-wgpu`, and reuses the same `TextureId`.
 - `Plot::show(ui)` paints the latest registered texture into the allocated widget rect without waiting for evaluation or rendering.
 - Added `AvengerApp::scene_graph_arc` and `AvengerApp::rebuild_scene_graph` so native widget param changes can force an exact chart rebuild outside the window-event path.
-- Added a `basic_chart` eframe example that uses a normal egui slider to call `set_param("point_size", value)`, rebuilds the scene, renders it into an egui-registered offscreen texture, displays the plot widget, dispatches queued plot events through `AvengerApp`, and requests repaint while dragging.
+- Added a `basic_chart` eframe example that uses a normal egui slider to call `set_param("point_size", value)`, uses a checkbox to call `set_param("show_points", value)`, rebuilds the scene, renders it into an egui-registered offscreen texture, displays the plot widget, dispatches queued plot events through `AvengerApp`, and requests repaint while dragging.
 - The example uses eframe's WGPU path with `default-features = false` and `features = ["default_fonts", "wgpu"]`. Enabling eframe's default glow/glutin path conflicted with the workspace's locked `glutin_wgl_sys` version.
 - Expanded `EguiEventTranslator` to read `egui::InputState::raw.events` for pointer button press/release, wheel events, focus-gated keyboard events, and pointer-gone events.
-- This is not yet the full Phase 10 MVP. Pending work includes a checkbox/toggle param in the example, fuller translator tests for hover/capture/focus filtering, resize-settled routing if needed, repaint on background publish, and manual runtime validation of the native example.
+- This is not yet the full Phase 10 MVP. Pending work includes fuller translator tests for hover/capture/focus filtering, resize-settled routing if needed, repaint on background publish, async/latest-frame example behavior, and manual runtime validation of the native example.
 - Progress commit hashes: `cdc4ee5d`, `b01ee84e`, `67eb684d`, `07dafe63`, `d5eaf801`
 
 Phase 10 partial validation, 2026-06-19:
@@ -1086,6 +1086,8 @@ Phase 10 partial validation, 2026-06-19:
 - `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests, after adding the app rebuild hook and example.
 - `cargo test -p avenger-egui`: passed, 8 tests plus doc-tests, after expanding wheel/key/pointer event translation.
 - `cargo check -p avenger-egui --features eframe --example basic_chart`: passed after expanding event translation.
+- `cargo check -p avenger-egui --features eframe --example basic_chart`: passed after adding the checkbox-driven `show_points` param.
+- `cargo test -p avenger-egui`: passed, 8 tests plus doc-tests, after adding the checkbox-driven `show_points` param.
 - `cargo tree -i wgpu --workspace`: reports a single `wgpu v27.0.1`, including `egui-wgpu v0.33.3`.
 
 Implementation note:
