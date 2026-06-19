@@ -638,3 +638,170 @@ async fn parallel_axis_overlay_displaced_axis() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn parallel_axis_overlay_rect_basic() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let stability_overlay = ParallelAxisOverlay::new(
+        "stability",
+        Plot::<Cartesian>::new().mark(
+            Rect::new()
+                .x(lit(0.0))
+                .x2(lit(1.0))
+                .y(lit(73.0))
+                .y2(lit(81.0))
+                .fill("rgba(37, 99, 235, 0.18)")
+                .stroke("#2563eb")
+                .stroke_width(1.5),
+        ),
+    )
+    .width_px(44.0);
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(stability_overlay);
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile basic overlay rect parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_axis_overlay_rect_basic",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_axis_overlay_rect_with_lines() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let speed_overlay = ParallelAxisOverlay::new(
+        "speed",
+        Plot::<Cartesian>::new().mark(
+            Rect::new()
+                .x(lit(0.0))
+                .x2(lit(1.0))
+                .y(lit(47.0))
+                .y2(lit(57.0))
+                .fill("rgba(14, 165, 233, 0.14)")
+                .stroke("#0284c7")
+                .stroke_width(1.3),
+        ),
+    )
+    .width_px(42.0)
+    .zindex(-2);
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(speed_overlay)
+        .mark(
+            ParallelLine::new()
+                .stroke_with(col("group"), |stroke| stroke.no_legend())
+                .stroke_width(1.55)
+                .opacity(0.56)
+                .zindex(2),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.75)
+                .size(72.0)
+                .opacity(0.93)
+                .zindex(3),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile overlay rect with lines parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_axis_overlay_rect_with_lines",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_axis_overlay_symbols() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let efficiency_symbols = ParallelAxisOverlay::new(
+        "efficiency",
+        Plot::<Cartesian>::new().mark(
+            Symbol::new()
+                .x(lit(0.5))
+                .y(col("efficiency"))
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.75)
+                .size(72.0),
+        ),
+    )
+    .width_px(46.0)
+    .zindex(8);
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#94a3b8")
+                .stroke_width(1.2)
+                .opacity(0.34),
+        )
+        .mark(efficiency_symbols);
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile overlay symbol parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_axis_overlay_symbols",
+    )
+    .await;
+}
