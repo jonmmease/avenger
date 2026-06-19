@@ -317,6 +317,197 @@ async fn parallel_missing_values() {
 }
 
 #[tokio::test]
+async fn parallel_numeric_basic() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension("speed", col("speed"))
+        .dimension("efficiency", col("efficiency"))
+        .dimension("stability", col("stability"))
+        .dimension("cost", col("cost"));
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#64748b")
+                .stroke_width(1.45)
+                .opacity(0.46),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile basic numeric parallel plot");
+    assert_visual_match_default(&compiled, &ctx, None, "parallel", "parallel_numeric_basic").await;
+}
+
+#[tokio::test]
+async fn parallel_color_by_category() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(720.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke_with(col("group"), |stroke| {
+                    stroke.legend(|legend| legend.title("Group"))
+                })
+                .stroke_width(1.8)
+                .opacity(0.64),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile category-colored parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_color_by_category",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_numeric_axes() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| {
+            d.axis(|a| a.title("Speed").tick_count(6.0))
+        })
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency").tick_count(5.0))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability").tick_count(6.0))
+        })
+        .dimension_with("cost", col("cost"), |d| {
+            d.axis(|a| a.title("Cost").tick_count(6.0))
+        });
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#94a3b8")
+                .stroke_width(1.25)
+                .opacity(0.42),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.75)
+                .size(62.0)
+                .opacity(0.88),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile numeric-axis parallel plot");
+    assert_visual_match_default(&compiled, &ctx, None, "parallel", "parallel_numeric_axes").await;
+}
+
+#[tokio::test]
+async fn parallel_mixed_numeric_categorical() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("latency", col("latency"), |d| {
+            d.axis(|a| a.title("Latency"))
+        })
+        .dimension_with("tier", col("tier"), |d| {
+            d.scale_with::<Point>(|s| s).axis(|a| a.title("Tier"))
+        })
+        .dimension_with("quality", col("quality"), |d| {
+            d.axis(|a| a.title("Quality"))
+        });
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(560.0, 340.0)
+        .plot_size(430.0, 205.0)
+        .data(mixed_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke_with(col("tier"), |stroke| stroke.no_legend())
+                .stroke_width(1.55)
+                .opacity(0.52),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile mixed numeric/categorical parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_mixed_numeric_categorical",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_long_axis_labels() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| {
+            d.axis(|a| a.title("Maximum observed operating speed"))
+        })
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Energy conversion efficiency ratio"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Long term stability score"))
+        })
+        .dimension_with("cost", col("cost"), |d| {
+            d.axis(|a| a.title("Estimated lifecycle cost"))
+        });
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(1120.0, 380.0)
+        .plot_size(880.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#64748b")
+                .stroke_width(1.35)
+                .opacity(0.44),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile long-label parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_long_axis_labels",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn parallel_axis_grid_enabled() {
     let ctx = SessionContext::new();
     let coord = Parallel::new()
