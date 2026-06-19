@@ -1304,12 +1304,54 @@ struct BackgroundRenderController {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, Default)]
+struct BackgroundRenderWorkerHooks {
+    before_set_scene_delay: Duration,
+    after_set_scene_delay: Duration,
+    after_encode_delay: Duration,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn sleep_background_render_hook(delay: Duration) {
+    if !delay.is_zero() {
+        thread::sleep(delay);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 impl BackgroundRenderController {
     fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
         format: wgpu::TextureFormat,
         metrics: Arc<StdMutex<PlotMetrics>>,
+    ) -> Self {
+        Self::new_with_hooks(
+            device,
+            queue,
+            format,
+            metrics,
+            BackgroundRenderWorkerHooks::default(),
+        )
+    }
+
+    #[cfg(test)]
+    fn new_with_test_hooks(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        format: wgpu::TextureFormat,
+        metrics: Arc<StdMutex<PlotMetrics>>,
+        hooks: BackgroundRenderWorkerHooks,
+    ) -> Self {
+        Self::new_with_hooks(device, queue, format, metrics, hooks)
+    }
+
+    fn new_with_hooks(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        format: wgpu::TextureFormat,
+        metrics: Arc<StdMutex<PlotMetrics>>,
+        hooks: BackgroundRenderWorkerHooks,
     ) -> Self {
         let shared = Arc::new(BackgroundRenderShared::new());
         let worker_shared = shared.clone();
@@ -1322,6 +1364,7 @@ impl BackgroundRenderController {
                     queue,
                     format,
                     metrics.as_ref(),
+                    hooks,
                 );
             })
             .expect("spawn avenger egui render worker");
@@ -1469,6 +1512,7 @@ fn run_background_render_worker(
     queue: wgpu::Queue,
     format: wgpu::TextureFormat,
     metrics: &StdMutex<PlotMetrics>,
+    hooks: BackgroundRenderWorkerHooks,
 ) {
     let mut renderer: Option<AvengerWgpuRenderer> = None;
     let mut targets: Option<OffscreenTargetPool> = None;
@@ -1506,6 +1550,7 @@ fn run_background_render_worker(
             &mut renderer,
             &mut targets,
             &request,
+            hooks,
             metrics,
         );
 
@@ -1537,6 +1582,7 @@ fn render_background_request(
     renderer: &mut Option<AvengerWgpuRenderer>,
     targets: &mut Option<OffscreenTargetPool>,
     request: &BackgroundRenderRequest,
+    hooks: BackgroundRenderWorkerHooks,
     metrics: &StdMutex<PlotMetrics>,
 ) -> Result<Option<RenderedPlotTexture>, AvengerWgpuError> {
     let format = request.format;
@@ -1548,10 +1594,12 @@ fn render_background_request(
     });
     renderer.resize(request.dimensions);
 
+    sleep_background_render_hook(hooks.before_set_scene_delay);
     let set_scene_start = StdInstant::now();
     let queue_wait = set_scene_start.duration_since(request.requested_at);
     renderer.set_scene(device, queue, &request.scene_graph)?;
     let set_scene_elapsed = set_scene_start.elapsed();
+    sleep_background_render_hook(hooks.after_set_scene_delay);
     if background_request_is_stale(shared, request.render_generation) {
         return Ok(None);
     }
@@ -1577,6 +1625,7 @@ fn render_background_request(
     let encode_start = StdInstant::now();
     let commands = renderer.encode_to_offscreen_commands(device, queue, target)?;
     let encode_elapsed = encode_start.elapsed();
+    sleep_background_render_hook(hooks.after_encode_delay);
     if background_request_is_stale(shared, request.render_generation) {
         return Ok(None);
     }
@@ -2328,6 +2377,34 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    fn wait_for_in_progress_generation(
+        controller: &BackgroundRenderController,
+        render_generation: u64,
+    ) {
+        let deadline = StdInstant::now() + Duration::from_secs(5);
+        loop {
+            let state = controller
+                .shared
+                .state
+                .lock()
+                .expect("avenger egui render-worker lock poisoned");
+            if let Some(error) = &state.last_error {
+                panic!("background render worker failed: {error}");
+            }
+            if state.in_progress_generation == Some(render_generation) {
+                return;
+            }
+            drop(state);
+
+            assert!(
+                StdInstant::now() < deadline,
+                "timed out waiting for in-progress render generation {render_generation}"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn background_render_state_coalesces_latest_request() {
         let mut state = BackgroundRenderState::default();
@@ -2545,6 +2622,74 @@ mod tests {
         assert_eq!(metrics.background_render_requests, 3);
         assert_eq!(metrics.background_render_frames_submitted, 3);
         assert_eq!(metrics.background_render_frames_published, 3);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn background_render_worker_enqueue_and_status_remain_fast_when_render_is_slow() {
+        let Some((device, queue)) = make_test_wgpu_device().await else {
+            return;
+        };
+        let metrics = Arc::new(StdMutex::new(PlotMetrics::default()));
+        let controller = BackgroundRenderController::new_with_test_hooks(
+            device,
+            queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+            metrics.clone(),
+            BackgroundRenderWorkerHooks {
+                before_set_scene_delay: Duration::from_millis(200),
+                after_set_scene_delay: Duration::from_millis(200),
+                after_encode_delay: Duration::from_millis(200),
+            },
+        );
+
+        let dimensions = test_dimensions(128.0, 96.0);
+        controller.enqueue(
+            1,
+            empty_scene_graph(),
+            dimensions,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            metrics.as_ref(),
+        );
+        wait_for_in_progress_generation(&controller, 1);
+
+        let enqueue_start = StdInstant::now();
+        controller.enqueue(
+            2,
+            empty_scene_graph(),
+            dimensions,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            metrics.as_ref(),
+        );
+        assert!(
+            enqueue_start.elapsed() < Duration::from_millis(100),
+            "enqueue should not wait for the slow background render"
+        );
+
+        let status_start = StdInstant::now();
+        let status = controller.status();
+        assert!(
+            status_start.elapsed() < Duration::from_millis(100),
+            "status should not wait for the slow background render"
+        );
+        assert!(status.render_pending);
+        assert_eq!(status.requested_scene_generation, Some(2));
+
+        let rendered = wait_for_rendered_scene(&controller, 2);
+        assert_eq!(rendered.scene_generation, 2);
+
+        let metrics = metrics
+            .lock()
+            .expect("avenger egui metrics lock poisoned")
+            .clone();
+        assert_eq!(metrics.background_render_requests, 2);
+        assert_eq!(metrics.background_render_frames_published, 1);
+        assert!(
+            metrics.stale_background_render_frames_dropped >= 1,
+            "first slow render should be dropped after a newer request arrives"
+        );
     }
 
     #[tokio::test]

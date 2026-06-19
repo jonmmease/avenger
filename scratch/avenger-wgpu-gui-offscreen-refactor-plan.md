@@ -1337,12 +1337,13 @@ Phase 11 progress notes, 2026-06-19:
 - Added background GPU metrics and render mode reporting. Manual user feedback after the first worker milestone: 100k pan/zoom looked and felt the same, matching the measured diagnosis that scene evaluation dominates over `set_scene`/encode/submit.
 - Added pure `BackgroundRenderState` helpers and no-WGPU release tests for latest-wins request coalescing, stale render generation detection, pending resize replacement, and front target generation bookkeeping. These tests make the worker coordination rules easier to validate without requiring native WGPU setup.
 - Added a native WGPU release test that drives the real background render worker through sequential renders and a resize. It verifies that a render after egui consumption avoids the current front target generation, that resized renders publish a generation allocated during target recreation rather than ordinary round-robin rotation, and that background render request/submitted/published metrics advance.
+- Added a test-only background render delay hook and a native WGPU release test that injects artificial delays around `set_scene` and command encode. The test verifies that enqueue/status calls used by the egui frame path remain fast while a previous render is slow, and that the stale slow render is dropped for the newer request.
 
 Phase 11 validation results so far, 2026-06-19:
 
 - `cargo fmt --all`: passed.
 - `cargo check -p avenger-egui --release --features eframe --example basic_chart`: passed.
-- `cargo test -p avenger-egui --release`: passed, 22 tests plus doc-tests after adding the worker-state and native WGPU worker tests.
+- `cargo test -p avenger-egui --release`: passed, 23 tests plus doc-tests after adding the worker-state, native WGPU worker, and slow-worker responsiveness tests.
 - `cargo test -p avenger-wgpu --lib --release`: passed, 33 tests.
 - `cargo run -p avenger-egui --release --features eframe --example basic_chart`: startup smoke passed with no panic or WGPU validation output, then stopped manually.
 
@@ -1371,6 +1372,7 @@ Manual checks:
 
 - [ ] Artificially slow GPU render does not stall egui frame loop.
 - [ ] Artificially slow `set_scene`/encode path does not stall egui slider dragging.
+- [x] Native slow-worker test verifies artificially slow `set_scene`/encode-side work does not block egui-side enqueue/status calls and drops stale slow renders.
 - [ ] 100k-point `basic_chart` still displays and keeps egui controls responsive.
 - [ ] Pan/zoom continues to update axes and eventually displays the newest texture.
 - [ ] Rapid slider changes publish only latest useful texture generations.
