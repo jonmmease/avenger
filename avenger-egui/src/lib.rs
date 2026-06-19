@@ -893,6 +893,7 @@ impl EguiResponseState {
 pub struct EguiEventTranslator {
     hovered: bool,
     pointer_captured: bool,
+    last_pointer_position: Option<[f32; 2]>,
     last_size: Option<[f32; 2]>,
 }
 
@@ -904,13 +905,13 @@ impl EguiEventTranslator {
         input: &egui::InputState,
     ) -> Vec<WindowEvent> {
         let mut events = Vec::new();
-        let pointer_pos = input.pointer.hover_pos();
         let hovered = response.hovered;
 
         if hovered && !self.hovered {
             events.push(WindowEvent::CursorEntered);
         } else if !hovered && self.hovered && !self.pointer_captured {
             events.push(WindowEvent::CursorLeft);
+            self.last_pointer_position = None;
         }
         self.hovered = hovered;
 
@@ -918,16 +919,13 @@ impl EguiEventTranslator {
             self.pointer_captured = true;
         }
 
-        if (hovered || self.pointer_captured)
-            && let Some(pos) = pointer_pos
-        {
-            events.push(WindowEvent::CursorMoved(WindowCursorMoved {
-                position: local_position(rect, pos),
-            }));
-        }
-
         for event in &input.raw.events {
             match event {
+                egui::Event::PointerMoved(pos) => {
+                    if rect.contains(*pos) || self.pointer_captured {
+                        self.push_cursor_moved(&mut events, rect, *pos);
+                    }
+                }
                 egui::Event::PointerButton {
                     pos,
                     button,
@@ -979,6 +977,7 @@ impl EguiEventTranslator {
                     }
                     self.hovered = false;
                     self.pointer_captured = false;
+                    self.last_pointer_position = None;
                 }
                 _ => {}
             }
@@ -986,6 +985,9 @@ impl EguiEventTranslator {
 
         if response.drag_stopped {
             self.pointer_captured = false;
+            if !hovered {
+                self.last_pointer_position = None;
+            }
         }
 
         let size = [rect.width(), rect.height()];
@@ -995,6 +997,19 @@ impl EguiEventTranslator {
         }
 
         events
+    }
+
+    fn push_cursor_moved(
+        &mut self,
+        events: &mut Vec<WindowEvent>,
+        rect: egui::Rect,
+        pos: egui::Pos2,
+    ) {
+        let position = local_position(rect, pos);
+        if self.last_pointer_position != Some(position) {
+            self.last_pointer_position = Some(position);
+            events.push(WindowEvent::CursorMoved(WindowCursorMoved { position }));
+        }
     }
 }
 
@@ -1212,6 +1227,13 @@ mod tests {
         events
             .iter()
             .any(|event| matches!(event, WindowEvent::KeyboardInput(_)))
+    }
+
+    fn cursor_moved_count(events: &[WindowEvent]) -> usize {
+        events
+            .iter()
+            .filter(|event| matches!(event, WindowEvent::CursorMoved(_)))
+            .count()
     }
 
     fn response_for_size(size: egui::Vec2) -> egui::Response {
@@ -1475,6 +1497,27 @@ mod tests {
                 })
             )
         }));
+    }
+
+    #[tokio::test]
+    async fn stationary_hover_does_not_emit_repeated_cursor_moved_events() {
+        let handle = test_handle().await;
+        let ctx = egui::Context::default();
+        let pos = egui::pos2(40.0, 40.0);
+
+        let first = plot_events_on_ctx(
+            &ctx,
+            &handle,
+            raw_input(vec![egui::Event::PointerMoved(pos)]),
+        );
+        assert_eq!(cursor_moved_count(&first), 1);
+
+        let second = plot_events_on_ctx(
+            &ctx,
+            &handle,
+            raw_input(vec![egui::Event::PointerMoved(pos)]),
+        );
+        assert_eq!(cursor_moved_count(&second), 0);
     }
 
     #[tokio::test]

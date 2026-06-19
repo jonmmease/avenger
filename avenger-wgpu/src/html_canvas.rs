@@ -222,13 +222,21 @@ impl<'window> HtmlCanvasCanvas<'window> {
                     let c = if self.sample_count > 1 {
                         renderer.render(
                             &self.device,
+                            render_target_extent,
                             &self.multisampled_framebuffer,
                             Some(&view),
                             *x_adjustment,
                             *y_adjustment,
                         )
                     } else {
-                        renderer.render(&self.device, &view, None, *x_adjustment, *y_adjustment)
+                        renderer.render(
+                            &self.device,
+                            render_target_extent,
+                            &view,
+                            None,
+                            *x_adjustment,
+                            *y_adjustment,
+                        )
                     };
                     commands.push(c);
                 }

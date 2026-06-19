@@ -300,6 +300,7 @@ impl InstancedMarkRenderer {
     pub fn render(
         &self,
         device: &Device,
+        render_target_extent: Extent3d,
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
         x_adjustment: Option<LinearScaleAdjustment>,
@@ -311,6 +312,7 @@ impl InstancedMarkRenderer {
         self.encode_into(
             device,
             &mut mark_encoder,
+            render_target_extent,
             texture_view,
             resolve_target,
             x_adjustment,
@@ -324,6 +326,7 @@ impl InstancedMarkRenderer {
         &self,
         device: &Device,
         mark_encoder: &mut wgpu::CommandEncoder,
+        render_target_extent: Extent3d,
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
         x_adjustment: Option<LinearScaleAdjustment>,
@@ -425,11 +428,17 @@ impl InstancedMarkRenderer {
                         height,
                     } = self.clip
                     {
+                        let px = (x * self.scale) as u32;
+                        let py = (y * self.scale) as u32;
+                        let pw = (width * self.scale) as u32;
+                        let ph = (height * self.scale) as u32;
+                        let cx = px.min(render_target_extent.width);
+                        let cy = py.min(render_target_extent.height);
                         render_pass.set_scissor_rect(
-                            (x * self.scale) as u32,
-                            (y * self.scale) as u32,
-                            (width * self.scale) as u32,
-                            (height * self.scale) as u32,
+                            cx,
+                            cy,
+                            pw.min(render_target_extent.width - cx),
+                            ph.min(render_target_extent.height - cy),
                         );
                     }
 

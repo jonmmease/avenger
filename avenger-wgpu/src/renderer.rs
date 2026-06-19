@@ -417,6 +417,7 @@ impl AvengerRendererCore {
                             renderer.encode_into(
                                 device,
                                 &mut mark_encoder,
+                                target.extent,
                                 target.view,
                                 target.resolve_target,
                                 *x_adjustment,
