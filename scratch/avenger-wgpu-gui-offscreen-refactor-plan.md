@@ -1145,7 +1145,8 @@ Commit:
 
 ## Phase 11 - Full Background GPU Rendering
 
-Purpose: move exact rendering fully off the GUI hot path where native WGPU permits it.
+Purpose: move `set_scene`, offscreen command encoding, and queue submission off
+the GUI hot path where native WGPU permits it.
 
 This phase should happen only after the egui example works with UI-thread GPU upload/render.
 
@@ -1153,24 +1154,206 @@ Status decision, 2026-06-19:
 
 - Deferred for the initial egui MVP after release-mode manual validation. The current path already moves chart/event evaluation to background tasks, publishes only the latest scene generation, and keeps the egui frame loop sampling the latest completed texture.
 - Local `wgpu 27.0.1` source confirms `Device` and `Queue` are `Clone` and `Send + Sync` on the native send/sync build, so a future background GPU worker can use cloned handles. That worker should still own independent `AvengerWgpuRenderer` state and back-buffer `OffscreenTarget`s to avoid cross-thread renderer mutation.
-- The basic example's measured GPU work is small enough for the MVP: after slider/pan testing, representative metrics showed sub-millisecond to low-millisecond `set_scene`, encode, and submit timings while the GUI continued repainting.
+- The 100k-point egui example shows why this phase should stay gated: the observed bottleneck is chart scene evaluation, not WGPU submission. A representative pan/zoom screenshot showed `scene eval` around `137182 us`, while `set_scene/encode/submit` was about `4049/1395/79 us` and texture publication was about `6 us`. Moving GPU work off the GUI frame would remove roughly 5-6 ms from affected egui frames, but it would not by itself make 100k-point pan/zoom feel realtime.
 - Do not implement this phase until a heavier chart proves that egui-frame GPU upload/render is the bottleneck. If resumed, keep the tasks below as the implementation checklist.
 
-Tasks:
+Non-goals for Phase 11:
+
+- Do not implement semantic pan/zoom preview, cached data-mark retargeting, or event coalescing in this phase. Those are likely the first-order fix for 100k-point pan/zoom staleness.
+- Do not mutate `egui_wgpu::Renderer` from a background worker.
+- Do not introduce egui types into `avenger-wgpu`.
+- Do not replace the current UI-thread render path on wasm; keep a fallback.
+
+Target architecture:
+
+```mermaid
+sequenceDiagram
+    participant UI as egui frame
+    participant SceneWorker as scene worker
+    participant RenderWorker as GPU render worker
+    participant Queue as shared wgpu Queue
+    participant Registry as egui texture registry
+    participant Painter as egui Painter
+
+    UI->>SceneWorker: params/events request SceneGraph generation
+    SceneWorker->>RenderWorker: latest SceneGraph + dimensions
+    RenderWorker->>RenderWorker: set_scene + encode into back OffscreenTarget
+    RenderWorker->>Queue: submit command buffers
+    RenderWorker->>UI: publish rendered texture generation
+    UI->>Registry: register/update TextureId from TextureView
+    UI->>Painter: paint latest TextureId
+```
+
+Implementation plan:
+
+### Phase 11.1 - Decision Gate and Baseline
 
 - [x] Confirm WGPU `Device`/`Queue` sharing requirements for the chosen WGPU version.
-- [x] Decide thread ownership model for the future implementation:
+- [x] Decide the future thread ownership model:
   - cloned `Device`/`Queue`,
-  - one worker per widget,
-  - shared worker pool.
+  - one render worker per egui plot widget initially,
+  - possible shared worker pool later only if per-widget workers become too heavy.
 - [x] Require any future background worker to avoid mutating GUI-thread renderer resources.
 - [x] Require any future background worker to own its own `AvengerWgpuRenderer` or carefully synchronized renderer state.
-- [ ] Render exact frame into a back `OffscreenTarget`.
-- [ ] Submit background render commands.
-- [ ] Publish only after submission is complete enough for safe sampling.
-- [ ] Add optional fences/polling if required by WGPU semantics.
-- [ ] Drop stale generations before expensive GPU work when possible.
-- [ ] Add fallback for wasm, where true background GPU rendering may not be available.
+- [x] Record the 100k-point baseline before starting this phase:
+  - scene evaluation is the current dominant cost,
+  - GPU render/upload is currently secondary,
+  - Phase 11 should be judged by GUI-frame smoothness, not by total pan/zoom latency alone.
+- [x] Before implementing, capture a fresh release-mode baseline from `basic_chart` or a heavier chart where `set_scene + encode + submit` is large enough to matter.
+- [x] Keep the baseline numbers in this plan or in the architecture document so the final comparison is obvious.
+
+### Phase 11.2 - Split GPU State Ownership
+
+- [x] Split the current `EguiPlotGpuState` responsibilities into:
+  - a UI-thread texture registry/painter state that owns the current `egui::TextureId`,
+  - a background render state that owns `AvengerWgpuRenderer`, `OffscreenTargetPool`, cloned `Device`, cloned `Queue`, texture format, and dimensions.
+- [x] Keep egui texture registration/update on the egui frame thread:
+  - `register_native_texture`,
+  - `update_egui_texture_from_wgpu_texture`.
+- [x] Define a `RenderedPlotTexture`/equivalent handoff object containing:
+  - render generation,
+  - source scene generation,
+  - dimensions and scale,
+  - texture target generation/slot id,
+  - cloneable WGPU texture/view handles or a safe leased target handle.
+- [x] Record render metrics through `PlotMetrics` rather than storing them on the handoff object.
+- [x] Ensure the handoff object owns or leases enough target lifetime that the worker cannot overwrite the texture while egui may sample it.
+- [x] Do not publish borrowed references into the UI thread.
+
+### Phase 11.3 - Add Latest-Wins Render Requests
+
+- [x] Add a render request type containing:
+  - scene generation,
+  - `Arc<SceneGraph>`,
+  - `CanvasDimensions`,
+  - target texture format,
+  - optional egui repaint context.
+- [x] Add a latest-wins request slot or channel for render work.
+- [x] Coalesce render requests so an older scene generation is dropped before `set_scene` whenever a newer request exists.
+- [x] If a render is already in progress, store only the newest pending request.
+- [x] Preserve the current scene-generation publisher semantics: stale generations may be dropped, and the UI should keep sampling the latest completed texture.
+- [x] Add cancellation checks:
+  - before `set_scene`,
+  - after `set_scene` and before command encode,
+  - after command encode and before publish.
+
+### Phase 11.4 - Render Worker
+
+- [x] Initialize the worker after the first egui frame exposes `egui_wgpu::RenderState`.
+- [x] Clone `wgpu::Device` and `wgpu::Queue` into the worker on native targets.
+- [x] Construct `AvengerWgpuRenderer` on the worker using the current dimensions and texture format.
+- [x] Own an `OffscreenTargetPool` on the worker.
+- [x] Render exact frames into a back `OffscreenTarget`.
+- [x] Submit background render commands through the cloned/shared queue.
+- [x] Publish a rendered texture only after `queue.submit(...)` has been called.
+- [x] Treat queue submission ordering as the normal synchronization path; add optional worker-side polling/fences only if validation or platform testing shows sampling can race submission.
+- [x] Request an egui repaint after publishing a rendered texture.
+- [x] Surface worker errors through the existing metrics/error path as `AvengerWgpuError::ConversionError`.
+
+### Phase 11.5 - Texture Buffering and Lifetime
+
+- [x] Replace the simple `acquire_next_excluding_generation(current_registered_generation)` policy with a lease-aware policy suitable for cross-thread publishing.
+- [x] Track at least these target states:
+  - free/back target available for worker rendering,
+  - rendering target in use by the worker,
+  - published target waiting for egui registration,
+  - front target currently registered/paintable by egui.
+- [x] Ensure the worker never renders into the current front target or a newly published target that egui has not consumed.
+- [x] When egui registers a newer target, release the previous front target back to the pool.
+- [x] Handle resize/scale/format changes by recreating worker targets and invalidating incompatible published/front targets.
+- [x] Avoid unbounded texture growth; prefer two or three persistent targets per widget.
+
+### Phase 11.6 - egui Integration Changes
+
+- [x] Replace `render_scene_to_texture(...)` on the egui frame with an enqueue/checkpoint flow:
+  - enqueue a render request when the latest scene generation or dimensions change,
+  - consume the latest rendered texture if one is available,
+  - register/update the egui `TextureId` on the UI thread,
+  - paint the current `TextureId`.
+- [x] Keep `Plot::show(ui)` behavior egui-native:
+  - allocate the widget rect,
+  - paint the latest texture,
+  - translate egui input to Avenger events,
+  - return `PlotOutput`.
+- [x] Keep the UI responsive while a render worker is busy by always painting the last completed `TextureId`.
+- [x] Make `FrameStatus` distinguish:
+  - scene generation requested/published,
+  - texture generation requested/published,
+  - scene pending,
+  - GPU render pending.
+- [x] Add a clear fallback path that uses the current UI-thread `set_scene + encode + submit` implementation when background GPU rendering is disabled or unsupported.
+
+### Phase 11.7 - Native/Wasm Capability Gate
+
+- [x] Gate background GPU rendering behind a native-only capability check or cargo feature if needed.
+- [x] On wasm, keep scene evaluation/render scheduling compatible with the browser constraints and use the UI-thread render path unless a tested browser-safe worker path exists.
+- [x] Make the selected mode observable in metrics/debug UI:
+  - `ui-thread-gpu`,
+  - `background-gpu`,
+  - `unsupported/fallback`.
+
+### Phase 11.8 - Metrics and Tracing
+
+- [x] Extend metrics with separate background GPU counters:
+  - render requests enqueued,
+  - render requests coalesced/dropped,
+  - render frames submitted,
+  - render frames published,
+  - render frames consumed by egui,
+  - front texture reuses while GPU render pending.
+- [x] Record timings for:
+  - queue wait/coalescing delay,
+  - `set_scene`,
+  - offscreen command encode,
+  - queue submit,
+  - time from scene publication to texture publication,
+  - egui texture registration/update.
+- [x] Add tracing spans around:
+  - render request enqueue,
+  - stale request drop,
+  - worker render start/end,
+  - queue submit,
+  - rendered texture publish,
+  - UI texture consume/register.
+
+### Phase 11.9 - Tests
+
+- [x] Unit-test render request keys without WGPU.
+- [ ] Unit-test latest-wins render request coalescing without WGPU.
+- [ ] Unit-test target lease state transitions without WGPU.
+- [ ] Unit-test stale render generations do not replace newer published textures.
+- [ ] Unit-test resize invalidates incompatible pending/front targets.
+- [ ] Add a focused native integration test if practical; keep it release-mode if it is expensive.
+- [x] Preserve existing `avenger-egui` event translation and scene publisher tests.
+
+Phase 11 progress notes, 2026-06-19:
+
+- Split `avenger-egui` GPU state into UI-thread texture registration state, a synchronous fallback renderer, and a native background render worker.
+- Added `request_background_scene_texture(...)` and `request_background_scene_texture_with_repaint(...)` on `AvengerPlotHandle`.
+- The native worker owns cloned `wgpu::Device`/`Queue` handles, an independent `AvengerWgpuRenderer`, and a triple-buffered `OffscreenTargetPool`.
+- The egui thread still owns `egui_wgpu::Renderer` texture registration/update and paints the latest `TextureId`.
+- The basic example now requests background texture rendering for the latest scene and dimensions, while wasm keeps the UI-thread GPU fallback.
+- Added background GPU metrics and render mode reporting. Manual user feedback after the first worker milestone: 100k pan/zoom looked and felt the same, matching the measured diagnosis that scene evaluation dominates over `set_scene`/encode/submit.
+
+Phase 11 validation results so far, 2026-06-19:
+
+- `cargo fmt --all`: passed.
+- `cargo check -p avenger-egui --release --features eframe --example basic_chart`: passed.
+- `cargo test -p avenger-egui --release`: passed, 17 tests plus doc-tests.
+- `cargo test -p avenger-wgpu --lib --release`: passed, 33 tests.
+- `cargo run -p avenger-egui --release --features eframe --example basic_chart`: startup smoke passed with no panic or WGPU validation output, then stopped manually.
+
+### Phase 11.10 - Implementation Agent Instructions
+
+- [ ] Check off Phase 11 tasks as they are completed.
+- [ ] Commit after each coherent sub-phase or after any substantial working milestone.
+- [ ] Use Conventional Commit messages, for example:
+  - `feat(egui): split plot gpu texture registry`
+  - `feat(egui): render avenger plot textures on worker`
+  - `test(egui): cover background texture publication`
+- [ ] Use release builds/tests only for performance-sensitive validation in this phase.
+- [ ] Do not change unrelated chart semantics while implementing this phase.
+- [ ] If pan/zoom still feels slow but metrics show scene evaluation dominates, stop Phase 11 tuning and open/follow a separate preview/coalescing plan.
 
 Validation:
 
@@ -1178,11 +1361,19 @@ Validation:
 cargo fmt --all
 cargo test -p avenger-wgpu --lib --release
 cargo test -p avenger-egui --release
+cargo check -p avenger-egui --release --features eframe --example basic_chart
 ```
 
 Manual checks:
 
 - [ ] Artificially slow GPU render does not stall egui frame loop.
+- [ ] Artificially slow `set_scene`/encode path does not stall egui slider dragging.
+- [ ] 100k-point `basic_chart` still displays and keeps egui controls responsive.
+- [ ] Pan/zoom continues to update axes and eventually displays the newest texture.
+- [ ] Rapid slider changes publish only latest useful texture generations.
+- [ ] Window resize recreates compatible background targets without WGPU validation errors.
+- [ ] No target currently registered with egui is overwritten by the background worker.
+- [ ] Metrics clearly show whether latency is scene evaluation, GPU render, or egui texture registration.
 - [x] Rapid param changes discard stale scene generations in the MVP publisher path.
 - [x] No WGPU validation errors observed during manual release-mode slider, pan, and resize checks.
 

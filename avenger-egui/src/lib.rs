@@ -3,6 +3,12 @@ use std::{
     time::{Duration, Instant as StdInstant},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::{
+    sync::Condvar,
+    thread::{self, JoinHandle},
+};
+
 use avenger_app::{
     app::{AppUpdate, AvengerApp},
     error::AvengerAppError,
@@ -299,6 +305,18 @@ impl AvengerPlotHandle {
             metrics.scene_frames_published, metrics.stale_scene_frames_dropped
         ));
         ui.label(format!(
+            "gpu submitted/published/consumed: {}/{}/{}",
+            metrics.background_render_frames_submitted,
+            metrics.background_render_frames_published,
+            metrics.background_render_frames_consumed
+        ));
+        ui.label(format!(
+            "gpu requests/coalesced/dropped: {}/{}/{}",
+            metrics.background_render_requests,
+            metrics.background_render_requests_coalesced,
+            metrics.stale_background_render_frames_dropped
+        ));
+        ui.label(format!(
             "events routed: {} in {} batches",
             metrics.routed_events, metrics.routed_event_batches
         ));
@@ -309,6 +327,18 @@ impl AvengerPlotHandle {
         ui.label(format!(
             "scene eval / texture publish us: {} / {}",
             metrics.last_scene_evaluation_us, metrics.last_texture_publish_us
+        ));
+        ui.label(format!(
+            "scene-to-texture publish us: {}",
+            metrics.last_scene_to_texture_publish_us
+        ));
+        ui.label(format!(
+            "gpu queue wait us: {}",
+            metrics.last_background_queue_wait_us
+        ));
+        ui.label(format!(
+            "texture render mode: {}",
+            status.texture_render_mode.as_str()
         ));
         ui.label(format!(
             "latest texture/scene: {:?}/{:?}",
@@ -349,12 +379,71 @@ impl AvengerPlotHandle {
         gpu.render_scene(render_state, scene_graph, dimensions, &self.metrics)
     }
 
+    pub fn request_background_scene_texture(
+        &self,
+        render_state: &egui_wgpu::RenderState,
+        scene_generation: u64,
+        scene_graph: Arc<SceneGraph>,
+        dimensions: CanvasDimensions,
+    ) -> Result<TextureRenderStatus, AvengerWgpuError> {
+        self.request_background_scene_texture_inner(
+            render_state,
+            None,
+            scene_generation,
+            scene_graph,
+            dimensions,
+        )
+    }
+
+    pub fn request_background_scene_texture_with_repaint(
+        &self,
+        render_state: &egui_wgpu::RenderState,
+        ctx: &egui::Context,
+        scene_generation: u64,
+        scene_graph: Arc<SceneGraph>,
+        dimensions: CanvasDimensions,
+    ) -> Result<TextureRenderStatus, AvengerWgpuError> {
+        self.request_background_scene_texture_inner(
+            render_state,
+            Some(ctx.clone()),
+            scene_generation,
+            scene_graph,
+            dimensions,
+        )
+    }
+
+    fn request_background_scene_texture_inner(
+        &self,
+        render_state: &egui_wgpu::RenderState,
+        repaint: Option<egui::Context>,
+        scene_generation: u64,
+        scene_graph: Arc<SceneGraph>,
+        dimensions: CanvasDimensions,
+    ) -> Result<TextureRenderStatus, AvengerWgpuError> {
+        let mut gpu = self.gpu.lock().expect("avenger egui gpu lock poisoned");
+        let gpu = gpu.get_or_insert_with(|| {
+            EguiPlotGpuState::new(
+                &render_state.device,
+                dimensions,
+                wgpu::TextureFormat::Rgba8Unorm,
+            )
+        });
+        gpu.request_background_scene_texture(
+            render_state,
+            scene_generation,
+            scene_graph,
+            dimensions,
+            repaint,
+            self.metrics.clone(),
+        )
+    }
+
     pub fn texture_id(&self) -> Option<egui::TextureId> {
         self.gpu
             .lock()
             .expect("avenger egui gpu lock poisoned")
             .as_ref()
-            .and_then(|gpu| gpu.texture_id)
+            .and_then(EguiPlotGpuState::texture_id)
     }
 
     pub fn frame_status(&self) -> FrameStatus {
@@ -371,7 +460,8 @@ impl AvengerPlotHandle {
             .map(FrameGeneration::get);
         status.requested_generation = (scene_status.requested_generation != FrameGeneration::ZERO)
             .then_some(scene_status.requested_generation.get());
-        status.render_pending = scene_status.in_progress_generation.is_some();
+        status.render_pending =
+            scene_status.in_progress_generation.is_some() || status.gpu_render_pending;
         status
     }
 
@@ -402,6 +492,12 @@ pub struct PlotMetrics {
     pub event_dispatch_requests: u64,
     pub scene_frames_published: u64,
     pub stale_scene_frames_dropped: u64,
+    pub background_render_requests: u64,
+    pub background_render_requests_coalesced: u64,
+    pub background_render_frames_submitted: u64,
+    pub background_render_frames_published: u64,
+    pub background_render_frames_consumed: u64,
+    pub stale_background_render_frames_dropped: u64,
     pub offscreen_texture_renders: u64,
     pub texture_registrations: u64,
     pub texture_updates: u64,
@@ -416,6 +512,8 @@ pub struct PlotMetrics {
     pub last_command_encode_us: u64,
     pub last_submit_us: u64,
     pub last_texture_publish_us: u64,
+    pub last_scene_to_texture_publish_us: u64,
+    pub last_background_queue_wait_us: u64,
 }
 
 fn update_metrics(metrics: &StdMutex<PlotMetrics>, update: impl FnOnce(&mut PlotMetrics)) {
@@ -697,15 +795,254 @@ impl<'a> Plot<'a> {
     }
 }
 
-struct EguiPlotGpuState {
-    renderer: AvengerWgpuRenderer,
-    targets: OffscreenTargetPool,
+#[derive(Clone, Copy, Debug)]
+pub struct TextureRenderStatus {
+    pub texture_id: Option<egui::TextureId>,
+    pub texture_generation: Option<u64>,
+    pub scene_generation: Option<u64>,
+    pub dimensions: Option<CanvasDimensions>,
+    pub render_pending: bool,
+}
+
+struct EguiTextureRegistryState {
     texture_id: Option<egui::TextureId>,
     registered_generation: Option<u64>,
+    registered_scene_generation: Option<u64>,
+    registered_dimensions: Option<CanvasDimensions>,
+    consumed_render_generation: Option<u64>,
+}
+
+impl EguiTextureRegistryState {
+    fn new() -> Self {
+        Self {
+            texture_id: None,
+            registered_generation: None,
+            registered_scene_generation: None,
+            registered_dimensions: None,
+            consumed_render_generation: None,
+        }
+    }
+
+    fn register_texture_view(
+        &mut self,
+        render_state: &egui_wgpu::RenderState,
+        texture_view: &wgpu::TextureView,
+        target_generation: u64,
+        scene_generation: Option<u64>,
+        dimensions: CanvasDimensions,
+        metrics: &StdMutex<PlotMetrics>,
+    ) -> egui::TextureId {
+        let texture_publish_start = StdInstant::now();
+        let mut egui_renderer = render_state.renderer.write();
+        let reused_texture_id = self.texture_id.is_some();
+        let texture_id = if let Some(texture_id) = self.texture_id {
+            egui_renderer.update_egui_texture_from_wgpu_texture(
+                &render_state.device,
+                texture_view,
+                wgpu::FilterMode::Linear,
+                texture_id,
+            );
+            texture_id
+        } else {
+            egui_renderer.register_native_texture(
+                &render_state.device,
+                texture_view,
+                wgpu::FilterMode::Linear,
+            )
+        };
+        let texture_publish_elapsed = texture_publish_start.elapsed();
+        self.texture_id = Some(texture_id);
+        self.registered_generation = Some(target_generation);
+        self.registered_scene_generation = scene_generation;
+        self.registered_dimensions = Some(dimensions);
+        update_metrics(metrics, |metrics| {
+            if reused_texture_id {
+                metrics.texture_updates += 1;
+            } else {
+                metrics.texture_registrations += 1;
+            }
+            metrics.last_texture_publish_us = duration_us(texture_publish_elapsed);
+        });
+        texture_id
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn register_rendered_texture(
+        &mut self,
+        render_state: &egui_wgpu::RenderState,
+        rendered: &RenderedPlotTexture,
+        metrics: &StdMutex<PlotMetrics>,
+    ) -> Option<egui::TextureId> {
+        if self.consumed_render_generation == Some(rendered.render_generation) {
+            return self.texture_id;
+        }
+
+        let texture_id = self.register_texture_view(
+            render_state,
+            &rendered.view,
+            rendered.target_generation,
+            Some(rendered.scene_generation),
+            rendered.dimensions,
+            metrics,
+        );
+        self.consumed_render_generation = Some(rendered.render_generation);
+        update_metrics(metrics, |metrics| {
+            metrics.background_render_frames_consumed += 1;
+        });
+        Some(texture_id)
+    }
+
+    fn status(&self) -> TextureRenderStatus {
+        TextureRenderStatus {
+            texture_id: self.texture_id,
+            texture_generation: self.registered_generation,
+            scene_generation: self.registered_scene_generation,
+            dimensions: self.registered_dimensions,
+            render_pending: false,
+        }
+    }
+}
+
+struct EguiPlotGpuState {
+    sync: Option<EguiPlotSyncGpuState>,
+    #[cfg(not(target_arch = "wasm32"))]
+    background: Option<BackgroundRenderController>,
+    registry: EguiTextureRegistryState,
     format: wgpu::TextureFormat,
 }
 
 impl EguiPlotGpuState {
+    fn new(
+        _device: &wgpu::Device,
+        _dimensions: CanvasDimensions,
+        format: wgpu::TextureFormat,
+    ) -> Self {
+        Self {
+            sync: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            background: None,
+            registry: EguiTextureRegistryState::new(),
+            format,
+        }
+    }
+
+    fn render_scene(
+        &mut self,
+        render_state: &egui_wgpu::RenderState,
+        scene_graph: &SceneGraph,
+        dimensions: CanvasDimensions,
+        metrics: &StdMutex<PlotMetrics>,
+    ) -> Result<egui::TextureId, AvengerWgpuError> {
+        let sync = self.sync.get_or_insert_with(|| {
+            EguiPlotSyncGpuState::new(&render_state.device, dimensions, self.format)
+        });
+        sync.render_scene(
+            render_state,
+            scene_graph,
+            dimensions,
+            &mut self.registry,
+            metrics,
+        )
+    }
+
+    fn request_background_scene_texture(
+        &mut self,
+        render_state: &egui_wgpu::RenderState,
+        scene_generation: u64,
+        scene_graph: Arc<SceneGraph>,
+        dimensions: CanvasDimensions,
+        repaint: Option<egui::Context>,
+        metrics: Arc<StdMutex<PlotMetrics>>,
+    ) -> Result<TextureRenderStatus, AvengerWgpuError> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.render_scene(render_state, &scene_graph, dimensions, metrics.as_ref())?;
+            let mut status = self.registry.status();
+            status.scene_generation = Some(scene_generation);
+            self.registry.registered_scene_generation = Some(scene_generation);
+            return Ok(status);
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let controller = self.background.get_or_insert_with(|| {
+                BackgroundRenderController::new(
+                    render_state.device.clone(),
+                    render_state.queue.clone(),
+                    self.format,
+                    metrics.clone(),
+                )
+            });
+
+            controller.set_front_target_generation(self.registry.registered_generation);
+            controller.consume_latest(render_state, &mut self.registry, metrics.as_ref());
+            controller.enqueue(
+                scene_generation,
+                scene_graph,
+                dimensions,
+                self.format,
+                repaint,
+                metrics.as_ref(),
+            );
+            controller.consume_latest(render_state, &mut self.registry, metrics.as_ref());
+
+            if let Some(error) = controller.take_error() {
+                return Err(AvengerWgpuError::ConversionError(error));
+            }
+
+            let mut status = self.registry.status();
+            status.render_pending = controller.is_pending();
+            Ok(status)
+        }
+    }
+
+    fn texture_id(&self) -> Option<egui::TextureId> {
+        self.registry.texture_id
+    }
+
+    fn frame_status(&self) -> FrameStatus {
+        #[cfg(not(target_arch = "wasm32"))]
+        let texture_render_mode = if self.background.is_some() {
+            TextureRenderMode::BackgroundGpu
+        } else if self.sync.is_some() {
+            TextureRenderMode::UiThreadGpu
+        } else {
+            TextureRenderMode::Uninitialized
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let background_status = self
+            .background
+            .as_ref()
+            .map(BackgroundRenderController::status)
+            .unwrap_or_default();
+        #[cfg(target_arch = "wasm32")]
+        let texture_render_mode = if self.sync.is_some() {
+            TextureRenderMode::UiThreadGpu
+        } else {
+            TextureRenderMode::Uninitialized
+        };
+        #[cfg(target_arch = "wasm32")]
+        let background_status = BackgroundRenderStatus::default();
+        FrameStatus {
+            latest_generation: self.registry.registered_generation,
+            latest_scene_generation: None,
+            requested_generation: None,
+            render_pending: background_status.render_pending,
+            latest_texture_scene_generation: self.registry.registered_scene_generation,
+            requested_texture_scene_generation: background_status.requested_scene_generation,
+            gpu_render_pending: background_status.render_pending,
+            texture_render_mode,
+        }
+    }
+}
+
+struct EguiPlotSyncGpuState {
+    renderer: AvengerWgpuRenderer,
+    targets: OffscreenTargetPool,
+    format: wgpu::TextureFormat,
+}
+
+impl EguiPlotSyncGpuState {
     fn new(
         device: &wgpu::Device,
         dimensions: CanvasDimensions,
@@ -723,8 +1060,6 @@ impl EguiPlotGpuState {
         Self {
             renderer,
             targets,
-            texture_id: None,
-            registered_generation: None,
             format,
         }
     }
@@ -734,6 +1069,7 @@ impl EguiPlotGpuState {
         render_state: &egui_wgpu::RenderState,
         scene_graph: &SceneGraph,
         dimensions: CanvasDimensions,
+        registry: &mut EguiTextureRegistryState,
         metrics: &StdMutex<PlotMetrics>,
     ) -> Result<egui::TextureId, AvengerWgpuError> {
         self.renderer.resize(dimensions);
@@ -749,7 +1085,7 @@ impl EguiPlotGpuState {
 
         let target = if let Some(target) = self
             .targets
-            .acquire_next_excluding_generation(self.registered_generation)
+            .acquire_next_excluding_generation(registry.registered_generation)
         {
             target
         } else {
@@ -768,58 +1104,532 @@ impl EguiPlotGpuState {
         let submit_elapsed = submit_start.elapsed();
         let rendered = RenderedOffscreenFrame::from(&*target);
 
-        let texture_publish_start = StdInstant::now();
-        let mut egui_renderer = render_state.renderer.write();
-        let reused_texture_id = self.texture_id.is_some();
-        let texture_id = if let Some(texture_id) = self.texture_id {
-            egui_renderer.update_egui_texture_from_wgpu_texture(
-                &render_state.device,
-                &target.view,
-                wgpu::FilterMode::Linear,
-                texture_id,
-            );
-            texture_id
-        } else {
-            egui_renderer.register_native_texture(
-                &render_state.device,
-                &target.view,
-                wgpu::FilterMode::Linear,
-            )
-        };
-        let texture_publish_elapsed = texture_publish_start.elapsed();
-        self.texture_id = Some(texture_id);
-        self.registered_generation = Some(rendered.generation);
         update_metrics(metrics, |metrics| {
             metrics.offscreen_texture_renders += 1;
-            if reused_texture_id {
-                metrics.texture_updates += 1;
-            } else {
-                metrics.texture_registrations += 1;
-            }
             metrics.last_set_scene_us = duration_us(set_scene_elapsed);
             metrics.last_command_encode_us = duration_us(encode_elapsed);
             metrics.last_submit_us = duration_us(submit_elapsed);
-            metrics.last_texture_publish_us = duration_us(texture_publish_elapsed);
         });
+        let texture_id = registry.register_texture_view(
+            render_state,
+            &target.view,
+            rendered.generation,
+            None,
+            dimensions,
+            metrics,
+        );
         tracing::debug!(
             texture_generation = rendered.generation,
             set_scene_us = duration_us(set_scene_elapsed),
             command_encode_us = duration_us(encode_elapsed),
             submit_us = duration_us(submit_elapsed),
-            texture_publish_us = duration_us(texture_publish_elapsed),
             "rendered avenger scene to egui texture"
         );
         Ok(texture_id)
     }
+}
 
-    fn frame_status(&self) -> FrameStatus {
-        FrameStatus {
-            latest_generation: self.registered_generation,
-            latest_scene_generation: None,
-            requested_generation: None,
-            render_pending: false,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RenderRequestKey {
+    scene_generation: u64,
+    width_bits: u32,
+    height_bits: u32,
+    scale_bits: u32,
+    format: wgpu::TextureFormat,
+}
+
+impl RenderRequestKey {
+    fn new(
+        scene_generation: u64,
+        dimensions: CanvasDimensions,
+        format: wgpu::TextureFormat,
+    ) -> Self {
+        Self {
+            scene_generation,
+            width_bits: dimensions.size[0].to_bits(),
+            height_bits: dimensions.size[1].to_bits(),
+            scale_bits: dimensions.scale.to_bits(),
+            format,
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone)]
+struct BackgroundRenderRequest {
+    render_generation: u64,
+    scene_generation: u64,
+    scene_graph: Arc<SceneGraph>,
+    dimensions: CanvasDimensions,
+    format: wgpu::TextureFormat,
+    repaint: Option<egui::Context>,
+    requested_at: StdInstant,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct RenderedPlotTexture {
+    render_generation: u64,
+    scene_generation: u64,
+    target_generation: u64,
+    dimensions: CanvasDimensions,
+    view: wgpu::TextureView,
+    repaint: Option<egui::Context>,
+    requested_at: StdInstant,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct BackgroundRenderStatus {
+    requested_scene_generation: Option<u64>,
+    render_pending: bool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Default)]
+struct BackgroundRenderState {
+    next_render_generation: u64,
+    requested_scene_generation: Option<u64>,
+    last_requested_key: Option<RenderRequestKey>,
+    pending_request: Option<BackgroundRenderRequest>,
+    latest_rendered: Option<Arc<RenderedPlotTexture>>,
+    consumed_render_generation: Option<u64>,
+    front_target_generation: Option<u64>,
+    in_progress_generation: Option<u64>,
+    last_error: Option<String>,
+    stop: bool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct BackgroundRenderShared {
+    state: StdMutex<BackgroundRenderState>,
+    notify: Condvar,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl BackgroundRenderShared {
+    fn new() -> Self {
+        Self {
+            state: StdMutex::new(BackgroundRenderState::default()),
+            notify: Condvar::new(),
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct BackgroundRenderController {
+    shared: Arc<BackgroundRenderShared>,
+    worker: Option<JoinHandle<()>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl BackgroundRenderController {
+    fn new(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        format: wgpu::TextureFormat,
+        metrics: Arc<StdMutex<PlotMetrics>>,
+    ) -> Self {
+        let shared = Arc::new(BackgroundRenderShared::new());
+        let worker_shared = shared.clone();
+        let worker = thread::Builder::new()
+            .name("avenger-egui-render-worker".to_string())
+            .spawn(move || {
+                run_background_render_worker(
+                    worker_shared,
+                    device,
+                    queue,
+                    format,
+                    metrics.as_ref(),
+                );
+            })
+            .expect("spawn avenger egui render worker");
+
+        Self {
+            shared,
+            worker: Some(worker),
+        }
+    }
+
+    fn enqueue(
+        &self,
+        scene_generation: u64,
+        scene_graph: Arc<SceneGraph>,
+        dimensions: CanvasDimensions,
+        format: wgpu::TextureFormat,
+        repaint: Option<egui::Context>,
+        metrics: &StdMutex<PlotMetrics>,
+    ) {
+        let key = RenderRequestKey::new(scene_generation, dimensions, format);
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .expect("avenger egui render-worker lock poisoned");
+        if state.last_requested_key == Some(key) {
+            return;
+        }
+
+        state.next_render_generation += 1;
+        let render_generation = state.next_render_generation;
+        let coalesced = state.pending_request.replace(BackgroundRenderRequest {
+            render_generation,
+            scene_generation,
+            scene_graph,
+            dimensions,
+            format,
+            repaint,
+            requested_at: StdInstant::now(),
+        });
+        state.last_requested_key = Some(key);
+        state.requested_scene_generation = Some(scene_generation);
+        update_metrics(metrics, |metrics| {
+            metrics.background_render_requests += 1;
+            if coalesced.is_some() {
+                metrics.background_render_requests_coalesced += 1;
+            }
+        });
+        tracing::debug!(
+            render_generation,
+            scene_generation,
+            "queued background avenger plot texture render"
+        );
+        self.shared.notify.notify_one();
+    }
+
+    fn set_front_target_generation(&self, generation: Option<u64>) {
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .expect("avenger egui render-worker lock poisoned");
+        state.front_target_generation = generation;
+    }
+
+    fn consume_latest(
+        &self,
+        render_state: &egui_wgpu::RenderState,
+        registry: &mut EguiTextureRegistryState,
+        metrics: &StdMutex<PlotMetrics>,
+    ) {
+        let rendered = {
+            let state = self
+                .shared
+                .state
+                .lock()
+                .expect("avenger egui render-worker lock poisoned");
+            state.latest_rendered.clone()
+        };
+        let Some(rendered) = rendered else {
+            return;
+        };
+        if registry.consumed_render_generation == Some(rendered.render_generation) {
+            return;
+        }
+
+        registry.register_rendered_texture(render_state, &rendered, metrics);
+        tracing::debug!(
+            render_generation = rendered.render_generation,
+            scene_generation = rendered.scene_generation,
+            texture_generation = rendered.target_generation,
+            "consumed background avenger plot texture on egui thread"
+        );
+
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .expect("avenger egui render-worker lock poisoned");
+        state.consumed_render_generation = Some(rendered.render_generation);
+        state.front_target_generation = Some(rendered.target_generation);
+        self.shared.notify.notify_one();
+    }
+
+    fn take_error(&self) -> Option<String> {
+        self.shared
+            .state
+            .lock()
+            .expect("avenger egui render-worker lock poisoned")
+            .last_error
+            .take()
+    }
+
+    fn is_pending(&self) -> bool {
+        self.status().render_pending
+    }
+
+    fn status(&self) -> BackgroundRenderStatus {
+        let state = self
+            .shared
+            .state
+            .lock()
+            .expect("avenger egui render-worker lock poisoned");
+        let latest_unconsumed = state.latest_rendered.as_ref().is_some_and(|rendered| {
+            Some(rendered.render_generation) != state.consumed_render_generation
+        });
+        BackgroundRenderStatus {
+            requested_scene_generation: state.requested_scene_generation,
+            render_pending: state.pending_request.is_some()
+                || state.in_progress_generation.is_some()
+                || latest_unconsumed,
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for BackgroundRenderController {
+    fn drop(&mut self) {
+        {
+            let mut state = self
+                .shared
+                .state
+                .lock()
+                .expect("avenger egui render-worker lock poisoned");
+            state.stop = true;
+        }
+        self.shared.notify.notify_one();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn run_background_render_worker(
+    shared: Arc<BackgroundRenderShared>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    format: wgpu::TextureFormat,
+    metrics: &StdMutex<PlotMetrics>,
+) {
+    let mut renderer: Option<AvengerWgpuRenderer> = None;
+    let mut targets: Option<OffscreenTargetPool> = None;
+
+    loop {
+        let request = {
+            let mut state = shared
+                .state
+                .lock()
+                .expect("avenger egui render-worker lock poisoned");
+            loop {
+                if state.stop {
+                    return;
+                }
+                let latest_unconsumed = state.latest_rendered.as_ref().is_some_and(|rendered| {
+                    Some(rendered.render_generation) != state.consumed_render_generation
+                });
+                if !latest_unconsumed && let Some(request) = state.pending_request.take() {
+                    state.in_progress_generation = Some(request.render_generation);
+                    break request;
+                }
+                state = shared
+                    .notify
+                    .wait(state)
+                    .expect("avenger egui render-worker lock poisoned");
+            }
+        };
+
+        if background_request_is_stale(&shared, request.render_generation) {
+            finish_stale_background_request(&shared, request.render_generation, metrics);
+            continue;
+        }
+
+        let render_result = render_background_request(
+            &shared,
+            &device,
+            &queue,
+            format,
+            &mut renderer,
+            &mut targets,
+            &request,
+            metrics,
+        );
+
+        match render_result {
+            Ok(Some(rendered)) => publish_background_texture(&shared, rendered, metrics),
+            Ok(None) => {
+                finish_stale_background_request(&shared, request.render_generation, metrics)
+            }
+            Err(err) => {
+                let mut state = shared
+                    .state
+                    .lock()
+                    .expect("avenger egui render-worker lock poisoned");
+                state.last_error = Some(err.to_string());
+                state.last_requested_key = None;
+                if state.in_progress_generation == Some(request.render_generation) {
+                    state.in_progress_generation = None;
+                }
+                shared.notify.notify_one();
+            }
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn render_background_request(
+    shared: &Arc<BackgroundRenderShared>,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    _default_format: wgpu::TextureFormat,
+    renderer: &mut Option<AvengerWgpuRenderer>,
+    targets: &mut Option<OffscreenTargetPool>,
+    request: &BackgroundRenderRequest,
+    metrics: &StdMutex<PlotMetrics>,
+) -> Result<Option<RenderedPlotTexture>, AvengerWgpuError> {
+    let format = request.format;
+    let renderer = renderer.get_or_insert_with(|| {
+        AvengerWgpuRenderer::new(
+            device,
+            AvengerRendererConfig::new(request.dimensions, format).with_sample_count(1),
+        )
+    });
+    renderer.resize(request.dimensions);
+
+    let set_scene_start = StdInstant::now();
+    let queue_wait = set_scene_start.duration_since(request.requested_at);
+    renderer.set_scene(device, queue, &request.scene_graph)?;
+    let set_scene_elapsed = set_scene_start.elapsed();
+    if background_request_is_stale(shared, request.render_generation) {
+        return Ok(None);
+    }
+
+    let descriptor = OffscreenTargetDescriptor::new(request.dimensions, format)
+        .with_label("avenger-egui background plot offscreen texture");
+    let targets = targets
+        .get_or_insert_with(|| OffscreenTargetPool::triple_buffered(device, descriptor.clone()));
+    targets.resize_or_recreate(device, descriptor);
+
+    let front_target_generation = shared
+        .state
+        .lock()
+        .expect("avenger egui render-worker lock poisoned")
+        .front_target_generation;
+    let target =
+        if let Some(target) = targets.acquire_next_excluding_generation(front_target_generation) {
+            target
+        } else {
+            targets.acquire_next()
+        };
+
+    let encode_start = StdInstant::now();
+    let commands = renderer.encode_to_offscreen_commands(device, queue, target)?;
+    let encode_elapsed = encode_start.elapsed();
+    if background_request_is_stale(shared, request.render_generation) {
+        return Ok(None);
+    }
+
+    let submit_start = StdInstant::now();
+    queue.submit(commands);
+    let submit_elapsed = submit_start.elapsed();
+    let rendered = RenderedOffscreenFrame::from(&*target);
+    let view = target.view.clone();
+    update_metrics(metrics, |metrics| {
+        metrics.offscreen_texture_renders += 1;
+        metrics.background_render_frames_submitted += 1;
+        metrics.last_background_queue_wait_us = duration_us(queue_wait);
+        metrics.last_set_scene_us = duration_us(set_scene_elapsed);
+        metrics.last_command_encode_us = duration_us(encode_elapsed);
+        metrics.last_submit_us = duration_us(submit_elapsed);
+    });
+    tracing::debug!(
+        render_generation = request.render_generation,
+        scene_generation = request.scene_generation,
+        texture_generation = rendered.generation,
+        queue_wait_us = duration_us(queue_wait),
+        set_scene_us = duration_us(set_scene_elapsed),
+        command_encode_us = duration_us(encode_elapsed),
+        submit_us = duration_us(submit_elapsed),
+        "submitted background avenger plot texture render"
+    );
+    Ok(Some(RenderedPlotTexture {
+        render_generation: request.render_generation,
+        scene_generation: request.scene_generation,
+        target_generation: rendered.generation,
+        dimensions: request.dimensions,
+        view,
+        repaint: request.repaint.clone(),
+        requested_at: request.requested_at,
+    }))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn background_request_is_stale(
+    shared: &Arc<BackgroundRenderShared>,
+    render_generation: u64,
+) -> bool {
+    let state = shared
+        .state
+        .lock()
+        .expect("avenger egui render-worker lock poisoned");
+    render_generation < state.next_render_generation || state.stop
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn publish_background_texture(
+    shared: &Arc<BackgroundRenderShared>,
+    rendered: RenderedPlotTexture,
+    metrics: &StdMutex<PlotMetrics>,
+) {
+    let mut state = shared
+        .state
+        .lock()
+        .expect("avenger egui render-worker lock poisoned");
+    if rendered.render_generation < state.next_render_generation {
+        if state.in_progress_generation == Some(rendered.render_generation) {
+            state.in_progress_generation = None;
+        }
+        drop(state);
+        update_metrics(metrics, |metrics| {
+            metrics.stale_background_render_frames_dropped += 1;
+        });
+        return;
+    }
+
+    let scene_to_texture_publish = rendered.requested_at.elapsed();
+    let render_generation = rendered.render_generation;
+    let scene_generation = rendered.scene_generation;
+    let repaint = rendered.repaint.clone();
+    state.latest_rendered = Some(Arc::new(rendered));
+    state.in_progress_generation = None;
+    state.consumed_render_generation = None;
+    update_metrics(metrics, |metrics| {
+        metrics.background_render_frames_published += 1;
+        metrics.last_scene_to_texture_publish_us = duration_us(scene_to_texture_publish);
+    });
+    tracing::debug!(
+        render_generation,
+        scene_generation,
+        scene_to_texture_publish_us = duration_us(scene_to_texture_publish),
+        "published background avenger plot texture"
+    );
+    drop(state);
+    if let Some(ctx) = repaint {
+        ctx.request_repaint();
+    }
+    shared.notify.notify_one();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn finish_stale_background_request(
+    shared: &Arc<BackgroundRenderShared>,
+    render_generation: u64,
+    metrics: &StdMutex<PlotMetrics>,
+) {
+    let mut state = shared
+        .state
+        .lock()
+        .expect("avenger egui render-worker lock poisoned");
+    if state.in_progress_generation == Some(render_generation) {
+        state.in_progress_generation = None;
+    }
+    drop(state);
+    update_metrics(metrics, |metrics| {
+        metrics.stale_background_render_frames_dropped += 1;
+    });
+    tracing::debug!(
+        render_generation,
+        "dropped stale background avenger plot texture render"
+    );
+    shared.notify.notify_one();
 }
 
 pub struct PlotOutput {
@@ -862,6 +1672,28 @@ pub struct FrameStatus {
     pub latest_scene_generation: Option<u64>,
     pub requested_generation: Option<u64>,
     pub render_pending: bool,
+    pub latest_texture_scene_generation: Option<u64>,
+    pub requested_texture_scene_generation: Option<u64>,
+    pub gpu_render_pending: bool,
+    pub texture_render_mode: TextureRenderMode,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextureRenderMode {
+    #[default]
+    Uninitialized,
+    UiThreadGpu,
+    BackgroundGpu,
+}
+
+impl TextureRenderMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Uninitialized => "uninitialized",
+            Self::UiThreadGpu => "ui-thread-gpu",
+            Self::BackgroundGpu => "background-gpu",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1278,6 +2110,39 @@ mod tests {
         assert_eq!(
             egui_key_to_avenger(egui::Key::Num7),
             Some(Key::Character('7'))
+        );
+    }
+
+    #[test]
+    fn render_request_key_tracks_scene_dimensions_and_format() {
+        let dimensions = CanvasDimensions {
+            size: [640.0, 480.0],
+            scale: 2.0,
+        };
+        let key = RenderRequestKey::new(7, dimensions, wgpu::TextureFormat::Rgba8Unorm);
+
+        assert_eq!(
+            key,
+            RenderRequestKey::new(7, dimensions, wgpu::TextureFormat::Rgba8Unorm)
+        );
+        assert_ne!(
+            key,
+            RenderRequestKey::new(8, dimensions, wgpu::TextureFormat::Rgba8Unorm)
+        );
+        assert_ne!(
+            key,
+            RenderRequestKey::new(
+                7,
+                CanvasDimensions {
+                    size: [641.0, 480.0],
+                    scale: 2.0,
+                },
+                wgpu::TextureFormat::Rgba8Unorm,
+            )
+        );
+        assert_ne!(
+            key,
+            RenderRequestKey::new(7, dimensions, wgpu::TextureFormat::Bgra8Unorm)
         );
     }
 

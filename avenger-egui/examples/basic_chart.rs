@@ -18,7 +18,7 @@ use datafusion::{
 };
 use eframe::egui;
 
-const POINT_COUNT: usize = 10_000;
+const POINT_COUNT: usize = 100_000;
 
 fn main() -> eframe::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -127,7 +127,7 @@ impl eframe::App for BasicChartApp {
             let desired_size = ui.available_size_before_wrap();
             let dimensions = scene_dimensions(&self.scene, ctx);
 
-            self.render_latest_scene_if_needed(frame, dimensions);
+            self.render_latest_scene_if_needed(ctx, frame, dimensions);
 
             let output = Plot::new(&self.plot).desired_size(desired_size).show(ui);
             if !output.events.is_empty() {
@@ -164,6 +164,7 @@ impl BasicChartApp {
 
     fn render_latest_scene_if_needed(
         &mut self,
+        ctx: &egui::Context,
         frame: &mut eframe::Frame,
         dimensions: CanvasDimensions,
     ) {
@@ -176,16 +177,31 @@ impl BasicChartApp {
         }
 
         if let Some(render_state) = frame.wgpu_render_state()
-            && let Err(err) =
-                self.plot
-                    .render_scene_to_texture(render_state, &self.scene, dimensions)
+            && let Err(err) = self
+                .plot
+                .request_background_scene_texture_with_repaint(
+                    render_state,
+                    ctx,
+                    self.scene_generation,
+                    self.scene.clone(),
+                    dimensions,
+                )
+                .map(|status| {
+                    if status.render_pending {
+                        ctx.request_repaint();
+                    }
+                    if status.scene_generation == Some(self.scene_generation)
+                        && status
+                            .dimensions
+                            .is_some_and(|rendered| canvas_dimensions_eq(rendered, dimensions))
+                    {
+                        self.rendered_scene_generation = Some(self.scene_generation);
+                        self.rendered_dimensions = Some(dimensions);
+                    }
+                })
         {
             self.last_error = Some(err.to_string());
-            return;
         }
-
-        self.rendered_scene_generation = Some(self.scene_generation);
-        self.rendered_dimensions = Some(dimensions);
     }
 }
 

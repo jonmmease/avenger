@@ -114,24 +114,41 @@ uses the same `avenger-eventstream` handlers as Winit-hosted chart apps.
 sequenceDiagram
     participant UI as egui frame
     participant Handle as AvengerPlotHandle
-    participant Renderer as AvengerWgpuRenderer
-    participant Pool as OffscreenTargetPool
+    participant Worker as native render worker
+    participant Renderer as worker AvengerWgpuRenderer
+    participant Pool as worker OffscreenTargetPool
     participant EguiWgpu as egui-wgpu Renderer
     participant Painter as egui Painter
 
-    UI->>Handle: render_scene_to_texture(render_state, scene, dimensions)
-    Handle->>Renderer: resize(dimensions)
-    Handle->>Renderer: set_scene(device, queue, scene)
-    Handle->>Pool: resize_or_recreate(dimensions, Rgba8Unorm)
-    Handle->>Pool: acquire target excluding current texture generation
-    Handle->>Renderer: encode_to_offscreen_commands(target)
+    UI->>Handle: request_background_scene_texture(render_state, scene, dimensions)
+    Handle->>Worker: enqueue latest SceneGraph + dimensions
+    Worker->>Renderer: resize(dimensions)
+    Worker->>Renderer: set_scene(device, queue, scene)
+    Worker->>Pool: resize_or_recreate(dimensions, Rgba8Unorm)
+    Worker->>Pool: acquire target excluding front texture generation
+    Worker->>Renderer: encode_to_offscreen_commands(target)
+    Worker->>Worker: queue.submit(command buffers)
+    Worker->>Handle: publish TextureView + render generation
     Handle->>EguiWgpu: register/update native texture view
     UI->>Painter: image(TextureId, widget rect)
 ```
 
-`OffscreenTargetPool` is triple buffered. The egui integration prefers a
-target whose generation is not currently registered with egui, so a new render
-does not overwrite the texture that the current egui frame may sample.
+On native targets, `request_background_scene_texture(...)` starts a per-widget
+render worker after the first `egui_wgpu::RenderState` is available. The worker
+owns an independent `AvengerWgpuRenderer`, cloned `wgpu::Device` and
+`wgpu::Queue` handles, and its own `OffscreenTargetPool`. It performs
+`set_scene`, command encoding, and `queue.submit(...)` off the egui frame. The
+egui frame still owns native texture registration/update because that mutates
+`egui-wgpu` renderer state.
+
+The older synchronous `render_scene_to_texture(...)` path remains available as
+a fallback and is used by `request_background_scene_texture(...)` on wasm.
+
+`OffscreenTargetPool` is triple buffered. The native background path tracks the
+current front target generation, an in-progress render target, and the latest
+published-but-not-yet-consumed texture. The worker waits rather than rendering
+over a published texture that egui has not consumed, and it excludes the current
+front target from the next worker render.
 
 The texture usage is:
 
@@ -145,17 +162,19 @@ The first egui path uses `TextureFormat::Rgba8Unorm` because
 `egui-wgpu::Renderer::register_native_texture` expects that format for native
 texture registration.
 
-When the offscreen target stays compatible, `avenger-egui` keeps the same
-egui `TextureId` and calls
+When the offscreen target stays compatible, `avenger-egui` keeps the same egui
+`TextureId` and calls
 `update_egui_texture_from_wgpu_texture`. When size or format changes recreate
 the offscreen target, the same high-level path updates the registered native
 texture view.
 
 ## Async Scene Lifecycle
 
-The first egui MVP moves chart scene evaluation off the egui hot path. GPU
-upload and offscreen rendering still happen from the egui frame using
-`egui_wgpu::RenderState`.
+The egui integration moves chart scene evaluation off the egui hot path. Native
+builds can also move Avenger's WGPU scene upload and offscreen command
+submission to the background render worker. The egui frame remains responsible
+for consuming the latest rendered texture, registering/updating the stable egui
+`TextureId`, painting that texture, and routing fresh input.
 
 ```mermaid
 sequenceDiagram
@@ -174,7 +193,7 @@ sequenceDiagram
     Worker->>Publisher: publish latest SceneGraph
     Worker->>UI: request_repaint()
     UI->>Handle: latest_scene_frame()
-    UI->>Handle: render_scene_to_texture(...)
+    UI->>Handle: request_background_scene_texture(...)
     UI->>Handle: Plot::show(ui)
 ```
 
@@ -184,27 +203,16 @@ work is running, stale results are dropped. The worker schedules another pass
 for the latest request when needed.
 
 The egui frame can keep painting the latest completed texture while scene
-evaluation for a newer request is pending. This is the baseline behavior to
-measure before adding semantic drag preview.
+evaluation or background GPU rendering for a newer request is pending. Render
+requests are latest-wins: if a newer scene/dimension request arrives before an
+older request starts or publishes, stale work is dropped where possible. The
+worker publishes only after queue submission, and egui consumes that texture on
+a later frame.
 
-Full background GPU submission is deliberately not part of the first egui MVP.
-The staged ownership split is:
-
-- background worker: chart/event evaluation and latest `SceneGraph`
-  publication;
-- egui frame: WGPU `set_scene`, command encoding, queue submission, native
-  texture registration/update, and painting.
-
-This avoids cross-thread mutation of renderer resources while still removing
-the expensive chart evaluation path from egui's immediate frame work.
-
-Release-mode manual testing of the `basic_chart` example kept this split for
-the initial implementation. Rapid slider changes published and dropped scene
-generations while the UI kept repainting the latest texture, pan events updated
-axes through Avenger event routing, and window resize regenerated offscreen
-textures without visible stalls or WGPU validation errors. Full background GPU
-submission remains a follow-up for charts where measured `set_scene`, encode,
-or submit timings become the frame-loop bottleneck.
+The 100k-point `basic_chart` validation still showed scene evaluation as the
+dominant pan/zoom cost. Background GPU submission removes `set_scene`, command
+encoding, and submit from egui frames, but it does not by itself make semantic
+pan/zoom realtime when chart scene evaluation dominates.
 
 ## Metrics And Tracing
 
@@ -215,32 +223,36 @@ and latest timing values for:
 - routed event batches and event counts;
 - scene rebuild and event-dispatch requests;
 - scene frames published and stale scene frames dropped;
+- background GPU render requests, coalesced requests, submissions,
+  publications, and egui consumptions;
 - offscreen texture renders, registrations, and updates;
 - frames painted, reused latest-frame paints, and paints while a scene render
   is pending;
 - latest scene evaluation, `set_scene`, command encode, queue submit, and
-  texture publication timings.
+  texture publication timings;
+- scene-to-texture publication timing and queue-wait timing for the background
+  render worker;
+- current texture render mode (`uninitialized`, `ui-thread-gpu`, or
+  `background-gpu`).
 
 `AvengerPlotHandle::show_metrics(ui)` provides a small egui debug readout for
 examples and manual testing. `reset_metrics()` clears the counters.
 
 The egui integration emits `tracing::debug!` events and spans around param
 patching, event queueing, scene rebuild/event-dispatch requests, scene worker
-publication, offscreen render timing, and texture paint. Use `RUST_LOG` with a
-subscriber in the host app to inspect these diagnostics.
+publication, background render enqueue/submit/publish, offscreen render timing,
+and texture paint. Use `RUST_LOG` with a subscriber in the host app to inspect
+these diagnostics.
 
 ## Limitations
 
 - The egui integration currently uses `egui-wgpu` native texture registration
   rather than a custom `egui_wgpu::CallbackTrait` render pass.
-- GPU upload and offscreen rendering still occur on the egui frame thread.
-  Phase 11 style background GPU submission requires separate renderer state
-  ownership, synchronization, and publish-after-submit rules. On native
-  `wgpu 27.0.1`, `Device` and `Queue` are cloneable `Send + Sync` handles, so
-  a future worker can use cloned handles while owning independent renderer and
-  offscreen-target state.
-- WebAssembly may not support the same background worker and WGPU sharing
-  model as native apps.
+- Native background GPU submission uses one render worker per plot widget. A
+  shared render pool may be worth revisiting if many plot widgets are active in
+  one app.
+- WebAssembly uses the UI-thread render fallback because it may not support the
+  same worker and WGPU sharing model as native apps.
 - `selection_changes()` is reserved but not wired to chart selection snapshots
   yet.
 - `CanvasResizeSettled` routing is not emitted by the egui widget yet. The
