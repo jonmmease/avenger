@@ -80,14 +80,14 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         )
         .event_binding(cursor_binding(&cursor))
         .event_binding(start_drag_binding(&cursor))
-        .event_binding(preview_drag_binding(&cursor))
-        .event_binding(clear_drag_binding(&cursor));
+        .event_binding(preview_drag_binding(&cursor));
 
     for source_id in dimension_ids() {
         for target_index in 0..parallel_common::NUMERIC_DIMENSIONS.len() {
             plot = plot.event_binding(commit_order_binding(source_id, target_index));
         }
     }
+    plot = plot.event_binding(clear_drag_binding(&cursor));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(compiled, ctx, parallel_common::app_options())

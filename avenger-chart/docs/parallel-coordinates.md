@@ -95,17 +95,12 @@ interactions:
 - `ev::parallel_displacement_slots()`
 
 The app examples show how to wire these fields into manual reorder and brush
-interactions.
+interactions. Static rendering cases are covered by the parallel visual
+baselines under `avenger-chart/tests/baselines/parallel/`.
 
-## Examples
+## Interactive Examples
 
 ```bash
-cargo run -p avenger-chart-app --example parallel_coordinates_basic --features winit-wgpu
-cargo run -p avenger-chart-app --example parallel_coordinates_axis_overlay_brush --features winit-wgpu
-cargo run -p avenger-chart-app --example parallel_coordinates_axis_overlay_summary --features winit-wgpu
-cargo run -p avenger-chart-app --example parallel_coordinates_axis_overlay_violins --features winit-wgpu
-cargo run -p avenger-chart-app --example parallel_coordinates_reorder_preview --features winit-wgpu
 cargo run -p avenger-chart-app --example parallel_coordinates_header_drag_reorder --features winit-wgpu
 cargo run -p avenger-chart-app --example parallel_axis_brush_selection --features winit-wgpu
-cargo run -p avenger-chart-app --example parallel_coordinates_axis_brush_intersection --features winit-wgpu
 ```

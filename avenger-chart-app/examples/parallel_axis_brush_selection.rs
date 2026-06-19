@@ -8,7 +8,6 @@
 // Run with:
 // ```bash
 // cargo run -p avenger-chart-app --example parallel_axis_brush_selection --features winit-wgpu
-// cargo run -p avenger-chart-app --example parallel_coordinates_axis_brush_intersection --features winit-wgpu
 // ```
 
 use std::sync::Arc;

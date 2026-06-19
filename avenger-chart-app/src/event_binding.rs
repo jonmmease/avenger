@@ -6748,6 +6748,50 @@ mod tests {
         strokes
     }
 
+    fn collect_line_x_coords(scene: &SceneGraph) -> Vec<f32> {
+        fn collect_from_mark(mark: &SceneMark, xs: &mut Vec<f32>) {
+            match mark {
+                SceneMark::Group(group) => {
+                    for child in &group.marks {
+                        collect_from_mark(child, xs);
+                    }
+                }
+                SceneMark::Line(line) => {
+                    xs.extend(line.x_iter().copied());
+                }
+                _ => {}
+            }
+        }
+
+        let mut xs = Vec::new();
+        for mark in &scene.marks {
+            collect_from_mark(mark, &mut xs);
+        }
+        xs
+    }
+
+    fn collect_symbol_x_coords(scene: &SceneGraph) -> Vec<f32> {
+        fn collect_from_mark(mark: &SceneMark, xs: &mut Vec<f32>) {
+            match mark {
+                SceneMark::Group(group) => {
+                    for child in &group.marks {
+                        collect_from_mark(child, xs);
+                    }
+                }
+                SceneMark::Symbol(symbol) => {
+                    xs.extend(symbol.x_vec());
+                }
+                _ => {}
+            }
+        }
+
+        let mut xs = Vec::new();
+        for mark in &scene.marks {
+            collect_from_mark(mark, &mut xs);
+        }
+        xs
+    }
+
     fn collect_line_zindices_and_strokes(scene: &SceneGraph) -> Vec<(Option<i32>, [f32; 4])> {
         fn collect_from_mark(mark: &SceneMark, lines: &mut Vec<(Option<i32>, [f32; 4])>) {
             match mark {
@@ -9028,7 +9072,11 @@ mod tests {
                 .dimension_with("speed", col("speed"), |d| {
                     d.axis(|axis| axis.title("Speed"))
                 })
-                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
+                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost")))
+                .active_axis_display_params(
+                    drag_dimension.name.clone(),
+                    drag_display_x.name.clone(),
+                ),
         )
         .canvas_size(420.0, 320.0)
         .plot_size(260.0, 180.0)
@@ -9037,6 +9085,7 @@ mod tests {
         .add_param(drag_display_x)
         .data(data)
         .mark(ParallelLine::new())
+        .mark(ParallelSymbol::new().fill("#2563eb").size(16.0))
         .event_binding(start_binding)
         .event_binding(preview_binding)
         .compile(&ctx)
@@ -9051,6 +9100,8 @@ mod tests {
             .build(&mut state)
             .await
             .expect("initial parallel header build");
+        let initial_line_x = collect_line_x_coords(&scene);
+        let initial_symbol_x = collect_symbol_x_coords(&scene);
         let datum_mark_instance = retained_event_datum_mark_instance(
             &state,
             event::PARALLEL_TITLE_FIELD,
@@ -9098,6 +9149,47 @@ mod tests {
         assert!(
             (*display_x - expected_display_x).abs() < 1e-6,
             "drag display x should track start x plus pointer dx"
+        );
+
+        let scene_after_drag = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("parallel header drag preview rebuild");
+        let metrics = state
+            .last_metrics()
+            .await
+            .expect("drag preview build should record metrics");
+        assert_eq!(
+            metrics.pipeline.preview_data_mark_reuses, 0,
+            "coordinate-owned drag params should invalidate cached data marks"
+        );
+        let moved_line_x = collect_line_x_coords(&scene_after_drag);
+        let moved_symbol_x = collect_symbol_x_coords(&scene_after_drag);
+        assert_eq!(
+            moved_line_x.len(),
+            initial_line_x.len(),
+            "drag preview should not change line point count"
+        );
+        assert_eq!(
+            moved_symbol_x.len(),
+            initial_symbol_x.len(),
+            "drag preview should not change symbol point count"
+        );
+        assert!(
+            moved_line_x[0] > initial_line_x[0] + 30.0,
+            "dragged dimension line vertex should move with the header: before={initial_line_x:?} after={moved_line_x:?}"
+        );
+        assert!(
+            (moved_line_x[1] - initial_line_x[1]).abs() < 1e-3,
+            "non-dragged dimension line vertex should stay put: before={initial_line_x:?} after={moved_line_x:?}"
+        );
+        assert!(
+            moved_symbol_x[0] > initial_symbol_x[0] + 30.0,
+            "dragged dimension symbol should move with the header: before={initial_symbol_x:?} after={moved_symbol_x:?}"
+        );
+        assert!(
+            (moved_symbol_x[1] - initial_symbol_x[1]).abs() < 1e-3,
+            "non-dragged dimension symbol should stay put: before={initial_symbol_x:?} after={moved_symbol_x:?}"
         );
     }
 

@@ -150,6 +150,16 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
             .collect())
     }
 
+    /// Runtime parameter names that affect coordinate-owned geometry.
+    ///
+    /// Coordinates with generated position channels can depend on params that
+    /// do not appear in ordinary mark channels or scale specs. Evaluation
+    /// caches use this list to avoid reusing stale mark geometry when those
+    /// params change.
+    fn runtime_param_dependencies(&self) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Coordinate channels this transform can invert from a local plot-area point.
     ///
     /// Only transforms with a non-empty list export interaction coordinate

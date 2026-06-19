@@ -481,6 +481,18 @@ impl CoordinateSystemTransformCore for ParallelTransform {
             .collect())
     }
 
+    fn runtime_param_dependencies(&self) -> Vec<String> {
+        let mut params = Vec::new();
+        if let Some(order) = &self.order_state {
+            params.push(order.param.clone());
+        }
+        if let Some(display) = &self.display_state {
+            params.push(display.dimension_id_param.clone());
+            params.push(display.display_x_param.clone());
+        }
+        params
+    }
+
     fn interaction_invertible_channels(&self) -> Vec<String> {
         let mut channels = Vec::with_capacity(self.dimensions.len() + 2);
         channels.push(PARALLEL_LOCAL_X_CHANNEL.to_string());

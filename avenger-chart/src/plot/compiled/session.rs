@@ -2165,6 +2165,7 @@ fn collect_plot_dependency_placeholders_with_options(
     options: DependencyPlaceholderOptions,
 ) {
     collect_plan_placeholders(plot.data.as_ref(), ctx, names, all_param_names);
+    collect_coordinate_transform_dependency_params(plot, names);
     collect_marks_dependency_placeholders(&plot.marks, ctx, names, all_param_names, options);
     for scale_spec in plot.scale_specs.values() {
         match scale_spec {
@@ -2178,6 +2179,15 @@ fn collect_plot_dependency_placeholders_with_options(
                 );
             }
         }
+    }
+}
+
+fn collect_coordinate_transform_dependency_params(
+    plot: &CompiledPlot,
+    names: &mut BTreeSet<String>,
+) {
+    for name in plot.coord_transform.runtime_param_dependencies() {
+        names.insert(name);
     }
 }
 

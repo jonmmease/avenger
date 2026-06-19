@@ -480,7 +480,7 @@ impl CompiledPlot {
         }
 
         let mut types = IndexMap::new();
-        self.collect_event_coord_types(ctx, &mut types, None)
+        self.collect_event_coord_types(ctx, &mut types, None, None)
             .await?;
         Ok(types
             .into_iter()
@@ -493,9 +493,15 @@ impl CompiledPlot {
         ctx: &SessionContext,
         out: &mut IndexMap<String, DataType>,
         inherited_plot_data: Option<&LogicalPlanNode>,
+        inherited_store_specs: Option<&IndexMap<String, CompiledStoreSpec>>,
     ) -> Result<(), AvengerChartError> {
         let plot_data = self.data.as_ref().or(inherited_plot_data);
-        let eval_ctx = self.schema_inference_evaluation_context(ctx);
+        let store_specs = if self.store_specs.is_empty() {
+            inherited_store_specs.unwrap_or(&self.store_specs)
+        } else {
+            &self.store_specs
+        };
+        let eval_ctx = self.schema_inference_evaluation_context(ctx, Some(store_specs));
         let inherited_df = if self.data.is_none() {
             inherited_plot_data.and_then(|node| {
                 node.to_logical_plan(ctx)
@@ -519,25 +525,27 @@ impl CompiledPlot {
 
         for mark in &self.marks {
             if let Some(subplot) = crate::concat::compiled_subplot(mark.as_ref()) {
-                Box::pin(
-                    subplot
-                        .compiled_subplot()
-                        .collect_event_coord_types(ctx, out, plot_data),
-                )
+                Box::pin(subplot.compiled_subplot().collect_event_coord_types(
+                    ctx,
+                    out,
+                    plot_data,
+                    Some(store_specs),
+                ))
                 .await?;
             }
             if let Some(subplot) = crate::facet::marks::facet::facet_subplot_ref(mark.as_ref()) {
-                Box::pin(
-                    subplot
-                        .compiled_subplot()
-                        .collect_event_coord_types(ctx, out, plot_data),
-                )
+                Box::pin(subplot.compiled_subplot().collect_event_coord_types(
+                    ctx,
+                    out,
+                    plot_data,
+                    Some(store_specs),
+                ))
                 .await?;
             }
             if let Some(subplot) = mark.as_positioned_subplot() {
                 Box::pin(
                     compiled_subplot_payload_child_plot(subplot.payload())
-                        .collect_event_coord_types(ctx, out, plot_data),
+                        .collect_event_coord_types(ctx, out, plot_data, Some(store_specs)),
                 )
                 .await?;
             }
@@ -546,7 +554,7 @@ impl CompiledPlot {
             {
                 Box::pin(
                     compiled_subplot_payload_child_plot(overlay.payload())
-                        .collect_event_coord_types(ctx, out, plot_data),
+                        .collect_event_coord_types(ctx, out, plot_data, Some(store_specs)),
                 )
                 .await?;
             }
@@ -555,14 +563,24 @@ impl CompiledPlot {
         Ok(())
     }
 
-    fn schema_inference_evaluation_context(&self, ctx: &SessionContext) -> EvaluationContext {
-        EvaluationContext::new(
+    fn schema_inference_evaluation_context(
+        &self,
+        ctx: &SessionContext,
+        store_specs: Option<&IndexMap<String, CompiledStoreSpec>>,
+    ) -> EvaluationContext {
+        let mut eval_ctx = EvaluationContext::new(
             self.get_theme(),
             Arc::new(ctx.clone()),
             self.default_params.clone(),
             Arc::new(EvaluatedFacetTree::empty()),
         )
-        .with_time_context(self.time_context.clone())
+        .with_time_context(self.time_context.clone());
+        let store_specs = store_specs.unwrap_or(&self.store_specs);
+        if !store_specs.is_empty() {
+            eval_ctx = eval_ctx
+                .with_scoped_store_state(Arc::new(ScopedStoreState::new(store_specs.clone())));
+        }
+        eval_ctx
     }
 
     pub(crate) async fn infer_event_datum_fields(
@@ -640,7 +658,7 @@ impl CompiledPlot {
             collect_event_datum_types_from_schema(&df, requested, out);
         }
 
-        let eval_ctx = self.schema_inference_evaluation_context(ctx);
+        let eval_ctx = self.schema_inference_evaluation_context(ctx, Some(store_specs));
         let inherited_df = if self.data.is_none() {
             inherited_plot_data.and_then(|node| {
                 node.to_logical_plan(ctx)

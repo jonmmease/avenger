@@ -376,7 +376,10 @@ mod tests {
     use avenger_scenegraph::marks::{
         line::SceneLineMark, mark::MarkInstance, rect::SceneRectMark, symbol::SceneSymbolMark,
     };
-    use datafusion::prelude::{SessionContext, col, lit};
+    use datafusion::{
+        arrow::datatypes::DataType,
+        prelude::{SessionContext, col, lit},
+    };
     use indexmap::IndexMap;
 
     use crate::event::{ChartEventBinding, ChartEventType};
@@ -734,6 +737,47 @@ mod tests {
 
         assert_close(rect.y_vec()[0], 75.0);
         assert_close(first_rect_y2(rect), 100.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn axis_overlay_empty_store_child_filter_uses_store_schema()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let parent_data = ctx.sql("SELECT 80.0 AS speed").await?;
+        let overlay = ParallelAxisOverlay::new(
+            "speed",
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .data_store(StoreData::new("axis_brush_boxes"))
+                    .transform_no_output(Filter::new(col("id").eq(lit("speed"))), |mark| mark)
+                    .x(lit(0.0))
+                    .x2(lit(1.0))
+                    .y(col("value_min"))
+                    .y2(col("value_max")),
+            ),
+        )
+        .width_px(40.0);
+
+        let compiled = Plot::with_coord(parallel_for_overlay_test())
+            .canvas_size(220.0, 160.0)
+            .plot_size(120.0, 100.0)
+            .data(parent_data)
+            .add_store(
+                Store::empty("axis_brush_boxes")
+                    .field("id", DataType::Utf8, false)
+                    .field("value_min", DataType::Float64, false)
+                    .field("value_max", DataType::Float64, false)
+                    .primary_key(["id"]),
+            )
+            .mark(overlay)
+            .compile(&ctx)
+            .await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        assert!(
+            find_group_by_prefix(&evaluated.scene_graph.marks, "parallel_axis_overlay_").is_some(),
+            "empty store overlay should still compile and evaluate with typed empty data"
+        );
         Ok(())
     }
 
