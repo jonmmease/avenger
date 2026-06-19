@@ -11,6 +11,12 @@ cd examples/iris-pan-zoom
 cargo run --release
 ```
 
+To launch the egui integration example with native egui controls driving chart
+params, run:
+```
+cargo run -p avenger-egui --release --features eframe --example basic_chart
+```
+
 ## Build wasm
 Avenger may be compiled to WASM with rendering performed in WebGPU or WebGL2 (If WebGPU is not supported by the browser)
 
@@ -31,6 +37,7 @@ Avenger's core is written in Rust and is composed of the following crates:
  - `avenger-app`: Application framework for building interactive Avenger-based visualizations
  - `avenger-common`: Shared types and utilities for the Avenger visualization system
  - `avenger-eventstream`: Interactive event handling system for Avenger visualizations
+ - `avenger-egui`: egui widget integration for Avenger charts rendered through offscreen WGPU textures
  - `avenger-geometry`: Geometry processing and spatial indexing for Avenger scene graphs
  - `avenger-guides`: Visualization guide generation for Avenger (axes, legends, colorbars)
  - `avenger-image`: Image loading and processing for the Avenger rendering system
