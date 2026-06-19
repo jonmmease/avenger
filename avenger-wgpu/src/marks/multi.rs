@@ -1559,14 +1559,40 @@ impl MultiMarkRenderer {
         let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Multi Mark Render Encoder"),
         });
+        self.encode_multi_ranges_into(
+            &mut mark_encoder,
+            render_target_extent,
+            texture_view,
+            resolve_target,
+            resources,
+            text_bind_groups,
+            prepared,
+            ranges,
+        );
+        mark_encoder.finish()
+    }
 
+    /// Encode the draws for a set of batch ranges into a caller-provided command
+    /// encoder. See `encode_multi_ranges` for the batching and stencil semantics.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn encode_multi_ranges_into(
+        &self,
+        mark_encoder: &mut wgpu::CommandEncoder,
+        render_target_extent: Extent3d,
+        texture_view: &TextureView,
+        resolve_target: Option<&TextureView>,
+        resources: &MultiMarkRenderResources,
+        text_bind_groups: &[BindGroup],
+        prepared: &PreparedMulti,
+        ranges: &[std::ops::Range<usize>],
+    ) {
         // Batch indices in draw order across all ranges.
         let mut order: Vec<usize> = Vec::new();
         for r in ranges {
             order.extend(r.clone());
         }
         if order.is_empty() || prepared.vertex_buffer.size() == 0 {
-            return mark_encoder.finish();
+            return;
         }
 
         let depth_view = prepared
@@ -1693,8 +1719,6 @@ impl MultiMarkRenderer {
                 }
             }
         }
-
-        mark_encoder.finish()
     }
 
     /// Set the scissor rect for a batch's clip, resetting to the full target for

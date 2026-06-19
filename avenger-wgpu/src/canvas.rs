@@ -852,6 +852,12 @@ impl WindowCanvas<'_> {
         // Coalesce consecutive multi-mark runs (in (layer, document) order) into one
         // command buffer with merged render passes; instanced marks break a run and
         // render on their own pipeline, interleaved.
+        let mut mark_encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("Avenger Mark Render Encoder"),
+            });
+        let mut encoded_marks = false;
         let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
         for (min_z, max_z) in layers {
             for mark in &marks {
@@ -864,9 +870,9 @@ impl WindowCanvas<'_> {
                             y_adjustment,
                         } => {
                             if !pending.is_empty() {
-                                let c = if sample_count > 1 {
-                                    self.renderer.shared_multi().encode_multi_ranges(
-                                        &self.device,
+                                if sample_count > 1 {
+                                    self.renderer.shared_multi().encode_multi_ranges_into(
+                                        &mut mark_encoder,
                                         render_target_extent,
                                         &self.multisampled_framebuffer,
                                         Some(&view),
@@ -874,10 +880,10 @@ impl WindowCanvas<'_> {
                                         &text_bind_groups,
                                         &prepared,
                                         &pending,
-                                    )
+                                    );
                                 } else {
-                                    self.renderer.shared_multi().encode_multi_ranges(
-                                        &self.device,
+                                    self.renderer.shared_multi().encode_multi_ranges_into(
+                                        &mut mark_encoder,
                                         render_target_extent,
                                         &view,
                                         None,
@@ -885,38 +891,39 @@ impl WindowCanvas<'_> {
                                         &text_bind_groups,
                                         &prepared,
                                         &pending,
-                                    )
+                                    );
                                 };
-                                commands.push(c);
                                 pending.clear();
                             }
-                            let c = if sample_count > 1 {
-                                renderer.render(
+                            if sample_count > 1 {
+                                renderer.encode_into(
                                     &self.device,
+                                    &mut mark_encoder,
                                     &self.multisampled_framebuffer,
                                     Some(&view),
                                     *x_adjustment,
                                     *y_adjustment,
-                                )
+                                );
                             } else {
-                                renderer.render(
+                                renderer.encode_into(
                                     &self.device,
+                                    &mut mark_encoder,
                                     &view,
                                     None,
                                     *x_adjustment,
                                     *y_adjustment,
-                                )
+                                );
                             };
-                            commands.push(c);
+                            encoded_marks = true;
                         }
                     }
                 }
             }
         }
         if !pending.is_empty() {
-            let c = if sample_count > 1 {
-                self.renderer.shared_multi().encode_multi_ranges(
-                    &self.device,
+            if sample_count > 1 {
+                self.renderer.shared_multi().encode_multi_ranges_into(
+                    &mut mark_encoder,
                     render_target_extent,
                     &self.multisampled_framebuffer,
                     Some(&view),
@@ -924,10 +931,10 @@ impl WindowCanvas<'_> {
                     &text_bind_groups,
                     &prepared,
                     &pending,
-                )
+                );
             } else {
-                self.renderer.shared_multi().encode_multi_ranges(
-                    &self.device,
+                self.renderer.shared_multi().encode_multi_ranges_into(
+                    &mut mark_encoder,
                     render_target_extent,
                     &view,
                     None,
@@ -935,9 +942,12 @@ impl WindowCanvas<'_> {
                     &text_bind_groups,
                     &prepared,
                     &pending,
-                )
+                );
             };
-            commands.push(c);
+            encoded_marks = true;
+        }
+        if encoded_marks {
+            commands.push(mark_encoder.finish());
         }
 
         let frame_overlay_command = if sample_count > 1 {
@@ -1240,6 +1250,12 @@ impl PngCanvas {
         let command_build_start = Instant::now();
         // Coalesce consecutive multi-mark runs into one command buffer with merged
         // passes; instanced marks break a run, interleaved by (layer, document).
+        let mut mark_encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("Avenger Mark Render Encoder"),
+            });
+        let mut encoded_marks = false;
         let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
         for (min_z, max_z) in layers {
             for mark in &marks {
@@ -1252,9 +1268,9 @@ impl PngCanvas {
                             y_adjustment,
                         } => {
                             if !pending.is_empty() {
-                                let c = if sample_count > 1 {
-                                    self.renderer.shared_multi().encode_multi_ranges(
-                                        &self.device,
+                                if sample_count > 1 {
+                                    self.renderer.shared_multi().encode_multi_ranges_into(
+                                        &mut mark_encoder,
                                         render_target_extent,
                                         &self.multisampled_framebuffer,
                                         Some(&self.texture_view),
@@ -1262,10 +1278,10 @@ impl PngCanvas {
                                         &text_bind_groups,
                                         &prepared,
                                         &pending,
-                                    )
+                                    );
                                 } else {
-                                    self.renderer.shared_multi().encode_multi_ranges(
-                                        &self.device,
+                                    self.renderer.shared_multi().encode_multi_ranges_into(
+                                        &mut mark_encoder,
                                         render_target_extent,
                                         &self.texture_view,
                                         None,
@@ -1273,38 +1289,39 @@ impl PngCanvas {
                                         &text_bind_groups,
                                         &prepared,
                                         &pending,
-                                    )
+                                    );
                                 };
-                                commands.push(c);
                                 pending.clear();
                             }
-                            let c = if sample_count > 1 {
-                                renderer.render(
+                            if sample_count > 1 {
+                                renderer.encode_into(
                                     &self.device,
+                                    &mut mark_encoder,
                                     &self.multisampled_framebuffer,
                                     Some(&self.texture_view),
                                     *x_adjustment,
                                     *y_adjustment,
-                                )
+                                );
                             } else {
-                                renderer.render(
+                                renderer.encode_into(
                                     &self.device,
+                                    &mut mark_encoder,
                                     &self.texture_view,
                                     None,
                                     *x_adjustment,
                                     *y_adjustment,
-                                )
+                                );
                             };
-                            commands.push(c);
+                            encoded_marks = true;
                         }
                     }
                 }
             }
         }
         if !pending.is_empty() {
-            let c = if sample_count > 1 {
-                self.renderer.shared_multi().encode_multi_ranges(
-                    &self.device,
+            if sample_count > 1 {
+                self.renderer.shared_multi().encode_multi_ranges_into(
+                    &mut mark_encoder,
                     render_target_extent,
                     &self.multisampled_framebuffer,
                     Some(&self.texture_view),
@@ -1312,10 +1329,10 @@ impl PngCanvas {
                     &text_bind_groups,
                     &prepared,
                     &pending,
-                )
+                );
             } else {
-                self.renderer.shared_multi().encode_multi_ranges(
-                    &self.device,
+                self.renderer.shared_multi().encode_multi_ranges_into(
+                    &mut mark_encoder,
                     render_target_extent,
                     &self.texture_view,
                     None,
@@ -1323,9 +1340,12 @@ impl PngCanvas {
                     &text_bind_groups,
                     &prepared,
                     &pending,
-                )
+                );
             };
-            commands.push(c);
+            encoded_marks = true;
+        }
+        if encoded_marks {
+            commands.push(mark_encoder.finish());
         }
         let command_build_elapsed = command_build_start.elapsed();
         let command_count = commands.len();

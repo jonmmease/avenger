@@ -407,9 +407,9 @@ Phase 2 validation results, 2026-06-19:
 
 Commit:
 
-- [ ] Commit Phase 2.
+- [x] Commit Phase 2.
 - Suggested message: `refactor(wgpu): make render targets explicit`
-- Commit hash: TBD
+- Commit hash: `70f80ebe`
 
 ## Phase 3 - Encode Into Caller-Provided Command Encoders
 
@@ -417,19 +417,33 @@ Purpose: allow egui callbacks and offscreen workers to compose Avenger rendering
 
 Tasks:
 
-- [ ] Add `MultiMarkRenderer::encode_multi_ranges_into`.
-- [ ] Keep `MultiMarkRenderer::encode_multi_ranges` as a wrapper that creates an encoder and returns a `CommandBuffer`.
-- [ ] Add `InstancedMarkRenderer::encode_into`.
-- [ ] Keep `InstancedMarkRenderer::render` as a wrapper that creates an encoder and returns a `CommandBuffer`.
-- [ ] Ensure all render passes use `LoadOp::Load` after the explicit background pass unless the target requests otherwise.
-- [ ] Ensure scissor state remains correct after moving to shared encoders.
-- [ ] Preserve path/stencil clipping behavior.
-- [ ] Add regression tests for at least:
+- [x] Add `MultiMarkRenderer::encode_multi_ranges_into`.
+- [x] Keep `MultiMarkRenderer::encode_multi_ranges` as a wrapper that creates an encoder and returns a `CommandBuffer`.
+- [x] Add `InstancedMarkRenderer::encode_into`.
+- [x] Keep `InstancedMarkRenderer::render` as a wrapper that creates an encoder and returns a `CommandBuffer`.
+- [x] Ensure all render passes use `LoadOp::Load` after the explicit background pass unless the target requests otherwise.
+- [x] Ensure scissor state remains correct after moving to shared encoders.
+- [x] Preserve path/stencil clipping behavior.
+- [x] Confirm regression coverage for at least:
   - basic rect/symbol/text chart,
   - path-clipped mark,
   - instanced symbol mark,
   - multi-mark z-order.
-- [ ] Add debug labels to new encoders/passes so GPU captures remain readable.
+- [x] Add debug labels to new encoders/passes so GPU captures remain readable.
+
+Phase 3 notes, 2026-06-19:
+
+- Added `MultiMarkRenderer::encode_multi_ranges_into`.
+- Kept `MultiMarkRenderer::encode_multi_ranges` as a command-buffer wrapper.
+- Added `InstancedMarkRenderer::encode_into`.
+- Kept `InstancedMarkRenderer::render` as a command-buffer wrapper.
+- Updated `WindowCanvas` and `PngCanvas` to encode mark draws into a shared `Avenger Mark Render Encoder` command encoder per frame.
+- Existing render passes still use `LoadOp::Load` after the explicit background command.
+- Existing image baseline cases cover the required regression categories:
+  - basic rect/text/symbol: `stacked_bar`, `bar_axis_labels`, `binned_scatter_*`,
+  - path and clip behavior: `single_path_*`, `multi_path_*`, `clip_mixed_marks`,
+  - instanced symbol path: `circle_fast_path_large_translucent`,
+  - multi-mark z-order: `zindex_circles`.
 
 Validation:
 
@@ -438,6 +452,17 @@ cargo fmt --all
 cargo test -p avenger-wgpu
 cargo test -p avenger-chart visual_regression -- --nocapture
 ```
+
+Phase 3 validation results, 2026-06-19:
+
+- `cargo fmt --all`: passed.
+- `cargo check -p avenger-wgpu`: passed.
+- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+  - `case_090` / `residuals_colorscale`, diff `0.026578`,
+  - `case_119` / `geoScale`, diff `0.016531`,
+  - `case_120` / `maptile_background`, diff `0.012998`.
+- `cargo test -p avenger-chart visual_regression -- --nocapture`: passed but selected zero tests under this filter (`618 filtered out` in `tests/visual_regression.rs`).
 
 Commit:
 

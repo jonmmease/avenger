@@ -305,14 +305,34 @@ impl InstancedMarkRenderer {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) -> CommandBuffer {
+        let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Mark Render Encoder"),
+        });
+        self.encode_into(
+            device,
+            &mut mark_encoder,
+            texture_view,
+            resolve_target,
+            x_adjustment,
+            y_adjustment,
+        );
+        mark_encoder.finish()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_into(
+        &self,
+        device: &Device,
+        mark_encoder: &mut wgpu::CommandEncoder,
+        texture_view: &TextureView,
+        resolve_target: Option<&TextureView>,
+        x_adjustment: Option<LinearScaleAdjustment>,
+        y_adjustment: Option<LinearScaleAdjustment>,
+    ) {
         let timing_enabled =
             tracing::enabled!(target: "avenger_wgpu::render_breakdown", tracing::Level::DEBUG);
         let total_start = timing_enabled.then(Instant::now);
         let mut checkpoint = total_start;
-
-        let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Mark Render Encoder"),
-        });
 
         // Update mark uniforms
         let adjustment_scale = [
@@ -450,8 +470,6 @@ impl InstancedMarkRenderer {
                 "wgpu.render.renderer"
             );
         }
-
-        mark_encoder.finish()
     }
 }
 
