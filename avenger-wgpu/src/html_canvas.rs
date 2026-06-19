@@ -10,8 +10,7 @@ use wgpu::{
 use crate::{
     canvas::{
         create_multisampled_framebuffer, get_supported_sample_count, make_background_command,
-        make_text_atlas_builder, make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig,
-        CanvasDimensionUtils, MarkRenderer,
+        make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig, CanvasDimensionUtils,
     },
     error::AvengerWgpuError,
     marks::{
@@ -19,6 +18,7 @@ use crate::{
         multi::{MultiMarkRenderResources, MultiMarkRenderer},
         text::TextAtlasBuilderTrait,
     },
+    renderer::{make_text_atlas_builder, MarkRenderer},
 };
 
 pub struct HtmlCanvasCanvas<'window> {

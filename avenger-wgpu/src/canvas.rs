@@ -1,9 +1,6 @@
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant};
 
-use avenger_color::ColorOrGradient;
-use avenger_common::{
-    canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
-};
+use avenger_common::{canvas::CanvasDimensions, types::LinearScaleAdjustment};
 use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark, area::SceneAreaMark, group::Clip, group::SceneGroup,
@@ -16,7 +13,7 @@ use avenger_scenegraph::{
 use image::imageops::crop_imm;
 use itertools::izip;
 use wgpu::{
-    Adapter, BindGroup, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
+    Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
     CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, LoadOp, MapMode, Operations,
     Origin3d, PowerPreference, Queue, RenderPassColorAttachment, RenderPassDescriptor,
     RequestAdapterError, RequestAdapterOptions, StoreOp, Surface, SurfaceConfiguration,
@@ -30,42 +27,15 @@ use crate::{
     error::AvengerWgpuError,
     marks::{
         instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer},
-        multi::{is_axis_aligned_angle, MultiMarkRenderResources, MultiMarkRenderer},
+        multi::{is_axis_aligned_angle, MultiMarkRenderer},
         symbol::{is_circle_only_symbol_mark, CircleSymbolShader, SymbolShader},
         text::{TextAtlasBuilderTrait, TextAtlasRegistration, TextInstance},
     },
+    renderer::{mark_renderer_counts, AvengerRendererCore},
     zindex_layers::compute_zindex_layers,
 };
 
-pub enum MarkRenderer {
-    Instanced {
-        renderer: Arc<InstancedMarkRenderer>,
-        x_adjustment: Option<LinearScaleAdjustment>,
-        y_adjustment: Option<LinearScaleAdjustment>,
-    },
-    /// A contiguous run of multi-marks at one z-index, stored as a half-open range
-    /// of batch indices into the canvas's single shared `MultiMarkRenderer`. The
-    /// renderer is prepared once per frame; consecutive runs are coalesced and
-    /// encoded via `encode_multi_ranges`, preserving exact draw order and clipping.
-    Multi { batch_range: std::ops::Range<usize> },
-}
-
-/// A mark renderer with its associated z-index
-pub struct ZIndexedMark {
-    pub zindex: i32,
-    pub renderer: MarkRenderer,
-}
-
-fn mark_renderer_counts(marks: &[ZIndexedMark]) -> (usize, usize) {
-    marks
-        .iter()
-        .fold((0, 0), |(instanced_count, multi_count), mark| {
-            match &mark.renderer {
-                MarkRenderer::Instanced { .. } => (instanced_count + 1, multi_count),
-                MarkRenderer::Multi { .. } => (instanced_count, multi_count + 1),
-            }
-        })
-}
+pub use crate::renderer::{MarkRenderer, ZIndexedMark};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanvasFrameOverlay {
@@ -559,39 +529,6 @@ pub(crate) fn make_background_command<C: Canvas>(
     background_encoder.finish()
 }
 
-/// Construct a text atlas builder, shared by a single canvas across all of its
-/// multi-renderers. This mirrors the construction logic that previously lived in
-/// `MultiMarkRenderer::new`: honor a caller-supplied `text_builder_ctor`, otherwise
-/// fall back to the cosmic-text rasterizer (native), the html-canvas rasterizer
-/// (wasm), or the null builder (text disabled).
-pub(crate) fn make_text_atlas_builder(
-    text_builder_ctor: &Option<TextBuildCtor>,
-) -> Box<dyn TextAtlasBuilderTrait> {
-    if let Some(text_builder_ctor) = text_builder_ctor {
-        text_builder_ctor()
-    } else {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "cosmic-text")] {
-                use crate::marks::text::TextAtlasBuilder;
-                use std::sync::Arc;
-                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                    avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
-                ));
-            } else if #[cfg(target_arch = "wasm32")] {
-                use crate::marks::text::TextAtlasBuilder;
-                use std::sync::Arc;
-                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                    avenger_text::rasterization::html_canvas::HtmlCanvasTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
-                ));
-            } else {
-                use crate::marks::text::NullTextAtlasBuilder;
-                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
-            }
-        };
-        inner_text_atlas_builder
-    }
-}
-
 pub(crate) fn make_wgpu_instance() -> wgpu::Instance {
     wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
@@ -687,22 +624,9 @@ pub(crate) fn get_supported_sample_count(sample_flags: TextureFormatFeatureFlags
 }
 
 pub struct WindowCanvas<'window> {
-    sample_count: u32,
     surface_config: SurfaceConfiguration,
-    dimensions: CanvasDimensions,
-    marks: Vec<ZIndexedMark>,
-    // All multi-marks accumulate into one shared renderer; each z-run is recorded
-    // in `marks` as a batch range. `run_start` is the batch index where the current
-    // (uncommitted) z-run began.
-    shared_multi: MultiMarkRenderer,
-    run_start: usize,
-    current_zindex: i32,
-    instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
-    multi_render_resources: MultiMarkRenderResources,
-    config: CanvasConfig,
+    renderer: AvengerRendererCore,
     frame_overlay: Option<CanvasFrameOverlay>,
-    // Text atlas shared by all multi-renderers; built + uploaded once per frame.
-    text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
 
     // Order of properties determines drop order.
     // Device must be dropped after the buffers and textures associated with marks
@@ -770,34 +694,23 @@ impl WindowCanvas<'_> {
         // // Uncomment to capture GPU boundary
         // unsafe { device.start_graphics_debugger_capture() };
 
-        let multi_render_resources =
-            MultiMarkRenderResources::new(&device, surface_format, sample_count);
-
-        let text_atlas_builder = make_text_atlas_builder(&config.text_builder_ctor);
+        let renderer =
+            AvengerRendererCore::new(&device, dimensions, surface_format, sample_count, config);
 
         Ok(Self {
             surface,
             device,
             queue,
             multisampled_framebuffer,
-            sample_count,
             surface_config,
-            dimensions,
             window,
-            marks: Vec::new(),
-            shared_multi: MultiMarkRenderer::new(dimensions),
-            run_start: 0,
-            current_zindex: 0,
-            instanced_renderers: HashMap::new(),
-            multi_render_resources,
-            config,
+            renderer,
             frame_overlay: None,
-            text_atlas_builder,
         })
     }
 
     pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
-        self.dimensions.to_physical_size()
+        self.renderer.dimensions().to_physical_size()
     }
 
     pub fn window(&self) -> &Window {
@@ -808,19 +721,6 @@ impl WindowCanvas<'_> {
         self.frame_overlay = overlay;
     }
 
-    fn commit_all_multi_renderers(&mut self) {
-        let end = self.shared_multi.batch_count();
-        if end > self.run_start {
-            self.marks.push(ZIndexedMark {
-                zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi {
-                    batch_range: self.run_start..end,
-                },
-            });
-        }
-        self.run_start = end;
-    }
-
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.update_physical_size(new_size.width, new_size.height);
@@ -829,13 +729,11 @@ impl WindowCanvas<'_> {
     }
 
     fn update_physical_size(&mut self, width: u32, height: u32) {
-        self.dimensions = CanvasDimensions {
-            size: [
-                width as f32 / self.dimensions.scale,
-                height as f32 / self.dimensions.scale,
-            ],
-            scale: self.dimensions.scale,
-        };
+        let scale = self.renderer.dimensions().scale;
+        self.renderer.set_dimensions(CanvasDimensions {
+            size: [width as f32 / scale, height as f32 / scale],
+            scale,
+        });
 
         self.surface_config.width = width;
         self.surface_config.height = height;
@@ -844,7 +742,7 @@ impl WindowCanvas<'_> {
             width,
             height,
             self.surface_config.format,
-            self.sample_count,
+            self.renderer.sample_count(),
         );
     }
 
@@ -869,92 +767,6 @@ impl WindowCanvas<'_> {
 
     pub fn update(&mut self) {}
 
-    fn make_frame_overlay_command(
-        &self,
-        _texture_format: TextureFormat,
-        render_target_extent: Extent3d,
-        texture_view: &TextureView,
-        resolve_target: Option<&TextureView>,
-        text_bind_groups: &[BindGroup],
-    ) -> Result<Option<CommandBuffer>, AvengerWgpuError> {
-        let Some(overlay) = self.frame_overlay else {
-            return Ok(None);
-        };
-
-        let width = overlay.size[0].max(0.0);
-        let height = overlay.size[1].max(0.0);
-        if width <= 0.0 || height <= 0.0 {
-            return Ok(None);
-        }
-
-        let border = 1.0;
-        let handle = overlay.handle_thickness.max(border);
-        let outline = ColorOrGradient::Color([0.12, 0.15, 0.18, 0.95]);
-        let handle_fill = ColorOrGradient::Color([0.12, 0.15, 0.18, 0.16]);
-
-        let mut x = vec![0.0, 0.0, 0.0, (width - border).max(0.0)];
-        let mut y = vec![0.0, (height - border).max(0.0), 0.0, 0.0];
-        let mut rect_width = vec![width, width, border, border];
-        let mut rect_height = vec![border, border, height, height];
-        let mut fill = vec![
-            outline.clone(),
-            outline.clone(),
-            outline.clone(),
-            outline.clone(),
-        ];
-
-        if overlay.resize_width {
-            x.push((width - handle).max(0.0));
-            y.push(0.0);
-            rect_width.push(handle);
-            rect_height.push(height);
-            fill.push(handle_fill.clone());
-        }
-
-        if overlay.resize_height {
-            x.push(0.0);
-            y.push((height - handle).max(0.0));
-            rect_width.push(width);
-            rect_height.push(handle);
-            fill.push(handle_fill);
-        }
-
-        let mark = SceneRectMark {
-            name: "canvas_frame_overlay".to_string(),
-            clip: false,
-            len: x.len() as u32,
-            gradients: Vec::new(),
-            x: ScalarOrArray::new_array(x),
-            y: ScalarOrArray::new_array(y),
-            width: Some(ScalarOrArray::new_array(rect_width)),
-            height: Some(ScalarOrArray::new_array(rect_height)),
-            x2: None,
-            y2: None,
-            fill: ScalarOrArray::new_array(fill),
-            stroke: ScalarOrArray::new_scalar(ColorOrGradient::transparent()),
-            stroke_width: ScalarOrArray::new_scalar(0.0),
-            corner_radius: ScalarOrArray::new_scalar(0.0),
-            indices: None,
-            zindex: None,
-            interactive: true,
-        };
-
-        let mut renderer = MultiMarkRenderer::new(self.dimensions);
-        renderer.add_rect_mark(&mark, [0.0, 0.0], &Clip::None)?;
-
-        // The overlay has no text, but `render_with_resources` indexes
-        // `text_bind_groups[0]`; reuse the frame's shared text bind groups.
-        Ok(Some(renderer.render_with_resources(
-            &self.device,
-            &self.queue,
-            render_target_extent,
-            texture_view,
-            resolve_target,
-            &self.multi_render_resources,
-            text_bind_groups,
-        )))
-    }
-
     pub fn render(&mut self) -> Result<(), AvengerWgpuError> {
         let _span = tracing::debug_span!("wgpu.render").entered();
         let render_start = Instant::now();
@@ -964,7 +776,8 @@ impl WindowCanvas<'_> {
         let view = output
             .texture
             .create_view(&TextureViewDescriptor::default());
-        let render_target_extent = if self.sample_count > 1 {
+        let sample_count = self.renderer.sample_count();
+        let render_target_extent = if sample_count > 1 {
             Extent3d {
                 width: self.surface_config.width,
                 height: self.surface_config.height,
@@ -975,48 +788,43 @@ impl WindowCanvas<'_> {
         };
 
         // Commit open multi-renderer
-        self.commit_all_multi_renderers();
+        self.renderer.commit_all_multi_renderers();
+        let marks = self.renderer.marks().to_vec();
 
         // Collect z-indices and compute layers
-        let zindices: Vec<i32> = self.marks.iter().map(|m| m.zindex).collect();
+        let zindices: Vec<i32> = marks.iter().map(|m| m.zindex).collect();
         let layers = if zindices.is_empty() {
             vec![]
         } else {
             compute_zindex_layers(zindices)
         };
         let layer_count = layers.len();
-        let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&self.marks);
+        let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&marks);
 
         // Render background first
         let command_build_start = Instant::now();
-        let background_command = if self.sample_count > 1 {
+        let background_command = if sample_count > 1 {
             make_background_command(self, &self.multisampled_framebuffer, Some(&view))
         } else {
             make_background_command(self, &view, None)
         };
         let mut commands = vec![background_command];
 
-        let texture_format = self.texture_format();
-        let multi_render_resources = self.multi_render_resources.clone();
+        let multi_render_resources = self.renderer.multi_render_resources().clone();
 
         // Build the shared text atlas bind groups ONCE per frame (instead of once per
         // multi-renderer). Every renderer this frame registered into the same atlas, so
         // these bind groups are page-correct for all of them.
-        let (text_atlas_size, text_atlas_images) = self.text_atlas_builder.build();
-        let text_bind_groups = MultiMarkRenderer::make_text_bind_groups_dual_sampler(
-            &self.device,
-            &self.queue,
-            self.multi_render_resources.text_layout(),
-            text_atlas_size,
-            &text_atlas_images,
-        );
+        let text_bind_groups = self
+            .renderer
+            .build_text_bind_groups(&self.device, &self.queue);
 
         // Prepare the single shared multi-renderer ONCE per frame (uniform, gradient/
         // image atlas bind groups, stencil buffer, combined vertex/index/clip buffers).
         // Each z-run (a `MarkRenderer::Multi` batch range) is then encoded from this
         // shared prep, so the 40-ish per-cell renderers' setup collapses to one.
         let _prepare_start = Instant::now();
-        let prepared = self.shared_multi.prepare(
+        let prepared = self.renderer.shared_multi_mut().prepare(
             &self.device,
             &self.queue,
             render_target_extent,
@@ -1034,7 +842,7 @@ impl WindowCanvas<'_> {
         // render on their own pipeline, interleaved.
         let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
         for (min_z, max_z) in layers {
-            for mark in &self.marks {
+            for mark in &marks {
                 if mark.zindex >= min_z && mark.zindex <= max_z {
                     match &mark.renderer {
                         MarkRenderer::Multi { batch_range } => pending.push(batch_range.clone()),
@@ -1044,8 +852,8 @@ impl WindowCanvas<'_> {
                             y_adjustment,
                         } => {
                             if !pending.is_empty() {
-                                let c = if self.sample_count > 1 {
-                                    self.shared_multi.encode_multi_ranges(
+                                let c = if sample_count > 1 {
+                                    self.renderer.shared_multi().encode_multi_ranges(
                                         &self.device,
                                         render_target_extent,
                                         &self.multisampled_framebuffer,
@@ -1056,7 +864,7 @@ impl WindowCanvas<'_> {
                                         &pending,
                                     )
                                 } else {
-                                    self.shared_multi.encode_multi_ranges(
+                                    self.renderer.shared_multi().encode_multi_ranges(
                                         &self.device,
                                         render_target_extent,
                                         &view,
@@ -1070,7 +878,7 @@ impl WindowCanvas<'_> {
                                 commands.push(c);
                                 pending.clear();
                             }
-                            let c = if self.sample_count > 1 {
+                            let c = if sample_count > 1 {
                                 renderer.render(
                                     &self.device,
                                     &self.multisampled_framebuffer,
@@ -1094,8 +902,8 @@ impl WindowCanvas<'_> {
             }
         }
         if !pending.is_empty() {
-            let c = if self.sample_count > 1 {
-                self.shared_multi.encode_multi_ranges(
+            let c = if sample_count > 1 {
+                self.renderer.shared_multi().encode_multi_ranges(
                     &self.device,
                     render_target_extent,
                     &self.multisampled_framebuffer,
@@ -1106,7 +914,7 @@ impl WindowCanvas<'_> {
                     &pending,
                 )
             } else {
-                self.shared_multi.encode_multi_ranges(
+                self.renderer.shared_multi().encode_multi_ranges(
                     &self.device,
                     render_target_extent,
                     &view,
@@ -1120,10 +928,12 @@ impl WindowCanvas<'_> {
             commands.push(c);
         }
 
-        let frame_overlay_command = if self.sample_count > 1 {
+        let frame_overlay_command = if sample_count > 1 {
             let overlay_start = Instant::now();
-            let command = self.make_frame_overlay_command(
-                texture_format,
+            let command = self.renderer.make_frame_overlay_command(
+                &self.device,
+                &self.queue,
+                self.frame_overlay,
                 render_target_extent,
                 &self.multisampled_framebuffer,
                 Some(&view),
@@ -1137,8 +947,10 @@ impl WindowCanvas<'_> {
             command
         } else {
             let overlay_start = Instant::now();
-            let command = self.make_frame_overlay_command(
-                texture_format,
+            let command = self.renderer.make_frame_overlay_command(
+                &self.device,
+                &self.queue,
+                self.frame_overlay,
                 render_target_extent,
                 &view,
                 None,
@@ -1168,7 +980,7 @@ impl WindowCanvas<'_> {
             command_build_ms = command_build_elapsed.as_secs_f64() * 1000.0,
             submit_present_ms = submit_elapsed.as_secs_f64() * 1000.0,
             command_count,
-            renderer_count = self.marks.len(),
+            renderer_count = marks.len(),
             instanced_renderer_count,
             multi_renderer_count,
             layer_count,
@@ -1181,39 +993,27 @@ impl WindowCanvas<'_> {
 
 impl Canvas for WindowCanvas<'_> {
     fn set_current_zindex(&mut self, zindex: i32) {
-        if zindex != self.current_zindex {
-            self.commit_multi_renderer_if_needed(zindex);
-        }
-        self.current_zindex = zindex;
+        self.renderer.set_current_zindex(zindex);
     }
 
     fn commit_multi_renderer_if_needed(&mut self, _new_zindex: i32) {
-        let end = self.shared_multi.batch_count();
-        if end > self.run_start {
-            self.marks.push(ZIndexedMark {
-                zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi {
-                    batch_range: self.run_start..end,
-                },
-            });
-        }
-        self.run_start = end;
+        self.renderer.commit_multi_renderer_if_needed();
     }
 
     fn get_current_zindex(&self) -> i32 {
-        self.current_zindex
+        self.renderer.current_zindex()
     }
 
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        &mut self.shared_multi
+        self.renderer.shared_multi_mut()
     }
 
     fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait {
-        &mut *self.text_atlas_builder
+        self.renderer.text_atlas_builder_mut()
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
-        self.instanced_renderers.get(&fingerprint).cloned()
+        self.renderer.get_instanced_renderer(fingerprint)
     }
 
     fn add_instanced_mark_renderer(
@@ -1223,39 +1023,16 @@ impl Canvas for WindowCanvas<'_> {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
-        let end = self.shared_multi.batch_count();
-        if end > self.run_start {
-            self.marks.push(ZIndexedMark {
-                zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi {
-                    batch_range: self.run_start..end,
-                },
-            });
-        }
-        self.run_start = end;
-        self.instanced_renderers
-            .insert(fingerprint, mark_renderer.clone());
-        self.marks.push(ZIndexedMark {
-            zindex: self.current_zindex,
-            renderer: MarkRenderer::Instanced {
-                renderer: mark_renderer,
-                x_adjustment,
-                y_adjustment,
-            },
-        });
+        self.renderer.add_instanced_mark_renderer(
+            mark_renderer,
+            fingerprint,
+            x_adjustment,
+            y_adjustment,
+        );
     }
 
     fn clear_mark_renderer(&mut self) {
-        // One shared multi-renderer per canvas: reset it in place each frame and
-        // clear the recorded z-run marks. (Instanced fingerprint cache is retained.)
-        self.shared_multi.reset_for_frame(self.dimensions);
-        self.run_start = 0;
-        self.marks.clear();
-
-        // Reset the shared text atlas so each frame starts clean (matches the old
-        // per-renderer reset-per-frame semantics). `TextAtlasBuilder` has no reset
-        // method, so replace it with a fresh builder via the same ctor.
-        self.text_atlas_builder = make_text_atlas_builder(&self.config.text_builder_ctor);
+        self.renderer.clear_mark_renderer();
     }
 
     fn device(&self) -> &Device {
@@ -1267,15 +1044,15 @@ impl Canvas for WindowCanvas<'_> {
     }
 
     fn dimensions(&self) -> CanvasDimensions {
-        self.dimensions
+        self.renderer.dimensions()
     }
 
     fn texture_format(&self) -> TextureFormat {
-        self.surface_config.format
+        self.renderer.texture_format()
     }
 
     fn sample_count(&self) -> u32 {
-        self.sample_count
+        self.renderer.sample_count()
     }
 }
 
@@ -1286,23 +1063,13 @@ impl Canvas for WindowCanvas<'_> {
 // }
 
 pub struct PngCanvas {
-    sample_count: u32,
-    marks: Vec<ZIndexedMark>,
-    current_zindex: i32,
-    dimensions: CanvasDimensions,
+    renderer: AvengerRendererCore,
     texture_view: TextureView,
     output_buffer: Buffer,
     texture: Texture,
     texture_size: Extent3d,
     padded_width: u32,
     padded_height: u32,
-    shared_multi: MultiMarkRenderer,
-    run_start: usize,
-    instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
-    multi_render_resources: MultiMarkRenderResources,
-    config: CanvasConfig,
-    // Text atlas shared by all multi-renderers; built + uploaded once per frame.
-    text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
 
     // The order of properties in a struct is the order in which items are dropped.
     // wgpu seems to require that the device be dropped last, otherwise there is a resouce
@@ -1370,54 +1137,33 @@ impl PngCanvas {
             sample_count,
         );
 
-        let multi_render_resources =
-            MultiMarkRenderResources::new(&device, texture_format, sample_count);
-
-        let text_atlas_builder = make_text_atlas_builder(&config.text_builder_ctor);
+        let renderer =
+            AvengerRendererCore::new(&device, dimensions, texture_format, sample_count, config);
 
         Ok(Self {
             device,
             queue,
             multisampled_framebuffer,
-            sample_count,
-            dimensions,
+            renderer,
             texture,
             texture_view,
             output_buffer,
             texture_size,
             padded_width,
             padded_height,
-            marks: Vec::new(),
-            shared_multi: MultiMarkRenderer::new(dimensions),
-            run_start: 0,
-            current_zindex: 0,
-            instanced_renderers: HashMap::new(),
-            multi_render_resources,
-            config,
-            text_atlas_builder,
         })
-    }
-
-    fn commit_all_multi_renderers(&mut self) {
-        let end = self.shared_multi.batch_count();
-        if end > self.run_start {
-            self.marks.push(ZIndexedMark {
-                zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi {
-                    batch_range: self.run_start..end,
-                },
-            });
-        }
-        self.run_start = end;
     }
 
     #[tracing::instrument(skip_all)]
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
         let render_start = Instant::now();
-        self.commit_all_multi_renderers();
+        self.renderer.commit_all_multi_renderers();
+        let sample_count = self.renderer.sample_count();
+        let dimensions = self.renderer.dimensions();
+        let marks = self.renderer.marks().to_vec();
 
         // Build encoder for chart background
-        let background_command = if self.sample_count > 1 {
+        let background_command = if sample_count > 1 {
             make_background_command(
                 self,
                 &self.multisampled_framebuffer,
@@ -1428,41 +1174,36 @@ impl PngCanvas {
         };
 
         // Collect z-indices and compute layers
-        let zindices: Vec<i32> = self.marks.iter().map(|m| m.zindex).collect();
+        let zindices: Vec<i32> = marks.iter().map(|m| m.zindex).collect();
         let layers = if zindices.is_empty() {
             vec![]
         } else {
             compute_zindex_layers(zindices)
         };
         let layer_count = layers.len();
-        let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&self.marks);
+        let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&marks);
 
         let mut commands = vec![background_command];
-        let multi_render_resources = self.multi_render_resources.clone();
+        let multi_render_resources = self.renderer.multi_render_resources().clone();
         let render_target_extent = Extent3d {
-            width: self.dimensions.to_physical_width(),
-            height: self.dimensions.to_physical_height(),
+            width: dimensions.to_physical_width(),
+            height: dimensions.to_physical_height(),
             depth_or_array_layers: 1,
         };
 
         // Build the shared text atlas bind groups ONCE per frame (instead of once per
         // multi-renderer). Every renderer this frame registered into the same atlas, so
         // these bind groups are page-correct for all of them.
-        let (text_atlas_size, text_atlas_images) = self.text_atlas_builder.build();
-        let text_bind_groups = MultiMarkRenderer::make_text_bind_groups_dual_sampler(
-            &self.device,
-            &self.queue,
-            self.multi_render_resources.text_layout(),
-            text_atlas_size,
-            &text_atlas_images,
-        );
+        let text_bind_groups = self
+            .renderer
+            .build_text_bind_groups(&self.device, &self.queue);
 
         // Prepare the single shared multi-renderer ONCE per frame (uniform, gradient/
         // image atlas bind groups, stencil buffer, combined vertex/index/clip buffers).
         // Each z-run (a `MarkRenderer::Multi` batch range) is then encoded from this
         // shared prep, so the 40-ish per-cell renderers' setup collapses to one.
         let _prepare_start = Instant::now();
-        let prepared = self.shared_multi.prepare(
+        let prepared = self.renderer.shared_multi_mut().prepare(
             &self.device,
             &self.queue,
             render_target_extent,
@@ -1480,7 +1221,7 @@ impl PngCanvas {
         // passes; instanced marks break a run, interleaved by (layer, document).
         let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
         for (min_z, max_z) in layers {
-            for mark in &self.marks {
+            for mark in &marks {
                 if mark.zindex >= min_z && mark.zindex <= max_z {
                     match &mark.renderer {
                         MarkRenderer::Multi { batch_range } => pending.push(batch_range.clone()),
@@ -1490,8 +1231,8 @@ impl PngCanvas {
                             y_adjustment,
                         } => {
                             if !pending.is_empty() {
-                                let c = if self.sample_count > 1 {
-                                    self.shared_multi.encode_multi_ranges(
+                                let c = if sample_count > 1 {
+                                    self.renderer.shared_multi().encode_multi_ranges(
                                         &self.device,
                                         render_target_extent,
                                         &self.multisampled_framebuffer,
@@ -1502,7 +1243,7 @@ impl PngCanvas {
                                         &pending,
                                     )
                                 } else {
-                                    self.shared_multi.encode_multi_ranges(
+                                    self.renderer.shared_multi().encode_multi_ranges(
                                         &self.device,
                                         render_target_extent,
                                         &self.texture_view,
@@ -1516,7 +1257,7 @@ impl PngCanvas {
                                 commands.push(c);
                                 pending.clear();
                             }
-                            let c = if self.sample_count > 1 {
+                            let c = if sample_count > 1 {
                                 renderer.render(
                                     &self.device,
                                     &self.multisampled_framebuffer,
@@ -1540,8 +1281,8 @@ impl PngCanvas {
             }
         }
         if !pending.is_empty() {
-            let c = if self.sample_count > 1 {
-                self.shared_multi.encode_multi_ranges(
+            let c = if sample_count > 1 {
+                self.renderer.shared_multi().encode_multi_ranges(
                     &self.device,
                     render_target_extent,
                     &self.multisampled_framebuffer,
@@ -1552,7 +1293,7 @@ impl PngCanvas {
                     &pending,
                 )
             } else {
-                self.shared_multi.encode_multi_ranges(
+                self.renderer.shared_multi().encode_multi_ranges(
                     &self.device,
                     render_target_extent,
                     &self.texture_view,
@@ -1628,8 +1369,8 @@ impl PngCanvas {
                 &img_buf,
                 0,
                 0,
-                self.dimensions.to_physical_width(),
-                self.dimensions.to_physical_height(),
+                dimensions.to_physical_width(),
+                dimensions.to_physical_height(),
             );
             cropped_img.to_image()
         };
@@ -1643,10 +1384,10 @@ impl PngCanvas {
             submit_ms = submit_elapsed.as_secs_f64() * 1000.0,
             extract_ms = extract_elapsed.as_secs_f64() * 1000.0,
             map_read_ms = map_read_elapsed.as_secs_f64() * 1000.0,
-            physical_width = self.dimensions.to_physical_width(),
-            physical_height = self.dimensions.to_physical_height(),
+            physical_width = dimensions.to_physical_width(),
+            physical_height = dimensions.to_physical_height(),
             command_count,
-            renderer_count = self.marks.len(),
+            renderer_count = marks.len(),
             instanced_renderer_count,
             multi_renderer_count,
             layer_count,
@@ -1658,39 +1399,27 @@ impl PngCanvas {
 
 impl Canvas for PngCanvas {
     fn set_current_zindex(&mut self, zindex: i32) {
-        if zindex != self.current_zindex {
-            self.commit_multi_renderer_if_needed(zindex);
-        }
-        self.current_zindex = zindex;
+        self.renderer.set_current_zindex(zindex);
     }
 
     fn commit_multi_renderer_if_needed(&mut self, _new_zindex: i32) {
-        let end = self.shared_multi.batch_count();
-        if end > self.run_start {
-            self.marks.push(ZIndexedMark {
-                zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi {
-                    batch_range: self.run_start..end,
-                },
-            });
-        }
-        self.run_start = end;
+        self.renderer.commit_multi_renderer_if_needed();
     }
 
     fn get_current_zindex(&self) -> i32 {
-        self.current_zindex
+        self.renderer.current_zindex()
     }
 
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        &mut self.shared_multi
+        self.renderer.shared_multi_mut()
     }
 
     fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait {
-        &mut *self.text_atlas_builder
+        self.renderer.text_atlas_builder_mut()
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
-        self.instanced_renderers.get(&fingerprint).cloned()
+        self.renderer.get_instanced_renderer(fingerprint)
     }
 
     fn add_instanced_mark_renderer(
@@ -1700,38 +1429,16 @@ impl Canvas for PngCanvas {
         x_adjustment: Option<LinearScaleAdjustment>,
         y_adjustment: Option<LinearScaleAdjustment>,
     ) {
-        let end = self.shared_multi.batch_count();
-        if end > self.run_start {
-            self.marks.push(ZIndexedMark {
-                zindex: self.current_zindex,
-                renderer: MarkRenderer::Multi {
-                    batch_range: self.run_start..end,
-                },
-            });
-        }
-        self.run_start = end;
-        self.instanced_renderers
-            .insert(fingerprint, mark_renderer.clone());
-        self.marks.push(ZIndexedMark {
-            zindex: self.current_zindex,
-            renderer: MarkRenderer::Instanced {
-                renderer: mark_renderer,
-                x_adjustment,
-                y_adjustment,
-            },
-        });
+        self.renderer.add_instanced_mark_renderer(
+            mark_renderer,
+            fingerprint,
+            x_adjustment,
+            y_adjustment,
+        );
     }
 
     fn clear_mark_renderer(&mut self) {
-        // One shared multi-renderer per canvas: reset it in place each frame and
-        // clear the recorded z-run marks. (Instanced fingerprint cache is retained.)
-        self.shared_multi.reset_for_frame(self.dimensions);
-        self.run_start = 0;
-        self.marks.clear();
-
-        // Reset the shared text atlas so each frame starts clean (matches the old
-        // per-renderer reset-per-frame semantics).
-        self.text_atlas_builder = make_text_atlas_builder(&self.config.text_builder_ctor);
+        self.renderer.clear_mark_renderer();
     }
 
     fn device(&self) -> &Device {
@@ -1743,14 +1450,14 @@ impl Canvas for PngCanvas {
     }
 
     fn dimensions(&self) -> CanvasDimensions {
-        self.dimensions
+        self.renderer.dimensions()
     }
 
     fn texture_format(&self) -> TextureFormat {
-        self.texture.format()
+        self.renderer.texture_format()
     }
 
     fn sample_count(&self) -> u32 {
-        self.sample_count
+        self.renderer.sample_count()
     }
 }

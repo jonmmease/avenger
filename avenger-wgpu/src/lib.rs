@@ -4,6 +4,8 @@ extern crate lazy_static;
 pub mod canvas;
 pub mod error;
 pub mod marks;
+pub mod renderer;
+pub mod target;
 pub mod util;
 pub mod zindex_layers;
 

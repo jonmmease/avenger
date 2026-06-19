@@ -297,8 +297,8 @@ cargo test -p avenger-chart visual_regression -- --nocapture
 
 Commit:
 
-- [ ] Commit doc/version baseline updates.
-- Commit hash: TBD
+- [x] Commit doc/version baseline updates.
+- Commit hash: `c2948e61`
 
 ## Phase 1 - Extract Renderer Core Without Behavior Change
 
@@ -306,9 +306,9 @@ Purpose: separate reusable Avenger render state from surface ownership while pre
 
 Tasks:
 
-- [ ] Create `avenger-wgpu/src/renderer.rs`.
-- [ ] Create `avenger-wgpu/src/target.rs`.
-- [ ] Move shared fields out of `WindowCanvas` and `PngCanvas` into a new internal render state:
+- [x] Create `avenger-wgpu/src/renderer.rs`.
+- [x] Create `avenger-wgpu/src/target.rs`.
+- [x] Move shared fields out of `WindowCanvas` and `PngCanvas` into a new internal render state:
   - `marks`
   - `shared_multi`
   - `run_start`
@@ -320,14 +320,24 @@ Tasks:
   - `dimensions`
   - `sample_count`
   - `texture_format`
-- [ ] Keep device/queue ownership in existing host canvases for now.
-- [ ] Keep surface/window ownership only in `WindowCanvas`.
-- [ ] Keep PNG output texture/readback ownership only in `PngCanvas`.
-- [ ] Move `commit_all_multi_renderers` to the renderer core.
-- [ ] Move `make_frame_overlay_command` or its future equivalent behind the renderer core.
-- [ ] Keep the existing `Canvas` trait working, even if implemented by forwarding to the new renderer core.
-- [ ] Update module exports.
-- [ ] Ensure no behavior changes in `WindowCanvas::new`, `WindowCanvas::render`, `PngCanvas::new`, or `PngCanvas::render`.
+- [x] Keep device/queue ownership in existing host canvases for now.
+- [x] Keep surface/window ownership only in `WindowCanvas`.
+- [x] Keep PNG output texture/readback ownership only in `PngCanvas`.
+- [x] Move `commit_all_multi_renderers` to the renderer core.
+- [x] Move `make_frame_overlay_command` or its future equivalent behind the renderer core.
+- [x] Keep the existing `Canvas` trait working, even if implemented by forwarding to the new renderer core.
+- [x] Update module exports.
+- [x] Ensure no behavior changes in `WindowCanvas::new`, `WindowCanvas::render`, `PngCanvas::new`, or `PngCanvas::render`.
+
+Phase 1 notes, 2026-06-19:
+
+- Added `AvengerRendererCore` in `avenger-wgpu/src/renderer.rs`.
+- Moved `MarkRenderer`, `ZIndexedMark`, `mark_renderer_counts`, shared text atlas construction, shared mark state, z-run bookkeeping, and frame-overlay command construction into the renderer module.
+- Kept the old `avenger_wgpu::canvas::MarkRenderer` and `ZIndexedMark` paths available by re-exporting them from `canvas.rs`.
+- Added `avenger-wgpu/src/target.rs` as the Phase 2 module boundary only; explicit target descriptors are still deferred to Phase 2.
+- `WindowCanvas` still owns the winit window/surface/device/queue/presentation details.
+- `PngCanvas` still owns the PNG output texture, readback buffer, device, and queue.
+- `WindowCanvas` and `PngCanvas` implement `Canvas` by delegating shared renderer-state mutations to `AvengerRendererCore`.
 
 Validation:
 
@@ -336,6 +346,18 @@ cargo fmt --all
 cargo test -p avenger-wgpu
 cargo test -p avenger-chart-app --features winit-wgpu
 ```
+
+Phase 1 validation results, 2026-06-19:
+
+- `cargo fmt --all`: passed.
+- `cargo check -p avenger-wgpu`: passed.
+- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+  - `case_090` / `residuals_colorscale`, diff `0.026578`,
+  - `case_119` / `geoScale`, diff `0.016531`,
+  - `case_120` / `maptile_background`, diff `0.012998`.
+- `cargo test -p avenger-chart-app --features winit-wgpu`: failed before test execution because example `parallel_coordinates_header_drag_reorder.rs` references missing `ev::parallel_dimension_id()` and `ev::parallel_display_x()` helpers. This file was not touched in Phase 1.
+- `cargo test -p avenger-chart-app --features winit-wgpu --lib`: failed 3 existing event-binding tests around retained nested event datum rows. No chart-app files were touched in Phase 1.
 
 Commit:
 
