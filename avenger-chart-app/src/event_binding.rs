@@ -6726,6 +6726,28 @@ mod tests {
         fills
     }
 
+    fn collect_line_strokes(scene: &SceneGraph) -> Vec<[f32; 4]> {
+        fn collect_from_mark(mark: &SceneMark, strokes: &mut Vec<[f32; 4]>) {
+            match mark {
+                SceneMark::Group(group) => {
+                    for child in &group.marks {
+                        collect_from_mark(child, strokes);
+                    }
+                }
+                SceneMark::Line(line) => {
+                    strokes.push(line.stroke.color_or_transparent());
+                }
+                _ => {}
+            }
+        }
+
+        let mut strokes = Vec::new();
+        for mark in &scene.marks {
+            collect_from_mark(mark, &mut strokes);
+        }
+        strokes
+    }
+
     async fn legend_symbol_alpha_for_value(
         state: &ChartAppState,
         scene: &SceneGraph,
@@ -6754,6 +6776,12 @@ mod tests {
         fills
             .iter()
             .any(|fill| fill[2] > 0.8 && fill[0] < 0.2 && fill[1] < 0.5)
+    }
+
+    fn has_blue_stroke(strokes: &[[f32; 4]]) -> bool {
+        strokes
+            .iter()
+            .any(|stroke| stroke[2] > 0.8 && stroke[0] < 0.2 && stroke[1] < 0.5)
     }
 
     async fn retained_event_datum_mark_instance(
@@ -7707,6 +7735,50 @@ mod tests {
             .await
     }
 
+    async fn cursor_drag_move_from_position(
+        state: &mut ChartAppState,
+        handler: &ChartEventBindingHandler,
+        start_pos: [f32; 2],
+        current_pos: [f32; 2],
+        shift: bool,
+    ) -> UpdateStatus {
+        let instant = Instant::now();
+        let start_event = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: start_pos,
+                button: MouseButton::Left,
+                mark_instance: None,
+                modifiers: ModifiersState {
+                    shift,
+                    ..ModifiersState::default()
+                },
+            }),
+            mark_instance: None,
+            instant,
+        };
+        let context = EventStreamContext {
+            mark_instance: None,
+            current_event: None,
+            start_event: Some(start_event),
+            previous_event: None,
+        };
+        handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: current_pos,
+                    mark_instance: None,
+                    modifiers: ModifiersState {
+                        shift,
+                        ..ModifiersState::default()
+                    },
+                }),
+                &context,
+                state,
+                &empty_rtree(),
+            )
+            .await
+    }
+
     async fn click_mark(
         state: &mut ChartAppState,
         handler: &ChartEventBindingHandler,
@@ -8318,6 +8390,241 @@ mod tests {
         assert_eq!(
             params.get("clicked_max"),
             Some(&ScalarValue::Float64(Some(75.0)))
+        );
+    }
+
+    const PARALLEL_BRUSH_SELECTION: &str = "axis_brush";
+    const PARALLEL_BRUSH_STORE: &str = "axis_brush_boxes";
+
+    fn parallel_axis_hit_filter(axis_x: f64) -> Expr {
+        event::start_coord(PARALLEL_LOCAL_X_CHANNEL)
+            .gt(lit(axis_x - 12.0))
+            .and(event::start_coord(PARALLEL_LOCAL_X_CHANNEL).lt(lit(axis_x + 12.0)))
+    }
+
+    fn parallel_dimension_drag_values_exist(dimension_id: &'static str) -> Expr {
+        event::start_coord(dimension_id)
+            .is_not_null()
+            .and(event::event_at_start_clipped_coord(dimension_id).is_not_null())
+            .and(event::start_coord(PARALLEL_LOCAL_Y_CHANNEL).is_not_null())
+            .and(event::event_at_start_clipped_coord(PARALLEL_LOCAL_Y_CHANNEL).is_not_null())
+    }
+
+    fn parallel_axis_selection_clause(
+        dimension_id: &'static str,
+        field: &'static str,
+    ) -> SelectionClauseUpdate {
+        let interval = event::interval_ordered(
+            event::start_coord(dimension_id),
+            event::event_at_start_clipped_coord(dimension_id),
+        );
+        SelectionClauseUpdate::interval(lit(dimension_id))
+            .facet_scope(CoordinationScope::Shared)
+            .dimension_named(dimension_id, col(field))
+            .endpoints(
+                event::interval_start(interval.clone()),
+                event::interval_end(interval),
+            )
+            .build()
+    }
+
+    fn parallel_brush_store_row(dimension_id: &'static str, axis_index: usize) -> StoreRow {
+        let value_interval = event::interval_ordered(
+            event::start_coord(dimension_id),
+            event::event_at_start_clipped_coord(dimension_id),
+        );
+        StoreRow::new()
+            .field("id", lit(dimension_id))
+            .field("axis_index", lit(axis_index as f64))
+            .field("value_min", event::interval_start(value_interval.clone()))
+            .field("value_max", event::interval_end(value_interval))
+    }
+
+    fn parallel_axis_drag_binding(
+        dimension_id: &'static str,
+        field: &'static str,
+        axis_index: usize,
+        axis_x: f64,
+        additive: bool,
+    ) -> ChartEventBinding {
+        let selection_update = if additive {
+            SelectionUpdate::upsert_clause(parallel_axis_selection_clause(dimension_id, field))
+        } else {
+            SelectionUpdate::replace_clause(parallel_axis_selection_clause(dimension_id, field))
+        };
+        let store_update = if additive {
+            StoreUpdate::upsert_rows([parallel_brush_store_row(dimension_id, axis_index)])
+        } else {
+            StoreUpdate::replace_rows([parallel_brush_store_row(dimension_id, axis_index)])
+        };
+        let mut binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .filter(parallel_axis_hit_filter(axis_x))
+            .filter(parallel_dimension_drag_values_exist(dimension_id))
+            .filter(event::shift().eq(lit(additive)))
+            .set_selection_at_start_scope(PARALLEL_BRUSH_SELECTION, selection_update);
+        binding = if additive {
+            binding.set_store_at_start_scope(PARALLEL_BRUSH_STORE, store_update)
+        } else {
+            binding.set_store_at_start_scope_replacing_scopes(PARALLEL_BRUSH_STORE, store_update)
+        };
+        binding.preview()
+    }
+
+    fn parallel_brush_store() -> Store {
+        Store::empty(PARALLEL_BRUSH_STORE)
+            .field("id", DataType::Utf8, false)
+            .field("axis_index", DataType::Float64, false)
+            .field("value_min", DataType::Float64, false)
+            .field("value_max", DataType::Float64, false)
+            .primary_key(["id"])
+            .sharing(CoordinationScope::Shared)
+    }
+
+    fn parallel_brush_overlay(dimension_id: &'static str) -> ParallelAxisOverlay<Parallel> {
+        ParallelAxisOverlay::new(
+            dimension_id,
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .data_store(StoreData::new(PARALLEL_BRUSH_STORE))
+                    .exclude_from_scale_domains()
+                    .x(lit(0.0))
+                    .x2(lit(1.0))
+                    .y(col("value_min"))
+                    .y2(col("value_max"))
+                    .fill("rgba(37, 99, 235, 0.14)")
+                    .stroke("#2563eb")
+                    .stroke_width(1.4)
+                    .zindex(10_000),
+            ),
+        )
+        .width_px(14.0)
+        .zindex(10_000)
+    }
+
+    #[tokio::test]
+    async fn parallel_axis_drag_creates_brush_interval_store_row_and_overlay_rect() {
+        let ctx = SessionContext::new();
+        let data = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('row1', 10.0, 100.0),
+                    ('row2', 20.0, 200.0),
+                    ('row3', 30.0, 300.0)
+                ) AS t(id, speed, cost)",
+            )
+            .await
+            .expect("parallel brush data");
+        let brush = Selection::new(PARALLEL_BRUSH_SELECTION)
+            .combine(SelectionCombine::Intersect)
+            .empty_selects_nothing();
+        let selected = brush.predicate();
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("speed", col("speed"), |d| {
+                    d.axis(|axis| axis.title("Speed"))
+                })
+                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
+        )
+        .canvas_size(420.0, 320.0)
+        .plot_size(260.0, 180.0)
+        .data(data)
+        .add_selection(brush)
+        .add_store(parallel_brush_store())
+        .mark(
+            ParallelLine::new()
+                .id("context_lines")
+                .stroke("#c4cbd5")
+                .stroke_width(1.1)
+                .opacity(0.42)
+                .zindex(1),
+        )
+        .mark(
+            ParallelLine::new()
+                .id("selected_lines")
+                .transform_no_output(Filter::new(selected), |mark| mark)
+                .stroke("#2563eb")
+                .stroke_width(2.3)
+                .opacity(0.95)
+                .zindex(20),
+        )
+        .mark(parallel_brush_overlay("speed"))
+        .event_binding(parallel_axis_drag_binding("speed", "speed", 0, 0.0, false))
+        .compile(&ctx)
+        .await
+        .expect("compile parallel brush plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial parallel brush scene");
+        let scopes = state.interaction_scopes().await;
+        let parallel_scope = scopes
+            .iter()
+            .find(|scope| scope.channels.iter().any(|channel| channel == "speed"))
+            .expect("parallel interaction scope");
+        let bounds = parallel_scope.bounds;
+        let start = [bounds.x + 1.0, bounds.y + 36.0];
+        let end = [bounds.x + 1.0, bounds.y + 116.0];
+
+        let status = cursor_drag_move_from_position(&mut state, &handler, start, end, false).await;
+        assert!(status.rerender);
+
+        {
+            let runtime = state.runtime.lock().await;
+            let clauses = runtime
+                .session
+                .selection_clauses_for_diagnostics(PARALLEL_BRUSH_SELECTION);
+            assert_eq!(clauses.len(), 1);
+            assert_eq!(clauses[0].id, "speed");
+            let SelectionPredicateSpec::Interval { dimensions } = &clauses[0].predicate else {
+                panic!("expected interval predicate");
+            };
+            assert_eq!(dimensions.len(), 1);
+            assert_eq!(dimensions[0].id, "speed");
+            let rows = runtime
+                .session
+                .store_rows_for_diagnostics(PARALLEL_BRUSH_STORE);
+            let root_rows = rows
+                .iter()
+                .find(|(path, _)| path.is_empty())
+                .expect("shared brush store rows");
+            assert_eq!(root_rows.1.len(), 1);
+            assert_eq!(
+                root_rows.1[0].get("id"),
+                Some(&ScalarValue::Utf8(Some("speed".to_string())))
+            );
+            let min_value = scalar_f64(
+                root_rows.1[0]
+                    .get("value_min")
+                    .expect("brush store value_min"),
+            );
+            let max_value = scalar_f64(
+                root_rows.1[0]
+                    .get("value_max")
+                    .expect("brush store value_max"),
+            );
+            assert!(min_value < max_value);
+        }
+
+        let updated_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("parallel brush scene with overlay");
+        assert!(
+            has_blue_fill(&collect_rect_fills(&updated_scene)),
+            "brush store row should render as a blue overlay rect"
+        );
+        assert!(
+            has_blue_stroke(&collect_line_strokes(&updated_scene)),
+            "selection predicate should filter matching rows into the highlighted line branch"
         );
     }
 

@@ -5339,6 +5339,9 @@ impl CompiledPlot {
             if channels.iter().any(|channel| channel == coord) {
                 channel_scales.insert(coord.to_string(), scale.configured().clone());
             }
+            if channels.iter().any(|channel| channel == scale_name) {
+                channel_scales.insert(scale_name.clone(), scale.configured().clone());
+            }
         }
         // Only export a scope when every scale-backed interaction channel has
         // a configured scale. Coordinate-local pixel channels can be inverted
