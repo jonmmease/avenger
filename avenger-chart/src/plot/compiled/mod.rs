@@ -541,6 +541,15 @@ impl CompiledPlot {
                 )
                 .await?;
             }
+            if let Some(overlay) =
+                crate::parallel_axis_overlay::parallel_axis_overlay_ref(mark.as_ref())
+            {
+                Box::pin(
+                    compiled_subplot_payload_child_plot(overlay.payload())
+                        .collect_event_coord_types(ctx, out, plot_data),
+                )
+                .await?;
+            }
         }
 
         Ok(())
@@ -580,7 +589,7 @@ impl CompiledPlot {
         let mut types = IndexMap::new();
         collect_reserved_event_datum_types(&requested, &mut types);
         match self
-            .collect_event_datum_types(ctx, &requested, &mut types, None)
+            .collect_event_datum_types(ctx, &requested, &mut types, None, None)
             .await
         {
             Ok(()) => {}
@@ -615,8 +624,14 @@ impl CompiledPlot {
         requested: &BTreeSet<String>,
         out: &mut IndexMap<String, DataType>,
         inherited_plot_data: Option<&LogicalPlanNode>,
+        inherited_store_specs: Option<&IndexMap<String, CompiledStoreSpec>>,
     ) -> Result<(), AvengerChartError> {
         let plot_data = self.data.as_ref().or(inherited_plot_data);
+        let store_specs = if self.store_specs.is_empty() {
+            inherited_store_specs.unwrap_or(&self.store_specs)
+        } else {
+            &self.store_specs
+        };
         if let Some(df) = plot_data.and_then(|node| {
             node.to_logical_plan(ctx)
                 .ok()
@@ -637,6 +652,11 @@ impl CompiledPlot {
         };
 
         for mark in &self.marks {
+            if let Some(store_data) = mark.data_context().store_data()
+                && let Some(spec) = store_specs.get(&store_data.store_name)
+            {
+                collect_event_datum_types_from_store_spec(spec, requested, out);
+            }
             let prepared_base = match self.data_group_index_for_mark(mark.state().mark_index()) {
                 Some(group_index) => Some(
                     Box::pin(self.prepare_mark_group_base_data(
@@ -663,25 +683,50 @@ impl CompiledPlot {
                 collect_event_datum_types_from_schema(&df, requested, out);
             }
             if let Some(subplot) = crate::concat::compiled_subplot(mark.as_ref()) {
-                Box::pin(
-                    subplot
-                        .compiled_subplot()
-                        .collect_event_datum_types(ctx, requested, out, plot_data),
-                )
+                Box::pin(subplot.compiled_subplot().collect_event_datum_types(
+                    ctx,
+                    requested,
+                    out,
+                    plot_data,
+                    Some(store_specs),
+                ))
                 .await?;
             }
             if let Some(subplot) = crate::facet::marks::facet::facet_subplot_ref(mark.as_ref()) {
-                Box::pin(
-                    subplot
-                        .compiled_subplot()
-                        .collect_event_datum_types(ctx, requested, out, plot_data),
-                )
+                Box::pin(subplot.compiled_subplot().collect_event_datum_types(
+                    ctx,
+                    requested,
+                    out,
+                    plot_data,
+                    Some(store_specs),
+                ))
                 .await?;
             }
             if let Some(subplot) = mark.as_positioned_subplot() {
                 Box::pin(
                     compiled_subplot_payload_child_plot(subplot.payload())
-                        .collect_event_datum_types(ctx, requested, out, plot_data),
+                        .collect_event_datum_types(
+                            ctx,
+                            requested,
+                            out,
+                            plot_data,
+                            Some(store_specs),
+                        ),
+                )
+                .await?;
+            }
+            if let Some(overlay) =
+                crate::parallel_axis_overlay::parallel_axis_overlay_ref(mark.as_ref())
+            {
+                Box::pin(
+                    compiled_subplot_payload_child_plot(overlay.payload())
+                        .collect_event_datum_types(
+                            ctx,
+                            requested,
+                            out,
+                            plot_data,
+                            Some(store_specs),
+                        ),
                 )
                 .await?;
             }
@@ -861,6 +906,18 @@ fn collect_event_datum_types_from_schema(
         let name = field.name();
         if requested.contains(name) && !out.contains_key(name) {
             out.insert(name.clone(), field.data_type().clone());
+        }
+    }
+}
+
+fn collect_event_datum_types_from_store_spec(
+    spec: &CompiledStoreSpec,
+    requested: &BTreeSet<String>,
+    out: &mut IndexMap<String, DataType>,
+) {
+    for field in &spec.fields {
+        if requested.contains(&field.name) && !out.contains_key(&field.name) {
+            out.insert(field.name.clone(), field.data_type.clone());
         }
     }
 }

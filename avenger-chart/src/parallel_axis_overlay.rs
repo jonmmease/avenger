@@ -374,7 +374,7 @@ pub(crate) async fn render_parallel_axis_overlay_with_context(
 mod tests {
     use super::*;
     use avenger_scenegraph::marks::{
-        line::SceneLineMark, rect::SceneRectMark, symbol::SceneSymbolMark,
+        line::SceneLineMark, mark::MarkInstance, rect::SceneRectMark, symbol::SceneSymbolMark,
     };
     use datafusion::prelude::{SessionContext, col, lit};
     use indexmap::IndexMap;
@@ -734,6 +734,86 @@ mod tests {
 
         assert_close(rect.y_vec()[0], 75.0);
         assert_close(first_rect_y2(rect), 100.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn axis_overlay_store_child_rect_datums_support_scene_query_fields()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let parent_data = ctx.sql("SELECT 50.0 AS speed").await?;
+        let store_batch = ctx
+            .sql("SELECT 'speed' AS id, 25.0 AS value_min, 75.0 AS value_max")
+            .await?
+            .collect()
+            .await?
+            .into_iter()
+            .next()
+            .expect("store batch");
+        let overlay = ParallelAxisOverlay::new(
+            "speed",
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .data_store(StoreData::new("axis_brush_boxes"))
+                    .x(lit(0.0))
+                    .x2(lit(1.0))
+                    .y(col("value_min"))
+                    .y2(col("value_max")),
+            ),
+        )
+        .id("brush_overlay")
+        .width_px(40.0);
+        let compiled = Plot::with_coord(parallel_for_overlay_test())
+            .canvas_size(220.0, 160.0)
+            .plot_size(120.0, 100.0)
+            .data(parent_data)
+            .add_store(Store::from_record_batch("axis_brush_boxes", store_batch))
+            .event_binding(
+                ChartEventBinding::on(ChartEventType::Click)
+                    .filter(crate::event::datum("id").is_not_null())
+                    .filter(crate::event::datum("value_min").is_not_null())
+                    .filter(crate::event::datum("value_max").is_not_null()),
+            )
+            .mark(overlay)
+            .compile(&ctx)
+            .await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let rect_rows = evaluated
+            .event_datums
+            .rows
+            .iter()
+            .find(|rows| {
+                rows.subplot_id_path == ["brush_overlay"]
+                    && rows.rows.column_by_name("value_min").is_some()
+            })
+            .expect("store-backed overlay rect rows");
+        let queried = evaluated.event_datums.datums_for_mark_instances(
+            [MarkInstance {
+                name: "brush_rect".to_string(),
+                mark_path: rect_rows.mark_path.clone(),
+                instance_index: Some(0),
+            }],
+            &[
+                SceneQueryDatumField::new("axis").datum("id"),
+                SceneQueryDatumField::new("lo").datum("value_min"),
+                SceneQueryDatumField::new("hi").datum("value_max"),
+            ],
+            &[],
+        )?;
+
+        assert_eq!(queried.num_rows(), 1);
+        assert_eq!(
+            ScalarValue::try_from_array(queried.column_by_name("axis").unwrap(), 0)?,
+            ScalarValue::Utf8(Some("speed".to_string()))
+        );
+        assert_eq!(
+            ScalarValue::try_from_array(queried.column_by_name("lo").unwrap(), 0)?,
+            ScalarValue::Float64(Some(25.0))
+        );
+        assert_eq!(
+            ScalarValue::try_from_array(queried.column_by_name("hi").unwrap(), 0)?,
+            ScalarValue::Float64(Some(75.0))
+        );
         Ok(())
     }
 
