@@ -18,6 +18,9 @@ agents. User-facing chart documentation lives in `avenger-chart/book/src`.
 - To work on interactive chart apps or resize behavior, read
   [chart-apps-and-interaction.md](chart-apps-and-interaction.md) and
   [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md).
+- To work on GUI toolkit integrations that display Avenger-rendered charts as
+  native widgets, read
+  [wgpu-gui-offscreen.md](wgpu-gui-offscreen.md).
 - To work on interactive state, selections, or store-backed overlay marks, read
   [stores-selections-and-interaction-state.md](stores-selections-and-interaction-state.md)
   and [chart-apps-and-interaction.md](chart-apps-and-interaction.md).
@@ -47,6 +50,7 @@ flowchart TD
     Render["Scenegraph rendering\nPlotComponents, EvaluatedPlot"]
     Wgpu["Raster output\nWgpuRenderer, CanvasExt"]
     Apps["Interactive apps\navenger-chart-app, avenger-winit-wgpu"]
+    Gui["GUI widgets\navenger-egui"]
     State["Interactive state\nstores, selections, event bindings"]
 
     Author --> Compile
@@ -63,6 +67,8 @@ flowchart TD
     Session --> Apps
     Session --> State
     Apps --> Wgpu
+    Apps --> Gui
+    Gui --> Wgpu
 
     Compile -. details .-> Marks["marks-and-channels.md"]
     Repeat -. details .-> RepeatDocs["repeat-system.md"]
@@ -72,6 +78,7 @@ flowchart TD
     Coord -. details .-> Containers["facet-system.md / concat-system.md / repeat-system.md / positioned-subplots.md"]
     Render -. details .-> Rendering["rendering-and-scenegraph.md"]
     Apps -. details .-> AppDocs["chart-apps-and-interaction.md"]
+    Gui -. details .-> GuiDocs["wgpu-gui-offscreen.md"]
     State -. details .-> StateDocs["stores-selections-and-interaction-state.md"]
 ```
 
@@ -89,6 +96,9 @@ flowchart TD
 - [chart-apps-and-interaction.md](chart-apps-and-interaction.md):
   `avenger-chart-app`, framed canvas resize, app event flow, and Winit/WGPU
   hosting.
+- [wgpu-gui-offscreen.md](wgpu-gui-offscreen.md): egui widget integration,
+  offscreen WGPU textures, latest-scene publishing, event routing, metrics,
+  limitations, and non-goals.
 - [stores-selections-and-interaction-state.md](stores-selections-and-interaction-state.md):
   mutable `Store` tables, store-backed marks, neutral `Selection` predicates,
   sharing scope, and tool expansion shape for interaction state.

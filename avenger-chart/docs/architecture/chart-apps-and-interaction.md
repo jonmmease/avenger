@@ -39,6 +39,12 @@ and installs resize handlers for chart canvas parameters.
 handles native window events, installs scenegraphs into the canvas, and renders
 through WGPU.
 
+GUI toolkit integrations can host the same `AvengerApp` without owning a Winit
+surface. `avenger-egui` routes egui widget-local input into Avenger
+`WindowEvent` values, publishes latest completed scenegraphs, and displays
+Avenger-rendered offscreen WGPU textures as egui images. See
+[wgpu-gui-offscreen.md](wgpu-gui-offscreen.md).
+
 `avenger-eventstream` is the event vocabulary and dispatch layer. It converts
 host `WindowEvent` values into `SceneGraphEvent` values, applies stream
 throttling, and invokes event handlers.
