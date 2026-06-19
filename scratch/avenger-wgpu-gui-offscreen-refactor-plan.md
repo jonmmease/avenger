@@ -1258,8 +1258,8 @@ Tasks:
   - no direct egui render-pass integration in this plan,
   - no semantic drag preview until baseline staleness is evaluated,
   - no egui-backed Avenger text backend in this plan.
-- [ ] Remove temporary compatibility wrappers if no longer needed.
-- [ ] Remove dead code from the old render path.
+- [x] Remove temporary compatibility wrappers if no longer needed.
+- [x] Remove dead code from the old render path.
 - [x] Update examples list.
 
 Phase 13 progress notes, 2026-06-19:
@@ -1269,12 +1269,16 @@ Phase 13 progress notes, 2026-06-19:
 - Documented `AvengerWgpuRenderer`, host wrappers, egui widget shape, event routing, offscreen texture lifecycle, latest-scene publishing, metrics/tracing, limitations, and explicit non-goals.
 - Documented the staged decision that background workers publish CPU scenegraphs while GPU upload/render stays on the egui frame for the MVP. Full background GPU submission remains a Phase 11 follow-up decision after manual measurement.
 - Updated the root README with the `avenger-egui` crate entry and the release-mode `basic_chart` example command.
-- Remaining Phase 13 work: review whether there are temporary compatibility wrappers or dead old render paths to remove.
+- Removed the unused `make_background_command<C: Canvas>` compatibility helper from the pre-refactor canvas path.
+- Reviewed remaining obvious compatibility/dead-code markers in the touched WGPU/egui/app paths. No additional temporary GUI-refactor wrappers were identified for removal in this pass.
+- Remaining Phase 13 work: decide whether to close Phase 13 after final validation, or keep it open until manual egui validation and Phase 11 policy decisions are complete.
 
 Phase 13 validation results, 2026-06-19:
 
 - Documentation links verified with `rg -n "wgpu-gui-offscreen" avenger-chart/docs/architecture`.
 - Existing release validation from Phase 12 remains current for code paths touched before docs: `cargo test -p avenger-egui --release`, `cargo check --release -p avenger-egui --features eframe --example basic_chart`, and `cargo test -p avenger-wgpu --lib --release`.
+- `cargo fmt --all`: passed after removing the unused canvas helper.
+- `cargo test -p avenger-wgpu --lib --release`: passed, 33 tests, after removing the unused canvas helper.
 
 Validation:
 
@@ -1288,7 +1292,7 @@ Commit:
 
 - [ ] Commit Phase 13.
 - Suggested message: `docs(wgpu): document gui offscreen rendering architecture`
-- Implementation commits so far: `a6a2b118`, `86e3a6c6`
+- Implementation commits so far: `a6a2b118`, `86e3a6c6`, `179bea05`
 - Final Phase 13 closure commit hash: TBD
 
 ## Milestone Completion Definitions
