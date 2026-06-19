@@ -1063,6 +1063,7 @@ Phase 10 progress notes, 2026-06-19:
 - Added `PlotOutput` with `egui::Response`, param-change helpers, reserved empty `selection_changes`, lightweight placeholder `FrameStatus`, and translated Avenger `WindowEvent`s.
 - Added `EguiEventTranslator` with widget-local coordinate conversion, cursor enter/leave/move, simple click input, and widget resize to `CanvasResize`.
 - This is not yet the full Phase 10 MVP. Pending work includes dispatching translated events through `AvengerApp`, richer drag/wheel/keyboard translation, egui-wgpu texture registration, offscreen rendering/painting, repaint scheduling, and a runnable `basic_chart` example.
+- Progress commit hash: `cdc4ee5d`
 
 Phase 10 partial validation, 2026-06-19:
 
