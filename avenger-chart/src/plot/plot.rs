@@ -1956,8 +1956,8 @@ mod tests {
         SelectionPredicateUpdate, SelectionSceneQuery, SelectionUpdate, StoreRow, StoreUpdate,
         SubplotDataSource, collect_repeat_placeholder_kinds,
         event::{
-            PARALLEL_DIMENSION_ID_FIELD, PARALLEL_SURFACE_KIND_FIELD, PARALLEL_SURFACE_KIND_POINT,
-            PARALLEL_TITLE_FIELD,
+            PARALLEL_DIMENSION_ID_FIELD, PARALLEL_SURFACE_KIND_DIMENSION_TITLE,
+            PARALLEL_SURFACE_KIND_FIELD, PARALLEL_SURFACE_KIND_POINT, PARALLEL_TITLE_FIELD,
         },
         repeat, simplify_to_scalar_sync,
     };
@@ -3515,8 +3515,31 @@ mod tests {
         .plot_size(120.0, 100.0)
         .data(data)
         .mark(ParallelLine::new())
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::Click)
+                .filter(
+                    crate::event::parallel_surface_kind()
+                        .eq(lit(PARALLEL_SURFACE_KIND_DIMENSION_TITLE)),
+                )
+                .filter(crate::event::parallel_dimension_id().is_not_null())
+                .filter(crate::event::parallel_title().is_not_null()),
+        )
         .compile(&ctx)
         .await?;
+
+        let event_datum_types = compiled.event_datum_types();
+        assert_eq!(
+            event_datum_types.get(PARALLEL_SURFACE_KIND_FIELD),
+            Some(&DataType::Utf8)
+        );
+        assert_eq!(
+            event_datum_types.get(PARALLEL_DIMENSION_ID_FIELD),
+            Some(&DataType::Utf8)
+        );
+        assert_eq!(
+            event_datum_types.get(PARALLEL_TITLE_FIELD),
+            Some(&DataType::Utf8)
+        );
 
         let evaluated = compiled.evaluate(&ctx, None).await?;
         let axis_title_rows = evaluated
