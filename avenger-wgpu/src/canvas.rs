@@ -12,10 +12,10 @@ use avenger_scenegraph::{
 };
 use itertools::izip;
 use wgpu::{
-    Adapter, CommandBuffer, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d,
-    PowerPreference, Queue, RequestAdapterError, RequestAdapterOptions, Surface,
-    SurfaceConfiguration, TextureDescriptor, TextureDimension, TextureFormat,
-    TextureFormatFeatureFlags, TextureUsages, TextureView, TextureViewDescriptor, Trace,
+    Adapter, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, PowerPreference, Queue,
+    RequestAdapterError, RequestAdapterOptions, Surface, SurfaceConfiguration, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView,
+    TextureViewDescriptor, Trace,
 };
 use winit::{dpi::Size, event::WindowEvent, window::Window};
 
@@ -489,40 +489,6 @@ mod tests {
             &Clip::Path(lyon::path::Path::default()),
         ));
     }
-}
-
-// Private shared canvas logic
-#[allow(dead_code)]
-pub(crate) fn make_background_command<C: Canvas>(
-    canvas: &C,
-    texture_view: &TextureView,
-    resolve_target: Option<&TextureView>,
-) -> CommandBuffer {
-    let dimensions = canvas.dimensions();
-    let extent = Extent3d {
-        width: dimensions.to_physical_width(),
-        height: dimensions.to_physical_height(),
-        depth_or_array_layers: 1,
-    };
-    let target = if let Some(resolve_target) = resolve_target {
-        AvengerRenderTarget::multisampled(
-            texture_view,
-            resolve_target,
-            extent,
-            canvas.texture_format(),
-            canvas.sample_count(),
-            WHITE_CLEAR,
-        )
-    } else {
-        AvengerRenderTarget::new(
-            texture_view,
-            extent,
-            canvas.texture_format(),
-            1,
-            WHITE_CLEAR,
-        )
-    };
-    AvengerRendererCore::make_background_command_for_target(canvas.device(), target)
 }
 
 pub(crate) fn make_wgpu_instance() -> wgpu::Instance {
