@@ -6748,6 +6748,28 @@ mod tests {
         strokes
     }
 
+    fn collect_line_zindices_and_strokes(scene: &SceneGraph) -> Vec<(Option<i32>, [f32; 4])> {
+        fn collect_from_mark(mark: &SceneMark, lines: &mut Vec<(Option<i32>, [f32; 4])>) {
+            match mark {
+                SceneMark::Group(group) => {
+                    for child in &group.marks {
+                        collect_from_mark(child, lines);
+                    }
+                }
+                SceneMark::Line(line) => {
+                    lines.push((line.zindex, line.stroke.color_or_transparent()));
+                }
+                _ => {}
+            }
+        }
+
+        let mut lines = Vec::new();
+        for mark in &scene.marks {
+            collect_from_mark(mark, &mut lines);
+        }
+        lines
+    }
+
     async fn legend_symbol_alpha_for_value(
         state: &ChartAppState,
         scene: &SceneGraph,
@@ -8625,6 +8647,262 @@ mod tests {
         assert!(
             has_blue_stroke(&collect_line_strokes(&updated_scene)),
             "selection predicate should filter matching rows into the highlighted line branch"
+        );
+    }
+
+    #[tokio::test]
+    async fn parallel_axis_shift_drag_preserves_first_brush_and_intersects_second() {
+        let ctx = SessionContext::new();
+        let data = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('row1', 10.0, 100.0),
+                    ('row2', 20.0, 200.0),
+                    ('row3', 30.0, 300.0)
+                ) AS t(id, speed, cost)",
+            )
+            .await
+            .expect("parallel brush data");
+        let brush = Selection::new(PARALLEL_BRUSH_SELECTION)
+            .combine(SelectionCombine::Intersect)
+            .empty_selects_nothing();
+        let selected = brush.predicate();
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("speed", col("speed"), |d| {
+                    d.axis(|axis| axis.title("Speed"))
+                })
+                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
+        )
+        .canvas_size(420.0, 320.0)
+        .plot_size(260.0, 180.0)
+        .data(data)
+        .add_selection(brush)
+        .add_store(parallel_brush_store())
+        .mark(
+            ParallelLine::new()
+                .id("cost_color_scale_seed")
+                .stroke_with(col("cost"), |stroke| stroke.no_legend())
+                .stroke_width(0.0)
+                .opacity(0.0)
+                .zindex(0),
+        )
+        .mark(
+            ParallelLine::new()
+                .id("context_lines")
+                .stroke("#c4cbd5")
+                .stroke_width(1.1)
+                .opacity(0.42)
+                .zindex(1),
+        )
+        .mark(
+            ParallelLine::new()
+                .id("selected_lines")
+                .transform_no_output(Filter::new(selected), |mark| mark)
+                .stroke_with(col("cost"), |stroke| stroke.no_legend())
+                .stroke_width(2.3)
+                .opacity(0.95)
+                .zindex(20),
+        )
+        .mark(parallel_brush_overlay("speed"))
+        .mark(parallel_brush_overlay("cost"))
+        .event_binding(parallel_axis_drag_binding("speed", "speed", 0, 0.0, false))
+        .event_binding(parallel_axis_drag_binding("cost", "cost", 1, 260.0, true))
+        .compile(&ctx)
+        .await
+        .expect("compile parallel additive brush plot");
+        let speed_handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let cost_handler = compile_handler_for_binding_index(&compiled, &ctx, 1);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial parallel brush scene");
+        let scopes = state.interaction_scopes().await;
+        let parallel_scope = scopes
+            .iter()
+            .find(|scope| scope.channels.iter().any(|channel| channel == "speed"))
+            .expect("parallel interaction scope");
+        let bounds = parallel_scope.bounds;
+        let speed_start = [bounds.x + 1.0, bounds.y + 36.0];
+        let speed_end = [bounds.x + 1.0, bounds.y + 116.0];
+        let cost_start = [bounds.x + bounds.width - 1.0, bounds.y + 36.0];
+        let cost_end = [bounds.x + bounds.width - 1.0, bounds.y + 116.0];
+
+        let first = cursor_drag_move_from_position(
+            &mut state,
+            &speed_handler,
+            speed_start,
+            speed_end,
+            false,
+        )
+        .await;
+        assert!(first.rerender);
+        let second =
+            cursor_drag_move_from_position(&mut state, &cost_handler, cost_start, cost_end, true)
+                .await;
+        assert!(second.rerender);
+
+        {
+            let runtime = state.runtime.lock().await;
+            let mut clause_ids = runtime
+                .session
+                .selection_clauses_for_diagnostics(PARALLEL_BRUSH_SELECTION)
+                .iter()
+                .map(|clause| clause.id.clone())
+                .collect::<Vec<_>>();
+            clause_ids.sort();
+            assert_eq!(clause_ids, ["cost", "speed"]);
+            let rows = runtime
+                .session
+                .store_rows_for_diagnostics(PARALLEL_BRUSH_STORE);
+            let root_rows = rows
+                .iter()
+                .find(|(path, _)| path.is_empty())
+                .expect("shared brush store rows");
+            let mut ids = root_rows
+                .1
+                .iter()
+                .map(|row| row.get("id").cloned().expect("brush row id"))
+                .collect::<Vec<_>>();
+            ids.sort_by_key(|value| format!("{value:?}"));
+            assert_eq!(
+                ids,
+                [
+                    ScalarValue::Utf8(Some("cost".to_string())),
+                    ScalarValue::Utf8(Some("speed".to_string()))
+                ],
+                "shift drag should preserve the first brush row and add the second"
+            );
+        }
+
+        let updated_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("parallel brush scene with additive overlays");
+        let line_info = collect_line_zindices_and_strokes(&updated_scene);
+        let selected_lines = line_info
+            .iter()
+            .filter(|(zindex, _)| *zindex == Some(20))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected_lines.len(),
+            1,
+            "intersected speed/cost brushes should leave only the middle row selected"
+        );
+        assert!(
+            line_info.iter().any(|(zindex, _)| *zindex == Some(1)),
+            "grey context lines should remain below the selected branch"
+        );
+    }
+
+    #[tokio::test]
+    async fn parallel_axis_non_shift_drag_replaces_existing_brushes() {
+        let ctx = SessionContext::new();
+        let data = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('row1', 10.0, 100.0),
+                    ('row2', 20.0, 200.0),
+                    ('row3', 30.0, 300.0)
+                ) AS t(id, speed, cost)",
+            )
+            .await
+            .expect("parallel brush data");
+        let brush = Selection::new(PARALLEL_BRUSH_SELECTION)
+            .combine(SelectionCombine::Intersect)
+            .empty_selects_nothing();
+        let selected = brush.predicate();
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("speed", col("speed"), |d| {
+                    d.axis(|axis| axis.title("Speed"))
+                })
+                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
+        )
+        .canvas_size(420.0, 320.0)
+        .plot_size(260.0, 180.0)
+        .data(data)
+        .add_selection(brush)
+        .add_store(parallel_brush_store())
+        .mark(
+            ParallelLine::new()
+                .id("context_lines")
+                .stroke("#c4cbd5")
+                .stroke_width(1.1)
+                .opacity(0.42)
+                .zindex(1),
+        )
+        .mark(
+            ParallelLine::new()
+                .id("selected_lines")
+                .transform_no_output(Filter::new(selected), |mark| mark)
+                .stroke("#2563eb")
+                .stroke_width(2.3)
+                .opacity(0.95)
+                .zindex(20),
+        )
+        .mark(parallel_brush_overlay("speed"))
+        .mark(parallel_brush_overlay("cost"))
+        .event_binding(parallel_axis_drag_binding("speed", "speed", 0, 0.0, false))
+        .event_binding(parallel_axis_drag_binding("cost", "cost", 1, 260.0, false))
+        .compile(&ctx)
+        .await
+        .expect("compile parallel replacement brush plot");
+        let speed_handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let cost_handler = compile_handler_for_binding_index(&compiled, &ctx, 1);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial parallel brush scene");
+        let scopes = state.interaction_scopes().await;
+        let parallel_scope = scopes
+            .iter()
+            .find(|scope| scope.channels.iter().any(|channel| channel == "speed"))
+            .expect("parallel interaction scope");
+        let bounds = parallel_scope.bounds;
+        let speed_start = [bounds.x + 1.0, bounds.y + 36.0];
+        let speed_end = [bounds.x + 1.0, bounds.y + 116.0];
+        let cost_start = [bounds.x + bounds.width - 1.0, bounds.y + 36.0];
+        let cost_end = [bounds.x + bounds.width - 1.0, bounds.y + 116.0];
+
+        let first = cursor_drag_move_from_position(
+            &mut state,
+            &speed_handler,
+            speed_start,
+            speed_end,
+            false,
+        )
+        .await;
+        assert!(first.rerender);
+        let second =
+            cursor_drag_move_from_position(&mut state, &cost_handler, cost_start, cost_end, false)
+                .await;
+        assert!(second.rerender);
+
+        let runtime = state.runtime.lock().await;
+        let clauses = runtime
+            .session
+            .selection_clauses_for_diagnostics(PARALLEL_BRUSH_SELECTION);
+        assert_eq!(clauses.len(), 1);
+        assert_eq!(clauses[0].id, "cost");
+        let rows = runtime
+            .session
+            .store_rows_for_diagnostics(PARALLEL_BRUSH_STORE);
+        let root_rows = rows
+            .iter()
+            .find(|(path, _)| path.is_empty())
+            .expect("shared brush store rows");
+        assert_eq!(root_rows.1.len(), 1);
+        assert_eq!(
+            root_rows.1[0].get("id"),
+            Some(&ScalarValue::Utf8(Some("cost".to_string()))),
+            "non-shift drag should replace the previous speed brush row"
         );
     }
 
