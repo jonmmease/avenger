@@ -1064,7 +1064,7 @@ Phase 10 progress notes, 2026-06-19:
 - Added `EguiEventTranslator` with widget-local coordinate conversion, cursor enter/leave/move, simple click input, and widget resize to `CanvasResize`.
 - Added a nonblocking event queue on `AvengerPlotHandle`. `Plot::show(ui)` queues translated events without awaiting app updates, and `dispatch_pending_events().await` can route them through an owned `AvengerApp::update_with_status` outside the egui paint path.
 - This is not yet the full Phase 10 MVP. Pending work includes wiring an owned `AvengerApp` into the example/runtime path, richer drag/wheel/keyboard translation, egui-wgpu texture registration, offscreen rendering/painting, repaint scheduling, and a runnable `basic_chart` example.
-- Progress commit hash: `cdc4ee5d`
+- Progress commit hashes: `cdc4ee5d`, `b01ee84e`
 
 Phase 10 partial validation, 2026-06-19:
 
