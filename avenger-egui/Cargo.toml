@@ -1,0 +1,24 @@
+[package]
+name = "avenger-egui"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+eframe = ["dep:eframe"]
+
+[dependencies]
+avenger-app = { path = "../avenger-app" }
+avenger-chart-app = { path = "../avenger-chart-app" }
+avenger-common = { path = "../avenger-common" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-wgpu = { path = "../avenger-wgpu" }
+
+egui = { workspace = true }
+egui-wgpu = { workspace = true }
+eframe = { version = "0.33.3", optional = true, default-features = false, features = ["wgpu"] }
+datafusion = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }

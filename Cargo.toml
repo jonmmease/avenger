@@ -26,6 +26,7 @@ members = [
     "avenger-chart-parallel",
     "avenger-chart",
     "avenger-chart-app",
+    "avenger-egui",
     "avenger-chart/avenger-chart-mdbook",
     "examples/wgpu-scales",
     "examples/wgpu-winit",
@@ -96,3 +97,6 @@ tiny-skia = { version = "0.11.4" }
 regex = { version = "1.11.1"}
 base64 = "0.22.1"
 urlencoding = "2.1.3"
+egui = "0.33.3"
+egui-wgpu = "0.33.3"
+eframe = "0.33.3"

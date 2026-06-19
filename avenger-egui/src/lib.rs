@@ -1,0 +1,336 @@
+use std::sync::{Arc, Mutex};
+
+use avenger_chart_app::{
+    ChartAppState, IntoChartParamValue, ParamChange, ParamSetResult, ParamSnapshot,
+};
+use avenger_eventstream::window::{
+    CanvasResizeEvent, ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput,
+};
+use datafusion::scalar::ScalarValue;
+
+pub use egui;
+
+#[derive(Clone)]
+pub struct AvengerPlotHandle {
+    state: ChartAppState,
+    observed: Arc<Mutex<ObservedState>>,
+    event_translator: Arc<Mutex<EguiEventTranslator>>,
+}
+
+impl AvengerPlotHandle {
+    pub fn new(state: ChartAppState) -> Self {
+        Self {
+            state,
+            observed: Arc::new(Mutex::new(ObservedState::default())),
+            event_translator: Arc::new(Mutex::new(EguiEventTranslator::default())),
+        }
+    }
+
+    pub fn chart_state(&self) -> &ChartAppState {
+        &self.state
+    }
+
+    pub fn set_param(
+        &self,
+        name: impl Into<String>,
+        value: impl IntoChartParamValue,
+    ) -> ParamSetResult {
+        self.state.set_param(name, value)
+    }
+
+    pub fn param_snapshot(&self) -> ParamSnapshot {
+        self.state.param_snapshot()
+    }
+
+    pub fn param_revision(&self) -> u64 {
+        self.state.param_revision()
+    }
+
+    pub fn param_changes_since(&self, revision: u64) -> Vec<ParamChange> {
+        self.state.param_changes_since(revision)
+    }
+
+    pub fn param_f64(&self, name: &str) -> Option<f64> {
+        self.state.param_f64(name)
+    }
+
+    pub fn param_bool(&self, name: &str) -> Option<bool> {
+        self.state.param_bool(name)
+    }
+
+    fn param_changes_since_last_show(&self) -> Vec<ParamChange> {
+        let current_revision = self.state.param_revision();
+        let mut observed = self
+            .observed
+            .lock()
+            .expect("avenger egui observed-state lock poisoned");
+        let changes = self.state.param_changes_since(observed.param_revision);
+        observed.param_revision = current_revision;
+        changes
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct ObservedState {
+    param_revision: u64,
+}
+
+pub struct Plot<'a> {
+    handle: &'a AvengerPlotHandle,
+    desired_size: Option<egui::Vec2>,
+    sense: egui::Sense,
+}
+
+impl<'a> Plot<'a> {
+    pub fn new(handle: &'a AvengerPlotHandle) -> Self {
+        Self {
+            handle,
+            desired_size: None,
+            sense: egui::Sense::click_and_drag(),
+        }
+    }
+
+    pub fn desired_size(mut self, size: egui::Vec2) -> Self {
+        self.desired_size = Some(size);
+        self
+    }
+
+    pub fn sense(mut self, sense: egui::Sense) -> Self {
+        self.sense = sense;
+        self
+    }
+
+    pub fn show(self, ui: &mut egui::Ui) -> PlotOutput {
+        let desired_size = self.desired_size.unwrap_or_else(|| {
+            let available = ui.available_size_before_wrap();
+            egui::vec2(available.x.max(320.0), available.y.max(240.0))
+        });
+        let (rect, mut response) = ui.allocate_exact_size(desired_size, self.sense);
+        if response.clicked() || response.drag_started() {
+            response.request_focus();
+        }
+
+        let events = ui.input(|input| {
+            self.handle
+                .event_translator
+                .lock()
+                .expect("avenger egui event-translator lock poisoned")
+                .translate_frame(rect, &response, input)
+        });
+        let param_changes = self.handle.param_changes_since_last_show();
+        let selection_changes = Vec::new();
+        if !param_changes.is_empty() || !selection_changes.is_empty() {
+            response.mark_changed();
+        }
+
+        PlotOutput {
+            response,
+            param_changes,
+            selection_changes,
+            frame_status: FrameStatus::default(),
+            events,
+        }
+    }
+}
+
+pub struct PlotOutput {
+    pub response: egui::Response,
+    pub param_changes: Vec<ParamChange>,
+    pub selection_changes: Vec<SelectionChange>,
+    pub frame_status: FrameStatus,
+    pub events: Vec<WindowEvent>,
+}
+
+impl PlotOutput {
+    pub fn changed(&self) -> bool {
+        self.response.changed() || self.params_changed() || self.selections_changed()
+    }
+
+    pub fn params_changed(&self) -> bool {
+        !self.param_changes.is_empty()
+    }
+
+    pub fn param_changed(&self, name: &str) -> bool {
+        self.param_changes.iter().any(|change| change.name == name)
+    }
+
+    pub fn param_changes(&self) -> &[ParamChange] {
+        &self.param_changes
+    }
+
+    pub fn selections_changed(&self) -> bool {
+        !self.selection_changes.is_empty()
+    }
+
+    pub fn selection_changes(&self) -> &[SelectionChange] {
+        &self.selection_changes
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FrameStatus {
+    pub latest_generation: Option<u64>,
+    pub requested_generation: Option<u64>,
+    pub render_pending: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelectionChange {
+    pub name: String,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct EguiEventTranslator {
+    hovered: bool,
+    pointer_captured: bool,
+    last_size: Option<[f32; 2]>,
+}
+
+impl EguiEventTranslator {
+    pub fn translate_frame(
+        &mut self,
+        rect: egui::Rect,
+        response: &egui::Response,
+        input: &egui::InputState,
+    ) -> Vec<WindowEvent> {
+        let mut events = Vec::new();
+        let pointer_pos = input.pointer.hover_pos();
+        let hovered = response.hovered();
+
+        if hovered && !self.hovered {
+            events.push(WindowEvent::CursorEntered);
+        } else if !hovered && self.hovered && !self.pointer_captured {
+            events.push(WindowEvent::CursorLeft);
+        }
+        self.hovered = hovered;
+
+        if response.drag_started() {
+            self.pointer_captured = true;
+        }
+
+        if (hovered || self.pointer_captured)
+            && let Some(pos) = pointer_pos
+        {
+            events.push(WindowEvent::CursorMoved(WindowCursorMoved {
+                position: local_position(rect, pos),
+            }));
+        }
+
+        for button in [
+            egui::PointerButton::Primary,
+            egui::PointerButton::Secondary,
+            egui::PointerButton::Middle,
+        ] {
+            if response.clicked_by(button) {
+                self.pointer_captured = true;
+                events.push(WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: egui_button_to_avenger(button),
+                }));
+                events.push(WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: egui_button_to_avenger(button),
+                }));
+            }
+        }
+
+        if response.drag_stopped() {
+            self.pointer_captured = false;
+        }
+
+        let size = [rect.width(), rect.height()];
+        if self.last_size != Some(size) {
+            self.last_size = Some(size);
+            events.push(WindowEvent::CanvasResize(CanvasResizeEvent { size }));
+        }
+
+        events
+    }
+}
+
+pub fn local_position(rect: egui::Rect, pos: egui::Pos2) -> [f32; 2] {
+    [pos.x - rect.min.x, pos.y - rect.min.y]
+}
+
+fn egui_button_to_avenger(button: egui::PointerButton) -> MouseButton {
+    match button {
+        egui::PointerButton::Primary => MouseButton::Left,
+        egui::PointerButton::Secondary => MouseButton::Right,
+        egui::PointerButton::Middle => MouseButton::Middle,
+        egui::PointerButton::Extra1 => MouseButton::Back,
+        egui::PointerButton::Extra2 => MouseButton::Forward,
+    }
+}
+
+pub fn scalar_f64(value: f64) -> ScalarValue {
+    ScalarValue::Float64(Some(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn response_for_size(size: egui::Vec2) -> egui::Response {
+        let ctx = egui::Context::default();
+        let mut response = None;
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default()
+                .show(ctx, |ui| {
+                    response = Some(ui.allocate_response(size, egui::Sense::click_and_drag()));
+                })
+                .inner;
+        });
+        response.expect("allocated response")
+    }
+
+    #[test]
+    fn local_position_subtracts_widget_origin() {
+        let rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(300.0, 200.0));
+
+        assert_eq!(local_position(rect, egui::pos2(35.0, 70.0)), [25.0, 50.0]);
+    }
+
+    #[test]
+    fn translator_emits_canvas_resize_once_per_size() {
+        let mut translator = EguiEventTranslator::default();
+        let response = response_for_size(egui::vec2(300.0, 200.0));
+        let input = egui::InputState::default();
+
+        let first = translator.translate_frame(response.rect, &response, &input);
+        assert_eq!(
+            first.last(),
+            Some(&WindowEvent::CanvasResize(CanvasResizeEvent {
+                size: [300.0, 200.0],
+            }))
+        );
+
+        let second = translator.translate_frame(response.rect, &response, &input);
+        assert!(
+            !second
+                .iter()
+                .any(|event| matches!(event, WindowEvent::CanvasResize(_)))
+        );
+    }
+
+    #[test]
+    fn plot_output_param_helpers_follow_change_names() {
+        let output = PlotOutput {
+            response: response_for_size(egui::vec2(10.0, 10.0)),
+            param_changes: vec![ParamChange {
+                name: "point_size".to_string(),
+                value: scalar_f64(12.0),
+                previous: Some(scalar_f64(10.0)),
+                revision: 7,
+            }],
+            selection_changes: Vec::new(),
+            frame_status: FrameStatus::default(),
+            events: Vec::new(),
+        };
+
+        assert!(output.changed());
+        assert!(output.params_changed());
+        assert!(output.param_changed("point_size"));
+        assert!(!output.param_changed("opacity"));
+    }
+}

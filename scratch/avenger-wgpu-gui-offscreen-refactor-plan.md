@@ -918,12 +918,12 @@ Crate:
 
 Tasks:
 
-- [ ] Add `avenger-egui` crate to the workspace.
-- [ ] Depend on compatible `egui`, `egui-wgpu`, and optionally `eframe`.
-- [ ] Define `AvengerEguiHandle`.
-- [ ] Define `Plot` as the primary egui widget builder: `avenger_egui::Plot::new(&handle).show(ui)`.
+- [x] Add `avenger-egui` crate to the workspace.
+- [x] Depend on compatible `egui`, `egui-wgpu`, and optionally `eframe`.
+- [x] Define `AvengerEguiHandle`.
+- [x] Define `Plot` as the primary egui widget builder: `avenger_egui::Plot::new(&handle).show(ui)`.
 - [ ] Optionally define `AvengerPlotWidget` internally if useful, but the example and public docs should use `Plot`.
-- [ ] Define an egui-style `PlotOutput` returned by the plot widget:
+- [x] Define an egui-style `PlotOutput` returned by the plot widget:
   - contains the underlying `egui::Response`,
   - exposes `changed()`,
   - exposes `params_changed()`,
@@ -932,13 +932,13 @@ Tasks:
   - reserves space for future `selection_changes()`,
   - includes lightweight frame/render status for debug UI.
 - [ ] Call `response.mark_changed()` when routed plot input causes observable Avenger param or selection changes.
-- [ ] Implement widget allocation with `Sense::click_and_drag()` for the first MVP.
-- [ ] Keep builder options low-level and minimal:
+- [x] Implement widget allocation with `Sense::click_and_drag()` for the first MVP.
+- [x] Keep builder options low-level and minimal:
   - `desired_size(Vec2)` if needed,
   - `sense(Sense)` if needed,
   - no high-level param binding helpers.
-- [ ] Add an explicit `EguiEventTranslator` or equivalent module for routing egui input into Avenger events.
-- [ ] Make the translator convert egui pointer positions from screen-space points to widget-local logical coordinates:
+- [x] Add an explicit `EguiEventTranslator` or equivalent module for routing egui input into Avenger events.
+- [x] Make the translator convert egui pointer positions from screen-space points to widget-local logical coordinates:
   - subtract `rect.min`,
   - preserve egui logical point units,
   - output Avenger positions as `[f32; 2]`.
@@ -953,7 +953,7 @@ Tasks:
 - [ ] Route wheel events only when the pointer is hovered over the plot widget.
 - [ ] Request plot focus on click/drag start.
 - [ ] Route keyboard events only when the plot widget has focus.
-- [ ] Route widget resize to `CanvasResize`.
+- [x] Route widget resize to `CanvasResize`.
 - [ ] Add debounced or settled resize routing to `CanvasResizeSettled` if needed by chart resize behavior.
 - [ ] Ensure the translated Avenger events are dispatched through the Avenger app/eventstream path, not through winit.
 - [ ] Add translator tests for:
@@ -1053,6 +1053,26 @@ pub struct SelectionChange {
 ```
 
 If selection observation is not wired in the first egui crate commit, keep `selection_changes` present but always empty, and document that it is reserved for the next selection-observation pass.
+
+Phase 10 progress notes, 2026-06-19:
+
+- Added prerequisite public `avenger_wgpu::renderer::AvengerWgpuRenderer` facade in commit `8bff0c48` so GUI crates do not need `pub(crate)` renderer internals.
+- Added `avenger-egui` workspace crate with `egui 0.33.3`, `egui-wgpu 0.33.3`, and optional local `eframe 0.33.3`.
+- The initial public handle is named `AvengerPlotHandle`, matching the example shape already written in this plan. It wraps `ChartAppState` and exposes low-level `set_param`, `param_f64`, `param_bool`, snapshots, revisions, and change queries.
+- Added `Plot::new(&handle).show(ui)` as the primary widget-shaped API.
+- Added `PlotOutput` with `egui::Response`, param-change helpers, reserved empty `selection_changes`, lightweight placeholder `FrameStatus`, and translated Avenger `WindowEvent`s.
+- Added `EguiEventTranslator` with widget-local coordinate conversion, cursor enter/leave/move, simple click input, and widget resize to `CanvasResize`.
+- This is not yet the full Phase 10 MVP. Pending work includes dispatching translated events through `AvengerApp`, richer drag/wheel/keyboard translation, egui-wgpu texture registration, offscreen rendering/painting, repaint scheduling, and a runnable `basic_chart` example.
+
+Phase 10 partial validation, 2026-06-19:
+
+- `cargo fmt --all`: passed.
+- `cargo check -p avenger-wgpu`: passed after adding the public renderer facade.
+- `cargo test -p avenger-wgpu --lib`: passed, 33 tests.
+- `cargo check -p avenger-egui`: passed.
+- `cargo test -p avenger-egui --lib`: passed, 3 tests.
+- `cargo test -p avenger-egui`: passed, 3 tests plus doc-tests.
+- `cargo tree -i wgpu --workspace`: reports a single `wgpu v27.0.1`, including `egui-wgpu v0.33.3`.
 
 Implementation note:
 
