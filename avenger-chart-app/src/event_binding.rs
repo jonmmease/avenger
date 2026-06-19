@@ -7630,6 +7630,44 @@ mod tests {
             .await
     }
 
+    async fn cursor_drag_move_from_mark(
+        state: &mut ChartAppState,
+        handler: &ChartEventBindingHandler,
+        start_mark_instance: MarkInstance,
+        start_pos: [f32; 2],
+        current_pos: [f32; 2],
+    ) -> UpdateStatus {
+        let instant = Instant::now();
+        let start_event = EventStreamEventSnapshot {
+            event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                position: start_pos,
+                button: MouseButton::Left,
+                mark_instance: Some(start_mark_instance.clone()),
+                modifiers: Default::default(),
+            }),
+            mark_instance: Some(start_mark_instance),
+            instant,
+        };
+        let context = EventStreamContext {
+            mark_instance: None,
+            current_event: None,
+            start_event: Some(start_event),
+            previous_event: None,
+        };
+        handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: current_pos,
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &context,
+                state,
+                &empty_rtree(),
+            )
+            .await
+    }
+
     async fn click_mark(
         state: &mut ChartAppState,
         handler: &ChartEventBindingHandler,
@@ -8231,6 +8269,113 @@ mod tests {
         assert!(
             (*start_x - *display_x).abs() < f64::EPSILON,
             "drag start and display x should both start at the header display x"
+        );
+    }
+
+    #[tokio::test]
+    async fn parallel_axis_header_drag_move_updates_transient_display_x_param() {
+        let ctx = SessionContext::new();
+        let drag_dimension = Param::new("drag_dimension", ScalarValue::Utf8(None));
+        let drag_start_x = Param::new("drag_start_x", ScalarValue::Float64(None));
+        let drag_display_x = Param::new("drag_display_x", ScalarValue::Float64(None));
+        let start_binding = ChartEventBinding::on(ChartEventType::MouseDown)
+            .filter(event::button().eq(lit("left")))
+            .filter(
+                event::parallel_surface_kind()
+                    .eq(lit(event::PARALLEL_SURFACE_KIND_DIMENSION_TITLE)),
+            )
+            .set_param(&drag_dimension, event::parallel_dimension_id())
+            .set_param(&drag_start_x, event::parallel_display_x())
+            .set_param(&drag_display_x, event::parallel_display_x())
+            .preview();
+        let preview_binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .between(
+                ChartEventStream::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left"))),
+                ChartEventStream::on(ChartEventType::MouseUp),
+            )
+            .filter(event::param("drag_dimension").is_not_null())
+            .set_param("drag_display_x", event::param("drag_start_x") + event::dx())
+            .preview();
+        let data = ctx
+            .sql("SELECT 10.0 AS speed, 30.0 AS cost")
+            .await
+            .expect("parallel header data");
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("speed", col("speed"), |d| {
+                    d.axis(|axis| axis.title("Speed"))
+                })
+                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
+        )
+        .canvas_size(420.0, 320.0)
+        .plot_size(260.0, 180.0)
+        .add_param(drag_dimension)
+        .add_param(drag_start_x)
+        .add_param(drag_display_x)
+        .data(data)
+        .mark(ParallelLine::new())
+        .event_binding(start_binding)
+        .event_binding(preview_binding)
+        .compile(&ctx)
+        .await
+        .expect("compile parallel header drag preview plot");
+        let start_handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let preview_handler = compile_handler_for_binding_index(&compiled, &ctx, 1);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial parallel header build");
+        let datum_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            event::PARALLEL_TITLE_FIELD,
+            ScalarValue::Utf8(Some("Speed".to_string())),
+        )
+        .await;
+        let start_pos = rect_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&start_pos)
+            .cloned()
+            .expect("rtree should pick the Speed title hit region");
+
+        let start_status = mouse_down_mark(
+            &mut state,
+            &start_handler,
+            Some(mark_instance.clone()),
+            start_pos,
+        )
+        .await;
+        assert!(start_status.rerender);
+        let before = state.params().await;
+        let Some(ScalarValue::Float64(Some(start_x))) = before.get("drag_start_x") else {
+            panic!("drag_start_x should be patched by header mousedown");
+        };
+        let expected_display_x = *start_x + 37.0;
+
+        let move_status = cursor_drag_move_from_mark(
+            &mut state,
+            &preview_handler,
+            mark_instance,
+            start_pos,
+            [start_pos[0] + 37.0, start_pos[1]],
+        )
+        .await;
+        assert!(move_status.rerender);
+        let after = state.params().await;
+        assert_eq!(
+            after.get("drag_dimension"),
+            Some(&ScalarValue::Utf8(Some("speed".to_string())))
+        );
+        let Some(ScalarValue::Float64(Some(display_x))) = after.get("drag_display_x") else {
+            panic!("drag_display_x should be patched by drag preview");
+        };
+        assert!(
+            (*display_x - expected_display_x).abs() < 1e-6,
+            "drag display x should track start x plus pointer dx"
         );
     }
 
