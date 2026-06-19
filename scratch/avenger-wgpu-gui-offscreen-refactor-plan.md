@@ -1339,12 +1339,13 @@ Phase 11 progress notes, 2026-06-19:
 - Added a native WGPU release test that drives the real background render worker through sequential renders and a resize. It verifies that a render after egui consumption avoids the current front target generation, that resized renders publish a generation allocated during target recreation rather than ordinary round-robin rotation, and that background render request/submitted/published metrics advance.
 - Added a test-only background render delay hook and a native WGPU release test that injects artificial delays around `set_scene` and command encode. The test verifies that enqueue/status calls used by the egui frame path remain fast while a previous render is slow, and that the stale slow render is dropped for the newer request.
 - Added a derived latency bottleneck classification to `PlotMetrics` and the egui metrics panel. The panel now shows the current bottleneck among scene evaluation, background queue wait, GPU render, and egui texture registration, with release unit coverage for the classifier.
+- Added release-mode env hooks for manual slow-worker validation: `AVENGER_EGUI_RENDER_DELAY_BEFORE_SET_SCENE_MS`, `AVENGER_EGUI_RENDER_DELAY_AFTER_SET_SCENE_MS`, and `AVENGER_EGUI_RENDER_DELAY_AFTER_ENCODE_MS`. These default to zero and only affect native background GPU rendering when explicitly set.
 
 Phase 11 validation results so far, 2026-06-19:
 
 - `cargo fmt --all`: passed.
 - `cargo check -p avenger-egui --release --features eframe --example basic_chart`: passed.
-- `cargo test -p avenger-egui --release`: passed, 24 tests plus doc-tests after adding the worker-state, native WGPU worker, slow-worker responsiveness, and metrics bottleneck tests.
+- `cargo test -p avenger-egui --release`: passed, 25 tests plus doc-tests after adding the worker-state, native WGPU worker, slow-worker responsiveness, metrics bottleneck, and render-delay env parsing tests.
 - `cargo test -p avenger-wgpu --lib --release`: passed, 33 tests.
 - `cargo run -p avenger-egui --release --features eframe --example basic_chart`: startup smoke passed with no panic or WGPU validation output, then stopped manually.
 
@@ -1371,6 +1372,9 @@ cargo check -p avenger-egui --release --features eframe --example basic_chart
 
 Manual checks:
 
+- To exercise the slow-worker path in a release app run, use one of:
+  - `AVENGER_EGUI_RENDER_DELAY_AFTER_ENCODE_MS=500 cargo run -p avenger-egui --release --features eframe --example basic_chart`
+  - `AVENGER_EGUI_RENDER_DELAY_AFTER_SET_SCENE_MS=500 cargo run -p avenger-egui --release --features eframe --example basic_chart`
 - [ ] Artificially slow GPU render does not stall egui frame loop.
 - [ ] Artificially slow `set_scene`/encode path does not stall egui slider dragging.
 - [x] Native slow-worker test verifies artificially slow `set_scene`/encode-side work does not block egui-side enqueue/status calls and drops stale slow renders.

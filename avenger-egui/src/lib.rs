@@ -1382,11 +1382,58 @@ struct BackgroundRenderController {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct BackgroundRenderWorkerHooks {
     before_set_scene_delay: Duration,
     after_set_scene_delay: Duration,
     after_encode_delay: Duration,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const BEFORE_SET_SCENE_DELAY_ENV: &str = "AVENGER_EGUI_RENDER_DELAY_BEFORE_SET_SCENE_MS";
+#[cfg(not(target_arch = "wasm32"))]
+const AFTER_SET_SCENE_DELAY_ENV: &str = "AVENGER_EGUI_RENDER_DELAY_AFTER_SET_SCENE_MS";
+#[cfg(not(target_arch = "wasm32"))]
+const AFTER_ENCODE_DELAY_ENV: &str = "AVENGER_EGUI_RENDER_DELAY_AFTER_ENCODE_MS";
+
+#[cfg(not(target_arch = "wasm32"))]
+impl BackgroundRenderWorkerHooks {
+    fn from_env() -> Self {
+        Self {
+            before_set_scene_delay: delay_from_env(BEFORE_SET_SCENE_DELAY_ENV),
+            after_set_scene_delay: delay_from_env(AFTER_SET_SCENE_DELAY_ENV),
+            after_encode_delay: delay_from_env(AFTER_ENCODE_DELAY_ENV),
+        }
+    }
+
+    #[cfg(test)]
+    fn from_env_values(
+        before_set_scene: Option<&str>,
+        after_set_scene: Option<&str>,
+        after_encode: Option<&str>,
+    ) -> Self {
+        Self {
+            before_set_scene_delay: delay_from_env_value(before_set_scene),
+            after_set_scene_delay: delay_from_env_value(after_set_scene),
+            after_encode_delay: delay_from_env_value(after_encode),
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn delay_from_env(name: &str) -> Duration {
+    match std::env::var(name) {
+        Ok(value) => delay_from_env_value(Some(value.as_str())),
+        Err(_) => Duration::ZERO,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn delay_from_env_value(value: Option<&str>) -> Duration {
+    value
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(Duration::ZERO)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1409,7 +1456,7 @@ impl BackgroundRenderController {
             queue,
             format,
             metrics,
-            BackgroundRenderWorkerHooks::default(),
+            BackgroundRenderWorkerHooks::from_env(),
         )
     }
 
@@ -2626,6 +2673,21 @@ mod tests {
         assert_eq!(state.consumed_render_generation, Some(4));
         assert_eq!(state.front_target_generation, Some(12));
         assert!(!state.is_pending());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn background_render_worker_hooks_parse_env_values() {
+        let hooks =
+            BackgroundRenderWorkerHooks::from_env_values(Some("10"), Some(" 20 "), Some("invalid"));
+        assert_eq!(hooks.before_set_scene_delay, Duration::from_millis(10));
+        assert_eq!(hooks.after_set_scene_delay, Duration::from_millis(20));
+        assert_eq!(hooks.after_encode_delay, Duration::ZERO);
+
+        assert_eq!(
+            BackgroundRenderWorkerHooks::from_env_values(None, Some("-1"), Some("")),
+            BackgroundRenderWorkerHooks::default()
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]
