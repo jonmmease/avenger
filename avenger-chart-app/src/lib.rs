@@ -3,7 +3,7 @@
 mod event_binding;
 
 use std::{
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex},
     time::{Duration, Instant},
 };
 
@@ -14,12 +14,13 @@ use avenger_app::{
 };
 use avenger_chart::{
     layout::{ChartResizeAxisPolicy, ChartResizePolicy},
-    plot::{CompiledPlot, EvaluationRequest, PlotSession},
+    plot::{CompiledPlot, EvaluationRequest, PlotSession, ScopedParamAssignment},
     render::{
         EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluatedInteractionState,
         EvaluationMetrics, EvaluationMode, EvaluationOptions,
     },
 };
+use avenger_chart_core::ScalarValueHelpers;
 use avenger_eventstream::{
     manager::EventStreamHandler,
     scene::{SceneGraphEvent, SceneGraphEventType},
@@ -104,6 +105,7 @@ impl Default for ChartAppOptions {
 #[derive(Clone)]
 pub struct ChartAppState {
     runtime: Arc<Mutex<ChartAppRuntime>>,
+    params: Arc<StdMutex<ChartParamState>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -120,6 +122,183 @@ pub struct ChartEventMetrics {
     pub total_eval_us: u64,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParamChange {
+    pub name: String,
+    pub value: ScalarValue,
+    pub previous: Option<ScalarValue>,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParamSnapshot {
+    pub params: IndexMap<String, ScalarValue>,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParamSetResult {
+    pub changed: bool,
+    pub revision: u64,
+    pub change: Option<ParamChange>,
+}
+
+pub trait IntoChartParamValue {
+    fn into_chart_param_value(self) -> ScalarValue;
+}
+
+impl IntoChartParamValue for ScalarValue {
+    fn into_chart_param_value(self) -> ScalarValue {
+        self
+    }
+}
+
+impl IntoChartParamValue for f64 {
+    fn into_chart_param_value(self) -> ScalarValue {
+        ScalarValue::Float64(Some(self))
+    }
+}
+
+impl IntoChartParamValue for f32 {
+    fn into_chart_param_value(self) -> ScalarValue {
+        ScalarValue::Float64(Some(self as f64))
+    }
+}
+
+impl IntoChartParamValue for bool {
+    fn into_chart_param_value(self) -> ScalarValue {
+        ScalarValue::Boolean(Some(self))
+    }
+}
+
+impl IntoChartParamValue for i64 {
+    fn into_chart_param_value(self) -> ScalarValue {
+        ScalarValue::Int64(Some(self))
+    }
+}
+
+impl IntoChartParamValue for i32 {
+    fn into_chart_param_value(self) -> ScalarValue {
+        ScalarValue::Int64(Some(self as i64))
+    }
+}
+
+impl IntoChartParamValue for u64 {
+    fn into_chart_param_value(self) -> ScalarValue {
+        ScalarValue::UInt64(Some(self))
+    }
+}
+
+impl IntoChartParamValue for u32 {
+    fn into_chart_param_value(self) -> ScalarValue {
+        ScalarValue::UInt64(Some(self as u64))
+    }
+}
+
+impl IntoChartParamValue for String {
+    fn into_chart_param_value(self) -> ScalarValue {
+        ScalarValue::Utf8(Some(self))
+    }
+}
+
+impl IntoChartParamValue for &str {
+    fn into_chart_param_value(self) -> ScalarValue {
+        ScalarValue::Utf8(Some(self.to_string()))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ChartParamState {
+    params: IndexMap<String, ScalarValue>,
+    pending_patch: IndexMap<String, ScalarValue>,
+    changes: Vec<ParamChange>,
+    revision: u64,
+}
+
+impl ChartParamState {
+    fn new(params: IndexMap<String, ScalarValue>) -> Self {
+        Self {
+            params,
+            pending_patch: IndexMap::new(),
+            changes: Vec::new(),
+            revision: 0,
+        }
+    }
+
+    fn snapshot(&self) -> ParamSnapshot {
+        ParamSnapshot {
+            params: self.params.clone(),
+            revision: self.revision,
+        }
+    }
+
+    fn set_param(&mut self, name: String, value: ScalarValue) -> ParamSetResult {
+        let previous = self.params.get(&name).cloned();
+        if previous.as_ref() == Some(&value) {
+            return ParamSetResult {
+                changed: false,
+                revision: self.revision,
+                change: None,
+            };
+        }
+
+        self.revision += 1;
+        let change = ParamChange {
+            name: name.clone(),
+            value: value.clone(),
+            previous,
+            revision: self.revision,
+        };
+        self.params.insert(name.clone(), value.clone());
+        self.pending_patch.insert(name, value);
+        self.changes.push(change.clone());
+
+        ParamSetResult {
+            changed: true,
+            revision: self.revision,
+            change: Some(change),
+        }
+    }
+
+    fn sync_from_params(&mut self, params: IndexMap<String, ScalarValue>) -> Vec<ParamChange> {
+        let mut changes = Vec::new();
+        for (name, value) in &params {
+            let previous = self.params.get(name).cloned();
+            if previous.as_ref() == Some(value) {
+                continue;
+            }
+
+            self.revision += 1;
+            let change = ParamChange {
+                name: name.clone(),
+                value: value.clone(),
+                previous,
+                revision: self.revision,
+            };
+            self.changes.push(change.clone());
+            changes.push(change);
+        }
+        self.params = params;
+        changes
+    }
+
+    fn drain_pending_patch(&mut self) -> Option<IndexMap<String, ScalarValue>> {
+        if self.pending_patch.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut self.pending_patch))
+        }
+    }
+
+    fn changes_since(&self, revision: u64) -> Vec<ParamChange> {
+        self.changes
+            .iter()
+            .filter(|change| change.revision > revision)
+            .cloned()
+            .collect()
+    }
+}
+
 struct ChartAppRuntime {
     session: PlotSession,
     resize_policy: ChartResizePolicy,
@@ -133,6 +312,7 @@ struct ChartAppRuntime {
     last_scene_size: Option<[f32; 2]>,
     accepted_resize_count: usize,
     event_metrics: ChartEventMetrics,
+    last_evaluated_param_revision: u64,
     /// Interaction scopes from the most recent evaluation, used to route pointer
     /// events to coordinate scopes for inversion.
     last_interaction_state: EvaluatedInteractionState,
@@ -147,7 +327,9 @@ impl ChartAppState {
         options: ChartAppOptions,
     ) -> Self {
         warn_about_ignored_bindings(resize_policy, &options.resize_binding);
+        let params = session.params().clone();
         Self {
+            params: Arc::new(StdMutex::new(ChartParamState::new(params))),
             runtime: Arc::new(Mutex::new(ChartAppRuntime {
                 session,
                 resize_policy,
@@ -161,6 +343,7 @@ impl ChartAppState {
                 last_scene_size: None,
                 accepted_resize_count: 0,
                 event_metrics: ChartEventMetrics::default(),
+                last_evaluated_param_revision: 0,
                 last_interaction_state: EvaluatedInteractionState::default(),
                 last_event_datum_state: EvaluatedEventDatumState::default(),
             })),
@@ -172,7 +355,70 @@ impl ChartAppState {
     }
 
     pub async fn params(&self) -> IndexMap<String, ScalarValue> {
-        self.runtime.lock().await.session.params().clone()
+        if let Ok(mut runtime) = self.runtime.try_lock() {
+            self.drain_pending_params_into_runtime(&mut runtime);
+            self.sync_param_state_from_runtime(&runtime);
+        }
+        self.param_snapshot().params
+    }
+
+    pub fn param_snapshot(&self) -> ParamSnapshot {
+        self.params
+            .lock()
+            .expect("chart param lock poisoned")
+            .snapshot()
+    }
+
+    pub fn param_revision(&self) -> u64 {
+        self.params
+            .lock()
+            .expect("chart param lock poisoned")
+            .revision
+    }
+
+    pub fn param_changes_since(&self, revision: u64) -> Vec<ParamChange> {
+        self.params
+            .lock()
+            .expect("chart param lock poisoned")
+            .changes_since(revision)
+    }
+
+    pub fn param_f64(&self, name: &str) -> Option<f64> {
+        self.params
+            .lock()
+            .expect("chart param lock poisoned")
+            .params
+            .get(name)
+            .and_then(|value| value.as_f64().ok())
+    }
+
+    pub fn param_bool(&self, name: &str) -> Option<bool> {
+        match self
+            .params
+            .lock()
+            .expect("chart param lock poisoned")
+            .params
+            .get(name)
+        {
+            Some(ScalarValue::Boolean(Some(value))) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn set_param(
+        &self,
+        name: impl Into<String>,
+        value: impl IntoChartParamValue,
+    ) -> ParamSetResult {
+        let result = self.set_param_inner(name.into(), value.into_chart_param_value());
+        if result.changed
+            && let Ok(mut runtime) = self.runtime.try_lock()
+        {
+            if self.drain_pending_params_into_runtime(&mut runtime) {
+                runtime.next_evaluation_mode = EvaluationMode::Exact;
+            }
+        }
+        result
     }
 
     pub async fn last_metrics(&self) -> Option<EvaluationMetrics> {
@@ -204,6 +450,57 @@ impl ChartAppState {
             .scopes
             .clone()
     }
+
+    fn set_param_inner(&self, name: String, value: ScalarValue) -> ParamSetResult {
+        self.params
+            .lock()
+            .expect("chart param lock poisoned")
+            .set_param(name, value)
+    }
+
+    pub(crate) fn drain_pending_params_into_runtime(&self, runtime: &mut ChartAppRuntime) -> bool {
+        let patch = self
+            .params
+            .lock()
+            .expect("chart param lock poisoned")
+            .drain_pending_patch();
+        let Some(patch) = patch else {
+            return false;
+        };
+        runtime.session.apply_param_patch(patch);
+        true
+    }
+
+    pub(crate) fn apply_root_param_patch_to_runtime(
+        &self,
+        runtime: &mut ChartAppRuntime,
+        patch: IndexMap<String, ScalarValue>,
+    ) -> Vec<ParamChange> {
+        if patch.is_empty() {
+            return Vec::new();
+        }
+        runtime.session.apply_param_patch(patch);
+        self.sync_param_state_from_runtime(runtime)
+    }
+
+    pub(crate) fn apply_scoped_param_patch_to_runtime(
+        &self,
+        runtime: &mut ChartAppRuntime,
+        patch: Vec<ScopedParamAssignment>,
+    ) -> Vec<ParamChange> {
+        if patch.is_empty() {
+            return Vec::new();
+        }
+        runtime.session.apply_scoped_param_patch(patch);
+        self.sync_param_state_from_runtime(runtime)
+    }
+
+    fn sync_param_state_from_runtime(&self, runtime: &ChartAppRuntime) -> Vec<ParamChange> {
+        self.params
+            .lock()
+            .expect("chart param lock poisoned")
+            .sync_from_params(runtime.session.params().clone())
+    }
 }
 
 /// Scene graph builder that evaluates the chart session stored in state.
@@ -213,8 +510,14 @@ pub struct ChartSceneGraphBuilder;
 impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
     async fn build(&self, state: &mut ChartAppState) -> Result<SceneGraph, AvengerAppError> {
         let mut runtime = state.runtime.lock().await;
-        let mode = runtime.next_evaluation_mode;
+        let pending_params = state.drain_pending_params_into_runtime(&mut runtime);
+        let mode = if pending_params {
+            EvaluationMode::Exact
+        } else {
+            runtime.next_evaluation_mode
+        };
         runtime.next_evaluation_mode = EvaluationMode::Exact;
+        let evaluation_param_revision = state.param_revision();
 
         let start = Instant::now();
         tracing::debug!(
@@ -312,6 +615,10 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
         runtime.last_metrics = Some(metrics);
         runtime.last_evaluation_elapsed = Some(elapsed);
         runtime.last_scene_size = Some(scene_size);
+        runtime.last_evaluated_param_revision = evaluation_param_revision;
+        if state.param_revision() != evaluation_param_revision {
+            runtime.next_evaluation_mode = EvaluationMode::Exact;
+        }
         runtime.last_interaction_state = evaluated.interaction;
         runtime.last_event_datum_state = evaluated.event_datums;
         Ok(evaluated.scene_graph)
@@ -334,6 +641,7 @@ impl EventStreamHandler<ChartAppState> for ChartResizeHandler {
         };
 
         let mut runtime = state.runtime.lock().await;
+        state.drain_pending_params_into_runtime(&mut runtime);
         let mut patch = IndexMap::new();
         maybe_patch_axis(
             &mut patch,
@@ -354,7 +662,7 @@ impl EventStreamHandler<ChartAppState> for ChartResizeHandler {
             return UpdateStatus::default();
         }
 
-        runtime.session.apply_param_patch(patch);
+        state.apply_root_param_patch_to_runtime(&mut runtime, patch);
         runtime.next_evaluation_mode = EvaluationMode::Preview;
         runtime.accepted_resize_count += 1;
         tracing::debug!(
@@ -628,6 +936,171 @@ mod tests {
             height: 1.0,
             origin: [0.0, 0.0],
         })
+    }
+
+    #[tokio::test]
+    async fn set_param_updates_snapshot_and_typed_getter_before_scene_build() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let mut state = resize_test_state().await;
+
+        let result = state.set_param("width", 720.0);
+
+        assert!(result.changed);
+        assert_eq!(result.revision, 1);
+        assert_eq!(state.param_f64("width"), Some(720.0));
+        assert_eq!(state.param_revision(), 1);
+        assert!(state.last_metrics().await.is_none());
+
+        let snapshot = state.param_snapshot();
+        assert_eq!(snapshot.revision, 1);
+        assert_eq!(
+            snapshot.params.get("width"),
+            Some(&ScalarValue::Float64(Some(720.0)))
+        );
+
+        ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("exact build after set_param");
+        assert_eq!(
+            state.last_metrics().await.expect("exact metrics").mode,
+            EvaluationMode::Exact
+        );
+    }
+
+    #[tokio::test]
+    async fn set_param_unchanged_value_does_not_emit_change() {
+        let state = resize_test_state().await;
+
+        let result = state.set_param("width", 640.0);
+
+        assert!(!result.changed);
+        assert_eq!(result.revision, 0);
+        assert!(result.change.is_none());
+        assert!(state.param_changes_since(0).is_empty());
+        assert_eq!(state.param_revision(), 0);
+    }
+
+    #[tokio::test]
+    async fn rapid_set_param_calls_keep_latest_value_and_revision_order() {
+        let state = resize_test_state().await;
+
+        state.set_param("width", 700.0);
+        state.set_param("width", 710.0);
+        state.set_param("width", 720.0);
+
+        assert_eq!(state.param_f64("width"), Some(720.0));
+        assert_eq!(state.param_revision(), 3);
+
+        let changes = state.param_changes_since(0);
+        assert_eq!(changes.len(), 3);
+        assert_eq!(
+            changes
+                .iter()
+                .map(|change| (change.revision, change.value.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (1, ScalarValue::Float64(Some(700.0))),
+                (2, ScalarValue::Float64(Some(710.0))),
+                (3, ScalarValue::Float64(Some(720.0))),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn param_changes_since_filters_by_revision() {
+        let state = resize_test_state().await;
+
+        state.set_param("width", 700.0);
+        state.set_param("height", 500.0);
+
+        let changes = state.param_changes_since(1);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].name, "height");
+        assert_eq!(changes[0].revision, 2);
+        assert_eq!(changes[0].value, ScalarValue::Float64(Some(500.0)));
+    }
+
+    #[tokio::test]
+    async fn param_bool_reads_bool_param() {
+        let ctx = SessionContext::new();
+        let enabled = Param::new("enabled", ScalarValue::Boolean(Some(true)));
+        let compiled = Plot::<Cartesian>::new()
+            .add_param(enabled)
+            .compile(&ctx)
+            .await
+            .expect("compile bool param test plot");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let state = ChartAppState::new(session, policy, ChartAppOptions::default());
+
+        assert_eq!(state.param_bool("enabled"), Some(true));
+        let result = state.set_param("enabled", false);
+
+        assert!(result.changed);
+        assert_eq!(state.param_bool("enabled"), Some(false));
+        assert_eq!(state.param_f64("enabled"), None);
+    }
+
+    #[tokio::test]
+    async fn set_param_queues_when_runtime_is_busy() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let mut state = resize_test_state().await;
+        let runtime = state.runtime.lock().await;
+
+        let result = state.set_param("width", 700.0);
+
+        assert!(result.changed);
+        assert_eq!(state.param_f64("width"), Some(700.0));
+        assert_eq!(
+            runtime.session.params().get("width"),
+            Some(&ScalarValue::Float64(Some(640.0)))
+        );
+
+        drop(runtime);
+        ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after queued set_param");
+        let runtime = state.runtime.lock().await;
+        assert_eq!(
+            runtime.session.params().get("width"),
+            Some(&ScalarValue::Float64(Some(700.0)))
+        );
+        assert_eq!(
+            runtime
+                .last_metrics
+                .as_ref()
+                .expect("metrics after queued set_param")
+                .mode,
+            EvaluationMode::Exact
+        );
+    }
+
+    #[tokio::test]
+    async fn resize_handler_records_param_change_revision() {
+        let mut state = resize_test_state().await;
+        let handler = ChartResizeHandler;
+        let rtree = empty_rtree();
+        let status = handler
+            .handle(
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                    size: [800.0, 600.0],
+                }),
+                &mut state,
+                &rtree,
+            )
+            .await;
+
+        assert!(status.rerender);
+        let changes = state.param_changes_since(0);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].name, "width");
+        assert_eq!(changes[0].revision, 1);
+        assert_eq!(changes[0].value, ScalarValue::Float64(Some(800.0)));
+        assert_eq!(state.param_f64("width"), Some(800.0));
     }
 
     #[tokio::test]

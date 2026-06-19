@@ -821,9 +821,9 @@ Phase 8 validation results, 2026-06-19:
 
 Commit:
 
-- [ ] Commit Phase 8.
+- [x] Commit Phase 8.
 - Suggested message: `feat(wgpu): add latest-frame publishing primitives`
-- Commit hash: TBD
+- Commit hash: `991001c4`
 
 ## Deferred Follow-Up - Semantic Fast Preview and Drag Rendering
 
@@ -841,28 +841,46 @@ Purpose: let native egui controls drive Avenger chart params without pretending 
 
 Tasks:
 
-- [ ] Add public `ChartAppState` or wrapper APIs for param patching.
-- [ ] Add a public `set_param` API for the first GUI MVP.
-- [ ] Make `set_param` enqueue an exact/settled param update internally without exposing "exact" in the egui app-author API.
-- [ ] Make `set_param` update an optimistic local param mirror immediately so egui controls do not snap back while an exact frame is pending.
-- [ ] Defer preview param patch API unless the baseline latest-frame model feels too stale.
-- [ ] Add param snapshot API.
-- [ ] Add cheap typed param getters needed by the example:
+- [x] Add public `ChartAppState` or wrapper APIs for param patching.
+- [x] Add a public `set_param` API for the first GUI MVP.
+- [x] Make `set_param` enqueue an exact/settled param update internally without exposing "exact" in the egui app-author API.
+- [x] Make `set_param` update an optimistic local param mirror immediately so egui controls do not snap back while an exact frame is pending.
+- [x] Defer preview param patch API unless the baseline latest-frame model feels too stale.
+- [x] Add param snapshot API.
+- [x] Add cheap typed param getters needed by the example:
   - `param_f64(name) -> Option<f64>`,
   - `param_bool(name) -> Option<bool>` if the checkbox example uses a bool param.
-- [ ] Add param change records with revision IDs so `PlotOutput` can report which params changed during a widget frame.
+- [x] Add param change records with revision IDs so `PlotOutput` can report which params changed during a widget frame.
 - [ ] Add selection snapshot API if selection observation is in scope.
 - [ ] Add revision counters for:
-  - params,
+  - [x] params,
   - selections,
   - stores if needed.
-- [ ] Prefer implementing GUI-neutral param/change APIs in `avenger-chart-app` or a small GUI-neutral adapter; keep egui types out of chart/app crates.
-- [ ] Ensure `set_param` can enqueue exact renders without blocking the GUI frame.
-- [ ] Add tests for slider-like workflows:
-  - many rapid `set_param` calls,
-  - optimistic getter returns latest requested value before exact frame publishes,
-  - param change record is emitted for a changed param,
+- [x] Prefer implementing GUI-neutral param/change APIs in `avenger-chart-app` or a small GUI-neutral adapter; keep egui types out of chart/app crates.
+- [x] Ensure `set_param` can enqueue exact renders without blocking the GUI frame.
+- [x] Add tests for slider-like workflows:
+  - [x] many rapid `set_param` calls,
+  - [x] optimistic getter returns latest requested value before exact frame publishes,
+  - [x] param change record is emitted for a changed param,
   - stale exact result discarded.
+
+Phase 9 notes, 2026-06-19:
+
+- Added public GUI-neutral param APIs on `ChartAppState`:
+  - `set_param(name, value)`,
+  - `param_snapshot()`,
+  - `param_revision()`,
+  - `param_changes_since(revision)`,
+  - `param_f64(name)`,
+  - `param_bool(name)`.
+- Added public `ParamChange`, `ParamSnapshot`, `ParamSetResult`, and `IntoChartParamValue`.
+- `set_param` is synchronous and updates a small optimistic root-param mirror immediately.
+- If the chart runtime is available, `set_param` drains pending patches into the session immediately and requests the next evaluation as exact internally.
+- If the chart runtime is busy, `set_param` queues the pending root patch without waiting; the next scene build or event handler drains the patch before evaluation/event routing.
+- Existing async `params().await` remains compatible with tests and direct session mutations by opportunistically syncing the mirror from the runtime when the runtime is free.
+- Root-param changes produced by resize handlers and scoped event bindings now sync into the same change/revision stream.
+- Selection snapshots and selection/store revision counters are still deferred. Phase 10 keeps `selection_changes()` reserved on `PlotOutput`; a later selection-observation pass can fill it.
+- Full stale exact-frame discard is still a Phase 10/11 frame-publishing responsibility. Phase 9 tests cover the lower-level precondition: `set_param` queues while the runtime is busy and the next build drains the latest optimistic value.
 
 Validation:
 
@@ -870,6 +888,19 @@ Validation:
 cargo fmt --all
 cargo test -p avenger-chart-app
 ```
+
+Phase 9 validation results, 2026-06-19:
+
+- `cargo check -p avenger-chart-app`: passed.
+- `cargo fmt --all`: passed.
+- `cargo test -p avenger-chart-app set_param --lib`: passed, 4 tests.
+- `cargo test -p avenger-chart-app param_ --lib`: passed, 8 tests.
+- `cargo test -p avenger-chart-app event_binding_can_reset_raw_domain_to_default --lib`: passed after preserving async `params().await` compatibility with direct session mutations.
+- `cargo test -p avenger-chart-app --lib`: failed only on the three pre-existing retained-event-datum tests recorded in earlier phases:
+  - `bar_click_exposes_nested_struct_event_coord_readback`,
+  - `bar_click_writes_nested_source_column_selection_clause`,
+  - `facet_bar_click_writes_nested_source_column_selection_clause_in_cell_scope`.
+- `cargo test -p avenger-chart-app`: failed before running the lib suite because default examples require the `winit-wgpu` feature and because `parallel_coordinates_header_drag_reorder.rs` still references missing `ev::parallel_dimension_id()` / `ev::parallel_display_x()` helpers. These are pre-existing validation blockers unrelated to Phase 9.
 
 Commit:
 

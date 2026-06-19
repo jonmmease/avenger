@@ -1747,6 +1747,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
         rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let mut app = state.runtime.lock().await;
+        state.drain_pending_params_into_runtime(&mut app);
         let eval_start = Instant::now();
         let current_mark_instance = event.mark_instance().or(context.mark_instance.as_ref());
         let event_mark_instance = if matches!(
@@ -2228,7 +2229,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
         if !patch.is_empty() {
             app.event_metrics.param_patch_events += 1;
             app.event_metrics.params_patched += patch.len();
-            app.session.apply_scoped_param_patch(patch);
+            state.apply_scoped_param_patch_to_runtime(&mut app, patch);
         }
         let store_changed = if store_patch.is_empty() {
             false
@@ -3256,6 +3257,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventExactOnlyHandler {
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
         let mut app = state.runtime.lock().await;
+        state.drain_pending_params_into_runtime(&mut app);
         app.next_evaluation_mode = EvaluationMode::Exact;
         UpdateStatus {
             rerender: true,
