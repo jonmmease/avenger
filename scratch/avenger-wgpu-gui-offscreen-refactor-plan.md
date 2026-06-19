@@ -1066,7 +1066,7 @@ Phase 10 progress notes, 2026-06-19:
 - Added low-level `render_scene_to_texture(render_state, scene_graph, dimensions)` on `AvengerPlotHandle`. It renders a caller-provided `SceneGraph` into a handle-owned triple-buffered `OffscreenTargetPool`, registers/updates the latest target with `egui-wgpu`, and reuses the same `TextureId`.
 - `Plot::show(ui)` paints the latest registered texture into the allocated widget rect without waiting for evaluation or rendering.
 - This is not yet the full Phase 10 MVP. Pending work includes wiring an owned `AvengerApp` into the example/runtime path, connecting scene updates to `render_scene_to_texture`, richer drag/wheel/keyboard translation, repaint scheduling, and a runnable `basic_chart` example.
-- Progress commit hashes: `cdc4ee5d`, `b01ee84e`
+- Progress commit hashes: `cdc4ee5d`, `b01ee84e`, `67eb684d`
 
 Phase 10 partial validation, 2026-06-19:
 
