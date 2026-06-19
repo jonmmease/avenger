@@ -1199,6 +1199,89 @@ struct BackgroundRenderState {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct BackgroundEnqueueResult {
+    render_generation: Option<u64>,
+    coalesced_previous: bool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl BackgroundRenderState {
+    fn enqueue_request(
+        &mut self,
+        scene_generation: u64,
+        scene_graph: Arc<SceneGraph>,
+        dimensions: CanvasDimensions,
+        format: wgpu::TextureFormat,
+        repaint: Option<egui::Context>,
+        requested_at: StdInstant,
+    ) -> BackgroundEnqueueResult {
+        let key = RenderRequestKey::new(scene_generation, dimensions, format);
+        if self.last_requested_key == Some(key) {
+            return BackgroundEnqueueResult::default();
+        }
+
+        self.next_render_generation += 1;
+        let render_generation = self.next_render_generation;
+        let coalesced_previous = self
+            .pending_request
+            .replace(BackgroundRenderRequest {
+                render_generation,
+                scene_generation,
+                scene_graph,
+                dimensions,
+                format,
+                repaint,
+                requested_at,
+            })
+            .is_some();
+        self.last_requested_key = Some(key);
+        self.requested_scene_generation = Some(scene_generation);
+
+        BackgroundEnqueueResult {
+            render_generation: Some(render_generation),
+            coalesced_previous,
+        }
+    }
+
+    fn has_unconsumed_rendered_texture(&self) -> bool {
+        self.latest_rendered.as_ref().is_some_and(|rendered| {
+            Some(rendered.render_generation) != self.consumed_render_generation
+        })
+    }
+
+    fn take_next_request_if_ready(&mut self) -> Option<BackgroundRenderRequest> {
+        if self.stop || self.has_unconsumed_rendered_texture() {
+            return None;
+        }
+        let request = self.pending_request.take()?;
+        self.in_progress_generation = Some(request.render_generation);
+        Some(request)
+    }
+
+    fn is_render_generation_stale(&self, render_generation: u64) -> bool {
+        render_generation < self.next_render_generation || self.stop
+    }
+
+    fn finish_render_generation(&mut self, render_generation: u64) {
+        if self.in_progress_generation == Some(render_generation) {
+            self.in_progress_generation = None;
+        }
+    }
+
+    fn mark_render_consumed(&mut self, render_generation: u64, target_generation: u64) {
+        self.consumed_render_generation = Some(render_generation);
+        self.front_target_generation = Some(target_generation);
+    }
+
+    fn is_pending(&self) -> bool {
+        self.pending_request.is_some()
+            || self.in_progress_generation.is_some()
+            || self.has_unconsumed_rendered_texture()
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 struct BackgroundRenderShared {
     state: StdMutex<BackgroundRenderState>,
     notify: Condvar,
@@ -1258,32 +1341,25 @@ impl BackgroundRenderController {
         repaint: Option<egui::Context>,
         metrics: &StdMutex<PlotMetrics>,
     ) {
-        let key = RenderRequestKey::new(scene_generation, dimensions, format);
         let mut state = self
             .shared
             .state
             .lock()
             .expect("avenger egui render-worker lock poisoned");
-        if state.last_requested_key == Some(key) {
-            return;
-        }
-
-        state.next_render_generation += 1;
-        let render_generation = state.next_render_generation;
-        let coalesced = state.pending_request.replace(BackgroundRenderRequest {
-            render_generation,
+        let result = state.enqueue_request(
             scene_generation,
             scene_graph,
             dimensions,
             format,
             repaint,
-            requested_at: StdInstant::now(),
-        });
-        state.last_requested_key = Some(key);
-        state.requested_scene_generation = Some(scene_generation);
+            StdInstant::now(),
+        );
+        let Some(render_generation) = result.render_generation else {
+            return;
+        };
         update_metrics(metrics, |metrics| {
             metrics.background_render_requests += 1;
-            if coalesced.is_some() {
+            if result.coalesced_previous {
                 metrics.background_render_requests_coalesced += 1;
             }
         });
@@ -1338,8 +1414,7 @@ impl BackgroundRenderController {
             .state
             .lock()
             .expect("avenger egui render-worker lock poisoned");
-        state.consumed_render_generation = Some(rendered.render_generation);
-        state.front_target_generation = Some(rendered.target_generation);
+        state.mark_render_consumed(rendered.render_generation, rendered.target_generation);
         self.shared.notify.notify_one();
     }
 
@@ -1362,14 +1437,9 @@ impl BackgroundRenderController {
             .state
             .lock()
             .expect("avenger egui render-worker lock poisoned");
-        let latest_unconsumed = state.latest_rendered.as_ref().is_some_and(|rendered| {
-            Some(rendered.render_generation) != state.consumed_render_generation
-        });
         BackgroundRenderStatus {
             requested_scene_generation: state.requested_scene_generation,
-            render_pending: state.pending_request.is_some()
-                || state.in_progress_generation.is_some()
-                || latest_unconsumed,
+            render_pending: state.is_pending(),
         }
     }
 }
@@ -1413,11 +1483,7 @@ fn run_background_render_worker(
                 if state.stop {
                     return;
                 }
-                let latest_unconsumed = state.latest_rendered.as_ref().is_some_and(|rendered| {
-                    Some(rendered.render_generation) != state.consumed_render_generation
-                });
-                if !latest_unconsumed && let Some(request) = state.pending_request.take() {
-                    state.in_progress_generation = Some(request.render_generation);
+                if let Some(request) = state.take_next_request_if_ready() {
                     break request;
                 }
                 state = shared
@@ -1455,9 +1521,7 @@ fn run_background_render_worker(
                     .expect("avenger egui render-worker lock poisoned");
                 state.last_error = Some(err.to_string());
                 state.last_requested_key = None;
-                if state.in_progress_generation == Some(request.render_generation) {
-                    state.in_progress_generation = None;
-                }
+                state.finish_render_generation(request.render_generation);
                 shared.notify.notify_one();
             }
         }
@@ -1560,7 +1624,7 @@ fn background_request_is_stale(
         .state
         .lock()
         .expect("avenger egui render-worker lock poisoned");
-    render_generation < state.next_render_generation || state.stop
+    state.is_render_generation_stale(render_generation)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1573,10 +1637,8 @@ fn publish_background_texture(
         .state
         .lock()
         .expect("avenger egui render-worker lock poisoned");
-    if rendered.render_generation < state.next_render_generation {
-        if state.in_progress_generation == Some(rendered.render_generation) {
-            state.in_progress_generation = None;
-        }
+    if state.is_render_generation_stale(rendered.render_generation) {
+        state.finish_render_generation(rendered.render_generation);
         drop(state);
         update_metrics(metrics, |metrics| {
             metrics.stale_background_render_frames_dropped += 1;
@@ -1618,9 +1680,7 @@ fn finish_stale_background_request(
         .state
         .lock()
         .expect("avenger egui render-worker lock poisoned");
-    if state.in_progress_generation == Some(render_generation) {
-        state.in_progress_generation = None;
-    }
+    state.finish_render_generation(render_generation);
     drop(state);
     update_metrics(metrics, |metrics| {
         metrics.stale_background_render_frames_dropped += 1;
@@ -2144,6 +2204,176 @@ mod tests {
             key,
             RenderRequestKey::new(7, dimensions, wgpu::TextureFormat::Bgra8Unorm)
         );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn empty_scene_graph() -> Arc<SceneGraph> {
+        Arc::new(SceneGraph {
+            marks: Vec::new(),
+            width: 1.0,
+            height: 1.0,
+            origin: [0.0, 0.0],
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_dimensions(width: f32, height: f32) -> CanvasDimensions {
+        CanvasDimensions {
+            size: [width, height],
+            scale: 2.0,
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn assert_dimensions_eq(left: CanvasDimensions, right: CanvasDimensions) {
+        assert_eq!(left.size, right.size);
+        assert_eq!(left.scale, right.scale);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn background_render_state_coalesces_latest_request() {
+        let mut state = BackgroundRenderState::default();
+        let dimensions = test_dimensions(640.0, 480.0);
+
+        let first = state.enqueue_request(
+            1,
+            empty_scene_graph(),
+            dimensions,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            StdInstant::now(),
+        );
+
+        assert_eq!(first.render_generation, Some(1));
+        assert!(!first.coalesced_previous);
+        assert_eq!(state.requested_scene_generation, Some(1));
+
+        let duplicate = state.enqueue_request(
+            1,
+            empty_scene_graph(),
+            dimensions,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            StdInstant::now(),
+        );
+
+        assert_eq!(duplicate, BackgroundEnqueueResult::default());
+        assert_eq!(state.next_render_generation, 1);
+
+        let second = state.enqueue_request(
+            2,
+            empty_scene_graph(),
+            dimensions,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            StdInstant::now(),
+        );
+
+        assert_eq!(second.render_generation, Some(2));
+        assert!(second.coalesced_previous);
+        let pending = state.pending_request.as_ref().expect("pending request");
+        assert_eq!(pending.render_generation, 2);
+        assert_eq!(pending.scene_generation, 2);
+        assert_eq!(state.requested_scene_generation, Some(2));
+        assert!(state.is_render_generation_stale(1));
+        assert!(!state.is_render_generation_stale(2));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn background_render_state_marks_in_progress_generation_stale_after_newer_request() {
+        let mut state = BackgroundRenderState::default();
+        let dimensions = test_dimensions(640.0, 480.0);
+        state.enqueue_request(
+            1,
+            empty_scene_graph(),
+            dimensions,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            StdInstant::now(),
+        );
+        let first = state
+            .take_next_request_if_ready()
+            .expect("first request should start");
+
+        assert_eq!(first.render_generation, 1);
+        assert_eq!(state.in_progress_generation, Some(1));
+        assert!(state.is_pending());
+
+        state.enqueue_request(
+            2,
+            empty_scene_graph(),
+            dimensions,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            StdInstant::now(),
+        );
+
+        assert!(state.is_render_generation_stale(first.render_generation));
+        state.finish_render_generation(first.render_generation);
+        assert_eq!(state.in_progress_generation, None);
+
+        let second = state
+            .take_next_request_if_ready()
+            .expect("newest request should start after stale finish");
+        assert_eq!(second.render_generation, 2);
+        assert_eq!(second.scene_generation, 2);
+        assert!(!state.is_render_generation_stale(second.render_generation));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn background_render_state_replaces_pending_request_on_resize_key_change() {
+        let mut state = BackgroundRenderState::default();
+        let initial = test_dimensions(640.0, 480.0);
+        let resized = test_dimensions(800.0, 480.0);
+
+        state.enqueue_request(
+            1,
+            empty_scene_graph(),
+            initial,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            StdInstant::now(),
+        );
+        let resized_result = state.enqueue_request(
+            1,
+            empty_scene_graph(),
+            resized,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            StdInstant::now(),
+        );
+
+        assert_eq!(resized_result.render_generation, Some(2));
+        assert!(resized_result.coalesced_previous);
+        let pending = state.pending_request.as_ref().expect("pending request");
+        assert_eq!(pending.render_generation, 2);
+        assert_dimensions_eq(pending.dimensions, resized);
+
+        let duplicate_resize = state.enqueue_request(
+            1,
+            empty_scene_graph(),
+            resized,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            StdInstant::now(),
+        );
+        assert_eq!(duplicate_resize, BackgroundEnqueueResult::default());
+        assert_eq!(state.next_render_generation, 2);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn background_render_state_tracks_front_target_after_consumption() {
+        let mut state = BackgroundRenderState::default();
+
+        state.mark_render_consumed(4, 12);
+
+        assert_eq!(state.consumed_render_generation, Some(4));
+        assert_eq!(state.front_target_generation, Some(12));
+        assert!(!state.is_pending());
     }
 
     #[tokio::test]
