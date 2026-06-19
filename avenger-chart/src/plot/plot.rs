@@ -1938,6 +1938,7 @@ mod tests {
     use crate::event::{ChartEventBinding, ChartEventStream, ChartEventType};
     use crate::facet::coord::{FacetColumn, FacetWrap};
     use crate::facet::marks::{FacetColumnSubplotChannels, FacetWrapSubplotChannels};
+    use crate::plot::{EvaluationRequest, SelectionAssignment, SelectionStateUpdate};
     use crate::repeat::{RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap};
     use crate::tools::ToolCompileContext;
     use crate::zerod::ZeroDCoord;
@@ -1949,10 +1950,11 @@ mod tests {
         DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
         DefaultLogicalExprNodeExt, DomainCoordinationGroup, IntoPlotMark, MarkGroup, PlotMark,
         RepeatContext, RepeatDomainCoordination, RepeatVariable, ResolvedRepeatVariable,
-        ScaleChannelConfig, ScaleInferenceHint, ScaleTypePreference, SceneGeometryQuery,
-        SceneQueryDatumField, SelectionClauseUpdate, SelectionPredicateUpdate, SelectionSceneQuery,
-        SelectionUpdate, StoreRow, StoreUpdate, SubplotDataSource,
-        collect_repeat_placeholder_kinds,
+        ResolvedSelectionClauseScope, ScaleChannelConfig, ScaleInferenceHint, ScaleTypePreference,
+        SceneGeometryQuery, SceneQueryDatumField, Selection, SelectionClause,
+        SelectionClauseUpdate, SelectionEqualityDimensionValue, SelectionPredicateSpec,
+        SelectionPredicateUpdate, SelectionSceneQuery, SelectionUpdate, StoreRow, StoreUpdate,
+        SubplotDataSource, collect_repeat_placeholder_kinds,
         event::{
             PARALLEL_DIMENSION_ID_FIELD, PARALLEL_SURFACE_KIND_FIELD, PARALLEL_SURFACE_KIND_POINT,
             PARALLEL_TITLE_FIELD,
@@ -1964,8 +1966,11 @@ mod tests {
         Parallel, ParallelLine, ParallelSymbol, generated_dimension_channel,
     };
     use avenger_chart_tools::PanScrollZoom;
-    use avenger_chart_transforms::{Bin, Calculate};
-    use avenger_scenegraph::marks::mark::MarkInstance;
+    use avenger_chart_transforms::{Bin, Calculate, Filter};
+    use avenger_scenegraph::marks::{
+        line::SceneLineMark,
+        mark::{MarkInstance, SceneMark},
+    };
     use datafusion::{
         arrow::{
             array::Float64Array,
@@ -1975,6 +1980,7 @@ mod tests {
         functions_aggregate::expr_fn::count,
         prelude::{SessionContext, col, lit},
     };
+    use datafusion_proto::protobuf::LogicalExprNode;
     use serde::{Deserialize, Serialize};
     use std::sync::{
         Arc,
@@ -2016,6 +2022,16 @@ mod tests {
                 .y(repeat::row())
                 .size(64.0),
         )
+    }
+
+    fn collect_scene_line_marks<'a>(marks: &'a [SceneMark], out: &mut Vec<&'a SceneLineMark>) {
+        for mark in marks {
+            match mark {
+                SceneMark::Line(line) => out.push(line),
+                SceneMark::Group(group) => collect_scene_line_marks(&group.marks, out),
+                _ => {}
+            }
+        }
     }
 
     fn diagonal_histogram_count_shared_cell() -> Plot<Cartesian> {
@@ -3605,6 +3621,94 @@ mod tests {
         assert_eq!(
             surface,
             ScalarValue::Utf8(Some(PARALLEL_SURFACE_KIND_POINT.to_string()))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parallel_line_zindex_lifts_selected_branch_above_context()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let data = ctx
+            .sql(
+                "SELECT * FROM (VALUES \
+                    ('row0', 10.0, 30.0), \
+                    ('row1', 20.0, 40.0) \
+                ) AS t(id, speed, cost)",
+            )
+            .await?;
+        let selected = Selection::new("picked").empty_selects_nothing();
+        let selected_predicate = selected.predicate();
+        let compiled = Arc::new(
+            Plot::with_coord(
+                Parallel::new()
+                    .dimension("speed", col("speed"))
+                    .dimension("cost", col("cost")),
+            )
+            .plot_size(120.0, 100.0)
+            .data(data)
+            .add_selection(selected)
+            .mark(
+                ParallelLine::new()
+                    .id("context_lines")
+                    .stroke("#c4cbd5")
+                    .zindex(1),
+            )
+            .mark(
+                ParallelLine::new()
+                    .id("selected_lines")
+                    .transform_no_output(Filter::new(selected_predicate), |mark| mark)
+                    .stroke("#2563eb")
+                    .zindex(20),
+            )
+            .compile(ctx.as_ref())
+            .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+        session.apply_selection_patch(vec![SelectionAssignment {
+            selection_id: "picked".to_string(),
+            update: SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![SelectionClause {
+                    id: "row1".to_string(),
+                    scope: ResolvedSelectionClauseScope {
+                        sharing: CoordinationScope::Shared,
+                        owner_path: Vec::new(),
+                    },
+                    predicate: SelectionPredicateSpec::Equality {
+                        dimensions: vec![SelectionEqualityDimensionValue {
+                            id: "id".to_string(),
+                            field_expr: LogicalExprNode::from_expr(col("id"))?,
+                            value: ScalarValue::Utf8(Some("row1".to_string())),
+                        }],
+                    },
+                    facet_context: Vec::new(),
+                }],
+            },
+        }])?;
+
+        let (evaluated, _metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        let mut lines = Vec::new();
+        collect_scene_line_marks(&evaluated.scene_graph.marks, &mut lines);
+        let context_lines = lines
+            .iter()
+            .copied()
+            .filter(|line| line.name == "context_lines")
+            .collect::<Vec<_>>();
+        let selected_lines = lines
+            .iter()
+            .copied()
+            .filter(|line| line.name == "selected_lines")
+            .collect::<Vec<_>>();
+
+        assert_eq!(context_lines.len(), 2);
+        assert_eq!(selected_lines.len(), 1);
+        assert!(context_lines.iter().all(|line| line.zindex == Some(1)));
+        assert!(selected_lines.iter().all(|line| line.zindex == Some(20)));
+        assert!(
+            selected_lines[0].zindex > context_lines[0].zindex,
+            "selected-line branch should render above context branch"
         );
         Ok(())
     }
