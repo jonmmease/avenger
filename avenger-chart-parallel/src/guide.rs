@@ -6,7 +6,7 @@ use avenger_chart_core::{
     eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr,
     params_to_datafusion, serialization::DefaultLogicalExprNodeExt,
 };
-use avenger_color::ColorOrGradient;
+use avenger_color::{ColorOrGradient, parse_color_string_strict};
 use avenger_common::value::ScalarOrArray;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_guides::axis::{
@@ -108,6 +108,7 @@ struct EvaluatedParallelAxisGuideDatum {
     title_font_family: String,
     title_font_size: f32,
     title_font_weight: FontWeight,
+    title_color: [f32; 4],
     axis_config: AxisConfig,
 }
 
@@ -298,6 +299,10 @@ impl CompiledGuide for CompiledParallelGuide {
             .iter()
             .map(|datum| datum.title_font_weight)
             .collect::<Vec<_>>();
+        let title_colors = datums
+            .iter()
+            .map(|datum| ColorOrGradient::Color(datum.title_color))
+            .collect::<Vec<_>>();
 
         let mut marks = Vec::with_capacity(count + 2);
         for datum in &datums {
@@ -358,7 +363,7 @@ impl CompiledGuide for CompiledParallelGuide {
             align: ScalarOrArray::new_scalar(TextAlign::Center),
             baseline: ScalarOrArray::new_scalar(TextBaseline::Bottom),
             angle: ScalarOrArray::new_scalar(0.0),
-            color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.12, 0.12, 0.12, 1.0])),
+            color: scalar_or_array_if_uniform(title_colors),
             font: scalar_or_array_if_uniform(title_fonts),
             font_size: scalar_or_array_if_uniform(title_font_sizes),
             font_weight: scalar_or_array_if_uniform(title_font_weights),
@@ -644,6 +649,18 @@ async fn evaluate_parallel_axis_datum(
         } else {
             "sans-serif".to_string()
         };
+    let title_color =
+        if let Some(color_node) = axis.title_color.as_option().and_then(|o| o.as_ref()) {
+            let color_expr = color_node.to_default_expr(ctx)?;
+            let color = evaluate_string_expr(&color_expr, ctx, params).await?;
+            Some(parse_color_string_strict(&color).map_err(|err| {
+                AvengerChartError::InvalidArgument(format!(
+                    "Invalid parallel axis title_color '{color}': {err}"
+                ))
+            })?)
+        } else {
+            theme.text_color(&title_ctx)
+        };
     let title_font_size = TITLE_FONT_SIZE;
     let title_font_weight = FontWeight::Name(FontWeightNameSpec::Normal);
 
@@ -665,7 +682,7 @@ async fn evaluate_parallel_axis_datum(
             }),
         grid_width: theme.axis_grid_width(&axis_ctx),
         label_color: theme.text_color(&label_ctx),
-        title_color: theme.text_color(&title_ctx),
+        title_color,
         tick_length: theme.axis_tick_length(&axis_ctx),
         label_font_size: theme.font_size(&label_ctx),
         label_font_weight: theme.font_weight(&label_ctx),
@@ -687,6 +704,7 @@ async fn evaluate_parallel_axis_datum(
         title_font_family,
         title_font_size,
         title_font_weight,
+        title_color: title_color.unwrap_or([0.12, 0.12, 0.12, 1.0]),
         axis_config,
     })
 }
@@ -1159,6 +1177,7 @@ mod tests {
             .label_angle(-45.0)
             .format(".1f")
             .title_font_family("serif")
+            .title_color("#2563eb")
             .label_font_family("mono")
             .show_title(false)
             .with_dimension_metadata("speed", 0);
@@ -1182,6 +1201,10 @@ mod tests {
         assert_eq!(
             datum.axis_config.title_font_family.as_deref(),
             Some("serif")
+        );
+        assert_eq!(
+            datum.axis_config.title_color,
+            Some([37.0 / 255.0, 99.0 / 255.0, 235.0 / 255.0, 1.0])
         );
         assert_eq!(datum.axis_config.label_font_family.as_deref(), Some("mono"));
         assert!(datum.axis_config.grid);

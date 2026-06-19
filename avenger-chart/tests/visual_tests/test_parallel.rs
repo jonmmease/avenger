@@ -139,6 +139,25 @@ fn mixed_parallel_data(ctx: &SessionContext) -> datafusion::dataframe::DataFrame
     ctx.read_batch(batch).expect("mixed parallel dataframe")
 }
 
+fn axis_interval_data(
+    ctx: &SessionContext,
+    value_min: f64,
+    value_max: f64,
+) -> datafusion::dataframe::DataFrame {
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("value_min", DataType::Float64, false),
+            Field::new("value_max", DataType::Float64, false),
+        ])),
+        vec![
+            Arc::new(Float64Array::from(vec![value_min])) as ArrayRef,
+            Arc::new(Float64Array::from(vec![value_max])),
+        ],
+    )
+    .expect("axis interval data");
+    ctx.read_batch(batch).expect("axis interval dataframe")
+}
+
 fn facet_parallel_data(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
     let schema = Arc::new(Schema::new(vec![
         Field::new("panel", DataType::Utf8, false),
@@ -830,6 +849,238 @@ async fn parallel_axis_overlay_displaced_axis() {
         Some(parallel_drag_params("stability", 260.0)),
         "parallel",
         "parallel_axis_overlay_displaced_axis",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_selected_line_highlight() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#cbd5e1")
+                .stroke_width(1.1)
+                .opacity(0.48)
+                .zindex(1),
+        )
+        .mark(
+            ParallelLine::new()
+                .transform_no_output(Filter::new(col("id").eq(lit("a2"))), |mark| mark)
+                .stroke("#2563eb")
+                .stroke_width(3.0)
+                .opacity(0.95)
+                .zindex(20),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile selected-line parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_selected_line_highlight",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_selected_axis_header() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability").title_color("#2563eb"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#94a3b8")
+                .stroke_width(1.25)
+                .opacity(0.38),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.75)
+                .size(70.0)
+                .opacity(0.9),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile selected-axis-header parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_selected_axis_header",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_reorder_drag_preview_state() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability").title_color("#2563eb"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")))
+        .active_axis_display_params("drag_dimension", "drag_display_x");
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .add_param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
+        .add_param(Param::new("drag_display_x", ScalarValue::Float64(None)))
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#94a3b8")
+                .stroke_width(1.3)
+                .opacity(0.45),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.8)
+                .size(82.0)
+                .opacity(0.92),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile reorder-preview parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        Some(parallel_drag_params("stability", 245.0)),
+        "parallel",
+        "parallel_reorder_drag_preview_state",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn parallel_axis_brush_intersection_selected_lines() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| d.axis(|a| a.title("Speed")))
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let speed_brush = ParallelAxisOverlay::new(
+        "speed",
+        Plot::<Cartesian>::new().mark(
+            Rect::new()
+                .data(axis_interval_data(&ctx, 47.0, 59.0))
+                .exclude_from_scale_domains()
+                .x(lit(0.0))
+                .x2(lit(1.0))
+                .y(col("value_min"))
+                .y2(col("value_max"))
+                .fill("rgba(37, 99, 235, 0.14)")
+                .stroke("#2563eb")
+                .stroke_width(1.3),
+        ),
+    )
+    .width_px(16.0)
+    .zindex(10);
+    let stability_brush = ParallelAxisOverlay::new(
+        "stability",
+        Plot::<Cartesian>::new().mark(
+            Rect::new()
+                .data(axis_interval_data(&ctx, 77.0, 81.0))
+                .exclude_from_scale_domains()
+                .x(lit(0.0))
+                .x2(lit(1.0))
+                .y(col("value_min"))
+                .y2(col("value_max"))
+                .fill("rgba(37, 99, 235, 0.14)")
+                .stroke("#2563eb")
+                .stroke_width(1.3),
+        ),
+    )
+    .width_px(16.0)
+    .zindex(10);
+
+    let selected = col("speed")
+        .gt_eq(lit(47.0))
+        .and(col("speed").lt_eq(lit(59.0)))
+        .and(col("stability").gt_eq(lit(77.0)))
+        .and(col("stability").lt_eq(lit(81.0)));
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(speed_brush)
+        .mark(stability_brush)
+        .mark(
+            ParallelLine::new()
+                .stroke("#cbd5e1")
+                .stroke_width(1.05)
+                .opacity(0.42)
+                .zindex(1),
+        )
+        .mark(
+            ParallelLine::new()
+                .transform_no_output(Filter::new(selected), |mark| mark)
+                .stroke_with(col("group"), |stroke| stroke.no_legend())
+                .stroke_width(2.8)
+                .opacity(0.95)
+                .zindex(20),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile axis-brush intersection parallel plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_axis_brush_intersection_selected_lines",
     )
     .await;
 }

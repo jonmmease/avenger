@@ -35,6 +35,8 @@ pub struct ParallelAxis {
     #[serde_as(as = "MaybeOptionalExpr")]
     pub title_font_family: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
+    pub title_color: Maybe<Option<LogicalExprNode>>,
+    #[serde_as(as = "MaybeOptionalExpr")]
     pub label_font_family: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub show_title: Maybe<Option<LogicalExprNode>>,
@@ -132,6 +134,14 @@ impl ParallelAxis {
         self
     }
 
+    pub fn title_color(mut self, color: impl IntoExpr) -> Self {
+        self.title_color = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(color.into_expr())
+                .expect("failed to serialize parallel axis title_color expression"),
+        ));
+        self
+    }
+
     pub fn label_font_family(mut self, font: impl IntoExpr) -> Self {
         self.label_font_family = Maybe::Set(Some(
             LogicalExprNode::from_default_expr(font.into_expr())
@@ -173,6 +183,9 @@ impl ParallelAxis {
         }
         if other.title_font_family.is_set() {
             self.title_font_family = other.title_font_family;
+        }
+        if other.title_color.is_set() {
+            self.title_color = other.title_color;
         }
         if other.label_font_family.is_set() {
             self.label_font_family = other.label_font_family;
@@ -252,6 +265,7 @@ impl Axis for ParallelAxis {
             &self.label_angle,
             &self.format_number,
             &self.title_font_family,
+            &self.title_color,
             &self.label_font_family,
             &self.show_title,
         ]
@@ -285,6 +299,7 @@ impl Axis for ParallelAxis {
             label_angle: map_maybe(&self.label_angle, f)?,
             format_number: map_maybe(&self.format_number, f)?,
             title_font_family: map_maybe(&self.title_font_family, f)?,
+            title_color: map_maybe(&self.title_color, f)?,
             label_font_family: map_maybe(&self.label_font_family, f)?,
             show_title: map_maybe(&self.show_title, f)?,
             dimension_id: self.dimension_id.clone(),
