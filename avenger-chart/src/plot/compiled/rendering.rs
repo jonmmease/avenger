@@ -8184,6 +8184,64 @@ mod tests {
             .await
     }
 
+    fn collect_parallel_mark_names(
+        mark: &SceneMark,
+        line_names: &mut Vec<String>,
+        symbol_names: &mut Vec<String>,
+    ) {
+        match mark {
+            SceneMark::Group(group) => {
+                for child in &group.marks {
+                    collect_parallel_mark_names(child, line_names, symbol_names);
+                }
+            }
+            SceneMark::Line(line) => line_names.push(line.name.clone()),
+            SceneMark::Symbol(symbol) => symbol_names.push(symbol.name.clone()),
+            _ => {}
+        }
+    }
+
+    #[tokio::test]
+    async fn parallel_mark_public_ids_name_all_emitted_scene_marks() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("speed", DataType::Float64, false),
+                Field::new("cost", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(Float64Array::from(vec![42.0, 64.0])),
+                Arc::new(Float64Array::from(vec![95.0, 145.0])),
+            ],
+        )?;
+        let df = ctx.read_batch(batch)?;
+        let coord = Parallel::new()
+            .dimension("speed", col("speed"))
+            .dimension("cost", col("cost"));
+        let compiled = Plot::with_coord(coord)
+            .data(df)
+            .plot_size(220.0, 140.0)
+            .mark(ParallelLine::new().id("paths"))
+            .mark(ParallelSymbol::new().id("points"))
+            .compile(&ctx)
+            .await?;
+
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let mut line_names = Vec::new();
+        let mut symbol_names = Vec::new();
+        for mark in &evaluated.scene_graph.marks {
+            collect_parallel_mark_names(mark, &mut line_names, &mut symbol_names);
+        }
+
+        assert_eq!(line_names, vec!["paths".to_string(), "paths".to_string()]);
+        assert_eq!(
+            symbol_names,
+            vec!["points".to_string(), "points".to_string()]
+        );
+        Ok(())
+    }
+
     #[tokio::test]
     async fn discrete_legend_items_register_event_datum_rows() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
