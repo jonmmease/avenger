@@ -363,8 +363,11 @@ pub(crate) async fn render_parallel_axis_overlay_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use avenger_scenegraph::marks::{rect::SceneRectMark, symbol::SceneSymbolMark};
+    use avenger_scenegraph::marks::{
+        line::SceneLineMark, rect::SceneRectMark, symbol::SceneSymbolMark,
+    };
     use datafusion::prelude::{SessionContext, col, lit};
+    use indexmap::IndexMap;
 
     use crate::event::{ChartEventBinding, ChartEventType};
     use crate::prelude::*;
@@ -405,6 +408,21 @@ mod tests {
                 SceneMark::Group(group) => {
                     if let Some(symbol) = first_symbol_mark(&group.marks) {
                         return Some(symbol);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn first_line_mark(marks: &[SceneMark]) -> Option<&SceneLineMark> {
+        for mark in marks {
+            match mark {
+                SceneMark::Line(line) => return Some(line),
+                SceneMark::Group(group) => {
+                    if let Some(line) = first_line_mark(&group.marks) {
+                        return Some(line);
                     }
                 }
                 _ => {}
@@ -573,6 +591,116 @@ mod tests {
             (xs[0] - xs[1]).abs() > 1.0,
             "categorical child x scale should place distinct categories"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn axis_overlay_child_y_values_do_not_expand_parent_dimension_domain()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let data = ctx
+            .sql("SELECT 50.0 AS speed UNION ALL SELECT 60.0 AS speed")
+            .await?;
+        let compiled = Plot::with_coord(Parallel::new().dimension("speed", col("speed")))
+            .canvas_size(220.0, 160.0)
+            .plot_size(120.0, 100.0)
+            .data(data.clone())
+            .mark(ParallelAxisOverlay::new(
+                "speed",
+                Plot::<Cartesian>::new().mark(
+                    Rect::new()
+                        .x(lit(0.0))
+                        .x2(lit(1.0))
+                        .y(lit(-1000.0))
+                        .y2(lit(2000.0)),
+                ),
+            ))
+            .compile(&ctx)
+            .await?;
+        let scales = compiled
+            .build_scales_for_dataframe(&data, 120.0, 100.0, &ctx, &IndexMap::new())
+            .await?;
+        let speed_domain = scales
+            .get("speed")
+            .expect("speed scale")
+            .configured()
+            .numeric_interval_domain()?;
+
+        assert!(
+            speed_domain.0 > -500.0 && speed_domain.1 < 500.0,
+            "overlay child y/y2 values should not expand parent speed domain: {speed_domain:?}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn axis_overlay_explicit_child_data_replaces_parent_data() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let parent_data = ctx.sql("SELECT 80.0 AS speed").await?;
+        let child_data = ctx.sql("SELECT 25.0 AS speed").await?;
+        let overlay = ParallelAxisOverlay::new(
+            "speed",
+            Plot::<Cartesian>::new().data(child_data).mark(
+                Rect::new()
+                    .x(lit(0.0))
+                    .x2(lit(1.0))
+                    .y(col("speed"))
+                    .y2(lit(0.0)),
+            ),
+        )
+        .width_px(40.0);
+        let compiled = Plot::with_coord(parallel_for_overlay_test())
+            .canvas_size(220.0, 160.0)
+            .plot_size(120.0, 100.0)
+            .data(parent_data)
+            .mark(overlay)
+            .compile(&ctx)
+            .await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let overlay_group =
+            find_group_by_prefix(&evaluated.scene_graph.marks, "parallel_axis_overlay_")
+                .expect("overlay group should render");
+        let rect =
+            first_rect_mark(&overlay_group.marks).expect("explicit child rect should render");
+
+        assert_close(rect.y_vec()[0], 75.0);
+        assert_close(first_rect_y2(rect), 100.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn axis_overlay_and_parallel_line_keep_authored_zindex() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let data = ctx.sql("SELECT 50.0 AS speed").await?;
+        let overlay = ParallelAxisOverlay::new(
+            "speed",
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .x(lit(0.0))
+                    .x2(lit(1.0))
+                    .y(lit(25.0))
+                    .y2(lit(75.0)),
+            ),
+        )
+        .zindex(10);
+        let compiled = Plot::with_coord(parallel_for_overlay_test())
+            .canvas_size(220.0, 160.0)
+            .plot_size(120.0, 100.0)
+            .data(data)
+            .mark(ParallelLine::new().zindex(1))
+            .mark(overlay)
+            .compile(&ctx)
+            .await?;
+        let evaluated = compiled.evaluate(&ctx, None).await?;
+        let line = first_line_mark(&evaluated.scene_graph.marks).expect("parallel line");
+        let overlay_group =
+            find_group_by_prefix(&evaluated.scene_graph.marks, "parallel_axis_overlay_")
+                .expect("overlay group");
+
+        assert_eq!(line.zindex, Some(1));
+        assert_eq!(overlay_group.zindex, Some(10));
         Ok(())
     }
 
