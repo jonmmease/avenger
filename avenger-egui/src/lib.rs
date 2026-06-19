@@ -9,7 +9,8 @@ use avenger_chart_app::{
 };
 use avenger_common::{canvas::CanvasDimensions, time::Instant};
 use avenger_eventstream::window::{
-    CanvasResizeEvent, ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput,
+    CanvasResizeEvent, ElementState, Key, MouseButton, MouseScrollDelta, NamedKey,
+    WindowCursorMoved, WindowEvent, WindowKeyboardInput, WindowMouseInput, WindowMouseWheel,
 };
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::{
@@ -433,21 +434,61 @@ impl EguiEventTranslator {
             }));
         }
 
-        for button in [
-            egui::PointerButton::Primary,
-            egui::PointerButton::Secondary,
-            egui::PointerButton::Middle,
-        ] {
-            if response.clicked_by(button) {
-                self.pointer_captured = true;
-                events.push(WindowEvent::MouseInput(WindowMouseInput {
-                    state: ElementState::Pressed,
-                    button: egui_button_to_avenger(button),
-                }));
-                events.push(WindowEvent::MouseInput(WindowMouseInput {
-                    state: ElementState::Released,
-                    button: egui_button_to_avenger(button),
-                }));
+        for event in &input.raw.events {
+            match event {
+                egui::Event::PointerButton {
+                    pos,
+                    button,
+                    pressed,
+                    ..
+                } => {
+                    let inside = rect.contains(*pos);
+                    if *pressed && inside {
+                        self.pointer_captured = true;
+                    }
+                    if inside || self.pointer_captured {
+                        events.push(WindowEvent::MouseInput(WindowMouseInput {
+                            state: if *pressed {
+                                ElementState::Pressed
+                            } else {
+                                ElementState::Released
+                            },
+                            button: egui_button_to_avenger(*button),
+                        }));
+                    }
+                    if !*pressed {
+                        self.pointer_captured = false;
+                    }
+                }
+                egui::Event::MouseWheel { unit, delta, .. } => {
+                    if hovered {
+                        events.push(WindowEvent::MouseWheel(WindowMouseWheel {
+                            delta: egui_wheel_to_avenger(*unit, *delta),
+                        }));
+                    }
+                }
+                egui::Event::Key { key, pressed, .. } => {
+                    if response.has_focus()
+                        && let Some(key) = egui_key_to_avenger(*key)
+                    {
+                        events.push(WindowEvent::KeyboardInput(WindowKeyboardInput {
+                            key,
+                            state: if *pressed {
+                                ElementState::Pressed
+                            } else {
+                                ElementState::Released
+                            },
+                        }));
+                    }
+                }
+                egui::Event::PointerGone => {
+                    if self.hovered || self.pointer_captured {
+                        events.push(WindowEvent::CursorLeft);
+                    }
+                    self.hovered = false;
+                    self.pointer_captured = false;
+                }
+                _ => {}
             }
         }
 
@@ -477,6 +518,83 @@ fn egui_button_to_avenger(button: egui::PointerButton) -> MouseButton {
         egui::PointerButton::Extra1 => MouseButton::Back,
         egui::PointerButton::Extra2 => MouseButton::Forward,
     }
+}
+
+fn egui_wheel_to_avenger(unit: egui::MouseWheelUnit, delta: egui::Vec2) -> MouseScrollDelta {
+    match unit {
+        egui::MouseWheelUnit::Point => MouseScrollDelta::PixelDelta(delta.x as f64, delta.y as f64),
+        egui::MouseWheelUnit::Line => MouseScrollDelta::LineDelta(delta.x, delta.y),
+        egui::MouseWheelUnit::Page => MouseScrollDelta::LineDelta(delta.x * 24.0, delta.y * 24.0),
+    }
+}
+
+fn egui_key_to_avenger(key: egui::Key) -> Option<Key> {
+    let named = match key {
+        egui::Key::ArrowDown => NamedKey::ArrowDown,
+        egui::Key::ArrowLeft => NamedKey::ArrowLeft,
+        egui::Key::ArrowRight => NamedKey::ArrowRight,
+        egui::Key::ArrowUp => NamedKey::ArrowUp,
+        egui::Key::Escape => NamedKey::Escape,
+        egui::Key::Tab => NamedKey::Tab,
+        egui::Key::Backspace => NamedKey::Backspace,
+        egui::Key::Enter => NamedKey::Enter,
+        egui::Key::Space => NamedKey::Space,
+        egui::Key::Delete => NamedKey::Delete,
+        egui::Key::Home => NamedKey::Home,
+        egui::Key::End => NamedKey::End,
+        egui::Key::PageUp => NamedKey::PageUp,
+        egui::Key::PageDown => NamedKey::PageDown,
+        egui::Key::F1 => NamedKey::F1,
+        egui::Key::F2 => NamedKey::F2,
+        egui::Key::F3 => NamedKey::F3,
+        egui::Key::F4 => NamedKey::F4,
+        egui::Key::F5 => NamedKey::F5,
+        egui::Key::F6 => NamedKey::F6,
+        egui::Key::F7 => NamedKey::F7,
+        egui::Key::F8 => NamedKey::F8,
+        egui::Key::F9 => NamedKey::F9,
+        egui::Key::F10 => NamedKey::F10,
+        egui::Key::F11 => NamedKey::F11,
+        egui::Key::F12 => NamedKey::F12,
+        egui::Key::A => return Some(Key::Character('a')),
+        egui::Key::B => return Some(Key::Character('b')),
+        egui::Key::C => return Some(Key::Character('c')),
+        egui::Key::D => return Some(Key::Character('d')),
+        egui::Key::E => return Some(Key::Character('e')),
+        egui::Key::F => return Some(Key::Character('f')),
+        egui::Key::G => return Some(Key::Character('g')),
+        egui::Key::H => return Some(Key::Character('h')),
+        egui::Key::I => return Some(Key::Character('i')),
+        egui::Key::J => return Some(Key::Character('j')),
+        egui::Key::K => return Some(Key::Character('k')),
+        egui::Key::L => return Some(Key::Character('l')),
+        egui::Key::M => return Some(Key::Character('m')),
+        egui::Key::N => return Some(Key::Character('n')),
+        egui::Key::O => return Some(Key::Character('o')),
+        egui::Key::P => return Some(Key::Character('p')),
+        egui::Key::Q => return Some(Key::Character('q')),
+        egui::Key::R => return Some(Key::Character('r')),
+        egui::Key::S => return Some(Key::Character('s')),
+        egui::Key::T => return Some(Key::Character('t')),
+        egui::Key::U => return Some(Key::Character('u')),
+        egui::Key::V => return Some(Key::Character('v')),
+        egui::Key::W => return Some(Key::Character('w')),
+        egui::Key::X => return Some(Key::Character('x')),
+        egui::Key::Y => return Some(Key::Character('y')),
+        egui::Key::Z => return Some(Key::Character('z')),
+        egui::Key::Num0 => return Some(Key::Character('0')),
+        egui::Key::Num1 => return Some(Key::Character('1')),
+        egui::Key::Num2 => return Some(Key::Character('2')),
+        egui::Key::Num3 => return Some(Key::Character('3')),
+        egui::Key::Num4 => return Some(Key::Character('4')),
+        egui::Key::Num5 => return Some(Key::Character('5')),
+        egui::Key::Num6 => return Some(Key::Character('6')),
+        egui::Key::Num7 => return Some(Key::Character('7')),
+        egui::Key::Num8 => return Some(Key::Character('8')),
+        egui::Key::Num9 => return Some(Key::Character('9')),
+        _ => return None,
+    };
+    Some(Key::Named(named))
 }
 
 pub fn scalar_f64(value: f64) -> ScalarValue {
@@ -528,6 +646,31 @@ mod tests {
         let rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(300.0, 200.0));
 
         assert_eq!(local_position(rect, egui::pos2(35.0, 70.0)), [25.0, 50.0]);
+    }
+
+    #[test]
+    fn wheel_mapping_preserves_point_and_line_units() {
+        assert_eq!(
+            egui_wheel_to_avenger(egui::MouseWheelUnit::Point, egui::vec2(4.0, -8.0)),
+            MouseScrollDelta::PixelDelta(4.0, -8.0)
+        );
+        assert_eq!(
+            egui_wheel_to_avenger(egui::MouseWheelUnit::Line, egui::vec2(1.0, -2.0)),
+            MouseScrollDelta::LineDelta(1.0, -2.0)
+        );
+    }
+
+    #[test]
+    fn key_mapping_covers_named_and_character_keys() {
+        assert_eq!(
+            egui_key_to_avenger(egui::Key::ArrowLeft),
+            Some(Key::Named(NamedKey::ArrowLeft))
+        );
+        assert_eq!(egui_key_to_avenger(egui::Key::A), Some(Key::Character('a')));
+        assert_eq!(
+            egui_key_to_avenger(egui::Key::Num7),
+            Some(Key::Character('7'))
+        );
     }
 
     #[tokio::test]

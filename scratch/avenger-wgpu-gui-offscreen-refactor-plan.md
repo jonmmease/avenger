@@ -942,17 +942,17 @@ Tasks:
   - subtract `rect.min`,
   - preserve egui logical point units,
   - output Avenger positions as `[f32; 2]`.
-- [ ] Convert egui pointer movement and drag/click state to Avenger cursor and mouse events:
+- [x] Convert egui pointer movement and drag/click state to Avenger cursor and mouse events:
   - `WindowEvent::CursorMoved`,
   - `WindowEvent::MouseInput`,
   - `WindowEvent::CursorEntered`,
   - `WindowEvent::CursorLeft`.
-- [ ] Convert egui wheel events to `WindowEvent::MouseWheel`.
-- [ ] Convert egui keyboard events to `WindowEvent::KeyboardInput`.
-- [ ] Route pointer events only when the pointer is hovered, dragging, or otherwise captured by the plot widget.
-- [ ] Route wheel events only when the pointer is hovered over the plot widget.
+- [x] Convert egui wheel events to `WindowEvent::MouseWheel`.
+- [x] Convert egui keyboard events to `WindowEvent::KeyboardInput`.
+- [x] Route pointer events only when the pointer is hovered, dragging, or otherwise captured by the plot widget.
+- [x] Route wheel events only when the pointer is hovered over the plot widget.
 - [x] Request plot focus on click/drag start.
-- [ ] Route keyboard events only when the plot widget has focus.
+- [x] Route keyboard events only when the plot widget has focus.
 - [x] Route widget resize to `CanvasResize`.
 - [ ] Add debounced or settled resize routing to `CanvasResizeSettled` if needed by chart resize behavior.
 - [x] Ensure the translated Avenger events are dispatched through the Avenger app/eventstream path, not through winit.
@@ -1068,7 +1068,8 @@ Phase 10 progress notes, 2026-06-19:
 - Added `AvengerApp::scene_graph_arc` and `AvengerApp::rebuild_scene_graph` so native widget param changes can force an exact chart rebuild outside the window-event path.
 - Added a `basic_chart` eframe example that uses a normal egui slider to call `set_param("point_size", value)`, rebuilds the scene, renders it into an egui-registered offscreen texture, displays the plot widget, dispatches queued plot events through `AvengerApp`, and requests repaint while dragging.
 - The example uses eframe's WGPU path with `default-features = false` and `features = ["default_fonts", "wgpu"]`. Enabling eframe's default glow/glutin path conflicted with the workspace's locked `glutin_wgl_sys` version.
-- This is not yet the full Phase 10 MVP. Pending work includes a checkbox/toggle param in the example, richer drag/wheel/keyboard translation, resize-settled routing if needed, repaint on background publish, and manual runtime validation of the native example.
+- Expanded `EguiEventTranslator` to read `egui::InputState::raw.events` for pointer button press/release, wheel events, focus-gated keyboard events, and pointer-gone events.
+- This is not yet the full Phase 10 MVP. Pending work includes a checkbox/toggle param in the example, fuller translator tests for hover/capture/focus filtering, resize-settled routing if needed, repaint on background publish, and manual runtime validation of the native example.
 - Progress commit hashes: `cdc4ee5d`, `b01ee84e`, `67eb684d`, `07dafe63`
 
 Phase 10 partial validation, 2026-06-19:
@@ -1083,6 +1084,8 @@ Phase 10 partial validation, 2026-06-19:
 - `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests, after adding offscreen texture registration.
 - `cargo check -p avenger-egui --features eframe --example basic_chart`: passed.
 - `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests, after adding the app rebuild hook and example.
+- `cargo test -p avenger-egui`: passed, 8 tests plus doc-tests, after expanding wheel/key/pointer event translation.
+- `cargo check -p avenger-egui --features eframe --example basic_chart`: passed after expanding event translation.
 - `cargo tree -i wgpu --workspace`: reports a single `wgpu v27.0.1`, including `egui-wgpu v0.33.3`.
 
 Implementation note:
