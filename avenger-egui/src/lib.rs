@@ -325,8 +325,18 @@ impl AvengerPlotHandle {
             metrics.last_set_scene_us, metrics.last_command_encode_us, metrics.last_submit_us
         ));
         ui.label(format!(
+            "gpu render total us: {}",
+            metrics.last_gpu_render_us()
+        ));
+        ui.label(format!(
             "scene eval / texture publish us: {} / {}",
             metrics.last_scene_evaluation_us, metrics.last_texture_publish_us
+        ));
+        let bottleneck = metrics.latency_bottleneck();
+        ui.label(format!(
+            "latency bottleneck: {} ({} us)",
+            bottleneck.as_str(),
+            metrics.latency_bottleneck_us()
         ));
         ui.label(format!(
             "scene-to-texture publish us: {}",
@@ -514,6 +524,74 @@ pub struct PlotMetrics {
     pub last_texture_publish_us: u64,
     pub last_scene_to_texture_publish_us: u64,
     pub last_background_queue_wait_us: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlotLatencyBottleneck {
+    NoSamples,
+    SceneEvaluation,
+    BackgroundQueueWait,
+    GpuRender,
+    EguiTextureRegistration,
+}
+
+impl PlotLatencyBottleneck {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NoSamples => "no samples",
+            Self::SceneEvaluation => "scene evaluation",
+            Self::BackgroundQueueWait => "background queue wait",
+            Self::GpuRender => "gpu render",
+            Self::EguiTextureRegistration => "egui texture registration",
+        }
+    }
+}
+
+impl PlotMetrics {
+    pub fn last_gpu_render_us(&self) -> u64 {
+        self.last_set_scene_us
+            .saturating_add(self.last_command_encode_us)
+            .saturating_add(self.last_submit_us)
+    }
+
+    pub fn latency_bottleneck(&self) -> PlotLatencyBottleneck {
+        let candidates = [
+            (
+                PlotLatencyBottleneck::SceneEvaluation,
+                self.last_scene_evaluation_us,
+            ),
+            (
+                PlotLatencyBottleneck::BackgroundQueueWait,
+                self.last_background_queue_wait_us,
+            ),
+            (PlotLatencyBottleneck::GpuRender, self.last_gpu_render_us()),
+            (
+                PlotLatencyBottleneck::EguiTextureRegistration,
+                self.last_texture_publish_us,
+            ),
+        ];
+        let Some((bottleneck, elapsed_us)) = candidates
+            .into_iter()
+            .max_by_key(|(_, elapsed_us)| *elapsed_us)
+        else {
+            return PlotLatencyBottleneck::NoSamples;
+        };
+        if elapsed_us == 0 {
+            PlotLatencyBottleneck::NoSamples
+        } else {
+            bottleneck
+        }
+    }
+
+    pub fn latency_bottleneck_us(&self) -> u64 {
+        match self.latency_bottleneck() {
+            PlotLatencyBottleneck::NoSamples => 0,
+            PlotLatencyBottleneck::SceneEvaluation => self.last_scene_evaluation_us,
+            PlotLatencyBottleneck::BackgroundQueueWait => self.last_background_queue_wait_us,
+            PlotLatencyBottleneck::GpuRender => self.last_gpu_render_us(),
+            PlotLatencyBottleneck::EguiTextureRegistration => self.last_texture_publish_us,
+        }
+    }
 }
 
 fn update_metrics(metrics: &StdMutex<PlotMetrics>, update: impl FnOnce(&mut PlotMetrics)) {
@@ -2724,6 +2802,49 @@ mod tests {
         assert_eq!(metrics.param_changes_enqueued, 1);
         handle.reset_metrics();
         assert_eq!(handle.metrics(), PlotMetrics::default());
+    }
+
+    #[test]
+    fn plot_metrics_reports_latency_bottleneck() {
+        let mut metrics = PlotMetrics::default();
+
+        assert_eq!(
+            metrics.latency_bottleneck(),
+            PlotLatencyBottleneck::NoSamples
+        );
+        assert_eq!(metrics.latency_bottleneck_us(), 0);
+
+        metrics.last_scene_evaluation_us = 12_000;
+        metrics.last_set_scene_us = 3_000;
+        metrics.last_command_encode_us = 2_000;
+        metrics.last_submit_us = 500;
+        metrics.last_texture_publish_us = 20;
+        assert_eq!(
+            metrics.latency_bottleneck(),
+            PlotLatencyBottleneck::SceneEvaluation
+        );
+        assert_eq!(metrics.latency_bottleneck_us(), 12_000);
+
+        metrics.last_command_encode_us = 20_000;
+        assert_eq!(
+            metrics.latency_bottleneck(),
+            PlotLatencyBottleneck::GpuRender
+        );
+        assert_eq!(metrics.latency_bottleneck_us(), 23_500);
+
+        metrics.last_texture_publish_us = 30_000;
+        assert_eq!(
+            metrics.latency_bottleneck(),
+            PlotLatencyBottleneck::EguiTextureRegistration
+        );
+        assert_eq!(metrics.latency_bottleneck_us(), 30_000);
+
+        metrics.last_background_queue_wait_us = 40_000;
+        assert_eq!(
+            metrics.latency_bottleneck(),
+            PlotLatencyBottleneck::BackgroundQueueWait
+        );
+        assert_eq!(metrics.latency_bottleneck_us(), 40_000);
     }
 
     #[tokio::test]

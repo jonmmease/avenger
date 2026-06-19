@@ -1338,12 +1338,13 @@ Phase 11 progress notes, 2026-06-19:
 - Added pure `BackgroundRenderState` helpers and no-WGPU release tests for latest-wins request coalescing, stale render generation detection, pending resize replacement, and front target generation bookkeeping. These tests make the worker coordination rules easier to validate without requiring native WGPU setup.
 - Added a native WGPU release test that drives the real background render worker through sequential renders and a resize. It verifies that a render after egui consumption avoids the current front target generation, that resized renders publish a generation allocated during target recreation rather than ordinary round-robin rotation, and that background render request/submitted/published metrics advance.
 - Added a test-only background render delay hook and a native WGPU release test that injects artificial delays around `set_scene` and command encode. The test verifies that enqueue/status calls used by the egui frame path remain fast while a previous render is slow, and that the stale slow render is dropped for the newer request.
+- Added a derived latency bottleneck classification to `PlotMetrics` and the egui metrics panel. The panel now shows the current bottleneck among scene evaluation, background queue wait, GPU render, and egui texture registration, with release unit coverage for the classifier.
 
 Phase 11 validation results so far, 2026-06-19:
 
 - `cargo fmt --all`: passed.
 - `cargo check -p avenger-egui --release --features eframe --example basic_chart`: passed.
-- `cargo test -p avenger-egui --release`: passed, 23 tests plus doc-tests after adding the worker-state, native WGPU worker, and slow-worker responsiveness tests.
+- `cargo test -p avenger-egui --release`: passed, 24 tests plus doc-tests after adding the worker-state, native WGPU worker, slow-worker responsiveness, and metrics bottleneck tests.
 - `cargo test -p avenger-wgpu --lib --release`: passed, 33 tests.
 - `cargo run -p avenger-egui --release --features eframe --example basic_chart`: startup smoke passed with no panic or WGPU validation output, then stopped manually.
 
@@ -1380,7 +1381,7 @@ Manual checks:
 - [x] Native worker test verifies the target generation marked as the egui front target is not reused by the next background render.
 - [ ] Interactive egui run verifies no texture currently registered with egui is overwritten while sampled.
 - [x] Pure worker-state tests cover latest-wins coalescing, stale generation detection, pending resize replacement, and front target generation bookkeeping.
-- [ ] Metrics clearly show whether latency is scene evaluation, GPU render, or egui texture registration.
+- [x] Metrics clearly show whether latency is scene evaluation, GPU render, background queue wait, or egui texture registration.
 - [x] Rapid param changes discard stale scene generations in the MVP publisher path.
 - [x] No WGPU validation errors observed during manual release-mode slider, pan, and resize checks.
 
