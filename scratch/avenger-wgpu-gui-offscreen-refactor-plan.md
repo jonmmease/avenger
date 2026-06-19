@@ -1180,7 +1180,7 @@ Purpose: make performance and correctness visible enough to tune.
 
 Tasks:
 
-- [ ] Add tracing spans for:
+- [x] Add tracing spans/events for:
   - GUI event routing,
   - param patch enqueue,
   - exact enqueue,
@@ -1190,15 +1190,33 @@ Tasks:
   - offscreen render submit,
   - frame publish,
   - GUI texture paint.
-- [ ] Add counters for:
+- [x] Add counters for:
   - frames painted,
   - exact frames published,
   - stale exact frames dropped,
   - reused latest-frame paints,
   - frames painted while an exact render is pending.
-- [ ] Add an example debug overlay for egui.
+- [x] Add an example debug overlay for egui.
 - [ ] Document recommended env vars for tracing.
 - [ ] Add a small benchmark or profiling example.
+
+Phase 12 progress notes, 2026-06-19:
+
+- Added a low-level `PlotMetrics` snapshot on `AvengerPlotHandle` with counters for param sets, routed events, scene rebuild/event-dispatch requests, scene frames published, stale scene frames dropped, offscreen texture renders, texture registrations/updates, frames painted, reused latest-frame paints, and paints while a scene render is pending.
+- Added last-duration fields for scene evaluation, `set_scene`, offscreen command encode, queue submit, and egui texture publication.
+- Added `metrics()`, `reset_metrics()`, and `show_metrics(ui)` to keep observability explicit and egui-native without adding high-level binding helpers.
+- Added tracing instrumentation for param patching, queued plot events, scene rebuild/event-dispatch requests, scene worker lifecycle, Avenger app event dispatch, scene frame publish/drop, offscreen render timing, and GUI texture paint.
+- Updated the `basic_chart` example side panel to show the metrics readout.
+- Added metrics tests for param set calls, routed event batches/counts, scene publish counts, requested/published generation tracking, and event-dispatch publication.
+- Remaining Phase 12 work: document recommended tracing env vars and decide whether a benchmark/profiling example is worth adding after manual egui validation.
+
+Phase 12 validation results, 2026-06-19:
+
+- `cargo fmt --all`: passed.
+- `cargo test -p avenger-egui --release`: passed, 15 tests plus doc-tests.
+- `cargo check --release -p avenger-egui --features eframe --example basic_chart`: passed.
+- `cargo test -p avenger-wgpu --lib --release`: passed, 33 tests.
+- Earlier non-release `cargo test -p avenger-wgpu --lib` was interrupted by the local target directory filling the filesystem; `cargo clean` removed 94.2 GiB, and subsequent validation used release profile only.
 
 Validation:
 
@@ -1211,7 +1229,8 @@ Commit:
 
 - [ ] Commit Phase 12.
 - Suggested message: `feat(wgpu): add gui render timing instrumentation`
-- Commit hash: TBD
+- Implementation commits so far: `c9bc20ed`
+- Final Phase 12 closure commit hash: TBD
 
 ## Phase 13 - Documentation and Final Cleanup
 
