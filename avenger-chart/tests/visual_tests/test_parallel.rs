@@ -313,6 +313,54 @@ async fn parallel_missing_values() {
 }
 
 #[tokio::test]
+async fn parallel_axis_grid_enabled() {
+    let ctx = SessionContext::new();
+    let coord = Parallel::new()
+        .dimension_with("speed", col("speed"), |d| {
+            d.axis(|a| a.title("Speed").grid(true).tick_count(6.0))
+        })
+        .dimension_with("efficiency", col("efficiency"), |d| {
+            d.axis(|a| a.title("Efficiency"))
+        })
+        .dimension_with("stability", col("stability"), |d| {
+            d.axis(|a| a.title("Stability"))
+        })
+        .dimension_with("cost", col("cost"), |d| d.axis(|a| a.title("Cost")));
+
+    let plot = Plot::with_coord(coord)
+        .canvas_size(640.0, 360.0)
+        .plot_size(500.0, 210.0)
+        .data(numeric_parallel_data(&ctx))
+        .mark(
+            ParallelLine::new()
+                .stroke("#64748b")
+                .stroke_width(1.4)
+                .opacity(0.52),
+        )
+        .mark(
+            ParallelSymbol::new()
+                .fill_with(col("group"), |fill| fill.no_legend())
+                .stroke("#111827")
+                .stroke_width(0.8)
+                .size(74.0)
+                .opacity(0.92),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile parallel axis grid");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "parallel",
+        "parallel_axis_grid_enabled",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn parallel_points_categorical_axis() {
     let ctx = SessionContext::new();
     let coord = Parallel::new()
