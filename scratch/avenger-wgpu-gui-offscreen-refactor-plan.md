@@ -1323,8 +1323,8 @@ Implementation plan:
 - [x] Unit-test target lease state transitions without WGPU.
 - [x] Unit-test stale render generation detection used to reject older publish attempts without WGPU.
 - [x] Unit-test resize/change keys replace incompatible pending render requests without WGPU.
-- [ ] Validate resize/front-target safety with a native WGPU run, because actual target recreation and egui texture lifetime depend on WGPU texture/view handles.
-- [ ] Add a focused native integration test if practical; keep it release-mode if it is expensive.
+- [x] Validate resize/front-target safety with a native WGPU run, because actual target recreation and egui texture lifetime depend on WGPU texture/view handles.
+- [x] Add a focused native integration test if practical; keep it release-mode if it is expensive.
 - [x] Preserve existing `avenger-egui` event translation and scene publisher tests.
 
 Phase 11 progress notes, 2026-06-19:
@@ -1336,12 +1336,13 @@ Phase 11 progress notes, 2026-06-19:
 - The basic example now requests background texture rendering for the latest scene and dimensions, while wasm keeps the UI-thread GPU fallback.
 - Added background GPU metrics and render mode reporting. Manual user feedback after the first worker milestone: 100k pan/zoom looked and felt the same, matching the measured diagnosis that scene evaluation dominates over `set_scene`/encode/submit.
 - Added pure `BackgroundRenderState` helpers and no-WGPU release tests for latest-wins request coalescing, stale render generation detection, pending resize replacement, and front target generation bookkeeping. These tests make the worker coordination rules easier to validate without requiring native WGPU setup.
+- Added a native WGPU release test that drives the real background render worker through sequential renders and a resize. It verifies that a render after egui consumption avoids the current front target generation, that resized renders publish a generation allocated during target recreation rather than ordinary round-robin rotation, and that background render request/submitted/published metrics advance.
 
 Phase 11 validation results so far, 2026-06-19:
 
 - `cargo fmt --all`: passed.
 - `cargo check -p avenger-egui --release --features eframe --example basic_chart`: passed.
-- `cargo test -p avenger-egui --release`: passed, 21 tests plus doc-tests after adding the worker-state tests.
+- `cargo test -p avenger-egui --release`: passed, 22 tests plus doc-tests after adding the worker-state and native WGPU worker tests.
 - `cargo test -p avenger-wgpu --lib --release`: passed, 33 tests.
 - `cargo run -p avenger-egui --release --features eframe --example basic_chart`: startup smoke passed with no panic or WGPU validation output, then stopped manually.
 
@@ -1373,8 +1374,9 @@ Manual checks:
 - [ ] 100k-point `basic_chart` still displays and keeps egui controls responsive.
 - [ ] Pan/zoom continues to update axes and eventually displays the newest texture.
 - [ ] Rapid slider changes publish only latest useful texture generations.
-- [ ] Window resize recreates compatible background targets without WGPU validation errors.
-- [ ] No target currently registered with egui is overwritten by the background worker.
+- [x] Window resize recreates compatible background targets without WGPU validation errors.
+- [x] Native worker test verifies the target generation marked as the egui front target is not reused by the next background render.
+- [ ] Interactive egui run verifies no texture currently registered with egui is overwritten while sampled.
 - [x] Pure worker-state tests cover latest-wins coalescing, stale generation detection, pending resize replacement, and front target generation bookkeeping.
 - [ ] Metrics clearly show whether latency is scene evaluation, GPU render, or egui texture registration.
 - [x] Rapid param changes discard stale scene generations in the MVP publisher path.

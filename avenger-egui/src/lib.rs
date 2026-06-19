@@ -2231,6 +2231,103 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    async fn make_test_wgpu_device() -> Option<(wgpu::Device, wgpu::Queue)> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let primary_options = wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::default(),
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        };
+        let fallback_options = wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: true,
+        };
+        let adapter = match instance.request_adapter(&primary_options).await {
+            Ok(adapter) => adapter,
+            Err(_) => match instance.request_adapter(&fallback_options).await {
+                Ok(adapter) => adapter,
+                Err(err) => {
+                    eprintln!("skipping native WGPU test: no adapter available: {err}");
+                    return None;
+                }
+            },
+        };
+
+        match adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("avenger-egui background render test device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                trace: wgpu::Trace::Off,
+            })
+            .await
+        {
+            Ok(handles) => Some(handles),
+            Err(err) => {
+                eprintln!("skipping native WGPU test: device request failed: {err}");
+                None
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait_for_rendered_scene(
+        controller: &BackgroundRenderController,
+        scene_generation: u64,
+    ) -> Arc<RenderedPlotTexture> {
+        let deadline = StdInstant::now() + Duration::from_secs(5);
+        let mut state = controller
+            .shared
+            .state
+            .lock()
+            .expect("avenger egui render-worker lock poisoned");
+
+        loop {
+            if let Some(error) = &state.last_error {
+                panic!("background render worker failed: {error}");
+            }
+            if let Some(rendered) = &state.latest_rendered
+                && rendered.scene_generation == scene_generation
+            {
+                return rendered.clone();
+            }
+
+            let now = StdInstant::now();
+            assert!(
+                now < deadline,
+                "timed out waiting for rendered scene generation {scene_generation}"
+            );
+            let (next_state, _) = controller
+                .shared
+                .notify
+                .wait_timeout(state, deadline - now)
+                .expect("avenger egui render-worker lock poisoned");
+            state = next_state;
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn mark_rendered_scene_consumed(
+        controller: &BackgroundRenderController,
+        rendered: &RenderedPlotTexture,
+    ) {
+        let mut state = controller
+            .shared
+            .state
+            .lock()
+            .expect("avenger egui render-worker lock poisoned");
+        state.mark_render_consumed(rendered.render_generation, rendered.target_generation);
+        drop(state);
+        controller.shared.notify.notify_one();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn background_render_state_coalesces_latest_request() {
         let mut state = BackgroundRenderState::default();
@@ -2374,6 +2471,80 @@ mod tests {
         assert_eq!(state.consumed_render_generation, Some(4));
         assert_eq!(state.front_target_generation, Some(12));
         assert!(!state.is_pending());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn background_render_worker_avoids_front_target_and_handles_resize() {
+        let Some((device, queue)) = make_test_wgpu_device().await else {
+            return;
+        };
+        let poll_device = device.clone();
+        let metrics = Arc::new(StdMutex::new(PlotMetrics::default()));
+        let controller = BackgroundRenderController::new(
+            device,
+            queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+            metrics.clone(),
+        );
+
+        let initial = test_dimensions(128.0, 96.0);
+        controller.enqueue(
+            1,
+            empty_scene_graph(),
+            initial,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            metrics.as_ref(),
+        );
+        let first = wait_for_rendered_scene(&controller, 1);
+        assert_dimensions_eq(first.dimensions, initial);
+        assert!(first.target_generation <= 3);
+        mark_rendered_scene_consumed(&controller, &first);
+
+        controller.enqueue(
+            2,
+            empty_scene_graph(),
+            initial,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            metrics.as_ref(),
+        );
+        let second = wait_for_rendered_scene(&controller, 2);
+        assert_dimensions_eq(second.dimensions, initial);
+        assert!(second.target_generation <= 3);
+        assert_ne!(
+            second.target_generation, first.target_generation,
+            "worker must not render into the target generation currently marked as front"
+        );
+        mark_rendered_scene_consumed(&controller, &second);
+
+        let resized = test_dimensions(192.0, 96.0);
+        controller.enqueue(
+            3,
+            empty_scene_graph(),
+            resized,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            metrics.as_ref(),
+        );
+        let third = wait_for_rendered_scene(&controller, 3);
+        assert_dimensions_eq(third.dimensions, resized);
+        assert!(
+            third.target_generation > 3,
+            "resized render must publish a recreated target generation"
+        );
+
+        poll_device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("device poll after background render");
+        let metrics = metrics
+            .lock()
+            .expect("avenger egui metrics lock poisoned")
+            .clone();
+        assert_eq!(metrics.background_render_requests, 3);
+        assert_eq!(metrics.background_render_frames_submitted, 3);
+        assert_eq!(metrics.background_render_frames_published, 3);
     }
 
     #[tokio::test]
