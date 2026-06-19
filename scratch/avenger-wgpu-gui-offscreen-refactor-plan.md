@@ -546,9 +546,9 @@ Phase 4 validation results, 2026-06-19:
 
 Commit:
 
-- [ ] Commit Phase 4.
+- [x] Commit Phase 4.
 - Suggested message: `feat(wgpu): add offscreen render targets`
-- Commit hash: TBD
+- Commit hash: `c39999f7`
 
 ## Phase 5 - Rebuild PngCanvas on the Renderer Core
 
@@ -556,24 +556,46 @@ Purpose: prove the extracted renderer core and offscreen path produce the same p
 
 Tasks:
 
-- [ ] Replace `PngCanvas`'s duplicated render logic with:
-  - `AvengerWgpuRenderer`,
+- [x] Replace `PngCanvas`'s duplicated render logic with:
+  - `AvengerRendererCore::build_frame_commands` for now,
   - an `OffscreenTarget`,
   - a readback buffer.
-- [ ] Move readback-specific code into `readback.rs`.
-- [ ] Preserve `PngCanvas::render` public behavior.
-- [ ] Preserve existing image dimensions and padding behavior.
-- [ ] Ensure MSAA resolve behavior matches the old implementation.
-- [ ] Verify text atlas behavior is unchanged.
-- [ ] Verify `PngCanvas` does not require `TEXTURE_BINDING` unless using shared `OffscreenTarget` directly.
+- [x] Move readback-specific code into `readback.rs`.
+- [x] Preserve `PngCanvas::render` public behavior.
+- [x] Preserve existing image dimensions and padding behavior.
+- [x] Ensure MSAA resolve behavior matches the old implementation.
+- [x] Verify text atlas behavior is unchanged.
+- [x] Verify `PngCanvas` does not require `TEXTURE_BINDING` unless using shared `OffscreenTarget` directly.
+
+Phase 5 notes, 2026-06-19:
+
+- `PngCanvas` now owns an `OffscreenTarget` for the resolved output texture and a `TextureReadback` helper for padded CPU readback.
+- The public renderer facade is still deferred. `PngCanvas` now calls `AvengerRendererCore::build_frame_commands`, which is the same target-agnostic path the facade should expose in Phase 6.
+- `avenger-wgpu/src/readback.rs` owns the padded buffer allocation, texture-to-buffer copy encoding, map/poll/readback flow, and final crop to the requested physical image dimensions.
+- PNG output target usage is `COPY_SRC | RENDER_ATTACHMENT`; it does not request `TEXTURE_BINDING`.
+- Existing MSAA behavior is preserved by keeping `PngCanvas`'s multisampled framebuffer and resolving into the offscreen output target view when `sample_count > 1`.
+- Text atlas behavior is routed through `AvengerRendererCore::build_frame_commands`, so PNG rendering uses the same once-per-frame shared text bind group path as the refactored core.
 
 Validation:
 
 ```bash
 cargo fmt --all
+cargo check -p avenger-wgpu
+cargo test -p avenger-wgpu --lib
 cargo test -p avenger-wgpu
 cargo test -p avenger-chart visual_regression -- --nocapture
 ```
+
+Phase 5 validation results, 2026-06-19:
+
+- `cargo fmt --all`: passed.
+- `cargo check -p avenger-wgpu`: passed.
+- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+  - `case_090` / `residuals_colorscale`, diff `0.026578`,
+  - `case_119` / `geoScale`, diff `0.016531`,
+  - `case_120` / `maptile_background`, diff `0.012998`.
+- `cargo test -p avenger-chart visual_regression -- --nocapture`: passed but selected zero tests under this filter (`618 filtered out` in `tests/visual_regression.rs`).
 
 Commit:
 

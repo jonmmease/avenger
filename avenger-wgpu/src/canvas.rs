@@ -10,14 +10,11 @@ use avenger_scenegraph::{
     },
     scene_graph::SceneGraph,
 };
-use image::imageops::crop_imm;
 use itertools::izip;
 use wgpu::{
-    Adapter, Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandBuffer,
-    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, MapMode, Origin3d,
+    Adapter, CommandBuffer, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d,
     PowerPreference, Queue, RequestAdapterError, RequestAdapterOptions, Surface,
-    SurfaceConfiguration, TexelCopyBufferInfo, TexelCopyBufferLayout, TexelCopyTextureInfo,
-    Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
+    SurfaceConfiguration, TextureDescriptor, TextureDimension, TextureFormat,
     TextureFormatFeatureFlags, TextureUsages, TextureView, TextureViewDescriptor, Trace,
 };
 use winit::{dpi::Size, event::WindowEvent, window::Window};
@@ -30,6 +27,8 @@ use crate::{
         symbol::{is_circle_only_symbol_mark, CircleSymbolShader, SymbolShader},
         text::{TextAtlasBuilderTrait, TextAtlasRegistration, TextInstance},
     },
+    offscreen::{OffscreenTarget, OffscreenTargetDescriptor},
+    readback::TextureReadback,
     renderer::{mark_renderer_counts, AvengerRendererCore},
     target::{AvengerRenderTarget, WHITE_CLEAR},
     zindex_layers::compute_zindex_layers,
@@ -1086,12 +1085,8 @@ impl Canvas for WindowCanvas<'_> {
 
 pub struct PngCanvas {
     renderer: AvengerRendererCore,
-    texture_view: TextureView,
-    output_buffer: Buffer,
-    texture: Texture,
-    texture_size: Extent3d,
-    padded_width: u32,
-    padded_height: u32,
+    output_target: OffscreenTarget,
+    readback: TextureReadback,
 
     // The order of properties in a struct is the order in which items are dropped.
     // wgpu seems to require that the device be dropped last, otherwise there is a resouce
@@ -1113,48 +1108,16 @@ impl PngCanvas {
         let texture_format = TextureFormat::Rgba8Unorm;
         let format_flags = adapter.get_texture_format_features(texture_format).flags;
         let sample_count = get_supported_sample_count(format_flags);
-        let texture_desc = TextureDescriptor {
-            size: Extent3d {
-                width: dimensions.to_physical_width(),
-                height: dimensions.to_physical_height(),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1, // Sample count of output texture is always 1
-            dimension: TextureDimension::D2,
-            format: texture_format,
-            usage: TextureUsages::COPY_SRC | TextureUsages::RENDER_ATTACHMENT,
-            label: None,
-            view_formats: &[texture_format],
-        };
-        let texture_size = texture_desc.size;
-        let texture = device.create_texture(&texture_desc);
-        let texture_view = texture.create_view(&Default::default());
-
-        // we need to store this for later
-        let u32_size = std::mem::size_of::<u32>() as u32;
-
-        // Width and height must be padded to multiple of 256 for copying image buffer
-        // from/to GPU texture
-        let padded_width = (256.0 * (dimensions.to_physical_width() as f32 / 256.0).ceil()) as u32;
-        let padded_height =
-            (256.0 * (dimensions.to_physical_height() as f32 / 256.0).ceil()) as u32;
-
-        let output_buffer_size = (u32_size * padded_width * padded_height) as BufferAddress;
-        let output_buffer_desc = BufferDescriptor {
-            size: output_buffer_size,
-            usage: BufferUsages::COPY_DST
-                // this tells wpgu that we want to read this buffer from the cpu
-                | BufferUsages::MAP_READ,
-            label: None,
-            mapped_at_creation: false,
-        };
-        let output_buffer = device.create_buffer(&output_buffer_desc);
+        let output_target_descriptor = OffscreenTargetDescriptor::new(dimensions, texture_format)
+            .with_usage(TextureUsages::COPY_SRC | TextureUsages::RENDER_ATTACHMENT)
+            .with_label("PngCanvas output texture");
+        let output_target = OffscreenTarget::new(&device, &output_target_descriptor, 1);
+        let readback = TextureReadback::new(&device, output_target.extent);
 
         let multisampled_framebuffer = create_multisampled_framebuffer(
             &device,
-            dimensions.to_physical_width(),
-            dimensions.to_physical_height(),
+            output_target.extent.width,
+            output_target.extent.height,
             texture_format,
             sample_count,
         );
@@ -1167,12 +1130,8 @@ impl PngCanvas {
             queue,
             multisampled_framebuffer,
             renderer,
-            texture,
-            texture_view,
-            output_buffer,
-            texture_size,
-            padded_width,
-            padded_height,
+            output_target,
+            readback,
         })
     }
 
@@ -1184,7 +1143,6 @@ impl PngCanvas {
         let dimensions = self.renderer.dimensions();
         let marks = self.renderer.marks().to_vec();
 
-        // Collect z-indices and compute layers
         let zindices: Vec<i32> = marks.iter().map(|m| m.zindex).collect();
         let layers = if zindices.is_empty() {
             vec![]
@@ -1194,159 +1152,24 @@ impl PngCanvas {
         let layer_count = layers.len();
         let (instanced_renderer_count, multi_renderer_count) = mark_renderer_counts(&marks);
 
-        let multi_render_resources = self.renderer.multi_render_resources().clone();
-        let render_target_extent = Extent3d {
-            width: dimensions.to_physical_width(),
-            height: dimensions.to_physical_height(),
-            depth_or_array_layers: 1,
-        };
-        let background_target = if sample_count > 1 {
+        let render_target_extent = self.output_target.extent;
+        let render_target = if sample_count > 1 {
             AvengerRenderTarget::multisampled(
                 &self.multisampled_framebuffer,
-                &self.texture_view,
+                &self.output_target.view,
                 render_target_extent,
                 self.renderer.texture_format(),
                 sample_count,
                 WHITE_CLEAR,
             )
         } else {
-            AvengerRenderTarget::offscreen(
-                &self.texture_view,
-                render_target_extent,
-                self.renderer.texture_format(),
-                WHITE_CLEAR,
-            )
+            self.output_target.render_target(WHITE_CLEAR)
         };
-        let background_command = self
-            .renderer
-            .make_background_command(&self.device, background_target);
-        let mut commands = vec![background_command];
 
-        // Build the shared text atlas bind groups ONCE per frame (instead of once per
-        // multi-renderer). Every renderer this frame registered into the same atlas, so
-        // these bind groups are page-correct for all of them.
-        let text_bind_groups = self
-            .renderer
-            .build_text_bind_groups(&self.device, &self.queue);
-
-        // Prepare the single shared multi-renderer ONCE per frame (uniform, gradient/
-        // image atlas bind groups, stencil buffer, combined vertex/index/clip buffers).
-        // Each z-run (a `MarkRenderer::Multi` batch range) is then encoded from this
-        // shared prep, so the 40-ish per-cell renderers' setup collapses to one.
-        let _prepare_start = Instant::now();
-        let prepared = self.renderer.shared_multi_mut().prepare(
-            &self.device,
-            &self.queue,
-            render_target_extent,
-            &multi_render_resources,
-        );
-        tracing::debug!(
-            target: "avenger_wgpu::resize",
-            prepare_ms = _prepare_start.elapsed().as_secs_f64() * 1000.0,
-            "wgpu.prepare"
-        );
-
-        // Render marks by layer
         let command_build_start = Instant::now();
-        // Coalesce consecutive multi-mark runs into one command buffer with merged
-        // passes; instanced marks break a run, interleaved by (layer, document).
-        let mut mark_encoder = self
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("Avenger Mark Render Encoder"),
-            });
-        let mut encoded_marks = false;
-        let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
-        for (min_z, max_z) in layers {
-            for mark in &marks {
-                if mark.zindex >= min_z && mark.zindex <= max_z {
-                    match &mark.renderer {
-                        MarkRenderer::Multi { batch_range } => pending.push(batch_range.clone()),
-                        MarkRenderer::Instanced {
-                            renderer,
-                            x_adjustment,
-                            y_adjustment,
-                        } => {
-                            if !pending.is_empty() {
-                                if sample_count > 1 {
-                                    self.renderer.shared_multi().encode_multi_ranges_into(
-                                        &mut mark_encoder,
-                                        render_target_extent,
-                                        &self.multisampled_framebuffer,
-                                        Some(&self.texture_view),
-                                        &multi_render_resources,
-                                        &text_bind_groups,
-                                        &prepared,
-                                        &pending,
-                                    );
-                                } else {
-                                    self.renderer.shared_multi().encode_multi_ranges_into(
-                                        &mut mark_encoder,
-                                        render_target_extent,
-                                        &self.texture_view,
-                                        None,
-                                        &multi_render_resources,
-                                        &text_bind_groups,
-                                        &prepared,
-                                        &pending,
-                                    );
-                                };
-                                pending.clear();
-                            }
-                            if sample_count > 1 {
-                                renderer.encode_into(
-                                    &self.device,
-                                    &mut mark_encoder,
-                                    &self.multisampled_framebuffer,
-                                    Some(&self.texture_view),
-                                    *x_adjustment,
-                                    *y_adjustment,
-                                );
-                            } else {
-                                renderer.encode_into(
-                                    &self.device,
-                                    &mut mark_encoder,
-                                    &self.texture_view,
-                                    None,
-                                    *x_adjustment,
-                                    *y_adjustment,
-                                );
-                            };
-                            encoded_marks = true;
-                        }
-                    }
-                }
-            }
-        }
-        if !pending.is_empty() {
-            if sample_count > 1 {
-                self.renderer.shared_multi().encode_multi_ranges_into(
-                    &mut mark_encoder,
-                    render_target_extent,
-                    &self.multisampled_framebuffer,
-                    Some(&self.texture_view),
-                    &multi_render_resources,
-                    &text_bind_groups,
-                    &prepared,
-                    &pending,
-                );
-            } else {
-                self.renderer.shared_multi().encode_multi_ranges_into(
-                    &mut mark_encoder,
-                    render_target_extent,
-                    &self.texture_view,
-                    None,
-                    &multi_render_resources,
-                    &text_bind_groups,
-                    &prepared,
-                    &pending,
-                );
-            };
-            encoded_marks = true;
-        }
-        if encoded_marks {
-            commands.push(mark_encoder.finish());
-        }
+        let commands =
+            self.renderer
+                .build_frame_commands(&self.device, &self.queue, render_target, None)?;
         let command_build_elapsed = command_build_start.elapsed();
         let command_count = commands.len();
 
@@ -1354,70 +1177,29 @@ impl PngCanvas {
         self.queue.submit(commands);
         let submit_elapsed = submit_start.elapsed();
 
-        // Extract texture from GPU
         let extract_start = Instant::now();
         let mut extract_encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("Extract Texture Encoder"),
             });
-
-        let u32_size = std::mem::size_of::<u32>() as u32;
-
-        extract_encoder.copy_texture_to_buffer(
-            TexelCopyTextureInfo {
-                aspect: TextureAspect::All,
-                texture: &self.texture,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-            },
-            TexelCopyBufferInfo {
-                buffer: &self.output_buffer,
-                layout: TexelCopyBufferLayout {
-                    offset: 0,
-                    // bytes_per_row: Some(u32_size * self.width as u32),
-                    bytes_per_row: Some(u32_size * self.padded_width),
-                    rows_per_image: Some(self.padded_height),
-                },
-            },
-            self.texture_size,
-        );
+        debug_assert_eq!(self.readback.texture_extent(), self.output_target.extent);
+        self.readback
+            .encode_copy_from_texture(&mut extract_encoder, &self.output_target.texture);
         self.queue.submit(Some(extract_encoder.finish()));
         let extract_elapsed = extract_start.elapsed();
 
-        // Output to png file
         let map_read_start = Instant::now();
-        let img = {
-            let buffer_slice = self.output_buffer.slice(..);
-
-            // NOTE: We have to create the mapping THEN device.poll() before await
-            // the future. Otherwise the application will freeze.
-            let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
-            buffer_slice.map_async(MapMode::Read, move |result| {
-                tx.send(result).unwrap();
-            });
-            self.device.poll(wgpu::PollType::Wait).unwrap();
-
-            // TODO: remove panic
-            rx.receive().await.unwrap().unwrap();
-
-            let data = buffer_slice.get_mapped_range();
-            let img_buf =
-                image::RgbaImage::from_vec(self.padded_width, self.padded_height, data.to_vec())
-                    .unwrap();
-
-            let cropped_img = crop_imm(
-                &img_buf,
-                0,
-                0,
+        let img = self
+            .readback
+            .read_rgba8(
+                &self.device,
                 dimensions.to_physical_width(),
                 dimensions.to_physical_height(),
-            );
-            cropped_img.to_image()
-        };
+            )
+            .await?;
         let map_read_elapsed = map_read_start.elapsed();
 
-        self.output_buffer.unmap();
         tracing::debug!(
             target: "avenger_wgpu::resize",
             render_ms = render_start.elapsed().as_secs_f64() * 1000.0,

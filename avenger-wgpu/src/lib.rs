@@ -5,6 +5,7 @@ pub mod canvas;
 pub mod error;
 pub mod marks;
 pub mod offscreen;
+pub(crate) mod readback;
 pub mod renderer;
 pub mod target;
 pub mod util;
