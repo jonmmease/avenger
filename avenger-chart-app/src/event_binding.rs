@@ -7655,6 +7655,27 @@ mod tests {
             .await
     }
 
+    async fn mouse_down_mark(
+        state: &mut ChartAppState,
+        handler: &ChartEventBindingHandler,
+        mark_instance: Option<MarkInstance>,
+        position: [f32; 2],
+    ) -> UpdateStatus {
+        handler
+            .handle_with_context(
+                &SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                    position,
+                    button: MouseButton::Left,
+                    mark_instance,
+                    modifiers: ModifiersState::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut *state,
+                &empty_rtree(),
+            )
+            .await
+    }
+
     async fn double_click_mark(
         state: &mut ChartAppState,
         handler: &ChartEventBindingHandler,
@@ -8122,6 +8143,94 @@ mod tests {
         assert_eq!(
             dimensions[0].value,
             ScalarValue::Utf8(Some("row1".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn parallel_axis_header_mousedown_patches_drag_dimension_param() {
+        let ctx = SessionContext::new();
+        let drag_dimension = Param::new("drag_dimension", ScalarValue::Utf8(None));
+        let drag_start_x = Param::new("drag_start_x", ScalarValue::Float64(None));
+        let drag_display_x = Param::new("drag_display_x", ScalarValue::Float64(None));
+        let binding = ChartEventBinding::on(ChartEventType::MouseDown)
+            .filter(event::button().eq(lit("left")))
+            .filter(
+                event::parallel_surface_kind()
+                    .eq(lit(event::PARALLEL_SURFACE_KIND_DIMENSION_TITLE)),
+            )
+            .set_param(&drag_dimension, event::parallel_dimension_id())
+            .set_param(&drag_start_x, event::parallel_display_x())
+            .set_param(&drag_display_x, event::parallel_display_x())
+            .preview();
+        let data = ctx
+            .sql("SELECT 10.0 AS speed, 30.0 AS cost")
+            .await
+            .expect("parallel header data");
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("speed", col("speed"), |d| {
+                    d.axis(|axis| axis.title("Speed"))
+                })
+                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
+        )
+        .canvas_size(420.0, 320.0)
+        .plot_size(260.0, 180.0)
+        .add_param(drag_dimension)
+        .add_param(drag_start_x)
+        .add_param(drag_display_x)
+        .data(data)
+        .mark(ParallelLine::new())
+        .event_binding(binding)
+        .compile(&ctx)
+        .await
+        .expect("compile parallel header binding plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial parallel header build");
+        let datum_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            event::PARALLEL_TITLE_FIELD,
+            ScalarValue::Utf8(Some("Speed".to_string())),
+        )
+        .await;
+        let position = rect_instance_point(&scene, &datum_mark_instance);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the Speed title hit region");
+        let picked_dimension = {
+            let runtime = state.runtime.lock().await;
+            runtime
+                .last_event_datum_state
+                .datum_for_mark_instance(Some(&mark_instance), event::PARALLEL_DIMENSION_ID_FIELD)
+        };
+        assert_eq!(
+            picked_dimension,
+            Some(ScalarValue::Utf8(Some("speed".to_string())))
+        );
+
+        let status = mouse_down_mark(&mut state, &handler, Some(mark_instance), position).await;
+        assert!(status.rerender);
+        assert_eq!(
+            state.params().await.get("drag_dimension"),
+            Some(&ScalarValue::Utf8(Some("speed".to_string())))
+        );
+        let params = state.params().await;
+        let Some(ScalarValue::Float64(Some(start_x))) = params.get("drag_start_x") else {
+            panic!("drag_start_x should be patched");
+        };
+        let Some(ScalarValue::Float64(Some(display_x))) = params.get("drag_display_x") else {
+            panic!("drag_display_x should be patched");
+        };
+        assert!(
+            (*start_x - *display_x).abs() < f64::EPSILON,
+            "drag start and display x should both start at the header display x"
         );
     }
 
