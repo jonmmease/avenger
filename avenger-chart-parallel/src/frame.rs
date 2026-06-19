@@ -126,24 +126,37 @@ pub(crate) fn resolve_parallel_frame_dimensions(
     } else {
         0.0
     };
+    let equilibrium_positions = (0..count)
+        .map(|index| {
+            if count <= 1 {
+                width / 2.0
+            } else {
+                index as f32 * step
+            }
+        })
+        .collect::<Vec<_>>();
+    resolve_parallel_frame_dimensions_at_positions(
+        &ordered,
+        display_overrides,
+        &equilibrium_positions,
+    )
+}
+
+fn resolve_parallel_frame_dimensions_at_positions(
+    ordered: &[&ParallelFrameDimension],
+    display_overrides: Option<&HashMap<String, f32>>,
+    equilibrium_positions: &[f32],
+) -> ParallelFrameGeometry {
     let slots = ordered
         .into_iter()
         .enumerate()
         .map(|(index, dimension)| {
-            let equilibrium_x = if count <= 1 {
-                width / 2.0
-            } else {
-                index as f32 * step
-            };
+            let equilibrium_x = equilibrium_positions.get(index).copied().unwrap_or(0.0);
             let display_x = display_overrides
                 .and_then(|overrides| overrides.get(&dimension.id).copied())
                 .unwrap_or(equilibrium_x);
             let displacement_px = display_x - equilibrium_x;
-            let displacement_slots = if step.abs() > f32::EPSILON {
-                displacement_px / step
-            } else {
-                0.0
-            };
+            let displacement_slots = displacement_slots(index, display_x, equilibrium_positions);
             ParallelAxisSlot {
                 id: dimension.id.clone(),
                 generated_channel: dimension.generated_channel.clone(),
@@ -157,6 +170,43 @@ pub(crate) fn resolve_parallel_frame_dimensions(
         })
         .collect();
     ParallelFrameGeometry { slots }
+}
+
+fn displacement_slots(index: usize, display_x: f32, equilibrium_positions: &[f32]) -> f32 {
+    let Some(equilibrium_x) = equilibrium_positions.get(index).copied() else {
+        return 0.0;
+    };
+    let displacement_px = display_x - equilibrium_x;
+    if displacement_px.abs() <= f32::EPSILON {
+        return 0.0;
+    }
+
+    let reference_distance = if displacement_px.is_sign_positive() {
+        equilibrium_positions
+            .get(index + 1)
+            .map(|next| next - equilibrium_x)
+            .or_else(|| {
+                index
+                    .checked_sub(1)
+                    .and_then(|previous| equilibrium_positions.get(previous))
+                    .map(|previous| equilibrium_x - previous)
+            })
+    } else {
+        index
+            .checked_sub(1)
+            .and_then(|previous| equilibrium_positions.get(previous))
+            .map(|previous| equilibrium_x - previous)
+            .or_else(|| {
+                equilibrium_positions
+                    .get(index + 1)
+                    .map(|next| next - equilibrium_x)
+            })
+    };
+
+    reference_distance
+        .filter(|distance| distance.abs() > f32::EPSILON)
+        .map(|distance| displacement_px / distance.abs())
+        .unwrap_or(0.0)
 }
 
 pub(crate) fn resolve_order_state(
@@ -350,6 +400,13 @@ mod tests {
         ))
     }
 
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.0001,
+            "expected {expected}, got {actual}"
+        );
+    }
+
     #[test]
     fn declaration_order_produces_evenly_spaced_slots() {
         let frame = resolve_parallel_frame(&dims(&["a", "b", "c"]), None, None, 200.0);
@@ -386,6 +443,42 @@ mod tests {
         assert_eq!(slot.display_x, 130.0);
         assert_eq!(slot.displacement_px, 30.0);
         assert_eq!(slot.displacement_slots, 0.3);
+    }
+
+    #[test]
+    fn displacement_slots_use_local_spacing_for_nonuniform_positions() {
+        let dimensions = ["a", "b", "c"]
+            .iter()
+            .map(|id| ParallelFrameDimension::new(*id, format!("generated_{id}"), *id))
+            .collect::<Vec<_>>();
+        let ordered = dimensions.iter().collect::<Vec<_>>();
+        let equilibrium_positions = [0.0, 80.0, 200.0];
+
+        let overrides = HashMap::from([
+            ("a".to_string(), -20.0),
+            ("b".to_string(), 120.0),
+            ("c".to_string(), 260.0),
+        ]);
+        let frame = resolve_parallel_frame_dimensions_at_positions(
+            &ordered,
+            Some(&overrides),
+            &equilibrium_positions,
+        );
+
+        assert_close(frame.slot("a").expect("slot a").displacement_slots, -0.25);
+        assert_close(
+            frame.slot("b").expect("slot b").displacement_slots,
+            40.0 / 120.0,
+        );
+        assert_close(frame.slot("c").expect("slot c").displacement_slots, 0.5);
+
+        let overrides = HashMap::from([("b".to_string(), 40.0)]);
+        let frame = resolve_parallel_frame_dimensions_at_positions(
+            &ordered,
+            Some(&overrides),
+            &equilibrium_positions,
+        );
+        assert_close(frame.slot("b").expect("slot b").displacement_slots, -0.5);
     }
 
     #[test]
