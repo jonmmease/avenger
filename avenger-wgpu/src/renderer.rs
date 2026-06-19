@@ -4,14 +4,17 @@ use avenger_color::ColorOrGradient;
 use avenger_common::{
     canvas::CanvasDimensions, types::LinearScaleAdjustment, value::ScalarOrArray,
 };
-use avenger_scenegraph::marks::{group::Clip, rect::SceneRectMark};
+use avenger_scenegraph::{
+    marks::{group::Clip, rect::SceneRectMark},
+    scene_graph::SceneGraph,
+};
 use wgpu::{
     BindGroup, CommandBuffer, CommandEncoderDescriptor, Device, Extent3d, Operations, Queue,
     RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TextureFormat, TextureView,
 };
 
 use crate::{
-    canvas::{CanvasConfig, CanvasFrameOverlay, TextBuildCtor},
+    canvas::{Canvas, CanvasConfig, CanvasFrameOverlay, TextBuildCtor},
     error::AvengerWgpuError,
     marks::{
         instanced_mark::InstancedMarkRenderer,
@@ -42,6 +45,183 @@ pub enum MarkRenderer {
 pub struct ZIndexedMark {
     pub zindex: i32,
     pub renderer: MarkRenderer,
+}
+
+#[derive(Clone)]
+pub struct AvengerRendererConfig {
+    pub dimensions: CanvasDimensions,
+    pub texture_format: TextureFormat,
+    pub sample_count: u32,
+    pub canvas_config: CanvasConfig,
+}
+
+impl AvengerRendererConfig {
+    pub fn new(dimensions: CanvasDimensions, texture_format: TextureFormat) -> Self {
+        Self {
+            dimensions,
+            texture_format,
+            sample_count: 1,
+            canvas_config: CanvasConfig::default(),
+        }
+    }
+
+    pub fn with_sample_count(mut self, sample_count: u32) -> Self {
+        self.sample_count = sample_count.max(1);
+        self
+    }
+
+    pub fn with_canvas_config(mut self, canvas_config: CanvasConfig) -> Self {
+        self.canvas_config = canvas_config;
+        self
+    }
+}
+
+pub struct AvengerWgpuRenderer {
+    core: AvengerRendererCore,
+}
+
+impl AvengerWgpuRenderer {
+    pub fn new(device: &Device, config: AvengerRendererConfig) -> Self {
+        let core = AvengerRendererCore::new(
+            device,
+            config.dimensions,
+            config.texture_format,
+            config.sample_count,
+            config.canvas_config,
+        );
+        Self { core }
+    }
+
+    pub fn dimensions(&self) -> CanvasDimensions {
+        self.core.dimensions()
+    }
+
+    pub fn texture_format(&self) -> TextureFormat {
+        self.core.texture_format()
+    }
+
+    pub fn sample_count(&self) -> u32 {
+        self.core.sample_count()
+    }
+
+    pub fn resize(&mut self, dimensions: CanvasDimensions) {
+        self.core.set_dimensions(dimensions);
+    }
+
+    pub fn set_scene(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        scene_graph: &SceneGraph,
+    ) -> Result<(), AvengerWgpuError> {
+        let mut canvas = RendererCanvasAdapter {
+            renderer: &mut self.core,
+            device,
+            queue,
+        };
+        Canvas::set_scene(&mut canvas, scene_graph)
+    }
+
+    pub fn build_frame_commands(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        target: AvengerRenderTarget<'_>,
+        overlay: Option<CanvasFrameOverlay>,
+    ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
+        self.core
+            .build_frame_commands(device, queue, target, overlay)
+    }
+
+    pub fn encode_to_offscreen_commands(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        target: &mut OffscreenTarget,
+    ) -> Result<Vec<CommandBuffer>, AvengerWgpuError> {
+        self.core
+            .encode_to_offscreen_commands(device, queue, target)
+    }
+
+    pub fn render_to_offscreen(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        target: &mut OffscreenTarget,
+    ) -> Result<RenderedOffscreenFrame, AvengerWgpuError> {
+        self.core.render_to_offscreen(device, queue, target)
+    }
+}
+
+struct RendererCanvasAdapter<'a> {
+    renderer: &'a mut AvengerRendererCore,
+    device: &'a Device,
+    queue: &'a Queue,
+}
+
+impl Canvas for RendererCanvasAdapter<'_> {
+    fn set_current_zindex(&mut self, zindex: i32) {
+        self.renderer.set_current_zindex(zindex);
+    }
+
+    fn commit_multi_renderer_if_needed(&mut self, _new_zindex: i32) {
+        self.renderer.commit_multi_renderer_if_needed();
+    }
+
+    fn get_current_zindex(&self) -> i32 {
+        self.renderer.current_zindex()
+    }
+
+    fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
+        self.renderer.shared_multi_mut()
+    }
+
+    fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait {
+        self.renderer.text_atlas_builder_mut()
+    }
+
+    fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
+        self.renderer.get_instanced_renderer(fingerprint)
+    }
+
+    fn add_instanced_mark_renderer(
+        &mut self,
+        mark_renderer: Arc<InstancedMarkRenderer>,
+        fingerprint: u64,
+        x_adjustment: Option<LinearScaleAdjustment>,
+        y_adjustment: Option<LinearScaleAdjustment>,
+    ) {
+        self.renderer.add_instanced_mark_renderer(
+            mark_renderer,
+            fingerprint,
+            x_adjustment,
+            y_adjustment,
+        );
+    }
+
+    fn clear_mark_renderer(&mut self) {
+        self.renderer.clear_mark_renderer();
+    }
+
+    fn device(&self) -> &Device {
+        self.device
+    }
+
+    fn queue(&self) -> &Queue {
+        self.queue
+    }
+
+    fn dimensions(&self) -> CanvasDimensions {
+        self.renderer.dimensions()
+    }
+
+    fn texture_format(&self) -> TextureFormat {
+        self.renderer.texture_format()
+    }
+
+    fn sample_count(&self) -> u32 {
+        self.renderer.sample_count()
+    }
 }
 
 pub(crate) fn mark_renderer_counts(marks: &[ZIndexedMark]) -> (usize, usize) {
