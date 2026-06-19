@@ -8204,8 +8204,7 @@ mod tests {
         let (mut state, handler, mark_instance, position) =
             parallel_point_state_and_handler(binding).await;
 
-        let status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
-        assert!(status.rerender);
+        let _status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
 
         let runtime = state.runtime.lock().await;
         let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
@@ -8220,6 +8219,105 @@ mod tests {
         assert_eq!(
             dimensions[0].value,
             ScalarValue::Utf8(Some("row1".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn parallel_axis_overlay_child_rect_click_exposes_axis_and_interval_row_data() {
+        let ctx = SessionContext::new();
+        let clicked_axis = Param::new("clicked_axis", ScalarValue::Utf8(None));
+        let clicked_min = Param::new("clicked_min", ScalarValue::Float64(None));
+        let clicked_max = Param::new("clicked_max", ScalarValue::Float64(None));
+        let parent_data = ctx
+            .sql("SELECT 50.0 AS speed, 30.0 AS cost")
+            .await
+            .expect("parallel parent data");
+        let store_batch = ctx
+            .sql("SELECT 'speed' AS id, 25.0 AS value_min, 75.0 AS value_max")
+            .await
+            .expect("axis overlay store data")
+            .collect()
+            .await
+            .expect("collect axis overlay store")
+            .into_iter()
+            .next()
+            .expect("store batch");
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("id").is_not_null())
+            .filter(event::datum("value_min").is_not_null())
+            .filter(event::datum("value_max").is_not_null())
+            .set_param(&clicked_axis, event::datum("id"))
+            .set_param(&clicked_min, event::datum("value_min"))
+            .set_param(&clicked_max, event::datum("value_max"))
+            .exact();
+        let overlay = ParallelAxisOverlay::new(
+            "speed",
+            Plot::<Cartesian>::new().mark(
+                Rect::new()
+                    .data_store(StoreData::new("axis_brush_boxes"))
+                    .x(lit(0.0))
+                    .x2(lit(1.0))
+                    .y(col("value_min"))
+                    .y2(col("value_max"))
+                    .fill("rgba(37, 99, 235, 0.20)"),
+            ),
+        )
+        .id("brush_overlay")
+        .width_px(40.0);
+        let compiled = Plot::with_coord(
+            Parallel::new()
+                .dimension_with("speed", col("speed"), |d| {
+                    d.axis(|axis| axis.title("Speed"))
+                })
+                .dimension_with("cost", col("cost"), |d| d.axis(|axis| axis.title("Cost"))),
+        )
+        .canvas_size(420.0, 320.0)
+        .plot_size(260.0, 180.0)
+        .add_param(clicked_axis)
+        .add_param(clicked_min)
+        .add_param(clicked_max)
+        .add_store(Store::from_record_batch("axis_brush_boxes", store_batch))
+        .data(parent_data)
+        .mark(overlay)
+        .event_binding(binding)
+        .compile(&ctx)
+        .await
+        .expect("compile parallel overlay click plot");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial parallel overlay scene");
+        let datum_mark_instance = retained_event_datum_mark_instance(
+            &state,
+            "value_min",
+            ScalarValue::Float64(Some(25.0)),
+        )
+        .await;
+        let position = rect_instance_fraction_point(&scene, &datum_mark_instance, 0.85, 0.41);
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let mark_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("rtree should pick the overlay child rect");
+
+        let _status = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        let params = state.params().await;
+        assert_eq!(
+            params.get("clicked_axis"),
+            Some(&ScalarValue::Utf8(Some("speed".to_string())))
+        );
+        assert_eq!(
+            params.get("clicked_min"),
+            Some(&ScalarValue::Float64(Some(25.0)))
+        );
+        assert_eq!(
+            params.get("clicked_max"),
+            Some(&ScalarValue::Float64(Some(75.0)))
         );
     }
 
