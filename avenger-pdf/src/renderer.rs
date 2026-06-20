@@ -33,23 +33,19 @@ impl PdfRenderer {
 
     pub fn render_scene_graph(&self, scene_graph: &SceneGraph) -> Result<Vec<u8>, AvengerPdfError> {
         let usvg_options = self.usvg_options();
-        if self.options.embed_text
-            && matches!(
-                self.options.font_resolution.missing_font,
-                MissingFontPolicy::Error
-            )
-        {
+        if matches!(
+            self.options.font_resolution.missing_font,
+            MissingFontPolicy::Error
+        ) {
             validate_scene_graph_text_fonts(scene_graph, usvg_options.fontdb.as_ref())?;
         }
 
         let svg = self.render_svg_for_pdf(scene_graph)?;
         let tree = svg2pdf::usvg::Tree::from_str(&svg, &usvg_options)?;
-        if self.options.embed_text
-            && matches!(
-                self.options.font_resolution.missing_font,
-                MissingFontPolicy::Error
-            )
-        {
+        if matches!(
+            self.options.font_resolution.missing_font,
+            MissingFontPolicy::Error
+        ) {
             validate_text_fonts_for_embedding(&tree)?;
         }
         let pdf = svg2pdf::to_pdf(
@@ -57,7 +53,7 @@ impl PdfRenderer {
             svg2pdf::ConversionOptions {
                 compress: self.options.compress,
                 raster_scale: self.options.raster_scale,
-                embed_text: self.options.embed_text,
+                embed_text: true,
                 pdfa: false,
             },
             svg2pdf::PageOptions::default(),

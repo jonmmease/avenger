@@ -16,8 +16,6 @@ pub struct PdfRenderOptions {
     pub compress: bool,
     /// Scale used when the converter must rasterize unsupported SVG features.
     pub raster_scale: f32,
-    /// Keep text as selectable PDF text with embedded font subsets.
-    pub embed_text: bool,
 }
 
 impl Default for PdfRenderOptions {
@@ -28,7 +26,6 @@ impl Default for PdfRenderOptions {
             font_resolution: FontResolutionOptions::default(),
             compress: true,
             raster_scale: 1.5,
-            embed_text: true,
         }
     }
 }
