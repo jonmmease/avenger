@@ -11,6 +11,7 @@ members = [
     "avenger-text",
     "avenger-image",
     "avenger-svg",
+    "avenger-pdf",
     "avenger-eventstream",
     "avenger-layout",
     "avenger-app",
@@ -100,3 +101,4 @@ base64 = "0.22.1"
 urlencoding = "2.1.3"
 egui = "0.33.3"
 egui-wgpu = "0.33.3"
+svg2pdf = "0.13.0"

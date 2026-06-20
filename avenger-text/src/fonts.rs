@@ -24,16 +24,44 @@ const ATKINSON_HYPERLEGIBLE_LIGHT: &[u8] = include_bytes!(
     "../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Light.ttf"
 );
 
+#[derive(Debug, Clone, Copy)]
+pub struct EmbeddedFont {
+    pub data: &'static [u8],
+}
+
+const EMBEDDED_FONTS: &[EmbeddedFont] = &[
+    EmbeddedFont {
+        data: ATKINSON_HYPERLEGIBLE_REGULAR,
+    },
+    EmbeddedFont {
+        data: ATKINSON_HYPERLEGIBLE_BOLD,
+    },
+    EmbeddedFont {
+        data: ATKINSON_HYPERLEGIBLE_ITALIC,
+    },
+    EmbeddedFont {
+        data: ATKINSON_HYPERLEGIBLE_BOLD_ITALIC,
+    },
+    EmbeddedFont {
+        data: ATKINSON_HYPERLEGIBLE_MEDIUM,
+    },
+    EmbeddedFont {
+        data: ATKINSON_HYPERLEGIBLE_SEMIBOLD,
+    },
+    EmbeddedFont {
+        data: ATKINSON_HYPERLEGIBLE_LIGHT,
+    },
+];
+
+pub fn embedded_fonts() -> &'static [EmbeddedFont] {
+    EMBEDDED_FONTS
+}
+
 #[cfg(feature = "cosmic-text")]
 pub fn load_embedded_fonts(fontdb: &mut cosmic_text::fontdb::Database) {
-    // Load all variants of Atkinson Hyperlegible
-    fontdb.load_font_data(Vec::from(ATKINSON_HYPERLEGIBLE_REGULAR));
-    fontdb.load_font_data(Vec::from(ATKINSON_HYPERLEGIBLE_BOLD));
-    fontdb.load_font_data(Vec::from(ATKINSON_HYPERLEGIBLE_ITALIC));
-    fontdb.load_font_data(Vec::from(ATKINSON_HYPERLEGIBLE_BOLD_ITALIC));
-    fontdb.load_font_data(Vec::from(ATKINSON_HYPERLEGIBLE_MEDIUM));
-    fontdb.load_font_data(Vec::from(ATKINSON_HYPERLEGIBLE_SEMIBOLD));
-    fontdb.load_font_data(Vec::from(ATKINSON_HYPERLEGIBLE_LIGHT));
+    for font in embedded_fonts() {
+        fontdb.load_font_data(Vec::from(font.data));
+    }
 }
 
 #[cfg(test)]
