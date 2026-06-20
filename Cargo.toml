@@ -106,3 +106,4 @@ egui = "0.33.3"
 egui-wgpu = "0.33.3"
 svg2pdf = "0.13.0"
 svgtypes = "0.15.3"
+pdfium-render = { version = "0.9.2", default-features = false, features = ["pdfium_7763", "image_025", "thread_safe"] }

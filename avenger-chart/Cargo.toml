@@ -67,6 +67,7 @@ tempfile = "3.14"
 usvg = { workspace = true }
 resvg = { workspace = true }
 tiny-skia = { workspace = true }
+pdfium-render = { workspace = true }
 
 [[example]]
 name = "simple_bar_chart"
