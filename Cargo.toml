@@ -26,6 +26,7 @@ members = [
     "avenger-chart-cartesian",
     "avenger-chart-polar",
     "avenger-chart-parallel",
+    "avenger-chart-treemap",
     "avenger-chart",
     "avenger-chart-app",
     "avenger-egui",

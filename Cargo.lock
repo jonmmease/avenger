@@ -919,6 +919,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-treemap"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "avenger-chart-core",
+ "avenger-common",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "datafusion",
+ "datafusion-proto",
+ "indexmap 2.9.0",
+ "serde",
+ "serde_with",
+ "tokio",
+ "typetag",
+]
+
+[[package]]
 name = "avenger-color"
 version = "0.1.0"
 dependencies = [
