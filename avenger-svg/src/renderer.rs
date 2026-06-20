@@ -5,9 +5,9 @@ use avenger_common::types::{StrokeCap, StrokeJoin};
 use avenger_image::RgbaImage;
 use avenger_scenegraph::{
     marks::{
-        area::SceneAreaMark, group::Clip, image::SceneImageMark, line::SceneLineMark,
-        mark::SceneMark, path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark,
-        symbol::SceneSymbolMark,
+        arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
+        line::SceneLineMark, mark::SceneMark, path::ScenePathMark, rect::SceneRectMark,
+        rule::SceneRuleMark, symbol::SceneSymbolMark,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -114,7 +114,7 @@ impl SvgRenderer {
             SceneMark::Line(mark) => self.write_line_mark(document, mark, origin, clip_id),
             SceneMark::Area(mark) => self.write_area_mark(document, mark, origin, clip_id),
             SceneMark::Symbol(mark) => self.write_symbol_mark(document, mark, origin, clip_id),
-            SceneMark::Arc(_) => Err(AvengerSvgError::UnsupportedMark("arc")),
+            SceneMark::Arc(mark) => self.write_arc_mark(document, mark, origin, clip_id),
             SceneMark::Trail(_) => Err(AvengerSvgError::UnsupportedMark("trail")),
             SceneMark::Text(_) => Err(AvengerSvgError::UnsupportedMark("text")),
             SceneMark::Image(mark) => self.write_image_mark(document, mark, origin, clip_id),
@@ -249,6 +249,38 @@ impl SvgRenderer {
             }
             push_clip_attr(&mut document.body, clip_id);
             document.body.push_str("/>\n");
+        }
+
+        Ok(())
+    }
+
+    fn write_arc_mark(
+        &self,
+        document: &mut SvgDocument,
+        mark: &SceneArcMark,
+        origin: [f32; 2],
+        clip_id: Option<&str>,
+    ) -> Result<(), AvengerSvgError> {
+        for (path, fill, stroke, stroke_width) in izip!(
+            mark.transformed_path_iter(origin),
+            mark.fill_iter(),
+            mark.stroke_iter(),
+            mark.stroke_width_iter()
+        ) {
+            self.write_path_element(
+                document,
+                &lyon_path_to_svg_d(&path, self.options.precision)?,
+                PathStyle {
+                    fill: Some(fill),
+                    stroke: Some(stroke),
+                    stroke_width: Some(*stroke_width),
+                    stroke_cap: None,
+                    stroke_join: None,
+                    stroke_dash: None,
+                    gradients: &mark.gradients,
+                },
+                clip_id,
+            )?;
         }
 
         Ok(())
@@ -687,6 +719,7 @@ mod tests {
     use avenger_image::RgbaImage;
     use avenger_scenegraph::{
         marks::{
+            arc::SceneArcMark,
             group::{Clip, SceneGroup},
             image::SceneImageMark,
             rect::SceneRectMark,
@@ -923,6 +956,35 @@ mod tests {
         assert!(svg.contains(r#"preserveAspectRatio="none""#));
         assert!(svg.contains(r#"href="data:image/png;base64,"#));
         assert!(svg.contains(r#"image-rendering="pixelated""#));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn renders_basic_arc_marks_as_paths() {
+        let scene_graph = SceneGraph {
+            width: 20.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneArcMark {
+                x: ScalarOrArray::new_scalar(10.0),
+                y: ScalarOrArray::new_scalar(10.0),
+                start_angle: ScalarOrArray::new_scalar(0.0),
+                end_angle: ScalarOrArray::new_scalar(std::f32::consts::PI),
+                inner_radius: ScalarOrArray::new_scalar(2.0),
+                outer_radius: ScalarOrArray::new_scalar(5.0),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0])),
+                stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+                stroke_width: ScalarOrArray::new_scalar(1.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains("<path "));
+        assert!(svg.contains(r##"fill="#ff0000""##));
+        assert!(svg.contains(r#"stroke-width="1""#));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 }
