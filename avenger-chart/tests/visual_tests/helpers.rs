@@ -36,7 +36,7 @@ const SVG_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
 const PDF_BASELINE_PDFIUM_THRESHOLD: f64 = 0.99999;
 const PDF_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
 
-static PDFIUM_BIND_LOCK: Mutex<()> = Mutex::new(());
+static PDFIUM_RENDER_LOCK: Mutex<()> = Mutex::new(());
 static PDF_SCORE_REPORT_LOCK: Mutex<()> = Mutex::new(());
 
 /// Configuration for visual tests
@@ -336,10 +336,6 @@ fn rasterize_svg(svg: &str) -> Result<RgbaImage, String> {
 }
 
 fn bind_pdfium() -> Result<Pdfium, String> {
-    let _guard = PDFIUM_BIND_LOCK
-        .lock()
-        .map_err(|_| "PDFium binding lock was poisoned".to_string())?;
-
     if let Some(path) = std::env::var_os(PDFIUM_LIBRARY_PATH_ENV) {
         let path = PathBuf::from(path);
         return match Pdfium::bind_to_library(&path) {
@@ -393,6 +389,9 @@ fn rasterize_pdf_with_pdfium(
 ) -> Result<RgbaImage, String> {
     let width = scaled_pdf_dimension(scene_width, "width")?;
     let height = scaled_pdf_dimension(scene_height, "height")?;
+    let _guard = PDFIUM_RENDER_LOCK
+        .lock()
+        .map_err(|_| "PDFium render lock was poisoned".to_string())?;
     let pdfium = bind_pdfium()?;
     let document = pdfium
         .load_pdf_from_byte_vec(pdf.to_vec(), None)
