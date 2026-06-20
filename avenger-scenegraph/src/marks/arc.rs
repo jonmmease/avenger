@@ -98,11 +98,14 @@ impl SceneArcMark {
                 self.start_angle_iter(),
                 self.end_angle_iter(),
                 self.outer_radius_iter(),
-                self.inner_radius_iter()
+                self.inner_radius_iter(),
+                self.pad_angle_iter()
             )
             .map(
-                move |(x, y, start_angle, end_angle, outer_radius, inner_radius)| {
+                move |(x, y, start_angle, end_angle, outer_radius, inner_radius, pad_angle)| {
                     // Compute angle
+                    let (start_angle, end_angle) =
+                        padded_angles(*start_angle, *end_angle, *pad_angle);
                     let total_angle = end_angle - start_angle;
 
                     // Normalize inner/outer radius
@@ -153,13 +156,29 @@ impl SceneArcMark {
                     // Transform path to account for start angle and position
 
                     path_builder.build().transformed(
-                        &PathTransform::rotation(Angle::radians(*start_angle))
+                        &PathTransform::rotation(Angle::radians(start_angle))
                             .then_translate(Vector2D::new(*x + origin[0], *y + origin[1])),
                     )
                 },
             ),
         )
     }
+}
+
+fn padded_angles(start_angle: f32, end_angle: f32, pad_angle: f32) -> (f32, f32) {
+    const TAU: f32 = std::f32::consts::TAU;
+    const EPSILON: f32 = 1e-6;
+
+    let total_angle = end_angle - start_angle;
+    let abs_angle = total_angle.abs();
+    let pad_angle = pad_angle.abs();
+    if pad_angle <= EPSILON || abs_angle <= EPSILON || abs_angle >= TAU - EPSILON {
+        return (start_angle, end_angle);
+    }
+
+    let pad = (pad_angle * 0.5).min(abs_angle * 0.5);
+    let direction = total_angle.signum();
+    (start_angle + direction * pad, end_angle - direction * pad)
 }
 
 impl Default for SceneArcMark {
@@ -190,5 +209,71 @@ impl Default for SceneArcMark {
 impl From<SceneArcMark> for SceneMark {
     fn from(mark: SceneArcMark) -> Self {
         SceneMark::Arc(mark)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use avenger_common::value::ScalarOrArray;
+    use lyon_path::Event;
+
+    use super::*;
+
+    #[test]
+    fn transformed_path_iter_applies_pad_angle_to_arc_endpoints() {
+        let unpadded = SceneArcMark {
+            start_angle: ScalarOrArray::new_scalar(0.0),
+            end_angle: ScalarOrArray::new_scalar(std::f32::consts::FRAC_PI_2),
+            inner_radius: ScalarOrArray::new_scalar(5.0),
+            outer_radius: ScalarOrArray::new_scalar(10.0),
+            pad_angle: ScalarOrArray::new_scalar(0.0),
+            ..Default::default()
+        };
+        let padded = SceneArcMark {
+            pad_angle: ScalarOrArray::new_scalar(0.2),
+            ..unpadded.clone()
+        };
+
+        let unpadded_path = unpadded.transformed_path_iter([0.0, 0.0]).next().unwrap();
+        let padded_path = padded.transformed_path_iter([0.0, 0.0]).next().unwrap();
+
+        let unpadded_outer_start = first_line_to(&unpadded_path);
+        let padded_outer_start = first_line_to(&padded_path);
+        assert!(unpadded_outer_start.x.abs() <= 1e-4);
+        assert!(padded_outer_start.x.abs() > 0.1);
+        assert!((unpadded_outer_start.x - padded_outer_start.x).abs() > 0.1);
+    }
+
+    #[test]
+    fn full_circle_arc_does_not_apply_pad_angle() {
+        let unpadded = SceneArcMark {
+            start_angle: ScalarOrArray::new_scalar(0.0),
+            end_angle: ScalarOrArray::new_scalar(std::f32::consts::TAU),
+            inner_radius: ScalarOrArray::new_scalar(5.0),
+            outer_radius: ScalarOrArray::new_scalar(10.0),
+            pad_angle: ScalarOrArray::new_scalar(0.0),
+            ..Default::default()
+        };
+        let padded = SceneArcMark {
+            pad_angle: ScalarOrArray::new_scalar(0.4),
+            ..unpadded.clone()
+        };
+
+        let unpadded_path = unpadded.transformed_path_iter([0.0, 0.0]).next().unwrap();
+        let padded_path = padded.transformed_path_iter([0.0, 0.0]).next().unwrap();
+
+        let unpadded_outer_start = first_line_to(&unpadded_path);
+        let padded_outer_start = first_line_to(&padded_path);
+        assert!((unpadded_outer_start.x - padded_outer_start.x).abs() <= 1e-4);
+        assert!((unpadded_outer_start.y - padded_outer_start.y).abs() <= 1e-4);
+    }
+
+    fn first_line_to(path: &lyon_path::Path) -> lyon_path::math::Point {
+        path.iter()
+            .find_map(|event| match event {
+                Event::Line { to, .. } => Some(to),
+                _ => None,
+            })
+            .expect("arc path should include line to outer radius")
     }
 }
