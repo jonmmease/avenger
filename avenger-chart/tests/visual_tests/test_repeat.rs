@@ -1,8 +1,6 @@
 use avenger_chart::plot::EvaluationRequest;
 use avenger_chart::prelude::*;
 use avenger_chart::render::{EvaluatedPlot, EvaluationMode};
-use avenger_common::canvas::CanvasDimensions;
-use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::common::ScalarValue;
 use datafusion::functions_aggregate::expr_fn::count;
 use datafusion::prelude::*;
@@ -11,8 +9,8 @@ use indexmap::IndexMap;
 use std::sync::Arc;
 
 use super::helpers::{
-    DEFAULT_SCALE, VisualTestConfig, assert_visual_match, assert_visual_match_default,
-    compare_images, get_baseline_path,
+    assert_scene_graph_visual_match_default, assert_visual_match, assert_visual_match_default,
+    render_scene_graph_to_wgpu_image,
 };
 
 const BASELINE_CATEGORY: &str = "repeat";
@@ -307,31 +305,16 @@ fn responsive_repeat_wrap_inside_facet_column_plot(df: DataFrame) -> Plot<FacetC
 }
 
 async fn render_evaluated_plot(evaluated: &EvaluatedPlot) -> RgbaImage {
-    let dimensions = CanvasDimensions {
-        size: [evaluated.scene_graph.width, evaluated.scene_graph.height],
-        scale: DEFAULT_SCALE,
-    };
-    let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
-        .await
-        .expect("create repeat visual test canvas");
-    canvas
-        .set_scene(&evaluated.scene_graph)
-        .expect("set repeat visual test scene");
-    canvas
-        .render()
-        .await
-        .expect("render repeat visual test scene")
+    render_scene_graph_to_wgpu_image(&evaluated.scene_graph).await
 }
 
 async fn assert_evaluated_plot_visual_match(evaluated: &EvaluatedPlot, baseline_name: &str) {
-    let image = render_evaluated_plot(evaluated).await;
-    let baseline_path = get_baseline_path(BASELINE_CATEGORY, baseline_name);
-    if let Err(msg) = compare_images(&baseline_path, image, &VisualTestConfig::default()) {
-        panic!(
-            "Visual test '{}' failed (session rendering): {}",
-            baseline_name, msg
-        );
-    }
+    assert_scene_graph_visual_match_default(
+        &evaluated.scene_graph,
+        BASELINE_CATEGORY,
+        baseline_name,
+    )
+    .await;
 }
 
 async fn assert_evaluated_plots_match(

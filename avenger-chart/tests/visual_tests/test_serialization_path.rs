@@ -1,12 +1,10 @@
 // Test that demonstrates the serialization path for visual tests
 
 use crate::visual_tests::datasets::simple_categories;
-use crate::visual_tests::helpers::{VisualTestConfig, compare_images, get_baseline_path};
+use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::CartesianSymbolPositionChannels;
 use avenger_chart::marks::symbol::Symbol;
 use avenger_chart::plot::Plot;
-use avenger_common::canvas::CanvasDimensions;
-use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::prelude::col;
 
 #[tokio::test]
@@ -31,33 +29,5 @@ async fn test_serialization_rendering_path() {
     // Deserialize back to verify serialization works
     let _deserialized: avenger_chart::plot::CompiledPlot = serde_json::from_str(&json).unwrap();
 
-    // Evaluate from the original built plot (not the deserialized one)
-    // to ensure consistent results for the visual test
-    let evaluated_plot = compiled
-        .evaluate(&ctx, None)
-        .await
-        .expect("Failed to evaluate plot");
-
-    // Create canvas and render
-    let dimensions = CanvasDimensions {
-        size: [
-            evaluated_plot.scene_graph.width,
-            evaluated_plot.scene_graph.height,
-        ],
-        scale: 2.0,
-    };
-    let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
-        .await
-        .expect("Failed to create canvas");
-
-    canvas
-        .set_scene(&evaluated_plot.scene_graph)
-        .expect("Failed to set scene");
-
-    let img = canvas.render().await.expect("Failed to render image");
-
-    // Compare against baseline
-    let baseline_path = get_baseline_path("serialization", "simple_scatter");
-    let config = VisualTestConfig::default();
-    compare_images(&baseline_path, img, &config).expect("Image comparison failed");
+    assert_visual_match_default(&compiled, &ctx, None, "serialization", "simple_scatter").await;
 }

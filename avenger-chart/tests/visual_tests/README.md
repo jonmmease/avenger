@@ -10,6 +10,12 @@ cargo test --test visual_regression
 
 # Run a specific test
 cargo test --test visual_regression test_simple_bar_chart
+
+# Run the SVG/resvg parity layer in addition to WGPU visual tests
+AVENGER_CHART_SVG_BASELINES=1 cargo test --test visual_regression -- --nocapture
+
+# Run only the SVG/resvg parity layer, reusing committed WGPU PNG baselines
+AVENGER_CHART_SVG_BASELINES=only cargo test --test visual_regression -- --nocapture
 ```
 
 ## Writing New Tests
@@ -60,6 +66,32 @@ When visual changes are intentional:
 4. Re-run the test to confirm it passes
 
 5. Commit the updated baseline
+
+## Updating SVG Baselines
+
+SVG baselines live beside the WGPU PNG baselines under `tests/baselines_svg/`.
+Each visual baseline has two SVG artifacts:
+
+- `tests/baselines_svg/{category}/{name}.svg` - the generated SVG string
+- `tests/baselines_svg/{category}/{name}.png` - the `resvg` rasterization
+
+To generate or refresh all SVG artifacts:
+
+```bash
+AVENGER_CHART_SVG_BASELINES=only AVENGER_CHART_BLESS_SVG_BASELINES=1 \
+  cargo test --test visual_regression -- --nocapture
+```
+
+To validate both WGPU and SVG outputs:
+
+```bash
+AVENGER_CHART_SVG_BASELINES=1 cargo test --test visual_regression -- --nocapture
+```
+
+Failures are written to `tests/failures_svg/{category}/` with the generated
+SVG, the `resvg` PNG, and diffs against the SVG PNG baseline and WGPU PNG
+baseline. The SVG-to-WGPU comparison is intentionally a hard failure at 90%
+similarity; treat failures as parity bugs before relaxing any test.
 
 ## Directory Structure
 

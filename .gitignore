@@ -15,6 +15,7 @@ __pycache__/
 /examples/deno_png/chart.png
 /avenger-vega-renderer/test/failures/
 /avenger-chart/tests/failures/
+/avenger-chart/tests/failures_svg/
 /avenger-layout/tests/failures/
 /avenger-vega-renderer/lib/
 /avenger-vega-renderer/packed/*

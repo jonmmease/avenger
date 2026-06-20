@@ -2,16 +2,26 @@
 
 use crate::tracing::try_init_tracing;
 use avenger_chart::plot::CompiledPlot;
-use avenger_chart::render::EvaluationOptions;
+use avenger_chart::render::{EvaluatedPlot, EvaluationOptions};
 use avenger_common::canvas::CanvasDimensions;
+use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_svg::SvgRenderer;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::common::ScalarValue;
 use image::RgbaImage;
 use indexmap::IndexMap;
-use std::path::Path;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 /// Default dimensions for test charts
 pub const DEFAULT_SCALE: f32 = 2.0;
+
+const SVG_BASELINES_ENV: &str = "AVENGER_CHART_SVG_BASELINES";
+const BLESS_SVG_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_SVG_BASELINES";
+const SVG_BASELINE_RESVG_THRESHOLD: f64 = 0.99999;
+const SVG_WGPU_BASELINE_THRESHOLD: f64 = 0.90;
 
 /// Configuration for visual tests
 pub struct VisualTestConfig {
@@ -67,13 +77,12 @@ fn save_actual_failure_image(actual: &RgbaImage, baseline_path: &str) -> Result<
     Ok(actual_path)
 }
 
-/// Render a CompiledPlot with params to an image
-/// This version performs a serialization round-trip through bincode to test serialization
-async fn render_compiled_plot_with_serialization(
+/// Evaluate a CompiledPlot directly and after a bincode round-trip.
+async fn evaluate_compiled_plot_with_serialization(
     compiled: &CompiledPlot,
     ctx: &datafusion::prelude::SessionContext,
     params: Option<IndexMap<String, ScalarValue>>,
-) -> (RgbaImage, RgbaImage) {
+) -> (EvaluatedPlot, EvaluatedPlot) {
     // Evaluate directly first
     let direct_result = compiled
         .evaluate(ctx, params.clone())
@@ -106,58 +115,16 @@ async fn render_compiled_plot_with_serialization(
         );
     }
 
-    // Render both to images
-    let dimensions_direct = CanvasDimensions {
-        size: [
-            direct_result.scene_graph.width,
-            direct_result.scene_graph.height,
-        ],
-        scale: DEFAULT_SCALE,
-    };
-
-    let dimensions_serialized = CanvasDimensions {
-        size: [
-            bincode_result.scene_graph.width,
-            bincode_result.scene_graph.height,
-        ],
-        scale: DEFAULT_SCALE,
-    };
-
-    // Create direct image
-    let mut canvas_direct = PngCanvas::new(dimensions_direct, CanvasConfig::default())
-        .await
-        .expect("Failed to create direct canvas");
-    canvas_direct
-        .set_scene(&direct_result.scene_graph)
-        .expect("Failed to set direct scene");
-    let direct_image = canvas_direct
-        .render()
-        .await
-        .expect("Failed to render direct image");
-
-    // Create serialized image
-    let mut canvas_serialized = PngCanvas::new(dimensions_serialized, CanvasConfig::default())
-        .await
-        .expect("Failed to create serialized canvas");
-    canvas_serialized
-        .set_scene(&bincode_result.scene_graph)
-        .expect("Failed to set serialized scene");
-    let serialized_image = canvas_serialized
-        .render()
-        .await
-        .expect("Failed to render serialized image");
-
-    (direct_image, serialized_image)
+    (direct_result, bincode_result)
 }
 
-/// Render a CompiledPlot with params and explicit evaluation options to an image.
-/// This version performs a serialization round-trip through bincode to test serialization.
-async fn render_compiled_plot_with_serialization_and_options(
+/// Evaluate a CompiledPlot with explicit options directly and after a bincode round-trip.
+async fn evaluate_compiled_plot_with_serialization_and_options(
     compiled: &CompiledPlot,
     ctx: &datafusion::prelude::SessionContext,
     params: Option<IndexMap<String, ScalarValue>>,
     options: EvaluationOptions,
-) -> (RgbaImage, RgbaImage) {
+) -> (EvaluatedPlot, EvaluatedPlot) {
     let direct_result = compiled
         .evaluate_with_options(ctx, params.clone(), options.clone())
         .await
@@ -186,50 +153,256 @@ async fn render_compiled_plot_with_serialization_and_options(
         );
     }
 
-    let dimensions_direct = CanvasDimensions {
-        size: [
-            direct_result.scene_graph.width,
-            direct_result.scene_graph.height,
-        ],
+    (direct_result, bincode_result)
+}
+
+async fn evaluate_compiled_plot(
+    compiled: &CompiledPlot,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+) -> EvaluatedPlot {
+    compiled
+        .evaluate(ctx, params)
+        .await
+        .expect("Failed to evaluate plot")
+}
+
+async fn evaluate_compiled_plot_with_options(
+    compiled: &CompiledPlot,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+    options: EvaluationOptions,
+) -> EvaluatedPlot {
+    compiled
+        .evaluate_with_options(ctx, params, options)
+        .await
+        .expect("Failed to evaluate plot with options")
+}
+
+pub async fn render_scene_graph_to_wgpu_image(scene_graph: &SceneGraph) -> RgbaImage {
+    let dimensions = CanvasDimensions {
+        size: [scene_graph.width, scene_graph.height],
         scale: DEFAULT_SCALE,
     };
 
-    let dimensions_serialized = CanvasDimensions {
-        size: [
-            bincode_result.scene_graph.width,
-            bincode_result.scene_graph.height,
-        ],
-        scale: DEFAULT_SCALE,
-    };
-
-    let mut canvas_direct = PngCanvas::new(dimensions_direct, CanvasConfig::default())
+    let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
         .await
-        .expect("Failed to create direct canvas");
-    canvas_direct
-        .set_scene(&direct_result.scene_graph)
-        .expect("Failed to set direct scene");
-    let direct_image = canvas_direct
+        .expect("Failed to create visual test canvas");
+    canvas
+        .set_scene(scene_graph)
+        .expect("Failed to set visual test scene");
+    canvas
         .render()
         .await
-        .expect("Failed to render direct image");
-
-    let mut canvas_serialized = PngCanvas::new(dimensions_serialized, CanvasConfig::default())
-        .await
-        .expect("Failed to create serialized canvas");
-    canvas_serialized
-        .set_scene(&bincode_result.scene_graph)
-        .expect("Failed to set serialized scene");
-    let serialized_image = canvas_serialized
-        .render()
-        .await
-        .expect("Failed to render serialized image");
-
-    (direct_image, serialized_image)
+        .expect("Failed to render visual test scene")
 }
 
 /// Helper to get platform-specific baseline path
 pub fn get_baseline_path(category: &str, base_name: &str) -> String {
     format!("tests/baselines/{}/{}.png", category, base_name)
+}
+
+fn svg_baselines_enabled() -> bool {
+    std::env::var_os(SVG_BASELINES_ENV).is_some()
+}
+
+fn svg_baselines_only_enabled() -> bool {
+    std::env::var_os(SVG_BASELINES_ENV)
+        .as_deref()
+        .is_some_and(|value| value == "only")
+}
+
+fn bless_svg_baselines_enabled() -> bool {
+    std::env::var_os(BLESS_SVG_BASELINES_ENV).is_some()
+}
+
+fn svg_baseline_path(category: &str, baseline_name: &str, extension: &str) -> PathBuf {
+    PathBuf::from("tests")
+        .join("baselines_svg")
+        .join(category)
+        .join(format!("{baseline_name}.{extension}"))
+}
+
+fn svg_failure_path(category: &str, baseline_name: &str, suffix: &str) -> PathBuf {
+    PathBuf::from("tests")
+        .join("failures_svg")
+        .join(category)
+        .join(format!("{baseline_name}{suffix}"))
+}
+
+fn write_file(path: &Path, bytes: impl AsRef<[u8]>) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create {}: {e}", parent.display()))?;
+    }
+    fs::write(path, bytes).map_err(|e| format!("Failed to write {}: {e}", path.display()))
+}
+
+fn save_image_to_path(image: &RgbaImage, path: &Path) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create {}: {e}", parent.display()))?;
+    }
+    image
+        .save(path)
+        .map_err(|e| format!("Failed to save {}: {e}", path.display()))
+}
+
+fn rasterize_svg(svg: &str) -> Result<RgbaImage, String> {
+    let mut options = usvg::Options::default();
+    options.fontdb = std::sync::Arc::new(avenger_text::fonts::build_fontdb(
+        &avenger_text::FontResolutionOptions::default(),
+    ));
+    let tree = usvg::Tree::from_str(svg, &options)
+        .map_err(|e| format!("Failed to parse generated SVG: {e}"))?;
+    let width = (tree.size().width() * DEFAULT_SCALE).ceil() as u32;
+    let height = (tree.size().height() * DEFAULT_SCALE).ceil() as u32;
+    let mut pixmap = tiny_skia::Pixmap::new(width, height)
+        .ok_or_else(|| format!("Failed to allocate SVG pixmap {width}x{height}"))?;
+
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(DEFAULT_SCALE, DEFAULT_SCALE),
+        &mut pixmap.as_mut(),
+    );
+
+    RgbaImage::from_raw(width, height, pixmap.data().to_vec())
+        .ok_or_else(|| "Failed to convert SVG pixmap into an image".to_string())
+}
+
+fn save_svg_failures(
+    category: &str,
+    baseline_name: &str,
+    svg: &str,
+    image: &RgbaImage,
+) -> Result<(), String> {
+    write_file(
+        &svg_failure_path(category, baseline_name, ".svg"),
+        svg.as_bytes(),
+    )?;
+    save_image_to_path(image, &svg_failure_path(category, baseline_name, ".png"))
+}
+
+fn compare_image_with_named_failures(
+    baseline_path: &Path,
+    actual: &RgbaImage,
+    actual_failure_path: &Path,
+    diff_failure_path: &Path,
+    threshold: f64,
+    label: &str,
+) -> Result<(), String> {
+    if !baseline_path.exists() {
+        save_image_to_path(actual, actual_failure_path)?;
+        return Err(format!(
+            "No {label} baseline found at '{}'. Actual saved to '{}'.",
+            baseline_path.display(),
+            actual_failure_path.display()
+        ));
+    }
+
+    let expected = image::open(baseline_path)
+        .map_err(|e| {
+            format!(
+                "Failed to load {label} baseline '{}': {e}",
+                baseline_path.display()
+            )
+        })?
+        .into_rgba8();
+
+    if expected.dimensions() != actual.dimensions() {
+        save_image_to_path(actual, actual_failure_path)?;
+        return Err(format!(
+            "{label} dimensions differ. Expected {:?}, actual {:?}. Actual saved to '{}'.",
+            expected.dimensions(),
+            actual.dimensions(),
+            actual_failure_path.display()
+        ));
+    }
+
+    let result = image_compare::rgba_hybrid_compare(&expected, actual)
+        .map_err(|e| format!("{label} image comparison failed: {e}"))?;
+    if result.score < threshold {
+        save_image_to_path(actual, actual_failure_path)?;
+        save_image_to_path(&result.image.to_color_map().into_rgba8(), diff_failure_path)?;
+        return Err(format!(
+            "{label} image similarity {:.6} is below threshold {:.6}. Actual saved to '{}', diff saved to '{}'.",
+            result.score,
+            threshold,
+            actual_failure_path.display(),
+            diff_failure_path.display()
+        ));
+    }
+
+    Ok(())
+}
+
+fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseline_name: &str) {
+    if !svg_baselines_enabled() {
+        return;
+    }
+
+    let svg = SvgRenderer::new()
+        .render_scene_graph(scene_graph)
+        .expect("Failed to render SVG visual baseline");
+    let svg_image = rasterize_svg(&svg).expect("Failed to rasterize SVG visual baseline");
+
+    let svg_path = svg_baseline_path(category, baseline_name, "svg");
+    let svg_png_path = svg_baseline_path(category, baseline_name, "png");
+    let svg_failure = svg_failure_path(category, baseline_name, ".svg");
+    let svg_png_failure = svg_failure_path(category, baseline_name, ".png");
+    let svg_diff_failure = svg_failure_path(category, baseline_name, "_vs_svg_baseline_diff.png");
+    let wgpu_diff_failure = svg_failure_path(category, baseline_name, "_vs_wgpu_baseline_diff.png");
+    let wgpu_baseline_path = PathBuf::from(get_baseline_path(category, baseline_name));
+
+    if bless_svg_baselines_enabled() {
+        write_file(&svg_path, svg.as_bytes()).expect("Failed to write SVG baseline");
+        save_image_to_path(&svg_image, &svg_png_path).expect("Failed to write SVG PNG baseline");
+    } else {
+        if !svg_path.exists() {
+            save_svg_failures(category, baseline_name, &svg, &svg_image)
+                .expect("Failed to save missing SVG baseline failure");
+            panic!(
+                "No SVG baseline found at '{}'. Generated SVG saved to '{}'. Generate baselines with {SVG_BASELINES_ENV}=only {BLESS_SVG_BASELINES_ENV}=1 cargo test -p avenger-chart --test visual_regression -- --nocapture",
+                svg_path.display(),
+                svg_failure.display()
+            );
+        }
+
+        let expected_svg = fs::read_to_string(&svg_path).unwrap_or_else(|e| {
+            panic!("Failed to read SVG baseline '{}': {e}", svg_path.display())
+        });
+        if expected_svg != svg {
+            save_svg_failures(category, baseline_name, &svg, &svg_image)
+                .expect("Failed to save SVG mismatch failure");
+            panic!(
+                "SVG baseline '{}' differs from generated SVG. Generated SVG saved to '{}'.",
+                svg_path.display(),
+                svg_failure.display()
+            );
+        }
+
+        if let Err(msg) = compare_image_with_named_failures(
+            &svg_png_path,
+            &svg_image,
+            &svg_png_failure,
+            &svg_diff_failure,
+            SVG_BASELINE_RESVG_THRESHOLD,
+            "SVG/resvg",
+        ) {
+            panic!("SVG baseline '{}' failed: {msg}", baseline_name);
+        }
+    }
+
+    if let Err(msg) = compare_image_with_named_failures(
+        &wgpu_baseline_path,
+        &svg_image,
+        &svg_png_failure,
+        &wgpu_diff_failure,
+        SVG_WGPU_BASELINE_THRESHOLD,
+        "SVG/WGPU",
+    ) {
+        panic!("SVG/WGPU baseline '{}' failed: {msg}", baseline_name);
+    }
 }
 
 const DERIVED_PLOT_SIZE_BASELINES_ENV: &str = "AVENGER_CHART_DERIVED_PLOT_SIZE_BASELINES";
@@ -399,9 +572,18 @@ async fn assert_visual_match_baseline_only(
 ) {
     try_init_tracing();
 
-    let (direct_image, serialized_image) =
-        render_compiled_plot_with_serialization(compiled, ctx, params).await;
     let baseline_path = get_baseline_path(category, baseline_name);
+
+    if svg_baselines_only_enabled() {
+        let direct_result = evaluate_compiled_plot(compiled, ctx, params).await;
+        assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
+        return;
+    }
+
+    let (direct_result, serialized_result) =
+        evaluate_compiled_plot_with_serialization(compiled, ctx, params).await;
+    let direct_image = render_scene_graph_to_wgpu_image(&direct_result.scene_graph).await;
+    let serialized_image = render_scene_graph_to_wgpu_image(&serialized_result.scene_graph).await;
 
     let config = VisualTestConfig {
         threshold: tolerance,
@@ -435,6 +617,8 @@ async fn assert_visual_match_baseline_only(
             "Serialization round-trip changed rendering"
         );
     }
+
+    assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
 }
 
 /// Test a CompiledPlot against its baseline with default tolerance (99.99%)
@@ -446,6 +630,40 @@ pub async fn assert_visual_match_default(
     baseline_name: &str,
 ) {
     assert_visual_match(compiled, ctx, params, category, baseline_name, 0.9999).await
+}
+
+pub async fn assert_scene_graph_visual_match(
+    scene_graph: &SceneGraph,
+    category: &str,
+    baseline_name: &str,
+    tolerance: f64,
+) {
+    try_init_tracing();
+    let baseline_path = get_baseline_path(category, baseline_name);
+
+    if !svg_baselines_only_enabled() {
+        let image = render_scene_graph_to_wgpu_image(scene_graph).await;
+        let config = VisualTestConfig {
+            threshold: tolerance,
+            save_diff_on_failure: true,
+        };
+        if let Err(msg) = compare_images(&baseline_path, image, &config) {
+            panic!(
+                "Visual test '{}' failed (scene graph rendering): {}",
+                baseline_name, msg
+            );
+        }
+    }
+
+    assert_svg_scene_graph_match(scene_graph, category, baseline_name);
+}
+
+pub async fn assert_scene_graph_visual_match_default(
+    scene_graph: &SceneGraph,
+    category: &str,
+    baseline_name: &str,
+) {
+    assert_scene_graph_visual_match(scene_graph, category, baseline_name, 0.9999).await
 }
 
 /// Test a CompiledPlot against its baseline with explicit evaluation options.
@@ -464,9 +682,19 @@ pub async fn assert_visual_match_with_options(
 
     try_init_tracing();
 
-    let (direct_image, serialized_image) =
-        render_compiled_plot_with_serialization_and_options(compiled, ctx, params, options).await;
     let baseline_path = get_baseline_path(category, baseline_name);
+
+    if svg_baselines_only_enabled() {
+        let direct_result =
+            evaluate_compiled_plot_with_options(compiled, ctx, params, options).await;
+        assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
+        return;
+    }
+
+    let (direct_result, serialized_result) =
+        evaluate_compiled_plot_with_serialization_and_options(compiled, ctx, params, options).await;
+    let direct_image = render_scene_graph_to_wgpu_image(&direct_result.scene_graph).await;
+    let serialized_image = render_scene_graph_to_wgpu_image(&serialized_result.scene_graph).await;
 
     let config = VisualTestConfig {
         threshold: tolerance,
@@ -497,6 +725,8 @@ pub async fn assert_visual_match_with_options(
             "Serialization round-trip changed rendering with options"
         );
     }
+
+    assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
 }
 
 /// Test a CompiledPlot against its baseline with options and default tolerance (99.99%).

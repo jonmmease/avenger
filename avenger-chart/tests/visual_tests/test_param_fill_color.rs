@@ -1,44 +1,9 @@
 use super::datasets;
-use super::helpers::{DEFAULT_SCALE, VisualTestConfig, compare_images, get_baseline_path};
+use super::helpers::assert_visual_match_default;
 use avenger_chart::param::Param;
 use avenger_chart::prelude::*;
-use avenger_common::canvas::CanvasDimensions;
-use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::scalar::ScalarValue;
-use image::RgbaImage;
 use indexmap::IndexMap;
-
-/// Helper function to evaluate compiled plot with specific params
-async fn render_compiled_plot(
-    compiled: &avenger_chart::plot::CompiledPlot,
-    ctx: &datafusion::prelude::SessionContext,
-    params: Option<IndexMap<String, ScalarValue>>,
-) -> RgbaImage {
-    // Evaluate with the specified params
-    let evaluated_plot = compiled
-        .evaluate(ctx, params)
-        .await
-        .expect("Failed to evaluate plot");
-
-    // Create canvas and render to image
-    let dimensions = CanvasDimensions {
-        size: [
-            evaluated_plot.scene_graph.width,
-            evaluated_plot.scene_graph.height,
-        ],
-        scale: DEFAULT_SCALE,
-    };
-
-    let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
-        .await
-        .expect("Failed to create canvas");
-
-    canvas
-        .set_scene(&evaluated_plot.scene_graph)
-        .expect("Failed to set scene");
-
-    canvas.render().await.expect("Failed to render image")
-}
 
 #[tokio::test]
 async fn test_param_fill_color() {
@@ -74,12 +39,7 @@ async fn test_param_fill_color() {
     // Compile once
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
 
-    // Render with default params (blue)
-    let image_default = render_compiled_plot(&compiled, &ctx, None).await;
-    let baseline_path_default = get_baseline_path("param", "fill_color_default");
-    let config = VisualTestConfig::default();
-    compare_images(&baseline_path_default, image_default, &config)
-        .expect("Visual comparison failed for default param fill color");
+    assert_visual_match_default(&compiled, &ctx, None, "param", "fill_color_default").await;
 
     // Render with override params (red)
     let mut override_params = IndexMap::new();
@@ -87,8 +47,12 @@ async fn test_param_fill_color() {
         "fill_color".to_string(),
         ScalarValue::Utf8(Some("#ff6b6b".to_string())),
     );
-    let image_override = render_compiled_plot(&compiled, &ctx, Some(override_params)).await;
-    let baseline_path_override = get_baseline_path("param", "fill_color_override");
-    compare_images(&baseline_path_override, image_override, &config)
-        .expect("Visual comparison failed for override param fill color");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        Some(override_params),
+        "param",
+        "fill_color_override",
+    )
+    .await;
 }

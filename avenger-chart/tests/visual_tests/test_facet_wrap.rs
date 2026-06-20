@@ -1,14 +1,12 @@
 use super::helpers::{
-    DEFAULT_SCALE, VisualTestConfig, assert_visual_match_default,
-    assert_visual_match_default_with_options, compare_images, get_baseline_path,
+    assert_scene_graph_visual_match_default, assert_visual_match_default,
+    assert_visual_match_default_with_options,
 };
 use avenger_chart::cartesian::CartesianGuide;
 use avenger_chart::plot::EvaluationRequest;
 use avenger_chart::prelude::*;
 use avenger_chart::render::EvaluatedPlot;
 use avenger_chart_scales::{Linear, Ordinal};
-use avenger_common::canvas::CanvasDimensions;
-use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::common::ScalarValue;
 use datafusion::functions_aggregate::min_max::max;
 use datafusion::prelude::*;
@@ -218,24 +216,12 @@ fn responsive_facet_wrap_session_plot(df: DataFrame) -> Plot<FacetWrap> {
 }
 
 async fn assert_evaluated_plot_visual_match(evaluated: &EvaluatedPlot, baseline_name: &str) {
-    let dimensions = CanvasDimensions {
-        size: [evaluated.scene_graph.width, evaluated.scene_graph.height],
-        scale: DEFAULT_SCALE,
-    };
-    let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
-        .await
-        .expect("create visual test canvas");
-    canvas
-        .set_scene(&evaluated.scene_graph)
-        .expect("set visual test scene");
-    let image = canvas.render().await.expect("render visual test scene");
-    let baseline_path = get_baseline_path(BASELINE_CATEGORY, baseline_name);
-    if let Err(msg) = compare_images(&baseline_path, image, &VisualTestConfig::default()) {
-        panic!(
-            "Visual test '{}' failed (session rendering): {}",
-            baseline_name, msg
-        );
-    }
+    assert_scene_graph_visual_match_default(
+        &evaluated.scene_graph,
+        BASELINE_CATEGORY,
+        baseline_name,
+    )
+    .await;
 }
 
 async fn assert_facet_wrap_baseline(

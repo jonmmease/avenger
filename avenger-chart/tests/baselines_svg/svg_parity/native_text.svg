@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="150" height="42" viewBox="0 0 150 42">
+<defs>
+<style><![CDATA[
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("data:font/woff2;base64,d09GMgABAAAAAAVEAAsAAAAACegAAAT6AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGwDLAIkBCAFiiAGYAcgyoRWyxgBNgwHGyYJKC4HeDIyngdVqYNhFY4qnstFpxjxZeFrjOXD671/btKm4AMZlMA3xu9VI4hRO+StuFrTEMlM9NoAt6wQhXzYB9o/IOcrZMeXh/g59N39lFGRqydfX3ZD8PPkJvTsHLFEYQBAbo6TqZ3/1o5jtW8y18Ukik4dq40VNbLrmlRpEuVH2/8AubCbnqvwv1/cm7xzQBVwr5ifQSv7C/95c156AUpAg5lQa1aaBc+DXfBAgwGh2CRnZaMiQhi5in4e+yMAUAAaIEUjAKkIrRoQS0ajGFXzoJSk2QbQsc3NBy1Gg0atKqSvovoQDiVAXbeSCTCkGlYzNICz8qIoNo2HOuO1TgTo5/X9KYfobMqR8omFOKS4v0F9JTqywca7Ep1UkCoGwEzMNDDBRT1TEkss05rzLkcoLDc5UmNRMiM3H3G0+jLJMfannuPkVxTH81eFnBBmgBMJvj1VJZiPbEmkBFCMVCRRA0W9hodDMGwjk1IBVBFQCCxTCSEOLJVAHJ0v3oEa9YQR/tVKHlpJs50RUmQjxF/QjfrGioc1GX20baQKh3x/N1ZI1QD0iePGT4O3g66MUTJzrwlXAuoCnWpEqwV1bizAxe4GdzpcKpbAICxYUH1VlVN9FQJ5pFxKQTCUcnKDXAHFUtu9GrLkVbU4kkFBI/IoHBCOvN6JoI6EVym+jQGk7MoQEouE4fYStvq0ebI2al+bzswVKdYmQeT5UIMG/w5SFWIeqBTtjRhWvzZ1teeoKAjJV+mfoK9WDCSEJDTXQjNHiZxjERRUcSUwjHMBNMhJuGPbeeAXFBSSodqXTw+u92I6ChPW6jtFnaq1/HSOSsFoydqLUJkBK2wpuObr1kPU4Lm+KShPrVZI7xAKoYwpPk0tCJcTK7CIEzeKO/50yYost9GP3zI/S1BIpLVTkbdE3/IECaNw4m7iQYdP6u2dlJFdWoA6na0aqKgcLNnpIiik/n/wrsK/KStf6t+Q/hwtAACQH3kGGNFoAID5vSXm/xspDORNHgpGjHhJsGTAJLKZaFpCExHtkJjC5FgdxuLbd66Nzdd7rtZpXv8fjBBu7nu4xDt7NrvqhyNNHkS1BnUo9+mAJQMsEbEiCxFVb41g95b6yu7/mf7s/syYfSAZGvE0Xg43tMzY7TwnCCk8Z7eYmSiHILBhuUwmlcsVFgfDOMKCwPMMU/9OH2y/AvW7j3oZ/vTouuGRgpHuyJiIqmFZg99Z6Fq+eX5iyvFllDpjY/g8l1WZljMwvNRVkKIstHkKtHmpjtgwZ3YDFGsjkV80ZihS0cSG9VSUSU9X2oUUBcPQJs6u6icxRFE9mZY7VZjRnqGJmDtemfyszJ0mqtMMvmoiS47XlBeILzpWVrMkJ1AzyIdyrYkaudKTSoKWXJc6C4QKcDZ+IWHJgIVnRd1Fu+PE8tePcGa137ynCxpmfsa/AFdKmeEJm02ltlqp6lJUXbuZ+dMAN/NeK0IkgMFMAoQUyCw1aQpLcPwyXicqy5IWkVTOlpLPt0dJY/pmIyMSIycRWBIqWLu2YO7N3KwcDSIWyL24UbCksBIJS1+7vC0+sW2LX7XYXCsD6Rnx32jRwSpS2CiFxREVe+HcvmjNwPHr+5JTzXPu3M//Bw4OWdb5c9dznwIjUuIBAVDyP94ah3fJmf/bC/0J4M2aOoQG8Hbf+l1nIw/lPcCgmOWXY36rtgMAAA==") format("woff2");
+}
+]]></style>
+</defs>
+<g fill="none" stroke-miterlimit="10">
+<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<text x="8" y="28" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="20" font-weight="normal" font-style="normal">Native text</text>
+</g>
+</svg>
