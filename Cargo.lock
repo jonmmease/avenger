@@ -1052,6 +1052,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-svg"
+version = "0.0.8"
+dependencies = [
+ "avenger-color",
+ "avenger-common",
+ "avenger-scenegraph",
+ "avenger-text",
+ "itertools 0.14.0",
+ "lyon_path",
+ "thiserror 2.0.18",
+ "usvg",
+]
+
+[[package]]
 name = "avenger-text"
 version = "0.0.8"
 dependencies = [

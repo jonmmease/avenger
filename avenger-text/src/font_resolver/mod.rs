@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, path::PathBuf};
 
 #[cfg(feature = "cosmic-text")]
 pub mod cosmic;
@@ -17,6 +17,30 @@ pub trait FontResolver: Send + Sync {
 
     /// Resolve a generic font family (serif, sans-serif, etc.) to a specific system font
     fn resolve_generic_family(&self, generic: &str) -> Option<String>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontResolutionOptions {
+    pub load_system_fonts: bool,
+    pub extra_font_dirs: Vec<PathBuf>,
+    pub missing_font: MissingFontPolicy,
+}
+
+impl Default for FontResolutionOptions {
+    fn default() -> Self {
+        Self {
+            load_system_fonts: false,
+            extra_font_dirs: Vec::new(),
+            missing_font: MissingFontPolicy::Error,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissingFontPolicy {
+    Error,
+    Warn,
+    Fallback,
 }
 
 #[cfg(all(feature = "cosmic-text", not(target_arch = "wasm32")))]

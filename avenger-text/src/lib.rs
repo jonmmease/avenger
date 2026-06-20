@@ -4,3 +4,5 @@ pub mod fonts;
 pub mod measurement;
 pub mod rasterization;
 pub mod types;
+
+pub use font_resolver::{FontResolutionOptions, FontResolver, MissingFontPolicy};

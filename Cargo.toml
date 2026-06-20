@@ -10,6 +10,7 @@ members = [
     "avenger-geometry",
     "avenger-text",
     "avenger-image",
+    "avenger-svg",
     "avenger-eventstream",
     "avenger-layout",
     "avenger-app",
