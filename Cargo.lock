@@ -555,6 +555,7 @@ dependencies = [
  "avenger-layout",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-svg",
  "avenger-text",
  "avenger-wgpu",
  "base64",

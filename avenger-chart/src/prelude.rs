@@ -144,7 +144,7 @@ pub use crate::render::CanvasExt;
 pub use crate::render::{
     CoordinationCheckpoint, EvaluationMode, EvaluationOptions, FacetLayoutRefinement,
     FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, LayoutDebugOverlayMode,
-    LayoutSnapshot, RefinementCheckpoint, WholeChartSnapshot,
+    LayoutSnapshot, RefinementCheckpoint, SvgRenderer, WholeChartSnapshot,
 };
 
 // Re-export error type
