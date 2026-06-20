@@ -924,6 +924,7 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "async-trait",
+ "avenger-chart",
  "avenger-chart-core",
  "avenger-common",
  "avenger-scales",
