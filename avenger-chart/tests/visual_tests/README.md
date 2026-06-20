@@ -91,7 +91,10 @@ AVENGER_CHART_SVG_BASELINES=1 cargo test --test visual_regression -- --nocapture
 Failures are written to `tests/failures_svg/{category}/` with the generated
 SVG, the `resvg` PNG, and diffs against the SVG PNG baseline and WGPU PNG
 baseline. The SVG-to-WGPU comparison is intentionally a hard failure at 90%
-similarity; treat failures as parity bugs before relaxing any test.
+global similarity and also applies a local tile-difference guard so narrow
+localized regressions, such as flat colorbar gradients, cannot hide inside a
+large otherwise-matching image. Treat failures as parity bugs before relaxing
+any test.
 
 ## Directory Structure
 

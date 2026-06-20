@@ -23,6 +23,35 @@ const SVG_BASELINES_ENV: &str = "AVENGER_CHART_SVG_BASELINES";
 const BLESS_SVG_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_SVG_BASELINES";
 const SVG_BASELINE_RESVG_THRESHOLD: f64 = 0.99999;
 const SVG_WGPU_BASELINE_THRESHOLD: f64 = 0.90;
+const SVG_WGPU_LOCAL_DIFFERENCE_LIMIT: LocalDifferenceLimit = LocalDifferenceLimit {
+    tile_size: 32,
+    tile_mean_threshold: 0.20,
+    max_bad_tiles: 32,
+    max_bad_vertical_run: 7,
+};
+
+#[derive(Debug, Clone, Copy)]
+struct LocalDifferenceLimit {
+    tile_size: u32,
+    tile_mean_threshold: f64,
+    max_bad_tiles: usize,
+    max_bad_vertical_run: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct LocalDifferenceSummary {
+    bad_tiles: usize,
+    max_bad_vertical_run: usize,
+    max_bad_horizontal_run: usize,
+    max_tile_mean: f64,
+}
+
+impl LocalDifferenceSummary {
+    fn exceeds(self, limit: LocalDifferenceLimit) -> bool {
+        self.bad_tiles > limit.max_bad_tiles
+            || self.max_bad_vertical_run > limit.max_bad_vertical_run
+    }
+}
 
 /// Configuration for visual tests
 pub struct VisualTestConfig {
@@ -290,6 +319,7 @@ fn compare_image_with_named_failures(
     actual_failure_path: &Path,
     diff_failure_path: &Path,
     threshold: f64,
+    local_difference_limit: Option<LocalDifferenceLimit>,
     label: &str,
 ) -> Result<(), String> {
     if !baseline_path.exists() {
@@ -334,7 +364,105 @@ fn compare_image_with_named_failures(
         ));
     }
 
+    if let Some(local_difference_limit) = local_difference_limit {
+        let local_summary = local_difference_summary(&expected, actual, local_difference_limit);
+        if local_summary.exceeds(local_difference_limit) {
+            save_image_to_path(actual, actual_failure_path)?;
+            save_image_to_path(&result.image.to_color_map().into_rgba8(), diff_failure_path)?;
+            return Err(format!(
+                "{label} local image difference exceeded limit. {} tiles have mean RGBA error above {:.3}; max vertical run is {}; max horizontal run is {}; max tile mean error is {:.3}. Actual saved to '{}', diff saved to '{}'.",
+                local_summary.bad_tiles,
+                local_difference_limit.tile_mean_threshold,
+                local_summary.max_bad_vertical_run,
+                local_summary.max_bad_horizontal_run,
+                local_summary.max_tile_mean,
+                actual_failure_path.display(),
+                diff_failure_path.display()
+            ));
+        }
+    }
+
     Ok(())
+}
+
+fn local_difference_summary(
+    expected: &RgbaImage,
+    actual: &RgbaImage,
+    limit: LocalDifferenceLimit,
+) -> LocalDifferenceSummary {
+    let (width, height) = expected.dimensions();
+    debug_assert_eq!((width, height), actual.dimensions());
+    debug_assert!(limit.tile_size > 0);
+
+    if width == 0 || height == 0 {
+        return LocalDifferenceSummary::default();
+    }
+
+    let cols = width.div_ceil(limit.tile_size) as usize;
+    let rows = height.div_ceil(limit.tile_size) as usize;
+    let mut bad_tiles = vec![false; rows * cols];
+    let expected_bytes = expected.as_raw();
+    let actual_bytes = actual.as_raw();
+    let mut summary = LocalDifferenceSummary::default();
+
+    for row in 0..rows {
+        let y0 = row as u32 * limit.tile_size;
+        let y1 = (y0 + limit.tile_size).min(height);
+        for col in 0..cols {
+            let x0 = col as u32 * limit.tile_size;
+            let x1 = (x0 + limit.tile_size).min(width);
+            let mut diff_sum = 0u64;
+
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let index = ((y * width + x) * 4) as usize;
+                    diff_sum += (expected_bytes[index] as i32 - actual_bytes[index] as i32)
+                        .unsigned_abs() as u64;
+                    diff_sum += (expected_bytes[index + 1] as i32 - actual_bytes[index + 1] as i32)
+                        .unsigned_abs() as u64;
+                    diff_sum += (expected_bytes[index + 2] as i32 - actual_bytes[index + 2] as i32)
+                        .unsigned_abs() as u64;
+                    diff_sum += (expected_bytes[index + 3] as i32 - actual_bytes[index + 3] as i32)
+                        .unsigned_abs() as u64;
+                }
+            }
+
+            let tile_channels = (x1 - x0) as f64 * (y1 - y0) as f64 * 4.0;
+            let tile_mean = diff_sum as f64 / (tile_channels * 255.0);
+            summary.max_tile_mean = summary.max_tile_mean.max(tile_mean);
+
+            if tile_mean > limit.tile_mean_threshold {
+                summary.bad_tiles += 1;
+                bad_tiles[row * cols + col] = true;
+            }
+        }
+    }
+
+    for row in 0..rows {
+        let mut run = 0;
+        for col in 0..cols {
+            if bad_tiles[row * cols + col] {
+                run += 1;
+                summary.max_bad_horizontal_run = summary.max_bad_horizontal_run.max(run);
+            } else {
+                run = 0;
+            }
+        }
+    }
+
+    for col in 0..cols {
+        let mut run = 0;
+        for row in 0..rows {
+            if bad_tiles[row * cols + col] {
+                run += 1;
+                summary.max_bad_vertical_run = summary.max_bad_vertical_run.max(run);
+            } else {
+                run = 0;
+            }
+        }
+    }
+
+    summary
 }
 
 fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseline_name: &str) {
@@ -392,6 +520,7 @@ fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
             &svg_png_failure,
             &svg_diff_failure,
             SVG_BASELINE_RESVG_THRESHOLD,
+            None,
             "SVG/resvg",
         ) {
             panic!("SVG baseline '{}' failed: {msg}", baseline_name);
@@ -404,6 +533,7 @@ fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
         &svg_png_failure,
         &wgpu_diff_failure,
         SVG_WGPU_BASELINE_THRESHOLD,
+        Some(SVG_WGPU_LOCAL_DIFFERENCE_LIMIT),
         "SVG/WGPU",
     ) {
         panic!("SVG/WGPU baseline '{}' failed: {msg}", baseline_name);
@@ -852,5 +982,41 @@ mod tests {
         assert_eq!(saved.dimensions(), (3, 2));
 
         fs::remove_file(failure_path).expect("failed to remove test failure image");
+    }
+
+    #[test]
+    fn local_difference_summary_detects_sustained_vertical_error() {
+        let limit = SVG_WGPU_LOCAL_DIFFERENCE_LIMIT;
+        let expected = RgbaImage::from_pixel(256, 512, Rgba([255, 255, 255, 255]));
+        let mut actual = expected.clone();
+
+        for y in 0..512 {
+            for x in 64..96 {
+                actual.put_pixel(x, y, Rgba([255, 0, 0, 255]));
+            }
+        }
+
+        let summary = local_difference_summary(&expected, &actual, limit);
+
+        assert!(summary.max_bad_vertical_run > limit.max_bad_vertical_run);
+        assert!(summary.exceeds(limit));
+    }
+
+    #[test]
+    fn local_difference_summary_allows_short_horizontal_error() {
+        let limit = SVG_WGPU_LOCAL_DIFFERENCE_LIMIT;
+        let expected = RgbaImage::from_pixel(256, 512, Rgba([255, 255, 255, 255]));
+        let mut actual = expected.clone();
+
+        for y in 64..96 {
+            for x in 0..256 {
+                actual.put_pixel(x, y, Rgba([255, 0, 0, 255]));
+            }
+        }
+
+        let summary = local_difference_summary(&expected, &actual, limit);
+
+        assert!(summary.max_bad_horizontal_run > limit.max_bad_vertical_run);
+        assert!(!summary.exceeds(limit));
     }
 }
