@@ -7,11 +7,12 @@ use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
         line::SceneLineMark, mark::SceneMark, path::ScenePathMark, rect::SceneRectMark,
-        rule::SceneRuleMark, symbol::SceneSymbolMark,
+        rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
+use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use itertools::izip;
 use lyon_algorithms::aabb::bounding_box;
@@ -116,7 +117,7 @@ impl SvgRenderer {
             SceneMark::Symbol(mark) => self.write_symbol_mark(document, mark, origin, clip_id),
             SceneMark::Arc(mark) => self.write_arc_mark(document, mark, origin, clip_id),
             SceneMark::Trail(_) => Err(AvengerSvgError::UnsupportedMark("trail")),
-            SceneMark::Text(_) => Err(AvengerSvgError::UnsupportedMark("text")),
+            SceneMark::Text(mark) => self.write_text_mark(document, mark, origin, clip_id),
             SceneMark::Image(mark) => self.write_image_mark(document, mark, origin, clip_id),
             SceneMark::Group(_) => Ok(()),
         }
@@ -211,6 +212,93 @@ impl SvgRenderer {
                 },
                 clip_id,
             )?;
+        }
+
+        Ok(())
+    }
+
+    fn write_text_mark(
+        &self,
+        document: &mut SvgDocument,
+        mark: &SceneTextMark,
+        origin: [f32; 2],
+        clip_id: Option<&str>,
+    ) -> Result<(), AvengerSvgError> {
+        for (
+            text,
+            x,
+            y,
+            align,
+            baseline,
+            angle,
+            color,
+            font,
+            font_size,
+            font_weight,
+            font_style,
+            limit,
+        ) in izip!(
+            mark.text_iter(),
+            mark.x_iter(),
+            mark.y_iter(),
+            mark.align_iter(),
+            mark.baseline_iter(),
+            mark.angle_iter(),
+            mark.color_iter(),
+            mark.font_iter(),
+            mark.font_size_iter(),
+            mark.font_weight_iter(),
+            mark.font_style_iter(),
+            mark.limit_iter(),
+        ) {
+            if *limit > 0.0 {
+                return Err(AvengerSvgError::UnsupportedFeature(
+                    "SVG text limit truncation is not implemented yet".to_string(),
+                ));
+            }
+
+            let x = *x + origin[0];
+            let y = *y + origin[1];
+            document.body.push_str(r#"<text x=""#);
+            push_number(&mut document.body, x, self.options.precision)?;
+            document.body.push_str(r#"" y=""#);
+            push_number(&mut document.body, y, self.options.precision)?;
+            document.body.push('"');
+            push_color_or_text_paint(&mut document.body, color, self.options.precision)?;
+            document.body.push_str(r#" text-anchor=""#);
+            document.body.push_str(text_anchor(align));
+            document.body.push('"');
+            document.body.push_str(r#" dominant-baseline=""#);
+            document.body.push_str(dominant_baseline(baseline));
+            document.body.push('"');
+            document.body.push_str(r#" font-family=""#);
+            document.body.push_str(&crate::style::escape_attr(font));
+            document.body.push('"');
+            document.body.push_str(r#" font-size=""#);
+            push_number(&mut document.body, *font_size, self.options.precision)?;
+            document.body.push('"');
+            document.body.push_str(r#" font-weight=""#);
+            document
+                .body
+                .push_str(&font_weight_value(font_weight, self.options.precision)?);
+            document.body.push('"');
+            document.body.push_str(r#" font-style=""#);
+            document.body.push_str(font_style_value(font_style));
+            document.body.push('"');
+            if *angle != 0.0 {
+                document.body.push_str(r#" transform="rotate("#);
+                push_number(&mut document.body, *angle, self.options.precision)?;
+                document.body.push(' ');
+                push_number(&mut document.body, x, self.options.precision)?;
+                document.body.push(' ');
+                push_number(&mut document.body, y, self.options.precision)?;
+                document.body.push(')');
+                document.body.push('"');
+            }
+            push_clip_attr(&mut document.body, clip_id);
+            document.body.push('>');
+            document.body.push_str(&crate::style::escape_text(text));
+            document.body.push_str("</text>\n");
         }
 
         Ok(())
@@ -651,6 +739,54 @@ fn rgba_image_to_png_data_uri(image: &RgbaImage) -> Result<String, AvengerSvgErr
     ))
 }
 
+fn push_color_or_text_paint(
+    output: &mut String,
+    color: &ColorOrGradient,
+    precision: usize,
+) -> Result<(), AvengerSvgError> {
+    match color {
+        ColorOrGradient::Color(color) => push_color_attrs(output, "fill", *color, precision),
+        ColorOrGradient::GradientIndex(index) => Err(AvengerSvgError::UnsupportedPaint(format!(
+            "text gradient index {index}"
+        ))),
+    }
+}
+
+fn text_anchor(align: &TextAlign) -> &'static str {
+    match align {
+        TextAlign::Left => "start",
+        TextAlign::Center => "middle",
+        TextAlign::Right => "end",
+    }
+}
+
+fn dominant_baseline(baseline: &TextBaseline) -> &'static str {
+    match baseline {
+        TextBaseline::Top | TextBaseline::LineTop => "text-before-edge",
+        TextBaseline::Middle => "central",
+        TextBaseline::Bottom | TextBaseline::LineBottom => "text-after-edge",
+        TextBaseline::Alphabetic => "alphabetic",
+    }
+}
+
+fn font_weight_value(
+    font_weight: &FontWeight,
+    precision: usize,
+) -> Result<String, AvengerSvgError> {
+    match font_weight {
+        FontWeight::Name(FontWeightNameSpec::Normal) => Ok("normal".to_string()),
+        FontWeight::Name(FontWeightNameSpec::Bold) => Ok("bold".to_string()),
+        FontWeight::Number(weight) => format_number(*weight, precision),
+    }
+}
+
+fn font_style_value(font_style: &FontStyle) -> &'static str {
+    match font_style {
+        FontStyle::Normal => "normal",
+        FontStyle::Italic => "italic",
+    }
+}
+
 struct PathStyle<'a> {
     fill: Option<&'a ColorOrGradient>,
     stroke: Option<&'a ColorOrGradient>,
@@ -725,9 +861,11 @@ mod tests {
             rect::SceneRectMark,
             rule::SceneRuleMark,
             symbol::SceneSymbolMark,
+            text::SceneTextMark,
         },
         scene_graph::SceneGraph,
     };
+    use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 
     use super::*;
 
@@ -985,6 +1123,43 @@ mod tests {
         assert!(svg.contains("<path "));
         assert!(svg.contains(r##"fill="#ff0000""##));
         assert!(svg.contains(r#"stroke-width="1""#));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn renders_text_marks_as_native_svg_text() {
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 20.0,
+            origin: [1.0, 2.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("<A&B>".to_string()),
+                x: ScalarOrArray::new_scalar(10.0),
+                y: ScalarOrArray::new_scalar(12.0),
+                align: ScalarOrArray::new_scalar(TextAlign::Center),
+                baseline: ScalarOrArray::new_scalar(TextBaseline::Middle),
+                angle: ScalarOrArray::new_scalar(45.0),
+                color: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 0.5])),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Bold)),
+                font_style: ScalarOrArray::new_scalar(FontStyle::Italic),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains(r##"<text x="11" y="14" fill="#ff0000" fill-opacity="0.5""##));
+        assert!(svg.contains(r#"text-anchor="middle""#));
+        assert!(svg.contains(r#"dominant-baseline="central""#));
+        assert!(svg.contains(r#"font-family="Atkinson Hyperlegible""#));
+        assert!(svg.contains(r#"font-size="12""#));
+        assert!(svg.contains(r#"font-weight="bold""#));
+        assert!(svg.contains(r#"font-style="italic""#));
+        assert!(svg.contains(r#"transform="rotate(45 11 14)""#));
+        assert!(svg.contains("&lt;A&amp;B&gt;</text>"));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 }
