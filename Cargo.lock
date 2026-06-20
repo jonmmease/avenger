@@ -948,6 +948,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "avenger-app",
+ "avenger-color",
  "avenger-common",
  "avenger-eventstream",
  "avenger-geometry",

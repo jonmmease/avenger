@@ -25,5 +25,10 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
+avenger-color = { path = "../avenger-color" }
 avenger-geometry = { path = "../avenger-geometry" }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+
+[[example]]
+name = "low_level_app"
+required-features = ["eframe"]
