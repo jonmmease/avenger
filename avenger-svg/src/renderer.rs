@@ -619,8 +619,20 @@ impl SvgDefs {
                 self.body.push_str("</linearGradient>\n");
             }
             Gradient::RadialGradient(gradient) => {
-                self.body.push_str(r#"<radialGradient id=""#);
+                let radial_id = format!("{id}-radial");
+                self.body.push_str(r#"<pattern id=""#);
                 self.body.push_str(id);
+                self.body.push_str(
+                    r#"" viewBox="0 0 1 1" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">"#,
+                );
+                self.body
+                    .push_str(r#"<rect width="1" height="1" fill="url(#"#);
+                self.body.push_str(&radial_id);
+                self.body.push_str(r#")"/></pattern>"#);
+                self.body.push('\n');
+
+                self.body.push_str(r#"<radialGradient id=""#);
+                self.body.push_str(&radial_id);
                 self.body
                     .push_str(r#"" gradientUnits="objectBoundingBox" fx=""#);
                 push_number(&mut self.body, gradient.x0, precision)?;
@@ -1255,7 +1267,11 @@ mod tests {
         let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(r#"<linearGradient id="svg-gradient-0" gradientUnits="objectBoundingBox" x1="0" y1="0" x2="1" y2="0">"#));
-        assert!(svg.contains(r#"<radialGradient id="svg-gradient-1" gradientUnits="objectBoundingBox" fx="0.5" fy="0.5" cx="0.5" cy="0.5" fr="0" r="0.5">"#));
+        assert!(svg.contains(r#"<pattern id="svg-gradient-1" viewBox="0 0 1 1" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">"#));
+        assert!(svg.contains(
+            r#"<rect width="1" height="1" fill="url(#svg-gradient-1-radial)"/></pattern>"#
+        ));
+        assert!(svg.contains(r#"<radialGradient id="svg-gradient-1-radial" gradientUnits="objectBoundingBox" fx="0.5" fy="0.5" cx="0.5" cy="0.5" fr="0" r="0.5">"#));
         assert!(svg.contains(r#"fill="url(#svg-gradient-0)""#));
         assert!(svg.contains(r#"stroke="url(#svg-gradient-1)""#));
         assert!(svg.contains(r##"stop-color="#0000ff" stop-opacity="0.5""##));

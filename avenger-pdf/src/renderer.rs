@@ -99,7 +99,7 @@ fn load_avenger_embedded_fonts(fontdb: &mut svg2pdf::usvg::fontdb::Database) {
 
 #[cfg(test)]
 mod tests {
-    use avenger_color::ColorOrGradient;
+    use avenger_color::{ColorOrGradient, Gradient, GradientStop, RadialGradient};
     use avenger_common::value::ScalarOrArray;
     use avenger_scenegraph::{
         marks::{rect::SceneRectMark, text::SceneTextMark},
@@ -155,6 +155,54 @@ mod tests {
 
         assert!(svg.contains("<text "));
         assert!(tree.has_text_nodes());
+        assert!(pdf.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn radial_gradient_pattern_svg_converts_to_pdf() {
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                gradients: vec![Gradient::RadialGradient(RadialGradient {
+                    x0: 0.5,
+                    y0: 0.5,
+                    x1: 0.5,
+                    y1: 0.5,
+                    r0: 0.0,
+                    r1: 0.5,
+                    stops: vec![
+                        GradientStop {
+                            offset: 0.0,
+                            color: [1.0, 0.0, 0.0, 1.0],
+                        },
+                        GradientStop {
+                            offset: 1.0,
+                            color: [0.0, 0.0, 1.0, 1.0],
+                        },
+                    ],
+                })],
+                x: ScalarOrArray::new_scalar(2.0),
+                y: ScalarOrArray::new_scalar(3.0),
+                width: Some(ScalarOrArray::new_scalar(30.0)),
+                height: Some(ScalarOrArray::new_scalar(10.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::GradientIndex(0)),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let renderer = PdfRenderer::new();
+        let svg = renderer.render_svg_for_pdf(&scene_graph).unwrap();
+        let tree = svg2pdf::usvg::Tree::from_str(&svg, &renderer.usvg_options()).unwrap();
+        let pdf = renderer.render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains("<pattern "));
+        assert!(svg.contains("<radialGradient "));
+        assert!(svg.contains(r#"fill="url(#svg-gradient-0)""#));
+        assert!(tree.size().width() > 0.0);
         assert!(pdf.starts_with(b"%PDF-"));
     }
 }
