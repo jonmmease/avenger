@@ -3,6 +3,16 @@ use avenger_common::types::{StrokeCap, StrokeJoin};
 
 use crate::{error::AvengerSvgError, path::format_number};
 
+pub trait PaintResolver {
+    fn push_paint_attrs(
+        &mut self,
+        output: &mut String,
+        attr: &str,
+        paint: &ColorOrGradient,
+        precision: usize,
+    ) -> Result<(), AvengerSvgError>;
+}
+
 pub fn escape_text(input: &str) -> String {
     input
         .replace('&', "&amp;")
@@ -17,10 +27,11 @@ pub fn escape_attr(input: &str) -> String {
 pub fn push_fill_attrs(
     output: &mut String,
     fill: Option<&ColorOrGradient>,
+    resolver: &mut impl PaintResolver,
     precision: usize,
 ) -> Result<(), AvengerSvgError> {
     match fill {
-        Some(fill) => push_paint_attrs(output, "fill", fill, precision),
+        Some(fill) => resolver.push_paint_attrs(output, "fill", fill, precision),
         None => {
             output.push_str(r#" fill="none""#);
             Ok(())
@@ -35,6 +46,7 @@ pub fn push_stroke_attrs(
     stroke_cap: Option<StrokeCap>,
     stroke_join: Option<StrokeJoin>,
     stroke_dash: Option<&[f32]>,
+    resolver: &mut impl PaintResolver,
     precision: usize,
 ) -> Result<(), AvengerSvgError> {
     let width = stroke_width.unwrap_or(0.0);
@@ -43,7 +55,7 @@ pub fn push_stroke_attrs(
         return Ok(());
     }
 
-    push_paint_attrs(output, "stroke", stroke.unwrap(), precision)?;
+    resolver.push_paint_attrs(output, "stroke", stroke.unwrap(), precision)?;
     output.push_str(r#" stroke-width=""#);
     output.push_str(&format_number(width, precision)?);
     output.push('"');
@@ -84,7 +96,7 @@ pub fn push_stroke_attrs(
     Ok(())
 }
 
-pub fn push_paint_attrs(
+pub fn push_color_only_paint_attrs(
     output: &mut String,
     attr: &str,
     paint: &ColorOrGradient,
@@ -131,8 +143,46 @@ pub fn push_color_attrs(
     Ok(())
 }
 
+pub fn push_stop_color_attrs(
+    output: &mut String,
+    color: [f32; 4],
+    precision: usize,
+) -> Result<(), AvengerSvgError> {
+    let [r, g, b, a] = color.map(|v| v.clamp(0.0, 1.0));
+    output.push_str(r#" stop-color=""#);
+    output.push_str(&color_to_hex([r, g, b]));
+    output.push('"');
+
+    if a < 1.0 {
+        output.push_str(r#" stop-opacity=""#);
+        output.push_str(&format_number(a, precision)?);
+        output.push('"');
+    }
+
+    Ok(())
+}
+
+pub fn color_to_hex(rgb: [f32; 3]) -> String {
+    let [r, g, b] = rgb.map(|v| v.clamp(0.0, 1.0));
+    format!("#{}{}{}", hex_byte(r), hex_byte(g), hex_byte(b))
+}
+
 fn hex_byte(value: f32) -> String {
     format!("{:02x}", (value * 255.0).round() as u8)
+}
+
+pub struct ColorOnlyPaintResolver;
+
+impl PaintResolver for ColorOnlyPaintResolver {
+    fn push_paint_attrs(
+        &mut self,
+        output: &mut String,
+        attr: &str,
+        paint: &ColorOrGradient,
+        precision: usize,
+    ) -> Result<(), AvengerSvgError> {
+        push_color_only_paint_attrs(output, attr, paint, precision)
+    }
 }
 
 #[cfg(test)]
@@ -157,5 +207,12 @@ mod tests {
         let mut out = String::new();
         push_color_attrs(&mut out, "stroke", [1.0, 0.0, 0.0, 0.0], 3).unwrap();
         assert_eq!(out, r#" stroke="none""#);
+    }
+
+    #[test]
+    fn formats_stop_colors_without_none() {
+        let mut out = String::new();
+        push_stop_color_attrs(&mut out, [1.0, 0.5, 0.0, 0.25], 3).unwrap();
+        assert_eq!(out, r##" stop-color="#ff8000" stop-opacity="0.25""##);
     }
 }
