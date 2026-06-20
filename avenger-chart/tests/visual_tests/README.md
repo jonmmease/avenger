@@ -176,7 +176,9 @@ The committed PDF is kept as a first-class export artifact for review, but the
 suite does not compare PDF bytes directly. The embedded font resources emitted
 by `svg2pdf` can be ordered differently across processes while producing the
 same PDFium raster. Deterministic validation therefore comes from the PDFium PNG
-baseline and the PDFium-vs-WGPU comparison.
+baseline and the PDFium-vs-WGPU comparison. The PDFium PNG baseline threshold is
+`0.998`, which is tight enough to catch visible PDF output changes while allowing
+minor font-subset raster ordering variance observed in a few text-heavy charts.
 
 ## Directory Structure
 
