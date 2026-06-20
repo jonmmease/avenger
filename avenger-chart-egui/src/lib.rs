@@ -342,7 +342,9 @@ mod tests {
     use std::sync::Arc;
 
     use avenger_chart::prelude as chart;
-    use avenger_chart_app::{ChartAppOptions, chart_avenger_app};
+    use avenger_chart_app::{ChartAppOptions, ChartResizeBinding, chart_avenger_app};
+    use avenger_eventstream::window::{CanvasResizeEvent, WindowEvent};
+    use avenger_wgpu::frame_publisher::FrameGeneration;
     use datafusion::{prelude::SessionContext, scalar::ScalarValue};
 
     use super::*;
@@ -366,6 +368,24 @@ mod tests {
             policy,
             ChartAppOptions::default(),
         ))
+    }
+
+    async fn wait_for_scene_generation(handle: &AvengerPlotHandle, generation: FrameGeneration) {
+        for _ in 0..1_000 {
+            if handle
+                .latest_scene_frame()
+                .is_some_and(|frame| frame.generation == generation)
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        panic!(
+            "scene generation {} was not published; status={:?}, error={:?}",
+            generation.get(),
+            handle.frame_status(),
+            handle.latest_scene_error()
+        );
     }
 
     fn response_for_size(size: egui::Vec2) -> egui::Response {
@@ -410,6 +430,70 @@ mod tests {
         let handle = AvengerPlotHandle::from_app(app);
 
         assert_eq!(handle.param_f64("width"), Some(640.0));
+    }
+
+    #[tokio::test]
+    async fn plot_show_exposes_canvas_events_and_param_changes() {
+        let handle = test_handle().await;
+        handle.set_param("width", 720.0);
+        let ctx = egui::Context::default();
+        let mut output = None;
+
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default()
+                .show(ctx, |ui| {
+                    output = Some(
+                        Plot::new(&handle)
+                            .desired_size(egui::vec2(320.0, 240.0))
+                            .show(ui),
+                    );
+                })
+                .inner;
+        });
+
+        let output = output.expect("plot output");
+        assert!(output.params_changed());
+        assert!(output.param_changed("width"));
+        assert!(
+            output
+                .events
+                .iter()
+                .any(|event| matches!(event, WindowEvent::CanvasResize(_)))
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn chart_wrapper_dispatches_routed_resize_events() {
+        let ctx = Arc::new(SessionContext::new());
+        let width = chart::Param::new("width", scalar_f64(640.0));
+        let compiled = chart::Plot::<chart::Cartesian>::new()
+            .add_param(width.clone())
+            .canvas_constraint(chart::CanvasConstraint::width(width.expr()))
+            .compile(ctx.as_ref())
+            .await
+            .expect("compile egui app test plot");
+        let app = chart_avenger_app(
+            compiled,
+            ctx,
+            ChartAppOptions {
+                resize_binding: ChartResizeBinding::width("width"),
+                ..ChartAppOptions::default()
+            },
+        )
+        .await
+        .expect("build egui test app");
+        let handle = AvengerPlotHandle::from_app(app);
+        handle.queue_events([WindowEvent::CanvasResize(CanvasResizeEvent {
+            size: [720.0, 300.0],
+        })]);
+
+        let generation = handle
+            .request_event_dispatch(&tokio::runtime::Handle::current())
+            .expect("request event dispatch");
+        wait_for_scene_generation(&handle, generation).await;
+
+        assert_eq!(handle.pending_event_count(), 0);
+        assert_eq!(handle.param_f64("width"), Some(720.0));
     }
 
     #[test]
