@@ -1,6 +1,6 @@
-use avenger_color::{ColorOrGradient, Gradient, GradientStop, RadialGradient};
+use avenger_color::{ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient};
 use avenger_common::{
-    types::{AreaOrientation, ImageAlign, ImageBaseline},
+    types::{AreaOrientation, ImageAlign, ImageBaseline, PathTransform},
     value::ScalarOrArray,
 };
 use avenger_image::RgbaImage;
@@ -13,6 +13,7 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_svg::{SvgBackground, SvgFontEmbedding, SvgRenderOptions, SvgRenderer};
+use lyon_path::math::point;
 
 #[test]
 fn empty_item_sets_emit_no_drawable_svg_elements() {
@@ -86,6 +87,136 @@ fn empty_item_sets_emit_no_drawable_svg_elements() {
 }
 
 #[test]
+fn renders_one_snapshot_covering_every_scene_mark_type() {
+    let image = RgbaImage {
+        width: 1,
+        height: 1,
+        data: vec![255, 0, 0, 255],
+    };
+    let scene_graph = SceneGraph {
+        width: 120.0,
+        height: 90.0,
+        origin: [0.0, 0.0],
+        marks: vec![
+            SceneGroup {
+                origin: [2.0, 3.0],
+                clip: avenger_scenegraph::marks::group::Clip::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 108.0,
+                    height: 78.0,
+                },
+                fill: Some(ColorOrGradient::Color([0.0, 0.0, 1.0, 0.2])),
+                stroke: Some(ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0])),
+                stroke_width: Some(1.0),
+                marks: vec![SceneRectMark {
+                    len: 1,
+                    x: ScalarOrArray::new_scalar(4.0),
+                    y: ScalarOrArray::new_scalar(5.0),
+                    width: Some(ScalarOrArray::new_scalar(12.0)),
+                    height: Some(ScalarOrArray::new_scalar(8.0)),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0])),
+                    ..Default::default()
+                }
+                .into()],
+                ..Default::default()
+            }
+            .into(),
+            SceneArcMark {
+                x: ScalarOrArray::new_scalar(30.0),
+                y: ScalarOrArray::new_scalar(15.0),
+                start_angle: ScalarOrArray::new_scalar(0.0),
+                end_angle: ScalarOrArray::new_scalar(std::f32::consts::PI),
+                inner_radius: ScalarOrArray::new_scalar(3.0),
+                outer_radius: ScalarOrArray::new_scalar(8.0),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 1.0, 0.0, 1.0])),
+                ..Default::default()
+            }
+            .into(),
+            SceneAreaMark {
+                len: 3,
+                orientation: AreaOrientation::Vertical,
+                x: ScalarOrArray::new_array(vec![10.0, 20.0, 30.0]),
+                y: ScalarOrArray::new_array(vec![44.0, 38.0, 42.0]),
+                y2: ScalarOrArray::new_array(vec![52.0, 52.0, 52.0]),
+                fill: ColorOrGradient::Color([1.0, 0.0, 1.0, 0.5]),
+                ..Default::default()
+            }
+            .into(),
+            ScenePathMark {
+                path: ScalarOrArray::new_scalar(triangle_path()),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 1.0, 1.0, 0.5])),
+                stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+                stroke_width: Some(1.0),
+                transform: ScalarOrArray::new_scalar(PathTransform::translation(40.0, 35.0)),
+                ..Default::default()
+            }
+            .into(),
+            SceneSymbolMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(72.0),
+                y: ScalarOrArray::new_scalar(18.0),
+                size: ScalarOrArray::new_scalar(36.0),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.5, 0.0, 1.0, 1.0])),
+                stroke_width: Some(1.0),
+                ..Default::default()
+            }
+            .into(),
+            SceneLineMark {
+                len: 3,
+                x: ScalarOrArray::new_array(vec![60.0, 72.0, 84.0]),
+                y: ScalarOrArray::new_array(vec![40.0, 45.0, 36.0]),
+                stroke: ColorOrGradient::Color([1.0, 0.5, 0.0, 1.0]),
+                ..Default::default()
+            }
+            .into(),
+            SceneTrailMark {
+                len: 3,
+                x: ScalarOrArray::new_array(vec![56.0, 70.0, 88.0]),
+                y: ScalarOrArray::new_array(vec![62.0, 66.0, 58.0]),
+                size: ScalarOrArray::new_array(vec![4.0, 8.0, 12.0]),
+                stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.6]),
+                ..Default::default()
+            }
+            .into(),
+            SceneRuleMark {
+                x: ScalarOrArray::new_scalar(96.0),
+                y: ScalarOrArray::new_scalar(12.0),
+                x2: ScalarOrArray::new_scalar(108.0),
+                y2: ScalarOrArray::new_scalar(24.0),
+                stroke_dash: Some(ScalarOrArray::new_scalar(vec![2.0, 1.0])),
+                ..Default::default()
+            }
+            .into(),
+            SceneTextMark {
+                text: ScalarOrArray::new_scalar("All marks".to_string()),
+                x: ScalarOrArray::new_scalar(8.0),
+                y: ScalarOrArray::new_scalar(76.0),
+                ..Default::default()
+            }
+            .into(),
+            image_mark(image, 96.0, true).into(),
+        ],
+    };
+
+    let svg = render_transparent(scene_graph);
+
+    assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    assert!(svg.matches("<path ").count() >= 8);
+    assert_eq!(svg.matches("<line ").count(), 1);
+    assert_eq!(svg.matches("<text ").count(), 1);
+    assert_eq!(svg.matches("<image ").count(), 1);
+    assert!(svg.contains(r##"fill="#0000ff" fill-opacity="0.2""##));
+    assert!(svg.contains(r##"fill="#ff0000""##));
+    assert!(svg.contains(r##"fill="#00ff00""##));
+    assert!(svg.contains(r##"fill="#ff00ff" fill-opacity="0.5""##));
+    assert!(svg.contains(r##"fill="#00ffff" fill-opacity="0.5""##));
+    assert!(svg.contains(r#"stroke-dasharray="2 1""#));
+    assert!(svg.contains(">All marks</text>"));
+    assert!(svg.contains(" A"));
+}
+
+#[test]
 fn non_square_radial_gradient_pattern_parses_and_rasterizes() {
     let scene_graph = SceneGraph {
         width: 40.0,
@@ -127,6 +258,60 @@ fn non_square_radial_gradient_pattern_parses_and_rasterizes() {
     assert!(svg.contains("<radialGradient "));
     assert!(svg.contains(r#"fill="url(#svg-gradient-0)""#));
     assert_svg_parses_and_rasterizes(&svg);
+}
+
+#[test]
+fn linear_gradient_inside_clip_snapshot_parses() {
+    let scene_graph = SceneGraph {
+        width: 32.0,
+        height: 20.0,
+        origin: [0.0, 0.0],
+        marks: vec![SceneGroup {
+            clip: avenger_scenegraph::marks::group::Clip::Rect {
+                x: 2.0,
+                y: 2.0,
+                width: 24.0,
+                height: 12.0,
+            },
+            marks: vec![SceneRectMark {
+                len: 1,
+                clip: true,
+                gradients: vec![Gradient::LinearGradient(LinearGradient {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: 1.0,
+                    y1: 0.0,
+                    stops: vec![
+                        GradientStop {
+                            offset: 0.0,
+                            color: [1.0, 0.0, 0.0, 1.0],
+                        },
+                        GradientStop {
+                            offset: 1.0,
+                            color: [0.0, 0.0, 1.0, 1.0],
+                        },
+                    ],
+                })],
+                x: ScalarOrArray::new_scalar(0.0),
+                y: ScalarOrArray::new_scalar(0.0),
+                width: Some(ScalarOrArray::new_scalar(30.0)),
+                height: Some(ScalarOrArray::new_scalar(18.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::GradientIndex(0)),
+                ..Default::default()
+            }
+            .into()],
+            ..Default::default()
+        }
+        .into()],
+    };
+
+    let svg = render_transparent(scene_graph);
+
+    assert!(svg.contains("<clipPath "));
+    assert!(svg.contains("<linearGradient "));
+    assert!(svg.contains(r#"fill="url(#svg-gradient-0)""#));
+    assert!(svg.contains(r#"clip-path="url(#svg-clip-0)""#));
+    assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
 }
 
 #[test]
@@ -189,6 +374,31 @@ fn group_clip_ordering_and_undefined_breaks_are_stable() {
 }
 
 #[test]
+fn text_limit_snapshot_uses_default_ellipsis() {
+    let scene_graph = SceneGraph {
+        width: 80.0,
+        height: 20.0,
+        origin: [0.0, 0.0],
+        marks: vec![SceneTextMark {
+            text: ScalarOrArray::new_scalar("Long label text".to_string()),
+            x: ScalarOrArray::new_scalar(4.0),
+            y: ScalarOrArray::new_scalar(12.0),
+            font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+            font_size: ScalarOrArray::new_scalar(10.0),
+            limit: ScalarOrArray::new_scalar(35.0),
+            ..Default::default()
+        }
+        .into()],
+    };
+
+    let svg = render_transparent(scene_graph);
+
+    assert!(svg.contains("\u{2026}</text>"));
+    assert!(!svg.contains("Long label text</text>"));
+    assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+}
+
+#[test]
 fn image_smoothing_snapshot_marks_only_unsmoothed_images_pixelated() {
     let image = RgbaImage {
         width: 1,
@@ -237,6 +447,15 @@ fn image_mark(image: RgbaImage, x: f32, smooth: bool) -> SceneImageMark {
         baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
         ..Default::default()
     }
+}
+
+fn triangle_path() -> lyon_path::Path {
+    let mut builder = lyon_path::Path::builder();
+    builder.begin(point(0.0, 0.0));
+    builder.line_to(point(8.0, 0.0));
+    builder.line_to(point(4.0, 8.0));
+    builder.close();
+    builder.build()
 }
 
 fn assert_svg_parses_and_rasterizes(svg: &str) {
