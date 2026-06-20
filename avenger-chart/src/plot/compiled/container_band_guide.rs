@@ -253,6 +253,7 @@ fn create_label_mark(
     };
 
     SceneTextMark {
+        clip: false,
         text: label.to_string().into(),
         x: x.into(),
         y: y.into(),
@@ -477,6 +478,7 @@ fn render_container_band_title(
     };
 
     SceneTextMark {
+        clip: false,
         text: title_text.to_string().into(),
         x: x.into(),
         y: y.into(),

@@ -351,6 +351,7 @@ fn make_level_labels(
     };
 
     Ok(SceneTextMark {
+        clip: false,
         len: labels.len() as u32,
         text: ScalarOrArray::new_array(labels),
         x,
@@ -483,6 +484,7 @@ fn make_title(
     };
 
     Ok(SceneTextMark {
+        clip: false,
         len: 1,
         text: title.to_string().into(),
         x,

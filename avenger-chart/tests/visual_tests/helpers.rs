@@ -5,7 +5,8 @@ use avenger_chart::plot::CompiledPlot;
 use avenger_chart::render::{EvaluatedPlot, EvaluationOptions};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_svg::SvgRenderer;
+use avenger_svg::{SvgRenderOptions, SvgRenderer};
+use avenger_text::{FontResolutionOptions, MissingFontPolicy};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::common::ScalarValue;
 use image::RgbaImage;
@@ -251,7 +252,7 @@ fn save_image_to_path(image: &RgbaImage, path: &Path) -> Result<(), String> {
 fn rasterize_svg(svg: &str) -> Result<RgbaImage, String> {
     let mut options = usvg::Options::default();
     options.fontdb = std::sync::Arc::new(avenger_text::fonts::build_fontdb(
-        &avenger_text::FontResolutionOptions::default(),
+        &svg_visual_font_resolution(),
     ));
     let tree = usvg::Tree::from_str(svg, &options)
         .map_err(|e| format!("Failed to parse generated SVG: {e}"))?;
@@ -342,6 +343,10 @@ fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
     }
 
     let svg = SvgRenderer::new()
+        .with_options(SvgRenderOptions {
+            font_resolution: svg_visual_font_resolution(),
+            ..Default::default()
+        })
         .render_scene_graph(scene_graph)
         .expect("Failed to render SVG visual baseline");
     let svg_image = rasterize_svg(&svg).expect("Failed to rasterize SVG visual baseline");
@@ -402,6 +407,13 @@ fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
         "SVG/WGPU",
     ) {
         panic!("SVG/WGPU baseline '{}' failed: {msg}", baseline_name);
+    }
+}
+
+fn svg_visual_font_resolution() -> FontResolutionOptions {
+    FontResolutionOptions {
+        missing_font: MissingFontPolicy::Fallback,
+        ..Default::default()
     }
 }
 

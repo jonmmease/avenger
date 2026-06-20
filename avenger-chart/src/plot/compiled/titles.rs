@@ -107,6 +107,7 @@ impl CompiledPlot {
         };
 
         let text_mark = SceneTextMark {
+            clip: false,
             text: text_value.into(),
             x: x.into(),
             y: y.into(),
@@ -219,6 +220,7 @@ impl CompiledPlot {
         };
 
         let text_mark = SceneTextMark {
+            clip: false,
             text: text_value.into(),
             x: x.into(),
             y: y.into(),

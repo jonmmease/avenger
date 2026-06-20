@@ -257,6 +257,7 @@ pub fn make_symbol_legend_itemized(
         // Use Top baseline and position title at vertical padding from top
         let title_y = vertical_padding;
         let title_mark = SceneTextMark {
+            clip: false,
             text: title_text.clone().into(),
             x: content_offset_x.into(),
             y: title_y.into(),
@@ -404,6 +405,7 @@ fn make_symbol_group(
 
     tracing::debug!(text = text, "Creating legend text mark");
     let text_mark = SceneTextMark {
+        clip: false,
         text: text.to_string().into(),
         x: ((max_width + text_padding).round()).into(),
         y: single_symbol_mark.y.clone(),

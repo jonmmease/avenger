@@ -186,6 +186,77 @@ fn parse_named_font_families(
     Ok(named)
 }
 
+pub(crate) fn resolve_font_family_for_output(
+    font_family: &str,
+    font_weight: &FontWeight,
+    font_style: &FontStyle,
+    options: &FontResolutionOptions,
+) -> Result<String, AvengerSvgError> {
+    if options.missing_font != MissingFontPolicy::Fallback {
+        return Ok(font_family.to_string());
+    }
+
+    let families = match parse_font_families(font_family) {
+        Ok(families) => families,
+        Err(err) => {
+            handle_font_issue(
+                format!("failed to parse font-family '{font_family}': {err}"),
+                options.missing_font,
+            )?;
+            return Ok(font_family.to_string());
+        }
+    };
+
+    let fontdb = build_fontdb(options);
+    let weight = font_weight_number(font_weight);
+    let style = (*font_style).into();
+
+    for family in &families {
+        let FontFamily::Named(family) = family else {
+            continue;
+        };
+        let key = SvgFontKey {
+            family: family.clone(),
+            weight,
+            style,
+        };
+        if query_font_face(&fontdb, &key).is_some() {
+            return Ok(family.clone());
+        }
+    }
+
+    for family in &families {
+        if let Some(resolved) = match family {
+            FontFamily::Serif => {
+                query_generic_font_face(&fontdb, fontdb::Family::Serif, weight, style)
+            }
+            FontFamily::SansSerif => {
+                query_generic_font_face(&fontdb, fontdb::Family::SansSerif, weight, style)
+            }
+            FontFamily::Monospace => {
+                query_generic_font_face(&fontdb, fontdb::Family::Monospace, weight, style)
+            }
+            FontFamily::Cursive => {
+                query_generic_font_face(&fontdb, fontdb::Family::Cursive, weight, style)
+            }
+            FontFamily::Fantasy => {
+                query_generic_font_face(&fontdb, fontdb::Family::Fantasy, weight, style)
+            }
+            FontFamily::Named(_) => None,
+        } {
+            return Ok(resolved);
+        }
+    }
+
+    if let Some(resolved) =
+        query_generic_font_face(&fontdb, fontdb::Family::SansSerif, weight, style)
+    {
+        return Ok(resolved);
+    }
+
+    Ok(font_family.to_string())
+}
+
 fn resolve_font_request(fontdb: &fontdb::Database, request: &SvgFontRequest) -> Option<SvgFontKey> {
     request.families.iter().find_map(|family| {
         let key = SvgFontKey {
@@ -215,11 +286,32 @@ fn is_generic_only_font_family(font_family: &str) -> bool {
 
 fn query_font_face(fontdb: &fontdb::Database, key: &SvgFontKey) -> Option<fontdb::ID> {
     let families = [fontdb::Family::Name(key.family.as_str())];
+    query_font_id(fontdb, &families, key.weight, key.style)
+}
+
+fn query_generic_font_face(
+    fontdb: &fontdb::Database,
+    family: fontdb::Family<'_>,
+    weight: u16,
+    style: SvgFontStyle,
+) -> Option<String> {
+    let families = [family];
+    let id = query_font_id(fontdb, &families, weight, style)?;
+    let face = fontdb.face(id)?;
+    face.families.first().map(|(family, _lang)| family.clone())
+}
+
+fn query_font_id(
+    fontdb: &fontdb::Database,
+    families: &[fontdb::Family<'_>],
+    weight: u16,
+    style: SvgFontStyle,
+) -> Option<fontdb::ID> {
     let query = fontdb::Query {
-        families: &families,
-        weight: fontdb::Weight(key.weight),
+        families,
+        weight: fontdb::Weight(weight),
         stretch: fontdb::Stretch::Normal,
-        style: match key.style {
+        style: match style {
             SvgFontStyle::Normal => fontdb::Style::Normal,
             SvgFontStyle::Italic => fontdb::Style::Italic,
         },

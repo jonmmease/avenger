@@ -214,6 +214,7 @@ pub fn make_line_legend_itemized(
             .unwrap_or(FontWeight::Number(400.0));
 
         let title_mark = SceneTextMark {
+            clip: false,
             text: title_text.clone().into(),
             x: bg_padding.into(),
             y: (bg_padding + title_font_size / 2.0).into(), // Center title vertically in its space
@@ -388,6 +389,7 @@ fn make_line_group(
 
     // Text
     let text_mark = SceneTextMark {
+        clip: false,
         text: text.to_string().into(),
         x: text_x.into(),
         y: 0.0.into(),

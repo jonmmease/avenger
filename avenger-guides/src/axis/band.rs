@@ -300,6 +300,7 @@ fn make_tick_labels(
     };
 
     Ok(SceneTextMark {
+        clip: false,
         len: scale.domain().len() as u32,
         text: scale.format(scale.domain())?,
         x,
@@ -380,6 +381,7 @@ fn make_title(
     };
 
     Ok(SceneTextMark {
+        clip: false,
         len: 1,
         text: title.to_string().into(),
         x,

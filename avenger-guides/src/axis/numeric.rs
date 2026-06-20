@@ -513,6 +513,7 @@ fn make_tick_labels(
     };
 
     Ok(SceneTextMark {
+        clip: false,
         len: ticks.len() as u32,
         text: tick_text,
         x,
@@ -593,6 +594,7 @@ fn make_title(
     };
 
     Ok(SceneTextMark {
+        clip: false,
         len: 1,
         text: title.to_string().into(),
         x,

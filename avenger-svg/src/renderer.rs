@@ -24,7 +24,7 @@ use lyon_algorithms::aabb::bounding_box;
 
 use crate::{
     error::AvengerSvgError,
-    fonts::SvgFontCollector,
+    fonts::{resolve_font_family_for_output, SvgFontCollector},
     options::{SvgBackground, SvgRenderOptions},
     path::{format_number, lyon_path_to_svg_d, push_number, push_point},
     style::{
@@ -285,10 +285,16 @@ impl SvgRenderer {
             mark.font_style_iter(),
             mark.limit_iter(),
         ) {
+            let output_font = resolve_font_family_for_output(
+                font,
+                font_weight,
+                font_style,
+                &self.options.font_resolution,
+            )?;
             let text = truncate_text_to_limit(
                 text,
                 *limit,
-                font,
+                &output_font,
                 *font_size,
                 font_weight,
                 font_style,
@@ -296,7 +302,7 @@ impl SvgRenderer {
             );
             if self.options.font_embedding == crate::options::SvgFontEmbedding::EmbedSubsetWoff2 {
                 document.fonts.collect_text(
-                    font,
+                    &output_font,
                     font_weight,
                     font_style,
                     &text,
@@ -318,7 +324,9 @@ impl SvgRenderer {
             document.body.push_str(dominant_baseline(baseline));
             document.body.push('"');
             document.body.push_str(r#" font-family=""#);
-            document.body.push_str(&crate::style::escape_attr(font));
+            document
+                .body
+                .push_str(&crate::style::escape_attr(&output_font));
             document.body.push('"');
             document.body.push_str(r#" font-size=""#);
             push_number(&mut document.body, *font_size, self.options.precision)?;
@@ -1389,6 +1397,39 @@ mod tests {
         assert!(svg.contains(r#"transform="rotate(45 11 14)""#));
         assert!(svg.contains("&lt;A&amp;B&gt;</text>"));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn missing_font_fallback_emits_resolved_text_family() {
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Fallback".to_string()),
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(12.0),
+                font: ScalarOrArray::new_scalar("Definitely Missing Font".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new()
+            .with_options(SvgRenderOptions {
+                font_resolution: avenger_text::FontResolutionOptions {
+                    missing_font: avenger_text::MissingFontPolicy::Fallback,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .render_scene_graph(&scene_graph)
+            .unwrap();
+
+        assert!(svg.contains(r#"font-family="Atkinson Hyperlegible Next""#));
+        assert!(!svg.contains(r#"font-family="Definitely Missing Font""#));
+        assert!(svg.contains(r#"font-family: "Atkinson Hyperlegible Next";"#));
     }
 
     #[test]
