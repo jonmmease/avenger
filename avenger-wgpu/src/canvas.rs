@@ -11,6 +11,7 @@ use avenger_scenegraph::{
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
+use avenger_text::FontResolutionOptions;
 use itertools::izip;
 use wgpu::{
     Adapter, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, PowerPreference, Queue,
@@ -60,9 +61,10 @@ impl CanvasDimensionUtils for CanvasDimensions {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone, Default)]
 pub struct CanvasConfig {
     pub text_builder_ctor: Option<TextBuildCtor>,
+    pub font_resolution: FontResolutionOptions,
 }
 
 pub trait Canvas {

@@ -264,7 +264,8 @@ impl AvengerRendererCore {
     ) -> Self {
         let multi_render_resources =
             MultiMarkRenderResources::new(device, texture_format, sample_count);
-        let text_atlas_builder = make_text_atlas_builder(&config.text_builder_ctor);
+        let text_atlas_builder =
+            make_text_atlas_builder(&config.text_builder_ctor, &config.font_resolution);
 
         Self {
             dimensions,
@@ -551,7 +552,8 @@ impl AvengerRendererCore {
         // Reset the shared text atlas so each frame starts clean (matches the old
         // per-renderer reset-per-frame semantics). `TextAtlasBuilder` has no reset
         // method, so replace it with a fresh builder via the same ctor.
-        self.text_atlas_builder = make_text_atlas_builder(&self.config.text_builder_ctor);
+        self.text_atlas_builder =
+            make_text_atlas_builder(&self.config.text_builder_ctor, &self.config.font_resolution);
     }
 
     pub(crate) fn make_frame_overlay_command(
@@ -650,6 +652,7 @@ impl AvengerRendererCore {
 /// (wasm), or the null builder (text disabled).
 pub(crate) fn make_text_atlas_builder(
     text_builder_ctor: &Option<TextBuildCtor>,
+    font_resolution: &avenger_text::FontResolutionOptions,
 ) -> Box<dyn TextAtlasBuilderTrait> {
     if let Some(text_builder_ctor) = text_builder_ctor {
         text_builder_ctor()
@@ -659,7 +662,7 @@ pub(crate) fn make_text_atlas_builder(
                 use crate::marks::text::TextAtlasBuilder;
                 use std::sync::Arc;
                 let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                    avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
+                    avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::with_font_resolution(font_resolution.clone()))
                 ));
             } else if #[cfg(target_arch = "wasm32")] {
                 use crate::marks::text::TextAtlasBuilder;

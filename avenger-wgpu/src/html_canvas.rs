@@ -95,7 +95,8 @@ impl<'window> HtmlCanvasCanvas<'window> {
         let multi_render_resources =
             MultiMarkRenderResources::new(&device, surface_format, sample_count);
 
-        let text_atlas_builder = make_text_atlas_builder(&config.text_builder_ctor);
+        let text_atlas_builder =
+            make_text_atlas_builder(&config.text_builder_ctor, &config.font_resolution);
 
         Ok(Self {
             surface,
@@ -320,7 +321,8 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
 
         // Reset the shared text atlas so each frame starts clean (matches the old
         // per-renderer reset-per-frame semantics).
-        self.text_atlas_builder = make_text_atlas_builder(&self.config.text_builder_ctor);
+        self.text_atlas_builder =
+            make_text_atlas_builder(&self.config.text_builder_ctor, &self.config.font_resolution);
     }
 
     fn device(&self) -> &Device {
