@@ -585,6 +585,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "typetag",
+ "usvg",
 ]
 
 [[package]]
