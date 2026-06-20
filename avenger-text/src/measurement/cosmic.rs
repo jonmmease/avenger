@@ -8,6 +8,7 @@ use cosmic_text::{
     ttf_parser, Attrs, Buffer, Family, FontSystem, Metrics as CosmicMetrics, SwashCache,
 };
 use lazy_static::lazy_static;
+use svgtypes::{parse_font_families, FontFamily as SvgFontFamily};
 
 use crate::types::{FontStyle, FontWeight, FontWeightNameSpec};
 
@@ -203,7 +204,17 @@ fn measure_font_metrics_with_cosmic(
     config: &FontMetricsConfig,
     font_system: &FontSystem,
 ) -> Option<FontMetrics> {
-    let attrs = make_cosmic_attrs(config.font, config.font_weight, config.font_style);
+    let family = resolve_cosmic_font_family(
+        config.font,
+        font_system,
+        config.font_weight,
+        config.font_style,
+    );
+    let attrs = make_cosmic_attrs(
+        family.as_cosmic_family(),
+        config.font_weight,
+        config.font_style,
+    );
     let families = [attrs.family];
     let query = fontdb::Query {
         families: &families,
@@ -292,7 +303,17 @@ pub fn make_cosmic_text_buffer(
     config: &TextMeasurementConfig,
     font_system: &mut FontSystem,
 ) -> Buffer {
-    let attrs = make_cosmic_attrs(config.font, config.font_weight, config.font_style);
+    let family = resolve_cosmic_font_family(
+        config.font,
+        font_system,
+        config.font_weight,
+        config.font_style,
+    );
+    let attrs = make_cosmic_attrs(
+        family.as_cosmic_family(),
+        config.font_weight,
+        config.font_style,
+    );
 
     // Create metrics (using size from config)
     let metrics = CosmicMetrics::new(config.font_size, config.font_size);
@@ -313,37 +334,108 @@ pub fn make_cosmic_text_buffer(
     buffer
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CosmicFontFamily {
+    Serif,
+    SansSerif,
+    Cursive,
+    Fantasy,
+    Monospace,
+    Named(String),
+}
+
+impl CosmicFontFamily {
+    fn as_cosmic_family(&self) -> Family<'_> {
+        match self {
+            Self::Serif => Family::Serif,
+            Self::SansSerif => Family::SansSerif,
+            Self::Cursive => Family::Cursive,
+            Self::Fantasy => Family::Fantasy,
+            Self::Monospace => Family::Monospace,
+            Self::Named(name) => Family::Name(name),
+        }
+    }
+}
+
+fn resolve_cosmic_font_family(
+    font: &str,
+    font_system: &FontSystem,
+    font_weight: &FontWeight,
+    font_style: &FontStyle,
+) -> CosmicFontFamily {
+    if let Ok(families) = parse_font_families(font) {
+        for family in families {
+            match family {
+                SvgFontFamily::Serif => return CosmicFontFamily::Serif,
+                SvgFontFamily::SansSerif => return CosmicFontFamily::SansSerif,
+                SvgFontFamily::Cursive => return CosmicFontFamily::Cursive,
+                SvgFontFamily::Fantasy => return CosmicFontFamily::Fantasy,
+                SvgFontFamily::Monospace => return CosmicFontFamily::Monospace,
+                SvgFontFamily::Named(name) => {
+                    if named_font_family_available(font_system, &name, font_weight, font_style) {
+                        return CosmicFontFamily::Named(name);
+                    }
+                }
+            }
+        }
+    }
+
+    match font.to_lowercase().as_str() {
+        "serif" => CosmicFontFamily::Serif,
+        "sans serif" | "sans-serif" => CosmicFontFamily::SansSerif,
+        "cursive" => CosmicFontFamily::Cursive,
+        "fantasy" => CosmicFontFamily::Fantasy,
+        "monospace" => CosmicFontFamily::Monospace,
+        _ => CosmicFontFamily::Named(font.to_string()),
+    }
+}
+
+fn named_font_family_available(
+    font_system: &FontSystem,
+    name: &str,
+    font_weight: &FontWeight,
+    font_style: &FontStyle,
+) -> bool {
+    let families = [Family::Name(name)];
+    let query = fontdb::Query {
+        families: &families,
+        weight: cosmic_font_weight(font_weight),
+        stretch: fontdb::Stretch::Normal,
+        style: cosmic_font_style(font_style),
+    };
+    font_system.db().query(&query).is_some()
+}
+
 fn make_cosmic_attrs<'a>(
-    font: &'a str,
+    family: Family<'a>,
     font_weight: &FontWeight,
     font_style: &FontStyle,
 ) -> Attrs<'a> {
     let mut attrs = Attrs::new();
-    let family = match font.to_lowercase().as_str() {
-        "serif" => Family::Serif,
-        "sans serif" | "sans-serif" => Family::SansSerif,
-        "cursive" => Family::Cursive,
-        "fantasy" => Family::Fantasy,
-        "monospace" => Family::Monospace,
-        _ => Family::Name(font),
-    };
-
     attrs.family = family;
 
     // Set font weight
-    attrs.weight = match font_weight {
+    attrs.weight = cosmic_font_weight(font_weight);
+
+    // Set font style
+    attrs.style = cosmic_font_style(font_style);
+
+    attrs
+}
+
+fn cosmic_font_weight(font_weight: &FontWeight) -> cosmic_text::Weight {
+    match font_weight {
         FontWeight::Name(FontWeightNameSpec::Bold) => cosmic_text::Weight::BOLD,
         FontWeight::Name(FontWeightNameSpec::Normal) => cosmic_text::Weight::NORMAL,
         FontWeight::Number(w) => cosmic_text::Weight(*w as u16),
-    };
+    }
+}
 
-    // Set font style
-    attrs.style = match font_style {
+fn cosmic_font_style(font_style: &FontStyle) -> cosmic_text::Style {
+    match font_style {
         FontStyle::Normal => cosmic_text::Style::Normal,
         FontStyle::Italic => cosmic_text::Style::Italic,
-    };
-
-    attrs
+    }
 }
 
 pub fn register_font_directory(dir: &str) {
@@ -381,5 +473,40 @@ mod tests {
         assert!(bounds.ascent > 0.0);
         assert!(bounds.descent > 0.0);
         assert!(bounds.line_height > 0.0);
+    }
+
+    #[test]
+    fn resolves_css_font_family_list_to_available_named_family() {
+        let font_system = crate::fonts::build_cosmic_font_system(&Default::default());
+        let font_weight = FontWeight::Name(FontWeightNameSpec::Normal);
+        let font_style = FontStyle::Normal;
+
+        let family = resolve_cosmic_font_family(
+            "\"Missing Display\", \"Atkinson Hyperlegible Next\", sans-serif",
+            &font_system,
+            &font_weight,
+            &font_style,
+        );
+
+        assert_eq!(
+            family,
+            CosmicFontFamily::Named("Atkinson Hyperlegible Next".to_string())
+        );
+    }
+
+    #[test]
+    fn resolves_css_font_family_list_to_generic_fallback() {
+        let font_system = crate::fonts::build_cosmic_font_system(&Default::default());
+        let font_weight = FontWeight::Name(FontWeightNameSpec::Normal);
+        let font_style = FontStyle::Normal;
+
+        let family = resolve_cosmic_font_family(
+            "\"Missing Display\", \"Still Missing\", sans-serif",
+            &font_system,
+            &font_weight,
+            &font_style,
+        );
+
+        assert_eq!(family, CosmicFontFamily::SansSerif);
     }
 }

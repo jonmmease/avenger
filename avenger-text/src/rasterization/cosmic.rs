@@ -166,6 +166,8 @@ where
             let glyph_pos = GlyphPosition {
                 x: glyph.x + glyph.font_size * glyph.x_offset,
                 y: glyph.y - glyph.font_size * glyph.y_offset,
+                physical_x: physical_glyph.x as f32,
+                physical_y: physical_glyph.y as f32,
             };
 
             // Compute cache key which combines glyph and color
@@ -403,5 +405,16 @@ mod tests {
             assert!((pos_one.x - pos_two.x).abs() < 0.001);
             assert!((pos_one.y - pos_two.y).abs() < 0.001);
         }
+
+        let has_scaled_physical_position =
+            scale_one
+                .glyphs
+                .iter()
+                .zip(&scale_two.glyphs)
+                .any(|((_, pos_one), (_, pos_two))| {
+                    (pos_one.physical_x - pos_two.physical_x).abs() > 0.001
+                        || (pos_one.physical_y - pos_two.physical_y).abs() > 0.001
+                });
+        assert!(has_scaled_physical_position);
     }
 }

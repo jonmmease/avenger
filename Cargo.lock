@@ -1126,6 +1126,7 @@ dependencies = [
  "ordered-float 5.0.0",
  "serde",
  "strum",
+ "svgtypes",
  "thiserror 2.0.18",
  "unicode-segmentation",
  "wasm-bindgen",

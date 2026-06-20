@@ -16,6 +16,9 @@ AVENGER_CHART_SVG_BASELINES=1 cargo test --test visual_regression -- --nocapture
 
 # Run only the SVG/resvg parity layer, reusing committed WGPU PNG baselines
 AVENGER_CHART_SVG_BASELINES=only cargo test --test visual_regression -- --nocapture
+
+# Rewrite all committed WGPU PNG baselines from the current renderer output
+AVENGER_CHART_BLESS_WGPU_BASELINES=1 cargo test --test visual_regression -- --nocapture
 ```
 
 ## Writing New Tests
@@ -51,6 +54,18 @@ The assertion functions will panic with a descriptive message if the test fails.
 ## Updating Baselines
 
 When visual changes are intentional:
+
+To rewrite every committed WGPU PNG baseline from the current renderer output:
+
+```bash
+AVENGER_CHART_BLESS_WGPU_BASELINES=1 cargo test --test visual_regression -- --nocapture
+```
+
+This replaces each `tests/baselines/{category}/{name}.png` as the visual test
+runs, including images that would already have passed against the old baseline.
+Review the changed PNGs, then commit them in focused chunks.
+
+For one-off failures:
 
 1. Run the failing test - it will generate files in `tests/failures/{category}/`:
    - `{test_name}_actual.png` - The new rendering

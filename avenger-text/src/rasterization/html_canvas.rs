@@ -119,6 +119,8 @@ where
             let glyph_pos = GlyphPosition {
                 x: left as f32 / scale,
                 y: top as f32 / scale,
+                physical_x: left as f32,
+                physical_y: top as f32,
             };
 
             if let Some(glyph_data) = glyph_cache.get(&cache_key) {

@@ -20,6 +20,7 @@ use std::{
 pub const DEFAULT_SCALE: f32 = 2.0;
 
 const SVG_BASELINES_ENV: &str = "AVENGER_CHART_SVG_BASELINES";
+const BLESS_WGPU_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_WGPU_BASELINES";
 const BLESS_SVG_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_SVG_BASELINES";
 const SVG_BASELINE_RESVG_THRESHOLD: f64 = 0.99999;
 const SVG_WGPU_BASELINE_THRESHOLD: f64 = 0.90;
@@ -244,6 +245,19 @@ fn svg_baselines_only_enabled() -> bool {
 
 fn bless_svg_baselines_enabled() -> bool {
     std::env::var_os(BLESS_SVG_BASELINES_ENV).is_some()
+}
+
+fn bless_wgpu_baselines_enabled() -> bool {
+    std::env::var_os(BLESS_WGPU_BASELINES_ENV).is_some()
+}
+
+fn write_wgpu_baseline(baseline_path: &str, image: &RgbaImage) {
+    save_image_to_path(image, Path::new(baseline_path)).unwrap_or_else(|e| {
+        panic!(
+            "Failed to write WGPU visual baseline '{}': {e}",
+            baseline_path
+        )
+    });
 }
 
 fn svg_baseline_path(category: &str, baseline_name: &str, extension: &str) -> PathBuf {
@@ -732,6 +746,10 @@ async fn assert_visual_match_baseline_only(
         save_diff_on_failure: true,
     };
 
+    if bless_wgpu_baselines_enabled() {
+        write_wgpu_baseline(&baseline_path, &direct_image);
+    }
+
     // Test direct rendering against baseline
     if let Err(msg) = compare_images(&baseline_path, direct_image.clone(), &config) {
         panic!(
@@ -789,6 +807,9 @@ pub async fn assert_scene_graph_visual_match(
             threshold: tolerance,
             save_diff_on_failure: true,
         };
+        if bless_wgpu_baselines_enabled() {
+            write_wgpu_baseline(&baseline_path, &image);
+        }
         if let Err(msg) = compare_images(&baseline_path, image, &config) {
             panic!(
                 "Visual test '{}' failed (scene graph rendering): {}",
@@ -842,6 +863,10 @@ pub async fn assert_visual_match_with_options(
         threshold: tolerance,
         save_diff_on_failure: true,
     };
+
+    if bless_wgpu_baselines_enabled() {
+        write_wgpu_baseline(&baseline_path, &direct_image);
+    }
 
     if let Err(msg) = compare_images(&baseline_path, direct_image.clone(), &config) {
         panic!(

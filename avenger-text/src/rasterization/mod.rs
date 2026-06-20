@@ -12,18 +12,22 @@ use crate::{
     types::{FontStyle, FontWeight},
 };
 
-/// Logical glyph origin in text layout coordinates.
+/// Glyph origin in text layout coordinates.
 ///
-/// Rasterizers still use physical glyphs to build cache keys and bitmap atlases,
-/// but renderers should place those bitmaps from this floating-point layout
-/// position so transformed text does not inherit pixel-grid snapping.
+/// `x` and `y` are floating-point logical positions. `physical_x` and
+/// `physical_y` are the pixel-aligned physical positions for the rasterized
+/// bitmap at the requested scale. Renderers can use logical positions for
+/// transformed/vector text and physical positions for crisp, untransformed
+/// bitmap placement.
 #[derive(Debug, Clone)]
 pub struct GlyphPosition {
     pub x: f32,
     pub y: f32,
+    pub physical_x: f32,
+    pub physical_y: f32,
 }
 
-#[deprecated(note = "use GlyphPosition; this is a logical, not physical, position")]
+#[deprecated(note = "use GlyphPosition")]
 pub type PhysicalGlyphPosition = GlyphPosition;
 
 // Glyph bounding box relative to glyph origin
