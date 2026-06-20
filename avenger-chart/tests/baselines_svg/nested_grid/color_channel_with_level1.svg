@@ -34,7 +34,7 @@
 <clipPath id="svg-clip-15" clipPathUnits="userSpaceOnUse"><rect x="414" y="307.75" width="84" height="284.246"/></clipPath>
 <clipPath id="svg-clip-16" clipPathUnits="userSpaceOnUse"><rect x="391.956" y="301.002" width="105.294" height="261.996"/></clipPath>
 <clipPath id="svg-clip-17" clipPathUnits="userSpaceOnUse"><rect x="545.5" y="49.002" width="42.504" height="506.996"/></clipPath>
-<linearGradient id="svg-gradient-0" gradientUnits="objectBoundingBox" x1="0" y1="491" x2="0" y2="0">
+<linearGradient id="svg-gradient-0" gradientUnits="objectBoundingBox" x1="0" y1="1" x2="0" y2="0">
 <stop offset="0" stop-color="#440154"/>
 <stop offset="0.1" stop-color="#40216a"/>
 <stop offset="0.2" stop-color="#3d4280"/>

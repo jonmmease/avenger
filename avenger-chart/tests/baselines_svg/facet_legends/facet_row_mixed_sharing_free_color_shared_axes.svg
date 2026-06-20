@@ -26,7 +26,7 @@
 <clipPath id="svg-clip-7" clipPathUnits="userSpaceOnUse"><rect x="42.996" y="349.417" width="553.063" height="192.579"/></clipPath>
 <clipPath id="svg-clip-8" clipPathUnits="userSpaceOnUse"><rect x="8.956" y="342.669" width="583.294" height="169.996"/></clipPath>
 <clipPath id="svg-clip-9" clipPathUnits="userSpaceOnUse"><rect x="645.5" y="15.002" width="42.165" height="490.996"/></clipPath>
-<linearGradient id="svg-gradient-0" gradientUnits="objectBoundingBox" x1="0" y1="475" x2="0" y2="0">
+<linearGradient id="svg-gradient-0" gradientUnits="objectBoundingBox" x1="0" y1="1" x2="0" y2="0">
 <stop offset="0" stop-color="#30123b"/>
 <stop offset="0.1" stop-color="#354472"/>
 <stop offset="0.2" stop-color="#3a75a8"/>

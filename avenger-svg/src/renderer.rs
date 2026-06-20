@@ -650,13 +650,13 @@ impl SvgDefs {
                 self.body.push_str(id);
                 self.body
                     .push_str(r#"" gradientUnits="objectBoundingBox" x1=""#);
-                push_number(&mut self.body, gradient.x0, precision)?;
+                push_gradient_unit(&mut self.body, gradient.x0, precision)?;
                 self.body.push_str(r#"" y1=""#);
-                push_number(&mut self.body, gradient.y0, precision)?;
+                push_gradient_unit(&mut self.body, gradient.y0, precision)?;
                 self.body.push_str(r#"" x2=""#);
-                push_number(&mut self.body, gradient.x1, precision)?;
+                push_gradient_unit(&mut self.body, gradient.x1, precision)?;
                 self.body.push_str(r#"" y2=""#);
-                push_number(&mut self.body, gradient.y1, precision)?;
+                push_gradient_unit(&mut self.body, gradient.y1, precision)?;
                 self.body.push_str("\">\n");
                 self.write_gradient_stops(gradient.stops.as_slice(), precision)?;
                 self.body.push_str("</linearGradient>\n");
@@ -678,17 +678,17 @@ impl SvgDefs {
                 self.body.push_str(&radial_id);
                 self.body
                     .push_str(r#"" gradientUnits="objectBoundingBox" fx=""#);
-                push_number(&mut self.body, gradient.x0, precision)?;
+                push_gradient_unit(&mut self.body, gradient.x0, precision)?;
                 self.body.push_str(r#"" fy=""#);
-                push_number(&mut self.body, gradient.y0, precision)?;
+                push_gradient_unit(&mut self.body, gradient.y0, precision)?;
                 self.body.push_str(r#"" cx=""#);
-                push_number(&mut self.body, gradient.x1, precision)?;
+                push_gradient_unit(&mut self.body, gradient.x1, precision)?;
                 self.body.push_str(r#"" cy=""#);
-                push_number(&mut self.body, gradient.y1, precision)?;
+                push_gradient_unit(&mut self.body, gradient.y1, precision)?;
                 self.body.push_str(r#"" fr=""#);
-                push_number(&mut self.body, gradient.r0, precision)?;
+                push_gradient_unit(&mut self.body, gradient.r0, precision)?;
                 self.body.push_str(r#"" r=""#);
-                push_number(&mut self.body, gradient.r1, precision)?;
+                push_gradient_unit(&mut self.body, gradient.r1, precision)?;
                 self.body.push_str("\">\n");
                 self.write_gradient_stops(gradient.stops.as_slice(), precision)?;
                 self.body.push_str("</radialGradient>\n");
@@ -805,6 +805,19 @@ fn push_clip_attr(output: &mut String, clip_id: Option<&str>) {
         output.push_str(clip_id);
         output.push_str(r#")""#);
     }
+}
+
+fn push_gradient_unit(
+    output: &mut String,
+    value: f32,
+    precision: usize,
+) -> Result<(), AvengerSvgError> {
+    let value = if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    push_number(output, value, precision)
 }
 
 fn rgba_image_to_png_data_uri(image: &RgbaImage) -> Result<String, AvengerSvgError> {
@@ -1293,6 +1306,50 @@ mod tests {
         assert!(svg.contains(r#"fill="url(#svg-gradient-0)""#));
         assert!(svg.contains(r#"stroke="url(#svg-gradient-1)""#));
         assert!(svg.contains(r##"stop-color="#0000ff" stop-opacity="0.5""##));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn clamps_gradient_control_points_to_object_bounding_box_units() {
+        let stops = vec![
+            GradientStop {
+                offset: 0.0,
+                color: [1.0, 0.0, 0.0, 1.0],
+            },
+            GradientStop {
+                offset: 1.0,
+                color: [0.0, 0.0, 1.0, 1.0],
+            },
+        ];
+        let scene_graph = SceneGraph {
+            width: 20.0,
+            height: 500.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                gradients: vec![Gradient::LinearGradient(LinearGradient {
+                    x0: 0.0,
+                    y0: 491.0,
+                    x1: 0.0,
+                    y1: 0.0,
+                    stops,
+                })],
+                x: ScalarOrArray::new_scalar(2.0),
+                y: ScalarOrArray::new_scalar(3.0),
+                width: Some(ScalarOrArray::new_scalar(15.0)),
+                height: Some(ScalarOrArray::new_scalar(491.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::GradientIndex(0)),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains(
+            r#"<linearGradient id="svg-gradient-0" gradientUnits="objectBoundingBox" x1="0" y1="1" x2="0" y2="0">"#
+        ));
+        assert!(!svg.contains(r#"y1="491""#));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 
