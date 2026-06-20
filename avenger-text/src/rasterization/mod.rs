@@ -12,12 +12,19 @@ use crate::{
     types::{FontStyle, FontWeight},
 };
 
-// Position of glyph in text buffer
+/// Logical glyph origin in text layout coordinates.
+///
+/// Rasterizers still use physical glyphs to build cache keys and bitmap atlases,
+/// but renderers should place those bitmaps from this floating-point layout
+/// position so transformed text does not inherit pixel-grid snapping.
 #[derive(Debug, Clone)]
-pub struct PhysicalGlyphPosition {
+pub struct GlyphPosition {
     pub x: f32,
     pub y: f32,
 }
+
+#[deprecated(note = "use GlyphPosition; this is a logical, not physical, position")]
+pub type PhysicalGlyphPosition = GlyphPosition;
 
 // Glyph bounding box relative to glyph origin
 #[derive(Clone, Copy, Debug)]
@@ -96,7 +103,7 @@ impl<CacheKey: Hash + Eq + Clone> GlyphData<CacheKey> {
 
 #[derive(Clone)]
 pub struct TextRasterizationBuffer<CacheKey: Hash + Eq + Clone> {
-    pub glyphs: Vec<(GlyphData<CacheKey>, PhysicalGlyphPosition)>,
+    pub glyphs: Vec<(GlyphData<CacheKey>, GlyphPosition)>,
     pub text_bounds: TextBounds,
 }
 

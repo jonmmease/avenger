@@ -13,7 +13,7 @@ use crate::{
         cosmic::{make_cosmic_text_buffer, measure_text_buffer, FONT_SYSTEM, SWASH_CACHE},
         truncate_text_to_limit_with, TextMeasurementConfig,
     },
-    rasterization::PhysicalGlyphPosition,
+    rasterization::GlyphPosition,
     FontResolutionOptions,
 };
 
@@ -157,15 +157,15 @@ where
     ];
 
     // Initialize glyphs
-    let mut glyphs: Vec<(GlyphData<CosmicCacheKey>, PhysicalGlyphPosition)> = Vec::new();
+    let mut glyphs: Vec<(GlyphData<CosmicCacheKey>, GlyphPosition)> = Vec::new();
 
     for run in buffer.layout_runs() {
         for glyph in run.glyphs.iter() {
             let physical_glyph = glyph.physical((0.0, 0.0), scale);
 
-            let phys_pos = PhysicalGlyphPosition {
-                x: physical_glyph.x as f32,
-                y: physical_glyph.y as f32,
+            let glyph_pos = GlyphPosition {
+                x: glyph.x + glyph.font_size * glyph.x_offset,
+                y: glyph.y - glyph.font_size * glyph.y_offset,
             };
 
             // Compute cache key which combines glyph and color
@@ -174,7 +174,7 @@ where
             if let Some(glyph_image) = next_cache.get(&cache_key) {
                 // Glyph has already been rasterized by this call to rasterize and the full image
                 // is already in the glyphs Vec, so we can store the reference only.
-                glyphs.push((glyph_image.clone().without_image(), phys_pos));
+                glyphs.push((glyph_image.clone().without_image(), glyph_pos));
             } else {
                 // We need to rasterize glyph and write it to next_atlas
                 let Some(image) = cache
@@ -211,7 +211,7 @@ where
                             path: None,
                             bbox,
                         },
-                        phys_pos,
+                        glyph_pos,
                     ));
                 } else {
                     let img = match image.content {
@@ -283,7 +283,7 @@ where
                     // Update cache
                     next_cache.insert(cache_key, glyph_data.clone().without_image());
 
-                    glyphs.push((glyph_data, phys_pos));
+                    glyphs.push((glyph_data, glyph_pos));
                 }
             };
         }
@@ -373,5 +373,35 @@ mod tests {
 
         assert!(unbounded.text_bounds.width > limited.text_bounds.width);
         assert!(limited.text_bounds.width <= 36.5);
+    }
+
+    #[test]
+    fn rasterizer_reports_scale_independent_logical_glyph_positions() {
+        let rasterizer =
+            CosmicTextRasterizer::<()>::with_font_resolution(FontResolutionOptions::default());
+        let text = "Rotated Label".to_string();
+        let color = [0.0, 0.0, 0.0, 1.0];
+        let font = "Atkinson Hyperlegible Next".to_string();
+        let font_weight = FontWeight::Name(FontWeightNameSpec::Normal);
+        let font_style = FontStyle::Normal;
+        let cached_glyphs = HashMap::new();
+        let config = TextRasterizationConfig {
+            text: &text,
+            color: &color,
+            font: &font,
+            font_size: 12.0,
+            font_weight: &font_weight,
+            font_style: &font_style,
+            limit: 0.0,
+        };
+
+        let scale_one = rasterizer.rasterize(&config, 1.0, &cached_glyphs).unwrap();
+        let scale_two = rasterizer.rasterize(&config, 2.0, &cached_glyphs).unwrap();
+
+        assert_eq!(scale_one.glyphs.len(), scale_two.glyphs.len());
+        for ((_, pos_one), (_, pos_two)) in scale_one.glyphs.iter().zip(&scale_two.glyphs) {
+            assert!((pos_one.x - pos_two.x).abs() < 0.001);
+            assert!((pos_one.y - pos_two.y).abs() < 0.001);
+        }
     }
 }

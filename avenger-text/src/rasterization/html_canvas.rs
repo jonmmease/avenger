@@ -15,8 +15,8 @@ use crate::{
         try_truncate_text_to_limit_with, TextBounds,
     },
     rasterization::{
-        GlyphBBox, GlyphData, PhysicalGlyphPosition, TextRasterizationBuffer,
-        TextRasterizationConfig, TextRasterizer,
+        GlyphBBox, GlyphData, GlyphPosition, TextRasterizationBuffer, TextRasterizationConfig,
+        TextRasterizer,
     },
 };
 
@@ -85,7 +85,7 @@ where
         let mut str_so_far = String::new();
 
         // Initialize glyphs
-        let mut glyphs: Vec<(GlyphData<u64>, PhysicalGlyphPosition)> = Vec::new();
+        let mut glyphs: Vec<(GlyphData<u64>, GlyphPosition)> = Vec::new();
 
         for cluster in text.graphemes(true) {
             // Compute right edge using full string up through this cluster
@@ -116,15 +116,14 @@ where
             let left = right - cluster_width;
             let top = -cluster_metrics.actual_bounding_box_ascent();
 
-            // Physical position, relative to start of origin of string
-            let phys_pos = PhysicalGlyphPosition {
-                x: left as f32,
-                y: top as f32,
+            let glyph_pos = GlyphPosition {
+                x: left as f32 / scale,
+                y: top as f32 / scale,
             };
 
             if let Some(glyph_data) = glyph_cache.get(&cache_key) {
                 // Glyph has already been rasterized previously, but the image may be needed
-                glyphs.push((glyph_data.clone(), phys_pos));
+                glyphs.push((glyph_data.clone(), glyph_pos));
             } else {
                 // Extract bbox dimensions
                 let canvas_width = cluster_actual_width.ceil() as u32 + 2;
@@ -149,7 +148,7 @@ where
                             path: None,
                             bbox,
                         },
-                        phys_pos,
+                        glyph_pos,
                     ));
                 } else {
                     // Create image for glyph
@@ -194,7 +193,7 @@ where
                         },
                     };
                     glyph_cache.insert(cache_key, glyph_data.clone());
-                    glyphs.push((glyph_data, phys_pos));
+                    glyphs.push((glyph_data, glyph_pos));
                 }
             }
         }
