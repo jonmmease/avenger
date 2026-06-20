@@ -371,10 +371,19 @@ fn describe_text_fonts(text: &svg2pdf::usvg::Text) -> String {
 
 #[cfg(test)]
 mod tests {
-    use avenger_color::{ColorOrGradient, Gradient, GradientStop, RadialGradient};
-    use avenger_common::value::ScalarOrArray;
+    use avenger_color::{ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient};
+    use avenger_common::{
+        types::{ImageAlign, ImageBaseline},
+        value::ScalarOrArray,
+    };
+    use avenger_image::RgbaImage;
     use avenger_scenegraph::{
-        marks::{rect::SceneRectMark, text::SceneTextMark},
+        marks::{
+            group::{Clip, SceneGroup},
+            image::SceneImageMark,
+            rect::SceneRectMark,
+            text::SceneTextMark,
+        },
         scene_graph::SceneGraph,
     };
     use avenger_text::FontResolutionOptions;
@@ -402,6 +411,36 @@ mod tests {
         let pdf = PdfRenderer::new().render_scene_graph(&scene_graph).unwrap();
 
         assert!(pdf.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn simple_vector_scene_does_not_emit_pdf_image_xobject() {
+        let scene_graph = SceneGraph {
+            width: 20.0,
+            height: 10.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(1.0),
+                y: ScalarOrArray::new_scalar(2.0),
+                width: Some(ScalarOrArray::new_scalar(3.0)),
+                height: Some(ScalarOrArray::new_scalar(4.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0])),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let pdf = PdfRenderer::new()
+            .with_options(PdfRenderOptions {
+                compress: false,
+                ..Default::default()
+            })
+            .render_scene_graph(&scene_graph)
+            .unwrap();
+
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(!pdf_contains(&pdf, b"/Subtype /Image"));
     }
 
     #[test]
@@ -465,6 +504,44 @@ mod tests {
         assert!(svg.contains("<text "));
         assert!(tree.has_text_nodes());
         assert!(pdf.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn text_heavy_scenegraph_embeds_selectable_text_fonts() {
+        let scene_graph = SceneGraph {
+            width: 160.0,
+            height: 60.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                len: 4,
+                text: ScalarOrArray::new_array(vec![
+                    "Alpha".to_string(),
+                    "Beta".to_string(),
+                    "Gamma".to_string(),
+                    "Delta".to_string(),
+                ]),
+                x: ScalarOrArray::new_array(vec![8.0, 48.0, 88.0, 128.0]),
+                y: ScalarOrArray::new_array(vec![16.0, 28.0, 40.0, 52.0]),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let renderer = PdfRenderer::new().with_options(PdfRenderOptions {
+            compress: false,
+            ..Default::default()
+        });
+        let svg = renderer.render_svg_for_pdf(&scene_graph).unwrap();
+        let tree = svg2pdf::usvg::Tree::from_str(&svg, &renderer.usvg_options()).unwrap();
+        let pdf = renderer.render_scene_graph(&scene_graph).unwrap();
+
+        assert_eq!(svg.matches("<text ").count(), 4);
+        assert!(tree.has_text_nodes());
+        assert!(pdf_contains(&pdf, b"/FontDescriptor"));
+        assert!(pdf_contains(&pdf, b"/FontFile2") || pdf_contains(&pdf, b"/FontFile3"));
+        assert!(pdf_contains(&pdf, b"/ToUnicode"));
     }
 
     #[test]
@@ -560,6 +637,100 @@ mod tests {
 
         assert!(pdf_contains(&pdf, b"/FontFile2") || pdf_contains(&pdf, b"/FontFile3"));
         assert!(pdf_contains(&pdf, b"/ToUnicode"));
+    }
+
+    #[test]
+    fn image_mark_converts_to_pdf_image_xobject() {
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneImageMark {
+                len: 1,
+                aspect: false,
+                smooth: false,
+                image: ScalarOrArray::new_scalar(RgbaImage {
+                    width: 1,
+                    height: 1,
+                    data: vec![255, 0, 0, 255],
+                }),
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(5.0),
+                width: ScalarOrArray::new_scalar(12.0),
+                height: ScalarOrArray::new_scalar(8.0),
+                align: ScalarOrArray::new_scalar(ImageAlign::Left),
+                baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let renderer = PdfRenderer::new().with_options(PdfRenderOptions {
+            compress: false,
+            ..Default::default()
+        });
+        let svg = renderer.render_svg_for_pdf(&scene_graph).unwrap();
+        let pdf = renderer.render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains("<image "));
+        assert!(svg.contains("data:image/png;base64,"));
+        assert!(pdf_contains(&pdf, b"/Subtype /Image"));
+    }
+
+    #[test]
+    fn gradient_and_clip_scenegraph_converts_to_pdf() {
+        let scene_graph = SceneGraph {
+            width: 50.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                clip: Clip::Rect {
+                    x: 2.0,
+                    y: 3.0,
+                    width: 30.0,
+                    height: 12.0,
+                },
+                marks: vec![SceneRectMark {
+                    len: 1,
+                    clip: true,
+                    gradients: vec![Gradient::LinearGradient(LinearGradient {
+                        x0: 0.0,
+                        y0: 0.0,
+                        x1: 1.0,
+                        y1: 0.0,
+                        stops: vec![
+                            GradientStop {
+                                offset: 0.0,
+                                color: [1.0, 0.0, 0.0, 1.0],
+                            },
+                            GradientStop {
+                                offset: 1.0,
+                                color: [0.0, 0.0, 1.0, 1.0],
+                            },
+                        ],
+                    })],
+                    x: ScalarOrArray::new_scalar(0.0),
+                    y: ScalarOrArray::new_scalar(0.0),
+                    width: Some(ScalarOrArray::new_scalar(40.0)),
+                    height: Some(ScalarOrArray::new_scalar(20.0)),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::GradientIndex(0)),
+                    ..Default::default()
+                }
+                .into()],
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let renderer = PdfRenderer::new();
+        let svg = renderer.render_svg_for_pdf(&scene_graph).unwrap();
+        let tree = svg2pdf::usvg::Tree::from_str(&svg, &renderer.usvg_options()).unwrap();
+        let pdf = renderer.render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains("<clipPath "));
+        assert!(svg.contains("<linearGradient "));
+        assert!(tree.size().width() > 0.0);
+        assert!(pdf.starts_with(b"%PDF-"));
     }
 
     #[test]

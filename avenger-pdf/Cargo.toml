@@ -27,3 +27,6 @@ path = "../avenger-color"
 
 [dev-dependencies.avenger-common]
 path = "../avenger-common"
+
+[dev-dependencies.avenger-image]
+path = "../avenger-image"
