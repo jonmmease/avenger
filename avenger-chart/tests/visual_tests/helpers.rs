@@ -684,6 +684,10 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
     }
 
     let pdf = SceneGraphPdfRenderer::new()
+        .with_options(avenger_pdf::PdfRenderOptions {
+            font_resolution: pdf_visual_font_resolution(),
+            ..Default::default()
+        })
         .render_scene_graph(scene_graph)
         .expect("Failed to render PDF visual baseline");
     let pdf_image = rasterize_pdf_with_pdfium(&pdf, scene_graph.width, scene_graph.height)
@@ -760,6 +764,13 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
 }
 
 fn svg_visual_font_resolution() -> FontResolutionOptions {
+    FontResolutionOptions {
+        missing_font: MissingFontPolicy::Fallback,
+        ..Default::default()
+    }
+}
+
+fn pdf_visual_font_resolution() -> FontResolutionOptions {
     FontResolutionOptions {
         missing_font: MissingFontPolicy::Fallback,
         ..Default::default()
