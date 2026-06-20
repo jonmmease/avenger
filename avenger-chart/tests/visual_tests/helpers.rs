@@ -736,7 +736,7 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
         .unwrap_or_else(|msg| panic!("PDF baseline '{}' failed: {msg}", baseline_name));
     }
 
-    let pdf_wgpu_score = if pdf_score_report_path().is_some() {
+    let pdf_wgpu_score = if pdf_score_report_path().is_some() || bless_pdf_baselines_enabled() {
         image_similarity_score_with_named_failures(
             &wgpu_baseline_path,
             &pdf_image,
