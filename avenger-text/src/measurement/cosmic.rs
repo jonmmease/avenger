@@ -5,7 +5,7 @@ use std::{
 
 use cosmic_text::{
     fontdb::{self, Database},
-    ttf_parser, Attrs, Buffer, Family, FontSystem, Metrics as CosmicMetrics, SwashCache,
+    Attrs, Buffer, CacheKeyFlags, Family, FontSystem, Metrics as CosmicMetrics, SwashCache,
 };
 use lazy_static::lazy_static;
 use svgtypes::{parse_font_families, FontFamily as SvgFontFamily};
@@ -327,6 +327,7 @@ pub fn make_cosmic_text_buffer(
         config.text,
         &attrs,
         cosmic_text::Shaping::Advanced,
+        None,
     );
     buffer.set_size(font_system, Some(1024.0), Some(512.0));
     buffer.shape_until_scroll(font_system, false);
@@ -419,6 +420,8 @@ fn make_cosmic_attrs<'a>(
 
     // Set font style
     attrs.style = cosmic_font_style(font_style);
+
+    attrs.cache_key_flags = CacheKeyFlags::DISABLE_HINTING;
 
     attrs
 }

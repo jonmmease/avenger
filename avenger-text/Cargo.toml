@@ -18,6 +18,7 @@ lyon_path = { workspace = true }
 strum = { workspace = true }
 ordered-float = { workspace = true }
 svgtypes = { workspace = true }
+ttf-parser = { workspace = true }
 
 [dependencies.cosmic-text]
 workspace = true
