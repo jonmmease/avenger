@@ -1,7 +1,15 @@
 use std::path::Path;
 
-use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_scenegraph::{
+    marks::mark::SceneMark,
+    render_order::{SceneDisplayList, SceneDisplayMark},
+    scene_graph::SceneGraph,
+};
 use avenger_svg::{SvgBackground, SvgFontEmbedding, SvgImageMode, SvgRenderOptions, SvgRenderer};
+use avenger_text::{
+    types::{FontStyle, FontWeight, FontWeightNameSpec},
+    MissingFontPolicy,
+};
 
 use crate::{
     error::AvengerPdfError,
@@ -24,9 +32,26 @@ impl PdfRenderer {
     }
 
     pub fn render_scene_graph(&self, scene_graph: &SceneGraph) -> Result<Vec<u8>, AvengerPdfError> {
-        let svg = self.render_svg_for_pdf(scene_graph)?;
         let usvg_options = self.usvg_options();
+        if self.options.embed_text
+            && matches!(
+                self.options.font_resolution.missing_font,
+                MissingFontPolicy::Error
+            )
+        {
+            validate_scene_graph_text_fonts(scene_graph, usvg_options.fontdb.as_ref())?;
+        }
+
+        let svg = self.render_svg_for_pdf(scene_graph)?;
         let tree = svg2pdf::usvg::Tree::from_str(&svg, &usvg_options)?;
+        if self.options.embed_text
+            && matches!(
+                self.options.font_resolution.missing_font,
+                MissingFontPolicy::Error
+            )
+        {
+            validate_text_fonts_for_embedding(&tree)?;
+        }
         let pdf = svg2pdf::to_pdf(
             &tree,
             svg2pdf::ConversionOptions {
@@ -94,6 +119,270 @@ impl PdfRenderer {
 fn load_avenger_embedded_fonts(fontdb: &mut svg2pdf::usvg::fontdb::Database) {
     for font in avenger_text::fonts::embedded_fonts() {
         fontdb.load_font_data(Vec::from(font.data));
+    }
+}
+
+fn validate_scene_graph_text_fonts(
+    scene_graph: &SceneGraph,
+    fontdb: &svg2pdf::usvg::fontdb::Database,
+) -> Result<(), AvengerPdfError> {
+    let display_list = SceneDisplayList::from_scene_graph(scene_graph);
+    for item in display_list.ordered_items() {
+        let SceneDisplayMark::Borrowed(SceneMark::Text(mark)) = &item.mark else {
+            continue;
+        };
+
+        for (((text, font), font_weight), font_style) in mark
+            .text_iter()
+            .zip(mark.font_iter())
+            .zip(mark.font_weight_iter())
+            .zip(mark.font_style_iter())
+        {
+            if text.chars().all(char::is_whitespace) {
+                continue;
+            }
+
+            let family = font.trim();
+            if family.is_empty() || is_generic_font_family(family) {
+                continue;
+            }
+
+            if !fontdb_has_scene_family(fontdb, family, font_weight, font_style) {
+                return Err(AvengerPdfError::Font(format!(
+                    "missing requested text font family {family}"
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn is_generic_font_family(family: &str) -> bool {
+    matches!(
+        family,
+        "serif" | "sans-serif" | "cursive" | "fantasy" | "monospace"
+    )
+}
+
+fn fontdb_has_scene_family(
+    fontdb: &svg2pdf::usvg::fontdb::Database,
+    family: &str,
+    font_weight: &FontWeight,
+    font_style: &FontStyle,
+) -> bool {
+    let families = [svg2pdf::usvg::fontdb::Family::Name(family)];
+    let query = svg2pdf::usvg::fontdb::Query {
+        families: &families,
+        weight: svg2pdf::usvg::fontdb::Weight(font_weight_number(font_weight)),
+        stretch: svg2pdf::usvg::fontdb::Stretch::Normal,
+        style: scene_font_style(font_style),
+    };
+    fontdb.query(&query).is_some()
+}
+
+fn validate_text_fonts_for_embedding(tree: &svg2pdf::usvg::Tree) -> Result<(), AvengerPdfError> {
+    let mut error = None;
+    validate_group_text_fonts(tree.root(), tree.fontdb(), &mut error);
+    if let Some(error) = error {
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn validate_group_text_fonts(
+    group: &svg2pdf::usvg::Group,
+    fontdb: &svg2pdf::usvg::fontdb::Database,
+    error: &mut Option<AvengerPdfError>,
+) {
+    if error.is_some() {
+        return;
+    }
+
+    for node in group.children() {
+        match node {
+            svg2pdf::usvg::Node::Group(group) => validate_group_text_fonts(group, fontdb, error),
+            svg2pdf::usvg::Node::Text(text) => {
+                if let Some(message) = text_font_embedding_error(text, fontdb) {
+                    *error = Some(AvengerPdfError::Font(message));
+                    return;
+                }
+            }
+            _ => {}
+        }
+
+        node.subroots(|subroot| validate_group_text_fonts(subroot, fontdb, error));
+        if error.is_some() {
+            return;
+        }
+    }
+}
+
+fn text_font_embedding_error(
+    text: &svg2pdf::usvg::Text,
+    fontdb: &svg2pdf::usvg::fontdb::Database,
+) -> Option<String> {
+    if !text_has_visible_content(text) {
+        return None;
+    }
+
+    if let Some(message) = missing_requested_font_error(text, fontdb) {
+        return Some(message);
+    }
+
+    let mut glyph_count = 0usize;
+    for span in text.layouted().iter().filter(|span| span.visible) {
+        for glyph in &span.positioned_glyphs {
+            glyph_count += 1;
+            if glyph.id.0 == 0 {
+                return Some(format!(
+                    "missing glyph for '{}' in {}",
+                    glyph.text,
+                    describe_text_fonts(text)
+                ));
+            }
+        }
+    }
+
+    if glyph_count == 0 {
+        Some(format!(
+            "no embeddable glyphs were resolved for {}",
+            describe_text_fonts(text)
+        ))
+    } else {
+        None
+    }
+}
+
+fn missing_requested_font_error(
+    text: &svg2pdf::usvg::Text,
+    fontdb: &svg2pdf::usvg::fontdb::Database,
+) -> Option<String> {
+    for chunk in text.chunks() {
+        for span in chunk.spans() {
+            let span_text = chunk
+                .text()
+                .get(span.start()..span.end())
+                .unwrap_or(chunk.text());
+            if !span.is_visible() || !span_text.chars().any(|c| !c.is_whitespace()) {
+                continue;
+            }
+
+            let named_families = span
+                .font()
+                .families()
+                .iter()
+                .filter_map(|family| match family {
+                    svg2pdf::usvg::FontFamily::Named(name) => Some(name.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            if named_families.is_empty()
+                || named_families
+                    .iter()
+                    .any(|family| fontdb_has_family(fontdb, family, span.font()))
+            {
+                continue;
+            }
+
+            return Some(format!(
+                "missing requested text font families {}",
+                named_families.join(", ")
+            ));
+        }
+    }
+
+    None
+}
+
+fn fontdb_has_family(
+    fontdb: &svg2pdf::usvg::fontdb::Database,
+    family: &str,
+    font: &svg2pdf::usvg::Font,
+) -> bool {
+    let families = [svg2pdf::usvg::fontdb::Family::Name(family)];
+    let query = svg2pdf::usvg::fontdb::Query {
+        families: &families,
+        weight: svg2pdf::usvg::fontdb::Weight(font.weight()),
+        stretch: font_stretch(font.stretch()),
+        style: font_style(font.style()),
+    };
+    fontdb.query(&query).is_some()
+}
+
+fn font_style(style: svg2pdf::usvg::FontStyle) -> svg2pdf::usvg::fontdb::Style {
+    match style {
+        svg2pdf::usvg::FontStyle::Normal => svg2pdf::usvg::fontdb::Style::Normal,
+        svg2pdf::usvg::FontStyle::Italic => svg2pdf::usvg::fontdb::Style::Italic,
+        svg2pdf::usvg::FontStyle::Oblique => svg2pdf::usvg::fontdb::Style::Oblique,
+    }
+}
+
+fn font_stretch(stretch: svg2pdf::usvg::FontStretch) -> svg2pdf::usvg::fontdb::Stretch {
+    match stretch {
+        svg2pdf::usvg::FontStretch::UltraCondensed => {
+            svg2pdf::usvg::fontdb::Stretch::UltraCondensed
+        }
+        svg2pdf::usvg::FontStretch::ExtraCondensed => {
+            svg2pdf::usvg::fontdb::Stretch::ExtraCondensed
+        }
+        svg2pdf::usvg::FontStretch::Condensed => svg2pdf::usvg::fontdb::Stretch::Condensed,
+        svg2pdf::usvg::FontStretch::SemiCondensed => svg2pdf::usvg::fontdb::Stretch::SemiCondensed,
+        svg2pdf::usvg::FontStretch::Normal => svg2pdf::usvg::fontdb::Stretch::Normal,
+        svg2pdf::usvg::FontStretch::SemiExpanded => svg2pdf::usvg::fontdb::Stretch::SemiExpanded,
+        svg2pdf::usvg::FontStretch::Expanded => svg2pdf::usvg::fontdb::Stretch::Expanded,
+        svg2pdf::usvg::FontStretch::ExtraExpanded => svg2pdf::usvg::fontdb::Stretch::ExtraExpanded,
+        svg2pdf::usvg::FontStretch::UltraExpanded => svg2pdf::usvg::fontdb::Stretch::UltraExpanded,
+    }
+}
+
+fn font_weight_number(font_weight: &FontWeight) -> u16 {
+    match font_weight {
+        FontWeight::Name(FontWeightNameSpec::Normal) => 400,
+        FontWeight::Name(FontWeightNameSpec::Bold) => 700,
+        FontWeight::Number(weight) => *weight as u16,
+    }
+}
+
+fn scene_font_style(font_style: &FontStyle) -> svg2pdf::usvg::fontdb::Style {
+    match font_style {
+        FontStyle::Normal => svg2pdf::usvg::fontdb::Style::Normal,
+        FontStyle::Italic => svg2pdf::usvg::fontdb::Style::Italic,
+    }
+}
+
+fn text_has_visible_content(text: &svg2pdf::usvg::Text) -> bool {
+    text.chunks().iter().any(|chunk| {
+        chunk.spans().iter().any(|span| {
+            span.is_visible()
+                && chunk
+                    .text()
+                    .get(span.start()..span.end())
+                    .unwrap_or(chunk.text())
+                    .chars()
+                    .any(|c| !c.is_whitespace())
+        })
+    })
+}
+
+fn describe_text_fonts(text: &svg2pdf::usvg::Text) -> String {
+    let mut families = Vec::new();
+    for chunk in text.chunks() {
+        for span in chunk.spans() {
+            for family in span.font().families() {
+                let family = family.to_string();
+                if !families.contains(&family) {
+                    families.push(family);
+                }
+            }
+        }
+    }
+
+    if families.is_empty() {
+        "requested text fonts".to_string()
+    } else {
+        format!("requested text font families {}", families.join(", "))
     }
 }
 
@@ -187,6 +476,35 @@ mod tests {
         assert!(pdf_contains(&pdf, b"/FontDescriptor"));
         assert!(pdf_contains(&pdf, b"/FontFile2") || pdf_contains(&pdf, b"/FontFile3"));
         assert!(pdf_contains(&pdf, b"/ToUnicode"));
+    }
+
+    #[test]
+    fn errors_when_text_font_cannot_be_embedded() {
+        let scene_graph = SceneGraph {
+            width: 80.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Missing font".to_string()),
+                x: ScalarOrArray::new_scalar(5.0),
+                y: ScalarOrArray::new_scalar(12.0),
+                font: ScalarOrArray::new_scalar("Definitely Missing Avenger Font".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let err = PdfRenderer::new()
+            .render_scene_graph(&scene_graph)
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            AvengerPdfError::Font(message)
+                if message.contains("missing requested text font family")
+                    && message.contains("Definitely Missing Avenger Font")
+        ));
     }
 
     #[test]
