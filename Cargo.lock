@@ -1058,9 +1058,13 @@ version = "0.0.8"
 dependencies = [
  "avenger-color",
  "avenger-common",
+ "avenger-image",
  "avenger-scenegraph",
  "avenger-text",
+ "base64",
+ "image",
  "itertools 0.14.0",
+ "lyon_algorithms",
  "lyon_path",
  "thiserror 2.0.18",
  "usvg",

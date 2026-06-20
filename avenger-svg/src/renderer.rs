@@ -1,14 +1,20 @@
+use std::io::Cursor;
+
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::types::{StrokeCap, StrokeJoin};
+use avenger_image::RgbaImage;
 use avenger_scenegraph::{
     marks::{
-        area::SceneAreaMark, group::Clip, line::SceneLineMark, mark::SceneMark,
-        path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark,
+        area::SceneAreaMark, group::Clip, image::SceneImageMark, line::SceneLineMark,
+        mark::SceneMark, path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark,
+        symbol::SceneSymbolMark,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
+use base64::{prelude::BASE64_STANDARD, Engine};
 use itertools::izip;
+use lyon_algorithms::aabb::bounding_box;
 
 use crate::{
     error::AvengerSvgError,
@@ -111,7 +117,7 @@ impl SvgRenderer {
             SceneMark::Arc(_) => Err(AvengerSvgError::UnsupportedMark("arc")),
             SceneMark::Trail(_) => Err(AvengerSvgError::UnsupportedMark("trail")),
             SceneMark::Text(_) => Err(AvengerSvgError::UnsupportedMark("text")),
-            SceneMark::Image(_) => Err(AvengerSvgError::UnsupportedMark("image")),
+            SceneMark::Image(mark) => self.write_image_mark(document, mark, origin, clip_id),
             SceneMark::Group(_) => Ok(()),
         }
     }
@@ -205,6 +211,44 @@ impl SvgRenderer {
                 },
                 clip_id,
             )?;
+        }
+
+        Ok(())
+    }
+
+    fn write_image_mark(
+        &self,
+        document: &mut SvgDocument,
+        mark: &SceneImageMark,
+        origin: [f32; 2],
+        clip_id: Option<&str>,
+    ) -> Result<(), AvengerSvgError> {
+        for (image, path) in izip!(mark.image_iter(), mark.transformed_path_iter(origin)) {
+            let data_uri = rgba_image_to_png_data_uri(image)?;
+            let bbox = bounding_box(&path);
+            let x = bbox.min.x;
+            let y = bbox.min.y;
+            let width = bbox.max.x - bbox.min.x;
+            let height = bbox.max.y - bbox.min.y;
+
+            document.body.push_str(r#"<image x=""#);
+            push_number(&mut document.body, x, self.options.precision)?;
+            document.body.push_str(r#"" y=""#);
+            push_number(&mut document.body, y, self.options.precision)?;
+            document.body.push_str(r#"" width=""#);
+            push_number(&mut document.body, width, self.options.precision)?;
+            document.body.push_str(r#"" height=""#);
+            push_number(&mut document.body, height, self.options.precision)?;
+            document
+                .body
+                .push_str(r#"" preserveAspectRatio="none" href=""#);
+            document.body.push_str(&data_uri);
+            document.body.push('"');
+            if !mark.smooth {
+                document.body.push_str(r#" image-rendering="pixelated""#);
+            }
+            push_clip_attr(&mut document.body, clip_id);
+            document.body.push_str("/>\n");
         }
 
         Ok(())
@@ -557,6 +601,24 @@ fn push_clip_attr(output: &mut String, clip_id: Option<&str>) {
     }
 }
 
+fn rgba_image_to_png_data_uri(image: &RgbaImage) -> Result<String, AvengerSvgError> {
+    let Some(rgba_image) = image.to_image() else {
+        return Err(AvengerSvgError::ImageEncoding(
+            "invalid RGBA image buffer".to_string(),
+        ));
+    };
+
+    let mut cursor = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(rgba_image)
+        .write_to(&mut cursor, image::ImageFormat::Png)
+        .map_err(|err| AvengerSvgError::ImageEncoding(err.to_string()))?;
+
+    Ok(format!(
+        "data:image/png;base64,{}",
+        BASE64_STANDARD.encode(cursor.into_inner())
+    ))
+}
+
 struct PathStyle<'a> {
     fill: Option<&'a ColorOrGradient>,
     stroke: Option<&'a ColorOrGradient>,
@@ -622,9 +684,11 @@ fn close_single_point_subpath(
 mod tests {
     use avenger_color::{ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient};
     use avenger_common::value::ScalarOrArray;
+    use avenger_image::RgbaImage;
     use avenger_scenegraph::{
         marks::{
             group::{Clip, SceneGroup},
+            image::SceneImageMark,
             rect::SceneRectMark,
             rule::SceneRuleMark,
             symbol::SceneSymbolMark,
@@ -826,6 +890,39 @@ mod tests {
         assert_eq!(svg.matches("<path ").count(), 2);
         assert!(svg.contains(r##"fill="#00ff00""##));
         assert!(svg.contains(r#"stroke-width="1.5""#));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn renders_image_marks_as_embedded_png_images() {
+        let scene_graph = SceneGraph {
+            width: 20.0,
+            height: 10.0,
+            origin: [1.0, 2.0],
+            marks: vec![SceneImageMark {
+                len: 1,
+                aspect: false,
+                smooth: false,
+                image: ScalarOrArray::new_scalar(RgbaImage {
+                    width: 1,
+                    height: 1,
+                    data: vec![255, 0, 0, 255],
+                }),
+                x: ScalarOrArray::new_scalar(2.0),
+                y: ScalarOrArray::new_scalar(3.0),
+                width: ScalarOrArray::new_scalar(4.0),
+                height: ScalarOrArray::new_scalar(5.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains(r#"<image x="3" y="5" width="4" height="5""#));
+        assert!(svg.contains(r#"preserveAspectRatio="none""#));
+        assert!(svg.contains(r#"href="data:image/png;base64,"#));
+        assert!(svg.contains(r#"image-rendering="pixelated""#));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 }
