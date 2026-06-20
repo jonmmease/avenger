@@ -4,6 +4,7 @@ use crate::tracing::try_init_tracing;
 use avenger_chart::plot::CompiledPlot;
 use avenger_chart::render::{EvaluatedPlot, EvaluationOptions};
 use avenger_common::canvas::CanvasDimensions;
+use avenger_pdf::PdfRenderer as SceneGraphPdfRenderer;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_svg::{SvgRenderOptions, SvgRenderer};
 use avenger_text::{FontResolutionOptions, MissingFontPolicy};
@@ -11,19 +12,32 @@ use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::common::ScalarValue;
 use image::RgbaImage;
 use indexmap::IndexMap;
+use pdfium_render::prelude::{PdfRenderConfig, Pdfium, PdfiumError};
 use std::{
     fs,
+    fs::OpenOptions,
+    io::Write,
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 
 /// Default dimensions for test charts
 pub const DEFAULT_SCALE: f32 = 2.0;
 
 const SVG_BASELINES_ENV: &str = "AVENGER_CHART_SVG_BASELINES";
+const PDF_BASELINES_ENV: &str = "AVENGER_CHART_PDF_BASELINES";
 const BLESS_WGPU_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_WGPU_BASELINES";
 const BLESS_SVG_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_SVG_BASELINES";
+const BLESS_PDF_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_PDF_BASELINES";
+const PDF_SCORE_REPORT_ENV: &str = "AVENGER_CHART_PDF_SCORE_REPORT";
+const PDFIUM_LIBRARY_PATH_ENV: &str = "AVENGER_CHART_PDFIUM_LIBRARY_PATH";
 const SVG_BASELINE_RESVG_THRESHOLD: f64 = 0.99999;
 const SVG_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
+const PDF_BASELINE_PDFIUM_THRESHOLD: f64 = 0.99999;
+const PDF_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
+
+static PDFIUM_BIND_LOCK: Mutex<()> = Mutex::new(());
+static PDF_SCORE_REPORT_LOCK: Mutex<()> = Mutex::new(());
 
 /// Configuration for visual tests
 pub struct VisualTestConfig {
@@ -218,6 +232,28 @@ fn bless_svg_baselines_enabled() -> bool {
     std::env::var_os(BLESS_SVG_BASELINES_ENV).is_some()
 }
 
+fn pdf_baselines_enabled() -> bool {
+    std::env::var_os(PDF_BASELINES_ENV).is_some()
+}
+
+fn pdf_baselines_only_enabled() -> bool {
+    std::env::var_os(PDF_BASELINES_ENV)
+        .as_deref()
+        .is_some_and(|value| value == "only")
+}
+
+fn bless_pdf_baselines_enabled() -> bool {
+    std::env::var_os(BLESS_PDF_BASELINES_ENV).is_some()
+}
+
+fn pdf_score_report_path() -> Option<PathBuf> {
+    std::env::var_os(PDF_SCORE_REPORT_ENV).map(PathBuf::from)
+}
+
+fn sidecar_baselines_only_enabled() -> bool {
+    svg_baselines_only_enabled() || pdf_baselines_only_enabled()
+}
+
 fn bless_wgpu_baselines_enabled() -> bool {
     std::env::var_os(BLESS_WGPU_BASELINES_ENV).is_some()
 }
@@ -241,6 +277,20 @@ fn svg_baseline_path(category: &str, baseline_name: &str, extension: &str) -> Pa
 fn svg_failure_path(category: &str, baseline_name: &str, suffix: &str) -> PathBuf {
     PathBuf::from("tests")
         .join("failures_svg")
+        .join(category)
+        .join(format!("{baseline_name}{suffix}"))
+}
+
+fn pdf_baseline_path(category: &str, baseline_name: &str, extension: &str) -> PathBuf {
+    PathBuf::from("tests")
+        .join("baselines_pdf")
+        .join(category)
+        .join(format!("{baseline_name}.{extension}"))
+}
+
+fn pdf_failure_path(category: &str, baseline_name: &str, suffix: &str) -> PathBuf {
+    PathBuf::from("tests")
+        .join("failures_pdf")
         .join(category)
         .join(format!("{baseline_name}{suffix}"))
 }
@@ -285,6 +335,109 @@ fn rasterize_svg(svg: &str) -> Result<RgbaImage, String> {
         .ok_or_else(|| "Failed to convert SVG pixmap into an image".to_string())
 }
 
+fn bind_pdfium() -> Result<Pdfium, String> {
+    let _guard = PDFIUM_BIND_LOCK
+        .lock()
+        .map_err(|_| "PDFium binding lock was poisoned".to_string())?;
+
+    if let Some(path) = std::env::var_os(PDFIUM_LIBRARY_PATH_ENV) {
+        let path = PathBuf::from(path);
+        return match Pdfium::bind_to_library(&path) {
+            Ok(bindings) => Ok(Pdfium::new(bindings)),
+            Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Ok(Pdfium::default()),
+            Err(err) => Err(pdfium_setup_error(format!(
+                "failed to bind PDFium from {}: {err}",
+                path.display()
+            ))),
+        };
+    }
+
+    match Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./")) {
+        Ok(bindings) => Ok(Pdfium::new(bindings)),
+        Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Ok(Pdfium::default()),
+        Err(local_err) => match Pdfium::bind_to_system_library() {
+            Ok(bindings) => Ok(Pdfium::new(bindings)),
+            Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Ok(Pdfium::default()),
+            Err(system_err) => Err(pdfium_setup_error(format!(
+                "failed to bind PDFium beside the test binary: {local_err}; failed to bind system PDFium: {system_err}"
+            ))),
+        },
+    }
+}
+
+fn pdfium_setup_error(detail: String) -> String {
+    format!(
+        "{detail}. PDF baselines require a PDFium dynamic library. Install PDFium and either make it visible to the system loader or set {PDFIUM_LIBRARY_PATH_ENV}=/path/to/libpdfium.dylib."
+    )
+}
+
+fn scaled_pdf_dimension(value: f32, axis: &str) -> Result<i32, String> {
+    if !value.is_finite() || value <= 0.0 {
+        return Err(format!("Invalid PDF {axis} dimension: {value}"));
+    }
+
+    let pixels = (value * DEFAULT_SCALE).ceil();
+    if pixels > i32::MAX as f32 {
+        return Err(format!(
+            "PDF {axis} dimension {pixels} exceeds PDFium pixel limits"
+        ));
+    }
+
+    Ok(pixels as i32)
+}
+
+fn rasterize_pdf_with_pdfium(
+    pdf: &[u8],
+    scene_width: f32,
+    scene_height: f32,
+) -> Result<RgbaImage, String> {
+    let width = scaled_pdf_dimension(scene_width, "width")?;
+    let height = scaled_pdf_dimension(scene_height, "height")?;
+    let pdfium = bind_pdfium()?;
+    let document = pdfium
+        .load_pdf_from_byte_vec(pdf.to_vec(), None)
+        .map_err(|err| format!("Failed to load generated PDF with PDFium: {err}"))?;
+
+    let page_count = document.pages().len();
+    if page_count != 1 {
+        return Err(format!(
+            "Expected generated PDF to contain exactly one page, found {page_count}"
+        ));
+    }
+
+    let page = document
+        .pages()
+        .get(0)
+        .map_err(|err| format!("Failed to access generated PDF page: {err}"))?;
+    let bitmap = page
+        .render_with_config(&PdfRenderConfig::new().set_fixed_size(width, height))
+        .map_err(|err| format!("Failed to rasterize generated PDF with PDFium: {err}"))?;
+
+    if bitmap.width() != width || bitmap.height() != height {
+        return Err(format!(
+            "PDFium raster dimensions differ. Expected ({width}, {height}), got ({}, {}).",
+            bitmap.width(),
+            bitmap.height()
+        ));
+    }
+
+    let image = bitmap
+        .as_image()
+        .map_err(|err| format!("Failed to convert PDFium bitmap to image: {err}"))?
+        .into_rgba8();
+
+    if image.dimensions() != (width as u32, height as u32) {
+        return Err(format!(
+            "PDFium image dimensions differ. Expected ({}, {}), got {:?}.",
+            width,
+            height,
+            image.dimensions()
+        ));
+    }
+
+    Ok(image)
+}
+
 fn save_svg_failures(
     category: &str,
     baseline_name: &str,
@@ -298,6 +451,16 @@ fn save_svg_failures(
     save_image_to_path(image, &svg_failure_path(category, baseline_name, ".png"))
 }
 
+fn save_pdf_failures(
+    category: &str,
+    baseline_name: &str,
+    pdf: &[u8],
+    image: &RgbaImage,
+) -> Result<(), String> {
+    write_file(&pdf_failure_path(category, baseline_name, ".pdf"), pdf)?;
+    save_image_to_path(image, &pdf_failure_path(category, baseline_name, ".png"))
+}
+
 fn compare_image_with_named_failures(
     baseline_path: &Path,
     actual: &RgbaImage,
@@ -305,7 +468,7 @@ fn compare_image_with_named_failures(
     diff_failure_path: &Path,
     threshold: f64,
     label: &str,
-) -> Result<(), String> {
+) -> Result<f64, String> {
     if !baseline_path.exists() {
         save_image_to_path(actual, actual_failure_path)?;
         return Err(format!(
@@ -348,7 +511,99 @@ fn compare_image_with_named_failures(
         ));
     }
 
-    Ok(())
+    Ok(result.score)
+}
+
+fn image_similarity_score_with_named_failures(
+    baseline_path: &Path,
+    actual: &RgbaImage,
+    actual_failure_path: &Path,
+    label: &str,
+) -> Result<f64, String> {
+    if !baseline_path.exists() {
+        save_image_to_path(actual, actual_failure_path)?;
+        return Err(format!(
+            "No {label} baseline found at '{}'. Actual saved to '{}'.",
+            baseline_path.display(),
+            actual_failure_path.display()
+        ));
+    }
+
+    let expected = image::open(baseline_path)
+        .map_err(|e| {
+            format!(
+                "Failed to load {label} baseline '{}': {e}",
+                baseline_path.display()
+            )
+        })?
+        .into_rgba8();
+
+    if expected.dimensions() != actual.dimensions() {
+        save_image_to_path(actual, actual_failure_path)?;
+        return Err(format!(
+            "{label} dimensions differ. Expected {:?}, actual {:?}. Actual saved to '{}'.",
+            expected.dimensions(),
+            actual.dimensions(),
+            actual_failure_path.display()
+        ));
+    }
+
+    image_compare::rgba_hybrid_compare(&expected, actual)
+        .map(|result| result.score)
+        .map_err(|e| format!("{label} image comparison failed: {e}"))
+}
+
+fn append_pdf_score_report(
+    category: &str,
+    baseline_name: &str,
+    pdf_baseline_score: f64,
+    pdf_wgpu_score: f64,
+) -> Result<(), String> {
+    let Some(path) = pdf_score_report_path() else {
+        return Ok(());
+    };
+
+    let _guard = PDF_SCORE_REPORT_LOCK
+        .lock()
+        .map_err(|_| "PDF score report lock was poisoned".to_string())?;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create {}: {e}", parent.display()))?;
+    }
+
+    let write_header = fs::metadata(&path).map(|m| m.len() == 0).unwrap_or(true);
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("Failed to open PDF score report '{}': {e}", path.display()))?;
+
+    if write_header {
+        writeln!(
+            file,
+            "category,baseline_name,pdf_baseline_score,pdf_wgpu_score"
+        )
+        .map_err(|e| format!("Failed to write PDF score report header: {e}"))?;
+    }
+
+    writeln!(
+        file,
+        "{},{},{:.8},{:.8}",
+        csv_field(category),
+        csv_field(baseline_name),
+        pdf_baseline_score,
+        pdf_wgpu_score
+    )
+    .map_err(|e| format!("Failed to append PDF score report row: {e}"))
+}
+
+fn csv_field(value: &str) -> String {
+    if value.contains(|c| matches!(c, ',' | '"' | '\n' | '\r')) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
 }
 
 fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseline_name: &str) {
@@ -422,6 +677,87 @@ fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
     ) {
         panic!("SVG/WGPU baseline '{}' failed: {msg}", baseline_name);
     }
+}
+
+fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseline_name: &str) {
+    if !pdf_baselines_enabled() {
+        return;
+    }
+
+    let pdf = SceneGraphPdfRenderer::new()
+        .render_scene_graph(scene_graph)
+        .expect("Failed to render PDF visual baseline");
+    let pdf_image = rasterize_pdf_with_pdfium(&pdf, scene_graph.width, scene_graph.height)
+        .expect("Failed to rasterize PDF visual baseline with PDFium");
+
+    let pdf_path = pdf_baseline_path(category, baseline_name, "pdf");
+    let pdf_png_path = pdf_baseline_path(category, baseline_name, "png");
+    let pdf_failure = pdf_failure_path(category, baseline_name, ".pdf");
+    let pdf_png_failure = pdf_failure_path(category, baseline_name, ".png");
+    let pdf_diff_failure = pdf_failure_path(category, baseline_name, "_vs_pdf_baseline_diff.png");
+    let wgpu_diff_failure = pdf_failure_path(category, baseline_name, "_vs_wgpu_baseline_diff.png");
+    let wgpu_baseline_path = PathBuf::from(get_baseline_path(category, baseline_name));
+
+    let mut pdf_baseline_score = 1.0;
+    if bless_pdf_baselines_enabled() {
+        write_file(&pdf_path, &pdf).expect("Failed to write PDF baseline");
+        save_image_to_path(&pdf_image, &pdf_png_path).expect("Failed to write PDF PNG baseline");
+    } else {
+        if !pdf_path.exists() {
+            save_pdf_failures(category, baseline_name, &pdf, &pdf_image)
+                .expect("Failed to save missing PDF baseline failure");
+            panic!(
+                "No PDF baseline found at '{}'. Generated PDF saved to '{}'. Generate baselines with {PDF_BASELINES_ENV}=only {BLESS_PDF_BASELINES_ENV}=1 cargo test -p avenger-chart --test visual_regression -- --nocapture",
+                pdf_path.display(),
+                pdf_failure.display()
+            );
+        }
+
+        let expected_pdf = fs::read(&pdf_path)
+            .unwrap_or_else(|e| panic!("Failed to read PDF baseline '{}': {e}", pdf_path.display()));
+        if expected_pdf != pdf {
+            save_pdf_failures(category, baseline_name, &pdf, &pdf_image)
+                .expect("Failed to save PDF mismatch failure");
+            panic!(
+                "PDF baseline '{}' differs from generated PDF. Generated PDF saved to '{}'.",
+                pdf_path.display(),
+                pdf_failure.display()
+            );
+        }
+
+        pdf_baseline_score = compare_image_with_named_failures(
+            &pdf_png_path,
+            &pdf_image,
+            &pdf_png_failure,
+            &pdf_diff_failure,
+            PDF_BASELINE_PDFIUM_THRESHOLD,
+            "PDF/PDFium",
+        )
+        .unwrap_or_else(|msg| panic!("PDF baseline '{}' failed: {msg}", baseline_name));
+    }
+
+    let pdf_wgpu_score = if pdf_score_report_path().is_some() {
+        image_similarity_score_with_named_failures(
+            &wgpu_baseline_path,
+            &pdf_image,
+            &pdf_png_failure,
+            "PDF/WGPU",
+        )
+        .unwrap_or_else(|msg| panic!("PDF/WGPU baseline '{}' failed: {msg}", baseline_name))
+    } else {
+        compare_image_with_named_failures(
+            &wgpu_baseline_path,
+            &pdf_image,
+            &pdf_png_failure,
+            &wgpu_diff_failure,
+            PDF_WGPU_BASELINE_THRESHOLD,
+            "PDF/WGPU",
+        )
+        .unwrap_or_else(|msg| panic!("PDF/WGPU baseline '{}' failed: {msg}", baseline_name))
+    };
+
+    append_pdf_score_report(category, baseline_name, pdf_baseline_score, pdf_wgpu_score)
+        .expect("Failed to append PDF score report");
 }
 
 fn svg_visual_font_resolution() -> FontResolutionOptions {
@@ -600,9 +936,10 @@ async fn assert_visual_match_baseline_only(
 
     let baseline_path = get_baseline_path(category, baseline_name);
 
-    if svg_baselines_only_enabled() {
+    if sidecar_baselines_only_enabled() {
         let direct_result = evaluate_compiled_plot(compiled, ctx, params).await;
         assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
+        assert_pdf_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
         return;
     }
 
@@ -649,6 +986,7 @@ async fn assert_visual_match_baseline_only(
     }
 
     assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
+    assert_pdf_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
 }
 
 /// Test a CompiledPlot against its baseline with default tolerance (99.99%)
@@ -671,7 +1009,7 @@ pub async fn assert_scene_graph_visual_match(
     try_init_tracing();
     let baseline_path = get_baseline_path(category, baseline_name);
 
-    if !svg_baselines_only_enabled() {
+    if !sidecar_baselines_only_enabled() {
         let image = render_scene_graph_to_wgpu_image(scene_graph).await;
         let config = VisualTestConfig {
             threshold: tolerance,
@@ -689,6 +1027,7 @@ pub async fn assert_scene_graph_visual_match(
     }
 
     assert_svg_scene_graph_match(scene_graph, category, baseline_name);
+    assert_pdf_scene_graph_match(scene_graph, category, baseline_name);
 }
 
 pub async fn assert_scene_graph_visual_match_default(
@@ -717,10 +1056,11 @@ pub async fn assert_visual_match_with_options(
 
     let baseline_path = get_baseline_path(category, baseline_name);
 
-    if svg_baselines_only_enabled() {
+    if sidecar_baselines_only_enabled() {
         let direct_result =
             evaluate_compiled_plot_with_options(compiled, ctx, params, options).await;
         assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
+        assert_pdf_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
         return;
     }
 
@@ -764,6 +1104,7 @@ pub async fn assert_visual_match_with_options(
     }
 
     assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
+    assert_pdf_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
 }
 
 /// Test a CompiledPlot against its baseline with options and default tolerance (99.99%).
@@ -841,6 +1182,28 @@ mod tests {
     use super::*;
     use image::Rgba;
     use std::fs;
+
+    #[test]
+    fn rasterizes_pdf_with_pdfium_when_pdf_baselines_enabled() {
+        if !pdf_baselines_enabled() {
+            return;
+        }
+
+        let scene_graph = SceneGraph {
+            marks: vec![],
+            width: 16.0,
+            height: 12.0,
+            origin: [0.0, 0.0],
+        };
+        let pdf = SceneGraphPdfRenderer::new()
+            .render_scene_graph(&scene_graph)
+            .expect("empty scene graph should render to PDF");
+
+        let image = rasterize_pdf_with_pdfium(&pdf, scene_graph.width, scene_graph.height)
+            .expect("generated PDF should rasterize with PDFium");
+
+        assert_eq!(image.dimensions(), (32, 24));
+    }
 
     #[test]
     fn compare_images_saves_actual_on_dimension_mismatch() {
