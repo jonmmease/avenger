@@ -399,6 +399,41 @@ fn text_limit_snapshot_uses_default_ellipsis() {
 }
 
 #[test]
+fn native_text_rasterizes_with_controlled_avenger_fontdb() {
+    let scene_graph = SceneGraph {
+        width: 80.0,
+        height: 24.0,
+        origin: [0.0, 0.0],
+        marks: vec![SceneTextMark {
+            text: ScalarOrArray::new_scalar("Embedded".to_string()),
+            x: ScalarOrArray::new_scalar(4.0),
+            y: ScalarOrArray::new_scalar(16.0),
+            font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+            font_size: ScalarOrArray::new_scalar(14.0),
+            ..Default::default()
+        }
+        .into()],
+    };
+
+    let svg = SvgRenderer::new()
+        .with_options(SvgRenderOptions {
+            background: SvgBackground::Transparent,
+            font_embedding: SvgFontEmbedding::None,
+            ..Default::default()
+        })
+        .render_scene_graph(&scene_graph)
+        .unwrap();
+    let mut options = usvg::Options::default();
+    options.fontdb = std::sync::Arc::new(avenger_text::fonts::build_fontdb(
+        &avenger_text::FontResolutionOptions::default(),
+    ));
+
+    assert!(svg.contains("<text "));
+    assert!(!svg.contains("data:font/woff2;base64,"));
+    assert_svg_parses_and_rasterizes_with_options(&svg, &options);
+}
+
+#[test]
 fn image_smoothing_snapshot_marks_only_unsmoothed_images_pixelated() {
     let image = RgbaImage {
         width: 1,
@@ -459,7 +494,11 @@ fn triangle_path() -> lyon_path::Path {
 }
 
 fn assert_svg_parses_and_rasterizes(svg: &str) {
-    let tree = usvg::Tree::from_str(svg, &usvg::Options::default()).unwrap();
+    assert_svg_parses_and_rasterizes_with_options(svg, &usvg::Options::default());
+}
+
+fn assert_svg_parses_and_rasterizes_with_options(svg: &str, options: &usvg::Options<'_>) {
+    let tree = usvg::Tree::from_str(svg, options).unwrap();
     let mut pixmap = tiny_skia::Pixmap::new(
         tree.size().width().ceil() as u32,
         tree.size().height().ceil() as u32,
