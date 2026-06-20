@@ -1016,8 +1016,9 @@ impl MultiMarkRenderer {
             .gradient_atlas_builder
             .register_gradients(&mark.gradients);
 
-        let path = mark.transformed_path(origin);
-        let bbox = bounding_box(&path);
+        let fill_path = mark.transformed_path(origin);
+        let stroke_path = mark.transformed_stroke_path(origin);
+        let bbox = bounding_box(&fill_path);
 
         // Create vertex/index buffer builder
         let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
@@ -1034,7 +1035,7 @@ impl MultiMarkRenderer {
         // Tessellate fill
         let mut fill_tessellator = FillTessellator::new();
         let fill_options = FillOptions::default().with_tolerance(0.05);
-        fill_tessellator.tessellate_path(&path, &fill_options, &mut buffers_builder)?;
+        fill_tessellator.tessellate_path(&fill_path, &fill_options, &mut buffers_builder)?;
 
         // Tessellate path
         if mark.stroke_width > 0.0 {
@@ -1052,7 +1053,11 @@ impl MultiMarkRenderer {
                     StrokeCap::Square => LineCap::Square,
                 })
                 .with_line_width(mark.stroke_width);
-            stroke_tessellator.tessellate_path(&path, &stroke_options, &mut buffers_builder)?;
+            stroke_tessellator.tessellate_path(
+                &stroke_path,
+                &stroke_options,
+                &mut buffers_builder,
+            )?;
         }
 
         let start_ind = self.num_indices();

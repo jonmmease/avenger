@@ -7,6 +7,7 @@ pub mod mark;
 pub mod path;
 pub mod rect;
 pub mod rule;
+pub(crate) mod stroke_dash;
 pub mod symbol;
 pub mod text;
 pub mod trail;
