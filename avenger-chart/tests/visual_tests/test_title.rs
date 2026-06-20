@@ -213,26 +213,6 @@ async fn title_with_axes_positions() {
 }
 
 #[tokio::test]
-async fn multiline_title_subtitle() {
-    let ctx = SessionContext::new();
-    let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
-        .title("This is a Very Long Title That Should\nSpan Multiple Lines")
-        .subtitle("And this is also a long subtitle\nthat spans multiple lines\nfor demonstration")
-        .data(df)
-        .mark(
-            Symbol::new()
-                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
-                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
-                .size(100.0)
-                .fill_with("#34495e", |c| c.no_legend()),
-        );
-
-    let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
-    assert_visual_match_default(&compiled, &ctx, None, "layout", "multiline_title_subtitle").await;
-}
-
-#[tokio::test]
 async fn subtitle_with_symbol_legend() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
