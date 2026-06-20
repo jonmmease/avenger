@@ -169,8 +169,8 @@ AVENGER_CHART_PDF_SCORE_REPORT=target/tests/pdf-wgpu-scores.csv \
 
 Failures are written to `tests/failures_pdf/{category}/` with the generated
 PDF, the PDFium PNG, and diffs against the PDFium PNG baseline and WGPU PNG
-baseline. The PDF-to-WGPU comparison uses one global threshold; treat failures
-as parity bugs before relaxing it.
+baseline. The PDF-to-WGPU comparison uses one global 95% threshold; treat
+failures as parity bugs before relaxing it.
 
 The committed PDF is kept as a first-class export artifact for review, but the
 suite does not compare PDF bytes directly. The embedded font resources emitted
@@ -178,7 +178,7 @@ by `svg2pdf` can be ordered differently across processes while producing the
 same PDFium raster. Deterministic validation therefore comes from the PDFium PNG
 baseline and the PDFium-vs-WGPU comparison. The PDFium PNG baseline threshold is
 `0.998`, which is tight enough to catch visible PDF output changes while allowing
-minor font-subset raster ordering variance observed in a few text-heavy charts.
+tiny PDFium raster variance observed in a few text-heavy charts.
 
 ## Directory Structure
 
