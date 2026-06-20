@@ -22,6 +22,8 @@ current design is available.
 
 | Document | Review status |
 | --- | --- |
+| [mark-effects.md](mark-effects.md) | Unifying proposal for post-scale mark evaluation frames, adjustments, derivations, geometry space, and effect scheduling. |
+| [polar-geometry-space.md](polar-geometry-space.md) | Plan for coordinate-vs-display geometry semantics for Polar line and text marks. |
 | [adjust-api.md](adjust-api.md) | Valid goal; not ready for implementation planning until the post-scale data/geometry boundary is designed. |
 | [derive-api.md](derive-api.md) | Valid goal; depends on the same geometry boundary as adjustments plus a child-mark scheduling model. |
 | [transform-system.md](transform-system.md) | Valid goal; closest to an implementation plan for a narrow data-transform v1. |
