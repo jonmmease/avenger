@@ -31,7 +31,7 @@
 <clipPath id="svg-clip-5" clipPathUnits="userSpaceOnUse"><rect x="530.5" y="42" width="5" height="397"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="980" height="480" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L980 0 L980 480 L0 480 Z" fill="#ffffff" stroke="none"/>
 <line x1="94" y1="45" x2="94" y2="436" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="126" y1="45" x2="126" y2="436" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
@@ -61,9 +61,9 @@
 <path d="M896 45 L967 45 L967 94 L896 94 Z" fill="none" stroke="none"/>
 <text x="10" y="20.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Repeated grouped box plots</text>
 <line x1="185" y1="94.881" x2="211" y2="94.881" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="230" y1="184.988" x2="295" y2="184.988" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="243" y1="386.119" x2="314" y2="386.119" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="159" y1="296.012" x2="217" y2="296.012" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="230" y1="184.988" x2="295" y2="184.988" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="93.5" y1="436" x2="450.5" y2="436" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-1)"/>
 <line x1="94" y1="436" x2="94" y2="441" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="126" y1="436" x2="126" y2="441" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -98,9 +98,9 @@
 <line x1="94" y1="45" x2="28.423" y2="45" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <text x="23.923" y="240.5" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.923 240.5)">Segment grouped by category</text>
 <line x1="753" y1="94.881" x2="805" y2="94.881" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
-<line x1="675" y1="184.988" x2="740" y2="184.988" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="650" y1="386.119" x2="727" y2="386.119" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="760" y1="296.012" x2="844" y2="296.012" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
+<line x1="675" y1="184.988" x2="740" y2="184.988" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="532.5" y1="436" x2="889.5" y2="436" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-4)"/>
 <line x1="533" y1="436" x2="533" y2="441" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="565" y1="436" x2="565" y2="441" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -129,37 +129,37 @@
 <text x="711" y="456.996" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Latency</text>
 <line x1="533" y1="436.5" x2="533" y2="44.5" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-5)"/>
 <line x1="185" y1="109.362" x2="185" y2="80.399" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="230" y1="199.469" x2="230" y2="170.506" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="243" y1="400.601" x2="243" y2="371.638" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="159" y1="310.494" x2="159" y2="281.531" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="230" y1="199.469" x2="230" y2="170.506" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="211" y1="109.362" x2="211" y2="80.399" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="295" y1="199.469" x2="295" y2="170.506" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="314" y1="400.601" x2="314" y2="371.638" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="217" y1="310.494" x2="217" y2="281.531" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="295" y1="199.469" x2="295" y2="170.506" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="753" y1="109.362" x2="753" y2="80.399" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
-<line x1="675" y1="199.469" x2="675" y2="170.506" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="650" y1="400.601" x2="650" y2="371.638" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="760" y1="310.494" x2="760" y2="281.531" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
+<line x1="675" y1="199.469" x2="675" y2="170.506" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="805" y1="109.362" x2="805" y2="80.399" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
-<line x1="740" y1="199.469" x2="740" y2="170.506" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="727" y1="400.601" x2="727" y2="371.638" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="844" y1="310.494" x2="844" y2="281.531" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
+<line x1="740" y1="199.469" x2="740" y2="170.506" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <path d="M188 75.572 L204 75.572 L204 114.189 L188 114.189 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
-<path d="M235 165.679 L272 165.679 L272 204.296 L235 204.296 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
 <path d="M248 366.811 L288 366.811 L288 405.428 L248 405.428 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
 <path d="M167 276.704 L198 276.704 L198 315.321 L167 315.321 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
+<path d="M235 165.679 L272 165.679 L272 204.296 L235 204.296 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
 <path d="M764 75.572 L795 75.572 L795 114.189 L764 114.189 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-3)"/>
-<path d="M701 165.679 L734 165.679 L734 204.296 L701 204.296 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-3)"/>
 <path d="M679 366.811 L721 366.811 L721 405.428 L679 405.428 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-3)"/>
 <path d="M790 276.704 L831 276.704 L831 315.321 L790 315.321 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-3)"/>
+<path d="M701 165.679 L734 165.679 L734 204.296 L701 204.296 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-3)"/>
 <line x1="194" y1="115.798" x2="194" y2="73.963" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="244" y1="205.905" x2="244" y2="164.07" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="257" y1="407.037" x2="257" y2="365.202" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="175" y1="316.93" x2="175" y2="275.095" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="244" y1="205.905" x2="244" y2="164.07" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="779" y1="115.798" x2="779" y2="73.963" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
-<line x1="721" y1="205.905" x2="721" y2="164.07" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="705" y1="407.037" x2="705" y2="365.202" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="811" y1="316.93" x2="811" y2="275.095" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
+<line x1="721" y1="205.905" x2="721" y2="164.07" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <text x="272" y="41" fill="#595959" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Throughput</text>
 <text x="711" y="41" fill="#595959" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Latency</text>
 <text x="461" y="49" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Segment</text>

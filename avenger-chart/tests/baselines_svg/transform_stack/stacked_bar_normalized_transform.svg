@@ -28,7 +28,7 @@
 <clipPath id="svg-clip-2" clipPathUnits="userSpaceOnUse"><rect x="8.616" y="29.002" width="334.634" height="231.996"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="400" height="300" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L400 0 L400 300 L0 300 Z" fill="#ffffff" stroke="none"/>
 <line x1="49" y1="254" x2="341" y2="254" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="49" y1="232" x2="341" y2="232" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
@@ -44,15 +44,15 @@
 <path d="M270 38 L334 38 L334 130 L270 130 Z" fill="#0072b2" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M270 130 L334 130 L334 195 L270 195 Z" fill="#e69f00" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M270 195 L334 195 L334 254 L270 254 Z" fill="#009e73" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
-<path d="M128 38 L192 38 L192 140 L128 140 Z" fill="#0072b2" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
-<path d="M128 140 L192 140 L192 188 L128 188 Z" fill="#e69f00" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
-<path d="M128 188 L192 188 L192 254 L128 254 Z" fill="#009e73" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M199 38 L263 38 L263 73 L199 73 Z" fill="#0072b2" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M199 73 L263 73 L263 149 L199 149 Z" fill="#e69f00" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M199 149 L263 149 L263 254 L199 254 Z" fill="#009e73" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M57 38 L121 38 L121 107 L57 107 Z" fill="#0072b2" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M57 107 L121 107 L121 208 L57 208 Z" fill="#e69f00" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M57 208 L121 208 L121 254 L57 254 Z" fill="#009e73" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
+<path d="M128 38 L192 38 L192 140 L128 140 Z" fill="#0072b2" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
+<path d="M128 140 L192 140 L192 188 L128 188 Z" fill="#e69f00" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
+<path d="M128 188 L192 188 L192 254 L128 254 Z" fill="#009e73" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M341 38 L390 38 L390 99 L341 99 Z" fill="none" stroke="none"/>
 <text x="10" y="20.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Normalized Stacked Sales</text>
 <line x1="48.5" y1="254" x2="341.5" y2="254" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-1)"/>

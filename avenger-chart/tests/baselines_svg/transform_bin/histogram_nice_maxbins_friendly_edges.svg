@@ -35,7 +35,7 @@
 <clipPath id="svg-clip-2" clipPathUnits="userSpaceOnUse"><rect x="8.956" y="44.002" width="616.294" height="338.996"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="640" height="420" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L640 0 L640 420 L0 420 Z" fill="#ffffff" stroke="none"/>
 <line x1="49" y1="53" x2="49" y2="376" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="164" y1="53" x2="164" y2="376" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
@@ -58,11 +58,11 @@
 <line x1="49" y1="99" x2="623" y2="99" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="49" y1="76" x2="623" y2="76" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="49" y1="53" x2="623" y2="53" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
-<path d="M279 53 L393 53 L393 376 L279 376 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
-<path d="M393 99 L508 99 L508 376 L393 376 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M164 99 L279 99 L279 376 L164 376 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
-<path d="M49 145 L164 145 L164 376 L49 376 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M508 99 L623 99 L623 376 L508 376 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
+<path d="M49 145 L164 145 L164 376 L49 376 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
+<path d="M393 99 L508 99 L508 376 L393 376 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
+<path d="M279 53 L393 53 L393 376 L279 376 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <text x="10" y="20.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Nice maxbins histogram</text>
 <text x="10" y="38.5" fill="#595959" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="14.004" font-weight="200" font-style="normal">Bin edges expand to friendly boundaries</text>
 <line x1="48.5" y1="376" x2="623.5" y2="376" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-1)"/>

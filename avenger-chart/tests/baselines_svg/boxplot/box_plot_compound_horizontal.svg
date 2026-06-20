@@ -28,7 +28,7 @@
 <clipPath id="svg-clip-2" clipPathUnits="userSpaceOnUse"><rect x="8.234" y="28" width="64.266" height="351"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="720" height="420" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L720 0 L720 420 L0 420 Z" fill="#ffffff" stroke="none"/>
 <line x1="70" y1="31" x2="70" y2="376" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="149" y1="31" x2="149" y2="376" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
@@ -40,10 +40,10 @@
 <line x1="623" y1="31" x2="623" y2="376" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="702" y1="31" x2="702" y2="376" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <text x="10" y="20.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Horizontal box plot</text>
-<line x1="133" y1="330" x2="204" y2="330" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="228" y1="246" x2="323" y2="246" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="323" y1="78" x2="418" y2="78" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="133" y1="330" x2="204" y2="330" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="165" y1="162" x2="236" y2="162" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="228" y1="246" x2="323" y2="246" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="69.5" y1="376" x2="702.5" y2="376" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-1)"/>
 <line x1="70" y1="376" x2="70" y2="381" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="149" y1="376" x2="149" y2="381" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -74,26 +74,26 @@
 <text x="62" y="161" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Gamma</text>
 <text x="62" y="77" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Delta</text>
 <text x="23.234" y="203.5" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.234 203.5)">Group</text>
-<line x1="133" y1="316.32" x2="133" y2="343.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="228" y1="232.32" x2="228" y2="259.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="323" y1="64.32" x2="323" y2="91.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="133" y1="316.32" x2="133" y2="343.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="165" y1="148.32" x2="165" y2="175.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="204" y1="316.32" x2="204" y2="343.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="323" y1="232.32" x2="323" y2="259.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="228" y1="232.32" x2="228" y2="259.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="418" y1="64.32" x2="418" y2="91.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="204" y1="316.32" x2="204" y2="343.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="236" y1="148.32" x2="236" y2="175.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<path d="M157 311.76 L196 311.76 L196 348.24 L157 348.24 Z" fill="#bfdbfe" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
-<path d="M252 227.76 L307 227.76 L307 264.24 L252 264.24 Z" fill="#bfdbfe" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
+<line x1="323" y1="232.32" x2="323" y2="259.68" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <path d="M347 59.76 L402 59.76 L402 96.24 L347 96.24 Z" fill="#bfdbfe" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
+<path d="M157 311.76 L196 311.76 L196 348.24 L157 348.24 Z" fill="#bfdbfe" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
 <path d="M189 143.76 L228 143.76 L228 180.24 L189 180.24 Z" fill="#bfdbfe" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
-<line x1="177" y1="310.24" x2="177" y2="349.76" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="279" y1="226.24" x2="279" y2="265.76" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<path d="M252 227.76 L307 227.76 L307 264.24 L252 264.24 Z" fill="#bfdbfe" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
 <line x1="366" y1="58.24" x2="366" y2="97.76" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="177" y1="310.24" x2="177" y2="349.76" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="208" y1="142.24" x2="208" y2="181.76" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="279" y1="226.24" x2="279" y2="265.76" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<path d="M602.127 78 C602.127 75.31 604.31 73.127 607 73.127 C609.69 73.127 611.873 75.31 611.873 78 C611.873 80.69 609.69 82.873 607 82.873 C604.31 82.873 602.127 80.69 602.127 78 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
 <path d="M476.127 330 C476.127 327.31 478.31 325.127 481 325.127 C483.69 325.127 485.873 327.31 485.873 330 C485.873 332.69 483.69 334.873 481 334.873 C478.31 334.873 476.127 332.69 476.127 330 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
+<path d="M302.127 162 C302.127 159.31 304.31 157.127 307 157.127 C309.69 157.127 311.873 159.31 311.873 162 C311.873 164.69 309.69 166.873 307 166.873 C304.31 166.873 302.127 164.69 302.127 162 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
 <path d="M81.127 246 C81.127 243.31 83.31 241.127 86 241.127 C88.69 241.127 90.873 243.31 90.873 246 C90.873 248.69 88.69 250.873 86 250.873 C83.31 250.873 81.127 248.69 81.127 246 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
 <path d="M555.127 246 C555.127 243.31 557.31 241.127 560 241.127 C562.69 241.127 564.873 243.31 564.873 246 C564.873 248.69 562.69 250.873 560 250.873 C557.31 250.873 555.127 248.69 555.127 246 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
-<path d="M602.127 78 C602.127 75.31 604.31 73.127 607 73.127 C609.69 73.127 611.873 75.31 611.873 78 C611.873 80.69 609.69 82.873 607 82.873 C604.31 82.873 602.127 80.69 602.127 78 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
-<path d="M302.127 162 C302.127 159.31 304.31 157.127 307 157.127 C309.69 157.127 311.873 159.31 311.873 162 C311.873 164.69 309.69 166.873 307 166.873 C304.31 166.873 302.127 164.69 302.127 162 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
 </g>
 </svg>

@@ -38,7 +38,7 @@
 </linearGradient>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="400" height="300" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L400 0 L400 300 L0 300 Z" fill="#ffffff" stroke="none"/>
 <path d="M65.551 185.25 L79.338 185.25 L79.338 230.202 L65.551 230.202 Z" fill="#c6d4e3" stroke="#ffffff" stroke-width="0.5" clip-path="url(#svg-clip-0)"/>
 <path d="M79.338 140.298 L93.125 140.298 L93.125 185.25 L79.338 185.25 Z" fill="#5e7fa4" stroke="#ffffff" stroke-width="0.5" clip-path="url(#svg-clip-0)"/>

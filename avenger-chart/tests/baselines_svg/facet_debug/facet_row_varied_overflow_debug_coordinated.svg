@@ -24,7 +24,7 @@
 <clipPath id="svg-clip-5" clipPathUnits="userSpaceOnUse"><rect x="8.588" y="186" width="150.912" height="173"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="600" height="400" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L600 0 L600 400 L0 400 Z" fill="#ffffff" stroke="none"/>
 <line x1="157" y1="10" x2="157" y2="177" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="206" y1="10" x2="206" y2="177" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
@@ -116,27 +116,27 @@
 <text x="581.996" y="183" fill="#000000" text-anchor="middle" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="normal" font-style="normal" transform="rotate(90 581.996 183)">Category</text>
 <path d="M157 10 L548 10 L548 177 L157 177 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
 <text x="546" y="20" fill="#e69f00" fill-opacity="0.85" text-anchor="end" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">plot-area</text>
-<path d="M548 10 L556 10 L556 177 L548 177 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
-<text x="554" y="175" fill="#e69f00" fill-opacity="0.85" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(90 554 175)">of-right</text>
 <path d="M157 177 L548 177 L548 183 L157 183 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
 <text x="546" y="181" fill="#e69f00" fill-opacity="0.85" text-anchor="end" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">of-bottom</text>
 <path d="M10 10 L157 10 L157 177 L10 177 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
 <text x="12" y="175" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(-90 12 175)">of-left</text>
+<path d="M548 10 L556 10 L556 177 L548 177 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
+<text x="554" y="175" fill="#e69f00" fill-opacity="0.85" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(90 554 175)">of-right</text>
 <path d="M157 189 L548 189 L548 356 L157 356 Z" fill="none" stroke="#56b4e9" stroke-opacity="0.85" stroke-width="1"/>
 <text x="546" y="199" fill="#56b4e9" fill-opacity="0.85" text-anchor="end" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">plot-area</text>
-<path d="M548 189 L556 189 L556 356 L548 356 Z" fill="none" stroke="#56b4e9" stroke-opacity="0.85" stroke-width="1"/>
-<text x="554" y="354" fill="#56b4e9" fill-opacity="0.85" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(90 554 354)">of-right</text>
 <path d="M157 356 L548 356 L548 390 L157 390 Z" fill="none" stroke="#56b4e9" stroke-opacity="0.85" stroke-width="1"/>
 <text x="546" y="388" fill="#56b4e9" fill-opacity="0.85" text-anchor="end" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">of-bottom</text>
 <path d="M10 189 L157 189 L157 356 L10 356 Z" fill="none" stroke="#56b4e9" stroke-opacity="0.85" stroke-width="1"/>
 <text x="12" y="354" fill="#56b4e9" fill-opacity="0.85" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(-90 12 354)">of-left</text>
+<path d="M548 189 L556 189 L556 356 L548 356 Z" fill="none" stroke="#56b4e9" stroke-opacity="0.85" stroke-width="1"/>
+<text x="554" y="354" fill="#56b4e9" fill-opacity="0.85" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(90 554 354)">of-right</text>
 <path d="M157 10 L548 10 L548 356 L157 356 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
 <text x="159" y="20" fill="#ff00ff" fill-opacity="0.7" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">plot-area</text>
+<path d="M10 10 L157 10 L157 356 L10 356 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
+<text x="12" y="12" fill="#ff00ff" fill-opacity="0.7" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(-90 12 12)">of-left</text>
 <path d="M157 356 L548 356 L548 390 L157 390 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
 <text x="159" y="388" fill="#ff00ff" fill-opacity="0.7" text-anchor="start" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">of-bottom</text>
 <path d="M548 10 L590 10 L590 356 L548 356 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
 <text x="588" y="12" fill="#ff00ff" fill-opacity="0.7" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(90 588 12)">of-right</text>
-<path d="M10 10 L157 10 L157 356 L10 356 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
-<text x="12" y="12" fill="#ff00ff" fill-opacity="0.7" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(-90 12 12)">of-left</text>
 </g>
 </svg>

@@ -39,7 +39,7 @@
 <clipPath id="svg-clip-20" clipPathUnits="userSpaceOnUse"><rect x="8.616" y="516.667" width="327.634" height="202.333"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="980" height="760" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L980 0 L980 760 L0 760 Z" fill="#ffffff" stroke="none"/>
 <path d="M49 45 L334 45 L334 241.333 L49 241.333 Z" fill="#fffefa" stroke="none"/>
 <path d="M346 45 L631 45 L631 241.333 L346 241.333 Z" fill="#fffefa" stroke="none"/>

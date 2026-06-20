@@ -28,7 +28,7 @@
 <clipPath id="svg-clip-2" clipPathUnits="userSpaceOnUse"><rect x="8.495" y="29.002" width="663.755" height="351.996"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="680" height="420" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L680 0 L680 420 L0 420 Z" fill="#ffffff" stroke="none"/>
 <line x1="47" y1="374" x2="670" y2="374" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="47" y1="337" x2="670" y2="337" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
@@ -40,10 +40,10 @@
 <line x1="47" y1="113" x2="670" y2="113" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="47" y1="75" x2="670" y2="75" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="47" y1="38" x2="670" y2="38" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
-<path d="M64 38 L200 38 L200 374 L64 374 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
-<path d="M215 94 L351 94 L351 374 L215 374 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M517 206 L653 206 L653 374 L517 374 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
+<path d="M64 38 L200 38 L200 374 L64 374 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M366 150 L502 150 L502 374 L366 374 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
+<path d="M215 94 L351 94 L351 374 L215 374 Z" fill="#1f9d6a" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <text x="10" y="20.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Top 4 Categories, Other Dropped</text>
 <line x1="46.5" y1="374" x2="670.5" y2="374" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-1)"/>
 <line x1="132" y1="374" x2="132" y2="379" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>

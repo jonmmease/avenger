@@ -55,7 +55,7 @@ impl SvgRenderer {
         document
             .body
             .push_str("<g fill=\"none\" stroke-miterlimit=\"10\">\n");
-        self.write_background(&mut document)?;
+        self.write_background(&mut document, scene_graph.width, scene_graph.height)?;
 
         for item in display_list.ordered_items() {
             let clip_id = document.defs.clip_id(&item.clip, precision)?;
@@ -91,7 +91,12 @@ impl SvgRenderer {
         Ok(output)
     }
 
-    fn write_background(&self, document: &mut SvgDocument) -> Result<(), AvengerSvgError> {
+    fn write_background(
+        &self,
+        document: &mut SvgDocument,
+        width: f32,
+        height: f32,
+    ) -> Result<(), AvengerSvgError> {
         let color = match self.options.background {
             SvgBackground::White => Some([1.0, 1.0, 1.0, 1.0]),
             SvgBackground::Transparent => None,
@@ -103,7 +108,11 @@ impl SvgRenderer {
         };
 
         let output = &mut document.body;
-        output.push_str(r#"<rect width="100%" height="100%""#);
+        output.push_str(r#"<rect x="0" y="0" width=""#);
+        output.push_str(&format_number(width, self.options.precision)?);
+        output.push_str(r#"" height=""#);
+        output.push_str(&format_number(height, self.options.precision)?);
+        output.push('"');
         push_color_attrs(output, "fill", color, self.options.precision)?;
         output.push_str(r#" stroke="none"/>"#);
         output.push('\n');
@@ -1121,6 +1130,23 @@ mod tests {
         assert!(svg.starts_with(r#"<svg xmlns="http://www.w3.org/2000/svg""#));
         assert!(svg.contains(r##"fill="#ff0000""##));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn renders_document_background_with_explicit_dimensions() {
+        let scene_graph = SceneGraph {
+            width: 20.0,
+            height: 10.0,
+            origin: [0.0, 0.0],
+            marks: vec![],
+        };
+
+        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains(
+            r##"<rect x="0" y="0" width="20" height="10" fill="#ffffff" stroke="none"/>"##
+        ));
+        assert!(!svg.contains(r#"<rect width="100%" height="100%""#));
     }
 
     #[test]

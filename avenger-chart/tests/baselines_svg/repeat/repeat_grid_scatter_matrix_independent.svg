@@ -45,7 +45,7 @@
 <clipPath id="svg-clip-26" clipPathUnits="userSpaceOnUse"><rect x="271.613" y="179.284" width="74.637" height="84.432"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="422" height="283" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L422 0 L422 283 L0 283 Z" fill="#ffffff" stroke="none"/>
 <line x1="44" y1="28" x2="44" y2="63" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="72" y1="28" x2="72" y2="63" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>

@@ -32,7 +32,7 @@
 ]]></style>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="400" height="300" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L400 0 L400 300 L0 300 Z" fill="#ffffff" stroke="none"/>
 <path d="M161.261 168 C161.261 166.489 162.489 165.261 164 165.261 C165.511 165.261 166.739 166.489 166.739 168 C166.739 169.511 165.511 170.739 164 170.739 C162.489 170.739 161.261 169.511 161.261 168 Z" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>
 <path d="M161.261 165.261 L161.261 170.739 L166.739 170.739 L166.739 165.261 Z" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>

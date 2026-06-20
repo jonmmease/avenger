@@ -37,7 +37,7 @@
 <clipPath id="svg-clip-11" clipPathUnits="userSpaceOnUse"><rect x="748" y="90" width="224.25" height="247"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="980" height="380" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L980 0 L980 380 L0 380 Z" fill="#ffffff" stroke="none"/>
 <line x1="47" y1="334" x2="261.5" y2="334" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="47" y1="307" x2="261.5" y2="307" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
@@ -81,8 +81,8 @@
 <line x1="755.5" y1="141" x2="970" y2="141" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="755.5" y1="117" x2="970" y2="117" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="755.5" y1="93" x2="970" y2="93" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
-<path d="M47 120 L47 120 L47 334 L47 334 Z" fill="#2563eb" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M159 307 L251 307 L251 334 L159 334 Z" fill="#2563eb" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
+<path d="M47 120 L47 120 L47 334 L47 334 Z" fill="#2563eb" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-0)"/>
 <path d="M283.5 93 L375.5 93 L375.5 334 L283.5 334 Z" fill="#2563eb" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-1)"/>
 <path d="M385.5 313 L477.5 313 L477.5 334 L385.5 334 Z" fill="#2563eb" stroke="#ffffff" stroke-width="1" clip-path="url(#svg-clip-1)"/>
 <text x="10" y="41.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Free: local top category</text>

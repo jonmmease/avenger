@@ -57,7 +57,7 @@
 <clipPath id="svg-clip-31" clipPathUnits="userSpaceOnUse"><rect x="789.116" y="547.002" width="27.884" height="465.996"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="1600" height="1050" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L1600 0 L1600 1050 L0 1050 Z" fill="#ffffff" stroke="none"/>
 <path d="M221 245 L363 245 L363 349 L221 349 Z" fill="#f8fbff" stroke="none"/>
 <path d="M472 245 L614 245 L614 349 L472 349 Z" fill="#f8fbff" stroke="none"/>

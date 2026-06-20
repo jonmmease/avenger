@@ -28,7 +28,7 @@
 <clipPath id="svg-clip-2" clipPathUnits="userSpaceOnUse"><rect x="8.923" y="28" width="87.577" height="351"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="780" height="420" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L780 0 L780 420 L0 420 Z" fill="#ffffff" stroke="none"/>
 <line x1="94" y1="31" x2="94" y2="376" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="169" y1="31" x2="169" y2="376" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
@@ -42,11 +42,11 @@
 <path d="M699 31 L770 31 L770 80 L699 80 Z" fill="none" stroke="none"/>
 <text x="10" y="20.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Grouped box plot</text>
 <line x1="273" y1="177.25" x2="370" y2="177.25" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="363" y1="229.75" x2="452" y2="229.75" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="198" y1="60.062" x2="273" y2="60.062" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="303" y1="112.562" x2="378" y2="112.562" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="393" y1="346.938" x2="482" y2="346.938" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="303" y1="112.562" x2="378" y2="112.562" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="228" y1="294.438" x2="303" y2="294.438" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="198" y1="60.062" x2="273" y2="60.062" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="363" y1="229.75" x2="452" y2="229.75" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="93.5" y1="376" x2="691.5" y2="376" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-1)"/>
 <line x1="94" y1="376" x2="94" y2="381" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="169" y1="376" x2="169" y2="381" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -77,35 +77,35 @@
 <line x1="94" y1="31" x2="28.423" y2="31" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <text x="23.923" y="203.5" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.923 203.5)">Segment grouped by category</text>
 <line x1="273" y1="185.688" x2="273" y2="168.812" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="363" y1="238.188" x2="363" y2="221.312" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="198" y1="68.5" x2="198" y2="51.625" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="303" y1="121" x2="303" y2="104.125" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="393" y1="355.375" x2="393" y2="338.5" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="303" y1="121" x2="303" y2="104.125" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="228" y1="302.875" x2="228" y2="286" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="198" y1="68.5" x2="198" y2="51.625" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="363" y1="238.188" x2="363" y2="221.312" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="370" y1="185.688" x2="370" y2="168.812" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="452" y1="238.188" x2="452" y2="221.312" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="273" y1="68.5" x2="273" y2="51.625" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="378" y1="121" x2="378" y2="104.125" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="482" y1="355.375" x2="482" y2="338.5" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="378" y1="121" x2="378" y2="104.125" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="303" y1="302.875" x2="303" y2="286" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="273" y1="68.5" x2="273" y2="51.625" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="452" y1="238.188" x2="452" y2="221.312" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <path d="M312 166 L348 166 L348 188.5 L312 188.5 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
-<path d="M396 218.5 L437 218.5 L437 241 L396 241 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
-<path d="M223 48.812 L258 48.812 L258 71.312 L223 71.312 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
-<path d="M325 101.312 L363 101.312 L363 123.812 L325 123.812 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
 <path d="M426 335.688 L467 335.688 L467 358.188 L426 358.188 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
+<path d="M325 101.312 L363 101.312 L363 123.812 L325 123.812 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
 <path d="M251 283.188 L288 283.188 L288 305.688 L251 305.688 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
+<path d="M223 48.812 L258 48.812 L258 71.312 L223 71.312 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
+<path d="M396 218.5 L437 218.5 L437 241 L396 241 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
 <line x1="329" y1="189.438" x2="329" y2="165.062" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="426" y1="241.938" x2="426" y2="217.562" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="240" y1="72.25" x2="240" y2="47.875" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="351" y1="124.75" x2="351" y2="100.375" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="456" y1="359.125" x2="456" y2="334.75" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="351" y1="124.75" x2="351" y2="100.375" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="277" y1="306.625" x2="277" y2="282.25" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="240" y1="72.25" x2="240" y2="47.875" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="426" y1="241.938" x2="426" y2="217.562" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <path d="M447.127 177.25 C447.127 174.56 449.31 172.377 452 172.377 C454.69 172.377 456.873 174.56 456.873 177.25 C456.873 179.94 454.69 182.123 452 182.123 C449.31 182.123 447.127 179.94 447.127 177.25 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
-<path d="M552.127 229.75 C552.127 227.06 554.31 224.877 557 224.877 C559.69 224.877 561.873 227.06 561.873 229.75 C561.873 232.44 559.69 234.623 557 234.623 C554.31 234.623 552.127 232.44 552.127 229.75 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
-<path d="M358.127 60.062 C358.127 57.373 360.31 55.189 363 55.189 C365.69 55.189 367.873 57.373 367.873 60.062 C367.873 62.752 365.69 64.936 363 64.936 C360.31 64.936 358.127 62.752 358.127 60.062 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
-<path d="M492.127 112.562 C492.127 109.873 494.31 107.689 497 107.689 C499.69 107.689 501.873 109.873 501.873 112.562 C501.873 115.252 499.69 117.436 497 117.436 C494.31 117.436 492.127 115.252 492.127 112.562 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
 <path d="M596.127 346.938 C596.127 344.248 598.31 342.064 601 342.064 C603.69 342.064 605.873 344.248 605.873 346.938 C605.873 349.627 603.69 351.811 601 351.811 C598.31 351.811 596.127 349.627 596.127 346.938 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
+<path d="M492.127 112.562 C492.127 109.873 494.31 107.689 497 107.689 C499.69 107.689 501.873 109.873 501.873 112.562 C501.873 115.252 499.69 117.436 497 117.436 C494.31 117.436 492.127 115.252 492.127 112.562 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
 <path d="M373.127 294.438 C373.127 291.748 375.31 289.564 378 289.564 C380.69 289.564 382.873 291.748 382.873 294.438 C382.873 297.127 380.69 299.311 378 299.311 C375.31 299.311 373.127 297.127 373.127 294.438 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
+<path d="M358.127 60.062 C358.127 57.373 360.31 55.189 363 55.189 C365.69 55.189 367.873 57.373 367.873 60.062 C367.873 62.752 365.69 64.936 363 64.936 C360.31 64.936 358.127 62.752 358.127 60.062 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
+<path d="M552.127 229.75 C552.127 227.06 554.31 224.877 557 224.877 C559.69 224.877 561.873 227.06 561.873 229.75 C561.873 232.44 559.69 234.623 557 234.623 C554.31 234.623 552.127 232.44 552.127 229.75 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
 <text x="703" y="35" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Segment</text>
 <path d="M703 48.498 L765.308 48.498 L765.308 61.502 L703 61.502 Z" fill="none" stroke="none"/>
 <path d="M704.127 55 C704.127 52.31 706.31 50.127 709 50.127 C711.69 50.127 713.873 52.31 713.873 55 C713.873 57.69 711.69 59.873 709 59.873 C706.31 59.873 704.127 57.69 704.127 55 Z" fill="#0072b2" stroke="#ffffff" stroke-width="1.25"/>

@@ -21,7 +21,7 @@
 <clipPath id="svg-clip-2" clipPathUnits="userSpaceOnUse"><path d="M478 222 C478 193.3 501.3 170 530 170 C558.7 170 582 193.3 582 222 C582 250.7 558.7 274 530 274 C501.3 274 478 250.7 478 222 Z"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="640" height="441" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L640 0 L640 441 L0 441 Z" fill="#ffffff" stroke="none"/>
 <path d="M120 229 L120 229 Q141.539 229 156.77 244.23 Q172 259.461 172 281 Q172 302.539 156.77 317.77 Q141.539 333 120 333 Q98.461 333 83.23 317.77 Q68 302.539 68 281 Q68 259.461 83.23 244.23 Q98.461 229 120 229 Z" fill="#fbfaf7" stroke="none"/>
 <path d="M330 37 L330 37 Q351.539 37 366.77 52.23 Q382 67.461 382 89 Q382 110.539 366.77 125.77 Q351.539 141 330 141 Q308.461 141 293.23 125.77 Q278 110.539 278 89 Q278 67.461 293.23 52.23 Q308.461 37 330 37 Z" fill="#fbfaf7" stroke="none"/>

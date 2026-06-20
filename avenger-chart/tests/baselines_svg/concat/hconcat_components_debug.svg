@@ -31,7 +31,7 @@
 <clipPath id="svg-clip-5" clipPathUnits="userSpaceOnUse"><rect x="410.956" y="64.002" width="340.294" height="278.996"/></clipPath>
 </defs>
 <g fill="none" stroke-miterlimit="10">
-<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<rect x="0" y="0" width="820" height="380" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L820 0 L820 380 L0 380 Z" fill="#ffffff" stroke="none"/>
 <line x1="49" y1="73" x2="49" y2="336" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="74" y1="73" x2="74" y2="336" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
@@ -230,14 +230,14 @@
 <text x="771" y="111" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Low</text>
 <path d="M49 73 L347 73 L347 336 L49 336 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
 <text x="51" y="83" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">plot-area</text>
-<path d="M347 73 L355 73 L355 336 L347 336 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
-<text x="353" y="75" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(90 353 75)">of-right</text>
 <path d="M10 73 L49 73 L49 336 L10 336 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
 <text x="12" y="75" fill="#e69f00" fill-opacity="0.85" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(-90 12 75)">of-left</text>
-<path d="M49 336 L347 336 L347 370 L49 370 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
-<text x="51" y="368" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">of-bottom</text>
 <path d="M49 66 L347 66 L347 73 L49 73 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
 <text x="51" y="66" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">of-top</text>
+<path d="M347 73 L355 73 L355 336 L347 336 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
+<text x="353" y="75" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(90 353 75)">of-right</text>
+<path d="M49 336 L347 336 L347 370 L49 370 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
+<text x="51" y="368" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">of-bottom</text>
 <path d="M355 73 L412 73 L412 122 L355 122 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
 <text x="357" y="83" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">fill</text>
 <path d="M10 45 L412 45 L412 66 L10 66 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
@@ -248,24 +248,24 @@
 <text x="751" y="75" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(90 751 75)">of-right</text>
 <path d="M451 336 L749 336 L749 370 L451 370 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
 <text x="453" y="368" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">of-bottom</text>
-<path d="M412 73 L451 73 L451 336 L412 336 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
-<text x="414" y="75" fill="#e69f00" fill-opacity="0.85" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(-90 414 75)">of-left</text>
 <path d="M451 66 L749 66 L749 73 L451 73 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
 <text x="453" y="66" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">of-top</text>
+<path d="M412 73 L451 73 L451 336 L412 336 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
+<text x="414" y="75" fill="#e69f00" fill-opacity="0.85" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(-90 414 75)">of-left</text>
 <path d="M753 73 L810 73 L810 123 L753 123 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
 <text x="755" y="83" fill="#e69f00" fill-opacity="0.85" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">fill</text>
 <path d="M412 45 L810 45 L810 66 L412 66 Z" fill="none" stroke="#e69f00" stroke-opacity="0.85" stroke-width="1"/>
 <text x="805" y="55" fill="#e69f00" fill-opacity="0.85" text-anchor="end" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">title</text>
 <path d="M49 73 L749 73 L749 336 L49 336 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
 <text x="51" y="83" fill="#ff00ff" fill-opacity="0.7" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">plot-area</text>
-<path d="M49 336 L749 336 L749 370 L49 370 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
-<text x="51" y="368" fill="#ff00ff" fill-opacity="0.7" text-anchor="start" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">of-bottom</text>
 <path d="M49 31 L749 31 L749 73 L49 73 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
 <text x="51" y="31" fill="#ff00ff" fill-opacity="0.7" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">of-top</text>
-<path d="M749 73 L810 73 L810 336 L749 336 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
-<text x="808" y="75" fill="#ff00ff" fill-opacity="0.7" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(90 808 75)">of-right</text>
 <path d="M10 73 L49 73 L49 336 L10 336 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
 <text x="12" y="75" fill="#ff00ff" fill-opacity="0.7" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(-90 12 75)">of-left</text>
+<path d="M49 336 L749 336 L749 370 L49 370 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
+<text x="51" y="368" fill="#ff00ff" fill-opacity="0.7" text-anchor="start" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">of-bottom</text>
+<path d="M749 73 L810 73 L810 336 L749 336 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
+<text x="808" y="75" fill="#ff00ff" fill-opacity="0.7" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal" transform="rotate(90 808 75)">of-right</text>
 <path d="M10 10 L810 10 L810 31 L10 31 Z" fill="none" stroke="#ff00ff" stroke-opacity="0.7" stroke-width="1"/>
 <text x="805" y="20" fill="#ff00ff" fill-opacity="0.7" text-anchor="end" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="8" font-weight="normal" font-style="normal">title</text>
 </g>
