@@ -44,6 +44,7 @@ pub struct AvengerPlotHandle {
     observed: Arc<StdMutex<ObservedState>>,
     event_translator: Arc<StdMutex<EguiEventTranslator>>,
     pending_events: Arc<StdMutex<Vec<WindowEvent>>>,
+    coalesced_render_pending_events: Arc<StdMutex<Vec<WindowEvent>>>,
     scene_rebuild_request: Arc<StdMutex<Option<bool>>>,
     scene_publisher: FramePublisher<Arc<SceneGraph>>,
     scene_error: Arc<StdMutex<Option<String>>>,
@@ -59,6 +60,7 @@ impl AvengerPlotHandle {
             observed: Arc::new(StdMutex::new(ObservedState::default())),
             event_translator: Arc::new(StdMutex::new(EguiEventTranslator::default())),
             pending_events: Arc::new(StdMutex::new(Vec::new())),
+            coalesced_render_pending_events: Arc::new(StdMutex::new(Vec::new())),
             scene_rebuild_request: Arc::new(StdMutex::new(None)),
             scene_publisher: FramePublisher::new(),
             scene_error: Arc::new(StdMutex::new(None)),
@@ -75,6 +77,7 @@ impl AvengerPlotHandle {
             observed: Arc::new(StdMutex::new(ObservedState::default())),
             event_translator: Arc::new(StdMutex::new(EguiEventTranslator::default())),
             pending_events: Arc::new(StdMutex::new(Vec::new())),
+            coalesced_render_pending_events: Arc::new(StdMutex::new(Vec::new())),
             scene_rebuild_request: Arc::new(StdMutex::new(None)),
             scene_publisher: FramePublisher::new(),
             scene_error: Arc::new(StdMutex::new(None)),
@@ -146,6 +149,56 @@ impl AvengerPlotHandle {
             .extend(events);
     }
 
+    fn queue_frame_events(
+        &self,
+        events: impl IntoIterator<Item = WindowEvent>,
+        render_pending: bool,
+    ) -> Vec<WindowEvent> {
+        let mut queued = Vec::new();
+        let mut coalesced_count = 0;
+        let mut replayed_count = 0;
+
+        {
+            let mut coalesced_events = self
+                .coalesced_render_pending_events
+                .lock()
+                .expect("avenger egui coalesced-event lock poisoned");
+
+            if !render_pending {
+                replayed_count += coalesced_events.len() as u64;
+                queued.extend(coalesced_events.drain(..));
+            }
+
+            for event in events {
+                if render_pending && event.skip_if_render_pending() {
+                    coalesce_render_pending_event(&mut coalesced_events, event);
+                    coalesced_count += 1;
+                } else {
+                    if render_pending && !coalesced_events.is_empty() {
+                        replayed_count += coalesced_events.len() as u64;
+                        queued.extend(coalesced_events.drain(..));
+                    }
+                    queued.push(event);
+                }
+            }
+        }
+
+        if coalesced_count > 0 || replayed_count > 0 {
+            update_metrics(&self.metrics, |metrics| {
+                metrics.render_pending_events_coalesced += coalesced_count;
+                metrics.render_pending_events_replayed += replayed_count;
+            });
+            tracing::debug!(
+                coalesced_events = coalesced_count,
+                replayed_events = replayed_count,
+                "coalesced avenger plot events while render pending"
+            );
+        }
+
+        self.queue_events(queued.iter().cloned());
+        queued
+    }
+
     pub fn take_pending_events(&self) -> Vec<WindowEvent> {
         std::mem::take(
             &mut *self
@@ -159,6 +212,14 @@ impl AvengerPlotHandle {
         self.pending_events
             .lock()
             .expect("avenger egui pending-event lock poisoned")
+            .len()
+    }
+
+    #[cfg(test)]
+    fn coalesced_render_pending_event_count(&self) -> usize {
+        self.coalesced_render_pending_events
+            .lock()
+            .expect("avenger egui coalesced-event lock poisoned")
             .len()
     }
 
@@ -321,6 +382,10 @@ impl AvengerPlotHandle {
             metrics.routed_events, metrics.routed_event_batches
         ));
         ui.label(format!(
+            "events coalesced/replayed: {}/{}",
+            metrics.render_pending_events_coalesced, metrics.render_pending_events_replayed
+        ));
+        ui.label(format!(
             "set_scene/encode/submit us: {}/{}/{}",
             metrics.last_set_scene_us, metrics.last_command_encode_us, metrics.last_submit_us
         ));
@@ -470,8 +535,18 @@ impl AvengerPlotHandle {
             .map(FrameGeneration::get);
         status.requested_generation = (scene_status.requested_generation != FrameGeneration::ZERO)
             .then_some(scene_status.requested_generation.get());
-        status.render_pending =
-            scene_status.in_progress_generation.is_some() || status.gpu_render_pending;
+        let scene_work_pending = scene_status.in_progress_generation.is_some()
+            || !self
+                .pending_events
+                .lock()
+                .expect("avenger egui pending-event lock poisoned")
+                .is_empty()
+            || self
+                .scene_rebuild_request
+                .lock()
+                .expect("avenger egui scene-rebuild lock poisoned")
+                .is_some();
+        status.render_pending = scene_work_pending || status.gpu_render_pending;
         status
     }
 
@@ -498,6 +573,8 @@ pub struct PlotMetrics {
     pub routed_event_batches: u64,
     pub routed_events: u64,
     pub last_routed_event_count: u64,
+    pub render_pending_events_coalesced: u64,
+    pub render_pending_events_replayed: u64,
     pub scene_rebuild_requests: u64,
     pub event_dispatch_requests: u64,
     pub scene_frames_published: u64,
@@ -785,6 +862,83 @@ fn merge_scene_rebuild_request(request: &StdMutex<Option<bool>>, rebuild_geometr
     *request = Some(request.unwrap_or(false) || rebuild_geometry);
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RenderPendingEventKey {
+    WindowResize,
+    CanvasResize,
+    WindowMoved,
+    WindowFocused,
+    WindowCloseRequested,
+    CursorMoved,
+    CursorPresence,
+    MouseWheel,
+    Touch,
+    Immediate,
+}
+
+fn render_pending_event_key(event: &WindowEvent) -> RenderPendingEventKey {
+    match event {
+        WindowEvent::WindowResize(_) => RenderPendingEventKey::WindowResize,
+        WindowEvent::CanvasResize(_) => RenderPendingEventKey::CanvasResize,
+        WindowEvent::WindowMoved(_) => RenderPendingEventKey::WindowMoved,
+        WindowEvent::WindowFocused(_) => RenderPendingEventKey::WindowFocused,
+        WindowEvent::WindowCloseRequested => RenderPendingEventKey::WindowCloseRequested,
+        WindowEvent::CursorMoved(_) => RenderPendingEventKey::CursorMoved,
+        WindowEvent::CursorEntered | WindowEvent::CursorLeft => {
+            RenderPendingEventKey::CursorPresence
+        }
+        WindowEvent::MouseWheel(_) => RenderPendingEventKey::MouseWheel,
+        WindowEvent::Touch(_) => RenderPendingEventKey::Touch,
+        WindowEvent::MouseInput(_)
+        | WindowEvent::KeyboardInput(_)
+        | WindowEvent::FileChanged(_)
+        | WindowEvent::WindowResizeSettled(_)
+        | WindowEvent::CanvasResizeSettled(_) => RenderPendingEventKey::Immediate,
+    }
+}
+
+fn coalesce_render_pending_event(pending: &mut Vec<WindowEvent>, event: WindowEvent) {
+    if let WindowEvent::MouseWheel(new_event) = event {
+        if let Some(WindowEvent::MouseWheel(existing_event)) = pending
+            .iter_mut()
+            .find(|candidate| matches!(candidate, WindowEvent::MouseWheel(_)))
+        {
+            existing_event.delta =
+                coalesce_mouse_scroll_delta(existing_event.delta, new_event.delta);
+        } else {
+            pending.push(WindowEvent::MouseWheel(new_event));
+        }
+        return;
+    }
+
+    let key = render_pending_event_key(&event);
+    if let Some(existing) = pending
+        .iter_mut()
+        .find(|candidate| render_pending_event_key(candidate) == key)
+    {
+        *existing = event;
+    } else {
+        pending.push(event);
+    }
+}
+
+fn coalesce_mouse_scroll_delta(
+    current: MouseScrollDelta,
+    next: MouseScrollDelta,
+) -> MouseScrollDelta {
+    match (current, next) {
+        (
+            MouseScrollDelta::LineDelta(current_x, current_y),
+            MouseScrollDelta::LineDelta(next_x, next_y),
+        ) => MouseScrollDelta::LineDelta(current_x + next_x, current_y + next_y),
+        (
+            MouseScrollDelta::PixelDelta(current_x, current_y),
+            MouseScrollDelta::PixelDelta(next_x, next_y),
+        ) => MouseScrollDelta::PixelDelta(current_x + next_x, current_y + next_y),
+        (_, next) => next,
+    }
+}
+
 pub struct Plot<'a> {
     handle: &'a AvengerPlotHandle,
     desired_size: Option<egui::Vec2>,
@@ -856,7 +1010,9 @@ impl<'a> Plot<'a> {
                 .expect("avenger egui event-translator lock poisoned")
                 .translate_frame(rect, response_state, input)
         });
-        self.handle.queue_events(events.iter().cloned());
+        let routed_events = self
+            .handle
+            .queue_frame_events(events, frame_status.render_pending);
         let param_changes = self.handle.param_changes_since_last_show();
         let selection_changes = Vec::new();
         if !param_changes.is_empty() || !selection_changes.is_empty() {
@@ -868,7 +1024,7 @@ impl<'a> Plot<'a> {
             param_changes,
             selection_changes,
             frame_status,
-            events,
+            events: routed_events,
         }
     }
 }
@@ -2851,6 +3007,106 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn frame_event_queue_coalesces_skippable_events_while_render_pending() {
+        let handle = test_handle().await;
+
+        let queued = handle.queue_frame_events(
+            [
+                WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: [10.0, 20.0],
+                }),
+                WindowEvent::MouseWheel(WindowMouseWheel {
+                    delta: MouseScrollDelta::PixelDelta(0.0, 8.0),
+                }),
+                WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: [30.0, 40.0],
+                }),
+                WindowEvent::MouseWheel(WindowMouseWheel {
+                    delta: MouseScrollDelta::PixelDelta(0.0, 12.0),
+                }),
+            ],
+            true,
+        );
+
+        assert!(queued.is_empty());
+        assert_eq!(handle.pending_event_count(), 0);
+        assert_eq!(handle.coalesced_render_pending_event_count(), 2);
+        let metrics = handle.metrics();
+        assert_eq!(metrics.render_pending_events_coalesced, 4);
+        assert_eq!(metrics.render_pending_events_replayed, 0);
+        assert_eq!(metrics.routed_events, 0);
+
+        let replayed = handle.queue_frame_events([], false);
+
+        assert_eq!(
+            replayed,
+            vec![
+                WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: [30.0, 40.0],
+                }),
+                WindowEvent::MouseWheel(WindowMouseWheel {
+                    delta: MouseScrollDelta::PixelDelta(0.0, 20.0),
+                }),
+            ]
+        );
+        assert_eq!(handle.pending_event_count(), 2);
+        assert_eq!(handle.coalesced_render_pending_event_count(), 0);
+        let metrics = handle.metrics();
+        assert_eq!(metrics.render_pending_events_coalesced, 4);
+        assert_eq!(metrics.render_pending_events_replayed, 2);
+        assert_eq!(metrics.routed_events, 2);
+    }
+
+    #[tokio::test]
+    async fn frame_event_queue_replays_coalesced_events_before_immediate_event() {
+        let handle = test_handle().await;
+
+        let queued = handle.queue_frame_events(
+            [
+                WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: [30.0, 40.0],
+                }),
+                WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+            ],
+            true,
+        );
+
+        assert_eq!(
+            queued,
+            vec![
+                WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: [30.0, 40.0],
+                }),
+                WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+            ]
+        );
+        assert_eq!(handle.pending_event_count(), 2);
+        assert_eq!(handle.coalesced_render_pending_event_count(), 0);
+        let metrics = handle.metrics();
+        assert_eq!(metrics.render_pending_events_coalesced, 1);
+        assert_eq!(metrics.render_pending_events_replayed, 1);
+        assert_eq!(metrics.routed_events, 2);
+    }
+
+    #[tokio::test]
+    async fn frame_status_counts_queued_events_as_render_pending() {
+        let handle = test_handle().await;
+
+        assert!(!handle.frame_status().render_pending);
+        handle.queue_events([WindowEvent::CanvasResize(CanvasResizeEvent {
+            size: [300.0, 200.0],
+        })]);
+
+        assert!(handle.frame_status().render_pending);
+    }
+
+    #[tokio::test]
     async fn set_param_updates_metrics() {
         let handle = test_handle().await;
 
@@ -3045,6 +3301,7 @@ mod tests {
             ]),
         );
         assert!(!contains_mouse_wheel(&outside));
+        handle.take_pending_events();
 
         let inside = plot_events_on_ctx(
             &ctx,
