@@ -545,6 +545,42 @@ mod tests {
     }
 
     #[test]
+    fn text_content_extracts_from_generated_pdf() {
+        let scene_graph = SceneGraph {
+            width: 120.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Selectable PDF text".to_string()),
+                x: ScalarOrArray::new_scalar(6.0),
+                y: ScalarOrArray::new_scalar(18.0),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let pdf = PdfRenderer::new()
+            .with_options(PdfRenderOptions {
+                compress: false,
+                ..Default::default()
+            })
+            .render_scene_graph(&scene_graph)
+            .unwrap();
+        let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
+        let compact_extracted = extracted
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>();
+
+        assert!(
+            compact_extracted.contains("SelectablePDFtext"),
+            "extracted text was: {extracted:?}"
+        );
+    }
+
+    #[test]
     fn embeds_subset_font_for_bundled_text_font() {
         let scene_graph = SceneGraph {
             width: 80.0,
