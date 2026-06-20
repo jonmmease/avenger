@@ -1,4 +1,5 @@
 pub mod error;
+mod fonts;
 pub mod options;
 pub mod path;
 pub mod renderer;

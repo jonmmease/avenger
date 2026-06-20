@@ -12,6 +12,9 @@ lyon_path = { workspace = true }
 lyon_algorithms = { workspace = true }
 image = { workspace = true }
 base64 = { workspace = true }
+font-subset = { workspace = true }
+fontdb = { workspace = true }
+svgtypes = { workspace = true }
 
 [dependencies.avenger-scenegraph]
 path = "../avenger-scenegraph"
@@ -29,7 +32,7 @@ path = "../avenger-image"
 [dependencies.avenger-text]
 path = "../avenger-text"
 default-features = false
-features = ["cosmic-text"]
+features = ["cosmic-text", "fontdb"]
 
 [dev-dependencies]
 usvg = { workspace = true }

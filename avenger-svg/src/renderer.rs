@@ -22,6 +22,7 @@ use lyon_algorithms::aabb::bounding_box;
 
 use crate::{
     error::AvengerSvgError,
+    fonts::SvgFontCollector,
     options::{SvgBackground, SvgRenderOptions},
     path::{format_number, lyon_path_to_svg_d, push_number, push_point},
     style::{
@@ -68,6 +69,9 @@ impl SvgRenderer {
         }
 
         document.body.push_str("</g>\n");
+        document.defs.font_css = document
+            .fonts
+            .font_face_css(&self.options.font_resolution)?;
 
         let mut output = String::new();
         output.push_str(r#"<svg xmlns="http://www.w3.org/2000/svg" width=""#);
@@ -288,6 +292,15 @@ impl SvgRenderer {
                 font_style,
                 &text_measurer,
             );
+            if self.options.font_embedding == crate::options::SvgFontEmbedding::EmbedSubsetWoff2 {
+                document.fonts.collect_text(
+                    font,
+                    font_weight,
+                    font_style,
+                    &text,
+                    &self.options.font_resolution,
+                )?;
+            }
             let x = *x + origin[0];
             let y = *y + origin[1];
             document.body.push_str(r#"<text x=""#);
@@ -547,11 +560,13 @@ impl SvgRenderer {
 #[derive(Default)]
 struct SvgDocument {
     defs: SvgDefs,
+    fonts: SvgFontCollector,
     body: String,
 }
 
 #[derive(Default)]
 struct SvgDefs {
+    font_css: String,
     body: String,
     gradient_ids: Vec<(Gradient, String)>,
     clip_ids: Vec<(Clip, String)>,
@@ -561,10 +576,15 @@ struct SvgDefs {
 
 impl SvgDefs {
     fn write_defs(&self, output: &mut String) {
-        if self.body.is_empty() {
+        if self.body.is_empty() && self.font_css.is_empty() {
             output.push_str("<defs/>\n");
         } else {
             output.push_str("<defs>\n");
+            if !self.font_css.is_empty() {
+                output.push_str("<style><![CDATA[\n");
+                output.push_str(&self.font_css);
+                output.push_str("]]></style>\n");
+            }
             output.push_str(&self.body);
             output.push_str("</defs>\n");
         }
@@ -1381,7 +1401,7 @@ mod tests {
                 baseline: ScalarOrArray::new_scalar(TextBaseline::Middle),
                 angle: ScalarOrArray::new_scalar(45.0),
                 color: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 0.5])),
-                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible".to_string()),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
                 font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Bold)),
                 font_style: ScalarOrArray::new_scalar(FontStyle::Italic),
@@ -1395,7 +1415,10 @@ mod tests {
         assert!(svg.contains(r##"<text x="11" y="14" fill="#ff0000" fill-opacity="0.5""##));
         assert!(svg.contains(r#"text-anchor="middle""#));
         assert!(svg.contains(r#"dominant-baseline="central""#));
-        assert!(svg.contains(r#"font-family="Atkinson Hyperlegible""#));
+        assert!(svg.contains("<style><![CDATA[\n@font-face"));
+        assert!(svg.contains(r#"font-family: "Atkinson Hyperlegible Next";"#));
+        assert!(svg.contains("data:font/woff2;base64,"));
+        assert!(svg.contains(r#"font-family="Atkinson Hyperlegible Next""#));
         assert!(svg.contains(r#"font-size="12""#));
         assert!(svg.contains(r#"font-weight="bold""#));
         assert!(svg.contains(r#"font-style="italic""#));
@@ -1414,7 +1437,7 @@ mod tests {
                 text: ScalarOrArray::new_scalar("Long label text".to_string()),
                 x: ScalarOrArray::new_scalar(4.0),
                 y: ScalarOrArray::new_scalar(12.0),
-                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible".to_string()),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
                 font_size: ScalarOrArray::new_scalar(10.0),
                 limit: ScalarOrArray::new_scalar(35.0),
                 ..Default::default()
@@ -1427,6 +1450,60 @@ mod tests {
         assert!(svg.contains("\u{2026}</text>"));
         assert!(!svg.contains("Long label text</text>"));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn honors_svg_font_embedding_none() {
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Label".to_string()),
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(12.0),
+                font: ScalarOrArray::new_scalar("Missing Display Face".to_string()),
+                font_size: ScalarOrArray::new_scalar(10.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new()
+            .with_options(SvgRenderOptions {
+                font_embedding: crate::options::SvgFontEmbedding::None,
+                ..Default::default()
+            })
+            .render_scene_graph(&scene_graph)
+            .unwrap();
+
+        assert!(!svg.contains("@font-face"));
+        assert!(svg.contains(r#"font-family="Missing Display Face""#));
+    }
+
+    #[test]
+    fn errors_for_missing_named_svg_fonts_when_embedding_is_required() {
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Label".to_string()),
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(12.0),
+                font: ScalarOrArray::new_scalar("Missing Display Face".to_string()),
+                font_size: ScalarOrArray::new_scalar(10.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let err = SvgRenderer::new()
+            .render_scene_graph(&scene_graph)
+            .unwrap_err();
+
+        assert!(matches!(err, AvengerSvgError::Font(_)));
+        assert!(err.to_string().contains("Missing Display Face"));
     }
 
     #[test]

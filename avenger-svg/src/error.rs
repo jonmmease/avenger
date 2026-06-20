@@ -14,6 +14,8 @@ pub enum AvengerSvgError {
     ImageEncoding(String),
     #[error("text error: {0}")]
     Text(String),
+    #[error("font error: {0}")]
+    Font(String),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }
