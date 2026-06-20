@@ -179,9 +179,9 @@
 <line x1="41" y1="63.5" x2="41" y2="27.5" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-10)"/>
 <line x1="41" y1="59" x2="36" y2="59" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="41" y1="37" x2="36" y2="37" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="33" y="58" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
-<text x="33" y="36" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
-<text x="23.613" y="45.5" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.613 45.5)">Alpha metric</text>
+<text x="26.613" y="61.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
+<text x="27.222" y="39.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
+<text x="-10.173" y="43.508" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.613 45.5)">Alpha metric</text>
 <line x1="154.5" y1="63" x2="195.5" y2="63" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-11)"/>
 <line x1="155" y1="63" x2="155" y2="68" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="175" y1="63" x2="175" y2="68" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -203,10 +203,10 @@
 <line x1="41" y1="128" x2="36" y2="128" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="41" y1="114" x2="36" y2="114" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="41" y1="100" x2="36" y2="100" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="33" y="127" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
-<text x="33" y="113" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">2</text>
-<text x="33" y="99" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">4</text>
-<text x="23.613" y="113.5" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.613 113.5)">Beta metric</text>
+<text x="26.613" y="130.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
+<text x="27.592" y="116.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">2</text>
+<text x="26.992" y="102.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">4</text>
+<text x="-7.035" y="111.508" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.613 113.5)">Beta metric</text>
 <line x1="154.5" y1="131" x2="195.5" y2="131" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-17)"/>
 <line x1="155" y1="131" x2="155" y2="136" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="175" y1="131" x2="175" y2="136" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -226,23 +226,23 @@
 <line x1="40.5" y1="204" x2="81.5" y2="204" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-21)"/>
 <line x1="44" y1="204" x2="44" y2="209" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="72" y1="204" x2="72" y2="209" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="44" y="212" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
-<text x="72" y="212" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
-<text x="61" y="224.996" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Alpha metric</text>
+<text x="40.806" y="220.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
+<text x="69.111" y="220.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
+<text x="27.214" y="235.004" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Alpha metric</text>
 <line x1="41" y1="204.5" x2="41" y2="168.5" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-22)"/>
 <line x1="41" y1="204" x2="36" y2="204" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="41" y1="182" x2="36" y2="182" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="33" y="203" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
-<text x="33" y="181" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
-<text x="23.613" y="186.5" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.613 186.5)">Gamma metric</text>
+<text x="26.613" y="206.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
+<text x="27.222" y="184.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
+<text x="-15.603" y="184.508" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.613 186.5)">Gamma metric</text>
 <line x1="154.5" y1="204" x2="195.5" y2="204" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-23)"/>
 <line x1="155" y1="204" x2="155" y2="209" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="175" y1="204" x2="175" y2="209" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="195" y1="204" x2="195" y2="209" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="155" y="212" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
-<text x="175" y="212" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">2</text>
-<text x="195" y="212" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">4</text>
-<text x="175" y="224.996" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Beta metric</text>
+<text x="151.806" y="220.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
+<text x="172.296" y="220.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">2</text>
+<text x="191.996" y="220.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">4</text>
+<text x="144.352" y="235.004" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Beta metric</text>
 <line x1="155" y1="204.5" x2="155" y2="168.5" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-24)"/>
 <line x1="155" y1="204" x2="150" y2="204" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="155" y1="182" x2="150" y2="182" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -250,75 +250,75 @@
 <line x1="278" y1="204" x2="278" y2="209" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="292" y1="204" x2="292" y2="209" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="305" y1="204" x2="305" y2="209" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="278" y="212" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">2</text>
-<text x="292" y="212" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">4</text>
-<text x="305" y="212" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">6</text>
-<text x="295" y="224.996" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Gamma metric</text>
+<text x="275.296" y="220.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">2</text>
+<text x="288.996" y="220.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">4</text>
+<text x="302.056" y="220.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">6</text>
+<text x="255.784" y="235.004" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Gamma metric</text>
 <line x1="275" y1="204.5" x2="275" y2="168.5" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-26)"/>
 <line x1="275" y1="204" x2="270" y2="204" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="275" y1="182" x2="270" y2="182" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="100" y="32" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
+<text x="100" y="42.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
 <path d="M100 43.498 L138.037 43.498 L138.037 56.502 L100 56.502 Z" fill="none" stroke="none"/>
 <path d="M100.394 50 C100.394 48.01 102.01 46.394 104 46.394 C105.99 46.394 107.606 48.01 107.606 50 C107.606 51.99 105.99 53.606 104 53.606 C102.01 53.606 100.394 51.99 100.394 50 Z" fill="#0072b2" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="110" y="50" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
+<text x="110" y="53.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
 <path d="M100 56.498 L132.436 56.498 L132.436 69.502 L100 69.502 Z" fill="none" stroke="none"/>
 <path d="M100.394 63 C100.394 61.01 102.01 59.394 104 59.394 C105.99 59.394 107.606 61.01 107.606 63 C107.606 64.99 105.99 66.606 104 66.606 C102.01 66.606 100.394 64.99 100.394 63 Z" fill="#e69f00" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="110" y="63" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
-<text x="211" y="32" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
+<text x="110" y="66.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
+<text x="211" y="42.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
 <path d="M211 43.498 L249.037 43.498 L249.037 56.502 L211 56.502 Z" fill="none" stroke="none"/>
 <path d="M211.394 50 C211.394 48.01 213.01 46.394 215 46.394 C216.99 46.394 218.606 48.01 218.606 50 C218.606 51.99 216.99 53.606 215 53.606 C213.01 53.606 211.394 51.99 211.394 50 Z" fill="#0072b2" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="221" y="50" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
+<text x="221" y="53.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
 <path d="M211 56.498 L243.436 56.498 L243.436 69.502 L211 69.502 Z" fill="none" stroke="none"/>
 <path d="M211.394 63 C211.394 61.01 213.01 59.394 215 59.394 C216.99 59.394 218.606 61.01 218.606 63 C218.606 64.99 216.99 66.606 215 66.606 C213.01 66.606 211.394 64.99 211.394 63 Z" fill="#e69f00" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="221" y="63" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
-<text x="340" y="32" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
+<text x="221" y="66.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
+<text x="340" y="42.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
 <path d="M340 43.498 L378.037 43.498 L378.037 56.502 L340 56.502 Z" fill="none" stroke="none"/>
 <path d="M340.394 50 C340.394 48.01 342.01 46.394 344 46.394 C345.99 46.394 347.606 48.01 347.606 50 C347.606 51.99 345.99 53.606 344 53.606 C342.01 53.606 340.394 51.99 340.394 50 Z" fill="#0072b2" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="350" y="50" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
+<text x="350" y="53.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
 <path d="M340 56.498 L372.436 56.498 L372.436 69.502 L340 69.502 Z" fill="none" stroke="none"/>
 <path d="M340.394 63 C340.394 61.01 342.01 59.394 344 59.394 C345.99 59.394 347.606 61.01 347.606 63 C347.606 64.99 345.99 66.606 344 66.606 C342.01 66.606 340.394 64.99 340.394 63 Z" fill="#e69f00" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="350" y="63" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
-<text x="100" y="100" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
+<text x="350" y="66.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
+<text x="100" y="110.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
 <path d="M100 111.498 L138.037 111.498 L138.037 124.502 L100 124.502 Z" fill="none" stroke="none"/>
 <path d="M100.394 118 C100.394 116.01 102.01 114.394 104 114.394 C105.99 114.394 107.606 116.01 107.606 118 C107.606 119.99 105.99 121.606 104 121.606 C102.01 121.606 100.394 119.99 100.394 118 Z" fill="#0072b2" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="110" y="118" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
+<text x="110" y="121.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
 <path d="M100 124.498 L132.436 124.498 L132.436 137.502 L100 137.502 Z" fill="none" stroke="none"/>
 <path d="M100.394 131 C100.394 129.01 102.01 127.394 104 127.394 C105.99 127.394 107.606 129.01 107.606 131 C107.606 132.99 105.99 134.606 104 134.606 C102.01 134.606 100.394 132.99 100.394 131 Z" fill="#e69f00" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="110" y="131" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
-<text x="211" y="100" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
+<text x="110" y="134.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
+<text x="211" y="110.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
 <path d="M211 111.498 L249.037 111.498 L249.037 124.502 L211 124.502 Z" fill="none" stroke="none"/>
 <path d="M211.394 118 C211.394 116.01 213.01 114.394 215 114.394 C216.99 114.394 218.606 116.01 218.606 118 C218.606 119.99 216.99 121.606 215 121.606 C213.01 121.606 211.394 119.99 211.394 118 Z" fill="#0072b2" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="221" y="118" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
+<text x="221" y="121.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
 <path d="M211 124.498 L243.436 124.498 L243.436 137.502 L211 137.502 Z" fill="none" stroke="none"/>
 <path d="M211.394 131 C211.394 129.01 213.01 127.394 215 127.394 C216.99 127.394 218.606 129.01 218.606 131 C218.606 132.99 216.99 134.606 215 134.606 C213.01 134.606 211.394 132.99 211.394 131 Z" fill="#e69f00" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="221" y="131" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
-<text x="340" y="100" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
+<text x="221" y="134.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
+<text x="340" y="110.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
 <path d="M340 111.498 L378.037 111.498 L378.037 124.502 L340 124.502 Z" fill="none" stroke="none"/>
 <path d="M340.394 118 C340.394 116.01 342.01 114.394 344 114.394 C345.99 114.394 347.606 116.01 347.606 118 C347.606 119.99 345.99 121.606 344 121.606 C342.01 121.606 340.394 119.99 340.394 118 Z" fill="#0072b2" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="350" y="118" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
+<text x="350" y="121.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
 <path d="M340 124.498 L372.436 124.498 L372.436 137.502 L340 137.502 Z" fill="none" stroke="none"/>
 <path d="M340.394 131 C340.394 129.01 342.01 127.394 344 127.394 C345.99 127.394 347.606 129.01 347.606 131 C347.606 132.99 345.99 134.606 344 134.606 C342.01 134.606 340.394 132.99 340.394 131 Z" fill="#e69f00" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="350" y="131" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
-<text x="100" y="173" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
+<text x="350" y="134.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
+<text x="100" y="183.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
 <path d="M100 184.498 L138.037 184.498 L138.037 197.502 L100 197.502 Z" fill="none" stroke="none"/>
 <path d="M100.394 191 C100.394 189.01 102.01 187.394 104 187.394 C105.99 187.394 107.606 189.01 107.606 191 C107.606 192.99 105.99 194.606 104 194.606 C102.01 194.606 100.394 192.99 100.394 191 Z" fill="#0072b2" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="110" y="191" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
+<text x="110" y="194.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
 <path d="M100 197.498 L132.436 197.498 L132.436 210.502 L100 210.502 Z" fill="none" stroke="none"/>
 <path d="M100.394 204 C100.394 202.01 102.01 200.394 104 200.394 C105.99 200.394 107.606 202.01 107.606 204 C107.606 205.99 105.99 207.606 104 207.606 C102.01 207.606 100.394 205.99 100.394 204 Z" fill="#e69f00" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="110" y="204" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
-<text x="211" y="173" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
+<text x="110" y="207.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
+<text x="211" y="183.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
 <path d="M211 184.498 L249.037 184.498 L249.037 197.502 L211 197.502 Z" fill="none" stroke="none"/>
 <path d="M211.394 191 C211.394 189.01 213.01 187.394 215 187.394 C216.99 187.394 218.606 189.01 218.606 191 C218.606 192.99 216.99 194.606 215 194.606 C213.01 194.606 211.394 192.99 211.394 191 Z" fill="#0072b2" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="221" y="191" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
+<text x="221" y="194.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
 <path d="M211 197.498 L243.436 197.498 L243.436 210.502 L211 210.502 Z" fill="none" stroke="none"/>
 <path d="M211.394 204 C211.394 202.01 213.01 200.394 215 200.394 C216.99 200.394 218.606 202.01 218.606 204 C218.606 205.99 216.99 207.606 215 207.606 C213.01 207.606 211.394 205.99 211.394 204 Z" fill="#e69f00" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="221" y="204" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
-<text x="340" y="173" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
+<text x="221" y="207.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
+<text x="340" y="183.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">group</text>
 <path d="M340 184.498 L378.037 184.498 L378.037 197.502 L340 197.502 Z" fill="none" stroke="none"/>
 <path d="M340.394 191 C340.394 189.01 342.01 187.394 344 187.394 C345.99 187.394 347.606 189.01 347.606 191 C347.606 192.99 345.99 194.606 344 194.606 C342.01 194.606 340.394 192.99 340.394 191 Z" fill="#0072b2" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="350" y="191" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
+<text x="350" y="194.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Alpha</text>
 <path d="M340 197.498 L372.436 197.498 L372.436 210.502 L340 210.502 Z" fill="none" stroke="none"/>
 <path d="M340.394 204 C340.394 202.01 342.01 200.394 344 200.394 C345.99 200.394 347.606 202.01 347.606 204 C347.606 205.99 345.99 207.606 344 207.606 C342.01 207.606 340.394 205.99 340.394 204 Z" fill="#e69f00" fill-opacity="0.78" stroke="#ffffff" stroke-opacity="0.78" stroke-width="0.75"/>
-<text x="350" y="204" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
+<text x="350" y="207.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Beta</text>
 </g>
 </svg>

@@ -40,23 +40,23 @@
 <path d="M161.261 168 L164 165.261 L166.739 168 L164 170.739 Z" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>
 <path d="M161.261 166.905 L161.261 169.095 L162.905 169.095 L162.905 170.739 L165.095 170.739 L165.095 169.095 L166.739 169.095 L166.739 166.905 L165.095 166.905 L165.095 165.261 L162.905 165.261 L162.905 166.905 Z" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>
 <path d="M318 46 L390 46 L390 133 L318 133 Z" fill="none" stroke="none"/>
-<text x="10" y="20.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Shape Gallery in Zero-D</text>
-<text x="10" y="38.5" fill="#595959" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="14.004" font-weight="200" font-style="normal">All shapes rendered at the same position</text>
-<text x="322" y="50" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Shape Type</text>
+<text x="10" y="26.512" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Shape Gallery in Zero-D</text>
+<text x="10" y="43.177" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="14.004" font-weight="200" font-style="normal">All shapes rendered at the same position</text>
+<text x="322" y="60.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Shape Type</text>
 <path d="M322 63.498 L360.408 63.498 L360.408 76.502 L322 76.502 Z" fill="none" stroke="none"/>
 <path d="M323 70 C323 67.792 324.792 66 327 66 C329.208 66 331 67.792 331 70 C331 72.208 329.208 74 327 74 C324.792 74 323 72.208 323 70 Z" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>
-<text x="334" y="70" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">circle</text>
+<text x="334" y="73.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">circle</text>
 <path d="M322 76.498 L359.726 76.498 L359.726 89.502 L322 89.502 Z" fill="none" stroke="none"/>
 <path d="M323 81.4 L323 84.6 L325.4 84.6 L325.4 87 L328.6 87 L328.6 84.6 L331 84.6 L331 81.4 L328.6 81.4 L328.6 79 L325.4 79 L325.4 81.4 Z" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>
-<text x="334" y="83" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">cross</text>
+<text x="334" y="86.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">cross</text>
 <path d="M322 89.498 L376.529 89.498 L376.529 102.502 L322 102.502 Z" fill="none" stroke="none"/>
 <path d="M323 96 L327 92 L331 96 L327 100 Z" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>
-<text x="334" y="96" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">diamond</text>
+<text x="334" y="99.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">diamond</text>
 <path d="M322 102.498 L367.066 102.498 L367.066 115.502 L322 115.502 Z" fill="none" stroke="none"/>
 <path d="M323 105 L323 113 L331 113 L331 105 Z" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>
-<text x="334" y="109" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">square</text>
+<text x="334" y="112.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">square</text>
 <path d="M321.969 114.498 L371.159 114.498 L371.159 127.502 L321.969 127.502 Z" fill="none" stroke="none"/>
 <path d="M327 116.762 L327.952 119.69 L331.031 119.69 L328.54 121.5 L329.491 124.429 L327 122.619 L324.509 124.429 L325.46 121.5 L322.969 119.69 L326.048 119.69 Z" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>
-<text x="334" y="121" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">triangle</text>
+<text x="334" y="124.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">triangle</text>
 </g>
 </svg>

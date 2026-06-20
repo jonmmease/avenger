@@ -47,13 +47,13 @@
 <line x1="213.5" y1="252" x2="213.5" y2="257" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
 <line x1="259.5" y1="252" x2="259.5" y2="257" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
 <line x1="305.5" y1="252" x2="305.5" y2="257" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
-<text x="75.5" y="260" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">0°</text>
-<text x="121.5" y="260" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">120°</text>
-<text x="167.5" y="260" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">180°</text>
-<text x="213.5" y="260" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">240°</text>
-<text x="259.5" y="260" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">300°</text>
-<text x="305.5" y="260" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">60°</text>
-<text x="191" y="277" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Hue</text>
+<text x="69.5" y="270.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">0°</text>
+<text x="109.77" y="270.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">120°</text>
+<text x="155.368" y="270.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">180°</text>
+<text x="200.708" y="270.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">240°</text>
+<text x="246.156" y="270.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">300°</text>
+<text x="295.912" y="270.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">60°</text>
+<text x="180.368" y="287.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Hue</text>
 <line x1="48" y1="252.5" x2="48" y2="18.5" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-2)"/>
 <line x1="48" y1="252" x2="43" y2="252" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
 <line x1="48" y1="229" x2="43" y2="229" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
@@ -66,36 +66,36 @@
 <line x1="48" y1="66" x2="43" y2="66" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
 <line x1="48" y1="42" x2="43" y2="42" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
 <line x1="48" y1="19" x2="43" y2="19" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
-<text x="40" y="250.8" fill="#000000" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">0</text>
-<text x="40" y="227.8" fill="#000000" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">1</text>
-<text x="40" y="203.8" fill="#000000" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">2</text>
-<text x="40" y="180.8" fill="#000000" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">3</text>
-<text x="40" y="157.8" fill="#000000" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">4</text>
-<text x="40" y="134.8" fill="#000000" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">5</text>
-<text x="40" y="110.8" fill="#000000" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">6</text>
-<text x="40" y="87.8" fill="#000000" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">7</text>
-<text x="40" y="64.8" fill="#000000" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">8</text>
-<text x="40" y="40.8" fill="#000000" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">9</text>
-<text x="40" y="17.8" fill="#000000" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">10</text>
-<text x="23.652" y="135.5" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.652 135.5)">Value</text>
-<text x="338" y="23" fill="#2c2c2c" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">category</text>
+<text x="32.224" y="254.808" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">0</text>
+<text x="35.116" y="231.808" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">1</text>
+<text x="33.424" y="207.808" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">2</text>
+<text x="33.088" y="184.808" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">3</text>
+<text x="32.632" y="161.808" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">4</text>
+<text x="32.944" y="138.808" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">5</text>
+<text x="32.824" y="114.808" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">6</text>
+<text x="33.88" y="91.808" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">7</text>
+<text x="32.62" y="68.808" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">8</text>
+<text x="32.86" y="44.808" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">9</text>
+<text x="27.34" y="21.808" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">10</text>
+<text x="9.042" y="133.508" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.652 135.5)">Value</text>
+<text x="338" y="33.008" fill="#2c2c2c" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">category</text>
 <path d="M338 35.5 L360.516 35.5 L360.516 48.5 L338 48.5 Z" fill="none" stroke="none"/>
 <path d="M339 38 L339 46 L347 46 L347 38 Z" fill="#0072b2" stroke="#000000" stroke-width="1"/>
-<text x="349" y="42" fill="#3c3c3c" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">0°</text>
+<text x="349" y="45.674" fill="#3c3c3c" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">0°</text>
 <path d="M338 48.5 L372.748 48.5 L372.748 61.5 L338 61.5 Z" fill="none" stroke="none"/>
 <path d="M339 51 L339 59 L347 59 L347 51 Z" fill="#e69f00" stroke="#000000" stroke-width="1"/>
-<text x="349" y="55" fill="#3c3c3c" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">120°</text>
+<text x="349" y="58.674" fill="#3c3c3c" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">120°</text>
 <path d="M338 61.5 L372.748 61.5 L372.748 74.5 L338 74.5 Z" fill="none" stroke="none"/>
 <path d="M339 64 L339 72 L347 72 L347 64 Z" fill="#009e73" stroke="#000000" stroke-width="1"/>
-<text x="349" y="68" fill="#3c3c3c" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">180°</text>
+<text x="349" y="71.674" fill="#3c3c3c" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">180°</text>
 <path d="M338 74.5 L372.748 74.5 L372.748 87.5 L338 87.5 Z" fill="none" stroke="none"/>
 <path d="M339 77 L339 85 L347 85 L347 77 Z" fill="#f0e442" stroke="#000000" stroke-width="1"/>
-<text x="349" y="81" fill="#3c3c3c" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">240°</text>
+<text x="349" y="84.674" fill="#3c3c3c" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">240°</text>
 <path d="M338 87.5 L372.748 87.5 L372.748 100.5 L338 100.5 Z" fill="none" stroke="none"/>
 <path d="M339 90 L339 98 L347 98 L347 90 Z" fill="#d55e00" stroke="#000000" stroke-width="1"/>
-<text x="349" y="94" fill="#3c3c3c" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">300°</text>
+<text x="349" y="97.674" fill="#3c3c3c" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">300°</text>
 <path d="M338 100.5 L366.632 100.5 L366.632 113.5 L338 113.5 Z" fill="none" stroke="none"/>
 <path d="M339 103 L339 111 L347 111 L347 103 Z" fill="#56b4e9" stroke="#000000" stroke-width="1"/>
-<text x="349" y="107" fill="#3c3c3c" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">60°</text>
+<text x="349" y="110.674" fill="#3c3c3c" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="300" font-style="normal">60°</text>
 </g>
 </svg>

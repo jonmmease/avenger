@@ -41,30 +41,30 @@
 <path d="M164.429 168 C164.429 164.097 167.597 160.929 171.5 160.929 C175.403 160.929 178.571 164.097 178.571 168 C178.571 171.903 175.403 175.071 171.5 175.071 C167.597 175.071 164.429 171.903 164.429 168 Z" fill="#d55e00" stroke="#333333" stroke-width="1"/>
 <path d="M333 46 L380 46 L380 98 L333 98 Z" fill="none" stroke="none"/>
 <path d="M333 98 L390 98 L390 185 L333 185 Z" fill="none" stroke="none"/>
-<text x="10" y="20.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">ZeroD with Color Encoding</text>
-<text x="10" y="38.5" fill="#595959" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="14.004" font-weight="200" font-style="normal">Multiple data points at the same position</text>
-<text x="337" y="50" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Size</text>
+<text x="10" y="26.512" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">ZeroD with Color Encoding</text>
+<text x="10" y="43.177" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="14.004" font-weight="200" font-style="normal">Multiple data points at the same position</text>
+<text x="337" y="60.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Size</text>
 <path d="M337 61.498 L373.443 61.498 L373.443 74.502 L337 74.502 Z" fill="none" stroke="none"/>
 <path d="M342.261 68 C342.261 66.489 343.489 65.261 345 65.261 C346.511 65.261 347.739 66.489 347.739 68 C347.739 69.511 346.511 70.739 345 70.739 C343.489 70.739 342.261 69.511 342.261 68 Z" fill="#4682b4" stroke="#333333" stroke-width="1"/>
-<text x="354" y="68" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">100</text>
+<text x="354" y="71.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">100</text>
 <path d="M337 77 L375.302 77 L375.302 93 L337 93 Z" fill="none" stroke="none"/>
 <path d="M337.929 85 C337.929 81.097 341.097 77.929 345 77.929 C348.903 77.929 352.071 81.097 352.071 85 C352.071 88.903 348.903 92.071 345 92.071 C341.097 92.071 337.929 88.903 337.929 85 Z" fill="#4682b4" stroke="#333333" stroke-width="1"/>
-<text x="354" y="85" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">300</text>
-<text x="337" y="102" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Category</text>
+<text x="354" y="88.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">300</text>
+<text x="337" y="112.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Category</text>
 <path d="M337 114.498 L380.978 114.498 L380.978 127.502 L337 127.502 Z" fill="none" stroke="none"/>
 <path d="M338 121 C338 118.792 339.792 117 342 117 C344.208 117 346 118.792 346 121 C346 123.208 344.208 125 342 125 C339.792 125 338 123.208 338 121 Z" fill="#0072b2" stroke="#333333" stroke-width="1"/>
-<text x="348" y="121" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Type A</text>
+<text x="348" y="124.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Type A</text>
 <path d="M337 127.498 L380.923 127.498 L380.923 140.502 L337 140.502 Z" fill="none" stroke="none"/>
 <path d="M338 134 C338 131.792 339.792 130 342 130 C344.208 130 346 131.792 346 134 C346 136.208 344.208 138 342 138 C339.792 138 338 136.208 338 134 Z" fill="#e69f00" stroke="#333333" stroke-width="1"/>
-<text x="348" y="134" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Type B</text>
+<text x="348" y="137.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Type B</text>
 <path d="M337 140.498 L381.374 140.498 L381.374 153.502 L337 153.502 Z" fill="none" stroke="none"/>
 <path d="M338 147 C338 144.792 339.792 143 342 143 C344.208 143 346 144.792 346 147 C346 149.208 344.208 151 342 151 C339.792 151 338 149.208 338 147 Z" fill="#009e73" stroke="#333333" stroke-width="1"/>
-<text x="348" y="147" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Type C</text>
+<text x="348" y="150.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Type C</text>
 <path d="M337 153.498 L381.55 153.498 L381.55 166.502 L337 166.502 Z" fill="none" stroke="none"/>
 <path d="M338 160 C338 157.792 339.792 156 342 156 C344.208 156 346 157.792 346 160 C346 162.208 344.208 164 342 164 C339.792 164 338 162.208 338 160 Z" fill="#f0e442" stroke="#333333" stroke-width="1"/>
-<text x="348" y="160" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Type D</text>
+<text x="348" y="163.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Type D</text>
 <path d="M337 166.498 L380.449 166.498 L380.449 179.502 L337 179.502 Z" fill="none" stroke="none"/>
 <path d="M338 173 C338 170.792 339.792 169 342 169 C344.208 169 346 170.792 346 173 C346 175.208 344.208 177 342 177 C339.792 177 338 175.208 338 173 Z" fill="#d55e00" stroke="#333333" stroke-width="1"/>
-<text x="348" y="173" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Type E</text>
+<text x="348" y="176.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Type E</text>
 </g>
 </svg>

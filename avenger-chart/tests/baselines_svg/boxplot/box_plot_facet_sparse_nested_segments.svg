@@ -52,9 +52,9 @@
 <line x1="842" y1="66" x2="842" y2="456" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="891" y1="66" x2="891" y2="456" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
 <path d="M899 66 L970 66 L970 115 L899 115 Z" fill="none" stroke="none"/>
-<text x="10" y="20.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Sparse faceted grouped box plot</text>
-<line x1="212" y1="231.326" x2="275" y2="231.326" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<text x="10" y="26.512" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Sparse faceted grouped box plot</text>
 <line x1="290" y1="423.147" x2="349" y2="423.147" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="212" y1="231.326" x2="275" y2="231.326" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="270" y1="290.674" x2="329" y2="290.674" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="93.5" y1="456" x2="486.5" y2="456" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-1)"/>
 <line x1="94" y1="456" x2="94" y2="461" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -66,28 +66,28 @@
 <line x1="388" y1="456" x2="388" y2="461" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="437" y1="456" x2="437" y2="461" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="486" y1="456" x2="486" y2="461" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="94" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
-<text x="143" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
-<text x="192" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">10</text>
-<text x="241" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">15</text>
-<text x="290" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">20</text>
-<text x="339" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">25</text>
-<text x="388" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">30</text>
-<text x="437" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">35</text>
-<text x="486" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">40</text>
-<text x="290" y="476.996" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Value</text>
+<text x="90.806" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
+<text x="140.111" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
+<text x="186.817" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">10</text>
+<text x="236.122" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">15</text>
+<text x="284.102" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">20</text>
+<text x="333.407" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">25</text>
+<text x="381.972" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">30</text>
+<text x="431.277" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">35</text>
+<text x="479.802" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">40</text>
+<text x="275.39" y="487.004" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Value</text>
 <line x1="94" y1="456.5" x2="94" y2="65.5" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-2)"/>
-<text x="91" y="392.473" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Infrastructure</text>
-<text x="91" y="260" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Platform</text>
-<text x="91" y="127.528" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Services</text>
+<text x="32.423" y="395.812" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Infrastructure</text>
+<text x="54.675" y="263.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Platform</text>
+<text x="54.844" y="130.866" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Services</text>
 <line x1="94" y1="456" x2="28.423" y2="456" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="94" y1="327.236" x2="28.423" y2="327.236" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="94" y1="194.764" x2="28.423" y2="194.764" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="94" y1="66" x2="28.423" y2="66" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="23.923" y="261" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.923 261)">Segment grouped by category</text>
-<line x1="626" y1="231.326" x2="690" y2="231.326" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
+<text x="-55.385" y="259.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.923 261)">Segment grouped by category</text>
 <line x1="656" y1="158.201" x2="705" y2="158.201" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="597" y1="363.799" x2="646" y2="363.799" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
+<line x1="626" y1="231.326" x2="690" y2="231.326" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="498.5" y1="456" x2="891.5" y2="456" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-4)"/>
 <line x1="499" y1="456" x2="499" y2="461" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="548" y1="456" x2="548" y2="461" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -98,59 +98,59 @@
 <line x1="793" y1="456" x2="793" y2="461" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="842" y1="456" x2="842" y2="461" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="891" y1="456" x2="891" y2="461" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="499" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
-<text x="548" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
-<text x="597" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">10</text>
-<text x="646" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">15</text>
-<text x="695" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">20</text>
-<text x="744" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">25</text>
-<text x="793" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">30</text>
-<text x="842" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">35</text>
-<text x="891" y="464" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">40</text>
-<text x="695" y="476.996" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Value</text>
+<text x="495.806" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
+<text x="545.111" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
+<text x="591.817" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">10</text>
+<text x="641.122" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">15</text>
+<text x="689.102" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">20</text>
+<text x="738.407" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">25</text>
+<text x="786.972" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">30</text>
+<text x="836.277" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">35</text>
+<text x="884.802" y="472.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">40</text>
+<text x="680.39" y="487.004" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Value</text>
 <line x1="499" y1="456.5" x2="499" y2="65.5" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-5)"/>
-<line x1="212" y1="240.864" x2="212" y2="221.788" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="290" y1="432.685" x2="290" y2="413.609" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="212" y1="240.864" x2="212" y2="221.788" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="270" y1="300.212" x2="270" y2="281.136" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="275" y1="240.864" x2="275" y2="221.788" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="349" y1="432.685" x2="349" y2="413.609" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="275" y1="240.864" x2="275" y2="221.788" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="329" y1="300.212" x2="329" y2="281.136" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="626" y1="240.864" x2="626" y2="221.788" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="656" y1="167.739" x2="656" y2="148.663" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="597" y1="373.337" x2="597" y2="354.261" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
-<line x1="690" y1="240.864" x2="690" y2="221.788" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
+<line x1="626" y1="240.864" x2="626" y2="221.788" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="705" y1="167.739" x2="705" y2="148.663" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="646" y1="373.337" x2="646" y2="354.261" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
-<path d="M237 218.609 L261 218.609 L261 244.043 L237 244.043 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
+<line x1="690" y1="240.864" x2="690" y2="221.788" fill="none" stroke="#475569" stroke-width="1.5" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <path d="M312 410.429 L339 410.429 L339 435.864 L312 435.864 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
+<path d="M237 218.609 L261 218.609 L261 244.043 L237 244.043 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
 <path d="M292 277.957 L319 277.957 L319 303.391 L292 303.391 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-0)"/>
-<path d="M652 218.609 L675 218.609 L675 244.043 L652 244.043 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-3)"/>
 <path d="M671 145.484 L695 145.484 L695 170.919 L671 170.919 Z" fill="#0072b2" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-3)"/>
 <path d="M612 351.082 L636 351.082 L636 376.516 L612 376.516 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-3)"/>
-<line x1="248" y1="245.103" x2="248" y2="217.549" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<path d="M652 218.609 L675 218.609 L675 244.043 L652 244.043 Z" fill="#e69f00" stroke="#2563eb" stroke-width="1.5" clip-path="url(#svg-clip-3)"/>
 <line x1="332" y1="436.924" x2="332" y2="409.37" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
+<line x1="248" y1="245.103" x2="248" y2="217.549" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
 <line x1="312" y1="304.451" x2="312" y2="276.897" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-0)"/>
-<line x1="663" y1="245.103" x2="663" y2="217.549" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="688" y1="171.978" x2="688" y2="144.424" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="629" y1="377.576" x2="629" y2="350.022" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
-<path d="M324.127 231.326 C324.127 228.636 326.31 226.453 329 226.453 C331.69 226.453 333.873 228.636 333.873 231.326 C333.873 234.016 331.69 236.199 329 236.199 C326.31 236.199 324.127 234.016 324.127 231.326 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
+<line x1="663" y1="245.103" x2="663" y2="217.549" fill="none" stroke="#1e3a8a" stroke-width="2.2" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <path d="M422.127 423.147 C422.127 420.457 424.31 418.273 427 418.273 C429.69 418.273 431.873 420.457 431.873 423.147 C431.873 425.836 429.69 428.02 427 428.02 C424.31 428.02 422.127 425.836 422.127 423.147 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
+<path d="M324.127 231.326 C324.127 228.636 326.31 226.453 329 226.453 C331.69 226.453 333.873 228.636 333.873 231.326 C333.873 234.016 331.69 236.199 329 236.199 C326.31 236.199 324.127 234.016 324.127 231.326 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
 <path d="M393.127 290.674 C393.127 287.984 395.31 285.801 398 285.801 C400.69 285.801 402.873 287.984 402.873 290.674 C402.873 293.364 400.69 295.547 398 295.547 C395.31 295.547 393.127 293.364 393.127 290.674 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-0)"/>
-<path d="M739.127 231.326 C739.127 228.636 741.31 226.453 744 226.453 C746.69 226.453 748.873 228.636 748.873 231.326 C748.873 234.016 746.69 236.199 744 236.199 C741.31 236.199 739.127 234.016 739.127 231.326 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-3)"/>
 <path d="M778.127 158.201 C778.127 155.511 780.31 153.328 783 153.328 C785.69 153.328 787.873 155.511 787.873 158.201 C787.873 160.891 785.69 163.075 783 163.075 C780.31 163.075 778.127 160.891 778.127 158.201 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-3)"/>
 <path d="M690.127 363.799 C690.127 361.109 692.31 358.926 695 358.926 C697.69 358.926 699.873 361.109 699.873 363.799 C699.873 366.489 697.69 368.672 695 368.672 C692.31 368.672 690.127 366.489 690.127 363.799 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-3)"/>
-<text x="290" y="64.996" fill="#595959" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="normal" font-style="normal">North</text>
-<text x="695" y="64.996" fill="#595959" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="normal" font-style="normal">South</text>
+<path d="M739.127 231.326 C739.127 228.636 741.31 226.453 744 226.453 C746.69 226.453 748.873 228.636 748.873 231.326 C748.873 234.016 746.69 236.199 744 236.199 C741.31 236.199 739.127 234.016 739.127 231.326 Z" fill="#f97316" stroke="#ffffff" stroke-width="1.25" clip-path="url(#svg-clip-3)"/>
+<text x="277.55" y="63.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="normal" font-style="normal">North</text>
+<text x="682.225" y="63.337" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="normal" font-style="normal">South</text>
 <line x1="289.75" y1="50" x2="695.25" y2="50" fill="none" stroke="#999999" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="290" y1="50" x2="290" y2="54" fill="none" stroke="#999999" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="695" y1="50" x2="695" y2="54" fill="none" stroke="#999999" stroke-width="0.5" stroke-linecap="butt"/>
-<text x="492.5" y="45" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="normal" font-style="normal">region</text>
-<text x="903" y="70" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Segment</text>
+<text x="475.778" y="43.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="normal" font-style="normal">region</text>
+<text x="903" y="80.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Segment</text>
 <path d="M903 83.498 L965.308 83.498 L965.308 96.502 L903 96.502 Z" fill="none" stroke="none"/>
 <path d="M904.127 90 C904.127 87.31 906.31 85.127 909 85.127 C911.69 85.127 913.873 87.31 913.873 90 C913.873 92.69 911.69 94.873 909 94.873 C906.31 94.873 904.127 92.69 904.127 90 Z" fill="#0072b2" stroke="#ffffff" stroke-width="1.25"/>
-<text x="916" y="90" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Enterprise</text>
+<text x="916" y="93.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">Enterprise</text>
 <path d="M903 96.498 L938.766 96.498 L938.766 109.502 L903 109.502 Z" fill="none" stroke="none"/>
 <path d="M904.127 103 C904.127 100.31 906.31 98.127 909 98.127 C911.69 98.127 913.873 100.31 913.873 103 C913.873 105.69 911.69 107.873 909 107.873 C906.31 107.873 904.127 105.69 904.127 103 Z" fill="#e69f00" stroke="#ffffff" stroke-width="1.25"/>
-<text x="916" y="103" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">SMB</text>
+<text x="916" y="106.675" fill="#333333" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11.004" font-weight="300" font-style="normal">SMB</text>
 </g>
 </svg>

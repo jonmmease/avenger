@@ -25,7 +25,7 @@
 <path d="M194.638 168 C194.638 165.041 197.041 162.638 200 162.638 C202.959 162.638 205.362 165.041 205.362 168 C205.362 170.959 202.959 173.362 200 173.362 C197.041 173.362 194.638 170.959 194.638 168 Z" fill="#27ae60" stroke="#1e8449" stroke-width="1.5"/>
 <path d="M193.725 168 C193.725 164.537 196.537 161.725 200 161.725 C203.463 161.725 206.275 164.537 206.275 168 C206.275 171.463 203.463 174.275 200 174.275 C196.537 174.275 193.725 171.463 193.725 168 Z" fill="#27ae60" stroke="#1e8449" stroke-width="1.5"/>
 <path d="M192.929 168 C192.929 164.097 196.097 160.929 200 160.929 C203.903 160.929 207.071 164.097 207.071 168 C207.071 171.903 203.903 175.071 200 175.071 C196.097 175.071 192.929 171.903 192.929 168 Z" fill="#27ae60" stroke="#1e8449" stroke-width="1.5"/>
-<text x="10" y="20.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">ZeroD with Size Encoding</text>
-<text x="10" y="38.5" fill="#595959" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="14.004" font-weight="200" font-style="normal">Different sizes at the same position</text>
+<text x="10" y="26.512" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">ZeroD with Size Encoding</text>
+<text x="10" y="43.177" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="14.004" font-weight="200" font-style="normal">Different sizes at the same position</text>
 </g>
 </svg>

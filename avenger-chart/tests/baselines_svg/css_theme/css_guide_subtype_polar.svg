@@ -36,22 +36,22 @@
 <path d="M115.239 108.397 C115.239 105.374 117.693 102.92 120.716 102.92 C123.739 102.92 126.194 105.374 126.194 108.397 C126.194 111.42 123.739 113.874 120.716 113.874 C117.693 113.874 115.239 111.42 115.239 108.397 Z" fill="#9c27b0" stroke="#e65100" stroke-width="2" clip-path="url(#svg-clip-0)"/>
 <path d="M214.609 104.181 C214.609 101.158 217.063 98.704 220.086 98.704 C223.109 98.704 225.563 101.158 225.563 104.181 C225.563 107.204 223.109 109.659 220.086 109.659 C217.063 109.659 214.609 107.204 214.609 104.181 Z" fill="#9c27b0" stroke="#e65100" stroke-width="2" clip-path="url(#svg-clip-0)"/>
 <path d="M238.523 166 C238.523 162.977 240.977 160.523 244 160.523 C247.023 160.523 249.477 162.977 249.477 166 C249.477 169.023 247.023 171.477 244 171.477 C240.977 171.477 238.523 169.023 238.523 166 Z" fill="#9c27b0" stroke="#e65100" stroke-width="2" clip-path="url(#svg-clip-0)"/>
-<text x="200" y="188" fill="#5d4037" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">20</text>
-<text x="200" y="210" fill="#5d4037" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">40</text>
-<text x="200" y="231" fill="#5d4037" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">60</text>
-<text x="200" y="253" fill="#5d4037" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">80</text>
-<text x="313" y="166" fill="#5d4037" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">0°</text>
-<text x="299.167" y="220.175" fill="#5d4037" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">29°</text>
-<text x="261.054" y="261.086" fill="#5d4037" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">57°</text>
-<text x="207.993" y="278.717" fill="#5d4037" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">86°</text>
-<text x="152.975" y="268.751" fill="#5d4037" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">115°</text>
-<text x="109.471" y="233.627" fill="#5d4037" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">143°</text>
-<text x="88.131" y="181.947" fill="#5d4037" text-anchor="end" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">172°</text>
-<text x="94.18" y="126.361" fill="#5d4037" text-anchor="end" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">201°</text>
-<text x="126.138" y="80.481" fill="#5d4037" text-anchor="end" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">229°</text>
-<text x="176.18" y="55.539" fill="#5d4037" text-anchor="end" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">258°</text>
-<text x="232.054" y="57.642" fill="#5d4037" text-anchor="start" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">286°</text>
-<text x="10" y="19" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="16" font-weight="400" font-style="normal">Polar Guide</text>
-<text x="10" y="36" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="14" font-weight="400" font-style="normal">Should have light orange background from guide[type="polar"]</text>
+<text x="194.02" y="196.34" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">20</text>
+<text x="193.69" y="218.34" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">40</text>
+<text x="193.77" y="239.34" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">60</text>
+<text x="193.685" y="261.34" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">80</text>
+<text x="313" y="169.34" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">0°</text>
+<text x="299.167" y="228.515" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">29°</text>
+<text x="261.054" y="269.426" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">57°</text>
+<text x="200.168" y="287.057" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">86°</text>
+<text x="135.435" y="277.091" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">115°</text>
+<text x="89.981" y="241.967" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">143°</text>
+<text x="69.961" y="190.287" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">172°</text>
+<text x="74.63" y="124.701" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">201°</text>
+<text x="105.708" y="78.821" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">229°</text>
+<text x="155.15" y="53.879" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">258°</text>
+<text x="232.054" y="55.982" fill="#5d4037" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10" font-weight="400" font-style="normal">286°</text>
+<text x="10" y="24.344" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="16" font-weight="400" font-style="normal">Polar Guide</text>
+<text x="10" y="40.676" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="14" font-weight="400" font-style="normal">Should have light orange background from guide[type="polar"]</text>
 </g>
 </svg>

@@ -59,21 +59,21 @@
 <line x1="144.206" y1="207" x2="144.206" y2="212" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="170.128" y1="207" x2="170.128" y2="212" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="196.05" y1="207" x2="196.05" y2="212" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="62.451" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 62.451 215)">Jan</text>
-<text x="88.372" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 88.372 215)">Feb</text>
-<text x="114.294" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 114.294 215)">Mar</text>
-<text x="143.207" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 143.207 215)">Apr</text>
-<text x="169.128" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 169.128 215)">May</text>
-<text x="195.05" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 195.05 215)">Jun</text>
-<text x="89.372" y="240.323" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Q1</text>
-<text x="170.128" y="240.323" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Q2</text>
+<text x="47.007" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 62.451 215)">Jan</text>
+<text x="72.129" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 88.372 215)">Feb</text>
+<text x="97.851" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 114.294 215)">Mar</text>
+<text x="128.293" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 143.207 215)">Apr</text>
+<text x="151.805" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 169.128 215)">May</text>
+<text x="179.416" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 195.05 215)">Jun</text>
+<text x="83.849" y="248.66" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Q1</text>
+<text x="163.891" y="248.66" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Q2</text>
 <line x1="47" y1="207" x2="47" y2="254.319" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="129.75" y1="207" x2="129.75" y2="254.319" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="212.5" y1="207" x2="212.5" y2="254.319" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="129.75" y="258.319" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">2024</text>
+<text x="118.34" y="266.656" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">2024</text>
 <line x1="47" y1="207" x2="47" y2="272.315" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="212.5" y1="207" x2="212.5" y2="272.315" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="129.75" y="276.815" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Month grouped by quarter</text>
+<text x="60.78" y="286.823" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Month grouped by quarter</text>
 <line x1="47" y1="207.5" x2="47" y2="50.5" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-3)"/>
 <line x1="47" y1="207" x2="42" y2="207" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="47" y1="181" x2="42" y2="181" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -82,14 +82,14 @@
 <line x1="47" y1="103" x2="42" y2="103" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="47" y1="77" x2="42" y2="77" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="47" y1="51" x2="42" y2="51" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="39" y="206" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
-<text x="39" y="180" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
-<text x="39" y="154" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">10</text>
-<text x="39" y="128" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">15</text>
-<text x="39" y="102" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">20</text>
-<text x="39" y="76" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">25</text>
-<text x="39" y="50" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">30</text>
-<text x="23.945" y="129" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.945 129)">Total</text>
+<text x="32.613" y="209.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">0</text>
+<text x="33.222" y="183.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">5</text>
+<text x="28.634" y="157.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">10</text>
+<text x="29.244" y="131.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">15</text>
+<text x="27.205" y="105.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">20</text>
+<text x="27.814" y="79.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">25</text>
+<text x="26.945" y="53.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">30</text>
+<text x="11.189" y="127.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal" transform="rotate(-90 23.945 129)">Total</text>
 <line x1="224" y1="207" x2="390.5" y2="207" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-4)"/>
 <line x1="240.95" y1="207" x2="240.95" y2="212" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="266.872" y1="207" x2="266.872" y2="212" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -97,21 +97,21 @@
 <line x1="321.706" y1="207" x2="321.706" y2="212" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="347.628" y1="207" x2="347.628" y2="212" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="373.55" y1="207" x2="373.55" y2="212" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="239.951" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 239.951 215)">Jan</text>
-<text x="265.872" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 265.872 215)">Feb</text>
-<text x="291.794" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 291.794 215)">Mar</text>
-<text x="320.707" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 320.707 215)">Apr</text>
-<text x="346.628" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 346.628 215)">May</text>
-<text x="372.55" y="215" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 372.55 215)">Jun</text>
-<text x="266.872" y="240.323" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Q1</text>
-<text x="347.628" y="240.323" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Q2</text>
+<text x="224.507" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 239.951 215)">Jan</text>
+<text x="249.629" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 265.872 215)">Feb</text>
+<text x="275.351" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 291.794 215)">Mar</text>
+<text x="305.793" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 320.707 215)">Apr</text>
+<text x="329.305" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 346.628 215)">May</text>
+<text x="356.916" y="218.339" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal" transform="rotate(-90 372.55 215)">Jun</text>
+<text x="261.349" y="248.66" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Q1</text>
+<text x="341.391" y="248.66" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">Q2</text>
 <line x1="224.5" y1="207" x2="224.5" y2="254.319" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="307.25" y1="207" x2="307.25" y2="254.319" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="390" y1="207" x2="390" y2="254.319" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="307.25" y="258.319" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">2024</text>
+<text x="295.84" y="266.656" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="300" font-style="normal">2024</text>
 <line x1="224.5" y1="207" x2="224.5" y2="272.315" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="390" y1="207" x2="390" y2="272.315" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="307.25" y="276.815" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Month grouped by quarter</text>
+<text x="238.28" y="286.823" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Month grouped by quarter</text>
 <line x1="224.5" y1="207.5" x2="224.5" y2="50.5" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-5)"/>
 <line x1="224.5" y1="207" x2="219.5" y2="207" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="224.5" y1="181" x2="219.5" y2="181" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
@@ -120,11 +120,11 @@
 <line x1="224.5" y1="103" x2="219.5" y2="103" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="224.5" y1="77" x2="219.5" y2="77" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
 <line x1="224.5" y1="51" x2="219.5" y2="51" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
-<text x="129.75" y="44" fill="#595959" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="normal" font-style="normal">North</text>
-<text x="307.25" y="44" fill="#595959" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="normal" font-style="normal">South</text>
+<text x="117.3" y="42.341" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="normal" font-style="normal">North</text>
+<text x="294.475" y="42.341" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="9.996" font-weight="normal" font-style="normal">South</text>
 <line x1="129.5" y1="29.004" x2="307.5" y2="29.004" fill="none" stroke="#999999" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="129.75" y1="29.004" x2="129.75" y2="33.004" fill="none" stroke="#999999" stroke-width="0.5" stroke-linecap="butt"/>
 <line x1="307.25" y1="29.004" x2="307.25" y2="33.004" fill="none" stroke="#999999" stroke-width="0.5" stroke-linecap="butt"/>
-<text x="218.5" y="24.004" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="normal" font-style="normal">segment</text>
+<text x="195.628" y="22.012" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="normal" font-style="normal">segment</text>
 </g>
 </svg>

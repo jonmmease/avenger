@@ -21,7 +21,7 @@
 <rect x="0" y="0" width="400" height="300" fill="#ffffff" stroke="none"/>
 <path d="M0 0 L400 0 L400 300 L0 300 Z" fill="#ffffff" stroke="none"/>
 <path d="M192.929 168 C192.929 164.097 196.097 160.929 200 160.929 C203.903 160.929 207.071 164.097 207.071 168 C207.071 171.903 203.903 175.071 200 175.071 C196.097 175.071 192.929 171.903 192.929 168 Z" fill="#e74c3c" stroke="#c0392b" stroke-width="2"/>
-<text x="10" y="20.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Zero-Dimensional Symbol Plot</text>
-<text x="10" y="38.5" fill="#595959" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="14.004" font-weight="200" font-style="normal">All points collapse to a single location</text>
+<text x="10" y="26.512" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="18" font-weight="500" font-style="normal">Zero-Dimensional Symbol Plot</text>
+<text x="10" y="43.177" fill="#595959" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="14.004" font-weight="200" font-style="normal">All points collapse to a single location</text>
 </g>
 </svg>

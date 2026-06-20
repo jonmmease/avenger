@@ -43,8 +43,8 @@
 <path d="M55 193 L488 190 L55 192 L488 188 L55 183 L488 180 L55 177 L488 174" fill="none" stroke="#e69f00" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#svg-clip-0)"/>
 <path d="M55 104 L488 94 L55 99 L488 89 L55 81 L488 75 L55 63 L488 55" fill="none" stroke="#009e73" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#svg-clip-0)"/>
 <path d="M518 49 C518 46.792 519.792 45 522 45 L586 45 C588.208 45 590 46.792 590 49 L590 111 C590 113.208 588.208 115 586 115 L522 115 C519.792 115 518 113.208 518 111 Z" fill="#ffffff" fill-opacity="0.949" stroke="#e5e7eb" stroke-width="1"/>
-<text x="10" y="17" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Short Canvas: Legend on Right</text>
-<text x="10" y="30.5" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Height &lt; 300px uses default right legend position</text>
+<text x="10" y="21.008" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Short Canvas: Legend on Right</text>
+<text x="10" y="34.508" fill="#000000" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="400" font-style="normal">Height &lt; 300px uses default right legend position</text>
 <line x1="54.5" y1="201" x2="488.5" y2="201" fill="none" stroke="#d1d5db" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-1)"/>
 <line x1="55" y1="201" x2="55" y2="206" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
 <line x1="116.857" y1="201" x2="116.857" y2="206" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
@@ -54,15 +54,15 @@
 <line x1="364.286" y1="201" x2="364.286" y2="206" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
 <line x1="426.143" y1="201" x2="426.143" y2="206" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
 <line x1="488" y1="201" x2="488" y2="206" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
-<text x="55" y="209" fill="#6b7280" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-01-01</text>
-<text x="116.857" y="209" fill="#6b7280" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-02-01</text>
-<text x="178.714" y="209" fill="#6b7280" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-03-01</text>
-<text x="240.571" y="209" fill="#6b7280" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-04-01</text>
-<text x="302.429" y="209" fill="#6b7280" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-05-01</text>
-<text x="364.286" y="209" fill="#6b7280" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-06-01</text>
-<text x="426.143" y="209" fill="#6b7280" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-07-01</text>
-<text x="488" y="209" fill="#6b7280" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-08-01</text>
-<text x="271.5" y="225" fill="#1f2937" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="14" font-weight="600" font-style="normal">Date</text>
+<text x="25.927" y="218.174" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-01-01</text>
+<text x="87.009" y="218.174" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-02-01</text>
+<text x="148.712" y="218.174" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-03-01</text>
+<text x="210.25" y="218.174" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-04-01</text>
+<text x="272.36" y="218.174" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-05-01</text>
+<text x="334.162" y="218.174" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-06-01</text>
+<text x="396.503" y="218.174" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-07-01</text>
+<text x="457.783" y="218.174" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">2020-08-01</text>
+<text x="256.667" y="236.676" fill="#1f2937" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="14" font-weight="600" font-style="normal">Date</text>
 <line x1="55" y1="201.5" x2="55" y2="44.5" fill="none" stroke="#d1d5db" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-2)"/>
 <line x1="55" y1="201" x2="50" y2="201" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
 <line x1="55" y1="182" x2="50" y2="182" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
@@ -73,25 +73,25 @@
 <line x1="55" y1="84" x2="50" y2="84" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
 <line x1="55" y1="65" x2="50" y2="65" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
 <line x1="55" y1="45" x2="50" y2="45" fill="none" stroke="#000000" stroke-width="1" stroke-linecap="butt"/>
-<text x="47" y="199.9" fill="#6b7280" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">60</text>
-<text x="47" y="180.9" fill="#6b7280" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">80</text>
-<text x="47" y="160.9" fill="#6b7280" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">100</text>
-<text x="47" y="141.9" fill="#6b7280" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">120</text>
-<text x="47" y="121.9" fill="#6b7280" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">140</text>
-<text x="47" y="102.9" fill="#6b7280" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">160</text>
-<text x="47" y="82.9" fill="#6b7280" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">180</text>
-<text x="47" y="63.9" fill="#6b7280" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">200</text>
-<text x="47" y="43.9" fill="#6b7280" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">220</text>
-<text x="25.647" y="123" fill="#1f2937" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="14" font-weight="600" font-style="normal" transform="rotate(-90 25.647 123)">Stock Price ($)</text>
-<text x="526" y="59" fill="#374151" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="500" font-style="normal">Stock</text>
+<text x="33.294" y="203.574" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">60</text>
+<text x="33.107" y="184.574" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">80</text>
+<text x="28.267" y="164.574" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">100</text>
+<text x="29.367" y="145.574" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">120</text>
+<text x="28.641" y="125.574" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">140</text>
+<text x="28.817" y="106.574" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">160</text>
+<text x="28.63" y="86.574" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">180</text>
+<text x="26.716" y="67.574" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">200</text>
+<text x="27.816" y="47.574" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="11" font-weight="400" font-style="normal">220</text>
+<text x="-21.645" y="120.676" fill="#1f2937" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="14" font-weight="600" font-style="normal" transform="rotate(-90 25.647 123)">Stock Price ($)</text>
+<text x="526" y="63.008" fill="#374151" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="12" font-weight="500" font-style="normal">Stock</text>
 <path d="M524.75 68.6 L574.617 68.6 L574.617 81.4 L524.75 81.4 Z" fill="none" stroke="none"/>
 <path d="M526 75 L542 75" fill="none" stroke="#0072b2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="546" y="75" fill="#6b7280" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="10.8" font-weight="400" font-style="normal">AAPL</text>
+<text x="546" y="78.607" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10.8" font-weight="400" font-style="normal">AAPL</text>
 <path d="M524.75 81.6 L580.602 81.6 L580.602 94.4 L524.75 94.4 Z" fill="none" stroke="none"/>
 <path d="M526 88 L542 88" fill="none" stroke="#e69f00" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="546" y="88" fill="#6b7280" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="10.8" font-weight="400" font-style="normal">GOOG</text>
+<text x="546" y="91.607" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10.8" font-weight="400" font-style="normal">GOOG</text>
 <path d="M524.75 94.6 L576.394 94.6 L576.394 107.4 L524.75 107.4 Z" fill="none" stroke="none"/>
 <path d="M526 101 L542 101" fill="none" stroke="#009e73" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="546" y="101" fill="#6b7280" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="10.8" font-weight="400" font-style="normal">MSFT</text>
+<text x="546" y="104.607" fill="#6b7280" text-anchor="start" dominant-baseline="alphabetic" font-family="Atkinson Hyperlegible Next" font-size="10.8" font-weight="400" font-style="normal">MSFT</text>
 </g>
 </svg>
