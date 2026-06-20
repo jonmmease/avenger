@@ -81,6 +81,62 @@ async fn embeds_bundled_font_for_text_chart_svg() {
     assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
 }
 
+#[tokio::test]
+async fn render_with_options_respects_debug_overlay() {
+    if std::env::var("AVENGER_CHART_DEBUG_LAYOUT").is_ok() {
+        return;
+    }
+
+    let ctx = SessionContext::new();
+    let compiled = rect_plot(&ctx).await.compile(&ctx).await.unwrap();
+    let renderer = SvgRenderer::new();
+
+    let base_svg = renderer
+        .render_with_options(
+            &compiled,
+            &ctx,
+            None,
+            EvaluationOptions {
+                debug_layout_overlay: LayoutDebugOverlayMode::Off,
+                ..EvaluationOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+    let debug_svg = renderer
+        .render_with_options(
+            &compiled,
+            &ctx,
+            None,
+            EvaluationOptions {
+                debug_layout_overlay: LayoutDebugOverlayMode::Components,
+                ..EvaluationOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_ne!(debug_svg, base_svg);
+    assert!(!base_svg.contains(">plot-area</text>"));
+    assert!(debug_svg.contains(">plot-area</text>"));
+    assert!(usvg::Tree::from_str(&debug_svg, &usvg::Options::default()).is_ok());
+}
+
+#[tokio::test]
+async fn applies_text_limit_to_chart_svg_text() {
+    let ctx = SessionContext::new();
+    let compiled = limited_text_plot(&ctx).await.compile(&ctx).await.unwrap();
+
+    let svg = SvgRenderer::new()
+        .render(&compiled, &ctx, None)
+        .await
+        .unwrap();
+
+    assert!(svg.contains("\u{2026}</text>"));
+    assert!(!svg.contains("Long label text</text>"));
+    assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+}
+
 async fn rect_plot(ctx: &SessionContext) -> Plot<Cartesian> {
     let df = ctx
         .sql("SELECT 10.0 AS x, 90.0 AS x2, 12.0 AS y, 52.0 AS y2")
@@ -116,6 +172,26 @@ async fn text_plot(ctx: &SessionContext, font: &str) -> Plot<Cartesian> {
                 .text(col("label"))
                 .font(font)
                 .font_size(16.0),
+        )
+}
+
+async fn limited_text_plot(ctx: &SessionContext) -> Plot<Cartesian> {
+    let df = ctx
+        .sql("SELECT 18.0 AS x, 36.0 AS y, 'Long label text' AS label")
+        .await
+        .unwrap();
+
+    Plot::<Cartesian>::new()
+        .canvas_size(140.0, 80.0)
+        .data(df)
+        .mark(
+            Text::new()
+                .x(col("x"))
+                .y(col("y"))
+                .text(col("label"))
+                .font("Atkinson Hyperlegible Next")
+                .font_size(10.0)
+                .limit(35.0),
         )
 }
 
