@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use avenger_common::canvas::CanvasDimensions;
 use web_sys::HtmlCanvasElement;
@@ -9,32 +9,21 @@ use wgpu::{
 
 use crate::{
     canvas::{
-        create_multisampled_framebuffer, get_supported_sample_count, make_background_command,
-        make_wgpu_adapter, request_wgpu_device, Canvas, CanvasConfig, CanvasDimensionUtils,
+        create_multisampled_framebuffer, get_supported_sample_count, make_wgpu_adapter,
+        request_wgpu_device, Canvas, CanvasConfig, CanvasDimensionUtils,
     },
     error::AvengerWgpuError,
     marks::{
-        instanced_mark::InstancedMarkRenderer,
-        multi::{MultiMarkRenderResources, MultiMarkRenderer},
+        instanced_mark::InstancedMarkRenderer, multi::MultiMarkRenderer,
         text::TextAtlasBuilderTrait,
     },
-    renderer::{make_text_atlas_builder, MarkRenderer},
+    renderer::AvengerRendererCore,
+    target::{AvengerRenderTarget, WHITE_CLEAR},
 };
 
 pub struct HtmlCanvasCanvas<'window> {
-    sample_count: u32,
     surface_config: SurfaceConfiguration,
-    dimensions: CanvasDimensions,
-    marks: Vec<MarkRenderer>,
-    // One shared multi-renderer; each run of multi-marks is recorded in `marks` as a
-    // batch range. `run_start` is the batch index where the current run began.
-    shared_multi: MultiMarkRenderer,
-    run_start: usize,
-    instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
-    multi_render_resources: MultiMarkRenderResources,
-    config: CanvasConfig,
-    // Text atlas shared by all multi-renderers; built + uploaded once per frame.
-    text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
+    renderer: AvengerRendererCore,
 
     // The order of properties determines that drop order and device must be dropped after
     // the buffers and textures associated with marks.
@@ -92,32 +81,21 @@ impl<'window> HtmlCanvasCanvas<'window> {
             sample_count,
         );
 
-        let multi_render_resources =
-            MultiMarkRenderResources::new(&device, surface_format, sample_count);
-
-        let text_atlas_builder =
-            make_text_atlas_builder(&config.text_builder_ctor, &config.font_resolution);
+        let renderer =
+            AvengerRendererCore::new(&device, dimensions, surface_format, sample_count, config);
 
         Ok(Self {
             surface,
             device,
             queue,
             multisampled_framebuffer,
-            sample_count,
             surface_config,
-            dimensions,
-            marks: Vec::new(),
-            shared_multi: MultiMarkRenderer::new(dimensions),
-            run_start: 0,
-            instanced_renderers: HashMap::new(),
-            multi_render_resources,
-            config,
-            text_atlas_builder,
+            renderer,
         })
     }
 
     pub fn get_size(&self) -> winit::dpi::PhysicalSize<u32> {
-        self.dimensions.to_physical_size()
+        self.renderer.dimensions().to_physical_size()
     }
 
     pub fn resize(&mut self, _new_size: winit::dpi::PhysicalSize<u32>) {
@@ -136,22 +114,8 @@ impl<'window> HtmlCanvasCanvas<'window> {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        // Commit the final run of multi-marks as a batch range into the shared renderer.
-        let end = self.shared_multi.batch_count();
-        if end > self.run_start {
-            self.marks.push(MarkRenderer::Multi {
-                batch_range: self.run_start..end,
-            });
-        }
-        self.run_start = end;
-
-        let background_command = if self.sample_count > 1 {
-            make_background_command(self, &self.multisampled_framebuffer, Some(&view))
-        } else {
-            make_background_command(self, &view, None)
-        };
-        let mut commands = vec![background_command];
-        let render_target_extent = if self.sample_count > 1 {
+        let sample_count = self.renderer.sample_count();
+        let render_target_extent = if sample_count > 1 {
             Extent3d {
                 width: self.surface_config.width,
                 height: self.surface_config.height,
@@ -161,115 +125,27 @@ impl<'window> HtmlCanvasCanvas<'window> {
             output_extent
         };
 
-        // Build the shared text atlas bind groups ONCE per frame (instead of once per
-        // multi-renderer). Every renderer this frame registered into the same atlas, so
-        // these bind groups are page-correct for all of them.
-        let (text_atlas_size, text_atlas_images) = self.text_atlas_builder.build();
-        let text_bind_groups = MultiMarkRenderer::make_text_bind_groups_dual_sampler(
-            &self.device,
-            &self.queue,
-            self.multi_render_resources.text_layout(),
-            text_atlas_size,
-            &text_atlas_images,
-        );
+        let render_target = if sample_count > 1 {
+            AvengerRenderTarget::multisampled(
+                &self.multisampled_framebuffer,
+                &view,
+                render_target_extent,
+                self.renderer.texture_format(),
+                sample_count,
+                WHITE_CLEAR,
+            )
+        } else {
+            AvengerRenderTarget::swapchain(
+                &view,
+                render_target_extent,
+                self.renderer.texture_format(),
+                WHITE_CLEAR,
+            )
+        };
 
-        // Prepare the single shared multi-renderer ONCE per frame; each run is encoded
-        // from this shared prep.
-        let prepared = self.shared_multi.prepare(
-            &self.device,
-            &self.queue,
-            render_target_extent,
-            &self.multi_render_resources,
-        );
-
-        // Coalesce consecutive multi-mark runs (document order) into one command
-        // buffer with merged passes; instanced marks break a run.
-        let mut pending: Vec<std::ops::Range<usize>> = Vec::new();
-        for mark in &self.marks {
-            match mark {
-                MarkRenderer::Multi { batch_range } => pending.push(batch_range.clone()),
-                MarkRenderer::Instanced {
-                    renderer,
-                    x_adjustment,
-                    y_adjustment,
-                } => {
-                    if !pending.is_empty() {
-                        let c = if self.sample_count > 1 {
-                            self.shared_multi.encode_multi_ranges(
-                                &self.device,
-                                render_target_extent,
-                                &self.multisampled_framebuffer,
-                                Some(&view),
-                                &self.multi_render_resources,
-                                &text_bind_groups,
-                                &prepared,
-                                &pending,
-                            )
-                        } else {
-                            self.shared_multi.encode_multi_ranges(
-                                &self.device,
-                                render_target_extent,
-                                &view,
-                                None,
-                                &self.multi_render_resources,
-                                &text_bind_groups,
-                                &prepared,
-                                &pending,
-                            )
-                        };
-                        commands.push(c);
-                        pending.clear();
-                    }
-                    let c = if self.sample_count > 1 {
-                        renderer.render(
-                            &self.device,
-                            render_target_extent,
-                            &self.multisampled_framebuffer,
-                            Some(&view),
-                            *x_adjustment,
-                            *y_adjustment,
-                        )
-                    } else {
-                        renderer.render(
-                            &self.device,
-                            render_target_extent,
-                            &view,
-                            None,
-                            *x_adjustment,
-                            *y_adjustment,
-                        )
-                    };
-                    commands.push(c);
-                }
-            }
-        }
-        if !pending.is_empty() {
-            let c = if self.sample_count > 1 {
-                self.shared_multi.encode_multi_ranges(
-                    &self.device,
-                    render_target_extent,
-                    &self.multisampled_framebuffer,
-                    Some(&view),
-                    &self.multi_render_resources,
-                    &text_bind_groups,
-                    &prepared,
-                    &pending,
-                )
-            } else {
-                self.shared_multi.encode_multi_ranges(
-                    &self.device,
-                    render_target_extent,
-                    &view,
-                    None,
-                    &self.multi_render_resources,
-                    &text_bind_groups,
-                    &prepared,
-                    &pending,
-                )
-            };
-            commands.push(c);
-        }
-
+        let commands =
+            self.renderer
+                .build_frame_commands(&self.device, &self.queue, render_target, None)?;
         self.queue.submit(commands);
         output.present();
 
@@ -278,12 +154,24 @@ impl<'window> HtmlCanvasCanvas<'window> {
 }
 
 impl<'window> Canvas for HtmlCanvasCanvas<'window> {
+    fn set_current_zindex(&mut self, zindex: i32) {
+        self.renderer.set_current_zindex(zindex);
+    }
+
+    fn commit_multi_renderer_if_needed(&mut self, _new_zindex: i32) {
+        self.renderer.commit_multi_renderer_if_needed();
+    }
+
+    fn get_current_zindex(&self) -> i32 {
+        self.renderer.current_zindex()
+    }
+
     fn get_multi_renderer(&mut self) -> &mut MultiMarkRenderer {
-        &mut self.shared_multi
+        self.renderer.shared_multi_mut()
     }
 
     fn text_atlas_builder(&mut self) -> &mut dyn TextAtlasBuilderTrait {
-        &mut *self.text_atlas_builder
+        self.renderer.text_atlas_builder_mut()
     }
 
     fn add_instanced_mark_renderer(
@@ -293,36 +181,20 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
         x_adjustment: Option<avenger_common::types::LinearScaleAdjustment>,
         y_adjustment: Option<avenger_common::types::LinearScaleAdjustment>,
     ) {
-        let end = self.shared_multi.batch_count();
-        if end > self.run_start {
-            self.marks.push(MarkRenderer::Multi {
-                batch_range: self.run_start..end,
-            });
-        }
-        self.run_start = end;
-        self.instanced_renderers
-            .insert(fingerprint, mark_renderer.clone());
-        self.marks.push(MarkRenderer::Instanced {
-            renderer: mark_renderer,
+        self.renderer.add_instanced_mark_renderer(
+            mark_renderer,
+            fingerprint,
             x_adjustment,
             y_adjustment,
-        });
+        );
     }
 
     fn get_instanced_renderer(&mut self, fingerprint: u64) -> Option<Arc<InstancedMarkRenderer>> {
-        self.instanced_renderers.get(&fingerprint).cloned()
+        self.renderer.get_instanced_renderer(fingerprint)
     }
 
     fn clear_mark_renderer(&mut self) {
-        self.shared_multi.reset_for_frame(self.dimensions);
-        self.run_start = 0;
-        self.marks.clear();
-        self.instanced_renderers.clear();
-
-        // Reset the shared text atlas so each frame starts clean (matches the old
-        // per-renderer reset-per-frame semantics).
-        self.text_atlas_builder =
-            make_text_atlas_builder(&self.config.text_builder_ctor, &self.config.font_resolution);
+        self.renderer.clear_mark_renderer();
     }
 
     fn device(&self) -> &Device {
@@ -334,14 +206,14 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
     }
 
     fn dimensions(&self) -> CanvasDimensions {
-        self.dimensions
+        self.renderer.dimensions()
     }
 
     fn texture_format(&self) -> TextureFormat {
-        self.surface_config.format
+        self.renderer.texture_format()
     }
 
     fn sample_count(&self) -> u32 {
-        self.sample_count
+        self.renderer.sample_count()
     }
 }

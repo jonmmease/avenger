@@ -652,7 +652,7 @@ impl AvengerRendererCore {
 /// (wasm), or the null builder (text disabled).
 pub(crate) fn make_text_atlas_builder(
     text_builder_ctor: &Option<TextBuildCtor>,
-    font_resolution: &avenger_text::FontResolutionOptions,
+    _font_resolution: &avenger_text::FontResolutionOptions,
 ) -> Box<dyn TextAtlasBuilderTrait> {
     if let Some(text_builder_ctor) = text_builder_ctor {
         text_builder_ctor()
@@ -662,7 +662,7 @@ pub(crate) fn make_text_atlas_builder(
                 use crate::marks::text::TextAtlasBuilder;
                 use std::sync::Arc;
                 let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                    avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::with_font_resolution(font_resolution.clone()))
+                    avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::with_font_resolution(_font_resolution.clone()))
                 ));
             } else if #[cfg(target_arch = "wasm32")] {
                 use crate::marks::text::TextAtlasBuilder;
