@@ -1085,6 +1085,8 @@ mod tests {
         scene_graph::SceneGraph,
     };
     use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+    use base64::{prelude::BASE64_STANDARD, Engine};
+    use font_subset::FontReader;
 
     use super::*;
 
@@ -1391,12 +1393,13 @@ mod tests {
 
     #[test]
     fn truncates_text_marks_to_limit() {
+        let source_text = "Long label text";
         let scene_graph = SceneGraph {
             width: 80.0,
             height: 20.0,
             origin: [0.0, 0.0],
             marks: vec![SceneTextMark {
-                text: ScalarOrArray::new_scalar("Long label text".to_string()),
+                text: ScalarOrArray::new_scalar(source_text.to_string()),
                 x: ScalarOrArray::new_scalar(4.0),
                 y: ScalarOrArray::new_scalar(12.0),
                 font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
@@ -1411,6 +1414,15 @@ mod tests {
 
         assert!(svg.contains("\u{2026}</text>"));
         assert!(!svg.contains("Long label text</text>"));
+        let rendered_text = first_text_body(&svg);
+        assert!(rendered_text.contains('\u{2026}'));
+        assert!(!rendered_text.contains('x'));
+
+        let woff2 = first_woff2_payload(&svg);
+        let reader = FontReader::new(&woff2).unwrap();
+        let font = reader.read().unwrap();
+        assert!(font.contains_char('\u{2026}'));
+        assert!(!font.contains_char('x'));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 
@@ -1493,5 +1505,27 @@ mod tests {
         assert!(svg.contains(" A"));
         assert!(svg.contains(" Z M"));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    fn first_text_body(svg: &str) -> &str {
+        let text_start = svg.find("<text ").expect("SVG should contain text");
+        let body_start = svg[text_start..]
+            .find('>')
+            .expect("text element should have an opening tag")
+            + text_start
+            + 1;
+        let body_end = svg[body_start..]
+            .find("</text>")
+            .expect("text element should have a closing tag")
+            + body_start;
+        &svg[body_start..body_end]
+    }
+
+    fn first_woff2_payload(svg: &str) -> Vec<u8> {
+        let prefix = "data:font/woff2;base64,";
+        let start = svg.find(prefix).expect("SVG should contain WOFF2 data URI") + prefix.len();
+        let rest = &svg[start..];
+        let end = rest.find('"').expect("WOFF2 data URI should be quoted");
+        BASE64_STANDARD.decode(&rest[..end]).unwrap()
     }
 }
