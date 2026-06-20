@@ -3,7 +3,7 @@ use avenger_common::types::{StrokeCap, StrokeJoin};
 use avenger_scenegraph::{
     marks::{
         area::SceneAreaMark, group::Clip, line::SceneLineMark, mark::SceneMark,
-        path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark,
+        path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -107,8 +107,8 @@ impl SvgRenderer {
             SceneMark::Rule(mark) => self.write_rule_mark(document, mark, origin, clip_id),
             SceneMark::Line(mark) => self.write_line_mark(document, mark, origin, clip_id),
             SceneMark::Area(mark) => self.write_area_mark(document, mark, origin, clip_id),
+            SceneMark::Symbol(mark) => self.write_symbol_mark(document, mark, origin, clip_id),
             SceneMark::Arc(_) => Err(AvengerSvgError::UnsupportedMark("arc")),
-            SceneMark::Symbol(_) => Err(AvengerSvgError::UnsupportedMark("symbol")),
             SceneMark::Trail(_) => Err(AvengerSvgError::UnsupportedMark("trail")),
             SceneMark::Text(_) => Err(AvengerSvgError::UnsupportedMark("text")),
             SceneMark::Image(_) => Err(AvengerSvgError::UnsupportedMark("image")),
@@ -169,6 +169,37 @@ impl SvgRenderer {
                     stroke_width: mark.stroke_width,
                     stroke_cap: Some(mark.stroke_cap),
                     stroke_join: Some(mark.stroke_join),
+                    stroke_dash: None,
+                    gradients: &mark.gradients,
+                },
+                clip_id,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn write_symbol_mark(
+        &self,
+        document: &mut SvgDocument,
+        mark: &SceneSymbolMark,
+        origin: [f32; 2],
+        clip_id: Option<&str>,
+    ) -> Result<(), AvengerSvgError> {
+        for (path, fill, stroke) in izip!(
+            mark.transformed_path_iter(origin),
+            mark.fill_iter(),
+            mark.stroke_iter()
+        ) {
+            self.write_path_element(
+                document,
+                &lyon_path_to_svg_d(&path, self.options.precision)?,
+                PathStyle {
+                    fill: Some(fill),
+                    stroke: Some(stroke),
+                    stroke_width: mark.stroke_width,
+                    stroke_cap: None,
+                    stroke_join: None,
                     stroke_dash: None,
                     gradients: &mark.gradients,
                 },
@@ -596,6 +627,7 @@ mod tests {
             group::{Clip, SceneGroup},
             rect::SceneRectMark,
             rule::SceneRuleMark,
+            symbol::SceneSymbolMark,
         },
         scene_graph::SceneGraph,
     };
@@ -767,6 +799,33 @@ mod tests {
         assert!(svg.contains(r#"fill="url(#svg-gradient-0)""#));
         assert!(svg.contains(r#"stroke="url(#svg-gradient-1)""#));
         assert!(svg.contains(r##"stop-color="#0000ff" stop-opacity="0.5""##));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn renders_symbol_marks_as_paths() {
+        let scene_graph = SceneGraph {
+            width: 20.0,
+            height: 10.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneSymbolMark {
+                len: 2,
+                x: ScalarOrArray::new_array(vec![5.0, 12.0]),
+                y: ScalarOrArray::new_array(vec![5.0, 5.0]),
+                size: ScalarOrArray::new_array(vec![9.0, 16.0]),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 1.0, 0.0, 1.0])),
+                stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+                stroke_width: Some(1.5),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert_eq!(svg.matches("<path ").count(), 2);
+        assert!(svg.contains(r##"fill="#00ff00""##));
+        assert!(svg.contains(r#"stroke-width="1.5""#));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 }
