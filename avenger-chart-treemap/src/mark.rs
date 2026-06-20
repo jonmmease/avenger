@@ -1,4 +1,4 @@
-use std::{any::Any, marker::PhantomData, sync::Arc};
+use std::{any::Any, collections::HashMap, marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
 use avenger_chart_core::{
@@ -19,6 +19,7 @@ use datafusion::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::layout::{path_id_for_components, scalar_is_null, scalar_label};
 use crate::{ROOT_PATH_ID, Treemap, TreemapCoordMeasurement, VisibleTreemapNode};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -293,57 +294,61 @@ impl CompiledMarkCore for CompiledTreeRect {
                 name: "fill",
                 required: false,
                 default_value: None,
-                allow_column_ref: false,
+                allow_column_ref: true,
             },
             ChannelDescriptor {
                 name: "stroke",
                 required: false,
                 default_value: None,
-                allow_column_ref: false,
+                allow_column_ref: true,
             },
             ChannelDescriptor {
                 name: "stroke_width",
                 required: false,
                 default_value: None,
-                allow_column_ref: false,
+                allow_column_ref: true,
             },
             ChannelDescriptor {
                 name: "opacity",
                 required: false,
                 default_value: None,
-                allow_column_ref: false,
+                allow_column_ref: true,
             },
             ChannelDescriptor {
                 name: "corner_radius",
                 required: false,
                 default_value: None,
-                allow_column_ref: false,
+                allow_column_ref: true,
             },
             ChannelDescriptor {
                 name: "u",
                 required: false,
                 default_value: None,
-                allow_column_ref: false,
+                allow_column_ref: true,
             },
             ChannelDescriptor {
                 name: "u2",
                 required: false,
                 default_value: None,
-                allow_column_ref: false,
+                allow_column_ref: true,
             },
             ChannelDescriptor {
                 name: "v",
                 required: false,
                 default_value: None,
-                allow_column_ref: false,
+                allow_column_ref: true,
             },
             ChannelDescriptor {
                 name: "v2",
                 required: false,
                 default_value: None,
-                allow_column_ref: false,
+                allow_column_ref: true,
             },
         ]
+    }
+
+    fn wants_full_data_batch(&self) -> bool {
+        true
     }
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
@@ -356,7 +361,7 @@ impl CompiledMarkCore for CompiledTreeRect {
 impl CompiledMark for CompiledTreeRect {
     async fn render_from_data(
         &self,
-        _data: Option<&RecordBatch>,
+        data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &dyn MarkRuntimeContext,
         _coord: &dyn CoordinateSystemTransformCore,
@@ -370,13 +375,18 @@ impl CompiledMark for CompiledTreeRect {
                     "TreeRect requires TreemapCoordMeasurement".to_string(),
                 )
             })?;
-        let nodes = select_nodes(measurement.visible_nodes(), &self.node_mode);
+        let selected_nodes = select_nodes(measurement.visible_nodes(), &self.node_mode);
+        let nodes = if self.should_join_render_data(data) {
+            nodes_for_render_data(data, &selected_nodes)?
+        } else {
+            selected_nodes
+        };
         let len = nodes.len();
 
         let mark_context = context.core_view();
         let fill = coerce_color_channel_with_renderer(
             self,
-            None,
+            data,
             scalars,
             "fill",
             &mark_context,
@@ -384,7 +394,7 @@ impl CompiledMark for CompiledTreeRect {
         )?;
         let stroke = coerce_color_channel_with_renderer(
             self,
-            None,
+            data,
             scalars,
             "stroke",
             &mark_context,
@@ -392,7 +402,7 @@ impl CompiledMark for CompiledTreeRect {
         )?;
         let opacity = coerce_opacity_channel_with_renderer(
             self,
-            None,
+            data,
             scalars,
             "opacity",
             &mark_context,
@@ -402,7 +412,7 @@ impl CompiledMark for CompiledTreeRect {
         let stroke = apply_opacity_to_color_channel(stroke, &opacity, len);
         let stroke_width = coerce_numeric_channel_with_renderer(
             self,
-            None,
+            data,
             scalars,
             "stroke_width",
             &mark_context,
@@ -410,18 +420,18 @@ impl CompiledMark for CompiledTreeRect {
         )?;
         let corner_radius = coerce_numeric_channel_with_renderer(
             self,
-            None,
+            data,
             scalars,
             "corner_radius",
             &mark_context,
             0.0,
         )?;
-        let u = coerce_numeric_channel_with_renderer(self, None, scalars, "u", &mark_context, 0.0)?;
+        let u = coerce_numeric_channel_with_renderer(self, data, scalars, "u", &mark_context, 0.0)?;
         let u2 =
-            coerce_numeric_channel_with_renderer(self, None, scalars, "u2", &mark_context, 1.0)?;
-        let v = coerce_numeric_channel_with_renderer(self, None, scalars, "v", &mark_context, 0.0)?;
+            coerce_numeric_channel_with_renderer(self, data, scalars, "u2", &mark_context, 1.0)?;
+        let v = coerce_numeric_channel_with_renderer(self, data, scalars, "v", &mark_context, 0.0)?;
         let v2 =
-            coerce_numeric_channel_with_renderer(self, None, scalars, "v2", &mark_context, 1.0)?;
+            coerce_numeric_channel_with_renderer(self, data, scalars, "v2", &mark_context, 1.0)?;
         let u = u.as_vec(len, None);
         let u2 = u2.as_vec(len, None);
         let v = v.as_vec(len, None);
@@ -471,6 +481,19 @@ impl CompiledMark for CompiledTreeRect {
     }
 }
 
+impl CompiledTreeRect {
+    fn should_join_render_data(&self, data: Option<&RecordBatch>) -> bool {
+        let Some(data) = data else {
+            return false;
+        };
+        self.state
+            .data
+            .channels()
+            .keys()
+            .any(|channel| data.column_by_name(channel).is_some())
+    }
+}
+
 fn select_nodes<'a>(
     nodes: &'a [VisibleTreemapNode],
     mode: &TreeRectNodeMode,
@@ -485,6 +508,95 @@ fn select_nodes<'a>(
             TreeRectNodeMode::AllVisible => node.node.path_id != ROOT_PATH_ID,
         })
         .collect()
+}
+
+fn nodes_for_render_data<'a>(
+    data: Option<&RecordBatch>,
+    selected_nodes: &[&'a VisibleTreemapNode],
+) -> Result<Vec<&'a VisibleTreemapNode>, AvengerChartError> {
+    let Some(data) = data else {
+        return Ok(selected_nodes.to_vec());
+    };
+    if data.num_rows() == 0 {
+        return Ok(Vec::new());
+    }
+    let Some(path_level_names) = path_level_names_for_selected_nodes(selected_nodes) else {
+        return Ok(selected_nodes.to_vec());
+    };
+    let has_all_path_columns = path_level_names
+        .iter()
+        .all(|name| data.column_by_name(name).is_some());
+    if !has_all_path_columns {
+        if data.num_columns() == 1 && data.column_by_name("_dummy").is_some() {
+            return Ok(selected_nodes.to_vec());
+        }
+        let available = data
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "TreeRect mark data must include treemap path column(s) [{}]; available columns are [{}]",
+            path_level_names.join(", "),
+            available
+        )));
+    }
+
+    let node_by_path_id = selected_nodes
+        .iter()
+        .map(|node| (node.node.path_id.as_str(), *node))
+        .collect::<HashMap<_, _>>();
+    let path_columns = path_level_names
+        .iter()
+        .map(|name| {
+            data.column_by_name(name).ok_or_else(|| {
+                AvengerChartError::InvalidArgument(format!(
+                    "TreeRect mark data is missing treemap path column '{name}'"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut nodes = Vec::with_capacity(data.num_rows());
+    for row_index in 0..data.num_rows() {
+        let mut path = Vec::with_capacity(path_level_names.len());
+        for (name, column) in path_level_names.iter().zip(path_columns.iter()) {
+            let value = ScalarValue::try_from_array(column, row_index)
+                .map_err(AvengerChartError::DataFusionError)?;
+            if scalar_is_null(&value) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "TreeRect path column '{name}' contains null at row {row_index}"
+                )));
+            }
+            path.push(crate::TreemapPathComponent {
+                name: name.clone(),
+                label: scalar_label(&value),
+                value,
+            });
+        }
+        let path_id = path_id_for_components(&path);
+        let node = node_by_path_id.get(path_id.as_str()).ok_or_else(|| {
+            AvengerChartError::InvalidArgument(format!(
+                "TreeRect mark data row {row_index} resolved to path '{path_id}', which is not a visible treemap cell for this mark"
+            ))
+        })?;
+        nodes.push(*node);
+    }
+    Ok(nodes)
+}
+
+fn path_level_names_for_selected_nodes(nodes: &[&VisibleTreemapNode]) -> Option<Vec<String>> {
+    let deepest = nodes
+        .iter()
+        .map(|node| node.node.path.as_slice())
+        .max_by_key(|path| path.len())?;
+    Some(
+        deepest
+            .iter()
+            .map(|component| component.name.clone())
+            .collect(),
+    )
 }
 
 fn tree_rect_channel_defaults(channel: &str) -> Option<ScalarValue> {
@@ -511,7 +623,10 @@ mod tests {
         record_batch::RecordBatch,
     };
     use avenger_chart::plot::Plot;
-    use datafusion::{functions_aggregate::expr_fn::sum, logical_expr::col};
+    use datafusion::{
+        functions_aggregate::expr_fn::sum,
+        logical_expr::{col, lit},
+    };
 
     fn source_batch() -> RecordBatch {
         RecordBatch::try_new(
@@ -536,7 +651,7 @@ mod tests {
                 SceneMark::Rect(rect)
                     if matches!(
                         rect.name.as_str(),
-                        "tree_rect" | "regions" | "base" | "overlay"
+                        "tree_rect" | "regions" | "base" | "overlay" | "colored" | "segments"
                     ) =>
                 {
                     out.push(rect);
@@ -743,5 +858,175 @@ mod tests {
                 .unwrap()
                 .as_vec(overlay.len as usize, None)
         );
+    }
+
+    fn color_source_batch() -> RecordBatch {
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("region", DataType::Utf8, false),
+                Field::new("product", DataType::Utf8, false),
+                Field::new("sales", DataType::Float64, false),
+                Field::new("color", DataType::Utf8, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["East", "East", "West"])),
+                Arc::new(StringArray::from(vec!["A", "B", "A"])),
+                Arc::new(Float64Array::from(vec![2.0, 3.0, 5.0])),
+                Arc::new(StringArray::from(vec!["#ff0000", "#0000ff", "#00ff00"])),
+            ],
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn tree_rect_uses_mark_data_style_columns_for_solved_cells() {
+        let ctx = SessionContext::new();
+        let df = ctx.read_batch(color_source_batch()).unwrap();
+        let plot = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["region", "product"])
+                .value(sum(col("sales"))),
+        )
+        .data(df)
+        .plot_size(200.0, 100.0)
+        .mark(
+            TreeRect::new()
+                .id("colored")
+                .fill(ChannelValue::from(col("color")).no_scale())
+                .stroke_width(0.0),
+        );
+
+        let evaluated = plot
+            .compile(&ctx)
+            .await
+            .unwrap()
+            .evaluate(&ctx, None)
+            .await
+            .unwrap();
+        let rects = find_tree_rects(&evaluated.scene_graph.marks);
+        assert_eq!(rects.len(), 1);
+        let rect = rects[0];
+        assert_eq!(rect.len, 3);
+        let fill = rect.fill.as_vec(3, None);
+        assert_eq!(fill[0].color_or_transparent(), [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(fill[1].color_or_transparent(), [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(fill[2].color_or_transparent(), [0.0, 1.0, 0.0, 1.0]);
+    }
+
+    #[tokio::test]
+    async fn tree_rect_explicit_filtered_overlay_reuses_coordinate_layout() {
+        let ctx = SessionContext::new();
+        let base_df = ctx.read_batch(color_source_batch()).unwrap();
+        let overlay_df = ctx
+            .read_batch(color_source_batch())
+            .unwrap()
+            .filter(col("region").eq(lit("West")))
+            .unwrap();
+        let plot = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["region", "product"])
+                .value(sum(col("sales"))),
+        )
+        .data(base_df)
+        .plot_size(200.0, 100.0)
+        .mark(TreeRect::new().id("base").fill("#d8dde3").stroke_width(0.0))
+        .mark(
+            TreeRect::new()
+                .id("overlay")
+                .data(overlay_df)
+                .fill(ChannelValue::from(col("color")).no_scale())
+                .stroke_width(0.0),
+        );
+
+        let evaluated = plot
+            .compile(&ctx)
+            .await
+            .unwrap()
+            .evaluate(&ctx, None)
+            .await
+            .unwrap();
+        let rects = find_tree_rects(&evaluated.scene_graph.marks);
+        let base = rects
+            .iter()
+            .find(|rect| rect.name == "base")
+            .expect("base layer");
+        let overlay = rects
+            .iter()
+            .find(|rect| rect.name == "overlay")
+            .expect("overlay layer");
+        assert_eq!(base.len, 3);
+        assert_eq!(overlay.len, 1);
+        assert_eq!(overlay.x.as_vec(1, None), vec![100.0]);
+        assert_eq!(overlay.y.as_vec(1, None), vec![0.0]);
+        assert_eq!(overlay.width.as_ref().unwrap().as_vec(1, None), vec![100.0]);
+        assert_eq!(
+            overlay.height.as_ref().unwrap().as_vec(1, None),
+            vec![100.0]
+        );
+    }
+
+    fn stacked_segment_batch() -> RecordBatch {
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("region", DataType::Utf8, false),
+                Field::new("product", DataType::Utf8, false),
+                Field::new("segment", DataType::Utf8, false),
+                Field::new("sales", DataType::Float64, false),
+                Field::new("v0", DataType::Float64, false),
+                Field::new("v1", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["East", "East", "West"])),
+                Arc::new(StringArray::from(vec!["A", "A", "A"])),
+                Arc::new(StringArray::from(vec!["Small", "Large", "Small"])),
+                Arc::new(Float64Array::from(vec![2.0, 3.0, 5.0])),
+                Arc::new(Float64Array::from(vec![0.0, 0.4, 0.0])),
+                Arc::new(Float64Array::from(vec![0.4, 1.0, 1.0])),
+            ],
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn tree_rect_uses_data_driven_local_geometry_for_segments() {
+        let ctx = SessionContext::new();
+        let df = ctx.read_batch(stacked_segment_batch()).unwrap();
+        let plot = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["region", "product"])
+                .value(sum(col("sales"))),
+        )
+        .data(df)
+        .plot_size(200.0, 100.0)
+        .mark(
+            TreeRect::new()
+                .id("segments")
+                .fill(col("segment"))
+                .v(ChannelValue::from(col("v0")).no_scale())
+                .v2(ChannelValue::from(col("v1")).no_scale())
+                .stroke_width(0.0),
+        );
+
+        let evaluated = plot
+            .compile(&ctx)
+            .await
+            .unwrap()
+            .evaluate(&ctx, None)
+            .await
+            .unwrap();
+        let rects = find_tree_rects(&evaluated.scene_graph.marks);
+        assert_eq!(rects.len(), 1);
+        let rect = rects[0];
+        assert_eq!(rect.len, 3);
+        assert_eq!(rect.x.as_vec(3, None), vec![0.0, 0.0, 100.0]);
+        assert_eq!(rect.width.as_ref().unwrap().as_vec(3, None), vec![100.0; 3]);
+        assert_eq!(rect.y.as_vec(3, None), vec![0.0, 40.0, 0.0]);
+        let heights = rect.height.as_ref().unwrap().as_vec(3, None);
+        for (actual, expected) in heights.iter().zip([40.0, 60.0, 100.0]) {
+            assert!(
+                (actual - expected).abs() < 1e-4,
+                "expected height {expected}, got {actual}"
+            );
+        }
     }
 }

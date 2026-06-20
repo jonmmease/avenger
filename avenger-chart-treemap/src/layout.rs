@@ -437,7 +437,7 @@ fn escape_path_part(value: &str) -> String {
     value.replace('\\', "\\\\").replace('/', "\\/")
 }
 
-fn scalar_is_null(value: &ScalarValue) -> bool {
+pub(crate) fn scalar_is_null(value: &ScalarValue) -> bool {
     matches!(
         value,
         ScalarValue::Null
@@ -459,7 +459,7 @@ fn scalar_is_null(value: &ScalarValue) -> bool {
     )
 }
 
-fn scalar_label(value: &ScalarValue) -> String {
+pub(crate) fn scalar_label(value: &ScalarValue) -> String {
     match value {
         ScalarValue::Utf8(Some(value))
         | ScalarValue::LargeUtf8(Some(value))

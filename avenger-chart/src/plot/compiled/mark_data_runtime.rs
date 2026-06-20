@@ -1402,14 +1402,17 @@ pub(crate) async fn prepare_mark_data(
     let data_batch = if mark.wants_full_data_batch() {
         let datafusion_params = params_to_datafusion(params);
         record_mark_data_full_collect(&request.evaluation_metrics);
-        let batch = if let Some(param_values) = datafusion_params {
+        let full_df = if array_channels.is_empty() {
+            (*df).clone()
+        } else {
             (*df)
                 .clone()
-                .with_param_values(param_values)?
-                .collect()
-                .await?
+                .select(full_data_select_exprs(df.as_ref(), &array_channels)?)?
+        };
+        let batch = if let Some(param_values) = datafusion_params {
+            full_df.with_param_values(param_values)?.collect().await?
         } else {
-            (*df).clone().collect().await?
+            full_df.collect().await?
         };
 
         if batch.is_empty() {
@@ -1492,6 +1495,31 @@ pub(crate) async fn prepare_mark_data(
     }))
 }
 
+fn full_data_select_exprs(
+    df: &DataFrame,
+    array_channels: &[(String, Expr)],
+) -> Result<Vec<Expr>, AvengerChartError> {
+    let array_channel_names = array_channels
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<HashSet<_>>();
+    let mut select_exprs = df
+        .schema()
+        .fields()
+        .iter()
+        .filter_map(|field| {
+            let name = field.name();
+            (!array_channel_names.contains(name.as_str())).then(|| col(name.clone()))
+        })
+        .collect::<Vec<_>>();
+    select_exprs.extend(
+        array_channels
+            .iter()
+            .map(|(name, expr)| expr.clone().alias(name)),
+    );
+    Ok(select_exprs)
+}
+
 fn validate_mark_detail_fields(
     mark: &dyn CompiledMark,
     dataframe: Option<&DataFrame>,
@@ -1562,7 +1590,7 @@ mod tests {
     use avenger_scales::scales::{ConfiguredScale, ScaleConfig};
     use datafusion::{
         arrow::{
-            array::{ArrayRef, Float64Array, StringArray, StructArray},
+            array::{Array, ArrayRef, Float64Array, StringArray, StructArray},
             compute::cast,
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
@@ -1740,6 +1768,64 @@ mod tests {
             .downcast_ref::<Float64Array>()
             .expect("float64 values");
         (0..values.len()).map(|idx| values.value(idx)).collect()
+    }
+
+    fn values_as_string(batch: &RecordBatch, column_name: &str) -> Vec<String> {
+        let column = batch
+            .column_by_name(column_name)
+            .unwrap_or_else(|| panic!("missing column {column_name}"));
+        let values = column
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("string values");
+        (0..values.len())
+            .map(|idx| values.value(idx).to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn full_data_select_exprs_preserves_raw_columns_and_channel_aliases()
+    -> Result<(), AvengerChartError> {
+        let session = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("path", DataType::Utf8, false),
+                Field::new("fill", DataType::Utf8, false),
+                Field::new("category", DataType::Utf8, false),
+                Field::new("value", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["root/A", "root/B"])),
+                Arc::new(StringArray::from(vec!["raw-red", "raw-blue"])),
+                Arc::new(StringArray::from(vec!["prepared-red", "prepared-blue"])),
+                Arc::new(Float64Array::from(vec![1.0, 2.0])),
+            ],
+        )?;
+        let df = session.read_batch(batch)?;
+        let selected = df
+            .clone()
+            .select(full_data_select_exprs(
+                &df,
+                &[("fill".to_string(), col("category"))],
+            )?)?
+            .collect()
+            .await?;
+        let schema = selected[0].schema();
+        let field_names = schema
+            .fields()
+            .iter()
+            .map(|field| field.name().as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(field_names, vec!["path", "category", "value", "fill"]);
+        assert_eq!(
+            values_as_string(&selected[0], "fill"),
+            vec!["prepared-red", "prepared-blue"]
+        );
+        assert_eq!(
+            values_as_string(&selected[0], "path"),
+            vec!["root/A", "root/B"]
+        );
+        Ok(())
     }
 
     async fn prepared_channel_values(
