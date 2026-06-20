@@ -16,7 +16,7 @@ use avenger_text::{
     measurement::{
         default_text_measurer, truncate_text_to_limit_with, TextMeasurementConfig, TextMeasurer,
     },
-    types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
+    types::{FontStyle, FontWeight, FontWeightNameSpec},
 };
 use base64::{prelude::BASE64_STANDARD, Engine};
 use itertools::izip;
@@ -318,20 +318,26 @@ impl SvgRenderer {
                     &self.options.font_resolution,
                 )?;
             }
-            let x = *x + origin[0];
-            let y = *y + origin[1];
+            let anchor_x = *x + origin[0];
+            let anchor_y = *y + origin[1];
+            let text_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
+                text: &text,
+                font: &output_font,
+                font_size: *font_size,
+                font_weight,
+                font_style,
+            });
+            let [x, text_top] = text_bounds.calculate_origin([anchor_x, anchor_y], align, baseline);
+            let y = text_top + text_bounds.ascent;
             document.body.push_str(r#"<text x=""#);
             push_number(&mut document.body, x, self.options.precision)?;
             document.body.push_str(r#"" y=""#);
             push_number(&mut document.body, y, self.options.precision)?;
             document.body.push('"');
             push_color_or_text_paint(&mut document.body, color, self.options.precision)?;
-            document.body.push_str(r#" text-anchor=""#);
-            document.body.push_str(text_anchor(align));
-            document.body.push('"');
-            document.body.push_str(r#" dominant-baseline=""#);
-            document.body.push_str(dominant_baseline(baseline));
-            document.body.push('"');
+            document
+                .body
+                .push_str(r#" text-anchor="start" dominant-baseline="alphabetic""#);
             document.body.push_str(r#" font-family=""#);
             document
                 .body
@@ -352,9 +358,9 @@ impl SvgRenderer {
                 document.body.push_str(r#" transform="rotate("#);
                 push_number(&mut document.body, *angle, self.options.precision)?;
                 document.body.push(' ');
-                push_number(&mut document.body, x, self.options.precision)?;
+                push_number(&mut document.body, anchor_x, self.options.precision)?;
                 document.body.push(' ');
-                push_number(&mut document.body, y, self.options.precision)?;
+                push_number(&mut document.body, anchor_y, self.options.precision)?;
                 document.body.push(')');
                 document.body.push('"');
             }
@@ -848,23 +854,6 @@ fn push_color_or_text_paint(
         ColorOrGradient::GradientIndex(index) => Err(AvengerSvgError::UnsupportedPaint(format!(
             "text gradient index {index}"
         ))),
-    }
-}
-
-fn text_anchor(align: &TextAlign) -> &'static str {
-    match align {
-        TextAlign::Left => "start",
-        TextAlign::Center => "middle",
-        TextAlign::Right => "end",
-    }
-}
-
-fn dominant_baseline(baseline: &TextBaseline) -> &'static str {
-    match baseline {
-        TextBaseline::Top | TextBaseline::LineTop => "text-before-edge",
-        TextBaseline::Middle => "central",
-        TextBaseline::Bottom | TextBaseline::LineBottom => "text-after-edge",
-        TextBaseline::Alphabetic => "alphabetic",
     }
 }
 
@@ -1467,9 +1456,7 @@ mod tests {
 
         let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
 
-        assert!(svg.contains(r##"<text x="11" y="14" fill="#ff0000" fill-opacity="0.5""##));
-        assert!(svg.contains(r#"text-anchor="middle""#));
-        assert!(svg.contains(r#"dominant-baseline="central""#));
+        assert!(svg.contains(r##" fill="#ff0000" fill-opacity="0.5" text-anchor="start" dominant-baseline="alphabetic""##));
         assert!(svg.contains("<style><![CDATA[\n@font-face"));
         assert!(svg.contains(r#"font-family: "Atkinson Hyperlegible Next";"#));
         assert!(svg.contains("data:font/woff2;base64,"));
