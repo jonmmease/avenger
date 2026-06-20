@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+<defs>
+<style><![CDATA[
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 200;
+  font-display: block;
+  src: url("data:font/woff2;base64,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") format("woff2");
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 300;
+  font-display: block;
+  src: url("data:font/woff2;base64,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") format("woff2");
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("data:font/woff2;base64,d09GMgABAAAAAAXQAAsAAAAACsQAAAWGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHQDOAIkBCAFiiAGYAcgyoYYyx4BNgwHGwIKCK4HeEMa9RvJFOEl2tSoOIoOf4wwf0gEwRNvR76ZfzKrCO4OXdLRqEB0J2b3r7neze4BYvaAX+AIks9QQBwPbD+MLwkHJOvJ1gGqTlV7/3PDrIRfp0iypNogTm5it29IaDxKJgWIzGsvKUimYBV5AHhgSFvQSIVKDNXX/gfIhd30XLL/rX4/1S9ADlX0SRcnkkv45kLuz4Y8FR2SUK2srexUA5AwX+iiq66NcBVS9qFTJ3UvipQkSsdz9FpAAQMEIEgFBRP7lgUZe12Mnrm7UAJxrwWz7puDDZb93R23HbfLDttssSGh8Qj1Ji8ekFbQ0gVk1MnwqA4g2gmFSPH+jqjoWgkS2c4mH4jOJ9wQMO+s+6ALwK4Omc/48EKKnU1Vp4cKD3VYdfpJDOLgCrRL3BgJBZkjxcu4kWF4vSEHuvYLcmRoe8iJjvWRXBjcx8iV/RpF7nQ+mDzIOhJ5ShyIvCjy/bGhSvWRoQIhjhiCMgLMvPGmPlkYQFY+5piQA2Q44CLOB8Y1DOcEe46at3VATMu9uQRrJ5CMLksoHS6EIcoK7XKE4bz0WVbWbo/QCiUPY/MKXBTy4VVMj6nrmCWMg+Ah4rQcN1ZUdJKperA2ATHVB998/cQ3JuQL5KCi1Nb8iHK8BdQbFGIu0tIw4k0ojG3BhyzvzhTwQj5+BoMiwCHQRAoCYqLXT4nQg8Vxks20F0pnOwj5NFl523Fdu9nFYzgUNZzoKGSJdRpIKESdMb5CMwmfJVXky5EnLrNT/dKRkTKkz5P3lHWbAbkyDQRnQJDBRuyNI0CpYAscwNBAzBOKe2WFAfxuSUlZw5Szk6XJZSwOsgDD3LxIXa3L9DmXDBFnrS+cZ4e4qAtpq69nrNKSsk8r6cnlEuFHBAkQOf29tAwxMW6DldDcXMHz60sutgpmoewzY5w0lYhgoyQ+k3IXKQ04BPZuRpbsrFZvrmig3McRdKmOpECf/u7KeIbBNPjPvMehPzEu/ap75pdswx9UqdbtQAyCAQB7lWj8nziSB8lnvY7BCVc88IbKiVqTUUL8DeNrqH+0wjy2KuTMlTvnz8vcC55XrRV6/X/XQIaz/kmm5P4f0HHWi0DhwbiBztRNnHGDygv2OI2qxXyia5vVOrXg34uCgX/m6Ob/qWvX/pTRFMlYOlUfEAV1eyzLc4IAFZdbzSbFYypVYIDLBRVBEN0qlYyZeK1nv9vjh16Ly7Xaa+ysCrvbOalinku43Rm1ffrMjeH9R0P5WvPi8sKlrq8QCo1NooLgBjpNN3GHyksgWARijyfEreFv2afK/zaU37guI0VqaLCuW4fF1WpCALSDbuIClUPA3w7EWlMz48rlGdViZIt1Q7pYM6z/CKEQZ6UaR6icOA/WHfKanOhi+WBIqSl++gB3GPJeMRkd73SoDoQmk15fIoGnurb5vMn/JxTipj5wSkIFOOEcBhK6KlCr9/GASivZZwWrwwXgfGrqXLAnYw4o4qn/12MYQwUlYSnSjL+4VX0F7GvjH4WwM8CEk/MEgefMewZjS1+QMxl5IduvsIO0PWCTUnGGZAh12DMY7OmEgvFjdLbbnaX+UxESeirIIPmLJ1QOuNsYAp9gY+BIy2+DQVqajjG/x0blvcvFrf13CNFLrkgrGdCIx7JUdDCfbCulBXz5HNXc7tMnsrdUlT6kZ53VT6SWJU6sZwaUW+baR9zTxkFSppHJ1rmJjLDV4C/OhNKZTDwSMxjdYoqy2U4M+GA4HI/4gzqje1xpMS+ziojJW6kOfPQbqd3xVK27cHzK7Kt7n1yYMn+eXXP8eI39A8mojlO+7OIE93jCbwkXkPNyGwGUzn/xnwnezQYXY/4B/BhoPyrAzyn9A5vO1LeAE0pj9GWxF8xhBQAA") format("woff2");
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url("data:font/woff2;base64,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") format("woff2");
+}
+]]></style>
+<clipPath id="svg-clip-0" clipPathUnits="userSpaceOnUse"><rect x="44" y="60" width="284" height="192"/></clipPath>
+<clipPath id="svg-clip-1" clipPathUnits="userSpaceOnUse"><rect x="37.274" y="57.75" width="296.642" height="233.912"/></clipPath>
+<clipPath id="svg-clip-2" clipPathUnits="userSpaceOnUse"><rect x="8.548" y="50.003" width="321.702" height="209.662"/></clipPath>
+</defs>
+<g fill="none" stroke-miterlimit="10">
+<rect width="100%" height="100%" fill="#ffffff" stroke="none"/>
+<path d="M0 0 L400 0 L400 300 L0 300 Z" fill="#ffffff" stroke="none"/>
+<line x1="44" y1="60" x2="44" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="64" y1="60" x2="64" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="85" y1="60" x2="85" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="105" y1="60" x2="105" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="125" y1="60" x2="125" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="145" y1="60" x2="145" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="166" y1="60" x2="166" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="186" y1="60" x2="186" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="206" y1="60" x2="206" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="227" y1="60" x2="227" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="247" y1="60" x2="247" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="267" y1="60" x2="267" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="287" y1="60" x2="287" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="308" y1="60" x2="308" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="328" y1="60" x2="328" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="44" y1="252" x2="328" y2="252" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="44" y1="228" x2="328" y2="228" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="44" y1="204" x2="328" y2="204" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="44" y1="180" x2="328" y2="180" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="44" y1="156" x2="328" y2="156" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="44" y1="132" x2="328" y2="132" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="44" y1="108" x2="328" y2="108" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="44" y1="84" x2="328" y2="84" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<line x1="44" y1="60" x2="328" y2="60" fill="none" stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="0.5" stroke-linecap="butt"/>
+<path d="M78.876 204 C78.876 200.62 81.62 197.876 85 197.876 C88.38 197.876 91.124 200.62 91.124 204 C91.124 207.38 88.38 210.124 85 210.124 C81.62 210.124 78.876 207.38 78.876 204 Z" fill="#009e73" stroke="#ffffff" stroke-width="0.5" clip-path="url(#svg-clip-0)"/>
+<path d="M118.876 156 C118.876 152.62 121.62 149.876 125 149.876 C128.38 149.876 131.124 152.62 131.124 156 C131.124 159.38 128.38 162.124 125 162.124 C121.62 162.124 118.876 159.38 118.876 156 Z" fill="#e69f00" stroke="#ffffff" stroke-width="0.5" clip-path="url(#svg-clip-0)"/>
+<path d="M159.876 180 C159.876 176.62 162.62 173.876 166 173.876 C169.38 173.876 172.124 176.62 172.124 180 C172.124 183.38 169.38 186.124 166 186.124 C162.62 186.124 159.876 183.38 159.876 180 Z" fill="#0072b2" stroke="#ffffff" stroke-width="0.5" clip-path="url(#svg-clip-0)"/>
+<path d="M199.876 132 C199.876 128.62 202.62 125.876 206 125.876 C209.38 125.876 212.124 128.62 212.124 132 C212.124 135.38 209.38 138.124 206 138.124 C202.62 138.124 199.876 135.38 199.876 132 Z" fill="#009e73" stroke="#ffffff" stroke-width="0.5" clip-path="url(#svg-clip-0)"/>
+<path d="M240.876 84 C240.876 80.62 243.62 77.876 247 77.876 C250.38 77.876 253.124 80.62 253.124 84 C253.124 87.38 250.38 90.124 247 90.124 C243.62 90.124 240.876 87.38 240.876 84 Z" fill="#e69f00" stroke="#ffffff" stroke-width="0.5" clip-path="url(#svg-clip-0)"/>
+<path d="M280.876 108 C280.876 104.62 283.62 101.876 287 101.876 C290.38 101.876 293.124 104.62 293.124 108 C293.124 111.38 290.38 114.124 287 114.124 C283.62 114.124 280.876 111.38 280.876 108 Z" fill="#0072b2" stroke="#ffffff" stroke-width="0.5" clip-path="url(#svg-clip-0)"/>
+<path d="M332 60 L390 60 L390 129 L332 129 Z" fill="none" stroke="none"/>
+<text x="10" y="22" fill="#000000" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="21" font-weight="500" font-style="normal">Chart with 14px Base Font</text>
+<text x="10" y="43" fill="#595959" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="16.338" font-weight="200" font-style="normal">Font size controlled via parameter</text>
+<line x1="43.5" y1="252" x2="328.5" y2="252" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-1)"/>
+<line x1="44" y1="252" x2="44" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="64" y1="252" x2="64" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="85" y1="252" x2="85" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="105" y1="252" x2="105" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="125" y1="252" x2="125" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="145" y1="252" x2="145" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="166" y1="252" x2="166" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="186" y1="252" x2="186" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="206" y1="252" x2="206" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="227" y1="252" x2="227" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="247" y1="252" x2="247" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="267" y1="252" x2="267" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="287" y1="252" x2="287" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="308" y1="252" x2="308" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="328" y1="252" x2="328" y2="257" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<text x="44" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">0</text>
+<text x="64" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">0.5</text>
+<text x="85" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">1</text>
+<text x="105" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">1.5</text>
+<text x="125" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">2</text>
+<text x="145" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">2.5</text>
+<text x="166" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">3</text>
+<text x="186" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">3.5</text>
+<text x="206" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">4</text>
+<text x="227" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">4.5</text>
+<text x="247" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">5</text>
+<text x="267" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">5.5</text>
+<text x="287" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">6</text>
+<text x="308" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">6.5</text>
+<text x="328" y="260" fill="#595959" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">7</text>
+<text x="186" y="274.662" fill="#000000" text-anchor="middle" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="14" font-weight="400" font-style="normal">X Axis</text>
+<line x1="44" y1="252.5" x2="44" y2="59.5" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt" clip-path="url(#svg-clip-2)"/>
+<line x1="44" y1="252" x2="39" y2="252" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="44" y1="228" x2="39" y2="228" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="44" y1="204" x2="39" y2="204" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="44" y1="180" x2="39" y2="180" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="44" y1="156" x2="39" y2="156" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="44" y1="132" x2="39" y2="132" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="44" y1="108" x2="39" y2="108" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="44" y1="84" x2="39" y2="84" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<line x1="44" y1="60" x2="39" y2="60" fill="none" stroke="#191919" stroke-width="1" stroke-linecap="butt"/>
+<text x="36" y="250.834" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">0</text>
+<text x="36" y="226.834" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">1</text>
+<text x="36" y="202.834" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">2</text>
+<text x="36" y="178.834" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">3</text>
+<text x="36" y="154.834" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">4</text>
+<text x="36" y="130.834" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">5</text>
+<text x="36" y="106.834" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">6</text>
+<text x="36" y="82.834" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">7</text>
+<text x="36" y="58.834" fill="#595959" text-anchor="end" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="11.662" font-weight="300" font-style="normal">8</text>
+<text x="25.548" y="156" fill="#000000" text-anchor="middle" dominant-baseline="text-after-edge" font-family="Atkinson Hyperlegible Next" font-size="14" font-weight="400" font-style="normal" transform="rotate(-90 25.548 156)">Y Axis</text>
+<text x="336" y="64" fill="#000000" text-anchor="start" dominant-baseline="text-before-edge" font-family="Atkinson Hyperlegible Next" font-size="14" font-weight="400" font-style="normal">Color</text>
+<path d="M336 79.581 L376.444 79.581 L376.444 94.419 L336 94.419 Z" fill="none" stroke="none"/>
+<path d="M336.876 87 C336.876 83.62 339.62 80.876 343 80.876 C346.38 80.876 349.124 83.62 349.124 87 C349.124 90.38 346.38 93.124 343 93.124 C339.62 93.124 336.876 90.38 336.876 87 Z" fill="#0072b2" stroke="#ffffff" stroke-width="0.5"/>
+<text x="351" y="87" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12.838" font-weight="300" font-style="normal">Blue</text>
+<path d="M336 94.581 L385.456 94.581 L385.456 109.419 L336 109.419 Z" fill="none" stroke="none"/>
+<path d="M336.876 102 C336.876 98.62 339.62 95.876 343 95.876 C346.38 95.876 349.124 98.62 349.124 102 C349.124 105.38 346.38 108.124 343 108.124 C339.62 108.124 336.876 105.38 336.876 102 Z" fill="#e69f00" stroke="#ffffff" stroke-width="0.5"/>
+<text x="351" y="102" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12.838" font-weight="300" font-style="normal">Green</text>
+<path d="M336 109.581 L373.478 109.581 L373.478 124.419 L336 124.419 Z" fill="none" stroke="none"/>
+<path d="M336.876 117 C336.876 113.62 339.62 110.876 343 110.876 C346.38 110.876 349.124 113.62 349.124 117 C349.124 120.38 346.38 123.124 343 123.124 C339.62 123.124 336.876 120.38 336.876 117 Z" fill="#009e73" stroke="#ffffff" stroke-width="0.5"/>
+<text x="351" y="117" fill="#333333" text-anchor="start" dominant-baseline="central" font-family="Atkinson Hyperlegible Next" font-size="12.838" font-weight="300" font-style="normal">Red</text>
+</g>
+</svg>
