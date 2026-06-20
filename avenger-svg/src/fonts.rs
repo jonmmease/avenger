@@ -451,6 +451,30 @@ mod tests {
     }
 
     #[test]
+    fn subset_woff2_css_is_materially_smaller_than_full_font() {
+        let mut collector = SvgFontCollector::default();
+        let options = FontResolutionOptions::default();
+        collector
+            .collect_text(
+                "Atkinson Hyperlegible Next",
+                &FontWeight::Name(FontWeightNameSpec::Normal),
+                &FontStyle::Normal,
+                "Axis",
+                &options,
+            )
+            .unwrap();
+
+        let css = collector.font_face_css(&options).unwrap();
+        let subset = first_woff2_payload(&css);
+        let regular_font = avenger_text::fonts::embedded_fonts()
+            .iter()
+            .find(|font| font.name == "AtkinsonHyperlegibleNext-Regular")
+            .expect("regular Atkinson face should be embedded");
+
+        assert!(subset.len() < regular_font.data.len() / 2);
+    }
+
+    #[test]
     fn missing_font_policy_controls_missing_svg_font_errors() {
         for (policy, should_error) in [
             (MissingFontPolicy::Error, true),
@@ -479,5 +503,13 @@ mod tests {
                 assert_eq!(result.unwrap(), "");
             }
         }
+    }
+
+    fn first_woff2_payload(css: &str) -> Vec<u8> {
+        let prefix = "data:font/woff2;base64,";
+        let start = css.find(prefix).expect("CSS should contain WOFF2 data URI") + prefix.len();
+        let rest = &css[start..];
+        let end = rest.find('"').expect("WOFF2 data URI should be quoted");
+        BASE64_STANDARD.decode(&rest[..end]).unwrap()
     }
 }
