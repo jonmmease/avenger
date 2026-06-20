@@ -1,6 +1,10 @@
 use std::path::PathBuf;
 
-use avenger_chart::{plot::CompiledPlot, prelude::*, render::PdfRenderer};
+use avenger_chart::{
+    plot::CompiledPlot,
+    prelude::*,
+    render::{PdfRenderer, SvgRenderer},
+};
 use datafusion::prelude::{SessionContext, col};
 
 #[tokio::test]
@@ -71,6 +75,34 @@ async fn embeds_bundled_font_for_text_chart_pdf() {
         .unwrap();
 
     assert_embedded_pdf_font(&pdf);
+}
+
+#[tokio::test]
+async fn pdf_font_embedding_is_independent_of_svg_font_subset_embedding() {
+    let ctx = SessionContext::new();
+    let compiled = text_plot(&ctx, "Atkinson Hyperlegible Next")
+        .await
+        .compile(&ctx)
+        .await
+        .unwrap();
+
+    let svg = SvgRenderer::new()
+        .render(&compiled, &ctx, None)
+        .await
+        .unwrap();
+    assert!(svg.contains("data:font/woff2;base64,"));
+
+    let pdf = PdfRenderer::new()
+        .with_options(avenger_pdf::PdfRenderOptions {
+            compress: false,
+            ..Default::default()
+        })
+        .render(&compiled, &ctx, None)
+        .await
+        .unwrap();
+
+    assert_embedded_pdf_font(&pdf);
+    assert!(!pdf_contains(&pdf, b"data:font/woff2;base64,"));
 }
 
 #[tokio::test]
