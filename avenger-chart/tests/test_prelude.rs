@@ -15,6 +15,7 @@ fn test_prelude_imports() {
 
     // Plot
     let _plot = Plot::<Cartesian>::new();
+    let _pdf_renderer = PdfRenderer::new();
     let _svg_renderer = SvgRenderer::new();
 
     // Channel value expressions

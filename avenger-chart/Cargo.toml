@@ -30,6 +30,7 @@ avenger-guides = { path = "../avenger-guides" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-wgpu = { path = "../avenger-wgpu" }
 avenger-svg = { path = "../avenger-svg" }
+avenger-pdf = { path = "../avenger-pdf" }
 
 lazy_static = { workspace = true }
 async-trait = { workspace = true }

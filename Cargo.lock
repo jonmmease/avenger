@@ -553,6 +553,7 @@ dependencies = [
  "avenger-geometry",
  "avenger-guides",
  "avenger-layout",
+ "avenger-pdf",
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-svg",

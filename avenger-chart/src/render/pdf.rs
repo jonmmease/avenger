@@ -1,0 +1,92 @@
+//! PDF renderer for Avenger charts.
+//!
+//! This module evaluates compiled plots and renders the resulting scene graph
+//! through the `avenger-pdf` backend.
+
+use std::path::Path;
+
+use datafusion::{common::ScalarValue, prelude::SessionContext};
+use indexmap::IndexMap;
+
+use crate::{error::AvengerChartError, plot::CompiledPlot, render::EvaluationOptions};
+
+/// Renderer that exports evaluated plots as PDF bytes.
+#[derive(Clone, Default)]
+pub struct PdfRenderer {
+    scene_renderer: avenger_pdf::PdfRenderer,
+}
+
+impl PdfRenderer {
+    /// Create a renderer with default PDF options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Override the PDF scenegraph renderer options.
+    pub fn with_options(mut self, options: avenger_pdf::PdfRenderOptions) -> Self {
+        self.scene_renderer = avenger_pdf::PdfRenderer::new().with_options(options);
+        self
+    }
+
+    /// Render a compiled plot to PDF bytes.
+    pub async fn render(
+        &self,
+        compiled: &CompiledPlot,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+    ) -> Result<Vec<u8>, AvengerChartError> {
+        self.render_with_options(compiled, ctx, params, EvaluationOptions::default())
+            .await
+    }
+
+    /// Render a compiled plot to PDF bytes with explicit evaluation options.
+    pub async fn render_with_options(
+        &self,
+        compiled: &CompiledPlot,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        options: EvaluationOptions,
+    ) -> Result<Vec<u8>, AvengerChartError> {
+        let evaluated_plot = compiled.evaluate_with_options(ctx, params, options).await?;
+        self.scene_renderer
+            .render_scene_graph(&evaluated_plot.scene_graph)
+            .map_err(|err| AvengerChartError::InternalError(err.to_string()))
+    }
+
+    /// Render a compiled plot directly to a PDF file.
+    pub async fn write_pdf<P: AsRef<Path>>(
+        &self,
+        compiled: &CompiledPlot,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        output: P,
+    ) -> Result<(), AvengerChartError> {
+        self.write_pdf_with_options(compiled, ctx, params, output, EvaluationOptions::default())
+            .await
+    }
+
+    /// Render a compiled plot directly to a PDF file with explicit evaluation options.
+    pub async fn write_pdf_with_options<P: AsRef<Path>>(
+        &self,
+        compiled: &CompiledPlot,
+        ctx: &SessionContext,
+        params: Option<IndexMap<String, ScalarValue>>,
+        output: P,
+        options: EvaluationOptions,
+    ) -> Result<(), AvengerChartError> {
+        let pdf = self
+            .render_with_options(compiled, ctx, params, options)
+            .await?;
+        save_pdf(&pdf, output)
+    }
+}
+
+fn save_pdf<P: AsRef<Path>>(pdf: &[u8], output: P) -> Result<(), AvengerChartError> {
+    let output = output.as_ref();
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| AvengerChartError::InternalError(err.to_string()))?;
+    }
+    std::fs::write(output, pdf).map_err(|err| AvengerChartError::InternalError(err.to_string()))?;
+    Ok(())
+}

@@ -5,6 +5,7 @@
 pub mod canvas;
 pub mod context;
 pub mod debug;
+pub mod pdf;
 pub mod svg;
 pub mod types;
 pub mod wgpu;
@@ -12,6 +13,7 @@ pub mod wgpu;
 // Re-export commonly used types
 pub use canvas::CanvasExt;
 pub use context::{EvaluationContext, RenderContext, RenderState};
+pub use pdf::PdfRenderer;
 pub use svg::SvgRenderer;
 pub use types::{
     CoordinationCheckpoint, EvaluatedChildFrameKind, EvaluatedChildFrameSegment,
