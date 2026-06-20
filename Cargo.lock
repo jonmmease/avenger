@@ -1089,6 +1089,7 @@ name = "avenger-text"
 version = "0.0.8"
 dependencies = [
  "cosmic-text",
+ "fontdb 0.23.0",
  "image",
  "lazy_static 1.5.0",
  "lyon_path",

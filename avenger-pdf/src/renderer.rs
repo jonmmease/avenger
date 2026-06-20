@@ -102,23 +102,10 @@ impl PdfRenderer {
 
     fn usvg_options(&self) -> svg2pdf::usvg::Options<'static> {
         let mut options = svg2pdf::usvg::Options::default();
-        load_avenger_embedded_fonts(options.fontdb_mut());
-
-        if self.options.font_resolution.load_system_fonts {
-            options.fontdb_mut().load_system_fonts();
-        }
-
-        for font_dir in &self.options.font_resolution.extra_font_dirs {
-            options.fontdb_mut().load_fonts_dir(font_dir);
-        }
-
+        options.fontdb = std::sync::Arc::new(avenger_text::fonts::build_fontdb(
+            &self.options.font_resolution,
+        ));
         options
-    }
-}
-
-fn load_avenger_embedded_fonts(fontdb: &mut svg2pdf::usvg::fontdb::Database) {
-    for font in avenger_text::fonts::embedded_fonts() {
-        fontdb.load_font_data(Vec::from(font.data));
     }
 }
 

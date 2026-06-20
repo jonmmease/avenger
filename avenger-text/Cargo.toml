@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 serde = ["dep:serde"]
 cosmic-text = ["dep:cosmic-text", "lazy_static"]
+fontdb = ["dep:fontdb"]
 default = ["serde", "cosmic-text"]
 
 [dependencies]
@@ -18,6 +19,10 @@ strum = { workspace = true }
 ordered-float = { workspace = true }
 
 [dependencies.cosmic-text]
+workspace = true
+optional = true
+
+[dependencies.fontdb]
 workspace = true
 optional = true
 
@@ -37,4 +42,3 @@ web-sys = { version = "0.3.67", features = [
     "TextMetrics",
     "ImageData"
 ]}
-
