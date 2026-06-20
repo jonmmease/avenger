@@ -1,15 +1,18 @@
 [package]
-name = "avenger-egui"
+name = "avenger-chart-egui"
 version = "0.1.0"
 edition = "2024"
 
 [features]
 default = []
-eframe = ["dep:eframe"]
+eframe = ["dep:eframe", "avenger-egui/eframe"]
 
 [dependencies]
 avenger-app = { path = "../avenger-app" }
+avenger-chart = { path = "../avenger-chart" }
+avenger-chart-app = { path = "../avenger-chart-app" }
 avenger-common = { path = "../avenger-common" }
+avenger-egui = { path = "../avenger-egui" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-wgpu = { path = "../avenger-wgpu" }
@@ -20,10 +23,14 @@ eframe = { version = "0.33.3", optional = true, default-features = false, featur
     "default_fonts",
     "wgpu",
 ] }
+datafusion = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
-async-trait = { workspace = true }
-avenger-geometry = { path = "../avenger-geometry" }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[example]]
+name = "basic_chart"
+required-features = ["eframe"]

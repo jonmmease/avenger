@@ -29,6 +29,7 @@ members = [
     "avenger-chart",
     "avenger-chart-app",
     "avenger-egui",
+    "avenger-chart-egui",
     "avenger-chart/avenger-chart-mdbook",
     "examples/wgpu-scales",
     "examples/wgpu-winit",

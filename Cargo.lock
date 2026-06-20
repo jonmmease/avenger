@@ -700,6 +700,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-egui"
+version = "0.1.0"
+dependencies = [
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-common",
+ "avenger-egui",
+ "avenger-eventstream",
+ "avenger-scenegraph",
+ "avenger-wgpu",
+ "datafusion",
+ "eframe",
+ "egui",
+ "egui-wgpu",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "avenger-chart-external-test"
 version = "0.1.0"
 dependencies = [
@@ -925,20 +946,18 @@ dependencies = [
 name = "avenger-egui"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "avenger-app",
- "avenger-chart",
- "avenger-chart-app",
  "avenger-common",
  "avenger-eventstream",
+ "avenger-geometry",
  "avenger-scenegraph",
  "avenger-wgpu",
- "datafusion",
  "eframe",
  "egui",
  "egui-wgpu",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

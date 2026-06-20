@@ -3,8 +3,8 @@ use std::sync::Arc;
 use avenger_app::app::AvengerApp;
 use avenger_chart::prelude::*;
 use avenger_chart_app::{ChartAppOptions, ChartAppState, ChartResizeBinding, chart_avenger_app};
+use avenger_chart_egui::{AvengerPlotHandle, Plot};
 use avenger_common::canvas::CanvasDimensions;
-use avenger_egui::{AvengerPlotHandle, Plot};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use datafusion::{
     arrow::{

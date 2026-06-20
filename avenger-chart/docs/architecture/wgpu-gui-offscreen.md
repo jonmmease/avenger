@@ -5,14 +5,16 @@ Avenger charts rendered through `avenger-wgpu`.
 
 The integration goal is to let a native GUI toolkit own the app shell,
 widgets, input loop, and WGPU device while Avenger owns chart evaluation,
-event handling, and scene rendering. The first GUI backend is `avenger-egui`.
+event handling, and scene rendering. The first chart GUI backend is
+`avenger-chart-egui`, built on the generic `avenger-egui` canvas layer.
 
 ## Ownership Model
 
 ```mermaid
 flowchart TD
     Egui["egui / eframe\nwindow, widgets, input frame"]
-    Handle["avenger-egui\nAvengerPlotHandle, Plot"]
+    PlotWidget["avenger-chart-egui\nAvengerPlotHandle, Plot"]
+    Canvas["avenger-egui\nAvengerCanvasHandle, Canvas"]
     App["avenger-app\nAvengerApp"]
     ChartApp["avenger-chart-app\nChartAppState, ChartSceneGraphBuilder"]
     Events["avenger-eventstream\nWindowEvent routing"]
@@ -20,21 +22,23 @@ flowchart TD
     Pool["OffscreenTargetPool\nsampled WGPU textures"]
     Painter["egui painter\nTextureId image"]
 
-    Egui --> Handle
-    Handle --> App
+    Egui --> PlotWidget
+    PlotWidget --> Canvas
+    Canvas --> App
     App --> Events
     App --> ChartApp
     ChartApp --> App
-    Handle --> Renderer
+    Canvas --> Renderer
     Renderer --> Pool
     Pool --> Painter
     Painter --> Egui
 ```
 
 `egui` owns the frame loop and WGPU `Device`/`Queue` exposed by
-`egui_wgpu::RenderState`. `avenger-egui` borrows those objects when it needs
-to upload renderer resources, render a scene into an offscreen texture, or
-register/update that texture with `egui-wgpu`.
+`egui_wgpu::RenderState`. `avenger-egui` borrows those objects when it needs to
+upload renderer resources, render a scene into an offscreen texture, or
+register/update that texture with `egui-wgpu`. `avenger-chart-egui` owns the
+chart-specific facade for params and future selection/editing APIs.
 
 `avenger-wgpu` stays independent of egui-specific types. Its reusable public
 entry point is `AvengerWgpuRenderer`, configured by `AvengerRendererConfig`.
@@ -61,7 +65,7 @@ if changed {
     }
 }
 
-let output = avenger_egui::Plot::new(&plot_handle)
+let output = avenger_chart_egui::Plot::new(&plot_handle)
     .desired_size(ui.available_size_before_wrap())
     .show(ui);
 
@@ -70,9 +74,10 @@ if !output.events.is_empty() {
 }
 ```
 
-`Plot::show(ui)` allocates a widget rectangle, paints the latest completed
-texture, translates egui input into Avenger `WindowEvent` values, queues those
-events on the handle, and returns `PlotOutput`.
+`Plot::show(ui)` allocates a widget rectangle through the generic
+`avenger_egui::Canvas`, paints the latest completed texture, translates egui
+input into Avenger `WindowEvent` values, queues those events on the handle, and
+returns `PlotOutput`.
 
 `PlotOutput` contains the underlying `egui::Response`, param changes observed
 since the previous show call, reserved future selection changes, the frame
@@ -84,21 +89,21 @@ controls use their own `.changed()` methods. Application code calls
 
 ## Event Routing
 
-egui events are the host input source for this integration. `avenger-egui`
-does not use Winit directly.
+egui events are the host input source for this integration. `avenger-egui` does
+not use Winit directly.
 
 `EguiEventTranslator` converts widget-local input into
 `avenger-eventstream::window::WindowEvent`:
 
-- pointer positions subtract the plot `Rect::min` and stay in egui logical
+- pointer positions subtract the canvas `Rect::min` and stay in egui logical
   point units;
 - pointer enter, leave, move, click, release, and capture state become cursor
   and mouse events;
-- wheel input is routed only while the plot is hovered;
-- keyboard input is routed only while the plot has focus;
-- plot size changes emit `CanvasResize`.
+- wheel input is routed only while the canvas is hovered;
+- keyboard input is routed only while the canvas has focus;
+- canvas size changes emit `CanvasResize`.
 
-`Plot::show(ui)` snapshots `EguiResponseState` before entering
+`Canvas::show(ui)` snapshots `EguiResponseState` before entering
 `ui.input(...)`. This avoids calling `Response` methods that lock egui context
 while egui's input lock is held.
 
@@ -108,28 +113,32 @@ uses the same `avenger-eventstream` handlers as Winit-hosted chart apps.
 
 ## Offscreen Texture Lifecycle
 
-`avenger-egui` renders charts into WGPU textures, not CPU images.
+`avenger-egui` renders Avenger scenes into WGPU textures, not CPU images. The
+chart widget in `avenger-chart-egui` supplies chart scenes through
+`ChartAppState`.
 
 ```mermaid
 sequenceDiagram
     participant UI as egui frame
-    participant Handle as AvengerPlotHandle
+    participant Plot as AvengerPlotHandle
+    participant Canvas as AvengerCanvasHandle
     participant Worker as native render worker
     participant Renderer as worker AvengerWgpuRenderer
     participant Pool as worker OffscreenTargetPool
     participant EguiWgpu as egui-wgpu Renderer
     participant Painter as egui Painter
 
-    UI->>Handle: request_background_scene_texture(render_state, scene, dimensions)
-    Handle->>Worker: enqueue latest SceneGraph + dimensions
+    UI->>Plot: request_background_scene_texture(render_state, scene, dimensions)
+    Plot->>Canvas: delegate generic texture request
+    Canvas->>Worker: enqueue latest SceneGraph + dimensions
     Worker->>Renderer: resize(dimensions)
     Worker->>Renderer: set_scene(device, queue, scene)
     Worker->>Pool: resize_or_recreate(dimensions, Rgba8Unorm)
     Worker->>Pool: acquire target excluding front texture generation
     Worker->>Renderer: encode_to_offscreen_commands(target)
     Worker->>Worker: queue.submit(command buffers)
-    Worker->>Handle: publish TextureView + render generation
-    Handle->>EguiWgpu: register/update native texture view
+    Worker->>Canvas: publish TextureView + render generation
+    Canvas->>EguiWgpu: register/update native texture view
     UI->>Painter: image(TextureId, widget rect)
 ```
 
@@ -170,31 +179,33 @@ texture view.
 
 ## Async Scene Lifecycle
 
-The egui integration moves chart scene evaluation off the egui hot path. Native
-builds can also move Avenger's WGPU scene upload and offscreen command
-submission to the background render worker. The egui frame remains responsible
-for consuming the latest rendered texture, registering/updating the stable egui
-`TextureId`, painting that texture, and routing fresh input.
+The egui integration moves scene evaluation off the egui hot path. Native builds
+can also move Avenger's WGPU scene upload and offscreen command submission to
+the background render worker. The egui frame remains responsible for consuming
+the latest rendered texture, registering/updating the stable egui `TextureId`,
+painting that texture, and routing fresh input.
 
 ```mermaid
 sequenceDiagram
     participant Widget as egui widgets
-    participant Handle as AvengerPlotHandle
+    participant Plot as AvengerPlotHandle
+    participant Canvas as AvengerCanvasHandle
     participant Publisher as FramePublisher
     participant Worker as Tokio worker
     participant App as AvengerApp
     participant UI as egui frame
 
-    Widget->>Handle: set_param(name, value)
-    Widget->>Handle: request_scene_rebuild(runtime)
-    Handle->>Publisher: request_frame()
-    Handle->>Worker: spawn if idle
+    Widget->>Plot: set_param(name, value)
+    Widget->>Plot: request_scene_rebuild(runtime)
+    Plot->>Canvas: delegate generic scene request
+    Canvas->>Publisher: request_frame()
+    Canvas->>Worker: spawn if idle
     Worker->>App: rebuild_scene_graph(rebuild_geometry)
     Worker->>Publisher: publish latest SceneGraph
     Worker->>UI: request_repaint()
-    UI->>Handle: latest_scene_frame()
-    UI->>Handle: request_background_scene_texture(...)
-    UI->>Handle: Plot::show(ui)
+    UI->>Plot: latest_scene_frame()
+    UI->>Plot: request_background_scene_texture(...)
+    UI->>Plot: Plot::show(ui)
 ```
 
 `FramePublisher<Arc<SceneGraph>>` owns requested, in-progress, and latest
@@ -216,10 +227,10 @@ pan/zoom realtime when chart scene evaluation dominates.
 
 ## Metrics And Tracing
 
-`AvengerPlotHandle::metrics()` returns a `PlotMetrics` snapshot with counters
-and latest timing values for:
+`avenger-chart-egui::AvengerPlotHandle::metrics()` returns the generic
+`avenger_egui::CanvasMetrics` snapshot with counters and latest timing values
+for:
 
-- param set calls and changed param enqueues;
 - routed event batches and event counts;
 - scene rebuild and event-dispatch requests;
 - scene frames published and stale scene frames dropped;
@@ -235,8 +246,8 @@ and latest timing values for:
 - current texture render mode (`uninitialized`, `ui-thread-gpu`, or
   `background-gpu`).
 
-`AvengerPlotHandle::show_metrics(ui)` provides a small egui debug readout for
-examples and manual testing. `reset_metrics()` clears the counters.
+`AvengerPlotHandle::show_metrics(ui)` forwards the generic canvas debug readout
+for examples and manual testing. `reset_metrics()` clears the counters.
 
 The egui integration emits `tracing::debug!` events and spans around param
 patching, event queueing, scene rebuild/event-dispatch requests, scene worker

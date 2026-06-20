@@ -50,7 +50,7 @@ flowchart TD
     Render["Scenegraph rendering\nPlotComponents, EvaluatedPlot"]
     Wgpu["Raster output\nWgpuRenderer, CanvasExt"]
     Apps["Interactive apps\navenger-chart-app, avenger-winit-wgpu"]
-    Gui["GUI widgets\navenger-egui"]
+    Gui["GUI widgets\navenger-chart-egui, avenger-egui"]
     State["Interactive state\nstores, selections, event bindings"]
 
     Author --> Compile

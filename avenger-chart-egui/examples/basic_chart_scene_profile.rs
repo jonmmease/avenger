@@ -7,7 +7,7 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo run -p avenger-egui --release --example basic_chart_scene_profile
+//! cargo run -p avenger-chart-egui --release --example basic_chart_scene_profile
 //! ```
 //!
 //! Optional knobs:
@@ -22,7 +22,7 @@ use std::{
 use avenger_app::app::AvengerApp;
 use avenger_chart::prelude::*;
 use avenger_chart_app::{ChartAppOptions, ChartAppState, ChartResizeBinding, chart_avenger_app};
-use avenger_egui::AvengerPlotHandle;
+use avenger_chart_egui::AvengerPlotHandle;
 use datafusion::{
     arrow::{
         array::{ArrayRef, Float64Array, StringArray},
