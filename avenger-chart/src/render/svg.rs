@@ -2,6 +2,11 @@
 //!
 //! This module evaluates compiled plots and renders the resulting scene graph
 //! through the `avenger-svg` backend.
+//!
+//! SVG `width`, `height`, and `viewBox` values are expressed in the same
+//! logical chart pixels used by chart layout and PNG export. Tests or callers
+//! that need PNG bytes can rasterize the returned SVG with `resvg`; expect small
+//! antialiasing and text-rendering differences from the WGPU PNG path.
 
 use std::path::Path;
 
@@ -11,6 +16,16 @@ use indexmap::IndexMap;
 use crate::{error::AvengerChartError, plot::CompiledPlot, render::EvaluationOptions};
 
 /// Renderer that exports evaluated plots as SVG strings.
+///
+/// ```rust,ignore
+/// use avenger_chart::render::SvgRenderer;
+///
+/// let svg = SvgRenderer::new()
+///     .render(&compiled, &ctx, None)
+///     .await?;
+/// std::fs::write("chart.svg", svg)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone)]
 pub struct SvgRenderer {
     scene_renderer: avenger_svg::SvgRenderer,
