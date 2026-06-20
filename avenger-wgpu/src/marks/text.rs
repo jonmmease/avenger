@@ -274,7 +274,13 @@ where
 
             // Create verts for rectangle around glyph
             let bbox = &glyph_bbox_and_atlas_coords.bbox;
-            let x0 = glyph_pos.x + bbox.left as f32 / dimensions.scale + buffer_left;
+            let x0 = if angle == 0.0 {
+                // Swash rasterizes horizontal glyph bitmaps at a quarter-pixel binned x origin.
+                // Place them on the same origin so spacing matches the bitmap's subpixel offset.
+                (glyph_pos.physical_x + bbox.left as f32) / dimensions.scale + buffer_left
+            } else {
+                glyph_pos.x + bbox.left as f32 / dimensions.scale + buffer_left
+            };
             let y0 = buffer.text_bounds.ascent + glyph_pos.y - bbox.top as f32 / dimensions.scale
                 + buffer_top;
             let x1 = x0 + bbox.width as f32 / dimensions.scale;
