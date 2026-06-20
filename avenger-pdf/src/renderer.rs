@@ -394,6 +394,7 @@ mod tests {
         marks::{rect::SceneRectMark, text::SceneTextMark},
         scene_graph::SceneGraph,
     };
+    use avenger_text::FontResolutionOptions;
 
     use super::*;
 
@@ -541,6 +542,41 @@ mod tests {
                 if message.contains("missing requested text font family")
                     && message.contains("Definitely Missing Avenger Font")
         ));
+    }
+
+    #[test]
+    fn embeds_font_loaded_from_extra_font_dir() {
+        let scene_graph = SceneGraph {
+            width: 80.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Caveat".to_string()),
+                x: ScalarOrArray::new_scalar(5.0),
+                y: ScalarOrArray::new_scalar(12.0),
+                font: ScalarOrArray::new_scalar("Caveat".to_string()),
+                font_size: ScalarOrArray::new_scalar(14.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let caveat_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../avenger-vega-test-data/fonts/Caveat/static");
+
+        let pdf = PdfRenderer::new()
+            .with_options(PdfRenderOptions {
+                compress: false,
+                font_resolution: FontResolutionOptions {
+                    extra_font_dirs: vec![caveat_dir],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .render_scene_graph(&scene_graph)
+            .unwrap();
+
+        assert!(pdf_contains(&pdf, b"/FontFile2") || pdf_contains(&pdf, b"/FontFile3"));
+        assert!(pdf_contains(&pdf, b"/ToUnicode"));
     }
 
     #[test]
