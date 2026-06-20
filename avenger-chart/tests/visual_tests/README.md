@@ -6,19 +6,30 @@ This directory contains visual regression tests for avenger-chart, using image c
 
 ```bash
 # Run all visual tests
-cargo test --test visual_regression
+cargo test -p avenger-chart --test visual_regression
 
 # Run a specific test
-cargo test --test visual_regression test_simple_bar_chart
+cargo test -p avenger-chart --test visual_regression test_simple_bar_chart
 
 # Run the SVG/resvg parity layer in addition to WGPU visual tests
-AVENGER_CHART_SVG_BASELINES=1 cargo test --test visual_regression -- --nocapture
+AVENGER_CHART_SVG_BASELINES=1 \
+  cargo test -p avenger-chart --test visual_regression -- --nocapture
 
 # Run only the SVG/resvg parity layer, reusing committed WGPU PNG baselines
-AVENGER_CHART_SVG_BASELINES=only cargo test --test visual_regression -- --nocapture
+AVENGER_CHART_SVG_BASELINES=only \
+  cargo test -p avenger-chart --test visual_regression -- --nocapture
+
+# Run the PDF/PDFium parity layer in addition to WGPU visual tests
+AVENGER_CHART_PDF_BASELINES=1 \
+  cargo test -p avenger-chart --test visual_regression -- --nocapture
+
+# Run only the PDF/PDFium parity layer, reusing committed WGPU PNG baselines
+AVENGER_CHART_PDF_BASELINES=only \
+  cargo test -p avenger-chart --test visual_regression -- --nocapture
 
 # Rewrite all committed WGPU PNG baselines from the current renderer output
-AVENGER_CHART_BLESS_WGPU_BASELINES=1 cargo test --test visual_regression -- --nocapture
+AVENGER_CHART_BLESS_WGPU_BASELINES=1 \
+  cargo test -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 ## Writing New Tests
@@ -36,7 +47,7 @@ async fn test_my_chart() {
         // ... configure your plot ...
         .mark(/* ... */);
     
-    // Test with default 95% tolerance
+    // Test with default 99.99% tolerance
     // "bar" is the category subdirectory
     assert_visual_match_default(plot, "bar", "my_chart_baseline").await;
 }
@@ -58,7 +69,8 @@ When visual changes are intentional:
 To rewrite every committed WGPU PNG baseline from the current renderer output:
 
 ```bash
-AVENGER_CHART_BLESS_WGPU_BASELINES=1 cargo test --test visual_regression -- --nocapture
+AVENGER_CHART_BLESS_WGPU_BASELINES=1 \
+  cargo test -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 This replaces each `tests/baselines/{category}/{name}.png` as the visual test
@@ -94,22 +106,71 @@ To generate or refresh all SVG artifacts:
 
 ```bash
 AVENGER_CHART_SVG_BASELINES=only AVENGER_CHART_BLESS_SVG_BASELINES=1 \
-  cargo test --test visual_regression -- --nocapture
+  cargo test -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 To validate both WGPU and SVG outputs:
 
 ```bash
-AVENGER_CHART_SVG_BASELINES=1 cargo test --test visual_regression -- --nocapture
+AVENGER_CHART_SVG_BASELINES=1 \
+  cargo test -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 Failures are written to `tests/failures_svg/{category}/` with the generated
 SVG, the `resvg` PNG, and diffs against the SVG PNG baseline and WGPU PNG
-baseline. The SVG-to-WGPU comparison is intentionally a hard failure at 90%
-global similarity and also applies a local tile-difference guard so narrow
-localized regressions, such as flat colorbar gradients, cannot hide inside a
-large otherwise-matching image. Treat failures as parity bugs before relaxing
-any test.
+baseline. The SVG-to-WGPU comparison is intentionally a hard failure at 95%
+global similarity. Treat failures as parity bugs before relaxing any test.
+
+## Updating PDF Baselines
+
+PDF baselines live beside the WGPU PNG baselines under `tests/baselines_pdf/`.
+Each visual baseline has two PDF artifacts:
+
+- `tests/baselines_pdf/{category}/{name}.pdf` - the generated PDF bytes
+- `tests/baselines_pdf/{category}/{name}.png` - the PDFium rasterization
+
+PDF tests use the Rust `pdfium-render` bindings. They do not download PDFium
+automatically. Install a PDFium dynamic library and either place it where the
+system loader can find it or pass its full path with
+`AVENGER_CHART_PDFIUM_LIBRARY_PATH`.
+
+For local macOS arm64 testing, one option is:
+
+```bash
+mkdir -p target/pdfium
+curl -L --fail --show-error \
+  https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz \
+  -o target/pdfium/pdfium-mac-arm64.tgz
+tar -xzf target/pdfium/pdfium-mac-arm64.tgz -C target/pdfium
+export AVENGER_CHART_PDFIUM_LIBRARY_PATH="$PWD/target/pdfium/lib/libpdfium.dylib"
+```
+
+To generate or refresh all PDF artifacts:
+
+```bash
+AVENGER_CHART_PDF_BASELINES=only AVENGER_CHART_BLESS_PDF_BASELINES=1 \
+  cargo test -p avenger-chart --test visual_regression -- --nocapture
+```
+
+To validate both WGPU and PDF outputs:
+
+```bash
+AVENGER_CHART_PDF_BASELINES=1 \
+  cargo test -p avenger-chart --test visual_regression -- --nocapture
+```
+
+To measure PDFium-vs-WGPU scores before changing the global threshold:
+
+```bash
+AVENGER_CHART_PDF_BASELINES=only \
+AVENGER_CHART_PDF_SCORE_REPORT=target/tests/pdf-wgpu-scores.csv \
+  cargo test -p avenger-chart --test visual_regression -- --nocapture
+```
+
+Failures are written to `tests/failures_pdf/{category}/` with the generated
+PDF, the PDFium PNG, and diffs against the PDFium PNG baseline and WGPU PNG
+baseline. The PDF-to-WGPU comparison uses one global threshold; treat failures
+as parity bugs before relaxing it.
 
 ## Directory Structure
 
