@@ -732,7 +732,10 @@ mod tests {
             .into()],
         };
 
-        let renderer = PdfRenderer::new();
+        let renderer = PdfRenderer::new().with_options(PdfRenderOptions {
+            compress: false,
+            ..Default::default()
+        });
         let svg = renderer.render_svg_for_pdf(&scene_graph).unwrap();
         let tree = svg2pdf::usvg::Tree::from_str(&svg, &renderer.usvg_options()).unwrap();
         let pdf = renderer.render_scene_graph(&scene_graph).unwrap();
@@ -789,6 +792,7 @@ mod tests {
         assert!(svg.contains(r#"fill="url(#svg-gradient-0)""#));
         assert!(tree.size().width() > 0.0);
         assert!(pdf.starts_with(b"%PDF-"));
+        assert!(!pdf_contains(&pdf, b"/Subtype /Image"));
     }
 
     fn pdf_contains(pdf: &[u8], needle: &[u8]) -> bool {
