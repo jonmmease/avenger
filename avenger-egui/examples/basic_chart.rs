@@ -18,7 +18,7 @@ use datafusion::{
 };
 use eframe::egui;
 
-const POINT_COUNT: usize = 100_000;
+const POINT_COUNT: usize = 10_000;
 
 fn main() -> eframe::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()

@@ -912,6 +912,7 @@ dependencies = [
  "egui-wgpu",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
