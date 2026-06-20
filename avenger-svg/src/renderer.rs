@@ -7,7 +7,7 @@ use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
         line::SceneLineMark, mark::SceneMark, path::ScenePathMark, rect::SceneRectMark,
-        rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark,
+        rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -116,7 +116,7 @@ impl SvgRenderer {
             SceneMark::Area(mark) => self.write_area_mark(document, mark, origin, clip_id),
             SceneMark::Symbol(mark) => self.write_symbol_mark(document, mark, origin, clip_id),
             SceneMark::Arc(mark) => self.write_arc_mark(document, mark, origin, clip_id),
-            SceneMark::Trail(_) => Err(AvengerSvgError::UnsupportedMark("trail")),
+            SceneMark::Trail(mark) => self.write_trail_mark(document, mark, origin, clip_id),
             SceneMark::Text(mark) => self.write_text_mark(document, mark, origin, clip_id),
             SceneMark::Image(mark) => self.write_image_mark(document, mark, origin, clip_id),
             SceneMark::Group(_) => Ok(()),
@@ -215,6 +215,30 @@ impl SvgRenderer {
         }
 
         Ok(())
+    }
+
+    fn write_trail_mark(
+        &self,
+        document: &mut SvgDocument,
+        mark: &SceneTrailMark,
+        origin: [f32; 2],
+        clip_id: Option<&str>,
+    ) -> Result<(), AvengerSvgError> {
+        let d = trail_path_d(mark, origin, self.options.precision)?;
+        self.write_path_element(
+            document,
+            &d,
+            PathStyle {
+                fill: Some(&mark.stroke),
+                stroke: None,
+                stroke_width: None,
+                stroke_cap: None,
+                stroke_join: None,
+                stroke_dash: None,
+                gradients: &mark.gradients,
+            },
+            clip_id,
+        )
     }
 
     fn write_text_mark(
@@ -832,6 +856,134 @@ fn line_path_d(
     Ok(d)
 }
 
+fn trail_path_d(
+    mark: &SceneTrailMark,
+    origin: [f32; 2],
+    precision: usize,
+) -> Result<String, AvengerSvgError> {
+    let mut d = String::new();
+    let mut prev = None;
+    let mut run_len = 0usize;
+
+    for (x, y, size, defined) in izip!(
+        mark.x_iter(),
+        mark.y_iter(),
+        mark.size_iter(),
+        mark.defined_iter()
+    ) {
+        if *defined {
+            let point = [*x + origin[0], *y + origin[1]];
+            let radius = (*size).max(0.0) / 2.0;
+            if let Some((prev_point, prev_radius)) = prev {
+                push_trail_segment(&mut d, prev_point, prev_radius, point, radius, precision)?;
+            }
+            prev = Some((point, radius));
+            run_len += 1;
+        } else {
+            if run_len == 1 {
+                if let Some((point, radius)) = prev {
+                    push_trail_circle(&mut d, point, radius, precision)?;
+                }
+            }
+            prev = None;
+            run_len = 0;
+        }
+    }
+
+    if run_len == 1 {
+        if let Some((point, radius)) = prev {
+            push_trail_circle(&mut d, point, radius, precision)?;
+        }
+    }
+
+    Ok(d)
+}
+
+fn push_trail_segment(
+    d: &mut String,
+    p0: [f32; 2],
+    r0: f32,
+    p1: [f32; 2],
+    r1: f32,
+    precision: usize,
+) -> Result<(), AvengerSvgError> {
+    let dx = p1[0] - p0[0];
+    let dy = p1[1] - p0[1];
+    let len = (dx * dx + dy * dy).sqrt();
+
+    if len <= f32::EPSILON {
+        push_trail_circle(d, p0, r0.max(r1), precision)?;
+        return Ok(());
+    }
+
+    if r0 <= 0.0 && r1 <= 0.0 {
+        return Ok(());
+    }
+
+    let nx = -dy / len;
+    let ny = dx / len;
+    let p0_left = [p0[0] + nx * r0, p0[1] + ny * r0];
+    let p1_left = [p1[0] + nx * r1, p1[1] + ny * r1];
+    let p1_right = [p1[0] - nx * r1, p1[1] - ny * r1];
+    let p0_right = [p0[0] - nx * r0, p0[1] - ny * r0];
+
+    if !d.is_empty() {
+        d.push(' ');
+    }
+    d.push('M');
+    push_point(d, p0_left[0], p0_left[1], precision)?;
+    d.push(' ');
+    d.push('L');
+    push_point(d, p1_left[0], p1_left[1], precision)?;
+    push_arc_to(d, r1, p1_right, precision)?;
+    d.push(' ');
+    d.push('L');
+    push_point(d, p0_right[0], p0_right[1], precision)?;
+    push_arc_to(d, r0, p0_left, precision)?;
+    d.push(' ');
+    d.push('Z');
+    Ok(())
+}
+
+fn push_trail_circle(
+    d: &mut String,
+    point: [f32; 2],
+    radius: f32,
+    precision: usize,
+) -> Result<(), AvengerSvgError> {
+    if radius <= 0.0 {
+        return Ok(());
+    }
+
+    if !d.is_empty() {
+        d.push(' ');
+    }
+    d.push('M');
+    push_point(d, point[0] + radius, point[1], precision)?;
+    push_arc_to(d, radius, [point[0] - radius, point[1]], precision)?;
+    push_arc_to(d, radius, [point[0] + radius, point[1]], precision)?;
+    d.push(' ');
+    d.push('Z');
+    Ok(())
+}
+
+fn push_arc_to(
+    d: &mut String,
+    radius: f32,
+    point: [f32; 2],
+    precision: usize,
+) -> Result<(), AvengerSvgError> {
+    let radius = radius.max(0.0);
+    d.push(' ');
+    d.push('A');
+    push_number(d, radius, precision)?;
+    d.push(' ');
+    push_number(d, radius, precision)?;
+    d.push_str(" 0 0 1 ");
+    push_point(d, point[0], point[1], precision)?;
+    Ok(())
+}
+
 fn close_single_point_subpath(
     d: &mut String,
     path_len: usize,
@@ -862,6 +1014,7 @@ mod tests {
             rule::SceneRuleMark,
             symbol::SceneSymbolMark,
             text::SceneTextMark,
+            trail::SceneTrailMark,
         },
         scene_graph::SceneGraph,
     };
@@ -1160,6 +1313,33 @@ mod tests {
         assert!(svg.contains(r#"font-style="italic""#));
         assert!(svg.contains(r#"transform="rotate(45 11 14)""#));
         assert!(svg.contains("&lt;A&amp;B&gt;</text>"));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn renders_trail_marks_as_filled_outline_paths() {
+        let scene_graph = SceneGraph {
+            width: 30.0,
+            height: 20.0,
+            origin: [1.0, 2.0],
+            marks: vec![SceneTrailMark {
+                len: 4,
+                x: ScalarOrArray::new_array(vec![2.0, 10.0, 0.0, 20.0]),
+                y: ScalarOrArray::new_array(vec![3.0, 3.0, 0.0, 8.0]),
+                size: ScalarOrArray::new_array(vec![4.0, 8.0, 4.0, 6.0]),
+                defined: ScalarOrArray::new_array(vec![true, true, false, true]),
+                stroke: ColorOrGradient::Color([0.0, 0.0, 1.0, 0.5]),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert_eq!(svg.matches("<path ").count(), 1);
+        assert!(svg.contains(r##"fill="#0000ff" fill-opacity="0.5" stroke="none""##));
+        assert!(svg.contains(" A"));
+        assert!(svg.contains(" Z M"));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 }
