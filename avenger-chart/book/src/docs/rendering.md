@@ -167,21 +167,19 @@ let image = renderer.render(&compiled, &ctx, None).await?;
 
 For environments without GPU access, see the planned CPU-based renderer below.
 
-## Planned Renderers
+## Vector Export Renderers
 
-The following renderers are planned for future releases. See the [Roadmap](../roadmap.md) for status updates.
+Use vector export renderers when charts need to remain sharp when scaled, edited,
+or placed into publication workflows.
 
 ### SVG Renderer
 
-🔜 **Planned**
-
-An SVG renderer will produce scalable vector graphics suitable for:
+The SVG renderer produces scalable vector graphics suitable for:
 - Web applications (inline SVG, smaller file sizes)
 - Vector editing in tools like Inkscape or Illustrator
 - Lossless scaling to any resolution
 - Text remains searchable and selectable
 
-**Planned API:**
 ```rust,no_run
 use avenger_chart::render::SvgRenderer;
 
@@ -200,15 +198,11 @@ renderer.write_svg(&compiled, &ctx, None, "output.svg").await?;
 
 ### PDF Renderer
 
-🔜 **Planned**
-
-A PDF renderer for publication-quality documents:
-- Multi-page documents
+The PDF renderer produces publication-quality single-page chart documents:
 - Embedded fonts
 - Print-ready output
 - Archival quality
 
-**Planned API:**
 ```rust,no_run
 use avenger_chart::render::PdfRenderer;
 
@@ -309,8 +303,8 @@ The `EvaluatedPlot` contains a scene graph — a tree of visual elements with th
 
 This scene graph is **renderer-independent**. Different renderers interpret it differently:
 - WgpuRenderer → GPU tessellation and rasterization
-- SvgRenderer (planned) → SVG path commands and elements
-- PdfRenderer (planned) → PDF drawing operators
+- SvgRenderer → SVG path commands and elements
+- PdfRenderer → PDF drawing operators
 
 This separation allows you to:
 1. Create visualization once (`compile`)

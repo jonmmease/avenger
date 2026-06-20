@@ -29,6 +29,16 @@ impl PdfRenderer {
     }
 
     /// Render a compiled plot to PDF bytes.
+    ///
+    /// ```rust,ignore
+    /// use avenger_chart::render::PdfRenderer;
+    ///
+    /// let pdf = PdfRenderer::new()
+    ///     .render(&compiled, &ctx, None)
+    ///     .await?;
+    /// std::fs::write("chart.pdf", pdf)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub async fn render(
         &self,
         compiled: &CompiledPlot,
@@ -54,6 +64,15 @@ impl PdfRenderer {
     }
 
     /// Render a compiled plot directly to a PDF file.
+    ///
+    /// ```rust,ignore
+    /// use avenger_chart::render::PdfRenderer;
+    ///
+    /// PdfRenderer::new()
+    ///     .write_pdf(&compiled, &ctx, None, "chart.pdf")
+    ///     .await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub async fn write_pdf<P: AsRef<Path>>(
         &self,
         compiled: &CompiledPlot,
