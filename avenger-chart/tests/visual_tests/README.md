@@ -172,6 +172,12 @@ PDF, the PDFium PNG, and diffs against the PDFium PNG baseline and WGPU PNG
 baseline. The PDF-to-WGPU comparison uses one global threshold; treat failures
 as parity bugs before relaxing it.
 
+The committed PDF is kept as a first-class export artifact for review, but the
+suite does not compare PDF bytes directly. The embedded font resources emitted
+by `svg2pdf` can be ordered differently across processes while producing the
+same PDFium raster. Deterministic validation therefore comes from the PDFium PNG
+baseline and the PDFium-vs-WGPU comparison.
+
 ## Directory Structure
 
 ```

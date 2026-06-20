@@ -718,12 +718,21 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
 
         let expected_pdf = fs::read(&pdf_path)
             .unwrap_or_else(|e| panic!("Failed to read PDF baseline '{}': {e}", pdf_path.display()));
-        if expected_pdf != pdf {
+        if !expected_pdf.starts_with(b"%PDF-") {
             save_pdf_failures(category, baseline_name, &pdf, &pdf_image)
-                .expect("Failed to save PDF mismatch failure");
+                .expect("Failed to save invalid PDF baseline failure");
             panic!(
-                "PDF baseline '{}' differs from generated PDF. Generated PDF saved to '{}'.",
+                "PDF baseline '{}' does not start with a PDF header. Generated PDF saved to '{}'.",
                 pdf_path.display(),
+                pdf_failure.display()
+            );
+        }
+        if !pdf.starts_with(b"%PDF-") {
+            save_pdf_failures(category, baseline_name, &pdf, &pdf_image)
+                .expect("Failed to save invalid generated PDF failure");
+            panic!(
+                "Generated PDF for '{}' does not start with a PDF header. Generated PDF saved to '{}'.",
+                baseline_name,
                 pdf_failure.display()
             );
         }
