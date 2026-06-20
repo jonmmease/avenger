@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use crate::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
 #[cfg(feature = "cosmic-text")]
@@ -16,6 +18,57 @@ pub trait TextMeasurer: Send + Sync {
 
     /// Measures font-level vertical metrics without depending on a specific glyph outline.
     fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics;
+}
+
+pub fn truncate_text_to_limit_with(
+    text: &str,
+    limit: f32,
+    mut measure_width: impl FnMut(&str) -> f32,
+) -> String {
+    try_truncate_text_to_limit_with(text, limit, |candidate| {
+        Ok::<f32, Infallible>(measure_width(candidate))
+    })
+    .expect("infallible measurement should not fail")
+}
+
+pub fn try_truncate_text_to_limit_with<E>(
+    text: &str,
+    limit: f32,
+    mut measure_width: impl FnMut(&str) -> Result<f32, E>,
+) -> Result<String, E> {
+    if limit <= 0.0 || text.is_empty() {
+        return Ok(text.to_string());
+    }
+
+    if measure_width(text)? <= limit {
+        return Ok(text.to_string());
+    }
+
+    let ellipsis = "\u{2026}";
+    if measure_width(ellipsis)? > limit {
+        return Ok(String::new());
+    }
+
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut low = 0usize;
+    let mut high = chars.len();
+
+    while low < high {
+        let mid = (low + high + 1) / 2;
+        let candidate = chars[..mid].iter().collect::<String>() + ellipsis;
+
+        if measure_width(&candidate)? <= limit {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    Ok(if low == 0 {
+        ellipsis.to_string()
+    } else {
+        chars[..low].iter().collect::<String>() + ellipsis
+    })
 }
 
 /// Configuration needed for text measurement
@@ -138,6 +191,33 @@ pub fn default_text_measurer() -> impl TextMeasurer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncates_text_to_limit_with_ellipsis() {
+        let text = truncate_text_to_limit_with("abcdef", 4.0, |candidate| {
+            candidate.chars().count() as f32
+        });
+
+        assert_eq!(text, "abc\u{2026}");
+    }
+
+    #[test]
+    fn returns_empty_text_when_ellipsis_exceeds_limit() {
+        let text = truncate_text_to_limit_with("abcdef", 0.5, |candidate| {
+            candidate.chars().count() as f32
+        });
+
+        assert_eq!(text, "");
+    }
+
+    #[test]
+    fn propagates_fallible_measurement_errors() {
+        let result = try_truncate_text_to_limit_with("abcdef", 4.0, |_candidate| {
+            Err::<f32, _>("measurement failed")
+        });
+
+        assert_eq!(result, Err("measurement failed"));
+    }
 
     #[test]
     fn test_text_bounds_calculate_origin() {

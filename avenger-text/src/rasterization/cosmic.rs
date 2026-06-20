@@ -9,7 +9,10 @@ use lyon_path::geom::Point;
 
 use crate::{
     error::AvengerTextError,
-    measurement::cosmic::{make_cosmic_text_buffer, measure_text_buffer, FONT_SYSTEM, SWASH_CACHE},
+    measurement::{
+        cosmic::{make_cosmic_text_buffer, measure_text_buffer, FONT_SYSTEM, SWASH_CACHE},
+        truncate_text_to_limit_with, TextMeasurementConfig,
+    },
     rasterization::PhysicalGlyphPosition,
     FontResolutionOptions,
 };
@@ -123,7 +126,26 @@ where
     // Build image cache
     let mut next_cache: HashMap<CosmicCacheKey, GlyphData<CosmicCacheKey>> = HashMap::new();
 
-    let buffer = make_cosmic_text_buffer(&config.to_measurement_config(), font_system);
+    let text = truncate_text_to_limit_with(config.text, config.limit, |candidate| {
+        let measurement_config = TextMeasurementConfig {
+            text: candidate,
+            font: config.font,
+            font_size: config.font_size,
+            font_weight: config.font_weight,
+            font_style: config.font_style,
+        };
+        let buffer = make_cosmic_text_buffer(&measurement_config, font_system);
+        measure_text_buffer(&buffer).width
+    });
+
+    let measurement_config = TextMeasurementConfig {
+        text: &text,
+        font: config.font,
+        font_size: config.font_size,
+        font_weight: config.font_weight,
+        font_style: config.font_style,
+    };
+    let buffer = make_cosmic_text_buffer(&measurement_config, font_system);
 
     let text_bounds = measure_text_buffer(&buffer);
 
@@ -300,4 +322,56 @@ fn import_path_commands(commands: &[Command]) -> lyon_path::Path {
     }
 
     builder.build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{FontStyle, FontWeight, FontWeightNameSpec};
+
+    #[test]
+    fn rasterizer_applies_text_limit_before_shaping() {
+        let rasterizer =
+            CosmicTextRasterizer::<()>::with_font_resolution(FontResolutionOptions::default());
+        let text = "Long label text".to_string();
+        let color = [0.0, 0.0, 0.0, 1.0];
+        let font = "Atkinson Hyperlegible Next".to_string();
+        let font_weight = FontWeight::Name(FontWeightNameSpec::Normal);
+        let font_style = FontStyle::Normal;
+        let cached_glyphs = HashMap::new();
+
+        let unbounded = rasterizer
+            .rasterize(
+                &TextRasterizationConfig {
+                    text: &text,
+                    color: &color,
+                    font: &font,
+                    font_size: 12.0,
+                    font_weight: &font_weight,
+                    font_style: &font_style,
+                    limit: 0.0,
+                },
+                1.0,
+                &cached_glyphs,
+            )
+            .unwrap();
+        let limited = rasterizer
+            .rasterize(
+                &TextRasterizationConfig {
+                    text: &text,
+                    color: &color,
+                    font: &font,
+                    font_size: 12.0,
+                    font_weight: &font_weight,
+                    font_style: &font_style,
+                    limit: 36.0,
+                },
+                1.0,
+                &cached_glyphs,
+            )
+            .unwrap();
+
+        assert!(unbounded.text_bounds.width > limited.text_bounds.width);
+        assert!(limited.text_bounds.width <= 36.5);
+    }
 }

@@ -13,7 +13,9 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_text::{
-    measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer},
+    measurement::{
+        default_text_measurer, truncate_text_to_limit_with, TextMeasurementConfig, TextMeasurer,
+    },
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
 };
 use base64::{prelude::BASE64_STANDARD, Engine};
@@ -859,60 +861,16 @@ fn truncate_text_to_limit(
     font_style: &FontStyle,
     measurer: &impl TextMeasurer,
 ) -> String {
-    if limit <= 0.0 || text.is_empty() {
-        return text.to_string();
-    }
-
-    let config = TextMeasurementConfig {
-        text,
-        font,
-        font_size,
-        font_weight,
-        font_style,
-    };
-    if measurer.measure_text_bounds(&config).width <= limit {
-        return text.to_string();
-    }
-
-    let ellipsis = "\u{2026}";
-    let ellipsis_config = TextMeasurementConfig {
-        text: ellipsis,
-        font,
-        font_size,
-        font_weight,
-        font_style,
-    };
-    if measurer.measure_text_bounds(&ellipsis_config).width > limit {
-        return String::new();
-    }
-
-    let chars = text.chars().collect::<Vec<_>>();
-    let mut low = 0usize;
-    let mut high = chars.len();
-
-    while low < high {
-        let mid = (low + high + 1) / 2;
-        let candidate = chars[..mid].iter().collect::<String>() + ellipsis;
+    truncate_text_to_limit_with(text, limit, |candidate| {
         let config = TextMeasurementConfig {
-            text: &candidate,
+            text: candidate,
             font,
             font_size,
             font_weight,
             font_style,
         };
-
-        if measurer.measure_text_bounds(&config).width <= limit {
-            low = mid;
-        } else {
-            high = mid - 1;
-        }
-    }
-
-    if low == 0 {
-        ellipsis.to_string()
-    } else {
-        chars[..low].iter().collect::<String>() + ellipsis
-    }
+        measurer.measure_text_bounds(&config).width
+    })
 }
 
 struct PathStyle<'a> {

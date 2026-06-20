@@ -12,7 +12,7 @@ use crate::{
     error::AvengerTextError,
     measurement::{
         html_canvas::{create_font_string, GLYPH_CACHE},
-        TextBounds,
+        try_truncate_text_to_limit_with, TextBounds,
     },
     rasterization::{
         GlyphBBox, GlyphData, PhysicalGlyphPosition, TextRasterizationBuffer,
@@ -65,6 +65,13 @@ where
         let font_str = create_font_string(&config.to_measurement_config(), scale);
         text_context.set_font(&font_str);
 
+        let text = try_truncate_text_to_limit_with(config.text, config.limit, |candidate| {
+            text_context
+                .measure_text(candidate)
+                .map(|metrics| metrics.width() as f32 / scale)
+                .map_err(AvengerTextError::from)
+        })?;
+
         let color = config.color;
         let color_str = format!(
             "rgba({}, {}, {}, {})",
@@ -80,7 +87,7 @@ where
         // Initialize glyphs
         let mut glyphs: Vec<(GlyphData<u64>, PhysicalGlyphPosition)> = Vec::new();
 
-        for cluster in config.text.graphemes(true) {
+        for cluster in text.graphemes(true) {
             // Compute right edge using full string up through this cluster
             str_so_far.push_str(cluster);
 
@@ -193,7 +200,7 @@ where
         }
 
         // Compute final buffer metrics
-        let full_metrics = text_context.measure_text(config.text)?;
+        let full_metrics = text_context.measure_text(&text)?;
         let buffer_width =
             full_metrics.actual_bounding_box_left() + full_metrics.actual_bounding_box_right();
 
