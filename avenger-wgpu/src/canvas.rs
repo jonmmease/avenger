@@ -8,6 +8,7 @@ use avenger_scenegraph::{
         rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark,
         trail::SceneTrailMark,
     },
+    render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
 use itertools::izip;
@@ -31,8 +32,8 @@ use crate::{
     readback::TextureReadback,
     renderer::{mark_renderer_counts, AvengerRendererCore},
     target::{AvengerRenderTarget, WHITE_CLEAR},
-    zindex_layers::compute_zindex_layers,
 };
+use avenger_scenegraph::render_order::compute_zindex_layers;
 
 pub use crate::renderer::{MarkRenderer, ZIndexedMark};
 
@@ -399,18 +400,58 @@ pub trait Canvas {
         let start = Instant::now();
         // Clear existing marks
         self.clear_mark_renderer();
+        self.set_current_zindex(0);
 
-        // Process groups in document order - z-index sorting will happen during rendering
-        let groups = scene_graph.groups();
-        let group_count = groups.len();
-        for group in groups {
-            self.add_group_mark(group, scene_graph.origin, &Clip::None)?;
+        // Process display items in document order. Z-index sorting happens during rendering.
+        let display_list = SceneDisplayList::from_scene_graph(scene_graph);
+        let item_count = display_list.items.len();
+        for item in &display_list.items {
+            self.set_current_zindex(item.zindex);
+            match &item.mark {
+                SceneDisplayMark::OwnedGroupPath(mark) => {
+                    self.add_path_mark(mark, item.origin, &item.clip)?;
+                }
+                SceneDisplayMark::Borrowed(mark) => match mark {
+                    SceneMark::Arc(mark) => {
+                        self.add_arc_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Symbol(mark) => {
+                        self.add_symbol_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Rect(mark) => {
+                        self.add_rect_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Rule(mark) => {
+                        self.add_rule_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Path(mark) => {
+                        self.add_path_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Line(mark) => {
+                        self.add_line_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Trail(mark) => {
+                        self.add_trail_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Area(mark) => {
+                        self.add_area_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Text(mark) => {
+                        self.add_text_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Image(mark) => {
+                        self.add_image_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::Group(_) => {}
+                },
+            }
         }
+        self.set_current_zindex(0);
 
         tracing::debug!(
             target: "avenger_wgpu::resize",
             set_scene_ms = start.elapsed().as_secs_f64() * 1000.0,
-            group_count,
+            item_count,
             scene_width = scene_graph.width,
             scene_height = scene_graph.height,
             "wgpu.set_scene"

@@ -6,6 +6,7 @@ use avenger_common::{
 };
 use avenger_scenegraph::{
     marks::{group::Clip, rect::SceneRectMark},
+    render_order::compute_zindex_layers,
     scene_graph::SceneGraph,
 };
 use wgpu::{
@@ -23,7 +24,6 @@ use crate::{
     },
     offscreen::{OffscreenTarget, RenderedOffscreenFrame},
     target::{AvengerRenderTarget, WHITE_CLEAR},
-    zindex_layers::compute_zindex_layers,
 };
 
 #[derive(Clone)]
