@@ -12,7 +12,10 @@ use avenger_scenegraph::{
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
-use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+use avenger_text::{
+    measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer},
+    types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
+};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use itertools::izip;
 use lyon_algorithms::aabb::bounding_box;
@@ -248,6 +251,7 @@ impl SvgRenderer {
         origin: [f32; 2],
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
+        let text_measurer = default_text_measurer();
         for (
             text,
             x,
@@ -275,12 +279,15 @@ impl SvgRenderer {
             mark.font_style_iter(),
             mark.limit_iter(),
         ) {
-            if *limit > 0.0 {
-                return Err(AvengerSvgError::UnsupportedFeature(
-                    "SVG text limit truncation is not implemented yet".to_string(),
-                ));
-            }
-
+            let text = truncate_text_to_limit(
+                text,
+                *limit,
+                font,
+                *font_size,
+                font_weight,
+                font_style,
+                &text_measurer,
+            );
             let x = *x + origin[0];
             let y = *y + origin[1];
             document.body.push_str(r#"<text x=""#);
@@ -321,7 +328,7 @@ impl SvgRenderer {
             }
             push_clip_attr(&mut document.body, clip_id);
             document.body.push('>');
-            document.body.push_str(&crate::style::escape_text(text));
+            document.body.push_str(&crate::style::escape_text(&text));
             document.body.push_str("</text>\n");
         }
 
@@ -808,6 +815,71 @@ fn font_style_value(font_style: &FontStyle) -> &'static str {
     match font_style {
         FontStyle::Normal => "normal",
         FontStyle::Italic => "italic",
+    }
+}
+
+fn truncate_text_to_limit(
+    text: &str,
+    limit: f32,
+    font: &str,
+    font_size: f32,
+    font_weight: &FontWeight,
+    font_style: &FontStyle,
+    measurer: &impl TextMeasurer,
+) -> String {
+    if limit <= 0.0 || text.is_empty() {
+        return text.to_string();
+    }
+
+    let config = TextMeasurementConfig {
+        text,
+        font,
+        font_size,
+        font_weight,
+        font_style,
+    };
+    if measurer.measure_text_bounds(&config).width <= limit {
+        return text.to_string();
+    }
+
+    let ellipsis = "\u{2026}";
+    let ellipsis_config = TextMeasurementConfig {
+        text: ellipsis,
+        font,
+        font_size,
+        font_weight,
+        font_style,
+    };
+    if measurer.measure_text_bounds(&ellipsis_config).width > limit {
+        return String::new();
+    }
+
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut low = 0usize;
+    let mut high = chars.len();
+
+    while low < high {
+        let mid = (low + high + 1) / 2;
+        let candidate = chars[..mid].iter().collect::<String>() + ellipsis;
+        let config = TextMeasurementConfig {
+            text: &candidate,
+            font,
+            font_size,
+            font_weight,
+            font_style,
+        };
+
+        if measurer.measure_text_bounds(&config).width <= limit {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    if low == 0 {
+        ellipsis.to_string()
+    } else {
+        chars[..low].iter().collect::<String>() + ellipsis
     }
 }
 
@@ -1313,6 +1385,31 @@ mod tests {
         assert!(svg.contains(r#"font-style="italic""#));
         assert!(svg.contains(r#"transform="rotate(45 11 14)""#));
         assert!(svg.contains("&lt;A&amp;B&gt;</text>"));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn truncates_text_marks_to_limit() {
+        let scene_graph = SceneGraph {
+            width: 80.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Long label text".to_string()),
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(12.0),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible".to_string()),
+                font_size: ScalarOrArray::new_scalar(10.0),
+                limit: ScalarOrArray::new_scalar(35.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains("\u{2026}</text>"));
+        assert!(!svg.contains("Long label text</text>"));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 
