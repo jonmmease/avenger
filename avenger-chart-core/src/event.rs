@@ -1107,6 +1107,12 @@ pub fn rewrite_reserved_event_binding_local_datums(
     mut binding: ChartEventBinding,
     ctx: &SessionContext,
 ) -> Result<ChartEventBinding, AvengerChartError> {
+    if !matches!(
+        binding.surface_target,
+        Some(ChartEventSurfaceTarget::LegendSurface { .. })
+    ) {
+        return Ok(binding);
+    }
     for filter in &mut binding.filters {
         rewrite_expr_node_reserved_datums(filter, ctx)?;
     }
@@ -1723,6 +1729,10 @@ mod tests {
                     col("category"),
                     datum("value"),
                 )),
+            )
+            .with_legend_surface_target(
+                vec!["fill".to_string()],
+                vec![LegendSurfaceKind::DiscreteItem],
             );
 
         let rewritten = rewrite_reserved_event_binding_local_datums(binding, &ctx)
@@ -1731,6 +1741,21 @@ mod tests {
             .expect("scan rewritten binding");
         assert!(requests.current_datum.contains(LEGEND_VALUE_FIELD));
         assert!(!requests.current_datum.contains("value"));
+    }
+
+    #[test]
+    fn plot_event_binding_does_not_rewrite_value_datum_field() {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(datum("value").eq(lit(1.0)))
+            .with_plot_surface_target();
+
+        let rewritten = rewrite_reserved_event_binding_local_datums(binding, &ctx)
+            .expect("plot datum rewrite succeeds");
+        let requests = scan_chart_event_binding_interaction_columns(&rewritten, &ctx)
+            .expect("scan rewritten binding");
+        assert!(requests.current_datum.contains("value"));
+        assert!(!requests.current_datum.contains(LEGEND_VALUE_FIELD));
     }
 
     #[test]
@@ -1747,7 +1772,11 @@ mod tests {
             .set_param("domain", interval(event_coord("y"), start_coord("y")))
             .set_param("clipped", event_at_start_clipped_coord("y"))
             .set_param("start_domain", start_domain("y"))
-            .set_param("event_domain", event_domain("y"));
+            .set_param("event_domain", event_domain("y"))
+            .with_legend_surface_target(
+                vec!["fill".to_string()],
+                vec![LegendSurfaceKind::ContinuousColorbar],
+            );
 
         let rewritten = rewrite_reserved_event_binding_local_datums(binding, &ctx)
             .expect("legend local datum rewrite succeeds");

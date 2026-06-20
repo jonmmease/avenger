@@ -1839,15 +1839,14 @@ fn legend_event_bindings(
     for (channel_name, legend) in legends {
         legend.validate_event_surface()?;
         for binding in &legend.event_bindings {
-            let binding =
-                rewrite_reserved_event_binding_local_datums(binding.clone(), session_context)?
-                    .with_legend_surface_target(
-                        vec![channel_name.clone()],
-                        vec![
-                            LegendSurfaceKind::DiscreteItem,
-                            LegendSurfaceKind::ContinuousColorbar,
-                        ],
-                    );
+            let binding = binding.clone().with_legend_surface_target(
+                vec![channel_name.clone()],
+                vec![
+                    LegendSurfaceKind::DiscreteItem,
+                    LegendSurfaceKind::ContinuousColorbar,
+                ],
+            );
+            let binding = rewrite_reserved_event_binding_local_datums(binding, session_context)?;
             bindings.push(binding);
         }
     }
@@ -1938,6 +1937,7 @@ mod tests {
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
+    use tokio::sync::Mutex;
 
     fn resolved_repeat(id: &str) -> ResolvedRepeatVariable {
         ResolvedRepeatVariable {
@@ -2018,6 +2018,7 @@ mod tests {
     }
 
     static COUNTING_GROUP_TRANSFORM_APPLIES: AtomicUsize = AtomicUsize::new(0);
+    static COUNTING_GROUP_TRANSFORM_TEST_LOCK: Mutex<()> = Mutex::const_new(());
 
     #[derive(Clone)]
     struct CountingGroupTransform;
@@ -2382,6 +2383,7 @@ mod tests {
 
     #[tokio::test]
     async fn two_marks_in_one_group_share_transform_preparation() {
+        let _guard = COUNTING_GROUP_TRANSFORM_TEST_LOCK.lock().await;
         let ctx = SessionContext::new();
         let data = xy_dataframe(&ctx).await;
         COUNTING_GROUP_TRANSFORM_APPLIES.store(0, Ordering::SeqCst);
@@ -2407,6 +2409,7 @@ mod tests {
 
     #[tokio::test]
     async fn sibling_groups_prepare_independent_transform_branches() {
+        let _guard = COUNTING_GROUP_TRANSFORM_TEST_LOCK.lock().await;
         let ctx = SessionContext::new();
         let data = xy_dataframe(&ctx).await;
         COUNTING_GROUP_TRANSFORM_APPLIES.store(0, Ordering::SeqCst);
@@ -2464,6 +2467,7 @@ mod tests {
 
     #[tokio::test]
     async fn data_transparent_nested_group_uses_parent_data_group() {
+        let _guard = COUNTING_GROUP_TRANSFORM_TEST_LOCK.lock().await;
         let ctx = SessionContext::new();
         let data = xy_dataframe(&ctx).await;
         let compiled = Plot::<Cartesian>::new()
@@ -2491,6 +2495,7 @@ mod tests {
 
     #[tokio::test]
     async fn nested_explicit_group_data_resets_parent_inheritance() {
+        let _guard = COUNTING_GROUP_TRANSFORM_TEST_LOCK.lock().await;
         let ctx = SessionContext::new();
         let parent_data = xy_dataframe(&ctx).await;
         let child_data = ctx

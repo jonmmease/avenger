@@ -110,6 +110,7 @@ fn extract_channel_refs(expr: &Expr) -> HashSet<String> {
 }
 
 fn inherited_scale_name_from_single_ref(
+    channel_name: &str,
     expr: &LogicalExprNode,
     resolved_channels: &IndexMap<String, ChannelValue>,
     ctx: &SessionContext,
@@ -121,10 +122,14 @@ fn inherited_scale_name_from_single_ref(
     if refs.next().is_some() {
         return None;
     }
+    if crate::strip_trailing_numbers(channel_name) != crate::strip_trailing_numbers(&ref_name) {
+        return None;
+    }
     resolved_channels.get(&ref_name)?.get_scale_name(&ref_name)
 }
 
 fn inherited_nested_band_config_from_single_ref(
+    channel_name: &str,
     expr: &LogicalExprNode,
     resolved_channels: &IndexMap<String, ChannelValue>,
     ctx: &SessionContext,
@@ -134,6 +139,9 @@ fn inherited_nested_band_config_from_single_ref(
     let mut refs = refs.into_iter();
     let ref_name = refs.next()?;
     if refs.next().is_some() {
+        return None;
+    }
+    if crate::strip_trailing_numbers(channel_name) != crate::strip_trailing_numbers(&ref_name) {
         return None;
     }
     resolved_channels
@@ -461,10 +469,15 @@ pub fn resolve_all_channel_refs(
                     transform_scope,
                 } => {
                     let inherited_scale_name = scale_name.clone().or_else(|| {
-                        inherited_scale_name_from_single_ref(expr, &resolved_channels, ctx)
+                        inherited_scale_name_from_single_ref(name, expr, &resolved_channels, ctx)
                     });
                     let inherited_nested_band_config = nested_band_config.clone().or_else(|| {
-                        inherited_nested_band_config_from_single_ref(expr, &resolved_channels, ctx)
+                        inherited_nested_band_config_from_single_ref(
+                            name,
+                            expr,
+                            &resolved_channels,
+                            ctx,
+                        )
                     });
                     let resolved_expr = resolve_channel_refs(expr.clone(), &resolved_channels, ctx);
                     ChannelValue::Scaled {
@@ -656,6 +669,69 @@ mod tests {
             Some(["group".to_string(), "member".to_string()].as_slice())
         );
         assert_eq!(x2.get_scale_name("x2").as_deref(), Some("shared_x"));
+    }
+
+    #[test]
+    fn cross_family_channel_reference_keeps_destination_scale_family() {
+        let ctx = SessionContext::new();
+        let mut channels = IndexMap::new();
+        channels.insert(
+            "x".to_string(),
+            ChannelValue::Scaled {
+                expr: LogicalExprNode::from_expr(col("category")).expect("serialize x"),
+                scale_name: Some("shared_x".to_string()),
+                position_boundary: None,
+                scale_config: None,
+                nested_band_config: Some(Box::new(NestedBandSpec::from_source_columns(vec![
+                    "group".to_string(),
+                    "member".to_string(),
+                ]))),
+                legend_config: None,
+                axis_config: None,
+                domain_coordination: None,
+                transform_scope: None,
+            },
+        );
+        channels.insert(
+            "stroke".to_string(),
+            ChannelValue::Scaled {
+                expr: LogicalExprNode::from_expr(col(":x")).expect("serialize stroke"),
+                scale_name: None,
+                position_boundary: None,
+                scale_config: None,
+                nested_band_config: None,
+                legend_config: None,
+                axis_config: None,
+                domain_coordination: None,
+                transform_scope: None,
+            },
+        );
+        channels.insert(
+            "fill".to_string(),
+            ChannelValue::Scaled {
+                expr: LogicalExprNode::from_expr(col(":stroke")).expect("serialize fill"),
+                scale_name: None,
+                position_boundary: None,
+                scale_config: None,
+                nested_band_config: None,
+                legend_config: None,
+                axis_config: None,
+                domain_coordination: None,
+                transform_scope: None,
+            },
+        );
+
+        let resolved = resolve_all_channel_refs(&channels, &ctx).expect("resolve refs");
+
+        let stroke = resolved.get("stroke").expect("resolved stroke");
+        assert_eq!(stroke.expr(&ctx).expect("expr").to_string(), "category");
+        assert_eq!(stroke.get_scale_name("stroke").as_deref(), Some("stroke"));
+        assert!(stroke.get_nested_band_config().is_none());
+
+        let fill = resolved.get("fill").expect("resolved fill");
+        assert_eq!(fill.expr(&ctx).expect("expr").to_string(), "category");
+        assert_eq!(fill.get_scale_name("fill").as_deref(), Some("fill"));
+        assert!(fill.get_nested_band_config().is_none());
     }
 
     #[test]
