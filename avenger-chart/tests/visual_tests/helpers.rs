@@ -14,11 +14,12 @@ use image::RgbaImage;
 use indexmap::IndexMap;
 use pdfium_render::prelude::{PdfRenderConfig, Pdfium, PdfiumError};
 use std::{
+    collections::HashSet,
     fs,
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Mutex, OnceLock},
 };
 
 /// Default dimensions for test charts
@@ -38,6 +39,7 @@ const PDF_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
 
 static PDFIUM_RENDER_LOCK: Mutex<()> = Mutex::new(());
 static PDF_SCORE_REPORT_LOCK: Mutex<()> = Mutex::new(());
+static PDF_SCORE_REPORT_KEYS: OnceLock<Mutex<HashSet<(String, String)>>> = OnceLock::new();
 
 /// Configuration for visual tests
 pub struct VisualTestConfig {
@@ -562,6 +564,17 @@ fn append_pdf_score_report(
         return Ok(());
     };
 
+    let keys = PDF_SCORE_REPORT_KEYS.get_or_init(|| Mutex::new(HashSet::new()));
+    {
+        let mut keys = keys
+            .lock()
+            .map_err(|_| "PDF score report key lock was poisoned".to_string())?;
+        let key = (category.to_string(), baseline_name.to_string());
+        if !keys.insert(key) {
+            return Ok(());
+        }
+    }
+
     let _guard = PDF_SCORE_REPORT_LOCK
         .lock()
         .map_err(|_| "PDF score report lock was poisoned".to_string())?;
@@ -716,8 +729,9 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
             );
         }
 
-        let expected_pdf = fs::read(&pdf_path)
-            .unwrap_or_else(|e| panic!("Failed to read PDF baseline '{}': {e}", pdf_path.display()));
+        let expected_pdf = fs::read(&pdf_path).unwrap_or_else(|e| {
+            panic!("Failed to read PDF baseline '{}': {e}", pdf_path.display())
+        });
         if !expected_pdf.starts_with(b"%PDF-") {
             save_pdf_failures(category, baseline_name, &pdf, &pdf_image)
                 .expect("Failed to save invalid PDF baseline failure");
