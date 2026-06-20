@@ -421,6 +421,42 @@ mod tests {
     }
 
     #[test]
+    fn writes_scenegraph_pdf_and_creates_parent_dirs() {
+        let scene_graph = SceneGraph {
+            width: 20.0,
+            height: 10.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(1.0),
+                y: ScalarOrArray::new_scalar(2.0),
+                width: Some(ScalarOrArray::new_scalar(3.0)),
+                height: Some(ScalarOrArray::new_scalar(4.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0])),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let test_dir = std::env::temp_dir().join(format!(
+            "avenger-pdf-write-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let output = test_dir.join("nested").join("chart.pdf");
+
+        PdfRenderer::new()
+            .write_scene_graph_pdf(&scene_graph, &output)
+            .unwrap();
+
+        let pdf = std::fs::read(&output).unwrap();
+        assert!(pdf.starts_with(b"%PDF-"));
+        std::fs::remove_dir_all(test_dir).unwrap();
+    }
+
+    #[test]
     fn internal_svg_preserves_native_text_for_pdf_conversion() {
         let scene_graph = SceneGraph {
             width: 80.0,
