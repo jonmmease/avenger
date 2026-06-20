@@ -605,6 +605,16 @@ mod tests {
     }
 
     #[test]
+    fn svg_parse_errors_map_to_pdf_error() {
+        let err: AvengerPdfError =
+            svg2pdf::usvg::Tree::from_str("<svg", &svg2pdf::usvg::Options::default())
+                .unwrap_err()
+                .into();
+
+        assert!(matches!(err, AvengerPdfError::SvgParse(_)));
+    }
+
+    #[test]
     fn embeds_font_loaded_from_extra_font_dir() {
         let scene_graph = SceneGraph {
             width: 80.0,
