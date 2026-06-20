@@ -141,7 +141,7 @@ mod tests {
                 text: ScalarOrArray::new_scalar("Selectable".to_string()),
                 x: ScalarOrArray::new_scalar(5.0),
                 y: ScalarOrArray::new_scalar(12.0),
-                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible".to_string()),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
                 ..Default::default()
             }
@@ -156,6 +156,37 @@ mod tests {
         assert!(svg.contains("<text "));
         assert!(tree.has_text_nodes());
         assert!(pdf.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn embeds_subset_font_for_bundled_text_font() {
+        let scene_graph = SceneGraph {
+            width: 80.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Embed me".to_string()),
+                x: ScalarOrArray::new_scalar(5.0),
+                y: ScalarOrArray::new_scalar(12.0),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let pdf = PdfRenderer::new()
+            .with_options(PdfRenderOptions {
+                compress: false,
+                ..Default::default()
+            })
+            .render_scene_graph(&scene_graph)
+            .unwrap();
+
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(pdf_contains(&pdf, b"/FontDescriptor"));
+        assert!(pdf_contains(&pdf, b"/FontFile2") || pdf_contains(&pdf, b"/FontFile3"));
+        assert!(pdf_contains(&pdf, b"/ToUnicode"));
     }
 
     #[test]
@@ -204,5 +235,9 @@ mod tests {
         assert!(svg.contains(r#"fill="url(#svg-gradient-0)""#));
         assert!(tree.size().width() > 0.0);
         assert!(pdf.starts_with(b"%PDF-"));
+    }
+
+    fn pdf_contains(pdf: &[u8], needle: &[u8]) -> bool {
+        pdf.windows(needle.len()).any(|window| window == needle)
     }
 }
