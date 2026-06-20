@@ -731,6 +731,7 @@ dependencies = [
  "avenger-chart-marks",
  "avenger-chart-polar",
  "avenger-chart-transforms",
+ "avenger-color",
  "avenger-common",
  "avenger-guides",
  "avenger-scales",

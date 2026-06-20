@@ -1,11 +1,16 @@
-use std::{any::Any, collections::HashMap};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
-use datafusion::{arrow::datatypes::DataType, common::ScalarValue};
+use datafusion::{
+    arrow::datatypes::DataType, common::ScalarValue, dataframe::DataFrame, prelude::SessionContext,
+};
 use indexmap::IndexMap;
 
-use crate::{AvengerChartError, PlotGeometry, ScaleRangeBinding, ScaleTypePreference};
+use crate::{
+    AvengerChartError, CompiledMark, CoordMeasurement, PlotGeometry, ScaleRangeBinding,
+    ScaleTypePreference,
+};
 
 /// Display/equilibrium geometry for a generated position channel.
 ///
@@ -35,6 +40,36 @@ pub struct InteractionPointInversionRequest<'a> {
     pub plot_area_height: f32,
     pub channels: &'a [&'a str],
     pub scales: &'a HashMap<String, ConfiguredScale>,
+}
+
+/// Core-safe request for coordinate-owned measurement.
+///
+/// External coordinate crates can use this view to compute plot-size and
+/// data-dependent `CoordMeasurement` values without depending on the high-level
+/// `avenger-chart` facade or its layout runtime types.
+pub struct CoordinateMeasureRequest<'a> {
+    pub plot_width: f32,
+    pub plot_height: f32,
+    pub params: &'a IndexMap<String, ScalarValue>,
+    pub session_context: &'a SessionContext,
+    pub data: Option<&'a DataFrame>,
+    pub compiled_marks: &'a [Arc<dyn CompiledMark>],
+    pub facet_path: &'a [ScalarValue],
+    pub scales: HashMap<String, ConfiguredScale>,
+}
+
+/// Optional provider for coordinate-owned measurement.
+///
+/// Coordinates that do not need plot-size/data-dependent measurement can ignore
+/// this hook and use the default empty measurement path. Coordinates such as
+/// treemap can implement this trait on their transform and return it from
+/// `CoordinateSystemTransformCore::measurement_provider()`.
+#[async_trait::async_trait]
+pub trait CoordinateMeasurementProvider: Send + Sync {
+    async fn measure_coordinate(
+        &self,
+        request: CoordinateMeasureRequest<'_>,
+    ) -> Result<Option<Box<dyn CoordMeasurement>>, AvengerChartError>;
 }
 
 /// Core-safe coordinate transform behavior.
@@ -122,6 +157,14 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
     /// params change.
     fn runtime_param_dependencies(&self) -> Vec<String> {
         Vec::new()
+    }
+
+    /// Optional coordinate-owned measurement provider.
+    ///
+    /// The high-level facade calls this after generic child-frame measurement
+    /// helpers and before built-in concat/facet downcast dispatch.
+    fn measurement_provider(&self) -> Option<&dyn CoordinateMeasurementProvider> {
+        None
     }
 
     /// Coordinate channels this transform can invert from a local plot-area point.

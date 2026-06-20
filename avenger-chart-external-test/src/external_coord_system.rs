@@ -7,13 +7,15 @@ use avenger_chart_core::{
     define_common_mark_channels, define_position_channels, impl_mark_base, impl_mark_trait_common,
     AvengerChartError, Axis, ChannelDescriptor, ChannelValue, CompiledDataContext, CompiledGuide,
     CompiledMark, CompiledMarkCore, CompiledMarkState, CoordMeasurement, CoordinateGuide,
-    CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
-    CoordinateSystemTransformCore, GuideSharingContext, LayoutBounds, Mark, MarkRuntimeContext,
-    MarkState, OverflowSpaceRequirement, PlotGeometry, PointGeometry, PositionConfig, Theme,
+    CoordinateMeasureRequest, CoordinateMeasurementProvider, CoordinateSystem,
+    CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore,
+    GuideSharingContext, LayoutBounds, Mark, MarkRuntimeContext, MarkState, NoGuide,
+    OverflowSpaceRequirement, PlotGeometry, PointGeometry, PositionConfig, Theme,
 };
 use avenger_chart_core::{Auto, Scale, ScaleChannelValue};
+use avenger_color::ColorOrGradient;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark};
 use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -581,5 +583,214 @@ impl CompiledMark for CompiledIsometricCube {
         // Custom cube rendering logic would go here
         // For this test, we just return an empty vector
         Ok(vec![])
+    }
+}
+
+/// A small external coordinate system with custom measurement.
+///
+/// This is intentionally simple dogfood for the public measurement provider
+/// hook: the transform computes a rectangle during measurement, and
+/// `MeasuredRect` renders from that measurement.
+#[derive(Clone, Debug, Default)]
+pub struct MeasuredExternalCoord;
+
+impl CoordinateSystemCore for MeasuredExternalCoord {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
+    }
+}
+
+impl CoordinateSystem for MeasuredExternalCoord {
+    type Guide = NoGuide;
+
+    fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(MeasuredExternalTransform)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MeasuredExternalTransform;
+
+impl CoordinateSystemTransformCore for MeasuredExternalTransform {
+    fn required_channels(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    fn default_scale_options(
+        &self,
+        _channel: &str,
+        _scale_impl: &dyn avenger_scales::scales::ScaleImpl,
+    ) -> HashMap<String, ScalarValue> {
+        HashMap::new()
+    }
+
+    fn transform(
+        &self,
+        _position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+        _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+        _plot_width: f32,
+        _plot_height: f32,
+    ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+        Ok(Box::new(PointGeometry {
+            x: ScalarOrArray::new_scalar(0.0),
+            y: ScalarOrArray::new_scalar(0.0),
+        }))
+    }
+
+    fn measurement_provider(&self) -> Option<&dyn CoordinateMeasurementProvider> {
+        Some(self)
+    }
+}
+
+#[async_trait]
+impl CoordinateMeasurementProvider for MeasuredExternalTransform {
+    async fn measure_coordinate(
+        &self,
+        request: CoordinateMeasureRequest<'_>,
+    ) -> Result<Option<Box<dyn CoordMeasurement>>, AvengerChartError> {
+        Ok(Some(Box::new(MeasuredExternalCoordMeasurement {
+            plot_width: request.plot_width,
+            plot_height: request.plot_height,
+            mark_count: request.compiled_marks.len(),
+            scale_count: request.scales.len(),
+            facet_path_len: request.facet_path.len(),
+            has_data: request.data.is_some(),
+        })))
+    }
+}
+
+#[typetag::serde]
+impl CoordinateSystemTransform for MeasuredExternalTransform {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+        Box::new(self.clone())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MeasuredExternalCoordMeasurement {
+    pub plot_width: f32,
+    pub plot_height: f32,
+    pub mark_count: usize,
+    pub scale_count: usize,
+    pub facet_path_len: usize,
+    pub has_data: bool,
+}
+
+impl CoordMeasurement for MeasuredExternalCoordMeasurement {
+    fn clone_box(&self) -> Box<dyn CoordMeasurement> {
+        Box::new(self.clone())
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// A mark that renders exclusively from `MeasuredExternalCoordMeasurement`.
+pub struct MeasuredRect<C> {
+    pub(crate) state: MarkState,
+    pub(crate) _phantom: PhantomData<C>,
+}
+
+impl_mark_base!(MeasuredRect);
+
+#[async_trait]
+impl Mark<MeasuredExternalCoord> for MeasuredRect<MeasuredExternalCoord> {
+    impl_mark_trait_common!(MeasuredRect);
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        _session_context: &datafusion::prelude::SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(Arc::new(CompiledMeasuredRect {
+            state: compiled_state,
+        }))
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CompiledMeasuredRect {
+    pub(crate) state: CompiledMarkState,
+}
+
+impl CompiledMarkCore for CompiledMeasuredRect {
+    fn state(&self) -> &CompiledMarkState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
+        &mut self.state
+    }
+
+    fn data_context(&self) -> &CompiledDataContext {
+        &self.state.data
+    }
+
+    fn mark_type(&self) -> &str {
+        "measured_rect"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+        Vec::new()
+    }
+}
+
+#[typetag::serde]
+#[async_trait]
+impl CompiledMark for CompiledMeasuredRect {
+    async fn render_from_data(
+        &self,
+        _data: Option<&RecordBatch>,
+        _scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        _coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let measurement = context
+            .coord_measurement()
+            .as_any()
+            .downcast_ref::<MeasuredExternalCoordMeasurement>()
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "MeasuredRect requires MeasuredExternalCoordMeasurement".to_string(),
+                )
+            })?;
+
+        let width = measurement.plot_width * 0.25 + measurement.mark_count as f32;
+        let height = measurement.plot_height * 0.2
+            + measurement.scale_count as f32
+            + measurement.facet_path_len as f32
+            + if measurement.has_data { 1.0 } else { 0.0 };
+        Ok(vec![SceneMark::Rect(SceneRectMark {
+            name: "external_measured_rect".to_string(),
+            interactive: true,
+            clip: true,
+            len: 1,
+            gradients: Vec::new(),
+            x: ScalarOrArray::new_scalar(measurement.plot_width * 0.1),
+            y: ScalarOrArray::new_scalar(measurement.plot_height * 0.1),
+            width: Some(ScalarOrArray::new_scalar(width)),
+            height: Some(ScalarOrArray::new_scalar(height)),
+            x2: None,
+            y2: None,
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.2, 0.4, 0.8, 1.0])),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+            stroke_width: ScalarOrArray::new_scalar(1.0),
+            corner_radius: ScalarOrArray::new_scalar(0.0),
+            indices: None,
+            zindex: self.state.zindex,
+        })])
     }
 }

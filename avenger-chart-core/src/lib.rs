@@ -117,8 +117,8 @@ pub use coord_measurement::{CoordMeasurement, EmptyCoordMeasurement};
 pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};
 pub use coordinate_system::{CoordinateSystem, CoordinateSystemCore};
 pub use coordinate_transform::{
-    CoordinateSystemTransform, CoordinateSystemTransformCore, GeneratedPositionSlot,
-    InteractionPointInversionRequest,
+    CoordinateMeasureRequest, CoordinateMeasurementProvider, CoordinateSystemTransform,
+    CoordinateSystemTransformCore, GeneratedPositionSlot, InteractionPointInversionRequest,
 };
 pub use coordination_values::{CoordinatedLayout, CoordinatedOverflow};
 pub use data_context::DataContext;

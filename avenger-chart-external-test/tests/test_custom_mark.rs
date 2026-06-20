@@ -3,6 +3,7 @@ use avenger_chart_cartesian::Cartesian;
 use avenger_chart_core::{CoordinateSystemCore, Mark};
 use avenger_chart_external_test::external_mark::HexBin;
 
+#[derive(Clone)]
 struct CoreOnlyCoord;
 
 impl CoordinateSystemCore for CoreOnlyCoord {

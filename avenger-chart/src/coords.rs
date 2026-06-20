@@ -10,10 +10,11 @@ use crate::{
     scales::{ConfiguredScaleWithSpec, domain_extent::DomainExtent},
 };
 pub use avenger_chart_core::{
-    CoordMeasurement, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
-    CoordinateSystemTransformCore, CoordinatedLayout, CoordinatedOverflow, DomainCoordination,
-    EmptyCoordMeasurement, FacetAxis, OverflowSpaceRequirement, PaddingSpec, PlotGeometry,
-    PointGeometry, SubplotGeometry, SubplotRect, extract_channel_title_from_marks,
+    CoordMeasurement, CoordinateMeasureRequest, CoordinateSystem, CoordinateSystemCore,
+    CoordinateSystemTransform, CoordinateSystemTransformCore, CoordinatedLayout,
+    CoordinatedOverflow, DomainCoordination, EmptyCoordMeasurement, FacetAxis,
+    OverflowSpaceRequirement, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry,
+    SubplotRect, extract_channel_title_from_marks,
 };
 
 /// Cell domain extent info collected before facet overflow measurement.
@@ -130,6 +131,23 @@ impl<'a> CoordMeasureRequest<'a> {
     pub(crate) fn facet_path(&self) -> &'a [ScalarValue] {
         self.facet_path
     }
+
+    fn to_core_request(&self) -> CoordinateMeasureRequest<'a> {
+        CoordinateMeasureRequest {
+            plot_width: self.plot_width,
+            plot_height: self.plot_height,
+            params: self.eval_ctx.params(),
+            session_context: self.eval_ctx.session_context().as_ref(),
+            data: self.data,
+            compiled_marks: self.compiled_marks,
+            facet_path: self.facet_path,
+            scales: self
+                .scales
+                .iter()
+                .map(|(name, scale)| (name.clone(), scale.configured().clone()))
+                .collect(),
+        }
+    }
 }
 
 /// Measure coordinate-system-specific layout state for built-in layout-aware
@@ -166,6 +184,13 @@ pub(crate) async fn measure_coordinate_system_transform(
         ),
     )
     .await?
+    {
+        return Ok(measurement);
+    }
+
+    if let Some(provider) = transform.measurement_provider()
+        && let Some(measurement) =
+            Box::pin(provider.measure_coordinate(request.to_core_request())).await?
     {
         return Ok(measurement);
     }
