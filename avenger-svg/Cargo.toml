@@ -35,4 +35,6 @@ default-features = false
 features = ["cosmic-text", "fontdb"]
 
 [dev-dependencies]
+resvg = { workspace = true }
+tiny-skia = { workspace = true }
 usvg = { workspace = true }

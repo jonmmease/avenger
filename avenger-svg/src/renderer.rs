@@ -532,6 +532,10 @@ impl SvgRenderer {
         style: PathStyle<'_>,
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
+        if d.is_empty() {
+            return Ok(());
+        }
+
         let defs = &mut document.defs;
         let body = &mut document.body;
         let mut resolver = PaintContext {

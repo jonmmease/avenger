@@ -1083,8 +1083,10 @@ dependencies = [
  "itertools 0.14.0",
  "lyon_algorithms",
  "lyon_path",
+ "resvg",
  "svgtypes",
  "thiserror 2.0.18",
+ "tiny-skia",
  "usvg",
 ]
 
