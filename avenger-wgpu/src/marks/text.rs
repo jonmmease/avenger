@@ -274,20 +274,9 @@ where
 
             // Create verts for rectangle around glyph
             let bbox = &glyph_bbox_and_atlas_coords.bbox;
-            let (x0, y0) = if angle == 0.0 {
-                (
-                    (glyph_pos.physical_x + bbox.left as f32) / dimensions.scale + buffer_left,
-                    buffer.text_bounds.ascent.ceil()
-                        + (glyph_pos.physical_y - bbox.top as f32) / dimensions.scale
-                        + buffer_top,
-                )
-            } else {
-                (
-                    glyph_pos.x + bbox.left as f32 / dimensions.scale + buffer_left,
-                    buffer.text_bounds.ascent + glyph_pos.y - bbox.top as f32 / dimensions.scale
-                        + buffer_top,
-                )
-            };
+            let x0 = glyph_pos.x + bbox.left as f32 / dimensions.scale + buffer_left;
+            let y0 = buffer.text_bounds.ascent + glyph_pos.y - bbox.top as f32 / dimensions.scale
+                + buffer_top;
             let x1 = x0 + bbox.width as f32 / dimensions.scale;
             let y1 = y0 + bbox.height as f32 / dimensions.scale;
 
