@@ -17,6 +17,7 @@ avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-chart-treemap = { path = "../avenger-chart-treemap" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
@@ -117,4 +118,12 @@ required-features = ["winit-wgpu"]
 
 [[example]]
 name = "nested_grouped_bar_click_selection"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "treemap_leaf_click_selection"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "treemap_click_to_zoom"
 required-features = ["winit-wgpu"]

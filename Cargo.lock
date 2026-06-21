@@ -619,6 +619,7 @@ dependencies = [
  "avenger-app",
  "avenger-chart",
  "avenger-chart-core",
+ "avenger-chart-treemap",
  "avenger-color",
  "avenger-common",
  "avenger-eventstream",

@@ -659,8 +659,15 @@ mod tests {
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
-    use avenger_chart::plot::Plot;
-    use datafusion::{functions_aggregate::expr_fn::sum, logical_expr::col};
+    use avenger_chart::{
+        plot::Plot,
+        prelude::{ChartEventBinding, ChartEventType, Param},
+    };
+    use datafusion::{
+        common::ScalarValue,
+        functions_aggregate::expr_fn::sum,
+        logical_expr::{col, lit},
+    };
 
     use crate::{TreeRect, Treemap};
 
@@ -852,5 +859,149 @@ mod tests {
             .downcast_ref::<StringArray>()
             .expect("breadcrumb title string");
         assert_eq!(breadcrumb_titles.value(0), "All");
+    }
+
+    #[tokio::test]
+    async fn guide_header_and_breadcrumb_datums_support_zoom_param_binding() {
+        let ctx = SessionContext::new();
+        let df = ctx.read_batch(guide_source_batch()).unwrap();
+        let root = Param::new("treemap_root", ScalarValue::Utf8(None));
+        let compiled = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["division", "team"])
+                .value(sum(col("sales")))
+                .root_path_param(root.name.clone()),
+        )
+        .data(df)
+        .plot_size(200.0, 100.0)
+        .add_param(root.clone())
+        .configure_guide(TreemapGuide::new().headers(true).breadcrumbs(true))
+        .mark(TreeRect::new().stroke_width(0.0))
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::Click)
+                .filter(
+                    crate::event::hierarchy_surface_kind()
+                        .eq(lit(HIERARCHY_SURFACE_KIND_GUIDE_HEADER)),
+                )
+                .filter(crate::event::hierarchy_can_zoom().eq(lit(true)))
+                .set_param(&root, crate::event::hierarchy_path_id())
+                .exact(),
+        )
+        .compile(&ctx)
+        .await
+        .unwrap();
+
+        let binding = compiled.event_bindings().first().expect("event binding");
+        assert_eq!(binding.assignments.len(), 1);
+        assert_eq!(binding.assignments[0].param_name, root.name);
+
+        let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
+        let header_rows = evaluated
+            .event_datums
+            .rows
+            .iter()
+            .find(|rows| {
+                let Some(column) = rows.rows.column_by_name(HIERARCHY_SURFACE_KIND_FIELD) else {
+                    return false;
+                };
+                let values = column
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .expect("surface kind string");
+                values.len() == 2 && values.value(0) == HIERARCHY_SURFACE_KIND_GUIDE_HEADER
+            })
+            .expect("header event datum rows");
+        assert!(
+            header_rows
+                .rows
+                .column_by_name(HIERARCHY_PATH_ID_FIELD)
+                .is_some()
+        );
+        assert!(
+            header_rows
+                .rows
+                .column_by_name(HIERARCHY_LEVEL_NAME_FIELD)
+                .is_some()
+        );
+
+        let zoomable = header_rows
+            .rows
+            .column_by_name(HIERARCHY_CAN_ZOOM_FIELD)
+            .expect("can zoom")
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("can zoom bool");
+        assert!(zoomable.value(0));
+    }
+
+    #[tokio::test]
+    async fn guide_breadcrumb_datums_carry_zoom_out_path_ids() {
+        let ctx = SessionContext::new();
+        let df = ctx.read_batch(guide_source_batch()).unwrap();
+        let root = Param::new("treemap_root", ScalarValue::Utf8(None));
+        let compiled = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["division", "team"])
+                .value(sum(col("sales")))
+                .root_path_id("division=D1")
+                .root_path_param(root.name.clone()),
+        )
+        .data(df)
+        .plot_size(200.0, 100.0)
+        .add_param(root.clone())
+        .configure_guide(TreemapGuide::new().breadcrumbs(true))
+        .mark(TreeRect::new().stroke_width(0.0))
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::Click)
+                .filter(
+                    crate::event::hierarchy_surface_kind()
+                        .eq(lit(HIERARCHY_SURFACE_KIND_BREADCRUMB)),
+                )
+                .set_param(&root, crate::event::hierarchy_path_id())
+                .exact(),
+        )
+        .compile(&ctx)
+        .await
+        .unwrap();
+
+        let binding = compiled.event_bindings().first().expect("event binding");
+        assert_eq!(binding.assignments[0].param_name, root.name);
+
+        let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
+        let breadcrumb_rows = evaluated
+            .event_datums
+            .rows
+            .iter()
+            .find(|rows| {
+                let Some(column) = rows.rows.column_by_name(HIERARCHY_SURFACE_KIND_FIELD) else {
+                    return false;
+                };
+                let values = column
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .expect("surface kind string");
+                values.len() == 2 && values.value(0) == HIERARCHY_SURFACE_KIND_BREADCRUMB
+            })
+            .expect("breadcrumb event datum rows");
+
+        let path_ids = breadcrumb_rows
+            .rows
+            .column_by_name(HIERARCHY_PATH_ID_FIELD)
+            .expect("path id")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("path id string");
+        assert_eq!(path_ids.value(0), ROOT_PATH_ID);
+        assert_eq!(path_ids.value(1), "division=D1");
+
+        let zoomable = breadcrumb_rows
+            .rows
+            .column_by_name(HIERARCHY_CAN_ZOOM_FIELD)
+            .expect("can zoom")
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("can zoom bool");
+        assert!(!zoomable.value(0));
+        assert!(zoomable.value(1));
     }
 }

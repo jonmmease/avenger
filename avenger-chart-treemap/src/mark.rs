@@ -410,12 +410,23 @@ impl CompiledMark for CompiledTreeRect {
                 )
             })?;
         let selected_nodes = select_nodes(measurement.visible_nodes(), &self.node_mode);
-        let nodes = if self.should_join_render_data(data) {
-            nodes_for_render_data(data, &selected_nodes)?
+        let joined = if self.should_join_render_data(data) {
+            nodes_for_render_data(data, measurement, &selected_nodes)?
         } else {
-            selected_nodes
+            let source_row_indices = source_row_indices_for_event_rows(data, &selected_nodes)?;
+            RenderNodeSelection {
+                nodes: selected_nodes,
+                source_row_indices,
+            }
         };
+        let nodes = joined.nodes;
         let len = nodes.len();
+        let source_row_indices = joined.source_row_indices;
+        let channel_indices = if self.should_join_render_data(data) {
+            Some(Arc::new(source_row_indices.clone()))
+        } else {
+            None
+        };
 
         let mark_context = context.core_view();
         let fill = coerce_color_channel_with_renderer(
@@ -442,6 +453,9 @@ impl CompiledMark for CompiledTreeRect {
             &mark_context,
             1.0,
         )?;
+        let fill = gather_scalar_or_array(fill, len, channel_indices.as_ref());
+        let stroke = gather_scalar_or_array(stroke, len, channel_indices.as_ref());
+        let opacity = gather_scalar_or_array(opacity, len, channel_indices.as_ref());
         let fill = apply_opacity_to_color_channel(fill, &opacity, len);
         let stroke = apply_opacity_to_color_channel(stroke, &opacity, len);
         let stroke_width = coerce_numeric_channel_with_renderer(
@@ -452,6 +466,7 @@ impl CompiledMark for CompiledTreeRect {
             &mark_context,
             1.0,
         )?;
+        let stroke_width = gather_scalar_or_array(stroke_width, len, channel_indices.as_ref());
         let corner_radius = coerce_numeric_channel_with_renderer(
             self,
             data,
@@ -460,16 +475,17 @@ impl CompiledMark for CompiledTreeRect {
             &mark_context,
             0.0,
         )?;
+        let corner_radius = gather_scalar_or_array(corner_radius, len, channel_indices.as_ref());
         let u = coerce_numeric_channel_with_renderer(self, data, scalars, "u", &mark_context, 0.0)?;
         let u2 =
             coerce_numeric_channel_with_renderer(self, data, scalars, "u2", &mark_context, 1.0)?;
         let v = coerce_numeric_channel_with_renderer(self, data, scalars, "v", &mark_context, 0.0)?;
         let v2 =
             coerce_numeric_channel_with_renderer(self, data, scalars, "v2", &mark_context, 1.0)?;
-        let u = u.as_vec(len, None);
-        let u2 = u2.as_vec(len, None);
-        let v = v.as_vec(len, None);
-        let v2 = v2.as_vec(len, None);
+        let u = u.as_vec(len, channel_indices.as_ref());
+        let u2 = u2.as_vec(len, channel_indices.as_ref());
+        let v = v.as_vec(len, channel_indices.as_ref());
+        let v2 = v2.as_vec(len, channel_indices.as_ref());
         let mut x = Vec::with_capacity(len);
         let mut y = Vec::with_capacity(len);
         let mut width = Vec::with_capacity(len);
@@ -490,7 +506,6 @@ impl CompiledMark for CompiledTreeRect {
         }
 
         let event_rows = tree_rect_event_datum_batch(&nodes)?;
-        let source_row_indices = source_row_indices_for_event_rows(data, &nodes)?;
 
         Ok(
             RenderedMarkData::with_source_row_indices_and_event_datum_rows(
@@ -553,25 +568,43 @@ fn select_nodes<'a>(
         .collect()
 }
 
+struct RenderNodeSelection<'a> {
+    nodes: Vec<&'a VisibleTreemapNode>,
+    source_row_indices: Vec<usize>,
+}
+
 fn nodes_for_render_data<'a>(
     data: Option<&RecordBatch>,
+    measurement: &'a TreemapCoordMeasurement,
     selected_nodes: &[&'a VisibleTreemapNode],
-) -> Result<Vec<&'a VisibleTreemapNode>, AvengerChartError> {
+) -> Result<RenderNodeSelection<'a>, AvengerChartError> {
     let Some(data) = data else {
-        return Ok(selected_nodes.to_vec());
+        return Ok(RenderNodeSelection {
+            nodes: selected_nodes.to_vec(),
+            source_row_indices: Vec::new(),
+        });
     };
     if data.num_rows() == 0 {
-        return Ok(Vec::new());
+        return Ok(RenderNodeSelection {
+            nodes: Vec::new(),
+            source_row_indices: Vec::new(),
+        });
     }
     let Some(path_level_names) = path_level_names_for_selected_nodes(selected_nodes) else {
-        return Ok(selected_nodes.to_vec());
+        return Ok(RenderNodeSelection {
+            nodes: selected_nodes.to_vec(),
+            source_row_indices: repeated_source_indices(selected_nodes.len(), data.num_rows()),
+        });
     };
     let has_all_path_columns = path_level_names
         .iter()
         .all(|name| data.column_by_name(name).is_some());
     if !has_all_path_columns {
         if data.num_columns() == 1 && data.column_by_name("_dummy").is_some() {
-            return Ok(selected_nodes.to_vec());
+            return Ok(RenderNodeSelection {
+                nodes: selected_nodes.to_vec(),
+                source_row_indices: repeated_source_indices(selected_nodes.len(), data.num_rows()),
+            });
         }
         let available = data
             .schema()
@@ -602,6 +635,7 @@ fn nodes_for_render_data<'a>(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut nodes = Vec::with_capacity(data.num_rows());
+    let mut source_row_indices = Vec::with_capacity(data.num_rows());
     for row_index in 0..data.num_rows() {
         let mut path = Vec::with_capacity(path_level_names.len());
         for (name, column) in path_level_names.iter().zip(path_columns.iter()) {
@@ -619,14 +653,30 @@ fn nodes_for_render_data<'a>(
             });
         }
         let path_id = path_id_for_components(&path);
-        let node = node_by_path_id.get(path_id.as_str()).ok_or_else(|| {
-            AvengerChartError::InvalidArgument(format!(
-                "TreeRect mark data row {row_index} resolved to path '{path_id}', which is not a visible treemap cell for this mark"
-            ))
-        })?;
-        nodes.push(*node);
+        if let Some(node) = node_by_path_id.get(path_id.as_str()) {
+            nodes.push(*node);
+            source_row_indices.push(row_index);
+        } else if measurement.node(&path_id).is_none() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "TreeRect mark data row {row_index} resolved to path '{path_id}', which does not exist in the treemap hierarchy"
+            )));
+        }
     }
-    Ok(nodes)
+    Ok(RenderNodeSelection {
+        nodes,
+        source_row_indices,
+    })
+}
+
+fn gather_scalar_or_array<T: Sync + Clone>(
+    values: ScalarOrArray<T>,
+    len: usize,
+    indices: Option<&Arc<Vec<usize>>>,
+) -> ScalarOrArray<T> {
+    match indices {
+        Some(indices) => ScalarOrArray::new_array(values.as_vec(len, Some(indices))),
+        None => values,
+    }
 }
 
 fn path_level_names_for_selected_nodes(nodes: &[&VisibleTreemapNode]) -> Option<Vec<String>> {
@@ -1000,9 +1050,14 @@ mod tests {
         record_batch::RecordBatch,
     };
     use avenger_chart::plot::Plot;
-    use avenger_chart::prelude::{ChartEventBinding, ChartEventType};
-    use avenger_chart_core::event as ev;
+    use avenger_chart::prelude::{ChartEventBinding, ChartEventType, Param};
+    use avenger_chart_core::{
+        SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryDatumField, Selection,
+        SelectionClauseUpdate, SelectionPredicateUpdate, SelectionSceneQuery, SelectionUpdate,
+        event as ev,
+    };
     use datafusion::{
+        common::ScalarValue,
         functions_aggregate::expr_fn::sum,
         logical_expr::{col, lit},
     };
@@ -1565,6 +1620,187 @@ mod tests {
             .downcast_ref::<StringArray>()
             .expect("path id string");
         assert_eq!(path_ids.value(0), "region=West/product=A");
+    }
+
+    #[tokio::test]
+    async fn tree_rect_click_selection_can_use_generated_leaf_datums() {
+        let ctx = SessionContext::new();
+        let df = ctx.read_batch(source_batch()).unwrap();
+        let plot = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["region", "product"])
+                .value(sum(col("sales"))),
+        )
+        .data(df)
+        .plot_size(200.0, 100.0)
+        .add_selection(Selection::new("picked").empty_selects_nothing())
+        .mark(TreeRect::new().id("cells").stroke_width(0.0))
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::Click)
+                .filter(
+                    crate::event::hierarchy_surface_kind()
+                        .eq(lit(HIERARCHY_SURFACE_KIND_LEAF_RECT)),
+                )
+                .set_selection(
+                    "picked",
+                    SelectionUpdate::replace_clause(
+                        SelectionClauseUpdate::equality(lit("active"))
+                            .facet_scope(CoordinationScope::Shared)
+                            .dimension_named("region", col("region"), ev::datum("region"))
+                            .dimension_named("product", col("product"), ev::datum("product"))
+                            .build(),
+                    ),
+                )
+                .exact(),
+        );
+
+        let compiled = plot.compile(&ctx).await.unwrap();
+        let binding = compiled.event_bindings().first().expect("event binding");
+        let SelectionUpdate::ReplaceAllClauses { clauses } =
+            &binding.selection_assignments[0].update
+        else {
+            panic!("expected replace-clause selection update");
+        };
+        assert_eq!(clauses[0].facet_scope, CoordinationScope::Shared);
+        let SelectionPredicateUpdate::Equality { dimensions } = &clauses[0].predicate else {
+            panic!("expected equality dimensions");
+        };
+        assert_eq!(
+            dimensions
+                .iter()
+                .map(|dimension| dimension.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["region", "product"]
+        );
+
+        let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
+        let rows = &evaluated.event_datums.rows[0].rows;
+        assert!(rows.column_by_name("region").is_some());
+        assert!(rows.column_by_name("product").is_some());
+        assert!(rows.column_by_name(HIERARCHY_PATH_ID_FIELD).is_some());
+        assert!(rows.column_by_name(TREEMAP_RECT_X_FIELD).is_some());
+    }
+
+    #[tokio::test]
+    async fn tree_rect_scene_query_selection_can_target_leaf_rect_datums() {
+        let ctx = SessionContext::new();
+        let df = ctx.read_batch(source_batch()).unwrap();
+        let compiled = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["region", "product"])
+                .value(sum(col("sales"))),
+        )
+        .data(df)
+        .plot_size(200.0, 100.0)
+        .add_selection(Selection::new("picked").empty_selects_nothing())
+        .mark(TreeRect::new().id("cells").stroke_width(0.0))
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::Click).set_selection(
+                "picked",
+                SelectionUpdate::replace_all_from_scene_query(
+                    SelectionSceneQuery::new(
+                        SceneGeometryQuery::rect(lit(0.0), lit(0.0), lit(200.0), lit(100.0))
+                            .hit_policy(SceneGeometryHitPolicy::GeometryIntersects)
+                            .mark("cells")
+                            .datum_fields([
+                                SceneQueryDatumField::new("region"),
+                                SceneQueryDatumField::new("product"),
+                                SceneQueryDatumField::new("path_id")
+                                    .datum(HIERARCHY_PATH_ID_FIELD)
+                                    .field_expr(crate::event::hierarchy_path_id()),
+                            ])
+                            .unique_by([HIERARCHY_PATH_ID_FIELD]),
+                    )
+                    .sharing(CoordinationScope::Shared),
+                ),
+            ),
+        )
+        .compile(&ctx)
+        .await
+        .unwrap();
+
+        let binding = compiled.event_bindings().first().expect("event binding");
+        let SelectionUpdate::ReplaceAllFromSceneQuery { query } =
+            &binding.selection_assignments[0].update
+        else {
+            panic!("expected scene query selection update");
+        };
+        assert_eq!(
+            query.query.target.resolved_mark_paths(),
+            Some(&[vec![0usize]][..])
+        );
+        assert_eq!(query.query.datum_fields.len(), 3);
+        assert_eq!(query.query.unique_by, vec![HIERARCHY_PATH_ID_FIELD]);
+
+        let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
+        let rows = &evaluated.event_datums.rows[0].rows;
+        assert_eq!(rows.num_rows(), 3);
+        assert!(rows.column_by_name(HIERARCHY_PATH_ID_FIELD).is_some());
+        assert!(rows.column_by_name(TREEMAP_RECT_WIDTH_FIELD).is_some());
+    }
+
+    #[tokio::test]
+    async fn tree_rect_collapsed_node_datums_can_drive_zoom_param() {
+        let ctx = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("region", DataType::Utf8, false),
+                Field::new("product", DataType::Utf8, false),
+                Field::new("sku", DataType::Utf8, false),
+                Field::new("sales", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["East", "East", "West"])),
+                Arc::new(StringArray::from(vec!["A", "B", "C"])),
+                Arc::new(StringArray::from(vec!["A1", "B1", "C1"])),
+                Arc::new(Float64Array::from(vec![2.0, 3.0, 5.0])),
+            ],
+        )
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+        let root = Param::new("treemap_root", ScalarValue::Utf8(None));
+        let plot = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["region", "product", "sku"])
+                .value(sum(col("sales")))
+                .root_path_param(root.name.clone())
+                .display_levels(1),
+        )
+        .data(df)
+        .plot_size(200.0, 100.0)
+        .add_param(root.clone())
+        .mark(TreeRect::new().id("collapsed").stroke_width(0.0))
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::Click)
+                .filter(crate::event::hierarchy_can_zoom().eq(lit(true)))
+                .set_param(&root, crate::event::hierarchy_path_id())
+                .exact(),
+        );
+
+        let compiled = plot.compile(&ctx).await.unwrap();
+        let binding = compiled.event_bindings().first().expect("event binding");
+        assert_eq!(binding.assignments[0].param_name, root.name);
+
+        let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
+        let rows = &evaluated.event_datums.rows[0].rows;
+        let surface_kinds = rows
+            .column_by_name(HIERARCHY_SURFACE_KIND_FIELD)
+            .expect("surface kind")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("surface kind string");
+        assert_eq!(
+            surface_kinds.value(0),
+            HIERARCHY_SURFACE_KIND_COLLAPSED_RECT
+        );
+
+        let zoomable = rows
+            .column_by_name(HIERARCHY_CAN_ZOOM_FIELD)
+            .expect("can zoom")
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("can zoom bool");
+        assert!(zoomable.value(0));
     }
 
     #[tokio::test]

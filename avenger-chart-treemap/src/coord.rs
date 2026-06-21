@@ -11,6 +11,7 @@ use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ScaleImpl;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalExprNode;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
@@ -42,6 +43,7 @@ impl TreemapPathLevel {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HierarchyViewWindow {
     pub root_path_id: Option<String>,
+    pub root_path_param: Option<String>,
     pub display_levels: usize,
 }
 
@@ -49,6 +51,7 @@ impl Default for HierarchyViewWindow {
     fn default() -> Self {
         Self {
             root_path_id: None,
+            root_path_param: None,
             display_levels: usize::MAX,
         }
     }
@@ -61,6 +64,11 @@ impl HierarchyViewWindow {
 
     pub fn root_path_id(mut self, id: impl Into<String>) -> Self {
         self.root_path_id = Some(id.into());
+        self
+    }
+
+    pub fn root_path_param(mut self, param: impl Into<String>) -> Self {
+        self.root_path_param = Some(param.into());
         self
     }
 
@@ -135,6 +143,11 @@ impl Treemap {
 
     pub fn root_path_id(mut self, id: impl Into<String>) -> Self {
         self.view_window.root_path_id = Some(id.into());
+        self
+    }
+
+    pub fn root_path_param(mut self, param: impl Into<String>) -> Self {
+        self.view_window.root_path_param = Some(param.into());
         self
     }
 
@@ -220,6 +233,14 @@ impl CoordinateSystemTransformCore for TreemapTransform {
     fn measurement_provider(&self) -> Option<&dyn CoordinateMeasurementProvider> {
         Some(self)
     }
+
+    fn runtime_param_dependencies(&self) -> Vec<String> {
+        self.view_window
+            .root_path_param
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+    }
 }
 
 #[async_trait]
@@ -242,8 +263,15 @@ impl CoordinateMeasurementProvider for TreemapTransform {
         })?;
         let rows =
             collect_treemap_rows(data.clone(), request.session_context, &self.path, value).await?;
-        let measurement = self.solve_rows(rows, request.plot_width, request.plot_height)?;
-        Ok(Some(Box::new(measurement)))
+        let view_window = resolve_view_window(&self.view_window, request.params)?;
+        let measurement = build_hierarchy_layout(
+            rows,
+            &view_window,
+            TreemapRect::new(0.0, 0.0, request.plot_width, request.plot_height),
+        )?;
+        Ok(Some(Box::new(TreemapCoordMeasurement {
+            layout: measurement,
+        })))
     }
 }
 
@@ -375,6 +403,36 @@ async fn collect_treemap_rows(
     collect_hierarchy_rows(&batches, path)
 }
 
+fn resolve_view_window(
+    view_window: &HierarchyViewWindow,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<HierarchyViewWindow, AvengerChartError> {
+    let mut resolved = view_window.clone();
+    if let Some(param) = &view_window.root_path_param
+        && let Some(value) = params.get(param)
+        && let Some(root_path_id) = scalar_to_root_path_param(value)?
+    {
+        resolved.root_path_id = if root_path_id == ROOT_PATH_ID || root_path_id.is_empty() {
+            None
+        } else {
+            Some(root_path_id)
+        };
+    }
+    Ok(resolved)
+}
+
+fn scalar_to_root_path_param(value: &ScalarValue) -> Result<Option<String>, AvengerChartError> {
+    match value {
+        ScalarValue::Utf8(value) | ScalarValue::LargeUtf8(value) => Ok(value.clone()),
+        ScalarValue::Null => Ok(None),
+        other if other.is_null() => Ok(None),
+        other => Err(AvengerChartError::InvalidArgument(format!(
+            "Treemap root path param must be a string or null, received {}",
+            other.data_type()
+        ))),
+    }
+}
+
 fn validate_path_levels(levels: &[TreemapPathLevel]) -> Result<(), AvengerChartError> {
     if levels.is_empty() {
         return Err(AvengerChartError::InvalidArgument(
@@ -473,5 +531,100 @@ mod tests {
         );
         assert_eq!(measurement.visible_nodes()[0].rect.width, 200.0);
         assert_eq!(measurement.visible_nodes()[0].rect.height, 100.0);
+    }
+
+    #[tokio::test]
+    async fn provider_uses_root_path_param_for_zoom_window_measurement() {
+        let ctx = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("region", DataType::Utf8, false),
+                Field::new("product", DataType::Utf8, false),
+                Field::new("sales", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["East", "East", "West"])),
+                Arc::new(StringArray::from(vec!["A", "B", "C"])),
+                Arc::new(Float64Array::from(vec![2.0, 3.0, 5.0])),
+            ],
+        )
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+        let transform = Treemap::new()
+            .path_columns(["region", "product"])
+            .value(sum(col("sales")))
+            .root_path_param("treemap_root")
+            .display_levels(1)
+            .create_transform();
+        let transform = transform
+            .as_any()
+            .downcast_ref::<TreemapTransform>()
+            .unwrap();
+        assert_eq!(
+            transform.runtime_param_dependencies(),
+            vec!["treemap_root".to_string()]
+        );
+
+        let compiled_marks = Vec::<Arc<dyn CompiledMark>>::new();
+        let facet_path = Vec::new();
+        let mut params = IndexMap::new();
+        params.insert(
+            "treemap_root".to_string(),
+            ScalarValue::Utf8(Some("region=East".to_string())),
+        );
+        let request = CoordinateMeasureRequest {
+            plot_width: 200.0,
+            plot_height: 100.0,
+            params: &params,
+            session_context: &ctx,
+            data: Some(&df),
+            compiled_marks: &compiled_marks,
+            facet_path: &facet_path,
+            scales: HashMap::new(),
+        };
+        let measurement = transform
+            .measure_coordinate(request)
+            .await
+            .unwrap()
+            .expect("treemap provider should install measurement");
+        let measurement = measurement
+            .as_any()
+            .downcast_ref::<TreemapCoordMeasurement>()
+            .unwrap();
+        assert_eq!(
+            measurement.visible_nodes()[0].node.path_id,
+            "region=East".to_string()
+        );
+        assert_eq!(measurement.visible_nodes()[0].view_depth, 1);
+        assert_eq!(
+            measurement.breadcrumbs()[1].path_id,
+            "region=East".to_string()
+        );
+
+        params.insert(
+            "treemap_root".to_string(),
+            ScalarValue::Utf8(Some(ROOT_PATH_ID.to_string())),
+        );
+        let request = CoordinateMeasureRequest {
+            plot_width: 200.0,
+            plot_height: 100.0,
+            params: &params,
+            session_context: &ctx,
+            data: Some(&df),
+            compiled_marks: &compiled_marks,
+            facet_path: &facet_path,
+            scales: HashMap::new(),
+        };
+        let measurement = transform
+            .measure_coordinate(request)
+            .await
+            .unwrap()
+            .expect("treemap provider should install measurement");
+        let measurement = measurement
+            .as_any()
+            .downcast_ref::<TreemapCoordMeasurement>()
+            .unwrap();
+        assert_eq!(measurement.visible_nodes()[0].node.path_id, ROOT_PATH_ID);
+        assert_eq!(measurement.breadcrumbs().len(), 1);
     }
 }
