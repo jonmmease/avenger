@@ -9,13 +9,14 @@ use arrow::{
     datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
 };
+use avenger_chart::channel::LegendableChannel;
 use avenger_chart::facet::coord::FacetColumn;
 use avenger_chart::facet::marks::FacetColumnSubplotChannels;
 use avenger_chart::plot::Plot;
 use avenger_chart::prelude::Subplot;
 use avenger_chart_core::{ChannelValue, CoordinateSystem};
 use avenger_chart_treemap::{
-    TreeHeader, TreeLabel, TreeRect, Treemap, TreemapGuide, TreemapHeaderBars,
+    TreeHeader, TreeLabel, TreeRect, Treemap, TreemapGuide, TreemapHeaderBars, TreemapPadding,
 };
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
@@ -125,6 +126,29 @@ async fn treemap_group_headers() {
 }
 
 #[tokio::test]
+async fn treemap_strict_area_overlay_headers() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(deep_data()).unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "region", "team", "product"])
+            .value(sum(col("sales")))
+            .display_levels(3),
+    )
+    .data(df)
+    .plot_size(560.0, 320.0)
+    .configure_guide(
+        TreemapGuide::new()
+            .headers(true)
+            .separators(true)
+            .breadcrumbs(false),
+    )
+    .mark(TreeRect::new().fill(col("region")).stroke("#ffffff"));
+
+    assert_visual_match(plot, "treemap_strict_area_overlay_headers").await;
+}
+
+#[tokio::test]
 async fn treemap_leaf_labels_basic() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(sales_data()).unwrap();
@@ -227,6 +251,35 @@ async fn treemap_reserved_header_space() {
 }
 
 #[tokio::test]
+async fn treemap_header_geometry_small_groups() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(tiny_group_data()).unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "product"])
+            .value(sum(col("sales")))
+            .header_bars(
+                TreemapHeaderBars::enabled()
+                    .height_px(22.0)
+                    .min_size_px(72.0, 34.0),
+            ),
+    )
+    .data(df)
+    .plot_size(480.0, 240.0)
+    .mark(TreeRect::new().fill(col("division")).stroke("#ffffff"))
+    .mark(
+        TreeHeader::new()
+            .fill(col("division"))
+            .stroke("#ffffff")
+            .text_color("#ffffff")
+            .font_weight("bold"),
+    )
+    .mark(TreeLabel::new().font_size(13.0).color("#ffffff"));
+
+    assert_visual_match(plot, "treemap_header_geometry_small_groups").await;
+}
+
+#[tokio::test]
 async fn treemap_group_header_bars() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(deep_data()).unwrap();
@@ -286,6 +339,131 @@ async fn treemap_group_header_bars_long_labels() {
     );
 
     assert_visual_match(plot, "treemap_group_header_bars_long_labels").await;
+}
+
+#[tokio::test]
+async fn treemap_group_header_bars_color_legend() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(deep_data()).unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "region", "team", "product"])
+            .value(sum(col("sales")))
+            .display_levels(3)
+            .header_bars(TreemapHeaderBars::enabled().height_px(24.0)),
+    )
+    .data(df)
+    .canvas_size(680.0, 340.0)
+    .mark(
+        TreeHeader::new()
+            .fill_with(col("division"), |fill| {
+                fill.legend(|legend| legend.title("Division"))
+            })
+            .stroke("#ffffff")
+            .text_color("#ffffff")
+            .font_weight("bold"),
+    )
+    .mark(TreeRect::new().fill("#dbeafe").stroke("#ffffff"))
+    .mark(
+        TreeLabel::new()
+            .font_size(13.0)
+            .font_weight("bold")
+            .color("#1f2937"),
+    );
+
+    assert_visual_match(plot, "treemap_group_header_bars_color_legend").await;
+}
+
+#[tokio::test]
+async fn treemap_depth_gaps_show_hierarchy() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(deep_data()).unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "region", "team", "product"])
+            .value(sum(col("sales")))
+            .display_levels(3)
+            .padding(TreemapPadding::default().depth_inner_px([10.0, 3.0, 1.0])),
+    )
+    .data(df)
+    .plot_size(560.0, 320.0)
+    .mark(TreeRect::new().fill(col("region")).stroke("#ffffff"))
+    .mark(
+        TreeLabel::new()
+            .font_size(13.0)
+            .font_weight("bold")
+            .color("#ffffff"),
+    );
+
+    assert_visual_match(plot, "treemap_depth_gaps_show_hierarchy").await;
+}
+
+#[tokio::test]
+async fn treemap_multi_level_headers_depth_limited() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(deep_data()).unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "region", "team", "product"])
+            .value(sum(col("sales")))
+            .display_levels(4)
+            .header_bars(
+                TreemapHeaderBars::enabled()
+                    .height_px(18.0)
+                    .depth_range(1..=2)
+                    .min_size_px(42.0, 28.0),
+            ),
+    )
+    .data(df)
+    .plot_size(620.0, 360.0)
+    .mark(TreeRect::new().fill(col("team")).stroke("#ffffff"))
+    .mark(
+        TreeHeader::new()
+            .depth_range(1..=2)
+            .fill(col("region"))
+            .stroke("#ffffff")
+            .text_color("#ffffff")
+            .font_size(12.0)
+            .font_weight("bold"),
+    )
+    .mark(TreeLabel::new().font_size(11.0).color("#ffffff"));
+
+    assert_visual_match(plot, "treemap_multi_level_headers_depth_limited").await;
+}
+
+#[tokio::test]
+async fn treemap_tiny_groups_hide_headers_and_labels() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(tiny_group_data()).unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "product"])
+            .value(sum(col("sales")))
+            .header_bars(
+                TreemapHeaderBars::enabled()
+                    .height_px(24.0)
+                    .min_size_px(70.0, 40.0),
+            ),
+    )
+    .data(df)
+    .plot_size(360.0, 220.0)
+    .mark(TreeRect::new().fill(col("division")).stroke("#ffffff"))
+    .mark(
+        TreeHeader::new()
+            .fill(col("division"))
+            .stroke("#ffffff")
+            .text_color("#ffffff")
+            .font_weight("bold"),
+    )
+    .mark(
+        TreeLabel::new()
+            .font_size(13.0)
+            .font_weight("bold")
+            .min_size_px(90.0, 28.0)
+            .color("#ffffff"),
+    );
+
+    assert_visual_match(plot, "treemap_tiny_groups_hide_headers_and_labels").await;
 }
 
 #[tokio::test]
@@ -579,6 +757,40 @@ fn label_elide_data() -> RecordBatch {
         ],
     )
     .expect("label elide data")
+}
+
+fn tiny_group_data() -> RecordBatch {
+    RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("division", DataType::Utf8, false),
+            Field::new("product", DataType::Utf8, false),
+            Field::new("sales", DataType::Float64, false),
+        ])),
+        vec![
+            Arc::new(StringArray::from(vec![
+                "Major platform",
+                "Major platform",
+                "Major platform",
+                "Long tail",
+                "Long tail",
+                "Tiny",
+                "Tiny",
+            ])),
+            Arc::new(StringArray::from(vec![
+                "Core analytics",
+                "Workflow automation",
+                "Enterprise support",
+                "Partner portal",
+                "Developer tools",
+                "Archive",
+                "Labs",
+            ])),
+            Arc::new(Float64Array::from(vec![
+                60.0, 38.0, 24.0, 7.0, 5.0, 1.2, 0.8,
+            ])),
+        ],
+    )
+    .expect("tiny group data")
 }
 
 fn deep_data() -> RecordBatch {

@@ -4501,6 +4501,11 @@ mod tests {
     use avenger_chart::render::{
         EvaluatedChildFrameKind, InteractionScopeId, InteractionScopeKind,
     };
+    use avenger_chart_treemap::{
+        ROOT_PATH_ID, TreeHeader, TreeLabel, TreeRect, Treemap, TreemapGuide, TreemapHeaderBars,
+        TreemapPadding,
+        event::{self as treemap_event, HIERARCHY_PATH_ID_FIELD},
+    };
     use avenger_common::time::Duration;
     use avenger_eventstream::{
         manager::EventStreamManager,
@@ -4517,6 +4522,7 @@ mod tests {
     use datafusion::arrow::array::{
         Array, ArrayRef, Float64Array, Int32Array, StringArray, TimestampMillisecondArray,
     };
+    use datafusion::functions_aggregate::expr_fn::sum;
 
     use super::*;
 
@@ -6535,6 +6541,67 @@ mod tests {
         })
     }
 
+    fn decorated_treemap_batch() -> RecordBatch {
+        let division = [
+            "Enterprise",
+            "Enterprise",
+            "Enterprise",
+            "Enterprise",
+            "Consumer",
+            "Consumer",
+            "International",
+            "International",
+        ];
+        let region = [
+            "North America",
+            "North America",
+            "Europe",
+            "APAC",
+            "North America",
+            "Europe",
+            "Latin America",
+            "APAC",
+        ];
+        let team = [
+            "Platform",
+            "Services",
+            "Platform",
+            "Services",
+            "Retail",
+            "Retail",
+            "Growth",
+            "Expansion",
+        ];
+        let product = [
+            "Core",
+            "Support",
+            "Core",
+            "Support",
+            "Storefront",
+            "Storefront",
+            "Acquisition",
+            "Localization",
+        ];
+        let sales = [52.0, 34.0, 33.0, 26.0, 44.0, 37.0, 41.0, 35.0];
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("division", DataType::Utf8, false),
+                Field::new("region", DataType::Utf8, false),
+                Field::new("team", DataType::Utf8, false),
+                Field::new("product", DataType::Utf8, false),
+                Field::new("sales", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(division.to_vec())) as ArrayRef,
+                Arc::new(StringArray::from(region.to_vec())) as ArrayRef,
+                Arc::new(StringArray::from(team.to_vec())) as ArrayRef,
+                Arc::new(StringArray::from(product.to_vec())) as ArrayRef,
+                Arc::new(Float64Array::from(sales.to_vec())) as ArrayRef,
+            ],
+        )
+        .expect("decorated treemap data")
+    }
+
     async fn bound_state(binding: ChartEventBinding) -> ChartAppState {
         let ctx = SessionContext::new();
         let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
@@ -8097,6 +8164,130 @@ mod tests {
             state.params().await.get("cursor"),
             Some(&ScalarValue::Utf8(Some("crosshair".to_string())))
         );
+    }
+
+    #[tokio::test]
+    async fn decorated_treemap_header_click_zooms_and_double_click_resets() {
+        let ctx = SessionContext::new();
+        let cursor = Param::cursor("decorated_treemap_cursor", CursorStyle::Default);
+        let root = Param::new("decorated_treemap_root", ScalarValue::Utf8(None));
+        let compiled = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["division", "region", "team", "product"])
+                .value(sum(col("sales")))
+                .root_path_param(root.name.clone())
+                .display_levels(3)
+                .header_bars(TreemapHeaderBars::enabled().height_px(24.0))
+                .padding(TreemapPadding::default().depth_inner_px([3.0, 1.0])),
+        )
+        .data(ctx.read_batch(decorated_treemap_batch()).unwrap())
+        .plot_size(420.0, 280.0)
+        .add_param(cursor.clone())
+        .add_param(root.clone())
+        .cursor_param(cursor.name.clone())
+        .configure_guide(TreemapGuide::new().breadcrumbs(true).separators(true))
+        .mark(TreeRect::new().id("cells").stroke_width(0.0))
+        .mark(TreeHeader::new().id("headers").fill(col("division")))
+        .mark(TreeLabel::new().id("labels"))
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::CursorMoved)
+                .filter(treemap_event::hierarchy_can_zoom().eq(lit(true)))
+                .set_param(&cursor, event::cursor(CursorStyle::Grab))
+                .preview(),
+        )
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::Click)
+                .filter(treemap_event::hierarchy_can_zoom().eq(lit(true)))
+                .set_param(&root, treemap_event::hierarchy_path_id())
+                .exact(),
+        )
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::DoubleClick)
+                .set_param(&root, lit(ROOT_PATH_ID))
+                .exact(),
+        )
+        .compile(&ctx)
+        .await
+        .expect("compile decorated treemap zoom plot");
+        let cursor_handler = compile_handler_for_binding_index(&compiled, &ctx, 0);
+        let zoom_handler = compile_handler_for_binding_index(&compiled, &ctx, 1);
+        let reset_handler = compile_handler_for_binding_index(&compiled, &ctx, 2);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+
+        let initial_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial decorated treemap scene");
+        let enterprise_header = retained_rect_event_datum_mark_instance(
+            &state,
+            &initial_scene,
+            HIERARCHY_PATH_ID_FIELD,
+            ScalarValue::Utf8(Some("division=Enterprise".to_string())),
+        )
+        .await;
+        let header_position = rect_instance_point(&initial_scene, &enterprise_header);
+
+        let cursor_status = cursor_handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: header_position,
+                    mark_instance: Some(enterprise_header.clone()),
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+        assert_eq!(cursor_status.cursor, Some(CursorStyle::Grab));
+        assert!(!cursor_status.rerender);
+
+        let zoom_status = click_mark(
+            &mut state,
+            &zoom_handler,
+            Some(enterprise_header),
+            header_position,
+            false,
+        )
+        .await;
+        assert!(zoom_status.rerender);
+        {
+            let runtime = state.runtime.lock().await;
+            let params = runtime
+                .session
+                .effective_params_for_owner_paths(&HashMap::new());
+            assert_eq!(
+                params.get(&root.name),
+                Some(&ScalarValue::Utf8(Some("division=Enterprise".to_string())))
+            );
+        }
+
+        let zoomed_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("zoomed decorated treemap scene");
+        let _region_header = retained_rect_event_datum_mark_instance(
+            &state,
+            &zoomed_scene,
+            HIERARCHY_PATH_ID_FIELD,
+            ScalarValue::Utf8(Some("division=Enterprise/region=North America".to_string())),
+        )
+        .await;
+
+        let reset_status = double_click_mark(&mut state, &reset_handler, None, [10.0, 10.0]).await;
+        assert!(reset_status.rerender);
+        {
+            let runtime = state.runtime.lock().await;
+            let params = runtime
+                .session
+                .effective_params_for_owner_paths(&HashMap::new());
+            assert_eq!(
+                params.get(&root.name),
+                Some(&ScalarValue::Utf8(Some(ROOT_PATH_ID.to_string())))
+            );
+        }
     }
 
     #[tokio::test]

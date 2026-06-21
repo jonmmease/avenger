@@ -127,3 +127,7 @@ required-features = ["winit-wgpu"]
 [[example]]
 name = "treemap_click_to_zoom"
 required-features = ["winit-wgpu"]
+
+[[example]]
+name = "treemap_decorated_click_to_zoom"
+required-features = ["winit-wgpu"]

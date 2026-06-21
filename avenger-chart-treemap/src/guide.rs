@@ -799,6 +799,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn guide_headers_use_reserved_header_rects_for_hit_geometry() {
+        let ctx = SessionContext::new();
+        let df = ctx.read_batch(guide_source_batch()).unwrap();
+        let plot = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["division", "team"])
+                .value(sum(col("sales")))
+                .header_bars(crate::TreemapHeaderBars::enabled().height_px(18.0)),
+        )
+        .data(df)
+        .plot_size(200.0, 100.0)
+        .configure_guide(TreemapGuide::new().headers(true))
+        .mark(TreeRect::new().stroke_width(0.0));
+
+        let evaluated = plot
+            .compile(&ctx)
+            .await
+            .unwrap()
+            .evaluate(&ctx, None)
+            .await
+            .unwrap();
+        let mut header_hits = Vec::new();
+        collect_rects(
+            &evaluated.scene_graph.marks,
+            "treemap_header_hit",
+            &mut header_hits,
+        );
+        assert_eq!(header_hits.len(), 1);
+        assert_eq!(header_hits[0].len, 2);
+        assert_eq!(
+            header_hits[0].height.as_ref().unwrap().as_vec(2, None),
+            vec![18.0, 18.0]
+        );
+    }
+
+    #[tokio::test]
     async fn guide_event_datum_rows_retain_header_and_breadcrumb_metadata() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(guide_source_batch()).unwrap();

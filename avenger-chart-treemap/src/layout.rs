@@ -815,6 +815,77 @@ mod tests {
     }
 
     #[test]
+    fn depth_inner_padding_uses_shallow_and_deep_gap_values() {
+        let layout = build_hierarchy_layout_with_options(
+            vec![
+                row(&[("division", "D1"), ("team", "A")], 1.0),
+                row(&[("division", "D1"), ("team", "B")], 1.0),
+                row(&[("division", "D2"), ("team", "A")], 1.0),
+                row(&[("division", "D2"), ("team", "B")], 1.0),
+            ],
+            &HierarchyViewWindow::default(),
+            TreemapRect::new(0.0, 0.0, 100.0, 50.0),
+            &TreemapLayoutOptions {
+                header_bars: TreemapHeaderBars::none(),
+                padding: TreemapPadding::default().depth_inner_px([8.0, 2.0]),
+            },
+        )
+        .unwrap();
+        let d1 = layout
+            .visible_nodes
+            .iter()
+            .find(|node| node.node.path_id == "division=D1")
+            .unwrap();
+        let d2 = layout
+            .visible_nodes
+            .iter()
+            .find(|node| node.node.path_id == "division=D2")
+            .unwrap();
+        assert_eq!(d1.outer_rect, TreemapRect::new(0.0, 0.0, 46.0, 50.0));
+        assert_eq!(d2.outer_rect, TreemapRect::new(54.0, 0.0, 46.0, 50.0));
+
+        let d1_a = layout
+            .visible_nodes
+            .iter()
+            .find(|node| node.node.path_id == "division=D1/team=A")
+            .unwrap();
+        let d1_b = layout
+            .visible_nodes
+            .iter()
+            .find(|node| node.node.path_id == "division=D1/team=B")
+            .unwrap();
+        assert_eq!(d1_a.outer_rect, TreemapRect::new(0.0, 0.0, 46.0, 24.0));
+        assert_eq!(d1_b.outer_rect, TreemapRect::new(0.0, 26.0, 46.0, 24.0));
+    }
+
+    #[test]
+    fn overlarge_headers_and_padding_keep_content_rects_nonnegative() {
+        let layout = build_hierarchy_layout_with_options(
+            vec![
+                row(&[("division", "D1"), ("team", "A")], 1.0),
+                row(&[("division", "D1"), ("team", "B")], 1.0),
+            ],
+            &HierarchyViewWindow::default(),
+            TreemapRect::new(0.0, 0.0, 40.0, 10.0),
+            &TreemapLayoutOptions {
+                header_bars: TreemapHeaderBars::enabled().height_px(100.0),
+                padding: TreemapPadding::default()
+                    .content_inset_px(100.0)
+                    .depth_inner_px([100.0, 100.0]),
+            },
+        )
+        .unwrap();
+        for node in &layout.visible_nodes {
+            assert!(node.outer_rect.width >= 0.0);
+            assert!(node.outer_rect.height >= 0.0);
+            assert!(node.content_rect.width >= 0.0);
+            assert!(node.content_rect.height >= 0.0);
+            assert!(node.label_rect.width >= 0.0);
+            assert!(node.label_rect.height >= 0.0);
+        }
+    }
+
+    #[test]
     fn display_levels_marks_deeper_nodes_as_collapsed_visible_terminals() {
         let layout = build_hierarchy_layout(
             vec![

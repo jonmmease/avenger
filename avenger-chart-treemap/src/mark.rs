@@ -6,14 +6,16 @@ use avenger_chart_core::{
     CompiledMark, CompiledMarkCore, CompiledMarkState, CoordinateSystemCore,
     CoordinateSystemTransformCore, CoordinationScope, DataContext, DataTransform,
     DataTransformCompileContext, DefaultLogicalExprNodeExt, EventDatumFieldSpec, FacetDataScope,
-    IntoExpr, IntoPlotMark, Mark, MarkDataMode, MarkRuntimeContext, MarkState,
-    OpacityChannelConfig, PlotMark, RenderedMarkData, SizeChannelConfig, StoreData,
-    StrokeWidthChannelConfig, apply_opacity_to_color_channel, coerce_color_channel_with_renderer,
-    coerce_font_style_channel, coerce_font_weight_channel, coerce_numeric_channel_with_renderer,
-    coerce_opacity_channel_with_renderer, coerce_text_align_channel, coerce_text_baseline_channel,
-    coerce_text_channel, define_common_mark_channels, impl_mark_trait_common,
+    IntoExpr, IntoPlotMark, LegendRendererKind, LegendRendererSelection, Mark, MarkDataMode,
+    MarkRuntimeContext, MarkState, OpacityChannelConfig, PlotMark, RenderedMarkData,
+    SizeChannelConfig, StoreData, StrokeWidthChannelConfig, apply_opacity_to_color_channel,
+    coerce_color_channel_with_renderer, coerce_font_style_channel, coerce_font_weight_channel,
+    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
+    coerce_text_align_channel, coerce_text_baseline_channel, coerce_text_channel,
+    define_common_mark_channels, impl_mark_trait_common, is_continuous_scale,
 };
 use avenger_common::value::ScalarOrArray;
+use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark, text::SceneTextMark};
 use avenger_text::{
     measurement::{
@@ -1223,6 +1225,14 @@ impl CompiledMarkCore for CompiledTreeHeader {
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         tree_header_channel_defaults(channel)
     }
+
+    fn preferred_legend_renderer(
+        &self,
+        channel: &str,
+        scale: &ConfiguredScale,
+    ) -> Option<LegendRendererSelection> {
+        tree_rect_legend_renderer(&self.state, channel, scale)
+    }
 }
 
 #[typetag::serde]
@@ -1583,6 +1593,14 @@ impl CompiledMarkCore for CompiledTreeRect {
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         tree_rect_channel_defaults(channel)
+    }
+
+    fn preferred_legend_renderer(
+        &self,
+        channel: &str,
+        scale: &ConfiguredScale,
+    ) -> Option<LegendRendererSelection> {
+        tree_rect_legend_renderer(&self.state, channel, scale)
     }
 }
 
@@ -2392,6 +2410,28 @@ fn tree_header_channel_defaults(channel: &str) -> Option<ScalarValue> {
     }
 }
 
+fn tree_rect_legend_renderer(
+    state: &CompiledMarkState,
+    channel: &str,
+    scale: &ConfiguredScale,
+) -> Option<LegendRendererSelection> {
+    state
+        .data
+        .channels()
+        .get(channel)
+        .and_then(|channel| channel.get_legend_config())?;
+    match channel {
+        "fill" | "stroke" | "color" if is_continuous_scale(scale.scale_impl.as_ref()) => Some(
+            LegendRendererSelection::BuiltIn(LegendRendererKind::Colorbar),
+        ),
+        "fill" | "stroke" | "color" | "opacity" | "stroke_width" => {
+            Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Rect))
+        }
+        "corner_radius" | "u" | "u2" | "v" | "v2" | "defined" | "order" => None,
+        _ => Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Rect)),
+    }
+}
+
 fn tree_rect_channel_defaults(channel: &str) -> Option<ScalarValue> {
     match channel {
         "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),
@@ -2679,6 +2719,7 @@ mod tests {
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales")))
+                .display_levels(2)
                 .header_bars(crate::TreemapHeaderBars::enabled().height_px(18.0)),
         )
         .data(df)
@@ -2722,6 +2763,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(header_rows.len(), 2);
         for rows in header_rows {
+            assert_eq!(rows.rows.num_rows(), 2);
             let path_ids = rows
                 .rows
                 .column_by_name(HIERARCHY_PATH_ID_FIELD)
@@ -2738,6 +2780,46 @@ mod tests {
                 .downcast_ref::<StringArray>()
                 .expect("title string");
             assert_eq!(titles.value(0), "East");
+            let level_names = rows
+                .rows
+                .column_by_name(HIERARCHY_LEVEL_NAME_FIELD)
+                .expect("level name")
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("level name string");
+            assert_eq!(level_names.value(0), "region");
+            let zoomable = rows
+                .rows
+                .column_by_name(HIERARCHY_CAN_ZOOM_FIELD)
+                .expect("can zoom")
+                .as_any()
+                .downcast_ref::<BooleanArray>()
+                .expect("can zoom bool");
+            assert!(zoomable.value(0));
+            let depths = rows
+                .rows
+                .column_by_name(HIERARCHY_DEPTH_FIELD)
+                .expect("depth")
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .expect("depth i64");
+            assert_eq!(depths.value(0), 1);
+            let view_depths = rows
+                .rows
+                .column_by_name(HIERARCHY_VIEW_DEPTH_FIELD)
+                .expect("view depth")
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .expect("view depth i64");
+            assert_eq!(view_depths.value(0), 0);
+            let display_levels = rows
+                .rows
+                .column_by_name(HIERARCHY_DISPLAY_LEVELS_FIELD)
+                .expect("display levels")
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .expect("display levels i64");
+            assert_eq!(display_levels.value(0), 2);
             let header_heights = rows
                 .rows
                 .column_by_name(TREEMAP_RECT_HEIGHT_FIELD)
