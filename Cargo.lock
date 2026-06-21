@@ -926,6 +926,7 @@ dependencies = [
  "async-trait",
  "avenger-chart",
  "avenger-chart-core",
+ "avenger-color",
  "avenger-common",
  "avenger-scales",
  "avenger-scenegraph",
