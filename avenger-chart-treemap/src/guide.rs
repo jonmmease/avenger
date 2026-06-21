@@ -281,22 +281,25 @@ fn make_separator_mark(
         x: ScalarOrArray::from(
             nodes
                 .iter()
-                .map(|node| plot_bounds.x + node.rect.x)
+                .map(|node| plot_bounds.x + node.outer_rect.x)
                 .collect::<Vec<_>>(),
         ),
         y: ScalarOrArray::from(
             nodes
                 .iter()
-                .map(|node| plot_bounds.y + node.rect.y)
+                .map(|node| plot_bounds.y + node.outer_rect.y)
                 .collect::<Vec<_>>(),
         ),
         width: Some(ScalarOrArray::from(
-            nodes.iter().map(|node| node.rect.width).collect::<Vec<_>>(),
+            nodes
+                .iter()
+                .map(|node| node.outer_rect.width)
+                .collect::<Vec<_>>(),
         )),
         height: Some(ScalarOrArray::from(
             nodes
                 .iter()
-                .map(|node| node.rect.height)
+                .map(|node| node.outer_rect.height)
                 .collect::<Vec<_>>(),
         )),
         x2: None,
@@ -320,19 +323,27 @@ fn make_header_hit_rect(plot_bounds: &LayoutBounds, nodes: &[&VisibleTreemapNode
         x: ScalarOrArray::from(
             nodes
                 .iter()
-                .map(|node| plot_bounds.x + node.rect.x)
+                .map(|node| plot_bounds.x + guide_header_rect(node).x)
                 .collect::<Vec<_>>(),
         ),
         y: ScalarOrArray::from(
             nodes
                 .iter()
-                .map(|node| plot_bounds.y + node.rect.y)
+                .map(|node| plot_bounds.y + guide_header_rect(node).y)
                 .collect::<Vec<_>>(),
         ),
         width: Some(ScalarOrArray::from(
-            nodes.iter().map(|node| node.rect.width).collect::<Vec<_>>(),
+            nodes
+                .iter()
+                .map(|node| guide_header_rect(node).width)
+                .collect::<Vec<_>>(),
         )),
-        height: Some(ScalarOrArray::new_scalar(HEADER_HEIGHT)),
+        height: Some(ScalarOrArray::from(
+            nodes
+                .iter()
+                .map(|node| guide_header_rect(node).height)
+                .collect::<Vec<_>>(),
+        )),
         x2: None,
         y2: None,
         fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
@@ -345,11 +356,12 @@ fn make_header_hit_rect(plot_bounds: &LayoutBounds, nodes: &[&VisibleTreemapNode
 }
 
 fn make_header_text(plot_bounds: &LayoutBounds, nodes: &[&VisibleTreemapNode]) -> SceneMark {
-    let labels = truncate_labels(
-        nodes
-            .iter()
-            .map(|node| (node.node.label.as_str(), guide_text_limit(node.rect.width))),
-    );
+    let labels = truncate_labels(nodes.iter().map(|node| {
+        (
+            node.node.label.as_str(),
+            guide_text_limit(guide_header_rect(node).width),
+        )
+    }));
     let mut mark = SceneTextMark {
         name: "treemap_header".to_string(),
         interactive: true,
@@ -359,19 +371,22 @@ fn make_header_text(plot_bounds: &LayoutBounds, nodes: &[&VisibleTreemapNode]) -
         x: ScalarOrArray::from(
             nodes
                 .iter()
-                .map(|node| plot_bounds.x + node.rect.x + GUIDE_TEXT_INSET)
+                .map(|node| plot_bounds.x + guide_header_rect(node).x + GUIDE_TEXT_INSET)
                 .collect::<Vec<_>>(),
         ),
         y: ScalarOrArray::from(
             nodes
                 .iter()
-                .map(|node| plot_bounds.y + node.rect.y + HEADER_HEIGHT - 5.0)
+                .map(|node| {
+                    let rect = guide_header_rect(node);
+                    plot_bounds.y + rect.y + rect.height - 5.0
+                })
                 .collect::<Vec<_>>(),
         ),
         limit: ScalarOrArray::from(
             nodes
                 .iter()
-                .map(|node| guide_text_limit(node.rect.width))
+                .map(|node| guide_text_limit(guide_header_rect(node).width))
                 .collect::<Vec<_>>(),
         ),
         zindex: Some(31),
@@ -379,6 +394,17 @@ fn make_header_text(plot_bounds: &LayoutBounds, nodes: &[&VisibleTreemapNode]) -
     };
     mark.color = ScalarOrArray::new_scalar(ColorOrGradient::Color([0.16, 0.16, 0.16, 1.0]));
     SceneMark::from(mark)
+}
+
+fn guide_header_rect(node: &VisibleTreemapNode) -> crate::TreemapRect {
+    node.header_rect.unwrap_or_else(|| {
+        crate::TreemapRect::new(
+            node.outer_rect.x,
+            node.outer_rect.y,
+            node.outer_rect.width,
+            HEADER_HEIGHT.min(node.outer_rect.height.max(0.0)),
+        )
+    })
 }
 
 fn make_breadcrumb_hit_rect(plot_bounds: &LayoutBounds, nodes: &[TreemapNode]) -> SceneMark {

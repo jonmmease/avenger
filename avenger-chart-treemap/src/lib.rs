@@ -16,4 +16,4 @@ pub use coord::{
     TreemapRect, TreemapTransform, VisibleTreemapNode,
 };
 pub use guide::TreemapGuide;
-pub use mark::{TreeLabel, TreeLabelFit, TreeRect, TreeRectNodeMode};
+pub use mark::{TreeHeader, TreeLabel, TreeLabelFit, TreeRect, TreeRectNodeMode};

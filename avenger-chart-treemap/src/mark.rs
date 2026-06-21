@@ -36,12 +36,13 @@ use serde::{Deserialize, Serialize};
 use crate::event::{
     HIERARCHY_CAN_ZOOM_FIELD, HIERARCHY_DEPTH_FIELD, HIERARCHY_DISPLAY_LEVELS_FIELD,
     HIERARCHY_HAS_HIDDEN_DESCENDANTS_FIELD, HIERARCHY_IS_DATA_LEAF_FIELD,
-    HIERARCHY_IS_VISIBLE_LEAF_FIELD, HIERARCHY_PARENT_PATH_ID_FIELD, HIERARCHY_PATH_ID_FIELD,
-    HIERARCHY_SURFACE_KIND_COLLAPSED_RECT, HIERARCHY_SURFACE_KIND_FIELD,
-    HIERARCHY_SURFACE_KIND_LEAF_RECT, HIERARCHY_SURFACE_KIND_NODE_LABEL,
-    HIERARCHY_SURFACE_KIND_NODE_RECT, HIERARCHY_VALUE_FIELD, HIERARCHY_VIEW_DEPTH_FIELD,
-    RESERVED_GENERATED_EVENT_FIELDS, TREEMAP_RECT_HEIGHT_FIELD, TREEMAP_RECT_WIDTH_FIELD,
-    TREEMAP_RECT_X_FIELD, TREEMAP_RECT_Y_FIELD, tree_rect_event_datum_field_specs,
+    HIERARCHY_IS_VISIBLE_LEAF_FIELD, HIERARCHY_LEVEL_NAME_FIELD, HIERARCHY_PARENT_PATH_ID_FIELD,
+    HIERARCHY_PATH_ID_FIELD, HIERARCHY_SURFACE_KIND_COLLAPSED_RECT, HIERARCHY_SURFACE_KIND_FIELD,
+    HIERARCHY_SURFACE_KIND_LEAF_RECT, HIERARCHY_SURFACE_KIND_NODE_HEADER,
+    HIERARCHY_SURFACE_KIND_NODE_LABEL, HIERARCHY_SURFACE_KIND_NODE_RECT, HIERARCHY_TITLE_FIELD,
+    HIERARCHY_VALUE_FIELD, HIERARCHY_VIEW_DEPTH_FIELD, RESERVED_GENERATED_EVENT_FIELDS,
+    TREEMAP_RECT_HEIGHT_FIELD, TREEMAP_RECT_WIDTH_FIELD, TREEMAP_RECT_X_FIELD,
+    TREEMAP_RECT_Y_FIELD, tree_rect_event_datum_field_specs,
 };
 use crate::layout::{path_id_for_components, scalar_is_null, scalar_label};
 use crate::{ROOT_PATH_ID, Treemap, TreemapCoordMeasurement, VisibleTreemapNode};
@@ -873,6 +874,619 @@ impl CompiledTreeLabel {
     }
 }
 
+pub struct TreeHeader<C = Treemap> {
+    pub(crate) state: MarkState,
+    pub(crate) min_relative_depth: usize,
+    pub(crate) max_relative_depth: usize,
+    pub(crate) padding_px: f32,
+    pub(crate) _phantom: PhantomData<C>,
+}
+
+impl<C> Default for TreeHeader<C> {
+    fn default() -> Self {
+        Self {
+            state: MarkState {
+                id: None,
+                data: DataContext::default(),
+                data_mode: MarkDataMode::Inherit,
+                facet_data_scope: FacetDataScope::FILTERED,
+                exclude_from_scale_domains: false,
+                visible: None,
+                details: None,
+                zindex: Some(40),
+                axis_configs: std::collections::HashMap::new(),
+            },
+            min_relative_depth: 1,
+            max_relative_depth: 1,
+            padding_px: 2.0,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<C> TreeHeader<C> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.state.id = Some(id.into());
+        self
+    }
+
+    pub fn data(mut self, dataframe: DataFrame) -> Self {
+        self.state.data = DataContext::new(dataframe);
+        self.state.data_mode = MarkDataMode::Inherit;
+        self
+    }
+
+    pub fn data_store(mut self, data: StoreData) -> Self {
+        self.state.data = DataContext::store_data(data);
+        self.state.data_mode = MarkDataMode::Inherit;
+        self
+    }
+
+    pub fn visible(mut self, visible: impl IntoExpr) -> Self {
+        self.state.visible = Some(
+            DefaultLogicalExprNodeExt::from_default_expr(visible.into_expr())
+                .expect("Failed to serialize mark visible expr"),
+        );
+        self
+    }
+
+    pub fn transform<T, F>(self, transform: T, f: F) -> Self
+    where
+        T: DataTransform,
+        F: FnOnce(Self, T::Output) -> Self,
+    {
+        self.transform_free(transform, f)
+    }
+
+    pub fn transform_free<T, F>(self, transform: T, f: F) -> Self
+    where
+        T: DataTransform,
+        F: FnOnce(Self, T::Output) -> Self,
+    {
+        self.transform_with_scope(CoordinationScope::Free, transform, f)
+    }
+
+    pub fn transform_shared<T, F>(self, transform: T, f: F) -> Self
+    where
+        T: DataTransform,
+        F: FnOnce(Self, T::Output) -> Self,
+    {
+        self.transform_with_scope(CoordinationScope::Shared, transform, f)
+    }
+
+    pub fn transform_level<T, F>(self, level: u8, transform: T, f: F) -> Self
+    where
+        T: DataTransform,
+        F: FnOnce(Self, T::Output) -> Self,
+    {
+        self.transform_with_scope(CoordinationScope::Level(level), transform, f)
+    }
+
+    pub fn transform_with_scope<T, F>(
+        mut self,
+        scope: CoordinationScope,
+        transform: T,
+        f: F,
+    ) -> Self
+    where
+        T: DataTransform,
+        F: FnOnce(Self, T::Output) -> Self,
+    {
+        let scope = scope.to_normalized();
+        let (compiled_transform, output) = transform
+            .into_compiled_and_output(DataTransformCompileContext::new(scope))
+            .expect("Failed to build data transform");
+        self.state.data = self
+            .state
+            .data
+            .with_transform_stage(scope, compiled_transform);
+        f(self, output)
+    }
+
+    pub fn facet_data_scope(mut self, scope: FacetDataScope) -> Self {
+        self.state.facet_data_scope = scope;
+        self
+    }
+
+    pub fn facet_data_level(mut self, level: u8) -> Self {
+        self.state.facet_data_scope = FacetDataScope::level(level);
+        self
+    }
+
+    pub fn broadcast_to_facets(mut self) -> Self {
+        self.state.facet_data_scope = FacetDataScope::BROADCAST;
+        self
+    }
+
+    pub fn zindex(mut self, zindex: i32) -> Self {
+        self.state.zindex = Some(zindex);
+        self
+    }
+
+    pub fn state(&self) -> &MarkState {
+        &self.state
+    }
+
+    pub fn state_mut(&mut self) -> &mut MarkState {
+        &mut self.state
+    }
+
+    pub fn mark_state(&self) -> &MarkState {
+        &self.state
+    }
+
+    pub fn mark_state_mut(&mut self) -> &mut MarkState {
+        &mut self.state
+    }
+
+    pub fn get_data_context(&self) -> &DataContext {
+        &self.state.data
+    }
+
+    #[doc(hidden)]
+    pub fn with_channel_value(mut self, name: &str, value: ChannelValue) -> Self {
+        self.state.data = self.state.data.with_channel_value(name, value);
+        self
+    }
+
+    pub fn depth_range(mut self, range: std::ops::RangeInclusive<usize>) -> Self {
+        self.min_relative_depth = *range.start();
+        self.max_relative_depth = *range.end();
+        self
+    }
+
+    pub fn padding(mut self, padding_px: f32) -> Self {
+        self.padding_px = padding_px;
+        self
+    }
+
+    pub fn text<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("text", value.into().no_scale())
+    }
+
+    pub fn font<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("font", value.into().no_scale())
+    }
+
+    pub fn font_weight<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("font_weight", value.into().no_scale())
+    }
+
+    pub fn font_style<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("font_style", value.into().no_scale())
+    }
+}
+
+impl<C> IntoPlotMark<C> for TreeHeader<C>
+where
+    C: CoordinateSystemCore,
+    TreeHeader<C>: Mark<C> + Send + Sync + 'static,
+{
+    fn into_plot_marks(self) -> Vec<PlotMark<C>> {
+        vec![PlotMark::from_mark(self)]
+    }
+}
+
+define_common_mark_channels! {
+    TreeHeader {
+        fill: {
+            allow_column: true,
+            with_config: ColorChannelConfig,
+        },
+        stroke: {
+            allow_column: true,
+            with_config: ColorChannelConfig,
+        },
+        stroke_width: {
+            allow_column: true,
+            with_config: StrokeWidthChannelConfig,
+        },
+        opacity: {
+            allow_column: true,
+            with_config: OpacityChannelConfig,
+        },
+        text_color: {
+            allow_column: true,
+            with_config: ColorChannelConfig,
+        },
+        font_size: {
+            allow_column: true,
+            with_config: SizeChannelConfig,
+        },
+    }
+}
+
+#[async_trait]
+impl Mark<Treemap> for TreeHeader<Treemap> {
+    impl_mark_trait_common!(TreeHeader);
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        _session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(Arc::new(CompiledTreeHeader {
+            state: compiled_state,
+            min_relative_depth: self.min_relative_depth,
+            max_relative_depth: self.max_relative_depth,
+            padding_px: self.padding_px,
+        }))
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CompiledTreeHeader {
+    pub(crate) state: CompiledMarkState,
+    pub(crate) min_relative_depth: usize,
+    pub(crate) max_relative_depth: usize,
+    pub(crate) padding_px: f32,
+}
+
+impl CompiledMarkCore for CompiledTreeHeader {
+    fn state(&self) -> &CompiledMarkState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut CompiledMarkState {
+        &mut self.state
+    }
+
+    fn data_context(&self) -> &CompiledDataContext {
+        &self.state.data
+    }
+
+    fn mark_type(&self) -> &str {
+        "tree_header"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn supported_channels(&self) -> Vec<ChannelDescriptor> {
+        vec![
+            ChannelDescriptor {
+                name: "fill",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "stroke",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "stroke_width",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "opacity",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "text",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "text_color",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "font_size",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "font",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "font_weight",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "font_style",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+        ]
+    }
+
+    fn wants_full_data_batch(&self) -> bool {
+        true
+    }
+
+    fn event_datum_field_specs(&self) -> Vec<EventDatumFieldSpec> {
+        tree_rect_event_datum_field_specs()
+    }
+
+    fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
+        tree_header_channel_defaults(channel)
+    }
+}
+
+#[typetag::serde]
+#[async_trait]
+impl CompiledMark for CompiledTreeHeader {
+    async fn render_from_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        self.render_mark_data(data, scalars, context, coord)
+            .await
+            .map(|rendered| rendered.marks)
+    }
+
+    async fn render_mark_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        _coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<RenderedMarkData, AvengerChartError> {
+        validate_no_reserved_event_field_collisions(data)?;
+        let measurement = context
+            .coord_measurement()
+            .as_any()
+            .downcast_ref::<TreemapCoordMeasurement>()
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "TreeHeader requires TreemapCoordMeasurement".to_string(),
+                )
+            })?;
+        let selected_nodes = select_header_nodes(
+            measurement.visible_nodes(),
+            self.min_relative_depth,
+            self.max_relative_depth,
+        );
+        let source_row_indices = source_row_indices_for_event_rows(data, &selected_nodes)?;
+        let joined = RenderNodeSelection {
+            nodes: selected_nodes,
+            source_row_indices,
+        };
+        let nodes = joined.nodes;
+        let len = nodes.len();
+        let source_row_indices = joined.source_row_indices;
+        let channel_indices = if self.should_join_render_data(data) {
+            Some(Arc::new(source_row_indices.clone()))
+        } else {
+            None
+        };
+
+        let mark_context = context.core_view();
+        let fill = coerce_color_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "fill",
+            &mark_context,
+            [70.0 / 255.0, 130.0 / 255.0, 180.0 / 255.0, 1.0],
+        )?;
+        let stroke = coerce_color_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "stroke",
+            &mark_context,
+            [1.0, 1.0, 1.0, 1.0],
+        )?;
+        let opacity = coerce_opacity_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "opacity",
+            &mark_context,
+            1.0,
+        )?;
+        let fill = gather_scalar_or_array(fill, len, channel_indices.as_ref());
+        let stroke = gather_scalar_or_array(stroke, len, channel_indices.as_ref());
+        let opacity = gather_scalar_or_array(opacity, len, channel_indices.as_ref());
+        let fill = apply_opacity_to_color_channel(fill, &opacity, len);
+        let stroke = apply_opacity_to_color_channel(stroke, &opacity, len);
+        let stroke_width = gather_scalar_or_array(
+            coerce_numeric_channel_with_renderer(
+                self,
+                data,
+                scalars,
+                "stroke_width",
+                &mark_context,
+                1.0,
+            )?,
+            len,
+            channel_indices.as_ref(),
+        );
+
+        let text = if self.state.data.channels().contains_key("text") {
+            gather_scalar_or_array(
+                coerce_text_channel(data, scalars, "text", String::new())?,
+                len,
+                channel_indices.as_ref(),
+            )
+            .as_vec(len, None)
+        } else {
+            nodes
+                .iter()
+                .map(|node| node.node.label.clone())
+                .collect::<Vec<_>>()
+        };
+        let text_color = gather_scalar_or_array(
+            coerce_color_channel_with_renderer(
+                self,
+                data,
+                scalars,
+                "text_color",
+                &mark_context,
+                [1.0, 1.0, 1.0, 1.0],
+            )?,
+            len,
+            channel_indices.as_ref(),
+        );
+        let font = gather_scalar_or_array(
+            coerce_text_channel(data, scalars, "font", "sans-serif".to_string())?,
+            len,
+            channel_indices.as_ref(),
+        )
+        .as_vec(len, None);
+        let font_size = gather_scalar_or_array(
+            coerce_numeric_channel_with_renderer(
+                self,
+                data,
+                scalars,
+                "font_size",
+                &mark_context,
+                14.0,
+            )?,
+            len,
+            channel_indices.as_ref(),
+        )
+        .as_vec(len, None);
+        let font_weight = gather_scalar_or_array(
+            coerce_font_weight_channel(
+                data,
+                scalars,
+                "font_weight",
+                FontWeight::Name(FontWeightNameSpec::Normal),
+            )?,
+            len,
+            channel_indices.as_ref(),
+        )
+        .as_vec(len, None);
+        let font_style = gather_scalar_or_array(
+            coerce_font_style_channel(data, scalars, "font_style", FontStyle::Normal)?,
+            len,
+            channel_indices.as_ref(),
+        )
+        .as_vec(len, None);
+
+        let mut rect_x = Vec::with_capacity(len);
+        let mut rect_y = Vec::with_capacity(len);
+        let mut rect_width = Vec::with_capacity(len);
+        let mut rect_height = Vec::with_capacity(len);
+        let mut fitted_text = Vec::with_capacity(len);
+        let mut text_x = Vec::with_capacity(len);
+        let mut text_y = Vec::with_capacity(len);
+        let mut text_limit = Vec::with_capacity(len);
+        for (index, node) in nodes.iter().enumerate() {
+            let rect = node.header_rect.unwrap_or(node.outer_rect);
+            rect_x.push(rect.x);
+            rect_y.push(rect.y);
+            rect_width.push(rect.width);
+            rect_height.push(rect.height);
+            let label_rect = rect.inset(self.padding_px);
+            let limit = label_rect.width.max(0.0);
+            fitted_text.push(fit_tree_label(
+                &text[index],
+                limit,
+                label_rect.height.max(0.0),
+                &font[index],
+                font_size[index],
+                &font_weight[index],
+                &font_style[index],
+                TreeLabelFit::Ellipsis,
+                4.0,
+                4.0,
+            ));
+            text_x.push(label_rect.x + label_rect.width * 0.5);
+            text_y.push(label_rect.y + label_rect.height * 0.5);
+            text_limit.push(limit);
+        }
+
+        let rect_name = self
+            .state
+            .id
+            .clone()
+            .unwrap_or_else(|| "tree_header".to_string());
+        let text_name = format!("{rect_name}_text");
+        let event_rows = tree_header_event_datum_batch(&nodes)?;
+        let text_event_rows = event_rows.clone();
+        let text_zindex = self.state.zindex.map(|zindex| zindex + 1);
+
+        Ok(
+            RenderedMarkData::with_source_row_indices_and_event_datum_rows(
+                vec![
+                    SceneMark::Rect(SceneRectMark {
+                        name: rect_name,
+                        interactive: true,
+                        clip: true,
+                        len: len as u32,
+                        gradients: Vec::new(),
+                        x: ScalarOrArray::from(rect_x),
+                        y: ScalarOrArray::from(rect_y),
+                        width: Some(ScalarOrArray::from(rect_width)),
+                        height: Some(ScalarOrArray::from(rect_height)),
+                        x2: None,
+                        y2: None,
+                        fill,
+                        stroke,
+                        stroke_width,
+                        corner_radius: ScalarOrArray::new_scalar(0.0),
+                        indices: None,
+                        zindex: self.state.zindex,
+                    }),
+                    SceneMark::Text(Arc::new(SceneTextMark {
+                        name: text_name,
+                        interactive: true,
+                        clip: true,
+                        len: len as u32,
+                        text: ScalarOrArray::from(fitted_text),
+                        x: ScalarOrArray::from(text_x),
+                        y: ScalarOrArray::from(text_y),
+                        align: ScalarOrArray::new_scalar(TextAlign::Center),
+                        baseline: ScalarOrArray::new_scalar(TextBaseline::Middle),
+                        angle: ScalarOrArray::new_scalar(0.0),
+                        color: text_color,
+                        font: ScalarOrArray::from(font),
+                        font_size: ScalarOrArray::from(font_size),
+                        font_weight: ScalarOrArray::from(font_weight),
+                        font_style: ScalarOrArray::from(font_style),
+                        limit: ScalarOrArray::from(text_limit),
+                        indices: None,
+                        zindex: text_zindex,
+                    })),
+                ],
+                vec![source_row_indices.clone(), source_row_indices],
+                vec![event_rows, text_event_rows],
+            ),
+        )
+    }
+}
+
+impl CompiledTreeHeader {
+    fn should_join_render_data(&self, data: Option<&RecordBatch>) -> bool {
+        let Some(data) = data else {
+            return false;
+        };
+        self.state
+            .data
+            .channels()
+            .keys()
+            .any(|channel| data.column_by_name(channel).is_some())
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledTreeRect {
     pub(crate) state: CompiledMarkState,
@@ -1163,6 +1777,22 @@ fn select_nodes<'a>(
         .collect()
 }
 
+fn select_header_nodes(
+    nodes: &[VisibleTreemapNode],
+    min_relative_depth: usize,
+    max_relative_depth: usize,
+) -> Vec<&VisibleTreemapNode> {
+    nodes
+        .iter()
+        .filter(|node| node.node.path_id != ROOT_PATH_ID)
+        .filter(|node| node.header_rect.is_some())
+        .filter(|node| {
+            let relative_depth = node.node.depth.saturating_sub(node.view_depth);
+            relative_depth >= min_relative_depth && relative_depth <= max_relative_depth
+        })
+        .collect()
+}
+
 struct RenderNodeSelection<'a> {
     nodes: Vec<&'a VisibleTreemapNode>,
     source_row_indices: Vec<usize>,
@@ -1313,7 +1943,8 @@ fn tree_rect_event_datum_batch(
         .iter()
         .map(|node| hierarchy_surface_kind_for_node(node).to_string())
         .collect::<Vec<_>>();
-    tree_node_event_datum_batch_with_surface_kinds(nodes, surface_kinds)
+    let rects = nodes.iter().map(|node| node.outer_rect).collect::<Vec<_>>();
+    tree_node_event_datum_batch_with_surface_kinds(nodes, surface_kinds, rects)
 }
 
 fn tree_node_event_datum_batch(
@@ -1323,14 +1954,31 @@ fn tree_node_event_datum_batch(
     tree_node_event_datum_batch_with_surface_kinds(
         nodes,
         vec![surface_kind.to_string(); nodes.len()],
+        nodes.iter().map(|node| node.outer_rect).collect(),
+    )
+}
+
+fn tree_header_event_datum_batch(
+    nodes: &[&VisibleTreemapNode],
+) -> Result<RecordBatch, AvengerChartError> {
+    tree_node_event_datum_batch_with_surface_kinds(
+        nodes,
+        vec![HIERARCHY_SURFACE_KIND_NODE_HEADER.to_string(); nodes.len()],
+        nodes
+            .iter()
+            .map(|node| node.header_rect.unwrap_or(node.outer_rect))
+            .collect(),
     )
 }
 
 fn tree_node_event_datum_batch_with_surface_kinds(
     nodes: &[&VisibleTreemapNode],
     surface_kinds: Vec<String>,
+    rects: Vec<crate::TreemapRect>,
 ) -> Result<RecordBatch, AvengerChartError> {
     let len = nodes.len();
+    debug_assert_eq!(surface_kinds.len(), len);
+    debug_assert_eq!(rects.len(), len);
     let mut fields = Vec::new();
     let mut columns: Vec<ArrayRef> = Vec::new();
 
@@ -1395,6 +2043,16 @@ fn tree_node_event_datum_batch_with_surface_kinds(
         Field::new(
             HIERARCHY_VALUE_FIELD,
             datafusion::arrow::datatypes::DataType::Float64,
+            false,
+        ),
+        Field::new(
+            HIERARCHY_TITLE_FIELD,
+            datafusion::arrow::datatypes::DataType::Utf8,
+            false,
+        ),
+        Field::new(
+            HIERARCHY_LEVEL_NAME_FIELD,
+            datafusion::arrow::datatypes::DataType::Utf8,
             false,
         ),
         Field::new(
@@ -1474,28 +2132,40 @@ fn tree_node_event_datum_batch_with_surface_kinds(
         Arc::new(Float64Array::from(
             nodes.iter().map(|node| node.node.value).collect::<Vec<_>>(),
         )),
-        Arc::new(Float64Array::from(
+        Arc::new(StringArray::from(
             nodes
                 .iter()
-                .map(|node| node.outer_rect.x as f64)
+                .map(|node| node.node.label.clone())
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(StringArray::from(
+            nodes
+                .iter()
+                .map(|node| {
+                    node.node
+                        .path
+                        .last()
+                        .map(|component| component.name.clone())
+                        .unwrap_or_default()
+                })
                 .collect::<Vec<_>>(),
         )),
         Arc::new(Float64Array::from(
-            nodes
+            rects.iter().map(|rect| rect.x as f64).collect::<Vec<_>>(),
+        )),
+        Arc::new(Float64Array::from(
+            rects.iter().map(|rect| rect.y as f64).collect::<Vec<_>>(),
+        )),
+        Arc::new(Float64Array::from(
+            rects
                 .iter()
-                .map(|node| node.outer_rect.y as f64)
+                .map(|rect| rect.width as f64)
                 .collect::<Vec<_>>(),
         )),
         Arc::new(Float64Array::from(
-            nodes
+            rects
                 .iter()
-                .map(|node| node.outer_rect.width as f64)
-                .collect::<Vec<_>>(),
-        )),
-        Arc::new(Float64Array::from(
-            nodes
-                .iter()
-                .map(|node| node.outer_rect.height as f64)
+                .map(|rect| rect.height as f64)
                 .collect::<Vec<_>>(),
         )),
     ]);
@@ -1706,6 +2376,22 @@ fn tree_label_channel_defaults(channel: &str) -> Option<ScalarValue> {
     }
 }
 
+fn tree_header_channel_defaults(channel: &str) -> Option<ScalarValue> {
+    match channel {
+        "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),
+        "stroke" => Some(ScalarValue::Utf8(Some("#ffffff".to_string()))),
+        "stroke_width" => Some(ScalarValue::Float32(Some(1.0))),
+        "opacity" => Some(ScalarValue::Float32(Some(1.0))),
+        "text" => Some(ScalarValue::Utf8(Some(String::new()))),
+        "text_color" => Some(ScalarValue::Utf8(Some("#ffffff".to_string()))),
+        "font_size" => Some(ScalarValue::Float32(Some(14.0))),
+        "font" => Some(ScalarValue::Utf8(Some("sans-serif".to_string()))),
+        "font_weight" => Some(ScalarValue::Utf8(Some("normal".to_string()))),
+        "font_style" => Some(ScalarValue::Utf8(Some("normal".to_string()))),
+        _ => None,
+    }
+}
+
 fn tree_rect_channel_defaults(channel: &str) -> Option<ScalarValue> {
     match channel {
         "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),
@@ -1789,6 +2475,30 @@ mod tests {
             }
         }
         out
+    }
+
+    fn find_tree_headers(marks: &[SceneMark]) -> (Vec<&SceneRectMark>, Vec<&SceneTextMark>) {
+        let mut rects = Vec::new();
+        let mut texts = Vec::new();
+        for mark in marks {
+            match mark {
+                SceneMark::Rect(rect) if rect.name == "tree_header" || rect.name == "headers" => {
+                    rects.push(rect);
+                }
+                SceneMark::Text(text)
+                    if text.name == "tree_header_text" || text.name == "headers_text" =>
+                {
+                    texts.push(text.as_ref());
+                }
+                SceneMark::Group(group) => {
+                    let (child_rects, child_texts) = find_tree_headers(&group.marks);
+                    rects.extend(child_rects);
+                    texts.extend(child_texts);
+                }
+                _ => {}
+            }
+        }
+        (rects, texts)
     }
 
     #[tokio::test]
@@ -1959,6 +2669,84 @@ mod tests {
             labels[0].text.as_vec(3, None),
             vec!["East".to_string(), "East".to_string(), "West".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn tree_header_renders_header_rects_and_matching_event_rows() {
+        let ctx = SessionContext::new();
+        let df = ctx.read_batch(source_batch()).unwrap();
+        let plot = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["region", "product"])
+                .value(sum(col("sales")))
+                .header_bars(crate::TreemapHeaderBars::enabled().height_px(18.0)),
+        )
+        .data(df)
+        .plot_size(200.0, 100.0)
+        .mark(TreeHeader::new().fill(col("region")));
+
+        let evaluated = plot
+            .compile(&ctx)
+            .await
+            .unwrap()
+            .evaluate(&ctx, None)
+            .await
+            .unwrap();
+        let (header_rects, header_texts) = find_tree_headers(&evaluated.scene_graph.marks);
+        assert_eq!(header_rects.len(), 1);
+        assert_eq!(header_texts.len(), 1);
+        assert_eq!(header_rects[0].len, 2);
+        assert_eq!(
+            header_rects[0].height.as_ref().unwrap().as_vec(2, None),
+            vec![18.0, 18.0]
+        );
+        assert_eq!(
+            header_texts[0].text.as_vec(2, None),
+            vec!["East".to_string(), "West".to_string()]
+        );
+
+        let header_rows = evaluated
+            .event_datums
+            .rows
+            .iter()
+            .filter(|rows| {
+                let Some(column) = rows.rows.column_by_name(HIERARCHY_SURFACE_KIND_FIELD) else {
+                    return false;
+                };
+                let values = column
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .expect("surface kind string");
+                values.len() == 2 && values.value(0) == HIERARCHY_SURFACE_KIND_NODE_HEADER
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(header_rows.len(), 2);
+        for rows in header_rows {
+            let path_ids = rows
+                .rows
+                .column_by_name(HIERARCHY_PATH_ID_FIELD)
+                .expect("path ids")
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("path ids string");
+            assert_eq!(path_ids.value(0), "region=East");
+            let titles = rows
+                .rows
+                .column_by_name(HIERARCHY_TITLE_FIELD)
+                .expect("title")
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("title string");
+            assert_eq!(titles.value(0), "East");
+            let header_heights = rows
+                .rows
+                .column_by_name(TREEMAP_RECT_HEIGHT_FIELD)
+                .expect("header height")
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .expect("height f64");
+            assert_eq!(header_heights.value(0), 18.0);
+        }
     }
 
     #[test]

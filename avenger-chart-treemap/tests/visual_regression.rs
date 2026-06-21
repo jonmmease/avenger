@@ -14,7 +14,9 @@ use avenger_chart::facet::marks::FacetColumnSubplotChannels;
 use avenger_chart::plot::Plot;
 use avenger_chart::prelude::Subplot;
 use avenger_chart_core::{ChannelValue, CoordinateSystem};
-use avenger_chart_treemap::{TreeLabel, TreeRect, Treemap, TreemapGuide};
+use avenger_chart_treemap::{
+    TreeHeader, TreeLabel, TreeRect, Treemap, TreemapGuide, TreemapHeaderBars,
+};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
@@ -198,6 +200,92 @@ async fn treemap_leaf_labels_zoom_window() {
     );
 
     assert_visual_match(plot, "treemap_leaf_labels_zoom_window").await;
+}
+
+#[tokio::test]
+async fn treemap_reserved_header_space() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(deep_data()).unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "region", "team", "product"])
+            .value(sum(col("sales")))
+            .display_levels(3)
+            .header_bars(TreemapHeaderBars::enabled().height_px(24.0)),
+    )
+    .data(df)
+    .plot_size(560.0, 320.0)
+    .configure_guide(
+        TreemapGuide::new()
+            .headers(true)
+            .separators(true)
+            .breadcrumbs(false),
+    )
+    .mark(TreeRect::new().fill(col("region")).stroke("#ffffff"));
+
+    assert_visual_match(plot, "treemap_reserved_header_space").await;
+}
+
+#[tokio::test]
+async fn treemap_group_header_bars() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(deep_data()).unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "region", "team", "product"])
+            .value(sum(col("sales")))
+            .display_levels(3)
+            .header_bars(TreemapHeaderBars::enabled().height_px(24.0)),
+    )
+    .data(df)
+    .plot_size(560.0, 320.0)
+    .mark(TreeRect::new().fill(col("region")).stroke("#ffffff"))
+    .mark(
+        TreeHeader::new()
+            .fill(col("division"))
+            .stroke("#ffffff")
+            .text_color("#ffffff")
+            .font_weight("bold"),
+    )
+    .mark(
+        TreeLabel::new()
+            .font_size(14.0)
+            .font_weight("bold")
+            .color("#ffffff"),
+    );
+
+    assert_visual_match(plot, "treemap_group_header_bars").await;
+}
+
+#[tokio::test]
+async fn treemap_group_header_bars_long_labels() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(long_label_data()).unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "region", "team", "product"])
+            .value(sum(col("sales")))
+            .display_levels(3)
+            .header_bars(TreemapHeaderBars::enabled().height_px(24.0)),
+    )
+    .data(df)
+    .plot_size(620.0, 340.0)
+    .mark(TreeRect::new().fill(col("region")).stroke("#ffffff"))
+    .mark(
+        TreeHeader::new()
+            .fill(col("division"))
+            .stroke("#ffffff")
+            .text_color("#ffffff")
+            .font_weight("bold"),
+    )
+    .mark(
+        TreeLabel::new()
+            .font_size(13.0)
+            .font_weight("bold")
+            .color("#ffffff"),
+    );
+
+    assert_visual_match(plot, "treemap_group_header_bars_long_labels").await;
 }
 
 #[tokio::test]

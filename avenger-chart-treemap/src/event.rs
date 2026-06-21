@@ -12,6 +12,7 @@ pub const HIERARCHY_SURFACE_KIND_LEAF_RECT: &str = "leaf-rect";
 pub const HIERARCHY_SURFACE_KIND_NODE_RECT: &str = "node-rect";
 pub const HIERARCHY_SURFACE_KIND_COLLAPSED_RECT: &str = "collapsed-rect";
 pub const HIERARCHY_SURFACE_KIND_NODE_LABEL: &str = "node-label";
+pub const HIERARCHY_SURFACE_KIND_NODE_HEADER: &str = "node-header";
 pub const HIERARCHY_SURFACE_KIND_GUIDE_HEADER: &str = "guide-header";
 pub const HIERARCHY_SURFACE_KIND_BREADCRUMB: &str = "breadcrumb";
 pub const HIERARCHY_PATH_ID_FIELD: &str = "__hierarchy_path_id";
@@ -65,6 +66,8 @@ pub(crate) fn tree_rect_event_datum_field_specs() -> Vec<EventDatumFieldSpec> {
         spec(HIERARCHY_HAS_HIDDEN_DESCENDANTS_FIELD, DataType::Boolean),
         spec(HIERARCHY_CAN_ZOOM_FIELD, DataType::Boolean),
         spec(HIERARCHY_VALUE_FIELD, DataType::Float64),
+        spec(HIERARCHY_TITLE_FIELD, DataType::Utf8),
+        spec(HIERARCHY_LEVEL_NAME_FIELD, DataType::Utf8),
         spec(TREEMAP_RECT_X_FIELD, DataType::Float64),
         spec(TREEMAP_RECT_Y_FIELD, DataType::Float64),
         spec(TREEMAP_RECT_WIDTH_FIELD, DataType::Float64),
