@@ -290,6 +290,7 @@ impl SvgRenderer {
                 text,
                 target,
                 label,
+                defined,
                 align,
                 baseline,
                 angle,
@@ -316,6 +317,7 @@ impl SvgRenderer {
             mark.text_iter(),
             mark.target_position_iter(),
             mark.label_position_iter(),
+            mark.defined_iter(),
             mark.align_iter(),
             mark.baseline_iter(),
             mark.angle_iter(),
@@ -340,6 +342,10 @@ impl SvgRenderer {
         )
         .enumerate()
         {
+            if !*defined {
+                continue;
+            }
+
             let output_font = resolve_font_family_for_output(
                 font,
                 font_weight,

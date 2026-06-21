@@ -21,6 +21,8 @@ pub struct SceneTextMark {
     pub text: ScalarOrArray<String>,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
+    #[serde(default = "default_true_bool_channel")]
+    pub defined: ScalarOrArray<bool>,
     #[serde(default = "default_zero_f32_channel")]
     pub dx: ScalarOrArray<f32>,
     #[serde(default = "default_zero_f32_channel")]
@@ -88,6 +90,10 @@ fn default_false_bool_channel() -> ScalarOrArray<bool> {
     ScalarOrArray::new_scalar(false)
 }
 
+fn default_true_bool_channel() -> ScalarOrArray<bool> {
+    ScalarOrArray::new_scalar(true)
+}
+
 fn default_leader_stroke_channel() -> ScalarOrArray<ColorOrGradient> {
     ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.7]))
 }
@@ -117,6 +123,10 @@ impl SceneTextMark {
     }
     pub fn y_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.y.as_iter(self.len as usize, self.indices.as_ref())
+    }
+    pub fn defined_iter(&self) -> Box<dyn Iterator<Item = &bool> + '_> {
+        self.defined
+            .as_iter(self.len as usize, self.indices.as_ref())
     }
     pub fn dx_iter(&self) -> Box<dyn Iterator<Item = &f32> + '_> {
         self.dx.as_iter(self.len as usize, self.indices.as_ref())
@@ -240,6 +250,7 @@ impl Default for SceneTextMark {
             text: ScalarOrArray::new_scalar(String::new()),
             x: ScalarOrArray::new_scalar(0.0),
             y: ScalarOrArray::new_scalar(0.0),
+            defined: ScalarOrArray::new_scalar(true),
             dx: ScalarOrArray::new_scalar(0.0),
             dy: ScalarOrArray::new_scalar(0.0),
             align: ScalarOrArray::new_scalar(TextAlign::Left),

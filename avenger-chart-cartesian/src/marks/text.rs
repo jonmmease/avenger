@@ -147,6 +147,12 @@ impl CompiledMarkCore for CompiledCartesianText {
                 allow_column_ref: true,
             },
             ChannelDescriptor {
+                name: "defined",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
                 name: "dx",
                 required: false,
                 default_value: None,
@@ -265,6 +271,7 @@ impl CompiledMarkCore for CompiledCartesianText {
                 | "baseline"
                 | "font_weight"
                 | "font_style"
+                | "defined"
                 | "dx"
                 | "dy"
                 | "leader"
@@ -366,6 +373,8 @@ impl CompiledMark for CompiledCartesianText {
             1.0,
         )?;
         let color = apply_opacity_to_color_channel(color, &opacity, len as usize);
+        let defined =
+            coerce_bool_channel_with_renderer(self, data, scalars, "defined", &mark_context, true)?;
         let leader =
             coerce_bool_channel_with_renderer(self, data, scalars, "leader", &mark_context, false)?;
         let leader_stroke = coerce_color_channel_with_renderer(
@@ -467,6 +476,7 @@ impl CompiledMark for CompiledCartesianText {
                 text,
                 x: position.x,
                 y: position.y,
+                defined,
                 dx,
                 dy,
                 align,

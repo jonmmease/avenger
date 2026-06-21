@@ -238,3 +238,20 @@ fn test_text_rtree() {
     // let instance = rtree.locate_at_point(&[0.0, 0.0]).unwrap();
     // assert_eq!(instance.instance_index, Some(0));
 }
+
+#[test]
+fn test_text_defined_false_omits_geometry() {
+    let mark = SceneTextMark {
+        len: 2,
+        x: vec![0.0, 100.0].into(),
+        y: vec![0.0, 0.0].into(),
+        text: vec!["visible".to_string(), "hidden".to_string()].into(),
+        defined: vec![true, false].into(),
+        ..Default::default()
+    };
+
+    let geometries: Vec<_> = mark.geometry_iter(vec![0], [0.0, 0.0]).collect();
+
+    assert_eq!(geometries.len(), 1);
+    assert_eq!(geometries[0].mark_instance.instance_index, Some(0));
+}

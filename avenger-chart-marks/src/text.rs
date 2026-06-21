@@ -84,6 +84,10 @@ where
         self.with_channel_value("limit", value.into().no_scale())
     }
 
+    pub fn defined<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("defined", value.into().no_scale())
+    }
+
     pub fn dx<V: Into<ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("dx", value.into().no_scale())
     }
@@ -139,6 +143,7 @@ pub fn text_channel_defaults(channel: &str) -> Option<ScalarValue> {
         "font_weight" => Some(ScalarValue::Utf8(Some("normal".to_string()))),
         "font_style" => Some(ScalarValue::Utf8(Some("normal".to_string()))),
         "limit" => Some(ScalarValue::Float32(Some(0.0))),
+        "defined" => Some(ScalarValue::Boolean(Some(true))),
         "dx" => Some(ScalarValue::Float32(Some(0.0))),
         "dy" => Some(ScalarValue::Float32(Some(0.0))),
         "leader" => Some(ScalarValue::Boolean(Some(false))),

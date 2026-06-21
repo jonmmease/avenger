@@ -11,7 +11,7 @@ use avenger_scenegraph::marks::{
 };
 use datafusion::{
     arrow::{
-        array::{Float64Array, StringArray},
+        array::{BooleanArray, Float64Array, StringArray},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
@@ -218,6 +218,7 @@ async fn rule_and_text_channel_descriptors_expose_scene_mark_channels() {
     for name in [
         "dx",
         "dy",
+        "defined",
         "leader",
         "leader_stroke",
         "leader_stroke_width",
@@ -615,6 +616,7 @@ async fn text_leader_channels_compile_to_scene_mark_fields() {
             .x(0.0)
             .y(0.0)
             .text("label")
+            .defined(false)
             .dx(12.0)
             .dy(-8.0)
             .leader(true)
@@ -647,6 +649,7 @@ async fn text_leader_channels_compile_to_scene_mark_fields() {
     }
 
     let text = text_marks.first().expect("text mark");
+    assert_eq!(text.defined.as_vec(1, None), vec![false]);
     assert_eq!(text.dx.as_vec(1, None), vec![12.0]);
     assert_eq!(text.dy.as_vec(1, None), vec![-8.0]);
     assert_eq!(text.leader.as_vec(1, None), vec![true]);
@@ -674,6 +677,50 @@ async fn text_leader_channels_compile_to_scene_mark_fields() {
     assert_eq!(text.leader_arrow_width.as_vec(1, None), vec![7.0]);
     assert!(text.leader_stroke_dash.is_some());
     assert_eq!(alpha(&text.leader_stroke), 0.5);
+}
+
+#[tokio::test]
+async fn text_defined_channel_compiles_to_scene_mark_field() {
+    let ctx = SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("x", DataType::Float64, false),
+            Field::new("y", DataType::Float64, false),
+            Field::new("label", DataType::Utf8, false),
+            Field::new("show", DataType::Boolean, false),
+        ])),
+        vec![
+            Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0])),
+            Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0])),
+            Arc::new(StringArray::from(vec!["a", "b", "c"])),
+            Arc::new(BooleanArray::from(vec![true, false, true])),
+        ],
+    )
+    .unwrap();
+    let df = ctx.read_batch(batch).unwrap();
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Text::new()
+            .x(col("x"))
+            .y(col("y"))
+            .text(col("label"))
+            .defined(ChannelValue::from(col("show")).no_scale()),
+    );
+
+    let evaluated = plot
+        .compile(&ctx)
+        .await
+        .unwrap()
+        .evaluate(&ctx, None)
+        .await
+        .unwrap();
+
+    let mut text_marks = Vec::new();
+    for mark in &evaluated.scene_graph.marks {
+        collect_text(mark, &mut text_marks);
+    }
+
+    let text = text_marks.first().expect("text mark");
+    assert_eq!(text.defined.as_vec(3, None), vec![true, false, true]);
 }
 
 fn alpha(colors: &ScalarOrArray<ColorOrGradient>) -> f32 {

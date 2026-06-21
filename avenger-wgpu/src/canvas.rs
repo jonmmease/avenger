@@ -293,6 +293,7 @@ pub trait Canvas {
             mark.text_iter(),
             mark.target_position_iter(),
             mark.label_position_iter(),
+            mark.defined_iter(),
             mark.color_iter(),
             mark.align_iter(),
             mark.angle_iter(),
@@ -323,6 +324,7 @@ pub trait Canvas {
                     text,
                     target,
                     label,
+                    defined,
                     color,
                     align,
                     angle,
@@ -346,6 +348,10 @@ pub trait Canvas {
                     leader_arrow_width,
                 ),
             )| {
+                if !*defined {
+                    return Ok(Vec::new());
+                }
+
                 let use_nearest_filter = is_axis_aligned_angle(*angle);
                 let label = [label[0] + origin[0], label[1] + origin[1]];
                 let instance = TextInstance {

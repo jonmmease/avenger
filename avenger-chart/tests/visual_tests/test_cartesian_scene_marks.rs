@@ -134,28 +134,39 @@ fn text_style_data() -> DataFrame {
 }
 
 fn text_leader_geometry_data() -> DataFrame {
-    let x = Float64Array::from(vec![0.6, 1.4, 2.2, 3.0, 0.8, 1.6, 2.4, 3.2, 0.9, 2.6]);
-    let y = Float64Array::from(vec![2.35, 2.35, 2.35, 2.35, 1.5, 1.5, 1.5, 1.5, 0.5, 0.5]);
+    let x = Float64Array::from(vec![0.6, 1.4, 2.2, 3.0, 0.8, 1.6, 2.4, 3.2, 0.9, 2.6, 3.6]);
+    let y = Float64Array::from(vec![
+        2.35, 2.35, 2.35, 2.35, 1.5, 1.5, 1.5, 1.5, 0.5, 0.5, 2.35,
+    ]);
     let label = StringArray::from(vec![
         "right", "left", "above", "below", "elbow", "curve", "rotated", "inside", "min", "off",
+        "hidden",
     ]);
     let dx = Float64Array::from(vec![
-        70.0, -70.0, 0.0, 0.0, 65.0, -65.0, 60.0, 10.0, 42.0, 75.0,
+        70.0, -70.0, 0.0, 0.0, 65.0, -65.0, 60.0, 10.0, 42.0, 75.0, -80.0,
     ]);
     let dy = Float64Array::from(vec![
-        0.0, 0.0, -34.0, 42.0, -42.0, 42.0, 38.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, -34.0, 42.0, -42.0, 42.0, 38.0, 0.0, 0.0, 0.0, 0.0,
     ]);
     let shape = StringArray::from(vec![
         "straight", "straight", "straight", "straight", "elbow", "curved", "curved", "straight",
-        "straight", "straight",
+        "straight", "straight", "straight",
     ]);
-    let angle = Float64Array::from(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -25.0, 0.0, 0.0, 0.0]);
+    let angle = Float64Array::from(vec![
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -25.0, 0.0, 0.0, 0.0, 0.0,
+    ]);
     let leader = BooleanArray::from(vec![
-        true, true, true, true, true, true, true, true, true, false,
+        true, true, true, true, true, true, true, true, true, false, true,
     ]);
-    let label_padding = Float64Array::from(vec![2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 18.0, 2.0, 2.0]);
-    let target_radius = Float64Array::from(vec![0.0, 0.0, 0.0, 0.0, 0.0, 6.0, 5.0, 0.0, 0.0, 0.0]);
-    let min_length = Float64Array::from(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 90.0, 1.0]);
+    let defined = BooleanArray::from(vec![
+        true, true, true, true, true, true, true, true, true, true, false,
+    ]);
+    let label_padding =
+        Float64Array::from(vec![2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 18.0, 2.0, 2.0, 2.0]);
+    let target_radius =
+        Float64Array::from(vec![0.0, 0.0, 0.0, 0.0, 0.0, 6.0, 5.0, 0.0, 0.0, 0.0, 0.0]);
+    let min_length =
+        Float64Array::from(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 90.0, 1.0, 1.0]);
 
     let schema = Arc::new(Schema::new(vec![
         Field::new("x", DataType::Float64, false),
@@ -166,6 +177,7 @@ fn text_leader_geometry_data() -> DataFrame {
         Field::new("shape", DataType::Utf8, false),
         Field::new("angle", DataType::Float64, false),
         Field::new("leader", DataType::Boolean, false),
+        Field::new("defined", DataType::Boolean, false),
         Field::new("label_padding", DataType::Float64, false),
         Field::new("target_radius", DataType::Float64, false),
         Field::new("min_length", DataType::Float64, false),
@@ -182,6 +194,7 @@ fn text_leader_geometry_data() -> DataFrame {
             Arc::new(shape),
             Arc::new(angle),
             Arc::new(leader),
+            Arc::new(defined),
             Arc::new(label_padding),
             Arc::new(target_radius),
             Arc::new(min_length),
@@ -612,6 +625,7 @@ async fn test_cartesian_text_leader_geometry_and_offsets() {
                 .dy(ChannelValue::from(col("dy")).no_scale())
                 .angle_with(col("angle"), |c| c.no_scale())
                 .leader(ChannelValue::from(col("leader")).no_scale())
+                .defined(ChannelValue::from(col("defined")).no_scale())
                 .leader_shape(ChannelValue::from(col("shape")).no_scale())
                 .leader_label_padding(ChannelValue::from(col("label_padding")).no_scale())
                 .leader_target_radius(ChannelValue::from(col("target_radius")).no_scale())

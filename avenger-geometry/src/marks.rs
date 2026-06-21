@@ -376,6 +376,7 @@ impl MarkGeometryUtils for SceneTextMark {
                 self.text_iter(),
                 self.target_position_iter(),
                 self.label_position_iter(),
+                self.defined_iter(),
                 self.angle_iter(),
                 self.font_iter(),
                 self.font_size_iter(),
@@ -395,7 +396,7 @@ impl MarkGeometryUtils for SceneTextMark {
                 self.leader_arrow_width_iter()
             )
             .enumerate()
-            .map(
+            .filter_map(
                 move |(
                     z_index,
                     (
@@ -403,6 +404,7 @@ impl MarkGeometryUtils for SceneTextMark {
                         text,
                         target,
                         label,
+                        defined,
                         angle,
                         font,
                         font_size,
@@ -422,6 +424,10 @@ impl MarkGeometryUtils for SceneTextMark {
                         leader_arrow_width,
                     ),
                 )| {
+                    if !*defined {
+                        return None;
+                    }
+
                     let text = truncate_text_to_limit(
                         text,
                         *limit,
@@ -484,7 +490,7 @@ impl MarkGeometryUtils for SceneTextMark {
                         Geometry::GeometryCollection(GeometryCollection(geometries))
                     };
 
-                    GeometryInstance {
+                    Some(GeometryInstance {
                         mark_instance: MarkInstance {
                             name: name.clone(),
                         mark_path: mark_path.clone(),
@@ -494,7 +500,7 @@ impl MarkGeometryUtils for SceneTextMark {
                         z_index,
                         geometry,
                         half_stroke_width,
-                    }
+                    })
                 },
             ),
         )
