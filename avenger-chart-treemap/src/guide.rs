@@ -12,6 +12,12 @@ use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{
     group::Clip, mark::SceneMark, rect::SceneRectMark, text::SceneTextMark,
 };
+use avenger_text::{
+    measurement::{
+        TextMeasurementConfig, TextMeasurer, default_text_measurer, truncate_text_to_limit_with,
+    },
+    types::{FontStyle, FontWeight, FontWeightNameSpec},
+};
 use datafusion::{
     arrow::{
         array::{ArrayRef, BooleanArray, Float64Array, Int64Array, StringArray},
@@ -40,6 +46,8 @@ use crate::{
 const HEADER_HEIGHT: f32 = 18.0;
 const BREADCRUMB_HEIGHT: f32 = 20.0;
 const BREADCRUMB_GAP: f32 = 4.0;
+const GUIDE_TEXT_INSET: f32 = 4.0;
+const GUIDE_TEXT_FONT_SIZE: f32 = 10.0;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TreemapGuide {
@@ -252,6 +260,7 @@ fn header_nodes(measurement: &TreemapCoordMeasurement) -> Vec<&VisibleTreemapNod
         .visible_nodes()
         .iter()
         .filter(|node| node.node.path_id != ROOT_PATH_ID && !node.node.child_path_ids.is_empty())
+        .filter(|node| node.node.depth == node.view_depth + 1)
         .collect()
 }
 
@@ -336,21 +345,21 @@ fn make_header_hit_rect(plot_bounds: &LayoutBounds, nodes: &[&VisibleTreemapNode
 }
 
 fn make_header_text(plot_bounds: &LayoutBounds, nodes: &[&VisibleTreemapNode]) -> SceneMark {
+    let labels = truncate_labels(
+        nodes
+            .iter()
+            .map(|node| (node.node.label.as_str(), guide_text_limit(node.rect.width))),
+    );
     let mut mark = SceneTextMark {
         name: "treemap_header".to_string(),
         interactive: true,
         clip: false,
         len: nodes.len() as u32,
-        text: ScalarOrArray::from(
-            nodes
-                .iter()
-                .map(|node| node.node.label.clone())
-                .collect::<Vec<_>>(),
-        ),
+        text: ScalarOrArray::from(labels),
         x: ScalarOrArray::from(
             nodes
                 .iter()
-                .map(|node| plot_bounds.x + node.rect.x + 4.0)
+                .map(|node| plot_bounds.x + node.rect.x + GUIDE_TEXT_INSET)
                 .collect::<Vec<_>>(),
         ),
         y: ScalarOrArray::from(
@@ -362,7 +371,7 @@ fn make_header_text(plot_bounds: &LayoutBounds, nodes: &[&VisibleTreemapNode]) -
         limit: ScalarOrArray::from(
             nodes
                 .iter()
-                .map(|node| (node.rect.width - 8.0).max(0.0))
+                .map(|node| guide_text_limit(node.rect.width))
                 .collect::<Vec<_>>(),
         ),
         zindex: Some(31),
@@ -397,30 +406,59 @@ fn make_breadcrumb_hit_rect(plot_bounds: &LayoutBounds, nodes: &[TreemapNode]) -
 
 fn make_breadcrumb_text(plot_bounds: &LayoutBounds, nodes: &[TreemapNode]) -> SceneMark {
     let (x, width) = breadcrumb_positions(plot_bounds, nodes);
-    let text = nodes
-        .iter()
-        .map(|node| {
-            if node.path_id == ROOT_PATH_ID {
-                "All".to_string()
-            } else {
-                node.label.clone()
-            }
-        })
-        .collect::<Vec<_>>();
+    let text = truncate_labels(nodes.iter().zip(width.iter()).map(|(node, width)| {
+        let label = if node.path_id == ROOT_PATH_ID {
+            "All"
+        } else {
+            node.label.as_str()
+        };
+        (label, guide_text_limit(*width))
+    }));
     let mut mark = SceneTextMark {
         name: "treemap_breadcrumb".to_string(),
         interactive: true,
         clip: false,
         len: nodes.len() as u32,
         text: ScalarOrArray::from(text),
-        x: ScalarOrArray::from(x.iter().map(|x| *x + 4.0).collect::<Vec<_>>()),
+        x: ScalarOrArray::from(x.iter().map(|x| *x + GUIDE_TEXT_INSET).collect::<Vec<_>>()),
         y: ScalarOrArray::new_scalar(plot_bounds.y - BREADCRUMB_GAP - 5.0),
-        limit: ScalarOrArray::from(width.iter().map(|width| width - 8.0).collect::<Vec<_>>()),
+        limit: ScalarOrArray::from(
+            width
+                .iter()
+                .map(|width| guide_text_limit(*width))
+                .collect::<Vec<_>>(),
+        ),
         zindex: Some(33),
         ..SceneTextMark::default()
     };
     mark.color = ScalarOrArray::new_scalar(ColorOrGradient::Color([0.16, 0.16, 0.16, 1.0]));
     SceneMark::from(mark)
+}
+
+fn guide_text_limit(width: f32) -> f32 {
+    (width - GUIDE_TEXT_INSET * 2.0).max(0.0)
+}
+
+fn truncate_labels<'a>(labels: impl IntoIterator<Item = (&'a str, f32)>) -> Vec<String> {
+    let measurer = default_text_measurer();
+    let font_weight = FontWeight::Name(FontWeightNameSpec::Normal);
+    let font_style = FontStyle::Normal;
+    labels
+        .into_iter()
+        .map(|(label, limit)| {
+            truncate_text_to_limit_with(label, limit, |candidate| {
+                measurer
+                    .measure_text_bounds(&TextMeasurementConfig {
+                        text: candidate,
+                        font: "sans-serif",
+                        font_size: GUIDE_TEXT_FONT_SIZE,
+                        font_weight: &font_weight,
+                        font_style: &font_style,
+                    })
+                    .width
+            })
+        })
+        .collect()
 }
 
 fn breadcrumb_positions(plot_bounds: &LayoutBounds, nodes: &[TreemapNode]) -> (Vec<f32>, Vec<f32>) {

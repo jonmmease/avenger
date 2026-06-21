@@ -7,7 +7,11 @@ use arrow::{
 };
 use avenger_chart::plot::Plot;
 use avenger_chart_treemap::{TreeRect, Treemap, TreemapGuide};
-use datafusion::{functions_aggregate::expr_fn::sum, logical_expr::col, prelude::SessionContext};
+use datafusion::{
+    functions_aggregate::expr_fn::sum,
+    logical_expr::{col, lit},
+    prelude::SessionContext,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -48,7 +52,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(Float64Array::from(vec![42.0, 28.0, 35.0, 25.0, 30.0])),
         ],
     )?;
-    let df = ctx.read_batch(data)?;
+    let df = ctx.read_batch(data.clone())?;
+    let mark_df = ctx
+        .read_batch(data)?
+        .filter(col("division").eq(lit("Enterprise")))?;
 
     let evaluated = Plot::with_coord(
         Treemap::new()
@@ -65,7 +72,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .separators(true)
             .breadcrumbs(true),
     )
-    .mark(TreeRect::new().fill(col("region")).stroke("#ffffff"))
+    .mark(
+        TreeRect::new()
+            .data(mark_df)
+            .fill(col("region"))
+            .stroke("#ffffff"),
+    )
     .compile(&ctx)
     .await?
     .evaluate(&ctx, None)

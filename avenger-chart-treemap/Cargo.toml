@@ -9,6 +9,7 @@ avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-text = { path = "../avenger-text" }
 async-trait = { workspace = true }
 datafusion = { workspace = true }
 datafusion-proto = "48.0.1"
@@ -19,5 +20,8 @@ typetag = "0.2"
 
 [dev-dependencies]
 avenger-chart = { path = "../avenger-chart" }
+avenger-wgpu = { path = "../avenger-wgpu" }
 arrow = { workspace = true }
+image = { workspace = true }
+image-compare = "0.4"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
