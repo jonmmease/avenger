@@ -12,11 +12,17 @@ use avenger_scenegraph::marks::{
     rule::SceneRuleMark,
     symbol::SceneSymbolMark,
     text::SceneTextMark,
+    text_leader::{
+        compute_text_leader_geometry, TextLeaderArrowhead, TextLeaderGeometry,
+        TextLeaderGeometryInput, TextLeaderPath,
+    },
     trail::SceneTrailMark,
 };
-use avenger_text::measurement::{default_text_measurer, TextMeasurementConfig, TextMeasurer};
+use avenger_text::measurement::{
+    default_text_measurer, truncate_text_to_limit_with, TextMeasurementConfig, TextMeasurer,
+};
 use geo::{Rotate, Scale, Translate};
-use geo_types::{coord, Geometry, Rect};
+use geo_types::{coord, Geometry, GeometryCollection, LineString, Polygon, Rect};
 use itertools::izip;
 use lyon_algorithms::aabb::bounding_box;
 use rstar::{Envelope, RTreeObject, AABB};
@@ -368,15 +374,25 @@ impl MarkGeometryUtils for SceneTextMark {
             izip!(
                 self.indices_iter(),
                 self.text_iter(),
-                self.x_iter(),
-                self.y_iter(),
+                self.target_position_iter(),
+                self.label_position_iter(),
                 self.angle_iter(),
                 self.font_iter(),
                 self.font_size_iter(),
                 self.font_weight_iter(),
                 self.font_style_iter(),
                 self.align_iter(),
-                self.baseline_iter()
+                self.baseline_iter(),
+                self.limit_iter(),
+                self.leader_iter(),
+                self.leader_stroke_width_iter(),
+                self.leader_label_padding_iter(),
+                self.leader_target_radius_iter(),
+                self.leader_min_length_iter(),
+                self.leader_shape_iter(),
+                self.leader_arrow_iter(),
+                self.leader_arrow_length_iter(),
+                self.leader_arrow_width_iter()
             )
             .enumerate()
             .map(
@@ -385,8 +401,8 @@ impl MarkGeometryUtils for SceneTextMark {
                     (
                         id,
                         text,
-                        x,
-                        y,
+                        target,
+                        label,
                         angle,
                         font,
                         font_size,
@@ -394,102 +410,79 @@ impl MarkGeometryUtils for SceneTextMark {
                         font_style,
                         align,
                         baseline,
+                        limit,
+                        leader,
+                        leader_stroke_width,
+                        leader_label_padding,
+                        leader_target_radius,
+                        leader_min_length,
+                        leader_shape,
+                        leader_arrow,
+                        leader_arrow_length,
+                        leader_arrow_width,
                     ),
                 )| {
-                    let config = TextMeasurementConfig {
+                    let text = truncate_text_to_limit(
                         text,
+                        *limit,
+                        font,
+                        *font_size,
+                        font_weight,
+                        font_style,
+                        &measurer,
+                    );
+                    let config = TextMeasurementConfig {
+                        text: &text,
                         font,
                         font_size: *font_size,
                         font_weight,
                         font_style,
                     };
 
+                    let target = [target[0] + origin[0], target[1] + origin[1]];
+                    let label = [label[0] + origin[0], label[1] + origin[1]];
                     let text_bounds = measurer.measure_text_bounds(&config);
-                    let local_origin = text_bounds.calculate_origin(
-                        [*x + origin[0], *y + origin[1]],
-                        align,
-                        baseline,
-                    );
+                    let local_origin = text_bounds.calculate_origin(label, align, baseline);
 
                     let bounds = Rect::new(
                         coord!(x: local_origin[0], y: local_origin[1]),
-                        coord!(x: local_origin[0] + text_bounds.width, y: local_origin[1] + text_bounds.line_height),
+                        coord!(x: local_origin[0] + text_bounds.width, y: local_origin[1] + text_bounds.height),
                     );
 
-                    let geometry = Geometry::Rect(bounds)
-                        .rotate_around_point(*angle, geo::Point::new(*x + origin[0], *y + origin[1]));
+                    let mut geometries = vec![
+                        Geometry::Rect(bounds)
+                            .rotate_around_point(*angle, geo::Point::new(label[0], label[1])),
+                    ];
+                    let mut half_stroke_width: f32 = 1.0;
 
-                    // Experimental: use glyph bounding boxes instead of rect
-                    // // Check if we have path data for every glyph
-                    // let has_any_path_data = text_buffer
-                    //     .glyphs
-                    //     .iter()
-                    //     .any(|(glyph_data, _)| glyph_data.path.is_some());
-                    //
-                    // // Build up the text polygon by unioning the glyph bounding boxes
-                    // let mut text_poly = geo::MultiPolygon::<f32>::new(vec![]);
-                    // 
-                    // let geometry = if false {
-                    //     for (glyph_data, phys_pos) in text_buffer.glyphs {
-                    //         let glyph_bbox_poly = if let Some(path) = &glyph_data.path {
-                    //             let glyph_bbox = match path.as_geo_type(0.0, true) {
-                    //                 geo::Geometry::Polygon(poly) => geo::MultiPolygon::new(vec![poly]),
-                    //                 geo::Geometry::MultiPolygon(mpoly) => mpoly,
-                    //                 g => panic!("Expected polygon or multipolygon: {:?}", g),
-                    //             };
-                    //             // Use bounding rect around the glyph, expanded by a pixel in all directions
-                    //             let mut glyph_bbox = glyph_bbox.bounding_rect().unwrap();
-                    //             glyph_bbox.set_max(coord!(x: glyph_bbox.max().x + 1.0, y: glyph_bbox.max().y + 1.0));
-                    //             glyph_bbox.set_min(coord!(x: glyph_bbox.min().x - 1.0, y: glyph_bbox.min().y - 1.0));
-                    //      
-                    //             geo::MultiPolygon::new(vec![
-                    //                 glyph_bbox.to_polygon(),
-                    //             ])
-                    //         } else {
-                    //             let glyph_bbox = glyph_data.bbox;
-                    //             geo::MultiPolygon::new(vec![geo::Polygon::new(
-                    //                     geo::LineString::new(vec![
-                    //                         geo::Coord {
-                    //                             x: glyph_bbox.left as f32 - 1.0,
-                    //                             y: -glyph_bbox.top as f32 - 1.0,
-                    //                         },
-                    //                         geo::Coord {
-                    //                             x: glyph_bbox.left as f32 + glyph_bbox.width as f32 + 1.0,
-                    //                             y: -glyph_bbox.top as f32 - 1.0,
-                    //                         },
-                    //                         geo::Coord {
-                    //                             x: glyph_bbox.left as f32 + glyph_bbox.width as f32 + 1.0,
-                    //                             y: -glyph_bbox.top as f32 + glyph_bbox.height as f32 + 1.0,
-                    //                         },
-                    //                         geo::Coord {
-                    //                             x: glyph_bbox.left as f32 - 1.0,
-                    //                             y: -glyph_bbox.top as f32 + glyph_bbox.height as f32 + 1.0,
-                    //                         },
-                    //                         geo::Coord {
-                    //                             x: glyph_bbox.left as f32 - 1.0,
-                    //                             y: -glyph_bbox.top as f32 - 1.0,
-                    //                         },
-                    //                     ]),
-                    //                     vec![],
-                    //                 )])
-                    //         }                               
-                    //          .translate(
-                    //             phys_pos.x + local_origin[0],
-                    //             phys_pos.y + local_origin[1] + text_buffer.text_bounds.height,
-                    //         );
-                    //         text_poly = text_poly.union(&glyph_bbox_poly);
-                    //     }
-                    //     Geometry::MultiPolygon(text_poly)
-                    //         .rotate_around_point(*angle, geo::Point::new(*x + origin[0], *y + origin[1]))
-                    // } else {
-                    //     let bounds = geo::Rect::new(
-                    //         coord!(x: local_origin[0], y: local_origin[1]),
-                    //         coord!(x: local_origin[0] + text_buffer.text_bounds.width, y: local_origin[1] + text_buffer.text_bounds.line_height),
-                    //     );
-                    // 
-                    //     Geometry::Rect(bounds)
-                    //         .rotate_around_point(*angle, geo::Point::new(*x + origin[0], *y + origin[1]))
-                    // };
+                    if *leader {
+                        if let Some(leader_geometry) =
+                            compute_text_leader_geometry(TextLeaderGeometryInput {
+                                target,
+                                label_anchor: label,
+                                angle_degrees: *angle,
+                                text_bounds: &text_bounds,
+                                align,
+                                baseline,
+                                label_padding: *leader_label_padding,
+                                target_radius: *leader_target_radius,
+                                min_length: *leader_min_length,
+                                shape: *leader_shape,
+                                arrow: *leader_arrow,
+                                arrow_length: *leader_arrow_length,
+                                arrow_width: *leader_arrow_width,
+                            })
+                        {
+                            geometries.extend(text_leader_geometry_to_geo(&leader_geometry));
+                            half_stroke_width = half_stroke_width.max(*leader_stroke_width / 2.0);
+                        }
+                    }
+
+                    let geometry = if geometries.len() == 1 {
+                        geometries.pop().unwrap()
+                    } else {
+                        Geometry::GeometryCollection(GeometryCollection(geometries))
+                    };
 
                     GeometryInstance {
                         mark_instance: MarkInstance {
@@ -500,12 +493,108 @@ impl MarkGeometryUtils for SceneTextMark {
                         interactive: self.interactive,
                         z_index,
                         geometry,
-                        half_stroke_width: 1.0,
+                        half_stroke_width,
                     }
                 },
             ),
         )
     }
+}
+
+fn truncate_text_to_limit(
+    text: &str,
+    limit: f32,
+    font: &str,
+    font_size: f32,
+    font_weight: &avenger_text::types::FontWeight,
+    font_style: &avenger_text::types::FontStyle,
+    measurer: &impl TextMeasurer,
+) -> String {
+    truncate_text_to_limit_with(text, limit, |candidate| {
+        let config = TextMeasurementConfig {
+            text: candidate,
+            font,
+            font_size,
+            font_weight,
+            font_style,
+        };
+        measurer.measure_text_bounds(&config).width
+    })
+}
+
+fn text_leader_geometry_to_geo(geometry: &TextLeaderGeometry) -> Vec<Geometry<f32>> {
+    let mut geometries = vec![text_leader_path_to_geo(&geometry.spine)];
+    if let Some(arrowhead) = &geometry.arrowhead {
+        geometries.push(text_leader_arrowhead_to_geo(arrowhead));
+    }
+    geometries
+}
+
+fn text_leader_path_to_geo(path: &TextLeaderPath) -> Geometry<f32> {
+    match path {
+        TextLeaderPath::Line { start, end } => Geometry::LineString(LineString::from(vec![
+            point_tuple(*start),
+            point_tuple(*end),
+        ])),
+        TextLeaderPath::Polyline { points } => Geometry::LineString(LineString::from(
+            points.iter().copied().map(point_tuple).collect::<Vec<_>>(),
+        )),
+        TextLeaderPath::Cubic {
+            start,
+            ctrl1,
+            ctrl2,
+            end,
+        } => Geometry::LineString(LineString::from(
+            (0..=16)
+                .map(|i| {
+                    let t = i as f32 / 16.0;
+                    point_tuple(cubic_point(*start, *ctrl1, *ctrl2, *end, t))
+                })
+                .collect::<Vec<_>>(),
+        )),
+    }
+}
+
+fn text_leader_arrowhead_to_geo(arrowhead: &TextLeaderArrowhead) -> Geometry<f32> {
+    match arrowhead {
+        TextLeaderArrowhead::Open { left, right } => {
+            Geometry::GeometryCollection(GeometryCollection(vec![
+                Geometry::LineString(LineString::from(vec![
+                    point_tuple(left[0]),
+                    point_tuple(left[1]),
+                ])),
+                Geometry::LineString(LineString::from(vec![
+                    point_tuple(right[0]),
+                    point_tuple(right[1]),
+                ])),
+            ]))
+        }
+        TextLeaderArrowhead::Triangle { points } => {
+            let mut coords = points.iter().copied().map(point_tuple).collect::<Vec<_>>();
+            coords.push(point_tuple(points[0]));
+            Geometry::Polygon(Polygon::new(LineString::from(coords), vec![]))
+        }
+    }
+}
+
+fn cubic_point(
+    start: [f32; 2],
+    ctrl1: [f32; 2],
+    ctrl2: [f32; 2],
+    end: [f32; 2],
+    t: f32,
+) -> [f32; 2] {
+    let mt = 1.0 - t;
+    let mt2 = mt * mt;
+    let t2 = t * t;
+    [
+        mt2 * mt * start[0] + 3.0 * mt2 * t * ctrl1[0] + 3.0 * mt * t2 * ctrl2[0] + t2 * t * end[0],
+        mt2 * mt * start[1] + 3.0 * mt2 * t * ctrl1[1] + 3.0 * mt * t2 * ctrl2[1] + t2 * t * end[1],
+    ]
+}
+
+fn point_tuple(point: [f32; 2]) -> (f32, f32) {
+    (point[0], point[1])
 }
 
 impl MarkGeometryUtils for SceneGroup {

@@ -11,10 +11,7 @@ pub(crate) fn combine_paths<'a>(paths: impl IntoIterator<Item = &'a Path>) -> Pa
     builder.build()
 }
 
-pub(crate) fn dash_paths<'a>(
-    paths: impl IntoIterator<Item = &'a Path>,
-    stroke_dash: &[f32],
-) -> Path {
+pub fn dash_paths<'a>(paths: impl IntoIterator<Item = &'a Path>, stroke_dash: &[f32]) -> Path {
     let dash_pattern = stroke_dash
         .iter()
         .copied()

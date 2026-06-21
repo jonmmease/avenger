@@ -382,6 +382,7 @@ impl CompiledGuide for CompiledParallelGuide {
             limit: ScalarOrArray::new_scalar(0.0),
             indices: None,
             zindex: Some(4),
+            ..SceneTextMark::default()
         };
 
         marks.push(SceneMark::Rect(title_hit_rect));

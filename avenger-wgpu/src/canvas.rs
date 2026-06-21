@@ -3,15 +3,30 @@ use std::{sync::Arc, time::Instant};
 use avenger_common::{canvas::CanvasDimensions, types::LinearScaleAdjustment};
 use avenger_scenegraph::{
     marks::{
-        arc::SceneArcMark, area::SceneAreaMark, group::Clip, group::SceneGroup,
-        image::SceneImageMark, line::SceneLineMark, mark::SceneMark, path::ScenePathMark,
-        rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark,
+        arc::SceneArcMark,
+        area::SceneAreaMark,
+        group::Clip,
+        group::SceneGroup,
+        image::SceneImageMark,
+        line::SceneLineMark,
+        mark::SceneMark,
+        path::ScenePathMark,
+        rect::SceneRectMark,
+        rule::SceneRuleMark,
+        symbol::SceneSymbolMark,
+        text::SceneTextMark,
+        text_leader::{compute_text_leader_geometry, TextLeaderGeometryInput},
         trail::SceneTrailMark,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
-use avenger_text::FontResolutionOptions;
+use avenger_text::{
+    measurement::{
+        default_text_measurer, truncate_text_to_limit_with, TextMeasurementConfig, TextMeasurer,
+    },
+    FontResolutionOptions,
+};
 use itertools::izip;
 use wgpu::{
     Adapter, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, PowerPreference, Queue,
@@ -25,7 +40,7 @@ use crate::{
     error::AvengerWgpuError,
     marks::{
         instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer},
-        multi::{is_axis_aligned_angle, MultiMarkRenderer},
+        multi::{is_axis_aligned_angle, MultiMarkRenderer, TextLeaderRenderItem},
         symbol::{is_circle_only_symbol_mark, CircleSymbolShader, SymbolShader},
         text::{TextAtlasBuilderTrait, TextAtlasRegistration, TextInstance},
     },
@@ -59,6 +74,27 @@ impl CanvasDimensionUtils for CanvasDimensions {
             height: self.to_physical_height(),
         }
     }
+}
+
+fn truncate_text_to_limit(
+    text: &str,
+    limit: f32,
+    font: &str,
+    font_size: f32,
+    font_weight: &avenger_text::types::FontWeight,
+    font_style: &avenger_text::types::FontStyle,
+    measurer: &impl TextMeasurer,
+) -> String {
+    truncate_text_to_limit_with(text, limit, |candidate| {
+        let config = TextMeasurementConfig {
+            text: candidate,
+            font,
+            font_size,
+            font_weight,
+            font_style,
+        };
+        measurer.measure_text_bounds(&config).width
+    })
 }
 
 #[derive(Clone, Default)]
@@ -246,11 +282,17 @@ pub trait Canvas {
         // only the location of the call moved (the register_text math is unchanged), so
         // glyph bitmaps and baked UVs — and therefore rendered pixels — are identical.
         let dimensions = self.dimensions();
+        let text_measurer = default_text_measurer();
+        let leader_stroke_dash_values = mark
+            .leader_stroke_dash
+            .as_ref()
+            .map(|dash| dash.as_vec(mark.len as usize, mark.indices.as_ref()));
         let text_atlas_builder = self.text_atlas_builder();
+        let mut leaders = Vec::new();
         let registrations: Vec<TextAtlasRegistration> = izip!(
             mark.text_iter(),
-            mark.x_iter(),
-            mark.y_iter(),
+            mark.target_position_iter(),
+            mark.label_position_iter(),
             mark.color_iter(),
             mark.align_iter(),
             mark.angle_iter(),
@@ -260,26 +302,55 @@ pub trait Canvas {
             mark.font_weight_iter(),
             mark.font_style_iter(),
             mark.limit_iter(),
+            mark.leader_iter(),
+            mark.leader_stroke_iter(),
+            mark.leader_stroke_width_iter(),
+            mark.leader_stroke_cap_iter(),
+            mark.leader_stroke_join_iter(),
+            mark.leader_label_padding_iter(),
+            mark.leader_target_radius_iter(),
+            mark.leader_min_length_iter(),
+            mark.leader_shape_iter(),
+            mark.leader_arrow_iter(),
+            mark.leader_arrow_length_iter(),
+            mark.leader_arrow_width_iter(),
         )
+        .enumerate()
         .map(
             |(
-                text,
-                x,
-                y,
-                color,
-                align,
-                angle,
-                baseline,
-                font,
-                font_size,
-                font_weight,
-                font_style,
-                limit,
+                index,
+                (
+                    text,
+                    target,
+                    label,
+                    color,
+                    align,
+                    angle,
+                    baseline,
+                    font,
+                    font_size,
+                    font_weight,
+                    font_style,
+                    limit,
+                    leader,
+                    leader_stroke,
+                    leader_stroke_width,
+                    leader_stroke_cap,
+                    leader_stroke_join,
+                    leader_label_padding,
+                    leader_target_radius,
+                    leader_min_length,
+                    leader_shape,
+                    leader_arrow,
+                    leader_arrow_length,
+                    leader_arrow_width,
+                ),
             )| {
                 let use_nearest_filter = is_axis_aligned_angle(*angle);
+                let label = [label[0] + origin[0], label[1] + origin[1]];
                 let instance = TextInstance {
                     text,
-                    position: [*x + origin[0], *y + origin[1]],
+                    position: label,
                     color: &color.color_or_transparent(),
                     align,
                     angle: *angle,
@@ -291,6 +362,50 @@ pub trait Canvas {
                     limit: *limit,
                     use_nearest_filter,
                 };
+                if *leader {
+                    let rendered_text = truncate_text_to_limit(
+                        text,
+                        *limit,
+                        font,
+                        *font_size,
+                        font_weight,
+                        font_style,
+                        &text_measurer,
+                    );
+                    let text_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
+                        text: &rendered_text,
+                        font,
+                        font_size: *font_size,
+                        font_weight,
+                        font_style,
+                    });
+                    if let Some(geometry) = compute_text_leader_geometry(TextLeaderGeometryInput {
+                        target: [target[0] + origin[0], target[1] + origin[1]],
+                        label_anchor: label,
+                        angle_degrees: *angle,
+                        text_bounds: &text_bounds,
+                        align,
+                        baseline,
+                        label_padding: *leader_label_padding,
+                        target_radius: *leader_target_radius,
+                        min_length: *leader_min_length,
+                        shape: *leader_shape,
+                        arrow: *leader_arrow,
+                        arrow_length: *leader_arrow_length,
+                        arrow_width: *leader_arrow_width,
+                    }) {
+                        leaders.push(TextLeaderRenderItem {
+                            geometry,
+                            stroke: leader_stroke.clone(),
+                            stroke_width: *leader_stroke_width,
+                            stroke_cap: *leader_stroke_cap,
+                            stroke_join: *leader_stroke_join,
+                            stroke_dash: leader_stroke_dash_values
+                                .as_ref()
+                                .and_then(|values| values.get(index).cloned()),
+                        });
+                    }
+                }
                 text_atlas_builder.register_text(instance, dimensions)
             },
         )
@@ -301,6 +416,8 @@ pub trait Canvas {
 
         // The two borrows above (`text_atlas_builder`) and below (`get_multi_renderer`)
         // are sequential — `registrations` is owned — so there is no borrow conflict.
+        self.get_multi_renderer()
+            .add_text_leaders(leaders, group_clip, mark.clip)?;
         self.get_multi_renderer()
             .add_text_registrations(registrations, group_clip, mark.clip)?;
         Ok(())

@@ -79,6 +79,30 @@ pub enum AreaOrientation {
 impl_hash_for_scalar_or_array!(AreaOrientation);
 impl_hash_for_scalar_or_array!(ColorOrGradient);
 
+#[derive(Default, Debug, Copy, Clone, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum SceneTextLeaderShape {
+    #[default]
+    Straight,
+    Elbow,
+    Curved,
+}
+
+impl_hash_for_scalar_or_array!(SceneTextLeaderShape);
+
+#[derive(Default, Debug, Copy, Clone, Hash, PartialEq, Serialize, Deserialize, VariantNames)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum SceneTextLeaderArrow {
+    #[default]
+    None,
+    Open,
+    Triangle,
+}
+
+impl_hash_for_scalar_or_array!(SceneTextLeaderArrow);
+
 #[derive(Clone, Debug, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LinearScaleAdjustment {
     pub scale: f32,

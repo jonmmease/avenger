@@ -843,6 +843,7 @@ impl CompiledMark for CompiledTreeLabel {
                     limit: ScalarOrArray::from(limit),
                     indices: None,
                     zindex: self.state.zindex,
+                    ..SceneTextMark::default()
                 }))],
                 vec![source_row_indices],
                 vec![event_rows],
@@ -1456,6 +1457,7 @@ impl CompiledMark for CompiledTreeHeader {
                         limit: ScalarOrArray::from(text_limit),
                         indices: None,
                         zindex: text_zindex,
+                        ..SceneTextMark::default()
                     })),
                 ],
                 vec![source_row_indices.clone(), source_row_indices],

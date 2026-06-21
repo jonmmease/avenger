@@ -9,9 +9,18 @@ use avenger_common::{
     types::{PathTransform, StrokeCap, StrokeJoin},
 };
 use avenger_scenegraph::marks::{
-    arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
-    line::SceneLineMark, path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark,
-    symbol::SceneSymbolMark, trail::SceneTrailMark,
+    arc::SceneArcMark,
+    area::SceneAreaMark,
+    group::Clip,
+    image::SceneImageMark,
+    line::SceneLineMark,
+    path::ScenePathMark,
+    rect::SceneRectMark,
+    rule::SceneRuleMark,
+    stroke_dash::dash_paths,
+    symbol::SceneSymbolMark,
+    text_leader::{TextLeaderArrowhead, TextLeaderGeometry, TextLeaderPath},
+    trail::SceneTrailMark,
 };
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
@@ -27,7 +36,7 @@ use lyon::{
         LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex, StrokeVertexConstructor,
         VertexBuffers,
     },
-    path::{builder::BorderRadii, Winding},
+    path::{builder::BorderRadii, geom::point, Path, Winding},
 };
 use wgpu::{
     util::DeviceExt, BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue,
@@ -130,6 +139,15 @@ pub struct MultiMarkRenderer {
     gradient_atlas_builder: GradientAtlasBuilder,
     image_atlas_builder: ImageAtlasBuilder,
     dimensions: CanvasDimensions,
+}
+
+pub(crate) struct TextLeaderRenderItem {
+    pub geometry: TextLeaderGeometry,
+    pub stroke: ColorOrGradient,
+    pub stroke_width: f32,
+    pub stroke_cap: StrokeCap,
+    pub stroke_join: StrokeJoin,
+    pub stroke_dash: Option<Vec<f32>>,
 }
 
 #[derive(Clone)]
@@ -1376,6 +1394,43 @@ impl MultiMarkRenderer {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
+    pub(crate) fn add_text_leaders(
+        &mut self,
+        leaders: Vec<TextLeaderRenderItem>,
+        clip: &Clip,
+        mark_clip: bool,
+    ) -> Result<(), AvengerWgpuError> {
+        if leaders.is_empty() {
+            return Ok(());
+        }
+
+        let verts_inds = leaders
+            .iter()
+            .map(|leader| tessellate_text_leader(leader))
+            .collect::<Result<Vec<_>, AvengerWgpuError>>()?;
+
+        let start_ind = self.num_indices();
+        let inds_len: usize = verts_inds.iter().map(|(_, indices)| indices.len()).sum();
+        if inds_len == 0 {
+            return Ok(());
+        }
+        let indices_range = (start_ind as u32)..((start_ind + inds_len) as u32);
+
+        let batch = MultiMarkBatch {
+            indices_range,
+            clip: clip.maybe_clip(mark_clip),
+            clip_indices_range: self.add_clip_path(clip, mark_clip)?,
+            image_atlas_index: None,
+            gradient_atlas_index: None,
+            text_atlas_index: None,
+        };
+
+        self.verts_inds.extend(verts_inds);
+        self.batches.push(batch);
+        Ok(())
+    }
+
     fn num_indices(&self) -> usize {
         self.verts_inds.iter().map(|(_, inds)| inds.len()).sum()
     }
@@ -2228,6 +2283,135 @@ fn checkpoint_us(checkpoint: &mut Option<Instant>) -> u64 {
 
 fn us_to_ms(us: u64) -> f64 {
     us as f64 / 1000.0
+}
+
+fn tessellate_text_leader(
+    leader: &TextLeaderRenderItem,
+) -> Result<(Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
+    let stroke_color = match &leader.stroke {
+        ColorOrGradient::Color(color) => *color,
+        ColorOrGradient::GradientIndex(_) => [0.0, 0.0, 0.0, 0.0],
+    };
+    let spine_path = leader_path_to_lyon(&leader.geometry.spine);
+    let spine_path = if let Some(dash) = &leader.stroke_dash {
+        dash_paths(std::iter::once(&spine_path), dash)
+    } else {
+        spine_path
+    };
+
+    let bbox = bounding_box(&spine_path);
+    let mut buffers: VertexBuffers<MultiVertex, u32> = VertexBuffers::new();
+    let mut builder = BuffersBuilder::new(
+        &mut buffers,
+        VertexPositions {
+            fill: stroke_color,
+            stroke: stroke_color,
+            top_left: bbox.min.to_array(),
+            bottom_right: bbox.max.to_array(),
+        },
+    );
+
+    let mut stroke_tessellator = StrokeTessellator::new();
+    let stroke_options = StrokeOptions::default()
+        .with_tolerance(0.05)
+        .with_line_join(to_line_join(leader.stroke_join))
+        .with_line_cap(to_line_cap(leader.stroke_cap))
+        .with_line_width(leader.stroke_width.max(0.0));
+    stroke_tessellator.tessellate_path(&spine_path, &stroke_options, &mut builder)?;
+
+    if let Some(arrowhead) = &leader.geometry.arrowhead {
+        match arrowhead {
+            TextLeaderArrowhead::Open { .. } => {
+                let arrow_path = arrowhead_to_lyon(arrowhead);
+                let arrow_options = StrokeOptions::default()
+                    .with_tolerance(0.05)
+                    .with_line_join(to_line_join(leader.stroke_join))
+                    .with_line_cap(to_line_cap(leader.stroke_cap))
+                    .with_line_width(leader.stroke_width.max(0.0));
+                stroke_tessellator.tessellate_path(&arrow_path, &arrow_options, &mut builder)?;
+            }
+            TextLeaderArrowhead::Triangle { .. } => {
+                let arrow_path = arrowhead_to_lyon(arrowhead);
+                let mut fill_tessellator = FillTessellator::new();
+                let fill_options = FillOptions::default().with_tolerance(0.05);
+                fill_tessellator.tessellate_path(&arrow_path, &fill_options, &mut builder)?;
+            }
+        }
+    }
+
+    Ok((buffers.vertices, buffers.indices))
+}
+
+fn leader_path_to_lyon(path: &TextLeaderPath) -> Path {
+    let mut builder = Path::builder();
+    match path {
+        TextLeaderPath::Line { start, end } => {
+            builder.begin(point(start[0], start[1]));
+            builder.line_to(point(end[0], end[1]));
+            builder.end(false);
+        }
+        TextLeaderPath::Polyline { points } => {
+            if let Some(first) = points.first() {
+                builder.begin(point(first[0], first[1]));
+                for point_value in points.iter().skip(1) {
+                    builder.line_to(point(point_value[0], point_value[1]));
+                }
+                builder.end(false);
+            }
+        }
+        TextLeaderPath::Cubic {
+            start,
+            ctrl1,
+            ctrl2,
+            end,
+        } => {
+            builder.begin(point(start[0], start[1]));
+            builder.cubic_bezier_to(
+                point(ctrl1[0], ctrl1[1]),
+                point(ctrl2[0], ctrl2[1]),
+                point(end[0], end[1]),
+            );
+            builder.end(false);
+        }
+    }
+    builder.build()
+}
+
+fn arrowhead_to_lyon(arrowhead: &TextLeaderArrowhead) -> Path {
+    let mut builder = Path::builder();
+    match arrowhead {
+        TextLeaderArrowhead::Open { left, right } => {
+            builder.begin(point(left[0][0], left[0][1]));
+            builder.line_to(point(left[1][0], left[1][1]));
+            builder.end(false);
+            builder.begin(point(right[0][0], right[0][1]));
+            builder.line_to(point(right[1][0], right[1][1]));
+            builder.end(false);
+        }
+        TextLeaderArrowhead::Triangle { points } => {
+            builder.begin(point(points[0][0], points[0][1]));
+            builder.line_to(point(points[1][0], points[1][1]));
+            builder.line_to(point(points[2][0], points[2][1]));
+            builder.close();
+        }
+    }
+    builder.build()
+}
+
+fn to_line_cap(cap: StrokeCap) -> LineCap {
+    match cap {
+        StrokeCap::Butt => LineCap::Butt,
+        StrokeCap::Round => LineCap::Round,
+        StrokeCap::Square => LineCap::Square,
+    }
+}
+
+fn to_line_join(join: StrokeJoin) -> LineJoin {
+    match join {
+        StrokeJoin::Miter => LineJoin::Miter,
+        StrokeJoin::Round => LineJoin::Round,
+        StrokeJoin::Bevel => LineJoin::Bevel,
+    }
 }
 
 pub struct VertexPositions {

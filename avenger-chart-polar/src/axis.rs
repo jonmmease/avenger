@@ -602,6 +602,7 @@ impl PolarAxisEvaluateExt for PolarAxis {
                 indices: None,
                 interactive: true,
                 zindex: Some(0),
+                ..SceneTextMark::default()
             };
             marks.push(SceneMark::Text(Arc::new(text_mark)));
         }
@@ -868,6 +869,7 @@ impl PolarAxisEvaluateExt for PolarAxis {
                 indices: None,
                 interactive: true,
                 zindex: Some(0),
+                ..SceneTextMark::default()
             };
             marks.push(SceneMark::Text(Arc::new(text_mark)));
         }

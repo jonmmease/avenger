@@ -5,9 +5,22 @@ use avenger_common::types::{StrokeCap, StrokeJoin};
 use avenger_image::RgbaImage;
 use avenger_scenegraph::{
     marks::{
-        arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
-        line::SceneLineMark, mark::SceneMark, path::ScenePathMark, rect::SceneRectMark,
-        rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
+        arc::SceneArcMark,
+        area::SceneAreaMark,
+        group::Clip,
+        image::SceneImageMark,
+        line::SceneLineMark,
+        mark::SceneMark,
+        path::ScenePathMark,
+        rect::SceneRectMark,
+        rule::SceneRuleMark,
+        symbol::SceneSymbolMark,
+        text::SceneTextMark,
+        text_leader::{
+            compute_text_leader_geometry, TextLeaderArrowhead, TextLeaderGeometry,
+            TextLeaderGeometryInput, TextLeaderPath,
+        },
+        trail::SceneTrailMark,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -267,23 +280,42 @@ impl SvgRenderer {
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
         let text_measurer = default_text_measurer();
+        let leader_stroke_dash_values = mark
+            .leader_stroke_dash
+            .as_ref()
+            .map(|dash| dash.as_vec(mark.len as usize, mark.indices.as_ref()));
         for (
-            text,
-            x,
-            y,
-            align,
-            baseline,
-            angle,
-            color,
-            font,
-            font_size,
-            font_weight,
-            font_style,
-            limit,
+            index,
+            (
+                text,
+                target,
+                label,
+                align,
+                baseline,
+                angle,
+                color,
+                font,
+                font_size,
+                font_weight,
+                font_style,
+                limit,
+                leader,
+                leader_stroke,
+                leader_stroke_width,
+                leader_stroke_cap,
+                leader_stroke_join,
+                leader_label_padding,
+                leader_target_radius,
+                leader_min_length,
+                leader_shape,
+                leader_arrow,
+                leader_arrow_length,
+                leader_arrow_width,
+            ),
         ) in izip!(
             mark.text_iter(),
-            mark.x_iter(),
-            mark.y_iter(),
+            mark.target_position_iter(),
+            mark.label_position_iter(),
             mark.align_iter(),
             mark.baseline_iter(),
             mark.angle_iter(),
@@ -293,7 +325,21 @@ impl SvgRenderer {
             mark.font_weight_iter(),
             mark.font_style_iter(),
             mark.limit_iter(),
-        ) {
+            mark.leader_iter(),
+            mark.leader_stroke_iter(),
+            mark.leader_stroke_width_iter(),
+            mark.leader_stroke_cap_iter(),
+            mark.leader_stroke_join_iter(),
+            mark.leader_label_padding_iter(),
+            mark.leader_target_radius_iter(),
+            mark.leader_min_length_iter(),
+            mark.leader_shape_iter(),
+            mark.leader_arrow_iter(),
+            mark.leader_arrow_length_iter(),
+            mark.leader_arrow_width_iter(),
+        )
+        .enumerate()
+        {
             let output_font = resolve_font_family_for_output(
                 font,
                 font_weight,
@@ -318,8 +364,8 @@ impl SvgRenderer {
                     &self.options.font_resolution,
                 )?;
             }
-            let anchor_x = *x + origin[0];
-            let anchor_y = *y + origin[1];
+            let target = [target[0] + origin[0], target[1] + origin[1]];
+            let label = [label[0] + origin[0], label[1] + origin[1]];
             let text_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: &text,
                 font: &output_font,
@@ -327,7 +373,38 @@ impl SvgRenderer {
                 font_weight,
                 font_style,
             });
-            let [x, text_top] = text_bounds.calculate_origin([anchor_x, anchor_y], align, baseline);
+            if *leader {
+                if let Some(geometry) = compute_text_leader_geometry(TextLeaderGeometryInput {
+                    target,
+                    label_anchor: label,
+                    angle_degrees: *angle,
+                    text_bounds: &text_bounds,
+                    align,
+                    baseline,
+                    label_padding: *leader_label_padding,
+                    target_radius: *leader_target_radius,
+                    min_length: *leader_min_length,
+                    shape: *leader_shape,
+                    arrow: *leader_arrow,
+                    arrow_length: *leader_arrow_length,
+                    arrow_width: *leader_arrow_width,
+                }) {
+                    self.write_text_leader(
+                        document,
+                        &geometry,
+                        leader_stroke,
+                        *leader_stroke_width,
+                        *leader_stroke_cap,
+                        *leader_stroke_join,
+                        leader_stroke_dash_values
+                            .as_ref()
+                            .and_then(|values| values.get(index).map(Vec::as_slice)),
+                        clip_id,
+                    )?;
+                }
+            }
+
+            let [x, text_top] = text_bounds.calculate_origin(label, align, baseline);
             let y = text_top + text_bounds.ascent;
             document.body.push_str(r#"<text x=""#);
             push_number(&mut document.body, x, self.options.precision)?;
@@ -358,9 +435,9 @@ impl SvgRenderer {
                 document.body.push_str(r#" transform="rotate("#);
                 push_number(&mut document.body, *angle, self.options.precision)?;
                 document.body.push(' ');
-                push_number(&mut document.body, anchor_x, self.options.precision)?;
+                push_number(&mut document.body, label[0], self.options.precision)?;
                 document.body.push(' ');
-                push_number(&mut document.body, anchor_y, self.options.precision)?;
+                push_number(&mut document.body, label[1], self.options.precision)?;
                 document.body.push(')');
                 document.body.push('"');
             }
@@ -368,6 +445,72 @@ impl SvgRenderer {
             document.body.push('>');
             document.body.push_str(&crate::style::escape_text(&text));
             document.body.push_str("</text>\n");
+        }
+
+        Ok(())
+    }
+
+    fn write_text_leader(
+        &self,
+        document: &mut SvgDocument,
+        geometry: &TextLeaderGeometry,
+        stroke: &ColorOrGradient,
+        stroke_width: f32,
+        stroke_cap: StrokeCap,
+        stroke_join: StrokeJoin,
+        stroke_dash: Option<&[f32]>,
+        clip_id: Option<&str>,
+    ) -> Result<(), AvengerSvgError> {
+        self.write_path_element(
+            document,
+            &text_leader_path_d(&geometry.spine, self.options.precision)?,
+            PathStyle {
+                fill: None,
+                stroke: Some(stroke),
+                stroke_width: Some(stroke_width.max(0.0)),
+                stroke_cap: Some(stroke_cap),
+                stroke_join: Some(stroke_join),
+                stroke_dash,
+                gradients: &[],
+            },
+            clip_id,
+        )?;
+
+        if let Some(arrowhead) = &geometry.arrowhead {
+            match arrowhead {
+                TextLeaderArrowhead::Open { .. } => {
+                    self.write_path_element(
+                        document,
+                        &text_leader_arrowhead_d(arrowhead, self.options.precision)?,
+                        PathStyle {
+                            fill: None,
+                            stroke: Some(stroke),
+                            stroke_width: Some(stroke_width.max(0.0)),
+                            stroke_cap: Some(stroke_cap),
+                            stroke_join: Some(stroke_join),
+                            stroke_dash: None,
+                            gradients: &[],
+                        },
+                        clip_id,
+                    )?;
+                }
+                TextLeaderArrowhead::Triangle { .. } => {
+                    self.write_path_element(
+                        document,
+                        &text_leader_arrowhead_d(arrowhead, self.options.precision)?,
+                        PathStyle {
+                            fill: Some(stroke),
+                            stroke: None,
+                            stroke_width: None,
+                            stroke_cap: None,
+                            stroke_join: None,
+                            stroke_dash: None,
+                            gradients: &[],
+                        },
+                        clip_id,
+                    )?;
+                }
+            }
         }
 
         Ok(())
@@ -904,6 +1047,80 @@ struct PathStyle<'a> {
     stroke_join: Option<StrokeJoin>,
     stroke_dash: Option<&'a [f32]>,
     gradients: &'a [Gradient],
+}
+
+fn text_leader_path_d(path: &TextLeaderPath, precision: usize) -> Result<String, AvengerSvgError> {
+    let mut d = String::new();
+    match path {
+        TextLeaderPath::Line { start, end } => {
+            d.push('M');
+            push_point(&mut d, start[0], start[1], precision)?;
+            d.push(' ');
+            d.push('L');
+            push_point(&mut d, end[0], end[1], precision)?;
+        }
+        TextLeaderPath::Polyline { points } => {
+            if let Some(first) = points.first() {
+                d.push('M');
+                push_point(&mut d, first[0], first[1], precision)?;
+                for point in points.iter().skip(1) {
+                    d.push(' ');
+                    d.push('L');
+                    push_point(&mut d, point[0], point[1], precision)?;
+                }
+            }
+        }
+        TextLeaderPath::Cubic {
+            start,
+            ctrl1,
+            ctrl2,
+            end,
+        } => {
+            d.push('M');
+            push_point(&mut d, start[0], start[1], precision)?;
+            d.push_str(" C");
+            push_point(&mut d, ctrl1[0], ctrl1[1], precision)?;
+            d.push(' ');
+            push_point(&mut d, ctrl2[0], ctrl2[1], precision)?;
+            d.push(' ');
+            push_point(&mut d, end[0], end[1], precision)?;
+        }
+    }
+    Ok(d)
+}
+
+fn text_leader_arrowhead_d(
+    arrowhead: &TextLeaderArrowhead,
+    precision: usize,
+) -> Result<String, AvengerSvgError> {
+    let mut d = String::new();
+    match arrowhead {
+        TextLeaderArrowhead::Open { left, right } => {
+            d.push('M');
+            push_point(&mut d, left[0][0], left[0][1], precision)?;
+            d.push(' ');
+            d.push('L');
+            push_point(&mut d, left[1][0], left[1][1], precision)?;
+            d.push(' ');
+            d.push('M');
+            push_point(&mut d, right[0][0], right[0][1], precision)?;
+            d.push(' ');
+            d.push('L');
+            push_point(&mut d, right[1][0], right[1][1], precision)?;
+        }
+        TextLeaderArrowhead::Triangle { points } => {
+            d.push('M');
+            push_point(&mut d, points[0][0], points[0][1], precision)?;
+            d.push(' ');
+            d.push('L');
+            push_point(&mut d, points[1][0], points[1][1], precision)?;
+            d.push(' ');
+            d.push('L');
+            push_point(&mut d, points[2][0], points[2][1], precision)?;
+            d.push('Z');
+        }
+    }
+    Ok(d)
 }
 
 fn line_path_d(

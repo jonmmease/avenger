@@ -1,6 +1,9 @@
 use avenger_chart::prelude::*;
 use avenger_color::ColorOrGradient;
-use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
+use avenger_common::{
+    types::{SceneTextLeaderArrow, SceneTextLeaderShape, StrokeCap, StrokeJoin},
+    value::{ScalarOrArray, ScalarOrArrayValue},
+};
 use avenger_scenegraph::marks::mark::SceneMarkType;
 use avenger_scenegraph::marks::{
     area::SceneAreaMark, image::SceneImageMark, mark::SceneMark, path::ScenePathMark,
@@ -212,6 +215,25 @@ async fn rule_and_text_channel_descriptors_expose_scene_mark_channels() {
     let text_channels = text.supported_channels();
     assert!(channel(&text_channels, "text").allow_column_ref);
     assert!(channel(&text_channels, "font_size").allow_column_ref);
+    for name in [
+        "dx",
+        "dy",
+        "leader",
+        "leader_stroke",
+        "leader_stroke_width",
+        "leader_stroke_dash",
+        "leader_stroke_cap",
+        "leader_stroke_join",
+        "leader_label_padding",
+        "leader_target_radius",
+        "leader_min_length",
+        "leader_shape",
+        "leader_arrow",
+        "leader_arrow_length",
+        "leader_arrow_width",
+    ] {
+        assert!(channel(&text_channels, name).allow_column_ref);
+    }
 }
 
 #[tokio::test]
@@ -583,6 +605,75 @@ async fn text_column_values_render_as_strings_without_scale() {
         text.text.as_vec(2, None),
         vec!["left".to_string(), "right".to_string()]
     );
+}
+
+#[tokio::test]
+async fn text_leader_channels_compile_to_scene_mark_fields() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new().mark(
+        Text::new()
+            .x(0.0)
+            .y(0.0)
+            .text("label")
+            .dx(12.0)
+            .dy(-8.0)
+            .leader(true)
+            .leader_stroke("#ff0000")
+            .leader_stroke_width(2.5)
+            .leader_stroke_dash("dashed")
+            .leader_stroke_cap("square")
+            .leader_stroke_join("bevel")
+            .leader_label_padding(4.0)
+            .leader_target_radius(3.0)
+            .leader_min_length(2.0)
+            .leader_shape("elbow")
+            .leader_arrow("triangle")
+            .leader_arrow_length(9.0)
+            .leader_arrow_width(7.0)
+            .opacity(0.5),
+    );
+
+    let evaluated = plot
+        .compile(&ctx)
+        .await
+        .unwrap()
+        .evaluate(&ctx, None)
+        .await
+        .unwrap();
+
+    let mut text_marks = Vec::new();
+    for mark in &evaluated.scene_graph.marks {
+        collect_text(mark, &mut text_marks);
+    }
+
+    let text = text_marks.first().expect("text mark");
+    assert_eq!(text.dx.as_vec(1, None), vec![12.0]);
+    assert_eq!(text.dy.as_vec(1, None), vec![-8.0]);
+    assert_eq!(text.leader.as_vec(1, None), vec![true]);
+    assert_eq!(text.leader_stroke_width.as_vec(1, None), vec![2.5]);
+    assert_eq!(
+        text.leader_stroke_cap.as_vec(1, None),
+        vec![StrokeCap::Square]
+    );
+    assert_eq!(
+        text.leader_stroke_join.as_vec(1, None),
+        vec![StrokeJoin::Bevel]
+    );
+    assert_eq!(text.leader_label_padding.as_vec(1, None), vec![4.0]);
+    assert_eq!(text.leader_target_radius.as_vec(1, None), vec![3.0]);
+    assert_eq!(text.leader_min_length.as_vec(1, None), vec![2.0]);
+    assert_eq!(
+        text.leader_shape.as_vec(1, None),
+        vec![SceneTextLeaderShape::Elbow]
+    );
+    assert_eq!(
+        text.leader_arrow.as_vec(1, None),
+        vec![SceneTextLeaderArrow::Triangle]
+    );
+    assert_eq!(text.leader_arrow_length.as_vec(1, None), vec![9.0]);
+    assert_eq!(text.leader_arrow_width.as_vec(1, None), vec![7.0]);
+    assert!(text.leader_stroke_dash.is_some());
+    assert_eq!(alpha(&text.leader_stroke), 0.5);
 }
 
 fn alpha(colors: &ScalarOrArray<ColorOrGradient>) -> f32 {

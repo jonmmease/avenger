@@ -91,10 +91,10 @@ impl VegaMarkContainer<VegaTextItem> {
                 item_x += radius * f32::cos(theta - PI / 2.0);
                 item_y += radius * f32::sin(theta - PI / 2.0);
             }
-            item_x += item.dx.unwrap_or(0.0);
-            item_y += item.dy.unwrap_or(0.0);
             x.push(item_x);
             y.push(item_y);
+            dx.push(item.dx.unwrap_or(0.0));
+            dy.push(item.dy.unwrap_or(0.0));
             text.push(match item.text.clone() {
                 Some(serde_json::Value::String(s)) => s,
                 Some(serde_json::Value::Null) | None => "".to_string(),
@@ -111,14 +111,6 @@ impl VegaMarkContainer<VegaTextItem> {
 
             if let Some(v) = item.angle {
                 angle.push(v);
-            }
-
-            if let Some(v) = item.dx {
-                dx.push(v);
-            }
-
-            if let Some(v) = item.dy {
-                dy.push(v);
             }
 
             if let Some(v) = &item.font {
@@ -157,6 +149,12 @@ impl VegaMarkContainer<VegaTextItem> {
         }
         if y.len() == len {
             mark.y = ScalarOrArray::new_array(y);
+        }
+        if dx.len() == len {
+            mark.dx = ScalarOrArray::new_array(dx);
+        }
+        if dy.len() == len {
+            mark.dy = ScalarOrArray::new_array(dy);
         }
         if text.len() == len {
             mark.text = ScalarOrArray::new_array(text);

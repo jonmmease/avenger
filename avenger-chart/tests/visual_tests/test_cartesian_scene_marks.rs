@@ -133,6 +133,188 @@ fn text_style_data() -> DataFrame {
         .expect("text style dataframe")
 }
 
+fn text_leader_geometry_data() -> DataFrame {
+    let x = Float64Array::from(vec![0.6, 1.4, 2.2, 3.0, 0.8, 1.6, 2.4, 3.2, 0.9, 2.6]);
+    let y = Float64Array::from(vec![2.35, 2.35, 2.35, 2.35, 1.5, 1.5, 1.5, 1.5, 0.5, 0.5]);
+    let label = StringArray::from(vec![
+        "right", "left", "above", "below", "elbow", "curve", "rotated", "inside", "min", "off",
+    ]);
+    let dx = Float64Array::from(vec![
+        70.0, -70.0, 0.0, 0.0, 65.0, -65.0, 60.0, 10.0, 42.0, 75.0,
+    ]);
+    let dy = Float64Array::from(vec![
+        0.0, 0.0, -34.0, 42.0, -42.0, 42.0, 38.0, 0.0, 0.0, 0.0,
+    ]);
+    let shape = StringArray::from(vec![
+        "straight", "straight", "straight", "straight", "elbow", "curved", "curved", "straight",
+        "straight", "straight",
+    ]);
+    let angle = Float64Array::from(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -25.0, 0.0, 0.0, 0.0]);
+    let leader = BooleanArray::from(vec![
+        true, true, true, true, true, true, true, true, true, false,
+    ]);
+    let label_padding = Float64Array::from(vec![2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 18.0, 2.0, 2.0]);
+    let target_radius = Float64Array::from(vec![0.0, 0.0, 0.0, 0.0, 0.0, 6.0, 5.0, 0.0, 0.0, 0.0]);
+    let min_length = Float64Array::from(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 90.0, 1.0]);
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("label", DataType::Utf8, false),
+        Field::new("dx", DataType::Float64, false),
+        Field::new("dy", DataType::Float64, false),
+        Field::new("shape", DataType::Utf8, false),
+        Field::new("angle", DataType::Float64, false),
+        Field::new("leader", DataType::Boolean, false),
+        Field::new("label_padding", DataType::Float64, false),
+        Field::new("target_radius", DataType::Float64, false),
+        Field::new("min_length", DataType::Float64, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(x),
+            Arc::new(y),
+            Arc::new(label),
+            Arc::new(dx),
+            Arc::new(dy),
+            Arc::new(shape),
+            Arc::new(angle),
+            Arc::new(leader),
+            Arc::new(label_padding),
+            Arc::new(target_radius),
+            Arc::new(min_length),
+        ],
+    )
+    .expect("text leader geometry batch");
+
+    SessionContext::new()
+        .read_batch(batch)
+        .expect("text leader geometry dataframe")
+}
+
+fn text_leader_arrowhead_data() -> DataFrame {
+    let x = Float64Array::from(vec![0.7, 2.2, 3.7, 5.2, 0.7, 2.2, 3.7, 5.2]);
+    let y = Float64Array::from(vec![1.8, 1.8, 1.8, 1.8, 0.7, 0.7, 0.7, 0.7]);
+    let label = StringArray::from(vec!["", "", "", "", "", "", "", ""]);
+    let dx = Float64Array::from(vec![46.0, 46.0, 46.0, -46.0, 46.0, -46.0, 46.0, -46.0]);
+    let dy = Float64Array::from(vec![0.0, 0.0, 0.0, 0.0, -28.0, -28.0, 28.0, 28.0]);
+    let arrow = StringArray::from(vec![
+        "none", "open", "triangle", "open", "triangle", "triangle", "open", "triangle",
+    ]);
+    let arrow_length = Float64Array::from(vec![6.0, 6.0, 6.0, 12.0, 5.0, 10.0, 8.0, 0.0]);
+    let arrow_width = Float64Array::from(vec![5.0, 5.0, 5.0, 4.0, 14.0, 9.0, 0.0, 10.0]);
+    let target_radius = Float64Array::from(vec![0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0]);
+    let stroke = StringArray::from(vec![
+        "#374151", "#2563eb", "#dc2626", "#7c3aed", "#059669", "#d97706", "#0891b2", "#be123c",
+    ]);
+    let symbol_size = Float64Array::from(vec![45.0, 45.0, 45.0, 45.0, 45.0, 100.0, 45.0, 45.0]);
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("label", DataType::Utf8, false),
+        Field::new("dx", DataType::Float64, false),
+        Field::new("dy", DataType::Float64, false),
+        Field::new("arrow", DataType::Utf8, false),
+        Field::new("arrow_length", DataType::Float64, false),
+        Field::new("arrow_width", DataType::Float64, false),
+        Field::new("target_radius", DataType::Float64, false),
+        Field::new("stroke", DataType::Utf8, false),
+        Field::new("symbol_size", DataType::Float64, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(x),
+            Arc::new(y),
+            Arc::new(label),
+            Arc::new(dx),
+            Arc::new(dy),
+            Arc::new(arrow),
+            Arc::new(arrow_length),
+            Arc::new(arrow_width),
+            Arc::new(target_radius),
+            Arc::new(stroke),
+            Arc::new(symbol_size),
+        ],
+    )
+    .expect("text leader arrowhead batch");
+
+    SessionContext::new()
+        .read_batch(batch)
+        .expect("text leader arrowhead dataframe")
+}
+
+fn text_leader_stroke_style_data() -> DataFrame {
+    let x = Float64Array::from(vec![0.7, 1.8, 2.9, 4.0, 0.9, 2.0, 3.1, 4.2]);
+    let y = Float64Array::from(vec![1.8, 1.8, 1.8, 1.8, 0.7, 0.7, 0.7, 0.7]);
+    let label = StringArray::from(vec![
+        "thin", "dash", "dot", "miter", "round", "bevel", "curve", "arrow",
+    ]);
+    let dx = Float64Array::from(vec![50.0, 50.0, 50.0, -50.0, 50.0, 50.0, -50.0, -50.0]);
+    let dy = Float64Array::from(vec![-34.0, -34.0, -34.0, 34.0, -34.0, -34.0, 34.0, 34.0]);
+    let shape = StringArray::from(vec![
+        "straight", "straight", "straight", "elbow", "elbow", "elbow", "curved", "elbow",
+    ]);
+    let stroke = StringArray::from(vec![
+        "#111827", "#1d4ed8", "#047857", "#b45309", "#7c3aed", "#be123c", "#0891b2", "#4b5563",
+    ]);
+    let stroke_width = Float64Array::from(vec![0.75, 1.5, 3.0, 2.5, 2.5, 2.5, 2.0, 4.0]);
+    let stroke_cap = StringArray::from(vec![
+        "butt", "round", "square", "butt", "round", "square", "round", "round",
+    ]);
+    let stroke_join = StringArray::from(vec![
+        "miter", "round", "bevel", "miter", "round", "bevel", "round", "round",
+    ]);
+    let dash = StringArray::from(vec![
+        "solid", "dashed", "dotted", "solid", "dashed", "dotted", "dashdot", "solid",
+    ]);
+    let arrow = StringArray::from(vec![
+        "none", "none", "none", "none", "none", "none", "open", "triangle",
+    ]);
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("label", DataType::Utf8, false),
+        Field::new("dx", DataType::Float64, false),
+        Field::new("dy", DataType::Float64, false),
+        Field::new("shape", DataType::Utf8, false),
+        Field::new("stroke", DataType::Utf8, false),
+        Field::new("stroke_width", DataType::Float64, false),
+        Field::new("stroke_cap", DataType::Utf8, false),
+        Field::new("stroke_join", DataType::Utf8, false),
+        Field::new("dash", DataType::Utf8, false),
+        Field::new("arrow", DataType::Utf8, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(x),
+            Arc::new(y),
+            Arc::new(label),
+            Arc::new(dx),
+            Arc::new(dy),
+            Arc::new(shape),
+            Arc::new(stroke),
+            Arc::new(stroke_width),
+            Arc::new(stroke_cap),
+            Arc::new(stroke_join),
+            Arc::new(dash),
+            Arc::new(arrow),
+        ],
+    )
+    .expect("text leader stroke style batch");
+
+    SessionContext::new()
+        .read_batch(batch)
+        .expect("text leader stroke style dataframe")
+}
+
 fn area_orientation_data() -> DataFrame {
     let t = Float64Array::from(vec![5.0, 0.0, 1.0, 2.0, 3.0, 4.0, 6.0]);
     let vertical_y = Float64Array::from(vec![4.9, 1.0, 2.0, 4.4, 3.6, 5.2, 3.0]);
@@ -394,6 +576,174 @@ async fn test_cartesian_text_label_styles() {
         None,
         "cartesian_scene_marks",
         "cartesian_text_label_styles",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_cartesian_text_leader_geometry_and_offsets() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Text leader geometry")
+        .data(text_leader_geometry_data())
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 4.0))).axis(|a| a.title("x"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 3.0))).axis(|a| a.title("y"))
+                })
+                .size(52.0)
+                .fill("#ffffff")
+                .stroke("#9ca3af")
+                .stroke_width(1.0),
+        )
+        .mark(
+            Text::new()
+                .x(col("x"))
+                .y(col("y"))
+                .text(col("label"))
+                .align("center")
+                .baseline("middle")
+                .font_size(12.0)
+                .color("#111827")
+                .dx(ChannelValue::from(col("dx")).no_scale())
+                .dy(ChannelValue::from(col("dy")).no_scale())
+                .angle_with(col("angle"), |c| c.no_scale())
+                .leader(ChannelValue::from(col("leader")).no_scale())
+                .leader_shape(ChannelValue::from(col("shape")).no_scale())
+                .leader_label_padding(ChannelValue::from(col("label_padding")).no_scale())
+                .leader_target_radius(ChannelValue::from(col("target_radius")).no_scale())
+                .leader_min_length(ChannelValue::from(col("min_length")).no_scale())
+                .leader_stroke("#374151")
+                .leader_stroke_width(1.5)
+                .leader_stroke_cap("round")
+                .leader_stroke_join("round"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile text leader geometry plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "cartesian_scene_marks",
+        "cartesian_text_leader_geometry_and_offsets",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_cartesian_text_leader_arrowheads() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Text leader arrowheads")
+        .data(text_leader_arrowhead_data())
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 6.0))).axis(|a| a.title("x"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 2.3))).axis(|a| a.title("y"))
+                })
+                .size_with(col("symbol_size"), |c| c.no_scale())
+                .fill("#ffffff")
+                .stroke("#9ca3af")
+                .stroke_width(1.0),
+        )
+        .mark(
+            Text::new()
+                .x(col("x"))
+                .y(col("y"))
+                .text(col("label"))
+                .align("center")
+                .baseline("middle")
+                .font_size(12.0)
+                .color("#111827")
+                .dx(ChannelValue::from(col("dx")).no_scale())
+                .dy(ChannelValue::from(col("dy")).no_scale())
+                .leader(true)
+                .leader_shape("straight")
+                .leader_arrow(ChannelValue::from(col("arrow")).no_scale())
+                .leader_arrow_length(ChannelValue::from(col("arrow_length")).no_scale())
+                .leader_arrow_width(ChannelValue::from(col("arrow_width")).no_scale())
+                .leader_target_radius(ChannelValue::from(col("target_radius")).no_scale())
+                .leader_stroke(ChannelValue::from(col("stroke")).no_scale())
+                .leader_stroke_width(1.6)
+                .leader_stroke_cap("round")
+                .leader_stroke_join("round"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile text leader arrowhead plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "cartesian_scene_marks",
+        "cartesian_text_leader_arrowheads",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_cartesian_text_leader_stroke_styles() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new()
+        .title("Text leader stroke styles")
+        .data(text_leader_stroke_style_data())
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 4.8))).axis(|a| a.title("x"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 2.3))).axis(|a| a.title("y"))
+                })
+                .size(45.0)
+                .fill("#ffffff")
+                .stroke("#d1d5db")
+                .stroke_width(1.0),
+        )
+        .mark(
+            Text::new()
+                .x(col("x"))
+                .y(col("y"))
+                .text(col("label"))
+                .align("center")
+                .baseline("middle")
+                .font_size(12.0)
+                .color("#374151")
+                .dx(ChannelValue::from(col("dx")).no_scale())
+                .dy(ChannelValue::from(col("dy")).no_scale())
+                .leader(true)
+                .leader_shape(ChannelValue::from(col("shape")).no_scale())
+                .leader_arrow(ChannelValue::from(col("arrow")).no_scale())
+                .leader_stroke(ChannelValue::from(col("stroke")).no_scale())
+                .leader_stroke_width(ChannelValue::from(col("stroke_width")).no_scale())
+                .leader_stroke_cap(ChannelValue::from(col("stroke_cap")).no_scale())
+                .leader_stroke_join(ChannelValue::from(col("stroke_join")).no_scale())
+                .leader_stroke_dash(ChannelValue::from(col("dash")).no_scale())
+                .leader_arrow_length(8.0)
+                .leader_arrow_width(7.0),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile text leader stroke style plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "cartesian_scene_marks",
+        "cartesian_text_leader_stroke_styles",
     )
     .await;
 }
