@@ -160,12 +160,7 @@ async fn treemap_leaf_labels_basic() {
     .data(df)
     .plot_size(480.0, 280.0)
     .mark(TreeRect::new().fill(col("division")).stroke("#ffffff"))
-    .mark(
-        TreeLabel::new()
-            .font_size(16.0)
-            .font_weight("bold")
-            .color("#ffffff"),
-    );
+    .mark(TreeLabel::new().color("#ffffff"));
 
     assert_visual_match(plot, "treemap_leaf_labels_basic").await;
 }
@@ -182,12 +177,7 @@ async fn treemap_leaf_labels_elide() {
     .data(df)
     .plot_size(420.0, 220.0)
     .mark(TreeRect::new().fill(col("division")).stroke("#ffffff"))
-    .mark(
-        TreeLabel::new()
-            .font_size(15.0)
-            .font_weight("bold")
-            .color("#ffffff"),
-    );
+    .mark(TreeLabel::new().color("#ffffff"));
 
     assert_visual_match(plot, "treemap_leaf_labels_elide").await;
 }
@@ -216,12 +206,7 @@ async fn treemap_leaf_labels_zoom_window() {
             .fill(col("region"))
             .stroke("#ffffff"),
     )
-    .mark(
-        TreeLabel::new()
-            .font_size(14.0)
-            .font_weight("bold")
-            .color("#ffffff"),
-    );
+    .mark(TreeLabel::new().color("#ffffff"));
 
     assert_visual_match(plot, "treemap_leaf_labels_zoom_window").await;
 }
@@ -271,10 +256,9 @@ async fn treemap_header_geometry_small_groups() {
         TreeHeader::new()
             .fill(col("division"))
             .stroke("#ffffff")
-            .text_color("#ffffff")
-            .font_weight("bold"),
+            .text_color("#ffffff"),
     )
-    .mark(TreeLabel::new().font_size(13.0).color("#ffffff"));
+    .mark(TreeLabel::new().color("#ffffff"));
 
     assert_visual_match(plot, "treemap_header_geometry_small_groups").await;
 }
@@ -297,15 +281,9 @@ async fn treemap_group_header_bars() {
         TreeHeader::new()
             .fill(col("division"))
             .stroke("#ffffff")
-            .text_color("#ffffff")
-            .font_weight("bold"),
+            .text_color("#ffffff"),
     )
-    .mark(
-        TreeLabel::new()
-            .font_size(14.0)
-            .font_weight("bold")
-            .color("#ffffff"),
-    );
+    .mark(TreeLabel::new().color("#ffffff"));
 
     assert_visual_match(plot, "treemap_group_header_bars").await;
 }
@@ -328,15 +306,9 @@ async fn treemap_group_header_bars_long_labels() {
         TreeHeader::new()
             .fill(col("division"))
             .stroke("#ffffff")
-            .text_color("#ffffff")
-            .font_weight("bold"),
+            .text_color("#ffffff"),
     )
-    .mark(
-        TreeLabel::new()
-            .font_size(13.0)
-            .font_weight("bold")
-            .color("#ffffff"),
-    );
+    .mark(TreeLabel::new().color("#ffffff"));
 
     assert_visual_match(plot, "treemap_group_header_bars_long_labels").await;
 }
@@ -360,16 +332,10 @@ async fn treemap_group_header_bars_color_legend() {
                 fill.legend(|legend| legend.title("Division"))
             })
             .stroke("#ffffff")
-            .text_color("#ffffff")
-            .font_weight("bold"),
+            .text_color("#ffffff"),
     )
     .mark(TreeRect::new().fill("#dbeafe").stroke("#ffffff"))
-    .mark(
-        TreeLabel::new()
-            .font_size(13.0)
-            .font_weight("bold")
-            .color("#1f2937"),
-    );
+    .mark(TreeLabel::new().color("#1f2937"));
 
     assert_visual_match(plot, "treemap_group_header_bars_color_legend").await;
 }
@@ -388,12 +354,7 @@ async fn treemap_depth_gaps_show_hierarchy() {
     .data(df)
     .plot_size(560.0, 320.0)
     .mark(TreeRect::new().fill(col("region")).stroke("#ffffff"))
-    .mark(
-        TreeLabel::new()
-            .font_size(13.0)
-            .font_weight("bold")
-            .color("#ffffff"),
-    );
+    .mark(TreeLabel::new().color("#ffffff"));
 
     assert_visual_match(plot, "treemap_depth_gaps_show_hierarchy").await;
 }
@@ -423,8 +384,7 @@ async fn treemap_multi_level_headers_depth_limited() {
             .fill(col("region"))
             .stroke("#ffffff")
             .text_color("#ffffff")
-            .font_size(12.0)
-            .font_weight("bold"),
+            .font_size(12.0),
     )
     .mark(TreeLabel::new().font_size(11.0).color("#ffffff"));
 
@@ -452,16 +412,9 @@ async fn treemap_tiny_groups_hide_headers_and_labels() {
         TreeHeader::new()
             .fill(col("division"))
             .stroke("#ffffff")
-            .text_color("#ffffff")
-            .font_weight("bold"),
+            .text_color("#ffffff"),
     )
-    .mark(
-        TreeLabel::new()
-            .font_size(13.0)
-            .font_weight("bold")
-            .min_size_px(90.0, 28.0)
-            .color("#ffffff"),
-    );
+    .mark(TreeLabel::new().min_size_px(90.0, 28.0).color("#ffffff"));
 
     assert_visual_match(plot, "treemap_tiny_groups_hide_headers_and_labels").await;
 }

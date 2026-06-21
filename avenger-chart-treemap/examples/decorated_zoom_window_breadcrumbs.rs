@@ -25,15 +25,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         TreeHeader::new()
             .fill(col("region"))
             .stroke("#ffffff")
-            .text_color("#ffffff")
-            .font_weight("bold"),
+            .text_color("#ffffff"),
     )
-    .mark(
-        TreeLabel::new()
-            .font_size(13.0)
-            .font_weight("bold")
-            .color("#ffffff"),
-    );
+    .mark(TreeLabel::new().color("#ffffff"));
 
     common::evaluate_and_print(&ctx, plot, "zoomed decorated treemap with breadcrumbs").await
 }

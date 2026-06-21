@@ -10,9 +10,9 @@ use avenger_chart_core::{
     MarkRuntimeContext, MarkState, OpacityChannelConfig, PlotMark, RenderedMarkData,
     SizeChannelConfig, StoreData, StrokeWidthChannelConfig, apply_opacity_to_color_channel,
     coerce_color_channel_with_renderer, coerce_font_style_channel, coerce_font_weight_channel,
-    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
-    coerce_text_align_channel, coerce_text_baseline_channel, coerce_text_channel,
-    define_common_mark_channels, impl_mark_trait_common, is_continuous_scale,
+    coerce_numeric_channel, coerce_numeric_channel_with_renderer,
+    coerce_opacity_channel_with_renderer, coerce_text_align_channel, coerce_text_baseline_channel,
+    coerce_text_channel, define_common_mark_channels, impl_mark_trait_common, is_continuous_scale,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ConfiguredScale;
@@ -762,25 +762,13 @@ impl CompiledMark for CompiledTreeLabel {
         )
         .as_vec(len, None);
         let font_size = gather_scalar_or_array(
-            coerce_numeric_channel_with_renderer(
-                self,
-                data,
-                scalars,
-                "font_size",
-                &mark_context,
-                12.0,
-            )?,
+            coerce_numeric_channel(data, scalars, "font_size", 11.0)?,
             len,
             channel_indices.as_ref(),
         )
         .as_vec(len, None);
         let font_weight = gather_scalar_or_array(
-            coerce_font_weight_channel(
-                data,
-                scalars,
-                "font_weight",
-                FontWeight::Name(FontWeightNameSpec::Normal),
-            )?,
+            coerce_font_weight_channel(data, scalars, "font_weight", FontWeight::Number(300.0))?,
             len,
             channel_indices.as_ref(),
         )
@@ -1361,14 +1349,7 @@ impl CompiledMark for CompiledTreeHeader {
         )
         .as_vec(len, None);
         let font_size = gather_scalar_or_array(
-            coerce_numeric_channel_with_renderer(
-                self,
-                data,
-                scalars,
-                "font_size",
-                &mark_context,
-                14.0,
-            )?,
+            coerce_numeric_channel(data, scalars, "font_size", 14.0)?,
             len,
             channel_indices.as_ref(),
         )
@@ -1378,7 +1359,7 @@ impl CompiledMark for CompiledTreeHeader {
                 data,
                 scalars,
                 "font_weight",
-                FontWeight::Name(FontWeightNameSpec::Normal),
+                FontWeight::Name(FontWeightNameSpec::Bold),
             )?,
             len,
             channel_indices.as_ref(),
@@ -2384,11 +2365,11 @@ fn tree_label_channel_defaults(channel: &str) -> Option<ScalarValue> {
         "text" => Some(ScalarValue::Utf8(Some(String::new()))),
         "color" => Some(ScalarValue::Utf8(Some("#ffffff".to_string()))),
         "opacity" => Some(ScalarValue::Float32(Some(1.0))),
-        "font_size" => Some(ScalarValue::Float32(Some(12.0))),
+        "font_size" => Some(ScalarValue::Float32(Some(11.0))),
         "align" => Some(ScalarValue::Utf8(Some("center".to_string()))),
         "baseline" => Some(ScalarValue::Utf8(Some("middle".to_string()))),
         "font" => Some(ScalarValue::Utf8(Some("sans-serif".to_string()))),
-        "font_weight" => Some(ScalarValue::Utf8(Some("normal".to_string()))),
+        "font_weight" => Some(ScalarValue::Float32(Some(300.0))),
         "font_style" => Some(ScalarValue::Utf8(Some("normal".to_string()))),
         _ => None,
     }
@@ -2404,7 +2385,7 @@ fn tree_header_channel_defaults(channel: &str) -> Option<ScalarValue> {
         "text_color" => Some(ScalarValue::Utf8(Some("#ffffff".to_string()))),
         "font_size" => Some(ScalarValue::Float32(Some(14.0))),
         "font" => Some(ScalarValue::Utf8(Some("sans-serif".to_string()))),
-        "font_weight" => Some(ScalarValue::Utf8(Some("normal".to_string()))),
+        "font_weight" => Some(ScalarValue::Utf8(Some("bold".to_string()))),
         "font_style" => Some(ScalarValue::Utf8(Some("normal".to_string()))),
         _ => None,
     }
@@ -2657,6 +2638,11 @@ mod tests {
             labels[0].text.as_vec(3, None),
             vec!["A".to_string(), "B".to_string(), "A".to_string()]
         );
+        assert_eq!(labels[0].font_size.as_vec(3, None), vec![11.0; 3]);
+        assert_eq!(
+            labels[0].font_weight.as_vec(3, None),
+            vec![FontWeight::Number(300.0); 3]
+        );
 
         let label_rows = evaluated
             .event_datums
@@ -2744,6 +2730,11 @@ mod tests {
         assert_eq!(
             header_texts[0].text.as_vec(2, None),
             vec!["East".to_string(), "West".to_string()]
+        );
+        assert_eq!(header_texts[0].font_size.as_vec(2, None), vec![14.0; 2]);
+        assert_eq!(
+            header_texts[0].font_weight.as_vec(2, None),
+            vec![FontWeight::Name(FontWeightNameSpec::Bold); 2]
         );
 
         let header_rows = evaluated

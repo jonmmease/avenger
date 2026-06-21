@@ -83,16 +83,9 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             .id("headers")
             .fill(col("division"))
             .stroke("#ffffff")
-            .text_color("#ffffff")
-            .font_weight("bold"),
+            .text_color("#ffffff"),
     )
-    .mark(
-        TreeLabel::new()
-            .id("labels")
-            .font_size(13.0)
-            .font_weight("bold")
-            .color("#ffffff"),
-    )
+    .mark(TreeLabel::new().id("labels").color("#ffffff"))
     .event_binding(cursor_binding(&cursor))
     .event_binding(zoom_binding(&root))
     .event_binding(reset_zoom_binding(&root));

@@ -28,12 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .stroke("#ffffff"),
     )
-    .mark(
-        TreeLabel::new()
-            .font_size(13.0)
-            .font_weight("bold")
-            .color("#ffffff"),
-    );
+    .mark(TreeLabel::new().color("#ffffff"));
 
     common::evaluate_and_print(&ctx, plot, "strict area treemap with legend and labels").await
 }
