@@ -503,6 +503,16 @@ fn scalar_to_f64(value: &ScalarValue) -> Result<f64, AvengerChartError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    use datafusion::{
+        arrow::{
+            array::{Float64Array, StringArray},
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        },
+        prelude::col,
+    };
 
     fn component(name: &str, label: &str) -> TreemapPathComponent {
         TreemapPathComponent {
@@ -574,6 +584,26 @@ mod tests {
             first.node(ROOT_PATH_ID).unwrap().child_path_ids,
             vec!["region=East".to_string(), "region=West".to_string()]
         );
+    }
+
+    #[test]
+    fn collect_hierarchy_rows_rejects_null_path_components() {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("region", DataType::Utf8, true),
+                Field::new("__treemap_value", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec![Some("East"), None])),
+                Arc::new(Float64Array::from(vec![2.0, 3.0])),
+            ],
+        )
+        .unwrap();
+
+        let err =
+            collect_hierarchy_rows(&[batch], &[TreemapPathLevel::new("region", col("region"))])
+                .unwrap_err();
+        assert!(err.to_string().contains("contains null"));
     }
 
     #[test]

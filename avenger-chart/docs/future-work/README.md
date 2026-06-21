@@ -37,7 +37,7 @@ current design is available.
 | [map-tiles.md](map-tiles.md) | Valid goal; external Web Mercator coordinate crates can use coordinate-guide tile underlays after generic async-resource primitives land. |
 | [multi-dim-coords.md](multi-dim-coords.md) | Valid goal; requires a repeated or indexed channel model. |
 | [sankey-coords.md](sankey-coords.md) | Valid goal; likely a graph-layout coordinate/mark family, but other paradigms remain plausible. |
-| [hierarchical-coords.md](hierarchical-coords.md) | Valid goal; treemap/sunburst can be coordinates, transforms, or specialized marks. |
+| [hierarchical-coords.md](hierarchical-coords.md) | Follow-up goal; `avenger-chart-treemap` exists, while sunburst/icicle and shared hierarchy abstractions remain future work. |
 
 ## Readiness Scale
 

@@ -4,11 +4,14 @@
 
 The goal is valid: treemaps, sunbursts, icicles, circle packing, and
 dendrograms need hierarchy-aware layout. A hierarchical coordinate system with
-repeated `.level(...)` calls is one reasonable direction, but current Avenger
-has multiple plausible ways to represent these charts.
+repeated `.level(...)` calls is one reasonable direction, but Avenger has
+multiple plausible ways to represent these charts.
 
-The current code does not implement treemap or sunburst charts. It does,
-however, have strong primitives that matter:
+The first concrete implementation is `avenger-chart-treemap`: an external
+coordinate crate with a `Treemap` coordinate, `TreeRect` mark, treemap guide
+headers, breadcrumbs, and hierarchy event datum fields. Sunburst, icicle,
+circle-packing, and shared hierarchy abstractions remain future work. The
+treemap implementation proves several primitives that matter:
 
 - core coordinate and guide traits,
 - custom mark contracts,
@@ -31,30 +34,21 @@ data transform, or a specialized mark.
 
 ## Recommended Direction
 
-Do not commit to "hierarchical coordinate system" as the only model yet.
-Prototype treemap two ways:
+Use the treemap coordinate crate as the reference implementation before
+extracting shared hierarchy abstractions. It has validated the coordinate-owned
+measurement path for cases where parent containers are guide-like, drill-down
+interaction is central, and multiple hierarchy marks share one layout.
 
-1. **Transform plus ordinary marks**: a hierarchy transform outputs leaf
-   rectangle columns such as `x0`, `x1`, `y0`, `y1`, depth, path, and label.
-   Existing or new `Rect`/`Text` marks render the result in Cartesian or
-   `ZeroDCoord` space.
-2. **Treemap coordinate plus `TreemapRect` mark**: the coordinate measurement
-   owns hierarchy layout, guide containers, and label placement; the leaf mark
-   consumes hierarchical geometry.
-
-The transform approach is likely simpler for static treemaps. The coordinate
-approach may be better if parent containers are guide-like, if drill-down
-interaction is central, or if multiple hierarchy marks share one layout.
-
-Sunburst should probably wait until treemap proves the hierarchy data model,
-because it adds arc-specific mark and label complexity.
+Sunburst should build on the same event/view-window shape where possible, but
+it should remain a separate crate until there is clear evidence for which
+hierarchy helpers deserve extraction.
 
 ## Alternate Paradigms
 
 - **Hierarchy transform**: best for composability with existing marks and
   scales. It may duplicate guide/container rendering unless a helper exists.
 - **Coordinate system**: best if hierarchy containers are the coordinate space
-  and guides. It requires custom measurement and geometry contracts.
+  and guides. This is the path taken by `avenger-chart-treemap`.
 - **Single specialized mark**: fastest for a first visual, but hardest to
   combine with legends, labels, and interactions.
 - **Child-frame hierarchy**: useful for nested charts inside hierarchy cells,
@@ -62,16 +56,17 @@ because it adds arc-specific mark and label complexity.
 
 ## Readiness
 
-Ready for a design spike.
+Ready for a follow-up implementation plan.
 
-The spike should implement a static treemap with one hierarchy input format
-and one layout algorithm. It should deliberately choose whether the prototype
-is transform-first or coordinate-first, then record what became awkward.
+The next spike should use the treemap crate as dogfood and implement a second
+hierarchical coordinate, most likely sunburst or icicle. That second consumer
+should decide whether to extract hierarchy path/view-window/event helpers into
+a lower-level crate.
 
 ## Decisions Needed
 
-- Which hierarchy input model is v1: repeated level expressions, path strings,
-  parent/child edges, or nested records.
+- Which hierarchy input models beyond treemap's repeated path columns are worth
+  supporting: path strings, parent/child edges, nested records, or adapters.
 - Whether layout algorithms live in chart crates or a lower-level reusable
   crate.
 - Whether parent containers are guide marks, ordinary marks, or scenegraph
@@ -79,4 +74,5 @@ is transform-first or coordinate-first, then record what became awkward.
 - How labels depend on the future [text-mark.md](text-mark.md) and adjustment
   work.
 - How color/size legends relate to internal hierarchy depth and leaf data.
-- Whether drill-down interaction is part of v1 or later tool work.
+- Whether drill-down interaction should become a reusable hierarchy tool after
+  treemap's manual app examples have proven the shape.

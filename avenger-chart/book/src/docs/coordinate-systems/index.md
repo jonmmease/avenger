@@ -83,13 +83,16 @@ Ok(evaluated)
 
 The same `Symbol` mark can render in different coordinate systems by using system-specific position channels.
 
-## Future Coordinate Systems
+## Additional Coordinate Systems
 
-The following coordinate systems are planned for future releases:
+The following coordinate systems live in sibling crates or are planned for
+future releases:
 
 - **Multi-Dimensional** - For parallel coordinates and advanced radar charts
+- **Treemap** - Available from `avenger-chart-treemap`
 - **Sankey** - For flow diagrams with topological positioning
-- **Hierarchical** - For treemaps and sunburst charts
+- **Hierarchical** - Future shared foundations for sunburst, icicle, and
+  related hierarchy charts
 
 See the [roadmap](../../roadmap.md) for details.
 

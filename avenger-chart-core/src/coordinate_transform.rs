@@ -61,8 +61,8 @@ pub struct CoordinateMeasureRequest<'a> {
 /// Optional provider for coordinate-owned measurement.
 ///
 /// Coordinates that do not need plot-size/data-dependent measurement can ignore
-/// this hook and use the default empty measurement path. Coordinates such as
-/// treemap can implement this trait on their transform and return it from
+/// this hook and use the default empty measurement path. Data-driven layout
+/// coordinates can implement this trait on their transform and return it from
 /// `CoordinateSystemTransformCore::measurement_provider()`.
 #[async_trait::async_trait]
 pub trait CoordinateMeasurementProvider: Send + Sync {
