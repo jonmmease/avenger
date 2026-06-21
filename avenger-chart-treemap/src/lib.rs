@@ -5,6 +5,7 @@
 //! require treemap-specific branches in the high-level `avenger-chart` facade.
 
 mod coord;
+pub mod event;
 mod guide;
 mod layout;
 mod mark;

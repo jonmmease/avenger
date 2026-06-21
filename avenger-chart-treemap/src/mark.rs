@@ -5,20 +5,37 @@ use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, ChannelValue, ColorChannelConfig, CompiledDataContext,
     CompiledMark, CompiledMarkCore, CompiledMarkState, CoordinateSystemCore,
     CoordinateSystemTransformCore, CoordinationScope, DataContext, DataTransform,
-    DataTransformCompileContext, DefaultLogicalExprNodeExt, FacetDataScope, IntoExpr, IntoPlotMark,
-    Mark, MarkDataMode, MarkRuntimeContext, MarkState, OpacityChannelConfig, PlotMark, StoreData,
-    StrokeWidthChannelConfig, apply_opacity_to_color_channel, coerce_color_channel_with_renderer,
+    DataTransformCompileContext, DefaultLogicalExprNodeExt, EventDatumFieldSpec, FacetDataScope,
+    IntoExpr, IntoPlotMark, Mark, MarkDataMode, MarkRuntimeContext, MarkState,
+    OpacityChannelConfig, PlotMark, RenderedMarkData, StoreData, StrokeWidthChannelConfig,
+    apply_opacity_to_color_channel, coerce_color_channel_with_renderer,
     coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
     define_common_mark_channels, impl_mark_trait_common,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark};
 use datafusion::{
-    arrow::record_batch::RecordBatch, common::ScalarValue, dataframe::DataFrame,
+    arrow::{
+        array::{ArrayRef, BooleanArray, Float64Array, Int64Array, StringArray},
+        datatypes::{Field, Schema},
+        record_batch::RecordBatch,
+    },
+    common::ScalarValue,
+    dataframe::DataFrame,
     prelude::SessionContext,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::event::{
+    HIERARCHY_CAN_ZOOM_FIELD, HIERARCHY_DEPTH_FIELD, HIERARCHY_DISPLAY_LEVELS_FIELD,
+    HIERARCHY_HAS_HIDDEN_DESCENDANTS_FIELD, HIERARCHY_IS_DATA_LEAF_FIELD,
+    HIERARCHY_IS_VISIBLE_LEAF_FIELD, HIERARCHY_PARENT_PATH_ID_FIELD, HIERARCHY_PATH_ID_FIELD,
+    HIERARCHY_SURFACE_KIND_COLLAPSED_RECT, HIERARCHY_SURFACE_KIND_FIELD,
+    HIERARCHY_SURFACE_KIND_LEAF_RECT, HIERARCHY_SURFACE_KIND_NODE_RECT, HIERARCHY_VALUE_FIELD,
+    HIERARCHY_VIEW_DEPTH_FIELD, RESERVED_GENERATED_EVENT_FIELDS, TREEMAP_RECT_HEIGHT_FIELD,
+    TREEMAP_RECT_WIDTH_FIELD, TREEMAP_RECT_X_FIELD, TREEMAP_RECT_Y_FIELD,
+    tree_rect_event_datum_field_specs,
+};
 use crate::layout::{path_id_for_components, scalar_is_null, scalar_label};
 use crate::{ROOT_PATH_ID, Treemap, TreemapCoordMeasurement, VisibleTreemapNode};
 
@@ -351,6 +368,10 @@ impl CompiledMarkCore for CompiledTreeRect {
         true
     }
 
+    fn event_datum_field_specs(&self) -> Vec<EventDatumFieldSpec> {
+        tree_rect_event_datum_field_specs()
+    }
+
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         tree_rect_channel_defaults(channel)
     }
@@ -364,8 +385,21 @@ impl CompiledMark for CompiledTreeRect {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &dyn MarkRuntimeContext,
-        _coord: &dyn CoordinateSystemTransformCore,
+        coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        self.render_mark_data(data, scalars, context, coord)
+            .await
+            .map(|rendered| rendered.marks)
+    }
+
+    async fn render_mark_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        _coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<RenderedMarkData, AvengerChartError> {
+        validate_no_reserved_event_field_collisions(data)?;
         let measurement = context
             .coord_measurement()
             .as_any()
@@ -455,29 +489,38 @@ impl CompiledMark for CompiledTreeRect {
             height.push(node.rect.height * (v_max - v_min));
         }
 
-        Ok(vec![SceneMark::Rect(SceneRectMark {
-            name: self
-                .state
-                .id
-                .clone()
-                .unwrap_or_else(|| "tree_rect".to_string()),
-            interactive: true,
-            clip: true,
-            len: len as u32,
-            gradients: Vec::new(),
-            x: ScalarOrArray::from(x),
-            y: ScalarOrArray::from(y),
-            width: Some(ScalarOrArray::from(width)),
-            height: Some(ScalarOrArray::from(height)),
-            x2: None,
-            y2: None,
-            fill,
-            stroke,
-            stroke_width,
-            corner_radius,
-            indices: None,
-            zindex: self.state.zindex,
-        })])
+        let event_rows = tree_rect_event_datum_batch(&nodes)?;
+        let source_row_indices = source_row_indices_for_event_rows(data, &nodes)?;
+
+        Ok(
+            RenderedMarkData::with_source_row_indices_and_event_datum_rows(
+                vec![SceneMark::Rect(SceneRectMark {
+                    name: self
+                        .state
+                        .id
+                        .clone()
+                        .unwrap_or_else(|| "tree_rect".to_string()),
+                    interactive: true,
+                    clip: true,
+                    len: len as u32,
+                    gradients: Vec::new(),
+                    x: ScalarOrArray::from(x),
+                    y: ScalarOrArray::from(y),
+                    width: Some(ScalarOrArray::from(width)),
+                    height: Some(ScalarOrArray::from(height)),
+                    x2: None,
+                    y2: None,
+                    fill,
+                    stroke,
+                    stroke_width,
+                    corner_radius,
+                    indices: None,
+                    zindex: self.state.zindex,
+                })],
+                vec![source_row_indices],
+                vec![event_rows],
+            ),
+        )
     }
 }
 
@@ -599,6 +642,340 @@ fn path_level_names_for_selected_nodes(nodes: &[&VisibleTreemapNode]) -> Option<
     )
 }
 
+fn validate_no_reserved_event_field_collisions(
+    data: Option<&RecordBatch>,
+) -> Result<(), AvengerChartError> {
+    let Some(data) = data else {
+        return Ok(());
+    };
+    if let Some(field) = data.schema().fields().iter().find(|field| {
+        RESERVED_GENERATED_EVENT_FIELDS
+            .iter()
+            .any(|reserved| field.name() == reserved)
+    }) {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "TreeRect data column '{}' conflicts with a reserved generated treemap event datum field",
+            field.name()
+        )));
+    }
+    Ok(())
+}
+
+fn tree_rect_event_datum_batch(
+    nodes: &[&VisibleTreemapNode],
+) -> Result<RecordBatch, AvengerChartError> {
+    let len = nodes.len();
+    let mut fields = Vec::new();
+    let mut columns: Vec<ArrayRef> = Vec::new();
+
+    for (name, values) in path_event_columns(nodes)? {
+        let array = ScalarValue::iter_to_array(values.into_iter())
+            .map_err(AvengerChartError::DataFusionError)?;
+        fields.push(Field::new(name, array.data_type().clone(), true));
+        columns.push(array);
+    }
+
+    fields.extend([
+        Field::new(
+            HIERARCHY_SURFACE_KIND_FIELD,
+            datafusion::arrow::datatypes::DataType::Utf8,
+            false,
+        ),
+        Field::new(
+            HIERARCHY_PATH_ID_FIELD,
+            datafusion::arrow::datatypes::DataType::Utf8,
+            false,
+        ),
+        Field::new(
+            HIERARCHY_PARENT_PATH_ID_FIELD,
+            datafusion::arrow::datatypes::DataType::Utf8,
+            true,
+        ),
+        Field::new(
+            HIERARCHY_DEPTH_FIELD,
+            datafusion::arrow::datatypes::DataType::Int64,
+            false,
+        ),
+        Field::new(
+            HIERARCHY_VIEW_DEPTH_FIELD,
+            datafusion::arrow::datatypes::DataType::Int64,
+            false,
+        ),
+        Field::new(
+            HIERARCHY_DISPLAY_LEVELS_FIELD,
+            datafusion::arrow::datatypes::DataType::Int64,
+            false,
+        ),
+        Field::new(
+            HIERARCHY_IS_DATA_LEAF_FIELD,
+            datafusion::arrow::datatypes::DataType::Boolean,
+            false,
+        ),
+        Field::new(
+            HIERARCHY_IS_VISIBLE_LEAF_FIELD,
+            datafusion::arrow::datatypes::DataType::Boolean,
+            false,
+        ),
+        Field::new(
+            HIERARCHY_HAS_HIDDEN_DESCENDANTS_FIELD,
+            datafusion::arrow::datatypes::DataType::Boolean,
+            false,
+        ),
+        Field::new(
+            HIERARCHY_CAN_ZOOM_FIELD,
+            datafusion::arrow::datatypes::DataType::Boolean,
+            false,
+        ),
+        Field::new(
+            HIERARCHY_VALUE_FIELD,
+            datafusion::arrow::datatypes::DataType::Float64,
+            false,
+        ),
+        Field::new(
+            TREEMAP_RECT_X_FIELD,
+            datafusion::arrow::datatypes::DataType::Float64,
+            false,
+        ),
+        Field::new(
+            TREEMAP_RECT_Y_FIELD,
+            datafusion::arrow::datatypes::DataType::Float64,
+            false,
+        ),
+        Field::new(
+            TREEMAP_RECT_WIDTH_FIELD,
+            datafusion::arrow::datatypes::DataType::Float64,
+            false,
+        ),
+        Field::new(
+            TREEMAP_RECT_HEIGHT_FIELD,
+            datafusion::arrow::datatypes::DataType::Float64,
+            false,
+        ),
+    ]);
+    columns.extend([
+        Arc::new(StringArray::from(
+            nodes
+                .iter()
+                .map(|node| hierarchy_surface_kind_for_node(node).to_string())
+                .collect::<Vec<_>>(),
+        )) as ArrayRef,
+        Arc::new(StringArray::from(
+            nodes
+                .iter()
+                .map(|node| node.node.path_id.clone())
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(StringArray::from(
+            nodes
+                .iter()
+                .map(|node| node.node.parent_path_id.clone())
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(Int64Array::from(
+            nodes
+                .iter()
+                .map(|node| node.node.depth as i64)
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(Int64Array::from(
+            nodes
+                .iter()
+                .map(|node| node.view_depth as i64)
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(Int64Array::from(
+            nodes
+                .iter()
+                .map(|node| node.display_levels as i64)
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(BooleanArray::from(
+            nodes
+                .iter()
+                .map(|node| node.node.child_path_ids.is_empty())
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(BooleanArray::from(
+            nodes
+                .iter()
+                .map(|node| node.is_visible_leaf)
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(BooleanArray::from(
+            nodes
+                .iter()
+                .map(|node| node.has_hidden_descendants)
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(BooleanArray::from(
+            nodes.iter().map(|node| node.can_zoom).collect::<Vec<_>>(),
+        )),
+        Arc::new(Float64Array::from(
+            nodes.iter().map(|node| node.node.value).collect::<Vec<_>>(),
+        )),
+        Arc::new(Float64Array::from(
+            nodes
+                .iter()
+                .map(|node| node.rect.x as f64)
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(Float64Array::from(
+            nodes
+                .iter()
+                .map(|node| node.rect.y as f64)
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(Float64Array::from(
+            nodes
+                .iter()
+                .map(|node| node.rect.width as f64)
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(Float64Array::from(
+            nodes
+                .iter()
+                .map(|node| node.rect.height as f64)
+                .collect::<Vec<_>>(),
+        )),
+    ]);
+
+    debug_assert!(columns.iter().all(|column| column.len() == len));
+    RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)
+        .map_err(AvengerChartError::ArrowError)
+}
+
+fn path_event_columns(
+    nodes: &[&VisibleTreemapNode],
+) -> Result<Vec<(String, Vec<ScalarValue>)>, AvengerChartError> {
+    let mut levels: Vec<(String, datafusion::arrow::datatypes::DataType)> = Vec::new();
+    for node in nodes {
+        for component in &node.node.path {
+            if RESERVED_GENERATED_EVENT_FIELDS
+                .iter()
+                .any(|reserved| component.name == *reserved)
+            {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Treemap path level '{}' conflicts with a reserved generated event datum field",
+                    component.name
+                )));
+            }
+            if !levels.iter().any(|(name, _)| name == &component.name) {
+                levels.push((component.name.clone(), component.value.data_type()));
+            }
+        }
+    }
+
+    let mut columns = Vec::with_capacity(levels.len());
+    for (name, data_type) in levels {
+        let mut values = Vec::with_capacity(nodes.len());
+        for node in nodes {
+            let value = if let Some(component) = node
+                .node
+                .path
+                .iter()
+                .find(|component| component.name == name)
+            {
+                component.value.clone()
+            } else {
+                ScalarValue::try_new_null(&data_type).map_err(AvengerChartError::DataFusionError)?
+            };
+            values.push(value);
+        }
+        columns.push((name, values));
+    }
+    Ok(columns)
+}
+
+fn hierarchy_surface_kind_for_node(node: &VisibleTreemapNode) -> &'static str {
+    if node.has_hidden_descendants {
+        HIERARCHY_SURFACE_KIND_COLLAPSED_RECT
+    } else if node.is_visible_leaf {
+        HIERARCHY_SURFACE_KIND_LEAF_RECT
+    } else {
+        HIERARCHY_SURFACE_KIND_NODE_RECT
+    }
+}
+
+fn source_row_indices_for_event_rows(
+    data: Option<&RecordBatch>,
+    nodes: &[&VisibleTreemapNode],
+) -> Result<Vec<usize>, AvengerChartError> {
+    let Some(data) = data else {
+        return Ok(Vec::new());
+    };
+    if nodes.is_empty() || data.num_rows() == 0 {
+        return Ok(Vec::new());
+    }
+    let Some(path_level_names) = path_level_names_for_selected_nodes(nodes) else {
+        return Ok(repeated_source_indices(nodes.len(), data.num_rows()));
+    };
+    if !path_level_names
+        .iter()
+        .all(|name| data.column_by_name(name).is_some())
+    {
+        return Ok(repeated_source_indices(nodes.len(), data.num_rows()));
+    }
+
+    let path_columns = path_level_names
+        .iter()
+        .map(|name| {
+            data.column_by_name(name).ok_or_else(|| {
+                AvengerChartError::InvalidArgument(format!(
+                    "TreeRect mark data is missing treemap path column '{name}'"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut row_paths = Vec::with_capacity(data.num_rows());
+    for row_index in 0..data.num_rows() {
+        let mut path = Vec::with_capacity(path_level_names.len());
+        for (name, column) in path_level_names.iter().zip(path_columns.iter()) {
+            let value = ScalarValue::try_from_array(column, row_index)
+                .map_err(AvengerChartError::DataFusionError)?;
+            if scalar_is_null(&value) {
+                break;
+            }
+            path.push(crate::TreemapPathComponent {
+                name: name.clone(),
+                label: scalar_label(&value),
+                value,
+            });
+        }
+        row_paths.push(path);
+    }
+
+    let mut indices = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        let index = row_paths
+            .iter()
+            .position(|path| path_has_prefix(path, &node.node.path))
+            .unwrap_or(0);
+        indices.push(index);
+    }
+    Ok(indices)
+}
+
+fn repeated_source_indices(node_count: usize, row_count: usize) -> Vec<usize> {
+    if row_count == 0 {
+        return Vec::new();
+    }
+    (0..node_count)
+        .map(|index| index.min(row_count - 1))
+        .collect()
+}
+
+fn path_has_prefix(
+    path: &[crate::TreemapPathComponent],
+    prefix: &[crate::TreemapPathComponent],
+) -> bool {
+    if prefix.len() > path.len() {
+        return false;
+    }
+    path.iter()
+        .zip(prefix.iter())
+        .all(|(left, right)| left.name == right.name && left.label == right.label)
+}
+
 fn tree_rect_channel_defaults(channel: &str) -> Option<ScalarValue> {
     match channel {
         "fill" => Some(ScalarValue::Utf8(Some("#4682b4".to_string()))),
@@ -618,11 +995,13 @@ mod tests {
     use std::sync::Arc;
 
     use arrow::{
-        array::{Float64Array, StringArray},
+        array::{BooleanArray, Float64Array, Int64Array, StringArray},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
     use avenger_chart::plot::Plot;
+    use avenger_chart::prelude::{ChartEventBinding, ChartEventType};
+    use avenger_chart_core::event as ev;
     use datafusion::{
         functions_aggregate::expr_fn::sum,
         logical_expr::{col, lit},
@@ -1028,5 +1407,198 @@ mod tests {
                 "expected height {expected}, got {actual}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn tree_rect_generated_event_rows_include_path_hierarchy_and_geometry_metadata() {
+        let ctx = SessionContext::new();
+        let df = ctx.read_batch(source_batch()).unwrap();
+        let plot = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["region", "product"])
+                .value(sum(col("sales"))),
+        )
+        .data(df)
+        .plot_size(200.0, 100.0)
+        .mark(TreeRect::new().stroke_width(0.0));
+
+        let evaluated = plot
+            .compile(&ctx)
+            .await
+            .unwrap()
+            .evaluate(&ctx, None)
+            .await
+            .unwrap();
+        assert_eq!(evaluated.event_datums.rows.len(), 1);
+        let rows = &evaluated.event_datums.rows[0].rows;
+        assert_eq!(rows.num_rows(), 3);
+
+        let regions = rows
+            .column_by_name("region")
+            .expect("region event column")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("region string");
+        assert_eq!(regions.value(0), "East");
+        assert_eq!(regions.value(2), "West");
+
+        let products = rows
+            .column_by_name("product")
+            .expect("product event column")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("product string");
+        assert_eq!(products.value(0), "A");
+        assert_eq!(products.value(1), "B");
+
+        let path_ids = rows
+            .column_by_name(HIERARCHY_PATH_ID_FIELD)
+            .expect("path id")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("path id string");
+        assert_eq!(path_ids.value(0), "region=East/product=A");
+        assert_eq!(path_ids.value(2), "region=West/product=A");
+
+        let surface_kinds = rows
+            .column_by_name(HIERARCHY_SURFACE_KIND_FIELD)
+            .expect("surface kind")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("surface kind string");
+        assert_eq!(surface_kinds.value(0), HIERARCHY_SURFACE_KIND_LEAF_RECT);
+
+        let depths = rows
+            .column_by_name(HIERARCHY_DEPTH_FIELD)
+            .expect("depth")
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("depth i64");
+        assert_eq!(depths.value(0), 2);
+
+        let visible_leaf = rows
+            .column_by_name(HIERARCHY_IS_VISIBLE_LEAF_FIELD)
+            .expect("visible leaf")
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("visible leaf bool");
+        assert!(visible_leaf.value(0));
+
+        let values = rows
+            .column_by_name(HIERARCHY_VALUE_FIELD)
+            .expect("hierarchy value")
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("value f64");
+        assert_eq!(values.value(0), 2.0);
+        assert_eq!(values.value(2), 5.0);
+
+        let rect_widths = rows
+            .column_by_name(TREEMAP_RECT_WIDTH_FIELD)
+            .expect("rect width")
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("rect width f64");
+        assert_eq!(rect_widths.value(0), 100.0);
+        assert_eq!(rect_widths.value(2), 100.0);
+    }
+
+    #[tokio::test]
+    async fn tree_rect_generated_event_rows_merge_with_source_event_rows_for_overlay_marks() {
+        let ctx = SessionContext::new();
+        let base_df = ctx.read_batch(color_source_batch()).unwrap();
+        let overlay_df = ctx
+            .read_batch(color_source_batch())
+            .unwrap()
+            .filter(col("region").eq(lit("West")))
+            .unwrap();
+        let plot = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["region", "product"])
+                .value(sum(col("sales"))),
+        )
+        .data(base_df)
+        .plot_size(200.0, 100.0)
+        .mark(TreeRect::new().id("base").fill("#d8dde3").stroke_width(0.0))
+        .mark(
+            TreeRect::new()
+                .id("overlay")
+                .data(overlay_df)
+                .fill(ChannelValue::from(col("color")).no_scale())
+                .stroke_width(0.0),
+        )
+        .event_binding(
+            ChartEventBinding::on(ChartEventType::Click)
+                .filter(ev::datum("color").is_not_null())
+                .filter(crate::event::hierarchy_path_id().is_not_null()),
+        );
+
+        let evaluated = plot
+            .compile(&ctx)
+            .await
+            .unwrap()
+            .evaluate(&ctx, None)
+            .await
+            .unwrap();
+        assert_eq!(evaluated.event_datums.rows.len(), 2);
+        let overlay_rows = evaluated
+            .event_datums
+            .rows
+            .iter()
+            .find(|rows| rows.rows.num_rows() == 1)
+            .expect("overlay event rows");
+
+        let colors = overlay_rows
+            .rows
+            .column_by_name("color")
+            .expect("source color")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("color string");
+        assert_eq!(colors.value(0), "#00ff00");
+
+        let path_ids = overlay_rows
+            .rows
+            .column_by_name(HIERARCHY_PATH_ID_FIELD)
+            .expect("path id")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("path id string");
+        assert_eq!(path_ids.value(0), "region=West/product=A");
+    }
+
+    #[tokio::test]
+    async fn tree_rect_rejects_reserved_generated_event_metadata_columns() {
+        let ctx = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("region", DataType::Utf8, false),
+                Field::new("product", DataType::Utf8, false),
+                Field::new("sales", DataType::Float64, false),
+                Field::new(HIERARCHY_PATH_ID_FIELD, DataType::Utf8, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["East"])),
+                Arc::new(StringArray::from(vec!["A"])),
+                Arc::new(Float64Array::from(vec![2.0])),
+                Arc::new(StringArray::from(vec!["user-owned"])),
+            ],
+        )
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+        let plot = Plot::with_coord(
+            Treemap::new()
+                .path_columns(["region", "product"])
+                .value(sum(col("sales"))),
+        )
+        .data(df)
+        .plot_size(200.0, 100.0)
+        .mark(TreeRect::new().stroke_width(0.0));
+
+        let err = match plot.compile(&ctx).await.unwrap().evaluate(&ctx, None).await {
+            Ok(_) => panic!("expected reserved event metadata collision"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("reserved generated treemap"));
     }
 }
