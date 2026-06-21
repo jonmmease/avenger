@@ -11,6 +11,7 @@ pub const HIERARCHY_SURFACE_KIND_FIELD: &str = "__hierarchy_surface_kind";
 pub const HIERARCHY_SURFACE_KIND_LEAF_RECT: &str = "leaf-rect";
 pub const HIERARCHY_SURFACE_KIND_NODE_RECT: &str = "node-rect";
 pub const HIERARCHY_SURFACE_KIND_COLLAPSED_RECT: &str = "collapsed-rect";
+pub const HIERARCHY_SURFACE_KIND_NODE_LABEL: &str = "node-label";
 pub const HIERARCHY_SURFACE_KIND_GUIDE_HEADER: &str = "guide-header";
 pub const HIERARCHY_SURFACE_KIND_BREADCRUMB: &str = "breadcrumb";
 pub const HIERARCHY_PATH_ID_FIELD: &str = "__hierarchy_path_id";

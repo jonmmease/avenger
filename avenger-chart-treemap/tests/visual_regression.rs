@@ -14,7 +14,7 @@ use avenger_chart::facet::marks::FacetColumnSubplotChannels;
 use avenger_chart::plot::Plot;
 use avenger_chart::prelude::Subplot;
 use avenger_chart_core::{ChannelValue, CoordinateSystem};
-use avenger_chart_treemap::{TreeRect, Treemap, TreemapGuide};
+use avenger_chart_treemap::{TreeLabel, TreeRect, Treemap, TreemapGuide};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
@@ -120,6 +120,84 @@ async fn treemap_group_headers() {
     .mark(TreeRect::new().fill(col("region")).stroke("#ffffff"));
 
     assert_visual_match(plot, "treemap_group_headers").await;
+}
+
+#[tokio::test]
+async fn treemap_leaf_labels_basic() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(sales_data()).unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "product"])
+            .value(sum(col("sales"))),
+    )
+    .data(df)
+    .plot_size(480.0, 280.0)
+    .mark(TreeRect::new().fill(col("division")).stroke("#ffffff"))
+    .mark(
+        TreeLabel::new()
+            .font_size(16.0)
+            .font_weight("bold")
+            .color("#ffffff"),
+    );
+
+    assert_visual_match(plot, "treemap_leaf_labels_basic").await;
+}
+
+#[tokio::test]
+async fn treemap_leaf_labels_elide() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(label_elide_data()).unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "product"])
+            .value(sum(col("sales"))),
+    )
+    .data(df)
+    .plot_size(420.0, 220.0)
+    .mark(TreeRect::new().fill(col("division")).stroke("#ffffff"))
+    .mark(
+        TreeLabel::new()
+            .font_size(15.0)
+            .font_weight("bold")
+            .color("#ffffff"),
+    );
+
+    assert_visual_match(plot, "treemap_leaf_labels_elide").await;
+}
+
+#[tokio::test]
+async fn treemap_leaf_labels_zoom_window() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(deep_data()).unwrap();
+    let mark_df = ctx
+        .read_batch(deep_data())
+        .unwrap()
+        .filter(col("division").eq(lit("Enterprise")))
+        .unwrap();
+    let plot = Plot::with_coord(
+        Treemap::new()
+            .path_columns(["division", "region", "team", "product"])
+            .value(sum(col("sales")))
+            .root_path_id("division=Enterprise")
+            .display_levels(2),
+    )
+    .data(df)
+    .plot_size(560.0, 320.0)
+    .mark(
+        TreeRect::new()
+            .data(mark_df)
+            .fill(col("region"))
+            .stroke("#ffffff"),
+    )
+    .mark(
+        TreeLabel::new()
+            .font_size(14.0)
+            .font_weight("bold")
+            .color("#ffffff"),
+    );
+
+    assert_visual_match(plot, "treemap_leaf_labels_zoom_window").await;
 }
 
 #[tokio::test]
@@ -385,6 +463,34 @@ fn segment_data() -> RecordBatch {
         ],
     )
     .expect("segment data")
+}
+
+fn label_elide_data() -> RecordBatch {
+    RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("division", DataType::Utf8, false),
+            Field::new("product", DataType::Utf8, false),
+            Field::new("sales", DataType::Float64, false),
+        ])),
+        vec![
+            Arc::new(StringArray::from(vec![
+                "Enterprise",
+                "Enterprise",
+                "Consumer",
+                "Consumer",
+                "Consumer",
+            ])),
+            Arc::new(StringArray::from(vec![
+                "Analytics platform",
+                "Cloud infrastructure services",
+                "Retail marketplace operations",
+                "Extremely tiny cell label",
+                "Another very small category",
+            ])),
+            Arc::new(Float64Array::from(vec![45.0, 30.0, 18.0, 4.0, 3.0])),
+        ],
+    )
+    .expect("label elide data")
 }
 
 fn deep_data() -> RecordBatch {

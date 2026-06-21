@@ -11,8 +11,9 @@ mod layout;
 mod mark;
 
 pub use coord::{
-    HierarchyViewWindow, ROOT_PATH_ID, Treemap, TreemapCoordMeasurement, TreemapNode,
-    TreemapPathComponent, TreemapPathLevel, TreemapRect, TreemapTransform, VisibleTreemapNode,
+    HierarchyViewWindow, ROOT_PATH_ID, Treemap, TreemapCoordMeasurement, TreemapHeaderBars,
+    TreemapLayoutOptions, TreemapNode, TreemapPadding, TreemapPathComponent, TreemapPathLevel,
+    TreemapRect, TreemapTransform, VisibleTreemapNode,
 };
 pub use guide::TreemapGuide;
-pub use mark::TreeRect;
+pub use mark::{TreeLabel, TreeLabelFit, TreeRect, TreeRectNodeMode};
