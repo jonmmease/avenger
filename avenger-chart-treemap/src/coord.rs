@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap};
+use std::{any::Any, collections::HashMap, ops::RangeInclusive};
 
 use async_trait::async_trait;
 use avenger_chart_core::{
@@ -17,7 +17,7 @@ use serde_with::{FromInto, serde_as};
 
 use crate::guide::TreemapGuide;
 use crate::layout::{
-    HierarchyInputRow, HierarchyLayout, build_hierarchy_layout, collect_hierarchy_rows,
+    HierarchyInputRow, HierarchyLayout, build_hierarchy_layout_with_options, collect_hierarchy_rows,
 };
 
 pub const ROOT_PATH_ID: &str = "__root__";
@@ -85,6 +85,7 @@ pub struct Treemap {
     #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
     value: Option<LogicalExprNode>,
     view_window: HierarchyViewWindow,
+    layout_options: TreemapLayoutOptions,
 }
 
 impl Treemap {
@@ -155,6 +156,16 @@ impl Treemap {
         self.view_window.display_levels = levels;
         self
     }
+
+    pub fn header_bars(mut self, header_bars: TreemapHeaderBars) -> Self {
+        self.layout_options.header_bars = header_bars;
+        self
+    }
+
+    pub fn padding(mut self, padding: TreemapPadding) -> Self {
+        self.layout_options.padding = padding;
+        self
+    }
 }
 
 impl CoordinateSystemCore for Treemap {
@@ -175,6 +186,7 @@ impl CoordinateSystem for Treemap {
             path: self.path.clone(),
             value: self.value.clone(),
             view_window: self.view_window.clone(),
+            layout_options: self.layout_options.clone(),
         })
     }
 }
@@ -186,6 +198,7 @@ pub struct TreemapTransform {
     #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
     pub value: Option<LogicalExprNode>,
     pub view_window: HierarchyViewWindow,
+    pub layout_options: TreemapLayoutOptions,
 }
 
 impl TreemapTransform {
@@ -195,10 +208,11 @@ impl TreemapTransform {
         plot_width: f32,
         plot_height: f32,
     ) -> Result<TreemapCoordMeasurement, AvengerChartError> {
-        let layout = build_hierarchy_layout(
+        let layout = build_hierarchy_layout_with_options(
             rows,
             &self.view_window,
             TreemapRect::new(0.0, 0.0, plot_width, plot_height),
+            &self.layout_options,
         )?;
         Ok(TreemapCoordMeasurement { layout })
     }
@@ -264,10 +278,11 @@ impl CoordinateMeasurementProvider for TreemapTransform {
         let rows =
             collect_treemap_rows(data.clone(), request.session_context, &self.path, value).await?;
         let view_window = resolve_view_window(&self.view_window, request.params)?;
-        let measurement = build_hierarchy_layout(
+        let measurement = build_hierarchy_layout_with_options(
             rows,
             &view_window,
             TreemapRect::new(0.0, 0.0, request.plot_width, request.plot_height),
+            &self.layout_options,
         )?;
         Ok(Some(Box::new(TreemapCoordMeasurement {
             layout: measurement,
@@ -330,6 +345,142 @@ impl CoordMeasurement for TreemapCoordMeasurement {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TreemapLayoutOptions {
+    pub header_bars: TreemapHeaderBars,
+    pub padding: TreemapPadding,
+}
+
+impl Default for TreemapLayoutOptions {
+    fn default() -> Self {
+        Self {
+            header_bars: TreemapHeaderBars::none(),
+            padding: TreemapPadding::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TreemapHeaderBars {
+    pub enabled: bool,
+    pub min_relative_depth: usize,
+    pub max_relative_depth: usize,
+    pub height_px: f32,
+    pub min_width_px: f32,
+    pub min_height_px: f32,
+}
+
+impl TreemapHeaderBars {
+    pub fn none() -> Self {
+        Self {
+            enabled: false,
+            min_relative_depth: 1,
+            max_relative_depth: 1,
+            height_px: 20.0,
+            min_width_px: 32.0,
+            min_height_px: 28.0,
+        }
+    }
+
+    pub fn enabled() -> Self {
+        Self {
+            enabled: true,
+            ..Self::none()
+        }
+    }
+
+    pub fn depth_range(mut self, range: RangeInclusive<usize>) -> Self {
+        self.min_relative_depth = *range.start();
+        self.max_relative_depth = *range.end();
+        self
+    }
+
+    pub fn height_px(mut self, height: f32) -> Self {
+        self.height_px = height;
+        self
+    }
+
+    pub fn min_size_px(mut self, width: f32, height: f32) -> Self {
+        self.min_width_px = width;
+        self.min_height_px = height;
+        self
+    }
+
+    pub(crate) fn is_enabled_for(
+        &self,
+        relative_depth: usize,
+        rect: TreemapRect,
+        has_children: bool,
+    ) -> bool {
+        self.enabled
+            && has_children
+            && relative_depth >= self.min_relative_depth
+            && relative_depth <= self.max_relative_depth
+            && rect.width >= self.min_width_px
+            && rect.height >= self.min_height_px
+            && self.height_px > 0.0
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TreemapPadding {
+    pub outer_px: f32,
+    pub inner_px: f32,
+    pub depth_inner_px: Vec<f32>,
+    pub content_inset_px: f32,
+}
+
+impl Default for TreemapPadding {
+    fn default() -> Self {
+        Self {
+            outer_px: 0.0,
+            inner_px: 0.0,
+            depth_inner_px: Vec::new(),
+            content_inset_px: 0.0,
+        }
+    }
+}
+
+impl TreemapPadding {
+    pub fn new(inner_px: f32) -> Self {
+        Self {
+            inner_px,
+            ..Self::default()
+        }
+    }
+
+    pub fn outer_px(mut self, outer_px: f32) -> Self {
+        self.outer_px = outer_px;
+        self
+    }
+
+    pub fn inner_px(mut self, inner_px: f32) -> Self {
+        self.inner_px = inner_px;
+        self
+    }
+
+    pub fn depth_inner_px<I>(mut self, values: I) -> Self
+    where
+        I: IntoIterator<Item = f32>,
+    {
+        self.depth_inner_px = values.into_iter().collect();
+        self
+    }
+
+    pub fn content_inset_px(mut self, content_inset_px: f32) -> Self {
+        self.content_inset_px = content_inset_px;
+        self
+    }
+
+    pub(crate) fn inner_px_for_depth(&self, relative_depth: usize) -> f32 {
+        self.depth_inner_px
+            .get(relative_depth)
+            .copied()
+            .unwrap_or(self.inner_px)
+            .max(0.0)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct TreemapPathComponent {
     pub name: String,
@@ -358,6 +509,26 @@ impl TreemapRect {
     pub fn area(&self) -> f32 {
         self.width.max(0.0) * self.height.max(0.0)
     }
+
+    pub fn inset(self, amount: f32) -> Self {
+        let amount = amount.max(0.0);
+        Self {
+            x: self.x + amount,
+            y: self.y + amount,
+            width: (self.width - amount * 2.0).max(0.0),
+            height: (self.height - amount * 2.0).max(0.0),
+        }
+    }
+
+    pub fn inset_top(self, amount: f32) -> Self {
+        let amount = amount.max(0.0).min(self.height.max(0.0));
+        Self {
+            x: self.x,
+            y: self.y + amount,
+            width: self.width,
+            height: (self.height - amount).max(0.0),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -376,6 +547,10 @@ pub struct TreemapNode {
 pub struct VisibleTreemapNode {
     pub node: TreemapNode,
     pub rect: TreemapRect,
+    pub outer_rect: TreemapRect,
+    pub content_rect: TreemapRect,
+    pub header_rect: Option<TreemapRect>,
+    pub label_rect: TreemapRect,
     pub view_depth: usize,
     pub display_levels: usize,
     pub is_visible_leaf: bool,

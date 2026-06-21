@@ -8,8 +8,8 @@ use datafusion::{
 use indexmap::IndexMap;
 
 use crate::coord::{
-    HierarchyViewWindow, ROOT_PATH_ID, TreemapNode, TreemapPathComponent, TreemapPathLevel,
-    TreemapRect, VisibleTreemapNode,
+    HierarchyViewWindow, ROOT_PATH_ID, TreemapLayoutOptions, TreemapNode, TreemapPathComponent,
+    TreemapPathLevel, TreemapRect, VisibleTreemapNode,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -97,10 +97,25 @@ pub fn collect_hierarchy_rows(
     Ok(rows)
 }
 
-pub fn build_hierarchy_layout(
+#[cfg(test)]
+fn build_hierarchy_layout(
     rows: Vec<HierarchyInputRow>,
     view_window: &HierarchyViewWindow,
     root_rect: TreemapRect,
+) -> Result<HierarchyLayout, AvengerChartError> {
+    build_hierarchy_layout_with_options(
+        rows,
+        view_window,
+        root_rect,
+        &TreemapLayoutOptions::default(),
+    )
+}
+
+pub fn build_hierarchy_layout_with_options(
+    rows: Vec<HierarchyInputRow>,
+    view_window: &HierarchyViewWindow,
+    root_rect: TreemapRect,
+    layout_options: &TreemapLayoutOptions,
 ) -> Result<HierarchyLayout, AvengerChartError> {
     if rows.is_empty() {
         return Err(AvengerChartError::InvalidArgument(
@@ -219,9 +234,20 @@ pub fn build_hierarchy_layout(
     let mut visible_nodes = Vec::new();
     let root_node = node_by_id(&node_vec, &index_by_path_id, &root_id)?;
     let view_depth = root_node.depth;
+    let root_geometry = treemap_node_geometry(
+        root_rect,
+        root_node,
+        0,
+        root_node.child_path_ids.is_empty() || view_window.display_levels == 0,
+        layout_options,
+    );
     visible_nodes.push(VisibleTreemapNode {
         node: root_node.clone(),
-        rect: root_rect,
+        rect: root_geometry.outer_rect,
+        outer_rect: root_geometry.outer_rect,
+        content_rect: root_geometry.content_rect,
+        header_rect: root_geometry.header_rect,
+        label_rect: root_geometry.label_rect,
         view_depth,
         display_levels: view_window.display_levels,
         is_visible_leaf: root_node.child_path_ids.is_empty() || view_window.display_levels == 0,
@@ -234,10 +260,11 @@ pub fn build_hierarchy_layout(
         &index_by_path_id,
         &mut visible_nodes,
         &root_id,
-        root_rect,
+        root_geometry.content_rect,
         view_depth,
         view_window.display_levels,
         0,
+        layout_options,
     )?;
 
     let breadcrumbs = breadcrumb_nodes(&node_vec, &index_by_path_id, &root_id)?;
@@ -282,10 +309,11 @@ fn layout_visible_children(
     index_by_path_id: &HashMap<String, usize>,
     out: &mut Vec<VisibleTreemapNode>,
     parent_id: &str,
-    parent_rect: TreemapRect,
+    parent_content_rect: TreemapRect,
     view_depth: usize,
     display_levels: usize,
     relative_depth: usize,
+    layout_options: &TreemapLayoutOptions,
 ) -> Result<(), AvengerChartError> {
     if relative_depth >= display_levels {
         return Ok(());
@@ -299,15 +327,31 @@ fn layout_visible_children(
         .iter()
         .map(|id| node_by_id(nodes, index_by_path_id, id))
         .collect::<Result<Vec<_>, _>>()?;
-    let rects = slice_dice_rects(parent_rect, &children, relative_depth);
+    let rects = slice_dice_rects(
+        parent_content_rect.inset(layout_options.padding.outer_px),
+        &children,
+        relative_depth,
+        layout_options.padding.inner_px_for_depth(relative_depth),
+    );
     for (child, rect) in children.into_iter().zip(rects) {
         let child_relative_depth = relative_depth + 1;
         let has_hidden_descendants =
             !child.child_path_ids.is_empty() && child_relative_depth >= display_levels;
         let is_visible_leaf = child.child_path_ids.is_empty() || has_hidden_descendants;
+        let geometry = treemap_node_geometry(
+            rect,
+            child,
+            child_relative_depth,
+            is_visible_leaf,
+            layout_options,
+        );
         out.push(VisibleTreemapNode {
             node: child.clone(),
-            rect,
+            rect: geometry.outer_rect,
+            outer_rect: geometry.outer_rect,
+            content_rect: geometry.content_rect,
+            header_rect: geometry.header_rect,
+            label_rect: geometry.label_rect,
             view_depth,
             display_levels,
             is_visible_leaf,
@@ -320,20 +364,76 @@ fn layout_visible_children(
                 index_by_path_id,
                 out,
                 &child.path_id,
-                rect,
+                geometry.content_rect,
                 view_depth,
                 display_levels,
                 child_relative_depth,
+                layout_options,
             )?;
         }
     }
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TreemapNodeGeometry {
+    outer_rect: TreemapRect,
+    content_rect: TreemapRect,
+    header_rect: Option<TreemapRect>,
+    label_rect: TreemapRect,
+}
+
+fn treemap_node_geometry(
+    outer_rect: TreemapRect,
+    node: &TreemapNode,
+    relative_depth: usize,
+    is_visible_leaf: bool,
+    layout_options: &TreemapLayoutOptions,
+) -> TreemapNodeGeometry {
+    let has_children = !node.child_path_ids.is_empty();
+    let header_rect =
+        if layout_options
+            .header_bars
+            .is_enabled_for(relative_depth, outer_rect, has_children)
+        {
+            let height = layout_options
+                .header_bars
+                .height_px
+                .max(0.0)
+                .min(outer_rect.height.max(0.0));
+            Some(TreemapRect::new(
+                outer_rect.x,
+                outer_rect.y,
+                outer_rect.width,
+                height,
+            ))
+        } else {
+            None
+        };
+    let content_rect = header_rect
+        .map(|header| outer_rect.inset_top(header.height))
+        .unwrap_or(outer_rect)
+        .inset(layout_options.padding.content_inset_px);
+    let label_rect = if is_visible_leaf {
+        outer_rect.inset(layout_options.padding.content_inset_px)
+    } else {
+        header_rect
+            .unwrap_or(outer_rect)
+            .inset(layout_options.padding.content_inset_px)
+    };
+    TreemapNodeGeometry {
+        outer_rect,
+        content_rect,
+        header_rect,
+        label_rect,
+    }
+}
+
 fn slice_dice_rects(
     parent: TreemapRect,
     children: &[&TreemapNode],
     depth: usize,
+    gap: f32,
 ) -> Vec<TreemapRect> {
     let total = children
         .iter()
@@ -346,7 +446,14 @@ fn slice_dice_rects(
             .collect();
     }
 
+    let gap = gap.max(0.0);
     let split_x = depth % 2 == 0;
+    let total_gap = gap * children.len().saturating_sub(1) as f32;
+    let available_main = if split_x {
+        (parent.width - total_gap).max(0.0)
+    } else {
+        (parent.height - total_gap).max(0.0)
+    };
     let mut cursor = if split_x { parent.x } else { parent.y };
     let mut rects = Vec::with_capacity(children.len());
     for (index, child) in children.iter().enumerate() {
@@ -356,7 +463,7 @@ fn slice_dice_rects(
             let width = if is_last {
                 parent.x + parent.width - cursor
             } else {
-                parent.width * fraction
+                available_main * fraction
             };
             rects.push(TreemapRect::new(
                 cursor,
@@ -364,12 +471,12 @@ fn slice_dice_rects(
                 width.max(0.0),
                 parent.height,
             ));
-            cursor += width;
+            cursor += width + gap;
         } else {
             let height = if is_last {
                 parent.y + parent.height - cursor
             } else {
-                parent.height * fraction
+                available_main * fraction
             };
             rects.push(TreemapRect::new(
                 parent.x,
@@ -377,7 +484,7 @@ fn slice_dice_rects(
                 parent.width,
                 height.max(0.0),
             ));
-            cursor += height;
+            cursor += height + gap;
         }
     }
     rects
@@ -514,6 +621,8 @@ mod tests {
         prelude::col,
     };
 
+    use crate::coord::{TreemapHeaderBars, TreemapLayoutOptions, TreemapPadding};
+
     fn component(name: &str, label: &str) -> TreemapPathComponent {
         TreemapPathComponent {
             name: name.to_string(),
@@ -625,8 +734,84 @@ mod tests {
         assert_eq!(terminals.len(), 2);
         assert_eq!(terminals[0].rect, TreemapRect::new(0.0, 0.0, 40.0, 50.0));
         assert_eq!(terminals[1].rect, TreemapRect::new(40.0, 0.0, 60.0, 50.0));
+        assert_eq!(terminals[0].outer_rect, terminals[0].rect);
+        assert_eq!(terminals[0].content_rect, terminals[0].rect);
+        assert_eq!(terminals[0].label_rect, terminals[0].rect);
+        assert_eq!(terminals[0].header_rect, None);
         let area = terminals.iter().map(|node| node.rect.area()).sum::<f32>();
         assert!((area - 5000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn header_options_reserve_content_rect_without_changing_parent_area() {
+        let layout = build_hierarchy_layout_with_options(
+            vec![
+                row(&[("division", "D1"), ("team", "T1")], 5.0),
+                row(&[("division", "D1"), ("team", "T2")], 5.0),
+                row(&[("division", "D2"), ("team", "T1")], 10.0),
+            ],
+            &HierarchyViewWindow::default(),
+            TreemapRect::new(0.0, 0.0, 100.0, 50.0),
+            &TreemapLayoutOptions {
+                header_bars: TreemapHeaderBars::enabled().height_px(10.0),
+                padding: TreemapPadding::default(),
+            },
+        )
+        .unwrap();
+
+        let d1 = layout
+            .visible_nodes
+            .iter()
+            .find(|node| node.node.path_id == "division=D1")
+            .unwrap();
+        assert_eq!(d1.outer_rect, TreemapRect::new(0.0, 0.0, 50.0, 50.0));
+        assert_eq!(d1.rect, d1.outer_rect);
+        assert_eq!(d1.header_rect, Some(TreemapRect::new(0.0, 0.0, 50.0, 10.0)));
+        assert_eq!(d1.content_rect, TreemapRect::new(0.0, 10.0, 50.0, 40.0));
+        assert_eq!(d1.label_rect, TreemapRect::new(0.0, 0.0, 50.0, 10.0));
+
+        let t1 = layout
+            .visible_nodes
+            .iter()
+            .find(|node| node.node.path_id == "division=D1/team=T1")
+            .unwrap();
+        let t2 = layout
+            .visible_nodes
+            .iter()
+            .find(|node| node.node.path_id == "division=D1/team=T2")
+            .unwrap();
+        assert_eq!(t1.outer_rect, TreemapRect::new(0.0, 10.0, 50.0, 20.0));
+        assert_eq!(t2.outer_rect, TreemapRect::new(0.0, 30.0, 50.0, 20.0));
+    }
+
+    #[test]
+    fn depth_inner_padding_creates_hierarchy_gaps() {
+        let layout = build_hierarchy_layout_with_options(
+            vec![
+                row(&[("region", "East")], 1.0),
+                row(&[("region", "West")], 1.0),
+            ],
+            &HierarchyViewWindow::default(),
+            TreemapRect::new(0.0, 0.0, 100.0, 50.0),
+            &TreemapLayoutOptions {
+                header_bars: TreemapHeaderBars::none(),
+                padding: TreemapPadding::default().depth_inner_px([4.0]),
+            },
+        )
+        .unwrap();
+        let terminals = layout
+            .visible_nodes
+            .iter()
+            .filter(|node| node.node.depth == 1)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            terminals[0].outer_rect,
+            TreemapRect::new(0.0, 0.0, 48.0, 50.0)
+        );
+        assert_eq!(
+            terminals[1].outer_rect,
+            TreemapRect::new(52.0, 0.0, 48.0, 50.0)
+        );
     }
 
     #[test]
