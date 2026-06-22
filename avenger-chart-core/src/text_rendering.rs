@@ -26,6 +26,7 @@ use crate::{
 };
 
 #[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
 pub fn build_scene_text_mark<M>(
     mark: &M,
     data: Option<&RecordBatch>,
@@ -55,6 +56,7 @@ where
 }
 
 #[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
 pub fn build_scene_text_mark_with_angle<M>(
     mark: &M,
     data: Option<&RecordBatch>,
