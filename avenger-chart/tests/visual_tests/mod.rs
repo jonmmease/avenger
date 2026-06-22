@@ -84,6 +84,7 @@ pub mod test_plot_background;
 pub mod test_plot_level_config;
 pub mod test_polar_line;
 pub mod test_polar_scatter;
+pub mod test_polar_text;
 pub mod test_positioned_subplot_legend_sharing;
 pub mod test_positioned_subplot_scale_sharing;
 pub mod test_rect_legend;

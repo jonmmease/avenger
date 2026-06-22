@@ -51,6 +51,13 @@ fn r_angle_data(r: Vec<f64>, angle: Vec<f64>) -> DataFrame {
     )
 }
 
+fn categorical_theta_data(values: Vec<&str>) -> DataFrame {
+    read_batch(
+        vec![Field::new("theta", DataType::Utf8, false)],
+        vec![Arc::new(StringArray::from(values)) as ArrayRef],
+    )
+}
+
 fn collect_texts<'a>(mark: &'a SceneMark, texts: &mut Vec<&'a SceneTextMark>) {
     match mark {
         SceneMark::Text(text) if text.name == "text" => texts.push(text),
@@ -197,6 +204,66 @@ async fn polar_text_coordinate_space_uses_scaled_theta() -> Result<(), AvengerCh
     assert_angles_close(
         text.angle.as_vec(text.len as usize, None),
         vec![0.0, 90.0, 180.0],
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn polar_text_coordinate_space_uses_categorical_theta_scale() -> Result<(), AvengerChartError>
+{
+    let ctx = SessionContext::new();
+    let plot = Plot::<Polar>::new()
+        .plot_size(200.0, 200.0)
+        .data(categorical_theta_data(vec!["N", "E", "S", "W"]))
+        .mark(
+            Text::<Polar>::new()
+                .r(50.0)
+                .theta_with(col("theta"), |c| {
+                    c.scale_with::<Point>(|s| s.round(false))
+                        .axis(|a| a.visible(false))
+                })
+                .text(col("theta"))
+                .angle(0.0),
+        );
+
+    let compiled = plot.compile(&ctx).await?;
+    let text = rendered_texts(&compiled, &ctx).await.remove(0);
+    assert_eq!(text.len, 4);
+
+    let x = text.x.as_vec(text.len as usize, None);
+    let y = text.y.as_vec(text.len as usize, None);
+    let x_span = x.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+        - x.iter().copied().fold(f32::INFINITY, f32::min);
+    let y_span = y.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+        - y.iter().copied().fold(f32::INFINITY, f32::min);
+    let distinct_positions = x
+        .iter()
+        .zip(&y)
+        .map(|(x, y)| (x.round() as i32, y.round() as i32))
+        .collect::<std::collections::HashSet<_>>();
+    assert!(
+        distinct_positions.len() > 2,
+        "categorical theta text should spread around the polar plot, got {distinct_positions:?}"
+    );
+    assert!(
+        x_span > 50.0 && y_span > 50.0,
+        "categorical theta text should span the polar plot, got x={x:?} y={y:?}"
+    );
+
+    let angles = text.angle.as_vec(text.len as usize, None);
+    let angle_span = angles.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+        - angles.iter().copied().fold(f32::INFINITY, f32::min);
+    let distinct_angles = angles
+        .iter()
+        .map(|angle| angle.round() as i32)
+        .collect::<std::collections::HashSet<_>>();
+    assert!(
+        distinct_angles.len() > 2,
+        "categorical theta text should use scaled theta for orientation, got {angles:?}"
+    );
+    assert!(
+        angle_span > 180.0,
+        "categorical theta text should cover a broad angle span, got {angles:?}"
     );
     Ok(())
 }
