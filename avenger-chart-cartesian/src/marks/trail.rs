@@ -3,22 +3,23 @@ use std::sync::Arc;
 use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
-    Mark, MarkRuntimeContext, RenderedMarkData, ResolvedDomain, ScaleRange, ScaleTypePreference,
-    Theme, apply_opacity_to_color, coerce_bool_channel_with_renderer,
-    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-    coerce_opacity_channel_with_renderer, default_scale_type_for_data_type, impl_mark_trait_common,
-    is_continuous_scale,
+    Mark, MarkAdjustmentSpec, MarkEvaluationFrame, MarkRenderContext, MarkRuntimeContext,
+    PrimitiveMarkEffects, RenderedMarkData, ResolvedDomain, ScaleRange, ScaleTypePreference, Theme,
+    apply_opacity_to_color, coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
+    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
+    default_scale_type_for_data_type, evaluate_item_assignments, impl_mark_trait_common,
+    is_continuous_scale, item_bbox_column_name, item_channel_column_name, item_data_column_name,
 };
-use avenger_chart_marks::{
-    Trail, TrailPartitionKey, ensure_dictionary_array, trail_channel_defaults,
-};
+use avenger_chart_marks::{Trail, trail_channel_defaults};
 use avenger_color::ColorOrGradient;
-use avenger_common::value::ScalarOrArrayValue;
-use avenger_scales::scales::{ConfiguredScale, ScaleImpl, coerce::Coercer};
+use avenger_common::value::ScalarOrArray;
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::{mark::SceneMark, trail::SceneTrailMark};
 use datafusion::{
-    arrow::array::{AsArray, RecordBatch},
-    arrow::datatypes::DataType,
+    arrow::{
+        array::{ArrayRef, BooleanArray, Float32Array, RecordBatch, StringArray},
+        datatypes::{DataType, Field},
+    },
     common::ScalarValue,
     logical_expr::lit,
 };
@@ -41,6 +42,7 @@ impl Mark<Cartesian> for Trail<Cartesian> {
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
         Ok(Arc::new(CompiledCartesianTrail {
             state: compiled_state,
+            effects: self.mark_effects().clone(),
         }))
     }
 }
@@ -48,12 +50,15 @@ impl Mark<Cartesian> for Trail<Cartesian> {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledCartesianTrail {
     pub(crate) state: CompiledMarkState,
+    #[serde(default)]
+    pub(crate) effects: PrimitiveMarkEffects,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 struct TrailRenderPartitionKey {
     details: Vec<ScalarValue>,
-    style: TrailPartitionKey,
+    stroke: String,
+    opacity_bits: u32,
 }
 
 impl CompiledMarkCore for CompiledCartesianTrail {
@@ -130,6 +135,10 @@ impl CompiledMarkCore for CompiledCartesianTrail {
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         trail_channel_defaults(channel)
+    }
+
+    fn wants_full_data_batch(&self) -> bool {
+        self.effects.requires_data_batch() || !self.effects.adjustments.is_empty()
     }
 
     fn preferred_scale_type(
@@ -251,7 +260,6 @@ impl CompiledMark for CompiledCartesianTrail {
         })?;
         let mark_context = context.core_view();
         let len = data.num_rows();
-        let coercer = Coercer::default();
 
         let position = util::transform_cartesian_point_channels(
             self,
@@ -270,122 +278,29 @@ impl CompiledMark for CompiledCartesianTrail {
             &mark_context,
             1.0,
         )?;
-        let defined = coerce_bool_channel_with_renderer(
-            self,
+        let visual = self.coerce_trail_visual_channels(Some(data), scalars, &mark_context)?;
+        let (x, y, size, visual) = self.apply_expression_adjustments(
+            position.x.clone(),
+            position.y.clone(),
+            size,
+            visual,
             Some(data),
-            scalars,
-            "defined",
+            len,
+            context,
             &mark_context,
-            true,
         )?;
-
-        let stroke_array = data.column_by_name("stroke");
-        let opacity_array = data.column_by_name("opacity");
         let detail_columns = DetailColumns::from_mark_data(self, data)?;
 
-        if stroke_array.is_none() && opacity_array.is_none() && detail_columns.is_empty() {
-            let stroke = first_color(coerce_color_channel_with_renderer(
-                self,
-                None,
-                scalars,
-                "stroke",
-                &mark_context,
-                [0.0, 0.0, 0.0, 1.0],
-            )?);
-            let opacity = coerce_opacity_channel_with_renderer(
-                self,
-                None,
-                scalars,
-                "opacity",
-                &mark_context,
-                1.0,
-            )?
-            .first()
-            .cloned()
-            .unwrap_or(1.0);
-            return Ok(RenderedMarkData::with_source_row_indices(
-                vec![
-                    SceneTrailMark {
-                        name: "trail".to_string(),
-                        clip: true,
-                        len: len as u32,
-                        gradients: vec![],
-                        stroke: apply_opacity_to_color(&stroke, opacity),
-                        x: position.x,
-                        y: position.y,
-                        size,
-                        defined,
-                        zindex: self.state.zindex,
-                        interactive: true,
-                    }
-                    .into(),
-                ],
-                vec![(0..len).collect()],
-            ));
-        }
-
-        let stroke_keys = stroke_array
-            .map(ensure_dictionary_array)
-            .transpose()?
-            .map(|d| {
-                let dict = d.as_any_dictionary();
-                (d.clone(), dict.normalized_keys())
-            });
-        let opacity_keys = opacity_array
-            .map(ensure_dictionary_array)
-            .transpose()?
-            .map(|d| {
-                let dict = d.as_any_dictionary();
-                (d.clone(), dict.normalized_keys())
-            });
-
-        let stroke_values = if let Some((dict, _)) = &stroke_keys {
-            Some(coercer.to_color(
-                dict.as_any_dictionary().values(),
-                Some(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
-            )?)
-        } else {
-            None
-        };
-        let opacity_values = if let Some((dict, _)) = &opacity_keys {
-            Some(
-                coercer
-                    .to_numeric(dict.as_any_dictionary().values(), Some(1.0))?
-                    .map(|v| v.clamp(0.0, 1.0)),
-            )
-        } else {
-            None
-        };
-
-        let stroke_default = first_color(coerce_color_channel_with_renderer(
-            self,
-            None,
-            scalars,
-            "stroke",
-            &mark_context,
-            [0.0, 0.0, 0.0, 1.0],
-        )?);
-        let opacity_default = coerce_opacity_channel_with_renderer(
-            self,
-            None,
-            scalars,
-            "opacity",
-            &mark_context,
-            1.0,
-        )?
-        .first()
-        .cloned()
-        .unwrap_or(1.0);
+        let stroke_strings = util::color_channel_strings(&visual.stroke, len);
+        let opacity_values = visual.opacity.as_vec(len, None);
+        let stroke_values = visual.stroke.as_vec(len, None);
 
         let mut groups: IndexMap<TrailRenderPartitionKey, Vec<usize>> = IndexMap::new();
         for i in 0..len {
-            let key = TrailPartitionKey {
-                stroke: dictionary_key(&stroke_keys, i),
-                opacity: dictionary_key(&opacity_keys, i),
-            };
             let key = TrailRenderPartitionKey {
                 details: detail_columns.key_for_row(i)?,
-                style: key,
+                stroke: stroke_strings[i].clone(),
+                opacity_bits: opacity_values[i].clamp(0.0, 1.0).to_bits(),
             };
             groups.entry(key).or_default().push(i);
         }
@@ -393,24 +308,11 @@ impl CompiledMark for CompiledCartesianTrail {
         let mut marks = Vec::new();
         let mut source_row_indices = Vec::new();
         for (key, indices) in groups {
-            let stroke = key
-                .style
-                .stroke
-                .and_then(|key| {
-                    stroke_values
-                        .as_ref()
-                        .map(|values| values.as_vec(values.len(), None)[key].clone())
-                })
-                .unwrap_or_else(|| stroke_default.clone());
-            let opacity = key
-                .style
-                .opacity
-                .and_then(|key| {
-                    opacity_values
-                        .as_ref()
-                        .map(|values| values.as_vec(values.len(), None)[key])
-                })
-                .unwrap_or(opacity_default);
+            let first_index = indices.first().copied().ok_or_else(|| {
+                AvengerChartError::InternalError("Trail render partition was empty".to_string())
+            })?;
+            let stroke = stroke_values[first_index].clone();
+            let opacity = f32::from_bits(key.opacity_bits);
 
             marks.push(SceneMark::Trail(SceneTrailMark {
                 name: "trail".to_string(),
@@ -418,10 +320,10 @@ impl CompiledMark for CompiledCartesianTrail {
                 len: indices.len() as u32,
                 gradients: vec![],
                 stroke: apply_opacity_to_color(&stroke, opacity),
-                x: util::gather_by_indices(&position.x, len, &indices),
-                y: util::gather_by_indices(&position.y, len, &indices),
+                x: util::gather_by_indices(&x, len, &indices),
+                y: util::gather_by_indices(&y, len, &indices),
                 size: util::gather_by_indices(&size, len, &indices),
-                defined: util::gather_by_indices(&defined, len, &indices),
+                defined: util::gather_by_indices(&visual.defined, len, &indices),
                 zindex: self.state.zindex,
                 interactive: true,
             }));
@@ -435,26 +337,193 @@ impl CompiledMark for CompiledCartesianTrail {
     }
 }
 
-fn first_color(colors: avenger_common::value::ScalarOrArray<ColorOrGradient>) -> ColorOrGradient {
-    match colors.value() {
-        ScalarOrArrayValue::Scalar(color) => color.clone(),
-        ScalarOrArrayValue::Array(colors) => colors
-            .first()
-            .cloned()
-            .unwrap_or_else(ColorOrGradient::transparent),
+impl CompiledCartesianTrail {
+    fn coerce_trail_visual_channels(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &MarkRenderContext<'_>,
+    ) -> Result<TrailVisualChannels, AvengerChartError> {
+        let stroke = coerce_color_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "stroke",
+            context,
+            [0.0, 0.0, 0.0, 1.0],
+        )?;
+        let opacity =
+            coerce_opacity_channel_with_renderer(self, data, scalars, "opacity", context, 1.0)?;
+        let defined =
+            coerce_bool_channel_with_renderer(self, data, scalars, "defined", context, true)?;
+        Ok(TrailVisualChannels {
+            stroke,
+            opacity,
+            defined,
+        })
+    }
+
+    fn apply_expression_adjustments(
+        &self,
+        mut x: ScalarOrArray<f32>,
+        mut y: ScalarOrArray<f32>,
+        mut size: ScalarOrArray<f32>,
+        mut visual: TrailVisualChannels,
+        data: Option<&RecordBatch>,
+        len: usize,
+        runtime_context: &dyn MarkRuntimeContext,
+        context: &MarkRenderContext<'_>,
+    ) -> Result<
+        (
+            ScalarOrArray<f32>,
+            ScalarOrArray<f32>,
+            ScalarOrArray<f32>,
+            TrailVisualChannels,
+        ),
+        AvengerChartError,
+    > {
+        if self.effects.adjustments.is_empty() {
+            return Ok((x, y, size, visual));
+        }
+
+        for adjustment in &self.effects.adjustments {
+            let mut frame = build_trail_item_frame(&x, &y, &size, &visual, data, len)?;
+            let assignments = match adjustment {
+                MarkAdjustmentSpec::Expr(spec) => &spec.assignments,
+                MarkAdjustmentSpec::Transform(spec) => {
+                    let adjustment_context = util::adjustment_transform_context(runtime_context);
+                    spec.transform.apply(&mut frame, &adjustment_context)?;
+                    &spec.assignments
+                }
+            };
+            if assignments.is_empty() {
+                continue;
+            }
+            for assignment in assignments {
+                match assignment.channel.as_str() {
+                    "x" | "y" | "size" | "stroke" | "opacity" | "defined" => {}
+                    channel => {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Trail<Cartesian> adjustment channel '{channel}' is not implemented yet"
+                        )));
+                    }
+                }
+            }
+
+            let item_batch = frame.record_batch()?;
+            let output_batch = evaluate_item_assignments(
+                assignments.iter(),
+                &item_batch,
+                context.session_context().as_ref(),
+            )?;
+            for (index, assignment) in assignments.iter().enumerate() {
+                frame.set_column(
+                    item_channel_column_name(&assignment.channel),
+                    output_batch.column(index).clone(),
+                )?;
+            }
+            x = ScalarOrArray::new_array(frame.f32_values(&item_channel_column_name("x"))?);
+            y = ScalarOrArray::new_array(frame.f32_values(&item_channel_column_name("y"))?);
+            size = ScalarOrArray::new_array(frame.f32_values(&item_channel_column_name("size"))?);
+            visual.stroke = util::coerce_color_strings(
+                &frame.string_values(&item_channel_column_name("stroke"))?,
+                "stroke",
+            )?;
+            visual.opacity =
+                ScalarOrArray::new_array(frame.f32_values(&item_channel_column_name("opacity"))?);
+            visual.defined =
+                ScalarOrArray::new_array(frame.bool_values(&item_channel_column_name("defined"))?);
+        }
+
+        Ok((x, y, size, visual))
     }
 }
 
-fn dictionary_key(
-    keys: &Option<(datafusion::arrow::array::ArrayRef, Vec<usize>)>,
-    index: usize,
-) -> Option<usize> {
-    keys.as_ref().and_then(|(array, keys)| {
-        let dict = array.as_any_dictionary();
-        if dict.is_null(index) {
-            None
-        } else {
-            Some(keys[index])
+#[derive(Clone)]
+struct TrailVisualChannels {
+    stroke: ScalarOrArray<ColorOrGradient>,
+    opacity: ScalarOrArray<f32>,
+    defined: ScalarOrArray<bool>,
+}
+
+fn build_trail_item_frame(
+    x: &ScalarOrArray<f32>,
+    y: &ScalarOrArray<f32>,
+    size: &ScalarOrArray<f32>,
+    visual: &TrailVisualChannels,
+    data: Option<&RecordBatch>,
+    len: usize,
+) -> Result<MarkEvaluationFrame, AvengerChartError> {
+    let x_values = x.as_vec(len, None);
+    let y_values = y.as_vec(len, None);
+    let size_values = size.as_vec(len, None);
+    let stroke_values = util::color_channel_strings(&visual.stroke, len);
+    let opacity_values = visual.opacity.as_vec(len, None);
+    let defined_values = visual.defined.as_vec(len, None);
+    let mut columns = vec![
+        f32_item_column("x", x_values.clone()),
+        f32_item_column("y", y_values.clone()),
+        f32_item_column("size", size_values),
+        string_item_column("stroke", stroke_values),
+        f32_item_column("opacity", opacity_values),
+        bool_item_column("defined", defined_values),
+        (
+            Field::new(item_bbox_column_name("left"), DataType::Float32, true),
+            Arc::new(Float32Array::from(x_values.clone())) as ArrayRef,
+        ),
+        (
+            Field::new(item_bbox_column_name("right"), DataType::Float32, true),
+            Arc::new(Float32Array::from(x_values)) as ArrayRef,
+        ),
+        (
+            Field::new(item_bbox_column_name("top"), DataType::Float32, true),
+            Arc::new(Float32Array::from(y_values.clone())) as ArrayRef,
+        ),
+        (
+            Field::new(item_bbox_column_name("bottom"), DataType::Float32, true),
+            Arc::new(Float32Array::from(y_values)) as ArrayRef,
+        ),
+    ];
+
+    if let Some(data) = data {
+        if data.num_rows() != len {
+            return Err(AvengerChartError::InternalError(format!(
+                "Trail adjustment data row count {} did not match vertex count {len}",
+                data.num_rows()
+            )));
         }
-    })
+        for (index, field) in data.schema().fields().iter().enumerate() {
+            columns.push((
+                Field::new(
+                    item_data_column_name(field.name()),
+                    field.data_type().clone(),
+                    field.is_nullable(),
+                ),
+                data.column(index).clone(),
+            ));
+        }
+    }
+
+    Ok(MarkEvaluationFrame::new(len, columns))
+}
+
+fn f32_item_column(channel: &str, values: Vec<f32>) -> (Field, ArrayRef) {
+    (
+        Field::new(item_channel_column_name(channel), DataType::Float32, true),
+        Arc::new(Float32Array::from(values)) as ArrayRef,
+    )
+}
+
+fn bool_item_column(channel: &str, values: Vec<bool>) -> (Field, ArrayRef) {
+    (
+        Field::new(item_channel_column_name(channel), DataType::Boolean, true),
+        Arc::new(BooleanArray::from(values)) as ArrayRef,
+    )
+}
+
+fn string_item_column(channel: &str, values: Vec<String>) -> (Field, ArrayRef) {
+    (
+        Field::new(item_channel_column_name(channel), DataType::Utf8, true),
+        Arc::new(StringArray::from(values)) as ArrayRef,
+    )
 }

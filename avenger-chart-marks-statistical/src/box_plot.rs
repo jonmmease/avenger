@@ -6,14 +6,15 @@ use avenger_chart_cartesian::{
 };
 use avenger_chart_core::IntoExpr;
 use avenger_chart_core::{
-    AngleChannelConfig, AvengerChartError, ChannelConfig, ChannelExpr, ChannelValue,
+    AdjustItem, AngleChannelConfig, AvengerChartError, ChannelConfig, ChannelExpr, ChannelValue,
     ColorChannelConfig, CoordinationScope, DataContext, DataTransform, DataTransformCompileContext,
-    DefaultLogicalExprNodeExt, FacetDataScope, Mark, MarkDataMode, MarkGroup, OpacityChannelConfig,
-    PlotMark, PositionConfig, ShapeChannelConfig, SizeChannelConfig, StoreData,
+    DefaultLogicalExprNodeExt, FacetDataScope, Mark, MarkAdjustmentTransform, MarkDataMode,
+    MarkGroup, OpacityChannelConfig, PlotMark, PointGeometryItem, PositionConfig,
+    PrimitiveMarkEffects, ShapeChannelConfig, SizeChannelConfig, StoreData,
     StrokeWidthChannelConfig,
     compound::{CompoundGrouping, band_scale_hint, validate_preserved_style_channel},
 };
-use avenger_chart_marks::{Rect, Rule, Symbol};
+use avenger_chart_marks::{IntoDerivedPrimitiveMark, Rect, Rule, Symbol};
 use avenger_chart_transforms::{Aggregate, Filter, JoinAggregate};
 use datafusion::prelude::{Expr, col, lit};
 use datafusion_proto::protobuf::LogicalExprNode;
@@ -126,6 +127,7 @@ pub struct BoxPlotOutlierStyle {
     shape: Option<ChannelValue>,
     angle: Option<ChannelValue>,
     opacity: Option<ChannelValue>,
+    effects: PrimitiveMarkEffects,
 }
 
 impl Default for BoxPlot {
@@ -359,6 +361,43 @@ impl BoxPlotOutlierStyle {
         F: FnOnce(OpacityChannelConfig) -> OpacityChannelConfig,
     {
         self.opacity = Some(f(OpacityChannelConfig::new(value.into())).into_inner());
+        self
+    }
+
+    pub fn adjust<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(
+            AdjustItem<Symbol<Cartesian>, PointGeometryItem>,
+        ) -> AdjustItem<Symbol<Cartesian>, PointGeometryItem>,
+    {
+        let symbol = Symbol::<Cartesian>::new()
+            .with_mark_effects(std::mem::take(&mut self.effects))
+            .adjust(f);
+        self.effects = symbol.mark_effects().clone();
+        self
+    }
+
+    pub fn adjust_transform<A, F>(mut self, adjustment: A, f: F) -> Self
+    where
+        A: MarkAdjustmentTransform,
+        F: FnOnce(Symbol<Cartesian>, A::Output) -> Symbol<Cartesian>,
+    {
+        let symbol = Symbol::<Cartesian>::new()
+            .with_mark_effects(std::mem::take(&mut self.effects))
+            .adjust_transform(adjustment, f);
+        self.effects = symbol.mark_effects().clone();
+        self
+    }
+
+    pub fn derive<D, F>(mut self, f: F) -> Self
+    where
+        D: IntoDerivedPrimitiveMark<Cartesian>,
+        F: FnOnce(AdjustItem<Symbol<Cartesian>, PointGeometryItem>) -> D,
+    {
+        let symbol = Symbol::<Cartesian>::new()
+            .with_mark_effects(std::mem::take(&mut self.effects))
+            .derive(f);
+        self.effects = symbol.mark_effects().clone();
         self
     }
 }
@@ -1164,7 +1203,7 @@ fn apply_outlier_style(
     if let Some(opacity) = &style.opacity {
         mark = mark.opacity(opacity.clone());
     }
-    mark
+    mark.with_mark_effects(style.effects.clone())
 }
 
 fn with_position_axis<M>(mut mark: M, channel: &str, axis: &Option<CartesianAxis>) -> M

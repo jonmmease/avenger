@@ -70,6 +70,7 @@ pub mod test_legend_titles;
 pub mod test_line;
 pub mod test_line_legend;
 pub mod test_line_multi_series;
+pub mod test_mark_effects;
 pub mod test_mark_group;
 pub mod test_media_query_guide_background;
 pub mod test_multiple_legends;

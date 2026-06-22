@@ -22,15 +22,13 @@ current design is available.
 
 | Document | Review status |
 | --- | --- |
-| [mark-effects.md](mark-effects.md) | Unifying proposal for post-scale mark evaluation frames, adjustments, derivations, geometry space, and effect scheduling. |
+| [mark-effects.md](mark-effects.md) | Implemented v1 surface plus remaining follow-ups for richer mark effects, derived outputs, and compound-mark encapsulation. |
 | [polar-geometry-space.md](polar-geometry-space.md) | Plan for coordinate-vs-display geometry semantics for Polar line and text marks. |
-| [adjust-api.md](adjust-api.md) | Valid goal; not ready for implementation planning until the post-scale data/geometry boundary is designed. |
-| [derive-api.md](derive-api.md) | Valid goal; depends on the same geometry boundary as adjustments plus a child-mark scheduling model. |
-| [transform-system.md](transform-system.md) | Valid goal; closest to an implementation plan for a narrow data-transform v1. |
+| [polar-line-implementation-plan.md](polar-line-implementation-plan.md) | Phase checklist for implementing `Line<Polar>` and the `geometry_space` option. |
+| [transform-system.md](transform-system.md) | Remaining built-in data transforms, time/bin refinements, pushdown, caching, and user-doc work. |
 | [tools.md](tools.md) | Pan/scroll-zoom, box-zoom, point-selection, and lasso-selection tools exist; richer editable selection chrome and toolbar composition remain future work. |
-| [text-mark.md](text-mark.md) | Follow-up goal; `Text<Cartesian>` exists, while smart placement and text-specific legends remain future work. |
-| [faceting.md](faceting.md) | Mostly implemented for row/column facets; remaining work is facet convenience APIs and mark data strategy. |
-| [repeat.md](repeat.md) | Valid goal; design should choose between schema reshaping, template expansion, or dedicated repeat containers. |
+| [text-mark.md](text-mark.md) | Follow-up goals after `Text<Cartesian>` and fixed label placement: richer label placement, polar text, and text-specific legends. |
+| [faceting.md](faceting.md) | Facet row/column/wrap and mark data scope are implemented; remaining work is mostly `FacetGrid` sugar and polish. |
 | [layout.md](layout.md) | Valid goal; concat covers some composition, but arbitrary dashboard composition is still separate. |
 | [async-rasterized-marks.md](async-rasterized-marks.md) | Valid goal; external Datashader-style rasterized mark crates need generic materialization/resource primitives. |
 | [async-m4-lines.md](async-m4-lines.md) | Valid goal; external M4 line-downsampling mark crates need generic view-dependent materialized data primitives. |

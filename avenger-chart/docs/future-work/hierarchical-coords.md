@@ -71,8 +71,8 @@ a lower-level crate.
   crate.
 - Whether parent containers are guide marks, ordinary marks, or scenegraph
   groups.
-- How labels depend on the future [text-mark.md](text-mark.md) and adjustment
-  work.
+- How labels depend on richer [text-mark.md](text-mark.md) placement and
+  adjustment work.
 - How color/size legends relate to internal hierarchy depth and leaf data.
 - Whether drill-down interaction should become a reusable hierarchy tool after
   treemap's manual app examples have proven the shape.

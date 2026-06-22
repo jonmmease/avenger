@@ -6,6 +6,10 @@
 #[macro_export]
 macro_rules! impl_mark_base {
     ($mark_type:ident) => {
+        $crate::impl_mark_base!(@with_extra_fields $mark_type {});
+    };
+
+    (@with_extra_fields $mark_type:ident {$($extra_field:ident: $extra_value:expr),* $(,)?}) => {
         impl<C> Default for $mark_type<C>
         where
             $mark_type<C>: Sized,
@@ -24,6 +28,7 @@ macro_rules! impl_mark_base {
                         axis_configs: std::collections::HashMap::new(),
                     },
                     _phantom: std::marker::PhantomData,
+                    $($extra_field: $extra_value,)*
                 }
             }
         }
@@ -279,6 +284,15 @@ macro_rules! impl_mark_base {
                 vec![$crate::PlotMark::from_mark(self)]
             }
         }
+    };
+}
+
+/// Implement the standard mark builder surface for primitive marks with
+/// additional primitive-owned state.
+#[macro_export]
+macro_rules! impl_mark_base_with_extra_fields {
+    ($mark_type:ident {$($extra_field:ident: $extra_value:expr),* $(,)?}) => {
+        $crate::impl_mark_base!(@with_extra_fields $mark_type {$($extra_field: $extra_value),*});
     };
 }
 

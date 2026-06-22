@@ -30,7 +30,9 @@ pub use rect::{Rect, rect_channel_defaults};
 pub use rule::{Rule, rule_channel_defaults};
 pub use state::{CompiledMarkState, MarkState};
 pub use subplot::Subplot;
-pub use symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind};
+pub use symbol::{
+    IntoDerivedPrimitiveMark, Symbol, symbol_channel_defaults, symbol_legend_renderer_kind,
+};
 pub use text::{Text, text_channel_defaults};
 pub use trail::{Trail, TrailPartitionKey, trail_channel_defaults};
 pub use zero_d::CompiledZeroDSymbol;

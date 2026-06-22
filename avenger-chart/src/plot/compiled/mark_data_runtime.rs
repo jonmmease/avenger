@@ -30,8 +30,8 @@ use avenger_chart_core::{
     CompiledDataContext, CompiledSelectionSpec, DataTransformExecutionContext,
     DataTransformFacetContext, DataTransformStage, DerivedScalarMap, FacetDataScope, MarkDataMode,
     SelectionClause, SelectionCombine, SelectionPredicateSpec, SharingLevel, contains_aggregate,
-    detail_array_column_name, params_to_datafusion, selection_clause_value_id_from_placeholder,
-    selection_id_from_predicate_placeholder,
+    detail_array_column_name, item_frame_column_refs, params_to_datafusion,
+    selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
 };
 
 use crate::{
@@ -375,6 +375,73 @@ fn validate_runtime_aggregate_channels(
         {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "Aggregate marks with aggregate expressions inside conditional channel `{channel_name}` are not supported yet"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_no_item_frame_refs_in_mark_channels(
+    mark: &dyn CompiledMark,
+    channels: &IndexMap<String, ChannelValue>,
+    ctx: &SessionContext,
+) -> Result<(), AvengerChartError> {
+    for (channel_name, channel_value) in channels {
+        validate_no_item_frame_refs_in_exprs(
+            mark,
+            channel_name,
+            "channel expression",
+            channel_value.all_exprs(ctx),
+        )?;
+        if let Some(config) = channel_value.get_scale_config() {
+            validate_no_item_frame_refs_in_exprs(
+                mark,
+                channel_name,
+                "scale configuration",
+                config.all_exprs(ctx),
+            )?;
+        }
+        if let Some(axis) = channel_value.get_axis_config() {
+            validate_no_item_frame_refs_in_exprs(
+                mark,
+                channel_name,
+                "axis configuration",
+                axis.all_exprs(ctx),
+            )?;
+        }
+        if let Some(legend) = channel_value.get_legend_config() {
+            validate_no_item_frame_refs_in_exprs(
+                mark,
+                channel_name,
+                "legend configuration",
+                legend.all_exprs(ctx),
+            )?;
+        }
+    }
+    for (channel_name, axis) in &mark.state().axis_configs {
+        validate_no_item_frame_refs_in_exprs(
+            mark,
+            channel_name,
+            "axis configuration",
+            axis.all_exprs(ctx),
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_no_item_frame_refs_in_exprs(
+    mark: &dyn CompiledMark,
+    channel_name: &str,
+    context: &str,
+    exprs: impl IntoIterator<Item = Expr>,
+) -> Result<(), AvengerChartError> {
+    for expr in exprs {
+        let refs = item_frame_column_refs(&expr);
+        if let Some(reference) = refs.first() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Item-frame expression reference '{reference}' is only valid inside mark effect closures; mark '{}' channel '{}' {context} is evaluated before item frames exist",
+                mark.mark_type(),
+                channel_name
             )));
         }
     }
@@ -943,6 +1010,7 @@ pub(crate) async fn prepare_logical_mark_data(
 ) -> Result<PreparedLogicalMarkData, AvengerChartError> {
     let ctx = request.eval_ctx.session_context.as_ref();
     let channels = resolve_all_channel_refs(request.mark.data_context().channels(), ctx)?;
+    validate_no_item_frame_refs_in_mark_channels(request.mark, &channels, ctx)?;
     let transform_initial_scope = transform_initial_facet_scope(
         request.mark.data_context().transforms(),
         request.mark.state().facet_data_scope,

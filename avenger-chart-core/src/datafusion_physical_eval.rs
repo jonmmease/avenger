@@ -13,6 +13,7 @@ use std::{
 use datafusion::logical_expr::ColumnarValue;
 use datafusion::{
     arrow::{
+        array::ArrayRef,
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
@@ -25,6 +26,8 @@ use datafusion::{
     physical_expr_common::physical_expr::PhysicalExpr,
     prelude::{SessionContext, col},
 };
+
+use crate::{is_item_frame_column_name, item_channel_name_from_column, item_data_name_from_column};
 
 /// One logical expression to compile into a reusable physical expression.
 #[derive(Clone, Debug)]
@@ -174,6 +177,24 @@ impl CompiledScalarExpressionProgram {
             .map(|expr| expr.evaluate(batch))
             .collect()
     }
+
+    pub fn evaluate_batch(&self, batch: &RecordBatch) -> DataFusionResult<RecordBatch> {
+        let input_rows = batch.num_rows();
+        let mut fields = Vec::with_capacity(self.expressions.len());
+        let mut arrays = Vec::with_capacity(self.expressions.len());
+
+        for expr in &self.expressions {
+            let array = array_from_columnar_value(expr.physical.evaluate(batch)?, input_rows)?;
+            fields.push(Field::new(
+                expr.name.clone(),
+                array.data_type().clone(),
+                true,
+            ));
+            arrays.push(array);
+        }
+
+        RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).map_err(Into::into)
+    }
 }
 
 pub fn scalar_from_columnar_value(
@@ -189,6 +210,24 @@ pub fn scalar_from_columnar_value(
                 ));
             }
             ScalarValue::try_from_array(array.as_ref(), 0)
+        }
+    }
+}
+
+pub fn array_from_columnar_value(
+    value: ColumnarValue,
+    input_rows: usize,
+) -> DataFusionResult<ArrayRef> {
+    match value {
+        ColumnarValue::Scalar(scalar) => scalar.to_array_of_size(input_rows),
+        ColumnarValue::Array(array) => {
+            if array.len() != input_rows {
+                return Err(DataFusionError::Internal(format!(
+                    "Physical scalar expression returned {} rows for {input_rows} input rows",
+                    array.len()
+                )));
+            }
+            Ok(array)
         }
     }
 }
@@ -299,6 +338,20 @@ fn validate_column(
 ) -> DataFusionResult<()> {
     if let Some(allowed_columns) = allowed_columns {
         if !allowed_columns.contains(&column.name) {
+            if is_item_frame_column_name(&column.name) {
+                let description = if let Some(channel) = item_channel_name_from_column(&column.name)
+                {
+                    format!("item.channel(\"{channel}\")")
+                } else if let Some(field) = item_data_name_from_column(&column.name) {
+                    format!("item.data(\"{field}\")")
+                } else {
+                    column.name.clone()
+                };
+                return Err(DataFusionError::Plan(format!(
+                    "Unknown item-frame expression column '{}' referenced by {description}",
+                    column.name
+                )));
+            }
             return Err(DataFusionError::Plan(format!(
                 "Unknown physical scalar expression column '{}'",
                 column.name

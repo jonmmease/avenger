@@ -30,10 +30,6 @@ impl DetailColumns {
         Ok(Self { arrays })
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.arrays.is_empty()
-    }
-
     pub(crate) fn key_for_row(&self, row: usize) -> Result<Vec<ScalarValue>, AvengerChartError> {
         self.arrays
             .iter()

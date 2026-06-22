@@ -32,9 +32,12 @@ use indexmap::IndexMap;
 use tracing::{Level, debug, trace};
 
 use avenger_chart_core::{
-    AxisPosition, CompiledGuide, DerivedScalarsByChannel, FacetEmptyCellPolicy,
-    FacetWrapColumnMode, LegendPosition, ScalarValueHelpers, eval_to_scalars, evaluate_bool_expr,
-    evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
+    AxisPosition, BasePlotAreaScene, CompiledGuide, DerivedScalarsByChannel, FacetEmptyCellPolicy,
+    FacetWrapColumnMode, LegendPosition, ScalarValueHelpers, TextMeasurementService,
+    eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
+};
+use avenger_text::measurement::{
+    TextBounds, TextMeasurementConfig, TextMeasurer, default_text_measurer,
 };
 
 use crate::{
@@ -213,6 +216,52 @@ impl RenderedMarkOutput {
         Self {
             marks,
             event_datums: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MarkRenderPhase {
+    Combined,
+    Base,
+    Derived,
+}
+
+struct CachedAdjustmentTextMeasurementService<'a> {
+    eval_ctx: &'a EvaluationContext,
+}
+
+impl TextMeasurementService for CachedAdjustmentTextMeasurementService<'_> {
+    fn measure_text_bounds(&self, config: &TextMeasurementConfig<'_>) -> TextBounds {
+        let measurer = default_text_measurer();
+        if let Some(cache) = self.eval_ctx.text_measurement_cache() {
+            let key = super::TextMeasurementCacheKey::new(
+                config.text,
+                config.font,
+                config.font_size,
+                config.font_weight,
+                config.font_style,
+            );
+            let cached = {
+                cache
+                    .lock()
+                    .expect("text measurement cache lock poisoned")
+                    .get(&key)
+            };
+            if let Some(bounds) = cached {
+                self.eval_ctx.record_text_measurement_cache_hit();
+                bounds
+            } else {
+                self.eval_ctx.record_text_measurement_cache_miss();
+                let bounds = measurer.measure_text_bounds(config);
+                cache
+                    .lock()
+                    .expect("text measurement cache lock poisoned")
+                    .insert(key, bounds.clone());
+                bounds
+            }
+        } else {
+            measurer.measure_text_bounds(config)
         }
     }
 }
@@ -1929,6 +1978,12 @@ impl CompiledPlot {
         }
     }
 
+    fn has_render_stage_derived_marks(&self) -> bool {
+        self.marks
+            .iter()
+            .any(|mark| mark.has_render_stage_derived())
+    }
+
     /// Evaluate a single mark with an optional provided plot-level DataFrame fallback.
     /// If `provided_plot_df` is Some, it is used when the mark has no explicit data and
     /// the channels reference columns. Otherwise, falls back to this CompiledPlot's plot-level data.
@@ -1992,6 +2047,10 @@ impl CompiledPlot {
         provided_plot_df: Option<&DataFrame>,
         facet_path: &[ScalarValue],
         coord_measurement: &dyn CoordMeasurement,
+        phase: MarkRenderPhase,
+        plot_area_clip: Option<&Clip>,
+        base_plot_area_scene: Option<&BasePlotAreaScene>,
+        text_measurement_service: Option<&dyn TextMeasurementService>,
     ) -> Result<RenderedMarkOutput, AvengerChartError> {
         if let Some(visible_expr) = &mark.state().visible {
             let expr = visible_expr.to_expr(eval_ctx.session_context.as_ref())?;
@@ -2006,7 +2065,14 @@ impl CompiledPlot {
             }
         }
 
+        if phase == MarkRenderPhase::Derived && !mark.has_render_stage_derived() {
+            return Ok(RenderedMarkOutput::marks_only(vec![]));
+        }
+
         if let Some(subplot) = facet_subplot_ref(mark) {
+            if phase == MarkRenderPhase::Derived {
+                return Ok(RenderedMarkOutput::marks_only(vec![]));
+            }
             let render_state = RenderState::new(plot_width, plot_height, scales.clone());
             let render_ctx =
                 RenderContext::new(eval_ctx, &render_state, facet_path, coord_measurement);
@@ -2017,6 +2083,9 @@ impl CompiledPlot {
         }
 
         if let Some(subplot) = compiled_concat_subplot(mark) {
+            if phase == MarkRenderPhase::Derived {
+                return Ok(RenderedMarkOutput::marks_only(vec![]));
+            }
             let prepared = self
                 .prepare_mark_data(
                     mark,
@@ -2044,6 +2113,9 @@ impl CompiledPlot {
         }
 
         if let Some(overlay) = mark.as_coordinate_slot_overlay() {
+            if phase == MarkRenderPhase::Derived {
+                return Ok(RenderedMarkOutput::marks_only(vec![]));
+            }
             let render_state = RenderState::new(plot_width, plot_height, scales.clone());
             let render_ctx =
                 RenderContext::new(eval_ctx, &render_state, facet_path, coord_measurement);
@@ -2076,22 +2148,48 @@ impl CompiledPlot {
             &prepared.render_state,
             facet_path,
             coord_measurement,
-        );
+        )
+        .with_plot_area(plot_area_clip, [0.0, 0.0])
+        .with_adjustment_services(base_plot_area_scene, text_measurement_service);
 
         if let Some(subplot) = mark.as_positioned_subplot() {
+            if phase == MarkRenderPhase::Derived {
+                return Ok(RenderedMarkOutput::marks_only(vec![]));
+            }
             return render_positioned_subplot_with_context(subplot, &render_ctx)
                 .await
                 .map(RenderedMarkOutput::marks_only);
         }
 
-        let rendered = mark
-            .render_mark_data(
-                prepared.data_batch.as_ref(),
-                &prepared.scalar_batch,
-                &render_ctx,
-                self.coord_transform.as_ref(),
-            )
-            .await?;
+        let rendered = match phase {
+            MarkRenderPhase::Combined => {
+                mark.render_mark_data(
+                    prepared.data_batch.as_ref(),
+                    &prepared.scalar_batch,
+                    &render_ctx,
+                    self.coord_transform.as_ref(),
+                )
+                .await?
+            }
+            MarkRenderPhase::Base => {
+                mark.render_base_mark_data(
+                    prepared.data_batch.as_ref(),
+                    &prepared.scalar_batch,
+                    &render_ctx,
+                    self.coord_transform.as_ref(),
+                )
+                .await?
+            }
+            MarkRenderPhase::Derived => {
+                mark.render_derived_mark_data(
+                    prepared.data_batch.as_ref(),
+                    &prepared.scalar_batch,
+                    &render_ctx,
+                    self.coord_transform.as_ref(),
+                )
+                .await?
+            }
+        };
         let mut marks = rendered.marks;
         if let Some(id) = mark.state().public_target_path.as_deref() {
             for scene_mark in &mut marks {
@@ -4787,7 +4885,9 @@ impl CompiledPlot {
         // their children. Reusing only the cached data marks would preserve the
         // visuals but skip that child traversal, leaving the evaluated plot
         // without coordinate scopes for nested concat/repeat/facet tools.
-        if measurement.child_frame_container_view()?.is_some() {
+        if measurement.child_frame_container_view()?.is_some()
+            || self.has_render_stage_derived_marks()
+        {
             return Ok(None);
         }
         let Some(data_marks) = retarget_cached_data_marks_for_plot_area(
@@ -4822,6 +4922,9 @@ impl CompiledPlot {
         cached_components: &PlotComponents,
     ) -> Result<Option<PlotComponents>, AvengerChartError> {
         let build_start = Instant::now();
+        if self.has_render_stage_derived_marks() {
+            return Ok(None);
+        }
         if !self.can_reuse_plot_components_data_marks_and_chrome(
             source_measurement,
             measurement,
@@ -4947,6 +5050,12 @@ impl CompiledPlot {
         } else {
             let mut data_marks = Vec::new();
             let mut event_datums = Vec::new();
+            let has_render_stage_derived = self.has_render_stage_derived_marks();
+            let base_phase = if has_render_stage_derived {
+                MarkRenderPhase::Base
+            } else {
+                MarkRenderPhase::Combined
+            };
             for mark in &self.marks {
                 let output = Box::pin(self.render_mark_with_plot_df(
                     mark.as_ref(),
@@ -4957,6 +5066,10 @@ impl CompiledPlot {
                     data_override,
                     facet_path,
                     coord_measurement_ref,
+                    base_phase,
+                    Some(&clip),
+                    None,
+                    None,
                 ))
                 .await?;
                 let start_index = data_marks.len();
@@ -4974,6 +5087,60 @@ impl CompiledPlot {
                     start_index,
                 ));
                 data_marks.extend(output.marks);
+            }
+            if has_render_stage_derived {
+                let mut requirements =
+                    avenger_chart_core::AdjustmentTransformRequirements::default();
+                for mark in &self.marks {
+                    requirements.merge(mark.derived_adjustment_requirements());
+                }
+                let base_scene = requirements
+                    .requires_base_scene()
+                    .then(|| BasePlotAreaScene::from_scene_marks(&data_marks));
+                let text_measurement_service = requirements.text_measurement.then_some(
+                    CachedAdjustmentTextMeasurementService {
+                        eval_ctx: &mark_eval_ctx,
+                    },
+                );
+                let text_measurement_service_ref = text_measurement_service
+                    .as_ref()
+                    .map(|service| service as &dyn TextMeasurementService);
+
+                for mark in &self.marks {
+                    if !mark.has_render_stage_derived() {
+                        continue;
+                    }
+                    let output = Box::pin(self.render_mark_with_plot_df(
+                        mark.as_ref(),
+                        &mark_eval_ctx,
+                        &merged_scales,
+                        plot_area_width,
+                        plot_area_height,
+                        data_override,
+                        facet_path,
+                        coord_measurement_ref,
+                        MarkRenderPhase::Derived,
+                        Some(&clip),
+                        base_scene.as_ref(),
+                        text_measurement_service_ref,
+                    ))
+                    .await?;
+                    let start_index = data_marks.len();
+                    event_datums.extend(offset_flat_event_datum_rows(
+                        output.event_datums,
+                        start_index,
+                    ));
+                    let pushed_event_datums: Vec<_> = event_datum_sink
+                        .lock()
+                        .expect("event datum sink poisoned")
+                        .drain(..)
+                        .collect();
+                    event_datums.extend(offset_flat_event_datum_rows(
+                        pushed_event_datums,
+                        start_index,
+                    ));
+                    data_marks.extend(output.marks);
+                }
             }
             let leftover_event_datums: Vec<_> = event_datum_sink
                 .lock()

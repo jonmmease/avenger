@@ -43,6 +43,7 @@ pub mod legend_renderer;
 pub mod legend_spec;
 pub mod mark;
 pub mod mark_channel_coercion;
+pub mod mark_effects;
 pub mod mark_group;
 pub mod mark_macros;
 pub mod mark_render_context;
@@ -124,9 +125,9 @@ pub use coordination_values::{CoordinatedLayout, CoordinatedOverflow};
 pub use data_context::DataContext;
 pub use datafusion_physical_eval::{
     CompiledScalarExpression, CompiledScalarExpressionProgram, PhysicalScalarExpressionSpec,
-    PhysicalScalarProgramOptions, PlaceholderColumn, collect_placeholder_ids,
-    one_row_batch_from_scalars, scalar_from_columnar_value, schema_from_fields,
-    validate_row_local_expr,
+    PhysicalScalarProgramOptions, PlaceholderColumn, array_from_columnar_value,
+    collect_placeholder_ids, one_row_batch_from_scalars, scalar_from_columnar_value,
+    schema_from_fields, validate_row_local_expr,
 };
 pub use datafusion_utils::{
     ArrayRefHelpers, DataFrameChartHelpers, ExprHelpers, ScalarValueHelpers, array_value_to_f64,
@@ -194,6 +195,24 @@ pub use mark_channel_coercion::{
     coerce_stroke_join_channel, coerce_stroke_join_channel_values,
     coerce_stroke_join_channel_values_with_renderer, coerce_stroke_join_channel_with_renderer,
     coerce_text_align_channel, coerce_text_baseline_channel, coerce_text_channel,
+};
+pub use mark_effects::{
+    AdjustItem, AdjustmentTransformContext, AdjustmentTransformRequirements,
+    AngleAdjustmentChannel, AreaGeometryItem, BasePlotAreaScene, BboxExpr, CompiledDodge,
+    CompiledJitter, CompiledMarkAdjustmentTransform, CompiledNudge, DefinedAdjustmentChannel,
+    DerivedPrimitiveMarkSpec, DerivedRectMarkSpec, DerivedRuleMarkSpec, DerivedSymbolMarkSpec,
+    DerivedTextMarkSpec, Dodge, DodgeOutput, ExpressionMarkAdjustmentSpec, FillAdjustmentChannel,
+    GeometryBounds, ImageGeometryItem, ItemChannelAssignment, Jitter, JitterOutput,
+    MarkAdjustmentCompileContext, MarkAdjustmentSpec, MarkAdjustmentTransform, MarkEvaluationFrame,
+    Nudge, NudgeOutput, OpacityAdjustmentChannel, PathAdjustmentChannels, PlotAreaInfo,
+    PointGeometryItem, PrimitiveMarkEffects, RectGeometryItem, RuleGeometryItem,
+    ShapeAdjustmentChannel, SizeAdjustmentChannel, StrokeAdjustmentChannel,
+    StrokeCapAdjustmentChannel, StrokeDashAdjustmentChannel, StrokeJoinAdjustmentChannel,
+    StrokeWidthAdjustmentChannel, TextAdjustmentChannels, TextMeasurementService,
+    TransformMarkAdjustmentSpec, evaluate_item_assignments, extract_adjustment_assignments,
+    is_item_frame_column_name, item_bbox_column_name, item_channel_column_name,
+    item_channel_name_from_column, item_data_column_name, item_data_name_from_column,
+    item_frame_column_refs,
 };
 pub use mark_group::{IntoPlotMark, MarkGroup, PlotMark, PlotMarkKind};
 pub use mark_render_context::MarkRenderContext;

@@ -90,7 +90,7 @@ pub use avenger_chart_cartesian::{
     CartesianTextPositionChannels, CartesianTrailPositionChannels,
 };
 pub use avenger_chart_marks::{
-    Area, Image, Line, PathMark, Rect, Rule, Subplot, Symbol, Text, Trail,
+    Area, Image, IntoDerivedPrimitiveMark, Line, PathMark, Rect, Rule, Subplot, Symbol, Text, Trail,
 };
 pub use avenger_chart_marks_statistical::{
     BoxPlot, BoxPlotOrientation, Violin, ViolinOrientation, ViolinWidthNormalization,
@@ -98,6 +98,13 @@ pub use avenger_chart_marks_statistical::{
 pub use avenger_chart_polar::PolarSymbolPositionChannels;
 
 // Re-export mark traits and types
+pub use avenger_chart_core::{
+    AdjustItem, AdjustmentTransformContext, AdjustmentTransformRequirements, AreaGeometryItem,
+    BasePlotAreaScene, BboxExpr, CompiledMarkAdjustmentTransform, Dodge, DodgeOutput,
+    GeometryBounds, ImageGeometryItem, Jitter, JitterOutput, MarkAdjustmentCompileContext,
+    MarkAdjustmentTransform, MarkEvaluationFrame, Nudge, NudgeOutput, PlotAreaInfo,
+    PointGeometryItem, RectGeometryItem, RuleGeometryItem, TextMeasurementService,
+};
 pub use avenger_chart_core::{
     ChannelExpr, ChannelValue, ConditionalValue, DataTransform, DataTransformCompileContext,
     FacetDataScope, Mark, MarkState, RadiusExpression, derived_scalar,

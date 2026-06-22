@@ -7,6 +7,96 @@
     clippy::type_complexity
 )]
 
+//! High-level chart authoring API.
+//!
+//! Mark effects are intentionally available on built-in primitive marks and on
+//! compound-specific child configuration hooks, not on arbitrary plot marks or
+//! compound containers.
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! let _ = MarkGroup::<Cartesian>::new().adjust(|item| item);
+//! ```
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! let _ = MarkGroup::<Cartesian>::new()
+//!     .adjust_transform(Nudge::new(1.0, 0.0), |group, _nudge| group);
+//! ```
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! let _ = Subplot::new(Plot::<Cartesian>::new()).derive(|item| Symbol::new());
+//! ```
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! let _ = BoxPlot::new().adjust(|item| item);
+//! ```
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! let _ = BoxPlot::new()
+//!     .adjust_transform(Nudge::new(1.0, 0.0), |plot, _nudge| plot);
+//! ```
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! let _ = Violin::new().derive(|item| Symbol::new());
+//! ```
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! let _ = Violin::new().adjust(|item| item);
+//! ```
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! struct ExternalMark;
+//!
+//! let _ = ExternalMark.derive(|item| Symbol::new());
+//! ```
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! fn generic_plot_mark<M: IntoPlotMark<Cartesian>>(mark: M) {
+//!     let _ = mark.adjust(|item| item);
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! fn dynamic_mark(mark: &dyn Mark<Cartesian>) {
+//!     let _ = mark.derive(|item| Symbol::new());
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! let _ = Symbol::<Cartesian>::new()
+//!     .unit_data()
+//!     .derive(|_point| MarkGroup::<Cartesian>::new());
+//! ```
+//!
+//! ```compile_fail
+//! use avenger_chart::prelude::*;
+//!
+//! let _ = Symbol::<Cartesian>::new()
+//!     .unit_data()
+//!     .derive(|_point| BoxPlot::new());
+//! ```
+
 pub mod axis;
 pub mod cartesian;
 pub mod channel;

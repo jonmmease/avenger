@@ -651,6 +651,7 @@ dependencies = [
  "avenger-common",
  "avenger-geometry",
  "avenger-guides",
+ "avenger-image",
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-text",

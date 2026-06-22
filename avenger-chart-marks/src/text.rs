@@ -1,17 +1,76 @@
 use datafusion_common::ScalarValue;
 
 use avenger_chart_core::{
-    AngleChannelConfig, ChannelValue, ColorChannelConfig, MarkState, OpacityChannelConfig,
-    SizeChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
-    define_common_mark_channels, impl_mark_base,
+    AdjustItem, AngleAdjustmentChannel, AngleChannelConfig, ChannelValue, ColorChannelConfig,
+    DefinedAdjustmentChannel, MarkAdjustmentCompileContext, MarkAdjustmentSpec,
+    MarkAdjustmentTransform, MarkState, OpacityAdjustmentChannel, OpacityChannelConfig,
+    PointGeometryItem, PrimitiveMarkEffects, SizeChannelConfig, StrokeDashChannelConfig,
+    StrokeWidthChannelConfig, TextAdjustmentChannels, TransformMarkAdjustmentSpec,
+    define_common_mark_channels, extract_adjustment_assignments, impl_mark_base_with_extra_fields,
 };
 
 pub struct Text<C> {
     pub(crate) state: MarkState,
+    pub(crate) effects: PrimitiveMarkEffects,
     pub(crate) _phantom: std::marker::PhantomData<C>,
 }
 
-impl_mark_base!(Text);
+impl_mark_base_with_extra_fields!(Text {
+    effects: PrimitiveMarkEffects::default(),
+});
+
+impl<C> AngleAdjustmentChannel for Text<C> {}
+
+impl<C> TextAdjustmentChannels for Text<C> {}
+
+impl<C> DefinedAdjustmentChannel for Text<C> {}
+
+impl<C> OpacityAdjustmentChannel for Text<C> {}
+
+impl<C> Text<C> {
+    /// Apply a render-stage expression adjustment to text items.
+    pub fn adjust<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(AdjustItem<Self, PointGeometryItem>) -> AdjustItem<Self, PointGeometryItem>,
+    {
+        let adjustment = f(AdjustItem::default()).into_adjustment_spec();
+        if !adjustment.is_empty() {
+            self.effects
+                .push_adjustment(MarkAdjustmentSpec::Expr(adjustment));
+        }
+        self
+    }
+
+    /// Apply a reusable render-stage adjustment transform to text items.
+    pub fn adjust_transform<A, F>(self, adjustment: A, f: F) -> Self
+    where
+        A: MarkAdjustmentTransform,
+        F: FnOnce(Self, A::Output) -> Self,
+    {
+        let stage_index = self.effects.adjustments.len();
+        let original_channels = self.state.data.channels().clone();
+        let (compiled, output) = adjustment
+            .compile(MarkAdjustmentCompileContext::new(stage_index))
+            .expect("Failed to build mark adjustment transform");
+        let mut routed = f(self, output);
+        let (channels, assignments) = extract_adjustment_assignments(
+            routed.state.data.channels().clone(),
+            &original_channels,
+        );
+        routed.state.data = routed.state.data.with_channels(channels);
+        routed
+            .effects
+            .push_adjustment(MarkAdjustmentSpec::Transform(
+                TransformMarkAdjustmentSpec::new(compiled, assignments),
+            ));
+        routed
+    }
+
+    #[doc(hidden)]
+    pub fn mark_effects(&self) -> &PrimitiveMarkEffects {
+        &self.effects
+    }
+}
 
 define_common_mark_channels! {
     Text {
@@ -88,16 +147,16 @@ where
         self.with_channel_value("defined", value.into().no_scale())
     }
 
-    pub fn dx<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("dx", value.into().no_scale())
-    }
-
-    pub fn dy<V: Into<ChannelValue>>(self, value: V) -> Self {
-        self.with_channel_value("dy", value.into().no_scale())
-    }
-
     pub fn leader<V: Into<ChannelValue>>(self, value: V) -> Self {
         self.with_channel_value("leader", value.into().no_scale())
+    }
+
+    pub fn leader_offset_x<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("leader_offset_x", value.into().no_scale())
+    }
+
+    pub fn leader_offset_y<V: Into<ChannelValue>>(self, value: V) -> Self {
+        self.with_channel_value("leader_offset_y", value.into().no_scale())
     }
 
     pub fn leader_label_padding<V: Into<ChannelValue>>(self, value: V) -> Self {
@@ -144,9 +203,9 @@ pub fn text_channel_defaults(channel: &str) -> Option<ScalarValue> {
         "font_style" => Some(ScalarValue::Utf8(Some("normal".to_string()))),
         "limit" => Some(ScalarValue::Float32(Some(0.0))),
         "defined" => Some(ScalarValue::Boolean(Some(true))),
-        "dx" => Some(ScalarValue::Float32(Some(0.0))),
-        "dy" => Some(ScalarValue::Float32(Some(0.0))),
         "leader" => Some(ScalarValue::Boolean(Some(false))),
+        "leader_offset_x" => Some(ScalarValue::Float32(Some(0.0))),
+        "leader_offset_y" => Some(ScalarValue::Float32(Some(0.0))),
         "leader_stroke" => Some(ScalarValue::Utf8(Some("rgba(0, 0, 0, 0.7)".to_string()))),
         "leader_stroke_width" => Some(ScalarValue::Float32(Some(1.0))),
         "leader_stroke_cap" => Some(ScalarValue::Utf8(Some("round".to_string()))),

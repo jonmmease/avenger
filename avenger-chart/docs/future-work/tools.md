@@ -208,9 +208,12 @@ The same expansion substrate should support richer interactions:
   null defaults.
 
 These tools need additional identity and editing contracts before they become
-implementation-ready. The key missing pieces are stable mark/datum identity,
-hit-test-to-data mapping, and ergonomic event bindings for moving or resizing
-store-backed regions.
+implementation-ready. The key remaining pieces are pointer-event policy for
+generated/decorative marks, editable overlay identity for store-backed regions,
+and ergonomic event bindings for moving or resizing those regions. Basic
+hit-test-to-datum mapping exists today, including derived-mark datum lineage,
+but richer tools still need clearer control over which rendered geometry is an
+interactive target and which geometry is only chrome.
 
 ## Crate Boundary
 

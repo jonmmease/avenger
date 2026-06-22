@@ -26,6 +26,7 @@
   - [Line](./docs/marks/line.md)
   - [Rect](./docs/marks/rect.md)
   - [Layering](./docs/marks/layering.md)
+  - [Mark Effects](./docs/mark-effects.md)
 
 - [Data Types & Channel Mapping](./docs/data-types.md)
 

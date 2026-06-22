@@ -19,8 +19,7 @@ For text, this is the difference between:
 - interpreting `angle = 0` as the local coordinate-space zero direction,
   which is radial outward in polar coordinates.
 
-The planned shared vocabulary is `GeometrySpace`, introduced in
-[mark-effects.md](mark-effects.md):
+The planned shared vocabulary is `GeometrySpace`:
 
 ```rust
 pub enum GeometrySpace {
@@ -29,7 +28,9 @@ pub enum GeometrySpace {
 }
 ```
 
-This document records the polar-specific semantics and implementation plan.
+This document records the polar-specific semantics. The concrete implementation
+checklist for `Line<Polar>` is in
+[polar-line-implementation-plan.md](polar-line-implementation-plan.md).
 
 ## Current System Fit
 
@@ -45,8 +46,10 @@ Useful existing pieces:
   arrays.
 - `SceneTextMark` already supports display-space positions and degree
   rotation.
-- The future [mark-effects.md](mark-effects.md) note defines the broader
-  `GeometrySpace` and effect-stage vocabulary that polar marks should use.
+- The implemented [mark-effects.md](mark-effects.md) surface provides
+  post-scale adjustments and derived marks that polar line/text support can
+  eventually consume, but polar `GeometrySpace` remains a separate mark and
+  coordinate-system semantic.
 
 Missing pieces:
 
@@ -144,28 +147,19 @@ Possible subdivision policies:
 - adaptive subdivision based on display-space chord error,
 - user-configurable tolerance with a conservative default.
 
-The spike should start with a simple deterministic policy and record whether
-visual quality, dash placement, or performance require adaptive refinement.
+The `Line<Polar>` implementation plan starts with a simple deterministic
+policy and records whether visual quality, dash placement, or performance
+require adaptive refinement.
 
 ### Angle Wrapping
 
-The first version should document and test how `theta` interpolation handles
-wrapping. A simple rule is to interpolate the scaled `theta` values as given.
-If an author wants the short path across the wrap boundary, they can prepare
-the data or use a later option such as `theta_wrap(Shortest)`.
+Theta interpolation should be as given. There should be no shortest-path,
+clockwise, counterclockwise, or wrap policy in the mark.
 
-Potential future options:
-
-```rust
-pub enum PolarThetaInterpolation {
-    AsGiven,
-    Shortest,
-    Clockwise,
-    CounterClockwise,
-}
-```
-
-Do not add this until concrete examples justify it.
+This keeps `GeometrySpace::Coordinate` literal: interpolate the scaled
+coordinate values present in the mark evaluation frame. If an author wants a
+different crossing at the angular wrap boundary, they should transform or
+unwrap the data before it reaches the mark.
 
 ## `Text<Polar>`
 
@@ -224,7 +218,7 @@ Text::<Polar>::new()
 Keeping radial or tangential text mostly upright should be an adjustment, not
 part of `GeometrySpace` itself.
 
-The future effect API can express this with a transform-like adjustment:
+The effect API can eventually express this with a transform-like adjustment:
 
 ```rust
 Text::<Polar>::new()
@@ -233,7 +227,7 @@ Text::<Polar>::new()
     .text("label")
     .geometry_space(GeometrySpace::Coordinate)
     .angle(0.0)
-    .adjust(KeepUpright::new(), |text, upright| {
+    .adjust_transform(KeepUpright::new(), |text, upright| {
         text.angle(upright.angle())
     });
 ```
@@ -249,7 +243,7 @@ mark builds its initial geometry frame.
 
 Adjustments and derivations then operate on that frame:
 
-- `KeepUpright` can adjust text angles after coordinate-space orientation is
+- `KeepUpright` could adjust text angles after coordinate-space orientation is
   computed.
 - `Nudge` can move text in display space after polar projection.
 - smart label placement can avoid polar lines, symbols, and other scene
@@ -276,38 +270,29 @@ Polar marks should therefore expose enough frame data for effects:
   `Line` and `Text` APIs and makes composition harder.
 - **Use path marks only**: authors could manually build SVG/path geometry, but
   that bypasses ordinary line/text encodings, scale-domain ownership, event
-  datum identity, and future effects.
+  datum identity, and mark effects.
 
 ## Readiness
 
-Ready for a design spike.
+`Line<Polar>` is ready for implementation planning; see
+[polar-line-implementation-plan.md](polar-line-implementation-plan.md).
 
-Good spike order:
+`Text<Polar>` remains ready for a design spike after line support lands.
+Likely order:
 
-1. Add `GeometrySpace` as an authoring option with a conservative default.
-2. Implement `Line<Polar>` with display-space behavior first if needed to
-   establish channel plumbing.
-3. Add coordinate-space line resampling and visual tests for radial segments,
-   circular arcs, spiral-like segments, defined gaps, and dash behavior.
-4. Implement `Text<Polar>` with position channels and display-space angle.
-5. Add coordinate-space text orientation and visual tests for radial and
+1. Implement `Text<Polar>` with position channels and display-space angle.
+2. Add coordinate-space text orientation and visual tests for radial and
    tangential labels.
-6. Add `KeepUpright` only after the effect-stage output handle design is ready,
+3. Add `KeepUpright` only after the effect-stage output handle design is ready,
    or temporarily keep it as an internal spike helper.
 
 ## Decisions Needed
 
-- Whether `GeometrySpace` lives in `avenger-chart-core`,
-  `avenger-chart-marks`, or a facade-level module.
-- Which marks should expose `geometry_space` initially: `Line`, `Text`, maybe
-  `Area`, `Trail`, `PathMark`, `Image`, and `Symbol` orientation.
-- Whether `Line<Polar>` defaults to coordinate space immediately.
+`Line<Polar>` decisions are closed in the implementation plan. Remaining
+decisions are about future mark families:
+
 - Whether `Text<Polar>` defaults to display space or coordinate space.
-- What subdivision policy and tolerance to use for coordinate-space lines.
-- How theta wrapping should be handled in v1.
-- Whether coordinate-space line geometry should densify into `SceneLineMark`
-  or emit a lower-level path mark for exact arcs later.
-- How coordinate-space geometry interacts with clipping, hit testing, event
-  datum rows, dashes, and source-row identity.
-- How `GeometrySpace` should compose with future mark effects and composite
-  derived marks.
+- Which additional marks should expose `geometry_space`: `Text`, maybe
+  `Area`, `Trail`, `PathMark`, `Image`, and `Symbol` orientation.
+- How `GeometrySpace` should compose with mark effects, especially
+  adjustment transforms that need local coordinate bases.

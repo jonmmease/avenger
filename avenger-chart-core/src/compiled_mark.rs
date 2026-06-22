@@ -13,11 +13,11 @@ use datafusion_common::ScalarValue as DatafusionScalarValue;
 use indexmap::IndexMap;
 
 use crate::{
-    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMarkState,
-    CompiledSubplotPayload, CoordinateSystemTransformCore, EvaluationContext, EventDatumFieldSpec,
-    LegendRendererSelection, MarkRenderContext, MarkRuntimeContext, PositionedSubplotMarkCore,
-    RadiusExpression, ResolvedDomain, ScaleRange, ScaleTypePreference, Theme,
-    default_scale_type_for_data_type, is_continuous_scale,
+    AdjustmentTransformRequirements, AvengerChartError, ChannelDescriptor, CompiledDataContext,
+    CompiledMarkState, CompiledSubplotPayload, CoordinateSystemTransformCore, EvaluationContext,
+    EventDatumFieldSpec, LegendRendererSelection, MarkRenderContext, MarkRuntimeContext,
+    PositionedSubplotMarkCore, RadiusExpression, ResolvedDomain, ScaleRange, ScaleTypePreference,
+    Theme, default_scale_type_for_data_type, is_continuous_scale,
 };
 
 pub struct RenderedMarkData {
@@ -260,6 +260,34 @@ pub trait CompiledMark: CompiledMarkCore {
         self.render_from_data(data, scalars, context, coord)
             .await
             .map(RenderedMarkData::new)
+    }
+
+    fn has_render_stage_derived(&self) -> bool {
+        false
+    }
+
+    fn derived_adjustment_requirements(&self) -> AdjustmentTransformRequirements {
+        AdjustmentTransformRequirements::default()
+    }
+
+    async fn render_base_mark_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<RenderedMarkData, AvengerChartError> {
+        self.render_mark_data(data, scalars, context, coord).await
+    }
+
+    async fn render_derived_mark_data(
+        &self,
+        _data: Option<&RecordBatch>,
+        _scalars: &RecordBatch,
+        _context: &dyn MarkRuntimeContext,
+        _coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<RenderedMarkData, AvengerChartError> {
+        Ok(RenderedMarkData::new(Vec::new()))
     }
 }
 

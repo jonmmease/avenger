@@ -7,6 +7,7 @@
     clippy::useless_vec
 )]
 
+mod mark_effects_support;
 mod test_data;
 mod tracing;
 mod visual_tests;

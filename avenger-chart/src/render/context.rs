@@ -12,14 +12,16 @@ use std::{
     time::Duration,
 };
 
+use avenger_scenegraph::marks::group::Clip;
 use datafusion::{
     arrow::datatypes::DataType, common::ScalarValue, dataframe::DataFrame, prelude::SessionContext,
 };
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    EvaluationContext as CoreEvaluationContext, EvaluationDiagnostics,
-    MarkRenderContext as CoreMarkRenderContext, MarkRuntimeContext, TimeContext,
+    BasePlotAreaScene, EvaluationContext as CoreEvaluationContext, EvaluationDiagnostics,
+    MarkRenderContext as CoreMarkRenderContext, MarkRuntimeContext, TextMeasurementService,
+    TimeContext,
 };
 
 use crate::{
@@ -1733,6 +1735,10 @@ pub struct RenderContext<'a> {
     /// For facet coordinate systems this contains subplot measurements.
     /// For non-facet coordinate systems this is `EmptyCoordMeasurement`.
     pub coord_measurement: &'a dyn CoordMeasurement,
+    pub base_plot_area_scene: Option<&'a BasePlotAreaScene>,
+    pub text_measurement_service: Option<&'a dyn TextMeasurementService>,
+    pub plot_area_clip: Option<&'a Clip>,
+    pub plot_area_origin: [f32; 2],
 }
 
 impl<'a> RenderContext<'a> {
@@ -1748,7 +1754,27 @@ impl<'a> RenderContext<'a> {
             state,
             facet_path,
             coord_measurement,
+            base_plot_area_scene: None,
+            text_measurement_service: None,
+            plot_area_clip: None,
+            plot_area_origin: [0.0, 0.0],
         }
+    }
+
+    pub fn with_plot_area(mut self, clip: Option<&'a Clip>, origin: [f32; 2]) -> Self {
+        self.plot_area_clip = clip;
+        self.plot_area_origin = origin;
+        self
+    }
+
+    pub fn with_adjustment_services(
+        mut self,
+        base_plot_area_scene: Option<&'a BasePlotAreaScene>,
+        text_measurement_service: Option<&'a dyn TextMeasurementService>,
+    ) -> Self {
+        self.base_plot_area_scene = base_plot_area_scene;
+        self.text_measurement_service = text_measurement_service;
+        self
     }
 
     /// Get coordinate measurement
@@ -1825,6 +1851,22 @@ impl MarkRuntimeContext for RenderContext<'_> {
 
     fn facet_path(&self) -> &[ScalarValue] {
         self.facet_path
+    }
+
+    fn base_plot_area_scene(&self) -> Option<&BasePlotAreaScene> {
+        self.base_plot_area_scene
+    }
+
+    fn text_measurement_service(&self) -> Option<&dyn TextMeasurementService> {
+        self.text_measurement_service
+    }
+
+    fn plot_area_clip(&self) -> Option<&Clip> {
+        self.plot_area_clip
+    }
+
+    fn plot_area_origin(&self) -> [f32; 2] {
+        self.plot_area_origin
     }
 }
 

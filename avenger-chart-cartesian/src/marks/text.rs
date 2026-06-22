@@ -1,17 +1,22 @@
 use std::sync::Arc;
 
 use avenger_chart_core::{
-    AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
-    CompiledMarkState, CoordinateSystemTransformCore, LegendRendererSelection, Mark,
-    MarkRuntimeContext, ScaleTypePreference, apply_opacity_to_color_channel,
-    coerce_bool_channel_with_renderer, coerce_color_channel_with_renderer,
-    coerce_font_style_channel, coerce_font_weight_channel, coerce_numeric_channel_with_renderer,
-    coerce_opacity_channel_with_renderer, coerce_stroke_cap_channel_values_with_renderer,
-    coerce_stroke_dash_channel, coerce_stroke_join_channel_values_with_renderer,
-    coerce_text_align_channel, coerce_text_baseline_channel, coerce_text_channel,
-    default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
+    AdjustmentTransformContext, AvengerChartError, ChannelDescriptor, CompiledDataContext,
+    CompiledMark, CompiledMarkCore, CompiledMarkState, CoordinateSystemTransformCore,
+    LegendRendererSelection, Mark, MarkAdjustmentSpec, MarkEvaluationFrame, MarkRenderContext,
+    MarkRuntimeContext, PlotAreaInfo, PrimitiveMarkEffects, RenderedMarkData, ScaleTypePreference,
+    apply_opacity_to_color_channel, coerce_bool_channel_with_renderer,
+    coerce_color_channel_with_renderer, coerce_font_style_channel, coerce_font_weight_channel,
+    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
+    coerce_stroke_cap_channel_values_with_renderer, coerce_stroke_dash_channel,
+    coerce_stroke_join_channel_values_with_renderer, coerce_text_align_channel,
+    coerce_text_baseline_channel, coerce_text_channel, default_scale_type_for_data_type,
+    evaluate_item_assignments, impl_mark_trait_common, is_continuous_scale, item_bbox_column_name,
+    item_channel_column_name, item_channel_name_from_column, item_data_column_name,
+    item_data_name_from_column,
 };
 use avenger_chart_marks::{Text, text_channel_defaults};
+use avenger_color::ColorOrGradient;
 use avenger_common::{
     types::{SceneTextLeaderArrow, SceneTextLeaderShape, StrokeCap, StrokeJoin},
     value::{ScalarOrArray, ScalarOrArrayValue},
@@ -20,8 +25,10 @@ use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::{mark::SceneMark, text::SceneTextMark};
 use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 use datafusion::{
-    arrow::array::RecordBatch,
-    arrow::datatypes::DataType,
+    arrow::{
+        array::{ArrayRef, BooleanArray, Float32Array, RecordBatch, StringArray},
+        datatypes::{DataType, Field, Schema},
+    },
     common::ScalarValue,
     logical_expr::{Expr, lit},
 };
@@ -40,6 +47,7 @@ impl Mark<Cartesian> for Text<Cartesian> {
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
         Ok(Arc::new(CompiledCartesianText {
             state: compiled_state,
+            effects: self.mark_effects().clone(),
         }))
     }
 }
@@ -47,6 +55,8 @@ impl Mark<Cartesian> for Text<Cartesian> {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledCartesianText {
     pub(crate) state: CompiledMarkState,
+    #[serde(default)]
+    pub(crate) effects: PrimitiveMarkEffects,
 }
 
 impl CompiledMarkCore for CompiledCartesianText {
@@ -153,19 +163,19 @@ impl CompiledMarkCore for CompiledCartesianText {
                 allow_column_ref: true,
             },
             ChannelDescriptor {
-                name: "dx",
-                required: false,
-                default_value: None,
-                allow_column_ref: true,
-            },
-            ChannelDescriptor {
-                name: "dy",
-                required: false,
-                default_value: None,
-                allow_column_ref: true,
-            },
-            ChannelDescriptor {
                 name: "leader",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "leader_offset_x",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "leader_offset_y",
                 required: false,
                 default_value: None,
                 allow_column_ref: true,
@@ -249,6 +259,10 @@ impl CompiledMarkCore for CompiledCartesianText {
         text_channel_defaults(channel)
     }
 
+    fn wants_full_data_batch(&self) -> bool {
+        self.effects.requires_data_batch()
+    }
+
     fn preferred_scale_type(
         &self,
         channel: &str,
@@ -272,9 +286,9 @@ impl CompiledMarkCore for CompiledCartesianText {
                 | "font_weight"
                 | "font_style"
                 | "defined"
-                | "dx"
-                | "dy"
                 | "leader"
+                | "leader_offset_x"
+                | "leader_offset_y"
                 | "leader_label_padding"
                 | "leader_target_radius"
                 | "leader_min_length"
@@ -322,192 +336,681 @@ impl CompiledMark for CompiledCartesianText {
         context: &dyn MarkRuntimeContext,
         coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        self.render_mark_data(data, scalars, context, coord)
+            .await
+            .map(|rendered| rendered.marks)
+    }
+
+    async fn render_mark_data(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<RenderedMarkData, AvengerChartError> {
+        let mark = self.render_text_scene(data, scalars, context, coord)?;
+        Ok(RenderedMarkData::new(vec![mark.into()]))
+    }
+}
+
+impl CompiledCartesianText {
+    pub(crate) fn render_text_scene(
+        &self,
+        data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
+        context: &dyn MarkRuntimeContext,
+        coord: &dyn CoordinateSystemTransformCore,
+    ) -> Result<SceneTextMark, AvengerChartError> {
         let mark_context = context.core_view();
         let len = util::scene_len(data);
         let position = util::transform_cartesian_point_channels(
             self, data, scalars, context, coord, "x", "y",
         )?;
 
-        let dx =
-            coerce_numeric_channel_with_renderer(self, data, scalars, "dx", &mark_context, 0.0)?;
-        let dy =
-            coerce_numeric_channel_with_renderer(self, data, scalars, "dy", &mark_context, 0.0)?;
-        let text = coerce_text_channel(data, scalars, "text", String::new())?;
-        let align = coerce_text_align_channel(data, scalars, "align", TextAlign::Left)?;
-        let baseline =
-            coerce_text_baseline_channel(data, scalars, "baseline", TextBaseline::Alphabetic)?;
-        let angle =
-            coerce_numeric_channel_with_renderer(self, data, scalars, "angle", &mark_context, 0.0)?;
-        let color = coerce_color_channel_with_renderer(
+        let mark = build_scene_text_mark(
             self,
             data,
             scalars,
-            "color",
             &mark_context,
-            [0.0, 0.0, 0.0, 1.0],
+            position.x,
+            position.y,
+            len,
+            self.state.zindex,
+            true,
         )?;
-        let font = coerce_text_channel(data, scalars, "font", "sans-serif".to_string())?;
-        let font_size = coerce_numeric_channel_with_renderer(
+        apply_text_adjustments(
             self,
+            mark,
             data,
-            scalars,
-            "font_size",
-            &mark_context,
-            10.0,
-        )?;
-        let font_weight = coerce_font_weight_channel(
-            data,
-            scalars,
-            "font_weight",
-            FontWeight::Name(FontWeightNameSpec::Normal),
-        )?;
-        let font_style = coerce_font_style_channel(data, scalars, "font_style", FontStyle::Normal)?;
-        let limit =
-            coerce_numeric_channel_with_renderer(self, data, scalars, "limit", &mark_context, 0.0)?;
-        let opacity = coerce_opacity_channel_with_renderer(
-            self,
-            data,
-            scalars,
-            "opacity",
-            &mark_context,
-            1.0,
-        )?;
-        let color = apply_opacity_to_color_channel(color, &opacity, len as usize);
-        let defined =
-            coerce_bool_channel_with_renderer(self, data, scalars, "defined", &mark_context, true)?;
-        let leader =
-            coerce_bool_channel_with_renderer(self, data, scalars, "leader", &mark_context, false)?;
-        let leader_stroke = coerce_color_channel_with_renderer(
-            self,
-            data,
-            scalars,
-            "leader_stroke",
-            &mark_context,
-            [0.0, 0.0, 0.0, 0.7],
-        )?;
-        let leader_stroke = apply_opacity_to_color_channel(leader_stroke, &opacity, len as usize);
-        let leader_stroke_width = coerce_numeric_channel_with_renderer(
-            self,
-            data,
-            scalars,
-            "leader_stroke_width",
-            &mark_context,
-            1.0,
-        )?;
-        let leader_stroke_dash = util::optional_stroke_dash(coerce_stroke_dash_channel(
-            data,
-            scalars,
-            "leader_stroke_dash",
-        )?);
-        let leader_stroke_cap = coerce_stroke_cap_channel_values_with_renderer(
-            self,
-            data,
-            scalars,
-            "leader_stroke_cap",
-            &mark_context,
-            StrokeCap::Round,
-        )?;
-        let leader_stroke_join = coerce_stroke_join_channel_values_with_renderer(
-            self,
-            data,
-            scalars,
-            "leader_stroke_join",
-            &mark_context,
-            StrokeJoin::Round,
-        )?;
-        let leader_label_padding = coerce_numeric_channel_with_renderer(
-            self,
-            data,
-            scalars,
-            "leader_label_padding",
-            &mark_context,
-            2.0,
-        )?;
-        let leader_target_radius = coerce_numeric_channel_with_renderer(
-            self,
-            data,
-            scalars,
-            "leader_target_radius",
-            &mark_context,
-            0.0,
-        )?;
-        let leader_min_length = coerce_numeric_channel_with_renderer(
-            self,
-            data,
-            scalars,
-            "leader_min_length",
-            &mark_context,
-            1.0,
-        )?;
-        let leader_shape = coerce_text_leader_shape_channel(
-            data,
-            scalars,
-            "leader_shape",
-            SceneTextLeaderShape::Straight,
-        )?;
-        let leader_arrow = coerce_text_leader_arrow_channel(
-            data,
-            scalars,
-            "leader_arrow",
-            SceneTextLeaderArrow::None,
-        )?;
-        let leader_arrow_length = coerce_numeric_channel_with_renderer(
-            self,
-            data,
-            scalars,
-            "leader_arrow_length",
-            &mark_context,
-            6.0,
-        )?;
-        let leader_arrow_width = coerce_numeric_channel_with_renderer(
-            self,
-            data,
-            scalars,
-            "leader_arrow_width",
-            &mark_context,
-            5.0,
-        )?;
-
-        Ok(vec![
-            SceneTextMark {
-                name: "text".to_string(),
-                clip: true,
-                len,
-                text,
-                x: position.x,
-                y: position.y,
-                defined,
-                dx,
-                dy,
-                align,
-                baseline,
-                angle,
-                color,
-                font,
-                font_size,
-                font_weight,
-                font_style,
-                limit,
-                leader,
-                leader_stroke,
-                leader_stroke_width,
-                leader_stroke_cap,
-                leader_stroke_join,
-                leader_stroke_dash,
-                leader_label_padding,
-                leader_target_radius,
-                leader_min_length,
-                leader_shape,
-                leader_arrow,
-                leader_arrow_length,
-                leader_arrow_width,
-                indices: None,
-                zindex: self.state.zindex,
-                interactive: true,
-            }
-            .into(),
-        ])
+            None,
+            context,
+            &self.effects,
+            self.state.zindex,
+        )
     }
+}
+
+pub(crate) fn build_scene_text_mark<M>(
+    mark: &M,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    mark_context: &MarkRenderContext<'_>,
+    x: ScalarOrArray<f32>,
+    y: ScalarOrArray<f32>,
+    len: u32,
+    zindex: Option<i32>,
+    apply_opacity: bool,
+) -> Result<SceneTextMark, AvengerChartError>
+where
+    M: CompiledMarkCore + ?Sized,
+{
+    let text = coerce_text_channel(data, scalars, "text", String::new())?;
+    let align = coerce_text_align_channel(data, scalars, "align", TextAlign::Left)?;
+    let baseline =
+        coerce_text_baseline_channel(data, scalars, "baseline", TextBaseline::Alphabetic)?;
+    let angle =
+        coerce_numeric_channel_with_renderer(mark, data, scalars, "angle", mark_context, 0.0)?;
+    let color = coerce_color_channel_with_renderer(
+        mark,
+        data,
+        scalars,
+        "color",
+        mark_context,
+        [0.0, 0.0, 0.0, 1.0],
+    )?;
+    let font = coerce_text_channel(data, scalars, "font", "sans-serif".to_string())?;
+    let font_size =
+        coerce_numeric_channel_with_renderer(mark, data, scalars, "font_size", mark_context, 10.0)?;
+    let font_weight = coerce_font_weight_channel(
+        data,
+        scalars,
+        "font_weight",
+        FontWeight::Name(FontWeightNameSpec::Normal),
+    )?;
+    let font_style = coerce_font_style_channel(data, scalars, "font_style", FontStyle::Normal)?;
+    let limit =
+        coerce_numeric_channel_with_renderer(mark, data, scalars, "limit", mark_context, 0.0)?;
+    let opacity =
+        coerce_opacity_channel_with_renderer(mark, data, scalars, "opacity", mark_context, 1.0)?;
+    let rendered_color = if apply_opacity {
+        apply_opacity_to_color_channel(color.clone(), &opacity, len as usize)
+    } else {
+        color
+    };
+    let defined =
+        coerce_bool_channel_with_renderer(mark, data, scalars, "defined", mark_context, true)?;
+    let leader =
+        coerce_bool_channel_with_renderer(mark, data, scalars, "leader", mark_context, false)?;
+    let leader_offset_x = coerce_numeric_channel_with_renderer(
+        mark,
+        data,
+        scalars,
+        "leader_offset_x",
+        mark_context,
+        0.0,
+    )?;
+    let leader_offset_y = coerce_numeric_channel_with_renderer(
+        mark,
+        data,
+        scalars,
+        "leader_offset_y",
+        mark_context,
+        0.0,
+    )?;
+    let leader_stroke = coerce_color_channel_with_renderer(
+        mark,
+        data,
+        scalars,
+        "leader_stroke",
+        mark_context,
+        [0.0, 0.0, 0.0, 0.7],
+    )?;
+    let rendered_leader_stroke = if apply_opacity {
+        apply_opacity_to_color_channel(leader_stroke.clone(), &opacity, len as usize)
+    } else {
+        leader_stroke
+    };
+    let leader_stroke_width = coerce_numeric_channel_with_renderer(
+        mark,
+        data,
+        scalars,
+        "leader_stroke_width",
+        mark_context,
+        1.0,
+    )?;
+    let leader_stroke_dash = util::optional_stroke_dash(coerce_stroke_dash_channel(
+        data,
+        scalars,
+        "leader_stroke_dash",
+    )?);
+    let leader_stroke_cap = coerce_stroke_cap_channel_values_with_renderer(
+        mark,
+        data,
+        scalars,
+        "leader_stroke_cap",
+        mark_context,
+        StrokeCap::Round,
+    )?;
+    let leader_stroke_join = coerce_stroke_join_channel_values_with_renderer(
+        mark,
+        data,
+        scalars,
+        "leader_stroke_join",
+        mark_context,
+        StrokeJoin::Round,
+    )?;
+    let leader_label_padding = coerce_numeric_channel_with_renderer(
+        mark,
+        data,
+        scalars,
+        "leader_label_padding",
+        mark_context,
+        2.0,
+    )?;
+    let leader_target_radius = coerce_numeric_channel_with_renderer(
+        mark,
+        data,
+        scalars,
+        "leader_target_radius",
+        mark_context,
+        0.0,
+    )?;
+    let leader_min_length = coerce_numeric_channel_with_renderer(
+        mark,
+        data,
+        scalars,
+        "leader_min_length",
+        mark_context,
+        1.0,
+    )?;
+    let leader_shape = coerce_text_leader_shape_channel(
+        data,
+        scalars,
+        "leader_shape",
+        SceneTextLeaderShape::Straight,
+    )?;
+    let leader_arrow = coerce_text_leader_arrow_channel(
+        data,
+        scalars,
+        "leader_arrow",
+        SceneTextLeaderArrow::None,
+    )?;
+    let leader_arrow_length = coerce_numeric_channel_with_renderer(
+        mark,
+        data,
+        scalars,
+        "leader_arrow_length",
+        mark_context,
+        6.0,
+    )?;
+    let leader_arrow_width = coerce_numeric_channel_with_renderer(
+        mark,
+        data,
+        scalars,
+        "leader_arrow_width",
+        mark_context,
+        5.0,
+    )?;
+
+    Ok(SceneTextMark {
+        name: "text".to_string(),
+        clip: true,
+        len,
+        text,
+        x,
+        y,
+        defined,
+        dx: leader_offset_x,
+        dy: leader_offset_y,
+        align,
+        baseline,
+        angle,
+        color: rendered_color,
+        opacity,
+        font,
+        font_size,
+        font_weight,
+        font_style,
+        limit,
+        leader,
+        leader_stroke: rendered_leader_stroke,
+        leader_stroke_width,
+        leader_stroke_cap,
+        leader_stroke_join,
+        leader_stroke_dash,
+        leader_label_padding,
+        leader_target_radius,
+        leader_min_length,
+        leader_shape,
+        leader_arrow,
+        leader_arrow_length,
+        leader_arrow_width,
+        indices: None,
+        zindex,
+        interactive: true,
+    })
+}
+
+pub(crate) fn apply_text_adjustments<M>(
+    mark: &M,
+    text_mark: SceneTextMark,
+    source_data: Option<&RecordBatch>,
+    source_frame: Option<&MarkEvaluationFrame>,
+    context: &dyn MarkRuntimeContext,
+    effects: &PrimitiveMarkEffects,
+    zindex: Option<i32>,
+) -> Result<SceneTextMark, AvengerChartError>
+where
+    M: CompiledMarkCore + ?Sized,
+{
+    if effects.adjustments.is_empty() {
+        return Ok(text_mark);
+    }
+
+    let len = text_mark.len as usize;
+    let mut frame = build_text_item_frame(&text_mark, source_data, source_frame)?;
+    for adjustment in &effects.adjustments {
+        let assignments = match adjustment {
+            MarkAdjustmentSpec::Expr(spec) => &spec.assignments,
+            MarkAdjustmentSpec::Transform(spec) => {
+                let requirements = spec.transform.requirements();
+                let mut adjustment_context =
+                    AdjustmentTransformContext::new().with_plot_area(PlotAreaInfo {
+                        facet_path: context.facet_path(),
+                        width: context.plot_width(),
+                        height: context.plot_height(),
+                        origin: context.plot_area_origin(),
+                        clip: context.plot_area_clip(),
+                    });
+                if requirements.source_frame
+                    && let Some(source_frame) = source_frame
+                {
+                    adjustment_context = adjustment_context.with_source(source_frame);
+                }
+                if requirements.base_scene
+                    && let Some(base_scene) = context.base_plot_area_scene()
+                {
+                    adjustment_context = adjustment_context.with_base_scene(base_scene);
+                }
+                if requirements.text_measurement
+                    && let Some(text_measurement) = context.text_measurement_service()
+                {
+                    adjustment_context = adjustment_context.with_text_measurement(text_measurement);
+                }
+                spec.transform.apply(&mut frame, &adjustment_context)?;
+                &spec.assignments
+            }
+        };
+        if assignments.is_empty() {
+            continue;
+        }
+
+        let item_batch = frame.record_batch()?;
+        let output_batch = evaluate_item_assignments(
+            assignments.iter(),
+            &item_batch,
+            context.core_view().session_context().as_ref(),
+        )?;
+        for (index, assignment) in assignments.iter().enumerate() {
+            frame.set_column(
+                item_channel_column_name(&assignment.channel),
+                output_batch.column(index).clone(),
+            )?;
+        }
+        refresh_text_bbox_columns(&mut frame)?;
+    }
+
+    let adjusted_channels = text_channel_batch_from_item_frame(&frame)?;
+    let mark_context = context.core_view();
+    let x = coerce_numeric_channel_with_renderer(
+        mark,
+        None,
+        &adjusted_channels,
+        "x",
+        &mark_context,
+        0.0,
+    )?;
+    let y = coerce_numeric_channel_with_renderer(
+        mark,
+        None,
+        &adjusted_channels,
+        "y",
+        &mark_context,
+        0.0,
+    )?;
+    build_scene_text_mark(
+        mark,
+        None,
+        &adjusted_channels,
+        &mark_context,
+        x,
+        y,
+        len as u32,
+        zindex,
+        true,
+    )
+}
+
+fn build_text_item_frame(
+    text_mark: &SceneTextMark,
+    source_data: Option<&RecordBatch>,
+    source_frame: Option<&MarkEvaluationFrame>,
+) -> Result<MarkEvaluationFrame, AvengerChartError> {
+    let len = text_mark.len as usize;
+    let x_values = text_mark.x.as_vec(len, None);
+    let y_values = text_mark.y.as_vec(len, None);
+    let leader_offset_x_values = text_mark.dx.as_vec(len, None);
+    let leader_offset_y_values = text_mark.dy.as_vec(len, None);
+    let label_x_values = add_f32_vecs(&x_values, &leader_offset_x_values);
+    let label_y_values = add_f32_vecs(&y_values, &leader_offset_y_values);
+    let mut columns: Vec<(Field, ArrayRef)> = vec![
+        f32_item_channel("x", x_values.clone()),
+        f32_item_channel("y", y_values.clone()),
+        f32_item_channel("leader_offset_x", leader_offset_x_values),
+        f32_item_channel("leader_offset_y", leader_offset_y_values),
+        f32_item_channel("angle", text_mark.angle.as_vec(len, None)),
+        f32_item_channel("font_size", text_mark.font_size.as_vec(len, None)),
+        f32_item_channel("limit", text_mark.limit.as_vec(len, None)),
+        f32_item_channel("opacity", text_mark.opacity.as_vec(len, None)),
+        f32_item_channel(
+            "leader_stroke_width",
+            text_mark.leader_stroke_width.as_vec(len, None),
+        ),
+        f32_item_channel(
+            "leader_label_padding",
+            text_mark.leader_label_padding.as_vec(len, None),
+        ),
+        f32_item_channel(
+            "leader_target_radius",
+            text_mark.leader_target_radius.as_vec(len, None),
+        ),
+        f32_item_channel(
+            "leader_min_length",
+            text_mark.leader_min_length.as_vec(len, None),
+        ),
+        f32_item_channel(
+            "leader_arrow_length",
+            text_mark.leader_arrow_length.as_vec(len, None),
+        ),
+        f32_item_channel(
+            "leader_arrow_width",
+            text_mark.leader_arrow_width.as_vec(len, None),
+        ),
+        bool_item_channel("defined", text_mark.defined.as_vec(len, None)),
+        bool_item_channel("leader", text_mark.leader.as_vec(len, None)),
+        string_item_channel(
+            "color",
+            util::color_channel_strings(
+                &text_raw_color_channel(&text_mark.color, &text_mark.opacity, len),
+                len,
+            ),
+        ),
+        string_item_channel(
+            "leader_stroke",
+            util::color_channel_strings(
+                &text_raw_color_channel(&text_mark.leader_stroke, &text_mark.opacity, len),
+                len,
+            ),
+        ),
+        string_item_channel(
+            "leader_stroke_dash",
+            util::stroke_dash_strings(&text_mark.leader_stroke_dash, len),
+        ),
+        string_item_channel(
+            "leader_stroke_cap",
+            util::stroke_cap_strings(&text_mark.leader_stroke_cap, len),
+        ),
+        string_item_channel(
+            "leader_stroke_join",
+            util::stroke_join_strings(&text_mark.leader_stroke_join, len),
+        ),
+        string_item_channel(
+            "leader_shape",
+            text_mark
+                .leader_shape
+                .as_vec(len, None)
+                .into_iter()
+                .map(leader_shape_name)
+                .collect(),
+        ),
+        string_item_channel(
+            "leader_arrow",
+            text_mark
+                .leader_arrow
+                .as_vec(len, None)
+                .into_iter()
+                .map(leader_arrow_name)
+                .collect(),
+        ),
+        string_item_channel("text", text_mark.text.as_vec(len, None)),
+        string_item_channel("font", text_mark.font.as_vec(len, None)),
+        string_item_channel(
+            "align",
+            text_mark
+                .align
+                .as_vec(len, None)
+                .into_iter()
+                .map(text_align_name)
+                .collect(),
+        ),
+        string_item_channel(
+            "baseline",
+            text_mark
+                .baseline
+                .as_vec(len, None)
+                .into_iter()
+                .map(text_baseline_name)
+                .collect(),
+        ),
+        string_item_channel(
+            "font_weight",
+            text_mark
+                .font_weight
+                .as_vec(len, None)
+                .into_iter()
+                .map(font_weight_name)
+                .collect(),
+        ),
+        string_item_channel(
+            "font_style",
+            text_mark
+                .font_style
+                .as_vec(len, None)
+                .into_iter()
+                .map(font_style_name)
+                .collect(),
+        ),
+        f32_item_bbox("left", label_x_values.clone()),
+        f32_item_bbox("right", label_x_values),
+        f32_item_bbox("top", label_y_values.clone()),
+        f32_item_bbox("bottom", label_y_values),
+    ];
+
+    if let Some(data) = source_data {
+        if data.num_rows() != len {
+            return Err(AvengerChartError::InternalError(format!(
+                "Text adjustment data row count {} did not match item count {len}",
+                data.num_rows()
+            )));
+        }
+        for (index, field) in data.schema().fields().iter().enumerate() {
+            columns.push((
+                Field::new(
+                    item_data_column_name(field.name()),
+                    field.data_type().clone(),
+                    field.is_nullable(),
+                ),
+                data.column(index).clone(),
+            ));
+        }
+    }
+
+    if let Some(source_frame) = source_frame {
+        let source_batch = source_frame.record_batch()?;
+        if source_batch.num_rows() != len {
+            return Err(AvengerChartError::InternalError(format!(
+                "Derived text source-frame row count {} did not match item count {len}",
+                source_batch.num_rows()
+            )));
+        }
+        for (index, field) in source_batch.schema().fields().iter().enumerate() {
+            if item_data_name_from_column(field.name()).is_some() {
+                columns.push((field.as_ref().clone(), source_batch.column(index).clone()));
+            }
+        }
+    }
+
+    Ok(MarkEvaluationFrame::new(len, columns))
+}
+
+fn f32_item_channel(channel: &str, values: Vec<f32>) -> (Field, ArrayRef) {
+    let name = item_channel_column_name(channel);
+    (
+        Field::new(name, DataType::Float32, true),
+        Arc::new(Float32Array::from(values)),
+    )
+}
+
+fn f32_item_bbox(channel: &str, values: Vec<f32>) -> (Field, ArrayRef) {
+    let name = item_bbox_column_name(channel);
+    (
+        Field::new(name, DataType::Float32, true),
+        Arc::new(Float32Array::from(values)),
+    )
+}
+
+fn add_f32_vecs(lhs: &[f32], rhs: &[f32]) -> Vec<f32> {
+    lhs.iter()
+        .zip(rhs.iter())
+        .map(|(lhs, rhs)| lhs + rhs)
+        .collect()
+}
+
+fn text_raw_color_channel(
+    rendered: &ScalarOrArray<ColorOrGradient>,
+    opacity: &ScalarOrArray<f32>,
+    len: usize,
+) -> ScalarOrArray<ColorOrGradient> {
+    let colors = rendered.as_vec(len, None);
+    let opacities = opacity.as_vec(len, None);
+    ScalarOrArray::new_array(
+        colors
+            .into_iter()
+            .zip(opacities)
+            .map(|(color, opacity)| text_raw_color(color, opacity))
+            .collect(),
+    )
+    .to_scalar_if_len_one()
+}
+
+fn text_raw_color(color: ColorOrGradient, opacity: f32) -> ColorOrGradient {
+    match color {
+        ColorOrGradient::Color(mut rgba) => {
+            if opacity > f32::EPSILON {
+                rgba[3] = (rgba[3] / opacity).clamp(0.0, 1.0);
+            }
+            ColorOrGradient::Color(rgba)
+        }
+        ColorOrGradient::GradientIndex(index) => ColorOrGradient::GradientIndex(index),
+    }
+}
+
+fn refresh_text_bbox_columns(frame: &mut MarkEvaluationFrame) -> Result<(), AvengerChartError> {
+    let x = frame.f32_values(&item_channel_column_name("x"))?;
+    let y = frame.f32_values(&item_channel_column_name("y"))?;
+    let leader_offset_x = frame.f32_values(&item_channel_column_name("leader_offset_x"))?;
+    let leader_offset_y = frame.f32_values(&item_channel_column_name("leader_offset_y"))?;
+    let label_x = add_f32_vecs(&x, &leader_offset_x);
+    let label_y = add_f32_vecs(&y, &leader_offset_y);
+    frame.set_column(
+        item_bbox_column_name("left"),
+        Arc::new(Float32Array::from(label_x.clone())) as ArrayRef,
+    )?;
+    frame.set_column(
+        item_bbox_column_name("right"),
+        Arc::new(Float32Array::from(label_x)) as ArrayRef,
+    )?;
+    frame.set_column(
+        item_bbox_column_name("top"),
+        Arc::new(Float32Array::from(label_y.clone())) as ArrayRef,
+    )?;
+    frame.set_column(
+        item_bbox_column_name("bottom"),
+        Arc::new(Float32Array::from(label_y)) as ArrayRef,
+    )?;
+    Ok(())
+}
+
+fn bool_item_channel(channel: &str, values: Vec<bool>) -> (Field, ArrayRef) {
+    let name = item_channel_column_name(channel);
+    (
+        Field::new(name, DataType::Boolean, true),
+        Arc::new(BooleanArray::from(values)),
+    )
+}
+
+fn string_item_channel(channel: &str, values: Vec<String>) -> (Field, ArrayRef) {
+    let name = item_channel_column_name(channel);
+    (
+        Field::new(name, DataType::Utf8, true),
+        Arc::new(StringArray::from(values)),
+    )
+}
+
+fn text_channel_batch_from_item_frame(
+    frame: &MarkEvaluationFrame,
+) -> Result<RecordBatch, AvengerChartError> {
+    let item_batch = frame.record_batch()?;
+    let mut fields = Vec::new();
+    let mut arrays = Vec::new();
+    for (index, field) in item_batch.schema().fields().iter().enumerate() {
+        if let Some(channel) = item_channel_name_from_column(field.name()) {
+            fields.push(Field::new(
+                channel.to_string(),
+                field.data_type().clone(),
+                field.is_nullable(),
+            ));
+            arrays.push(item_batch.column(index).clone());
+        }
+    }
+    Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?)
+}
+
+fn text_align_name(value: TextAlign) -> String {
+    match value {
+        TextAlign::Left => "left",
+        TextAlign::Center => "center",
+        TextAlign::Right => "right",
+    }
+    .to_string()
+}
+
+fn text_baseline_name(value: TextBaseline) -> String {
+    match value {
+        TextBaseline::Alphabetic => "alphabetic",
+        TextBaseline::Top => "top",
+        TextBaseline::Middle => "middle",
+        TextBaseline::Bottom => "bottom",
+        TextBaseline::LineTop => "line-top",
+        TextBaseline::LineBottom => "line-bottom",
+    }
+    .to_string()
+}
+
+fn font_weight_name(value: FontWeight) -> String {
+    match value {
+        FontWeight::Name(FontWeightNameSpec::Normal) => "normal".to_string(),
+        FontWeight::Name(FontWeightNameSpec::Bold) => "bold".to_string(),
+        FontWeight::Number(value) => value.to_string(),
+    }
+}
+
+fn font_style_name(value: FontStyle) -> String {
+    match value {
+        FontStyle::Normal => "normal",
+        FontStyle::Italic => "italic",
+    }
+    .to_string()
 }
 
 fn coerce_text_leader_shape_channel(

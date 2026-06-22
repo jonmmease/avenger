@@ -1,6 +1,10 @@
 use std::{any::Any, sync::Arc};
 
-use datafusion::{common::ScalarValue, logical_expr::Expr, prelude::lit};
+use datafusion::{
+    common::ScalarValue,
+    logical_expr::Expr,
+    prelude::{SessionContext, lit},
+};
 use datafusion_proto::{
     logical_plan::{DefaultLogicalExtensionCodec, to_proto::serialize_expr},
     protobuf::LogicalExprNode,
@@ -358,6 +362,44 @@ impl Legend {
             binding.validate()?;
         }
         Ok(())
+    }
+
+    pub fn all_exprs(&self, ctx: &SessionContext) -> Vec<Expr> {
+        [
+            &self.visible,
+            &self.title,
+            &self.position,
+            &self.orientation,
+            &self.symbol_size,
+            &self.gradient_thickness,
+            &self.columns,
+            &self.label_limit,
+            &self.format_number,
+            &self.background_fill,
+            &self.background_stroke,
+            &self.background_stroke_width,
+            &self.background_corner_radius,
+            &self.background_padding,
+            &self.order,
+            &self.title_color,
+            &self.label_color,
+            &self.title_font_family,
+            &self.title_font_size,
+            &self.title_font_weight,
+            &self.label_font_family,
+            &self.label_font_size,
+            &self.label_font_weight,
+            &self.tick_font_family,
+            &self.tick_font_size,
+            &self.tick_font_weight,
+            &self.tick_color,
+        ]
+        .into_iter()
+        .filter_map(|maybe| maybe.as_option().and_then(|expr| expr.as_ref()))
+        .filter_map(|expr| {
+            <LogicalExprNode as crate::DefaultLogicalExprNodeExt>::to_default_expr(expr, ctx).ok()
+        })
+        .collect()
     }
 
     pub fn visible(mut self, visible: impl IntoExpr) -> Self {

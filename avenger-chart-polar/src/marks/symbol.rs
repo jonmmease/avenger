@@ -30,6 +30,11 @@ impl Mark<Polar> for Symbol<Polar> {
         compiled_state: CompiledMarkState,
         _session_context: &datafusion::prelude::SessionContext,
     ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        if !self.mark_effects().is_empty() {
+            return Err(AvengerChartError::InvalidArgument(
+                "Symbol<Polar> adjustments are not implemented yet".to_string(),
+            ));
+        }
         Ok(Arc::new(CompiledPolarSymbol {
             state: compiled_state,
         }))

@@ -1,18 +1,195 @@
 use avenger_scales::scales::ConfiguredScale;
+use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 
 use avenger_chart_core::{
-    AngleChannelConfig, ColorChannelConfig, LegendRendererKind, MarkState, OpacityChannelConfig,
-    ShapeChannelConfig, SizeChannelConfig, StrokeWidthChannelConfig, define_common_mark_channels,
-    impl_mark_base, is_continuous_scale,
+    AdjustItem, AngleAdjustmentChannel, AngleChannelConfig, ColorChannelConfig,
+    DerivedPrimitiveMarkSpec, DerivedRectMarkSpec, DerivedRuleMarkSpec, DerivedSymbolMarkSpec,
+    DerivedTextMarkSpec, FillAdjustmentChannel, ItemChannelAssignment, LegendRendererKind,
+    MarkAdjustmentCompileContext, MarkAdjustmentSpec, MarkAdjustmentTransform, MarkState,
+    OpacityAdjustmentChannel, OpacityChannelConfig, PointGeometryItem, PrimitiveMarkEffects,
+    ShapeAdjustmentChannel, ShapeChannelConfig, SizeAdjustmentChannel, SizeChannelConfig,
+    StrokeAdjustmentChannel, StrokeWidthAdjustmentChannel, StrokeWidthChannelConfig,
+    TransformMarkAdjustmentSpec, define_common_mark_channels, extract_adjustment_assignments,
+    impl_mark_base_with_extra_fields, is_continuous_scale, is_item_frame_column_name,
 };
+
+use crate::{Rect, Rule, Text};
 
 pub struct Symbol<C> {
     pub(crate) state: MarkState,
+    effects: PrimitiveMarkEffects,
     pub(crate) _phantom: std::marker::PhantomData<C>,
 }
 
-impl_mark_base!(Symbol);
+impl_mark_base_with_extra_fields!(Symbol {
+    effects: PrimitiveMarkEffects::default(),
+});
+
+impl<C> SizeAdjustmentChannel for Symbol<C> {}
+
+impl<C> AngleAdjustmentChannel for Symbol<C> {}
+
+impl<C> FillAdjustmentChannel for Symbol<C> {}
+
+impl<C> StrokeAdjustmentChannel for Symbol<C> {}
+
+impl<C> OpacityAdjustmentChannel for Symbol<C> {}
+
+impl<C> ShapeAdjustmentChannel for Symbol<C> {}
+
+impl<C> StrokeWidthAdjustmentChannel for Symbol<C> {}
+
+impl<C> Symbol<C> {
+    /// Apply a render-stage expression adjustment to symbol items.
+    pub fn adjust<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(AdjustItem<Self, PointGeometryItem>) -> AdjustItem<Self, PointGeometryItem>,
+    {
+        let adjustment = f(AdjustItem::default()).into_adjustment_spec();
+        if !adjustment.is_empty() {
+            self.effects
+                .push_adjustment(MarkAdjustmentSpec::Expr(adjustment));
+        }
+        self
+    }
+
+    /// Apply a reusable render-stage adjustment transform to symbol items.
+    pub fn adjust_transform<A, F>(self, adjustment: A, f: F) -> Self
+    where
+        A: MarkAdjustmentTransform,
+        F: FnOnce(Self, A::Output) -> Self,
+    {
+        let stage_index = self.effects.adjustments.len();
+        let original_channels = self.state.data.channels().clone();
+        let (compiled, output) = adjustment
+            .compile(MarkAdjustmentCompileContext::new(stage_index))
+            .expect("Failed to build mark adjustment transform");
+        let mut routed = f(self, output);
+        let (channels, assignments) = extract_adjustment_assignments(
+            routed.state.data.channels().clone(),
+            &original_channels,
+        );
+        routed.state.data = routed.state.data.with_channels(channels);
+        routed
+            .effects
+            .push_adjustment(MarkAdjustmentSpec::Transform(
+                TransformMarkAdjustmentSpec::new(compiled, assignments),
+            ));
+        routed
+    }
+
+    /// Derive a built-in primitive mark from each source symbol item.
+    pub fn derive<D, F>(mut self, f: F) -> Self
+    where
+        D: IntoDerivedPrimitiveMark<C>,
+        F: FnOnce(AdjustItem<Self, PointGeometryItem>) -> D,
+    {
+        let derived = f(AdjustItem::default());
+        self.effects.push_derived(derived.into_derived_spec());
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn mark_effects(&self) -> &PrimitiveMarkEffects {
+        &self.effects
+    }
+
+    #[doc(hidden)]
+    pub fn with_mark_effects(mut self, effects: PrimitiveMarkEffects) -> Self {
+        self.effects = effects;
+        self
+    }
+}
+
+mod private {
+    pub trait SealedDerivedPrimitive<C> {}
+}
+
+pub trait IntoDerivedPrimitiveMark<C>: private::SealedDerivedPrimitive<C> {
+    fn into_derived_spec(self) -> DerivedPrimitiveMarkSpec;
+}
+
+impl<C> private::SealedDerivedPrimitive<C> for Symbol<C> {}
+
+impl<C> IntoDerivedPrimitiveMark<C> for Symbol<C> {
+    fn into_derived_spec(self) -> DerivedPrimitiveMarkSpec {
+        if !self.effects.is_empty() {
+            panic!("Nested derived Symbol effects are not implemented yet");
+        }
+        DerivedPrimitiveMarkSpec::Symbol(DerivedSymbolMarkSpec::new(
+            derived_assignments("Symbol", &self.state),
+            self.state.zindex,
+        ))
+    }
+}
+
+impl<C> private::SealedDerivedPrimitive<C> for Rule<C> {}
+
+impl<C> IntoDerivedPrimitiveMark<C> for Rule<C> {
+    fn into_derived_spec(self) -> DerivedPrimitiveMarkSpec {
+        DerivedPrimitiveMarkSpec::Rule(DerivedRuleMarkSpec::new(
+            derived_assignments("Rule", &self.state),
+            self.state.zindex,
+        ))
+    }
+}
+
+impl<C> private::SealedDerivedPrimitive<C> for Rect<C> {}
+
+impl<C> IntoDerivedPrimitiveMark<C> for Rect<C> {
+    fn into_derived_spec(self) -> DerivedPrimitiveMarkSpec {
+        if !self.effects.is_empty() {
+            panic!("Nested derived Rect effects are not implemented yet");
+        }
+        DerivedPrimitiveMarkSpec::Rect(DerivedRectMarkSpec::new(
+            derived_assignments("Rect", &self.state),
+            self.state.zindex,
+        ))
+    }
+}
+
+impl<C> private::SealedDerivedPrimitive<C> for Text<C> {}
+
+impl<C> IntoDerivedPrimitiveMark<C> for Text<C> {
+    fn into_derived_spec(self) -> DerivedPrimitiveMarkSpec {
+        if self.effects.has_derived() {
+            panic!("Nested derived Text marks are not implemented yet");
+        }
+        DerivedPrimitiveMarkSpec::Text(DerivedTextMarkSpec::new(
+            derived_assignments("Text", &self.state),
+            self.effects,
+            self.state.zindex,
+        ))
+    }
+}
+
+fn derived_assignments(mark_name: &str, state: &MarkState) -> Vec<ItemChannelAssignment> {
+    if state.data.has_explicit_data_source() || !state.data.transforms().is_empty() {
+        panic!("Derived {mark_name} marks cannot declare mark-local data or data transforms yet");
+    }
+
+    let ctx = SessionContext::new();
+    let mut assignments = Vec::new();
+    for (channel, value) in state.data.channels() {
+        let expr = value.expr(&ctx).unwrap_or_else(|| {
+            panic!("Derived {mark_name} channel '{channel}' must be a single scalar expression")
+        });
+        for column in expr.column_refs() {
+            if !is_item_frame_column_name(&column.name) {
+                panic!(
+                    "Derived {mark_name} channel '{channel}' referenced ordinary data column '{}'; use point.data(...) to read source data",
+                    column.name
+                );
+            }
+        }
+        assignments.push(
+            ItemChannelAssignment::new(channel.clone(), expr)
+                .expect("Failed to serialize derived mark channel expression"),
+        );
+    }
+    assignments
+}
 
 define_common_mark_channels! {
     Symbol {

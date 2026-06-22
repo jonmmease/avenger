@@ -20,7 +20,7 @@ Expanding rendering options to support different use cases and environments.
   - High-quality rasterization
   - Configurable resolution scaling
   - Fast batch rendering
-  - See: [Rendering Guide](./guides/rendering.md)
+  - See: [Rendering Guide](./docs/rendering.md)
 
 ### Planned
 
@@ -51,13 +51,29 @@ Expanding rendering options to support different use cases and environments.
 
 Avenger Chart is built on the [Avenger](https://github.com/jonmmease/avenger) visualization engine, which includes sophisticated event handling and interactive visualization support. These capabilities will be exposed in Avenger Chart.
 
-### Planned
+### Current
 
-- [ ] **Pan and Zoom** (🔜 Planned)
-  - Interactive navigation of visualizations
-  - Smooth transitions
-  - Constrained pan/zoom regions
-  - Reset to default view
+- [x] **Pan and Zoom** (✅ Available)
+  - `PanScrollZoom` packages Cartesian drag-pan and wheel-zoom behavior
+  - Scale-domain sharing works across facets and repeated child plots
+  - Generated params and event bindings are stored in `CompiledPlot`
+
+- [x] **Selection Tools** (✅ Available)
+  - `PointSelection` packages click-based equality selection
+  - `LassoSelection` packages rendered-geometry lasso selection
+  - Selection predicates can drive ordinary conditional encodings
+
+- [x] **Event Stream Integration** (✅ Available)
+  - Serializable chart event bindings
+  - Between-stream gesture support
+  - Preview versus exact evaluation modes
+
+- [x] **Interactive Parameters** (✅ Available)
+  - Runtime parameter overrides without recompiling the chart
+  - Generated tool params for navigation and selection
+  - Parameterized channel, theme, guide, and scale expressions
+
+### Planned
 
 - [ ] **Tooltip System** (🔜 Planned)
   - Data-driven tooltips on hover
@@ -65,25 +81,11 @@ Avenger Chart is built on the [Avenger](https://github.com/jonmmease/avenger) vi
   - Multi-series tooltips
   - Formatted values
 
-- [ ] **Selection Interactions** (🔜 Planned)
-  - Click to select data points
-  - Brush selection (rectangular region)
-  - Multi-select with modifier keys
-  - Selection highlighting
-  - Linked selections across multiple views
-
-- [ ] **Event Stream Integration** (🔜 Planned)
-  - Reactive event handling system
-  - Filter, throttle, and debounce events
-  - Event consumption and propagation
-  - Custom event handlers
-  - Inspired by [Vega Event Streams](https://vega.github.io/vega/docs/event-streams/)
-
-- [ ] **Interactive Parameters** (🔜 Planned)
-  - Update parameters without recompilation
-  - Smooth transitions between states
-  - Integration with UI controls
-  - Real-time data updates
+- [ ] **Editable Interaction Chrome** (🔜 Planned)
+  - Brush and annotation regions backed by stores
+  - Move/resize event bindings for editable regions
+  - Toolbar metadata and enablement UI
+  - Tooltip and hover presentation policies
 
 ### Implementation Notes
 
@@ -112,8 +114,6 @@ Extending scale capabilities to improve visual quality and user experience acros
   - Converts pixel dimensions to data space
   - Handles asymmetric padding (e.g., rotated symbols, directional arrows)
   - Works with both symbols and lines
-  - See: [Scatter Plots - Automatic Visual Padding](./guides/scatter-plots.md#automatic-visual-padding)
-  - See: [Line Charts - Automatic Visual Padding](./guides/line-charts.md#automatic-visual-padding)
 
 ### Planned
 
@@ -141,6 +141,17 @@ Extending to other scales requires:
 
 **Priority**: ⭐⭐ Medium
 
+### Current
+
+- [x] **Facet And Repeat Layouts** (✅ Available)
+  - Facet row, facet column, and facet wrap coordinate systems
+  - Repeat rows, repeat columns, repeat grid, and repeat wrap containers
+  - Nested sharing for domains, guides, legends, and child frames
+
+- [x] **Concat Layouts** (✅ Available)
+  - Horizontal and vertical concat containers for explicit child plots
+  - Child plots can inherit parent data or provide their own data
+
 ### Planned
 
 - [ ] **Additional Mark Types** (💡 Under Consideration)
@@ -148,11 +159,10 @@ Extending to other scales requires:
   - Community-driven additions
   - Maintain consistency with existing marks
 
-- [ ] **Advanced Layout Options** (💡 Under Consideration)
-  - Faceted plots (small multiples)
-  - Custom subplot arrangements
-  - Responsive layouts
-  - Grid systems
+- [ ] **Dashboard Composition** (💡 Under Consideration)
+  - Arbitrary dashboard grids and plot spanning
+  - Dashboard-level titles, legends, params, and interactions
+  - Scenegraph composition for complete multi-chart renders
 
 - [ ] **Animation Support** (💡 Under Consideration)
   - Animated transitions
@@ -170,7 +180,7 @@ Extending to other scales requires:
 
 **Priority**: ⭐⭐ Medium (Ongoing)
 
-Documentation is continuously improving. See [documentation-gaps-plan.md](https://github.com/jonmmease/avenger/blob/main/avenger-chart/tasks/documentation-gaps-plan.md) for detailed tracking.
+Documentation is continuously improving as new chart features land.
 
 ### Completed
 
@@ -252,8 +262,9 @@ Avenger Chart follows a flexible release schedule driven by feature completeness
 
 **Current Development Focus:**
 1. Rendering backends (SVG, PDF, CPU-based PNG)
-2. Interactive features (pan, zoom, tooltips)
-3. Documentation improvements (Tier 2 & 3 items)
+2. Richer interaction chrome (tooltips, editable regions, toolbars)
+3. Documentation improvements and examples for advanced layout, tools, and
+   mark effects
 
 Stay updated:
 - Watch the [GitHub repository](https://github.com/jonmmease/avenger)

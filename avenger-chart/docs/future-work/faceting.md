@@ -1,111 +1,90 @@
-# Facet Extensions
+# Facet Follow-Ups
 
-## Goal Review
+## Current State
 
-The broad "faceting system" goal is mostly implemented for row and column
-facets.
+The core faceting system is implemented.
 
-Implemented now:
+Implemented pieces:
 
-- `FacetRow` and `FacetColumn` are built-in layout coordinates in
-  `avenger-chart`.
-- `Subplot<FacetRow>` and `Subplot<FacetColumn>` compile through
-  `SubplotContainerCoordinateSystem`.
-- Facet child plots inherit parent data and are filtered per facet cell.
-- Nested row/column facets are supported.
-- `Sharing` and nested sharing levels coordinate domains, axis
-  visibility, legends, and child-frame behavior.
-- The runtime has `EvaluatedFacetTree`, `PartitionNode`, facet band
-  measurement, guide sharing, and layout coordination.
+- `FacetRow`, `FacetColumn`, and `FacetWrap` coordinate systems,
+- `Subplot<FacetRow>`, `Subplot<FacetColumn>`, and `Subplot<FacetWrap>` child
+  marks,
+- nested facets and nested child-frame coordination,
+- `Sharing` levels for domains, guide visibility, legends, and child-frame
+  behavior,
+- facet child data filtering,
+- `FacetDataScope` with filtered, broadcast, and ancestor-level inherited-data
+  policies,
+- mark builder helpers: `facet_data_scope(...)`, `facet_data_level(...)`, and
+  `broadcast_to_facets()`,
+- fixed, automatic, and responsive `FacetWrap` column counts,
+- visual tests and mdBook docs for facet row/column/wrap, scale sharing,
+  customization, and nested facets.
 
-Async mark compilation, row facets, column facets, nested facet coordination,
-and shared scales are current implementation facts rather than future work.
+Async mark compilation, shared scales, row/column/wrap layout, nested facet
+coordination, and broadcast foreground/background data are current
+implementation facts rather than future work.
 
 ## Remaining Valid Goals
 
-### FacetWrap
+### `FacetGrid` Convenience
 
-`FacetWrap` remains useful as a convenience for one partition variable laid
-out across a two-dimensional grid. It should be core-owned facade behavior,
-not an external layout-container extension.
+Two-dimensional row-by-column faceting can already be represented with nested
+`FacetRow` and `FacetColumn` plots. A `FacetGrid` API may still be worthwhile
+as authoring sugar for the common case.
 
-Potential implementation directions:
+Prefer expansion to nested row/column facets unless implementation experience
+shows that a real coordinate system gives meaningfully better diagnostics or
+layout behavior. Expansion should preserve:
 
-- a dedicated `FacetWrap` coordinate measurement that enumerates one partition
-  dimension and assigns row/column grid positions,
-- authoring sugar that rewrites to nested `FacetRow`/`FacetColumn` over
-  computed row/column slot fields,
-- a general "partition grid" primitive used only internally by built-in
-  facets.
+- existing scale and guide sharing semantics,
+- facet labels and ordering,
+- empty-cell policies,
+- public target paths,
+- event-datum and hit-test behavior.
 
-The rewrite approach is attractive if it can preserve scale-sharing and axis
-ownership behavior without inventing another coordination pipeline.
+### Data-Scope Polish
 
-### FacetGrid Convenience
+`FacetDataScope` currently applies to inherited facet data before mark
+evaluation and aggregate-channel preparation. That covers the motivating
+broadcast-background use case.
 
-Two-dimensional row-by-column faceting can already be represented by nested
-`FacetRow` and `FacetColumn`. A `FacetGrid` API may still be worthwhile as
-authoring sugar for the common case.
+Open polish questions:
 
-The main question is whether `FacetGrid` should be a real coordinate system or
-a builder that expands to nested row/column facets. Expansion is preferable if
-it can keep error messages and labels clear.
+- whether explicit mark-local data should ever opt into facet scoping,
+- whether positioned subplot partitioning needs equivalent data-source policy
+  controls,
+- how much of the scope behavior needs user-facing documentation beyond the
+  existing examples.
 
-### Facet Mark Data Scope
+### FacetWrap Refinements
 
-`FacetDataScope` exists in core with `FILTERED`, `BROADCAST`, and `level(...)`.
-Mark builders expose `facet_data_scope(...)`, `facet_data_level(...)`, and
-`broadcast_to_facets()`. The runtime applies this scope to inherited facet data
-before mark evaluation and aggregate-channel preparation.
+`FacetWrap` is implemented as a real coordinate system. Future work here is
+not the feature itself, but edge-case polish:
 
-The motivating case is a faceted foreground layer over a broadcast background
-layer, such as showing all points in gray and the current facet subset in
-color.
-
-## Already Accomplished By Other Means
-
-Manual positioned faceting as a separate feature is partly covered by
-coordinate-positioned subplots. `Subplot<Cartesian>` and `Subplot<Polar>` can
-use placement channels and `partition_by(...)` to position child plots from
-aggregate parent data. That is a better fit for "place subplots at data-driven
-positions" than a separate manual `Facet` container.
-
-`FacetGrid` examples that only need row/column partitioning are already
-possible through nested `FacetRow`/`FacetColumn` plots, though the syntax is
-verbose.
+- additional responsive wrapping examples,
+- clearer debug labels for computed row/column slots,
+- empty-cell behavior documentation for unusual ordering or filtering cases.
 
 ## Alternate Paradigms
 
-- **Nested facets only**: keep runtime simple and add helper constructors or
-  macros for grid/wrap authoring.
-- **Dedicated facet coordinates for every shape**: clearer user-facing type
-  names, but risks duplicating child-frame measurement logic.
-- **Transform to synthetic row/column fields**: good for `FacetWrap`, but the
-  transform must be deterministic, serializable, and visible to scale/guide
-  planning.
+- **Nested facets only**: simplest runtime model; add helpers for grid/wrap
+  authoring where syntax is verbose.
+- **Dedicated coordinates for every facet shape**: clearer type names, but can
+  duplicate child-frame measurement and coordination logic.
+- **Authoring-time expansion**: good for `FacetGrid`; less attractive for
+  `FacetWrap` now that wrap-specific responsive layout is implemented.
 
 ## Readiness
 
-FacetGrid convenience is ready for an implementation plan if it expands to
-nested `FacetRow`/`FacetColumn`.
-
-FacetWrap is ready for a design spike. The spike should prove whether computed
-row/column fields can be inserted before `EvaluatedFacetTree` construction
-without weakening domain sharing or empty-cell behavior.
-
-Remaining facet data-scope work is mostly refinement: whether explicit mark
-data should ever opt into facet scoping, and how positioned subplot partitioning
-should expose equivalent data-source policy controls.
+`FacetGrid` convenience is ready for a small implementation plan if there is
+user demand. The remaining data-scope and wrap items are documentation and
+polish work, not architecture blockers.
 
 ## Decisions Needed
 
-- Whether `FacetWrap` is a real coordinate system or expansion into nested
-  facets over computed fields.
-- Whether `FacetGrid` exists as a type or just as a builder/helper.
-- How computed wrap slots are named and exposed in labels/debugging.
-- Whether `FacetDataScope::BROADCAST` should ever apply to explicit mark-level
-  data, or only to inherited facet data.
-- Whether positioned subplot partitioning needs separate data-source policy
-  controls beyond mark-level `FacetDataScope`.
-- Whether empty-cell and axis-ownership modes need new defaults for wrapped
-  facets.
+- Whether `FacetGrid` exists as a public type or as builder/helper sugar.
+- How expanded `FacetGrid` target paths and labels are named.
+- Whether explicit mark-local data can participate in facet scoping.
+- Whether positioned subplot partitioning should expose a separate
+  data-source policy.

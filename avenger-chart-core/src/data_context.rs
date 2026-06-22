@@ -78,6 +78,12 @@ impl DataContext {
         self
     }
 
+    #[doc(hidden)]
+    pub fn with_channels(mut self, channels: IndexMap<String, ChannelValue>) -> Self {
+        self.channels = channels;
+        self
+    }
+
     pub fn with_transform(mut self, transform: Box<dyn CompiledDataTransform>) -> Self {
         self.transforms
             .push(DataTransformStage::new(CoordinationScope::Free, transform));

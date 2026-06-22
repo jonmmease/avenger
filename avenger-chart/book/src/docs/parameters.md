@@ -599,4 +599,5 @@ At render time you can override the `accent` parameter to swap the palette witho
 
 ## Next Steps
 
-- Learn about future [Controllers](../../docs/future-work/controllers.md)
+- Use parameters in [mark effects](mark-effects.md)
+- Explore parameterized styling in [CSS Themes](themes/css-themes.md)

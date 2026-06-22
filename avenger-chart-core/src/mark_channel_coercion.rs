@@ -9,7 +9,7 @@ use avenger_common::{
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use avenger_scales::scales::coerce::Coercer;
-use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
 
 use datafusion::arrow::{array::ArrayRef, record_batch::RecordBatch};
 use datafusion_common::ScalarValue;
@@ -208,7 +208,37 @@ pub fn coerce_font_weight_channel(
     channel: &str,
     default: FontWeight,
 ) -> Result<ScalarOrArray<FontWeight>, AvengerChartError> {
-    coerce_channel(data, scalars, channel, |c, a| c.to_font_weight(a), default)
+    let values = coerce_text_channel(data, scalars, channel, font_weight_name(default))?;
+    match values.value() {
+        ScalarOrArrayValue::Scalar(value) => {
+            Ok(ScalarOrArray::new_scalar(parse_font_weight(value)?))
+        }
+        ScalarOrArrayValue::Array(values) => values
+            .iter()
+            .map(|value| parse_font_weight(value))
+            .collect::<Result<Vec<_>, _>>()
+            .map(ScalarOrArray::new_array),
+    }
+}
+
+fn font_weight_name(value: FontWeight) -> String {
+    match value {
+        FontWeight::Name(FontWeightNameSpec::Normal) => "normal".to_string(),
+        FontWeight::Name(FontWeightNameSpec::Bold) => "bold".to_string(),
+        FontWeight::Number(value) => value.to_string(),
+    }
+}
+
+fn parse_font_weight(value: &str) -> Result<FontWeight, AvengerChartError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "normal" => Ok(FontWeight::Name(FontWeightNameSpec::Normal)),
+        "bold" => Ok(FontWeight::Name(FontWeightNameSpec::Bold)),
+        other => other.parse::<f32>().map(FontWeight::Number).map_err(|_| {
+            AvengerChartError::InvalidArgument(format!(
+                "Invalid font_weight '{value}'. Expected normal, bold, or a numeric weight"
+            ))
+        }),
+    }
 }
 
 /// Get font style channel values using Coercer.

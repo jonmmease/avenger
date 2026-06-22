@@ -23,7 +23,9 @@ Current architecture supports the pieces in principle:
 
 Missing pieces:
 
-- A path/ribbon mark family in chart marks.
+- A ribbon mark or reusable ribbon-path geometry helper for variable-width
+  flows. `PathMark` exists, but it does not by itself solve Sankey ribbon
+  layout.
 - A graph layout stage that can run before render but after data and scale
   planning decisions.
 - A clear ownership model for node guides, node labels, and flow anchors.
@@ -49,7 +51,9 @@ and flows guess their anchors independently.
 
 - **Transform plus generic path marks**: a Sankey layout transform could output
   ribbon paths, node rectangles, and labels into ordinary Cartesian space. This
-  is attractive if Avenger adds general `Path`/`Area`/`Text` marks first.
+  is attractive now that general path, area, and Cartesian text marks exist,
+  but it still needs a good story for variable-width ribbons and guide-owned
+  node layout.
 - **Single compiled Sankey mark under `ZeroDCoord`**: fastest to implement,
   but least integrated with guides, legends, hit testing, and future
   interactions.
@@ -69,9 +73,10 @@ Sankey, animation, and force layout should stay out of v1.
 
 - Whether node layout is a coordinate responsibility or a transform
   responsibility.
-- Whether a generic `Path`/`Ribbon` mark should be implemented before Sankey.
+- Whether a generic `Ribbon` mark should be implemented before Sankey.
 - How duplicate edges are aggregated and ordered.
 - How cycles are handled: reject, break into back edges, or support a separate
   circular layout.
-- How node labels and flow labels relate to the future [text-mark.md](text-mark.md).
+- How node labels and flow labels relate to richer [text-mark.md](text-mark.md)
+  placement and leader-line behavior.
 - How hit testing maps ribbon geometry back to source/target rows.

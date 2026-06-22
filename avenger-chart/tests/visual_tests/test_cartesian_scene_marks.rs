@@ -621,8 +621,6 @@ async fn test_cartesian_text_leader_geometry_and_offsets() {
                 .baseline("middle")
                 .font_size(12.0)
                 .color("#111827")
-                .dx(ChannelValue::from(col("dx")).no_scale())
-                .dy(ChannelValue::from(col("dy")).no_scale())
                 .angle_with(col("angle"), |c| c.no_scale())
                 .leader(ChannelValue::from(col("leader")).no_scale())
                 .defined(ChannelValue::from(col("defined")).no_scale())
@@ -633,7 +631,9 @@ async fn test_cartesian_text_leader_geometry_and_offsets() {
                 .leader_stroke("#374151")
                 .leader_stroke_width(1.5)
                 .leader_stroke_cap("round")
-                .leader_stroke_join("round"),
+                .leader_stroke_join("round")
+                .leader_offset_x(ChannelValue::from(col("dx")).no_scale())
+                .leader_offset_y(ChannelValue::from(col("dy")).no_scale()),
         );
 
     let compiled = plot
@@ -678,8 +678,6 @@ async fn test_cartesian_text_leader_arrowheads() {
                 .baseline("middle")
                 .font_size(12.0)
                 .color("#111827")
-                .dx(ChannelValue::from(col("dx")).no_scale())
-                .dy(ChannelValue::from(col("dy")).no_scale())
                 .leader(true)
                 .leader_shape("straight")
                 .leader_arrow(ChannelValue::from(col("arrow")).no_scale())
@@ -689,7 +687,9 @@ async fn test_cartesian_text_leader_arrowheads() {
                 .leader_stroke(ChannelValue::from(col("stroke")).no_scale())
                 .leader_stroke_width(1.6)
                 .leader_stroke_cap("round")
-                .leader_stroke_join("round"),
+                .leader_stroke_join("round")
+                .leader_offset_x(ChannelValue::from(col("dx")).no_scale())
+                .leader_offset_y(ChannelValue::from(col("dy")).no_scale()),
         );
 
     let compiled = plot
@@ -734,8 +734,6 @@ async fn test_cartesian_text_leader_stroke_styles() {
                 .baseline("middle")
                 .font_size(12.0)
                 .color("#374151")
-                .dx(ChannelValue::from(col("dx")).no_scale())
-                .dy(ChannelValue::from(col("dy")).no_scale())
                 .leader(true)
                 .leader_shape(ChannelValue::from(col("shape")).no_scale())
                 .leader_arrow(ChannelValue::from(col("arrow")).no_scale())
@@ -745,7 +743,9 @@ async fn test_cartesian_text_leader_stroke_styles() {
                 .leader_stroke_join(ChannelValue::from(col("stroke_join")).no_scale())
                 .leader_stroke_dash(ChannelValue::from(col("dash")).no_scale())
                 .leader_arrow_length(8.0)
-                .leader_arrow_width(7.0),
+                .leader_arrow_width(7.0)
+                .leader_offset_x(ChannelValue::from(col("dx")).no_scale())
+                .leader_offset_y(ChannelValue::from(col("dy")).no_scale()),
         );
 
     let compiled = plot
