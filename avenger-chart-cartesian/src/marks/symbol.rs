@@ -16,7 +16,9 @@ use avenger_chart_core::{
     coerce_opacity_channel_with_renderer, coerce_stroke_cap_channel_values_with_renderer,
     coerce_stroke_dash_channel, coerce_text_channel, default_scale_type_for_data_type,
     evaluate_item_assignments, impl_mark_trait_common, is_continuous_scale, item_bbox_column_name,
-    item_channel_column_name, item_data_column_name, serialization::DefaultLogicalExprNodeExt,
+    item_channel_column_name, item_data_column_name,
+    serialization::DefaultLogicalExprNodeExt,
+    text_rendering::{apply_text_adjustments, build_scene_text_mark},
 };
 use avenger_chart_marks::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind};
 use avenger_color::ColorOrGradient;
@@ -40,9 +42,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Cartesian,
-    marks::{
-        CompiledCartesianText, text::apply_text_adjustments, text::build_scene_text_mark, util,
-    },
+    marks::{CompiledCartesianText, util},
 };
 
 // Implement Mark trait for Cartesian Symbol

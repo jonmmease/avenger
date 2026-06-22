@@ -77,6 +77,7 @@ pub mod sharing;
 pub mod sharing_mode;
 pub mod store;
 pub mod subplot_child_plot;
+pub mod text_rendering;
 pub mod theme;
 pub mod theme_context;
 pub mod time_context;
