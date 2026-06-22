@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::sync::Arc;
 
 use avenger_chart_core::{
@@ -169,6 +171,77 @@ impl CompiledMarkAdjustmentTransform for CompiledFixedLabelPlacement {
         frame.set_column(
             self.defined_column.clone(),
             Arc::new(BooleanArray::from(defined)),
+        )?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+pub struct KeepUprightText;
+
+impl KeepUprightText {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct KeepUprightTextOutput {
+    angle: Expr,
+}
+
+impl KeepUprightTextOutput {
+    pub fn angle(&self) -> Expr {
+        self.angle.clone()
+    }
+}
+
+impl MarkAdjustmentTransform for KeepUprightText {
+    type Output = KeepUprightTextOutput;
+
+    fn compile(
+        self,
+        ctx: MarkAdjustmentCompileContext,
+    ) -> Result<(Box<dyn CompiledMarkAdjustmentTransform>, Self::Output), AvengerChartError> {
+        let angle_column = ctx.output_column_name("angle");
+        let output = KeepUprightTextOutput {
+            angle: ctx.output_expr("angle"),
+        };
+        Ok((Box::new(CompiledKeepUprightText { angle_column }), output))
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct CompiledKeepUprightText {
+    angle_column: String,
+}
+
+#[typetag::serde(name = "test_keep_upright_text")]
+impl CompiledMarkAdjustmentTransform for CompiledKeepUprightText {
+    fn clone_box(&self) -> Box<dyn CompiledMarkAdjustmentTransform> {
+        Box::new(self.clone())
+    }
+
+    fn apply(
+        &self,
+        frame: &mut MarkEvaluationFrame,
+        _context: &AdjustmentTransformContext<'_>,
+    ) -> Result<(), AvengerChartError> {
+        let angles = frame.f32_values(&item_channel_column_name("angle"))?;
+        let upright = angles
+            .into_iter()
+            .map(|angle| {
+                let normalized = angle.rem_euclid(360.0);
+                if normalized > 90.0 && normalized < 270.0 {
+                    angle + 180.0
+                } else {
+                    angle
+                }
+            })
+            .collect::<Vec<_>>();
+        frame.set_column(
+            self.angle_column.clone(),
+            Arc::new(Float32Array::from(upright)),
         )?;
         Ok(())
     }
