@@ -66,12 +66,26 @@ Implemented v1 pieces:
   radius arcs are a normal line case.
 - Visual baselines cover arc-versus-chord, radial and spiral-like segments,
   gaps, dashes, multi-series details, categorical theta, and clipping.
+- `Text<Polar>` supports `r`, `theta`, `r_with`, `theta_with`, and
+  `.geometry_space(...)`.
+- `Text<Polar>` defaults to `GeometrySpace::Coordinate`.
+- Coordinate-space polar text interprets `angle = 0` as radial outward and
+  `angle = 90` as tangential in the positive-theta direction.
+- Display-space polar text preserves Cartesian text angle semantics.
+- `Text<Polar>` adjustments run after projection and coordinate-space angle
+  conversion, so `x`, `y`, and `angle` are display-space text item channels.
+- Visual baselines cover default radial orientation, explicit coordinate
+  orientation, tangential orientation, display-space orientation, coordinate
+  versus display overlay, leader lines, scaled theta, categorical theta, and
+  keep-upright adjustment examples.
 
 Remaining future pieces:
 
-- `Text<Polar>` render implementation and polar text position-channel helpers,
-- coordinate-basis calculation for polar text orientation,
-- mark effects for polar line/text geometry frames.
+- public keep-upright or label-orientation adjustment transforms, if they
+  prove generally useful outside tests,
+- richer polar/local-basis metadata in generic effect frames,
+- mark effects for `Line<Polar>` geometry frames,
+- additional mark families that might expose `GeometrySpace`.
 
 ## Recommended Direction
 
@@ -82,10 +96,9 @@ For polar, default to coordinate-space geometry where the mark's visual shape
 is naturally part of the coordinate system:
 
 - `Line<Polar>` should default to `GeometrySpace::Coordinate`.
-- `Text<Polar>` should default to `GeometrySpace::Display` if compatibility
-  with Cartesian text angle semantics is preferred, or
-  `GeometrySpace::Coordinate` if polar label semantics are prioritized.
-  This default should be chosen deliberately during the `Text<Polar>` spike.
+- `Text<Polar>` defaults to `GeometrySpace::Coordinate`, prioritizing polar
+  label semantics. Authors can opt into `GeometrySpace::Display` for
+  screen-oriented labels.
 
 The API should use one enum and mark-specific builder methods:
 
@@ -219,8 +232,8 @@ let plot = Plot::<Polar>::new().mark(
 
 ## `Text<Polar>`
 
-`Text<Polar>` should use the existing `angle` channel, but `GeometrySpace`
-should define the frame that angle is measured in.
+`Text<Polar>` uses the existing `angle` channel, with `GeometrySpace` defining
+the frame that angle is measured in.
 
 ### Display-Space Orientation
 
@@ -239,16 +252,15 @@ regardless of where they appear in the polar plot.
 - `angle = 0` means radial outward,
 - `angle = 90` means tangential in the positive `theta` direction.
 
-The implementation should compute a display-space basis from the scaled
-`r/theta` values and the polar transform:
+The current polar implementation computes the display angle from scaled
+`theta`:
 
 ```text
-e0 = direction of increasing r at fixed theta
-e1 = direction of increasing theta at fixed r
+display_angle = theta.to_degrees() + angle
 ```
 
-Then the text's display angle is the basis angle plus the user-provided
-`angle` channel.
+This is the same as using the direction of increasing `r` at fixed `theta` as
+the local zero direction for the standard polar transform.
 
 This makes radial and tangential labels use the same ordinary text `angle`
 channel:
@@ -274,7 +286,7 @@ Text::<Polar>::new()
 Keeping radial or tangential text mostly upright should be an adjustment, not
 part of `GeometrySpace` itself.
 
-The effect API can eventually express this with a transform-like adjustment:
+The effect API can express this with a transform-like adjustment:
 
 ```rust
 Text::<Polar>::new()
@@ -288,9 +300,10 @@ Text::<Polar>::new()
     });
 ```
 
-`KeepUpright` should use the scaled coordinate basis or final display angle,
-not raw theta data. That way it works for numeric, temporal, categorical, and
-custom-scaled angular channels.
+`KeepUpright` should use the final display angle, not raw theta data. That way
+it works for numeric, temporal, categorical, and custom-scaled angular
+channels. The v1 implementation keeps this as a test-only adjustment transform;
+there is no automatic mark-level flipping policy.
 
 ## Interaction With Mark Effects
 
@@ -307,9 +320,8 @@ Adjustments and derivations then operate on that frame:
 - derived labels can inherit source polar datums and use source geometry as
   anchors.
 
-Polar marks should therefore expose enough frame data for effects:
+Future polar effect work may need to expose richer frame data:
 
-- prepared rows,
 - scaled `r/theta` encodings,
 - display-space anchors,
 - local coordinate basis for orientation-aware marks,
@@ -334,22 +346,17 @@ Polar marks should therefore expose enough frame data for effects:
 [polar-line-implementation-plan.md](polar-line-implementation-plan.md) for the
 phase checklist, verification notes, and deferred refactoring items.
 
-`Text<Polar>` remains ready for a design spike after line support lands.
-Likely order:
-
-1. Implement `Text<Polar>` with position channels and display-space angle.
-2. Add coordinate-space text orientation and visual tests for radial and
-   tangential labels.
-3. Add `KeepUpright` only after the effect-stage output handle design is ready,
-   or temporarily keep it as an internal spike helper.
+`Text<Polar>` v1 is implemented with coordinate-space and display-space angle
+semantics, adjustment support, event datum preservation, and visual baselines.
+The keep-upright behavior remains an adjustment-layer example rather than mark
+default behavior.
 
 ## Decisions Needed
 
-`Line<Polar>` v1 decisions are implemented. Remaining decisions are about
-future mark families:
+`Line<Polar>` and `Text<Polar>` v1 decisions are implemented. Remaining
+decisions are about future mark families and higher-level effects:
 
-- Whether `Text<Polar>` defaults to display space or coordinate space.
-- Which additional marks should expose `geometry_space`: `Text`, maybe
-  `Area`, `Trail`, `PathMark`, `Image`, and `Symbol` orientation.
+- Which additional marks should expose `geometry_space`: maybe `Area`,
+  `Trail`, `PathMark`, `Image`, and `Symbol` orientation.
 - How `GeometrySpace` should compose with mark effects, especially
   adjustment transforms that need local coordinate bases.

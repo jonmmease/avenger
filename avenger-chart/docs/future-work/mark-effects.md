@@ -168,21 +168,24 @@ contract.
 
 ### Polar And Geometry Space
 
-`Line<Polar>` and `GeometrySpace` v1 are implemented as separate mark geometry
-semantics. `Text<Polar>` orientation and mark effects over polar geometry
-frames remain future work; see
+`Line<Polar>`, `Text<Polar>`, and `GeometrySpace` v1 are implemented as
+separate mark geometry semantics. `Text<Polar>` adjustments operate on the
+post-projection display-space text frame, including the final display-space
+`angle`; see
 [`polar-geometry-space.md`](polar-geometry-space.md) and
 [`polar-line-implementation-plan.md`](polar-line-implementation-plan.md).
 
-Once polar line/text support exists, mark effects may need access to:
+Future polar mark effects may still need access to:
 
 - scaled `r` / `theta` values,
 - display-space anchors,
 - local coordinate bases for orientation-aware text,
 - coordinate-space versus display-space geometry metadata.
 
-Keep-upright polar text is a good motivating adjustment transform, but it
-should wait until the polar marks expose the necessary geometry frame data.
+Keep-upright polar text is now demonstrated as a test-only adjustment transform
+that chooses between the computed display angle and that angle plus 180
+degrees. A public transform can be added later if this proves useful as product
+API.
 
 ## Keep Out Of Scope Until Needed
 
