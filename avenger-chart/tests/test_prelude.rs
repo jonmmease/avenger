@@ -15,10 +15,19 @@ fn test_prelude_imports() {
         .r(1.0)
         .theta(0.0)
         .geometry_space(GeometrySpace::Display);
+    let polar_text = Text::<Polar>::new()
+        .r(1.0)
+        .theta(0.0)
+        .text("label")
+        .geometry_space(GeometrySpace::Coordinate);
     let _rect = Rect::<Cartesian>::new();
     assert_eq!(
         polar_line.state().geometry_space,
         Some(GeometrySpace::Display)
+    );
+    assert_eq!(
+        polar_text.state().geometry_space,
+        Some(GeometrySpace::Coordinate)
     );
 
     // Plot
@@ -53,4 +62,20 @@ fn test_prelude_imports() {
         .gradient_thickness(15.0);
 
     // Test passes if compilation succeeds
+}
+
+#[test]
+fn polar_text_prelude_imports() {
+    use avenger_chart::prelude::*;
+
+    let polar_text = Text::<Polar>::new()
+        .r(1.0)
+        .theta(0.0)
+        .text("label")
+        .geometry_space(GeometrySpace::Coordinate);
+
+    assert_eq!(
+        polar_text.state().geometry_space,
+        Some(GeometrySpace::Coordinate)
+    );
 }

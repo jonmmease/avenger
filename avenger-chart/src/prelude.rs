@@ -95,7 +95,9 @@ pub use avenger_chart_marks::{
 pub use avenger_chart_marks_statistical::{
     BoxPlot, BoxPlotOrientation, Violin, ViolinOrientation, ViolinWidthNormalization,
 };
-pub use avenger_chart_polar::{PolarLinePositionChannels, PolarSymbolPositionChannels};
+pub use avenger_chart_polar::{
+    PolarLinePositionChannels, PolarSymbolPositionChannels, PolarTextPositionChannels,
+};
 
 // Re-export mark traits and types
 pub use avenger_chart_core::{
