@@ -42,7 +42,7 @@ Useful existing pieces:
   plot-area dimension.
 - `Symbol<Polar>` already uses the polar transform and emits ordinary
   scenegraph symbol marks.
-- `SceneLineMark` already renders line-like geometry from display-space `x/y`
+- `SceneLineMark` renders line-like geometry from display-space `x/y`
   arrays.
 - `SceneTextMark` already supports display-space positions and degree
   rotation.
@@ -51,15 +51,27 @@ Useful existing pieces:
   eventually consume, but polar `GeometrySpace` remains a separate mark and
   coordinate-system semantic.
 
-Missing pieces:
+Implemented v1 pieces:
 
-- `Line<Polar>` render implementation and polar line position-channel helpers,
+- `GeometrySpace` is a shared mark option in `avenger-chart-core` and is
+  re-exported by `avenger-chart`.
+- `Line<Polar>` supports `r`, `theta`, `r_with`, `theta_with`, and
+  `.geometry_space(...)`.
+- `Line<Polar>` defaults to `GeometrySpace::Coordinate`.
+- Coordinate-space polar lines use deterministic path subdivision and emit
+  densified `SceneLineMark` geometry.
+- Display-space polar lines project source vertices and connect them with
+  straight display-space chords.
+- Mixed scalar/array polar positions broadcast scalars to arrays, so constant
+  radius arcs are a normal line case.
+- Visual baselines cover arc-versus-chord, radial and spiral-like segments,
+  gaps, dashes, multi-series details, categorical theta, and clipping.
+
+Remaining future pieces:
+
 - `Text<Polar>` render implementation and polar text position-channel helpers,
-- a shared mark option for `geometry_space`,
-- path resampling/subdivision for coordinate-space polar line segments,
 - coordinate-basis calculation for polar text orientation,
-- tests and visual baselines that distinguish coordinate-space and
-  display-space behavior.
+- mark effects for polar line/text geometry frames.
 
 ## Recommended Direction
 
@@ -133,12 +145,17 @@ straightness.
 ### Resampling
 
 Coordinate-space polar lines need subdivision before emitting scenegraph
-geometry. A first implementation can densify scaled `r/theta` arrays and then
-emit a `SceneLineMark` with the resulting display-space `x/y` samples.
+geometry. The v1 implementation densifies scaled `r/theta` arrays and then
+emits a `SceneLineMark` with the resulting display-space `x/y` samples.
 
 That keeps existing line rendering, stroke, dash, cap, join, z-index, and event
 behavior intact. It also means dash placement follows the approximated
 coordinate-space path.
+
+The v1 implementation deliberately does not introduce a line-arc scene mark.
+It also avoids routing through `ScenePathMark`, because path marks do not yet
+have line parity for dash behavior, source-row identity, retargeting, and
+interaction.
 
 Possible subdivision policies:
 
@@ -147,9 +164,10 @@ Possible subdivision policies:
 - adaptive subdivision based on display-space chord error,
 - user-configurable tolerance with a conservative default.
 
-The `Line<Polar>` implementation plan starts with a simple deterministic
-policy and records whether visual quality, dash placement, or performance
-require adaptive refinement.
+The implemented policy combines an angular step limit with a display-space
+segment-length estimate and caps subdivisions per source segment. The tolerance
+is internal for v1; public quality/performance knobs can be added later if
+real charts need them.
 
 ### Angle Wrapping
 
@@ -160,6 +178,44 @@ This keeps `GeometrySpace::Coordinate` literal: interpolate the scaled
 coordinate values present in the mark evaluation frame. If an author wants a
 different crossing at the angular wrap boundary, they should transform or
 unwrap the data before it reaches the mark.
+
+### Event Datum Identity
+
+Coordinate-space polar lines can render more vertices than source rows. Those
+inserted vertices are geometry samples only; retained event datum rows still
+refer to the original source rows for the emitted scene line mark.
+
+Current line hit testing is mark-level: `SceneLineMark` hits have
+`instance_index: None`, not a nearest vertex or nearest source-row index. That
+behavior is preserved for densified polar lines. Nearest-row or
+nearest-segment line interactions need a separate interaction design.
+
+### Example
+
+```rust
+use avenger_chart::prelude::*;
+
+let plot = Plot::<Polar>::new().mark(
+    Line::<Polar>::new()
+        .r("radius")
+        .theta("angle")
+        .geometry_space(GeometrySpace::Coordinate)
+        .stroke("#2563eb")
+        .stroke_width(2.0),
+);
+```
+
+Use `GeometrySpace::Display` when the desired geometry is a straight
+display-space chord between projected polar points:
+
+```rust
+let plot = Plot::<Polar>::new().mark(
+    Line::<Polar>::new()
+        .r("radius")
+        .theta("angle")
+        .geometry_space(GeometrySpace::Display),
+);
+```
 
 ## `Text<Polar>`
 
@@ -274,8 +330,9 @@ Polar marks should therefore expose enough frame data for effects:
 
 ## Readiness
 
-`Line<Polar>` is ready for implementation planning; see
-[polar-line-implementation-plan.md](polar-line-implementation-plan.md).
+`Line<Polar>` v1 is implemented; see
+[polar-line-implementation-plan.md](polar-line-implementation-plan.md) for the
+phase checklist, verification notes, and deferred refactoring items.
 
 `Text<Polar>` remains ready for a design spike after line support lands.
 Likely order:
@@ -288,8 +345,8 @@ Likely order:
 
 ## Decisions Needed
 
-`Line<Polar>` decisions are closed in the implementation plan. Remaining
-decisions are about future mark families:
+`Line<Polar>` v1 decisions are implemented. Remaining decisions are about
+future mark families:
 
 - Whether `Text<Polar>` defaults to display space or coordinate space.
 - Which additional marks should expose `geometry_space`: `Text`, maybe

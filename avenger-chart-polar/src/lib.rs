@@ -9,6 +9,6 @@ pub use channels::PolarPositionConfig;
 pub use coord::Polar;
 pub use guide::{PolarGuide, PolarOptions};
 pub use marks::{
-    CompiledPolarSubplot, POLAR_SUBPLOT_PARTITION_CHANNEL, PolarSubplotPositionChannels,
-    PolarSymbolPositionChannels,
+    CompiledPolarLine, CompiledPolarSubplot, POLAR_SUBPLOT_PARTITION_CHANNEL,
+    PolarLinePositionChannels, PolarSubplotPositionChannels, PolarSymbolPositionChannels,
 };

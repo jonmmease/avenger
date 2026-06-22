@@ -118,6 +118,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
                 visible: None,
                 details: None,
                 zindex: None,
+                geometry_space: None,
                 axis_configs: HashMap::new(),
             },
             subplot: Box::new(subplot),

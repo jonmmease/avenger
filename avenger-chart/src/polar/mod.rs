@@ -8,4 +8,7 @@ pub use axis::{PolarAxis, PolarAxisType, PolarDirection};
 pub use channels::PolarPositionConfig;
 pub use coord::Polar;
 pub use guide::{PolarGuide, PolarOptions};
-pub use marks::{CompiledPolarSubplot, PolarSubplotPositionChannels, PolarSymbolPositionChannels};
+pub use marks::{
+    CompiledPolarLine, CompiledPolarSubplot, PolarLinePositionChannels,
+    PolarSubplotPositionChannels, PolarSymbolPositionChannels,
+};

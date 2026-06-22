@@ -3219,6 +3219,7 @@ mod tests {
                     visible: None,
                     details: None,
                     zindex: None,
+                    geometry_space: None,
                     axis_configs: HashMap::new(),
                 },
                 position_preference,

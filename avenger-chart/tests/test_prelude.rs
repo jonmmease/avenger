@@ -11,7 +11,15 @@ fn test_prelude_imports() {
     // Marks
     let _symbol = Symbol::<Cartesian>::new();
     let _line = Line::<Cartesian>::new();
+    let polar_line = Line::<Polar>::new()
+        .r(1.0)
+        .theta(0.0)
+        .geometry_space(GeometrySpace::Display);
     let _rect = Rect::<Cartesian>::new();
+    assert_eq!(
+        polar_line.state().geometry_space,
+        Some(GeometrySpace::Display)
+    );
 
     // Plot
     let _plot = Plot::<Cartesian>::new();
@@ -37,6 +45,7 @@ fn test_prelude_imports() {
     let _nest_scope = NestScope::Shared;
     let _position_boundary = PositionBoundary::level_band(0, 0.5);
     let _nested_expr = nested(["quarter", "team"]);
+    let _geometry_space = GeometrySpace::Coordinate;
 
     // Legend builders
     let _legend = ColorLegendBuilder::new()

@@ -717,6 +717,7 @@ mod tests {
             visible: None,
             details: None,
             zindex: Some(12),
+            geometry_space: None,
             axis_configs: HashMap::new(),
         }
     }

@@ -25,6 +25,7 @@ macro_rules! impl_mark_base {
                         visible: None,
                         details: None,
                         zindex: None,
+                        geometry_space: None,
                         axis_configs: std::collections::HashMap::new(),
                     },
                     _phantom: std::marker::PhantomData,

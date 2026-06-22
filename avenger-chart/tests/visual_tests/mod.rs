@@ -82,6 +82,7 @@ pub mod test_parallel;
 pub mod test_param_fill_color;
 pub mod test_plot_background;
 pub mod test_plot_level_config;
+pub mod test_polar_line;
 pub mod test_polar_scatter;
 pub mod test_positioned_subplot_legend_sharing;
 pub mod test_positioned_subplot_scale_sharing;

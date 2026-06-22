@@ -525,6 +525,7 @@ mod tests {
             visible: None,
             details: Some(vec!["id".to_string()]),
             zindex: Some(8),
+            geometry_space: None,
             axis_configs: HashMap::new(),
         }
     }

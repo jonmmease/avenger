@@ -168,8 +168,10 @@ contract.
 
 ### Polar And Geometry Space
 
-`Line<Polar>`, `Text<Polar>`, and `GeometrySpace` remain separate future work;
-see [`polar-geometry-space.md`](polar-geometry-space.md) and
+`Line<Polar>` and `GeometrySpace` v1 are implemented as separate mark geometry
+semantics. `Text<Polar>` orientation and mark effects over polar geometry
+frames remain future work; see
+[`polar-geometry-space.md`](polar-geometry-space.md) and
 [`polar-line-implementation-plan.md`](polar-line-implementation-plan.md).
 
 Once polar line/text support exists, mark effects may need access to:

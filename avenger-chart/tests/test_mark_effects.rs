@@ -3854,6 +3854,25 @@ async fn polar_symbol_adjustment_errors_until_supported() {
 }
 
 #[tokio::test]
+async fn polar_line_adjustment_errors_until_supported() {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Polar>::new().mark(
+        Line::<Polar>::new()
+            .unit_data()
+            .adjust(|point| point.x(point.channel("x") + lit(1.0))),
+    );
+
+    let err = match plot.compile(&ctx).await {
+        Ok(_) => panic!("polar line adjustment should not compile until it is implemented"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string()
+            .contains("Line<Polar> adjustments are not implemented yet")
+    );
+}
+
+#[tokio::test]
 async fn item_frame_expression_in_regular_channel_errors() {
     let ctx = SessionContext::new();
     let item = AdjustItem::<Symbol<Cartesian>, PointGeometryItem>::default();

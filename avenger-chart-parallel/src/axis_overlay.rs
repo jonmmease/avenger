@@ -45,6 +45,7 @@ impl ParallelAxisOverlay<Parallel> {
                 visible: None,
                 details: None,
                 zindex: None,
+                geometry_space: None,
                 axis_configs: Default::default(),
             },
             dimension_id: dimension_id.into(),

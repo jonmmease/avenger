@@ -10,7 +10,7 @@ use datafusion_proto::protobuf::LogicalExprNode;
 
 use crate::{
     AvengerChartError, Axis, CompiledDataContext, DataContext, DefaultLogicalExprNodeExt,
-    FacetDataScope, RepeatContext, SerializableExpr, resolve_repeat_placeholders,
+    FacetDataScope, GeometrySpace, RepeatContext, SerializableExpr, resolve_repeat_placeholders,
 };
 
 pub const DETAIL_ARRAY_COLUMN_PREFIX: &str = "__avenger_detail_";
@@ -76,6 +76,7 @@ pub struct MarkState {
     pub visible: Option<LogicalExprNode>,
     pub details: Option<Vec<String>>,
     pub zindex: Option<i32>,
+    pub geometry_space: Option<GeometrySpace>,
 
     // Store axis configurations from channels
     pub axis_configs: HashMap<String, Arc<dyn Axis>>,
@@ -107,6 +108,8 @@ pub struct CompiledMarkState {
     pub visible: Option<LogicalExprNode>,
     pub details: Option<Vec<String>>,
     pub zindex: Option<i32>,
+    #[serde(default)]
+    pub geometry_space: Option<GeometrySpace>,
 
     // Store axis configurations from channels
     pub axis_configs: HashMap<String, Arc<dyn Axis>>,
@@ -139,12 +142,17 @@ impl CompiledMarkState {
             visible: state.visible.clone(),
             details: state.details.clone(),
             zindex: state.zindex,
+            geometry_space: state.geometry_space,
             axis_configs: state.axis_configs.clone(),
         }
     }
 
     pub fn mark_index(&self) -> usize {
         self.mark_index
+    }
+
+    pub fn geometry_space_or(&self, default: GeometrySpace) -> GeometrySpace {
+        self.geometry_space.unwrap_or(default)
     }
 
     #[doc(hidden)]
@@ -189,5 +197,45 @@ impl MarkState {
             })
             .collect::<Result<_, AvengerChartError>>()?;
         Ok(resolved)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use crate::{CompiledDataContext, FacetDataScope};
+
+    use super::*;
+
+    #[test]
+    fn compiled_mark_state_deserializes_without_geometry_space_field() {
+        let state = CompiledMarkState {
+            id: Some("line".to_string()),
+            public_target_path: None,
+            data: CompiledDataContext::default(),
+            data_mode: MarkDataMode::Inherit,
+            mark_index: 0,
+            facet_data_scope: FacetDataScope::default(),
+            exclude_from_scale_domains: false,
+            visible: None,
+            details: None,
+            zindex: None,
+            geometry_space: Some(GeometrySpace::Display),
+            axis_configs: HashMap::new(),
+        };
+
+        let mut json = serde_json::to_value(&state).expect("serialize compiled mark state");
+        json.as_object_mut()
+            .expect("compiled mark state json object")
+            .remove("geometry_space");
+
+        let decoded: CompiledMarkState =
+            serde_json::from_value(json).expect("deserialize without geometry_space");
+        assert_eq!(decoded.geometry_space, None);
+        assert_eq!(
+            decoded.geometry_space_or(GeometrySpace::Coordinate),
+            GeometrySpace::Coordinate
+        );
     }
 }

@@ -95,7 +95,7 @@ pub use avenger_chart_marks::{
 pub use avenger_chart_marks_statistical::{
     BoxPlot, BoxPlotOrientation, Violin, ViolinOrientation, ViolinWidthNormalization,
 };
-pub use avenger_chart_polar::PolarSymbolPositionChannels;
+pub use avenger_chart_polar::{PolarLinePositionChannels, PolarSymbolPositionChannels};
 
 // Re-export mark traits and types
 pub use avenger_chart_core::{
@@ -107,7 +107,7 @@ pub use avenger_chart_core::{
 };
 pub use avenger_chart_core::{
     ChannelExpr, ChannelValue, ConditionalValue, DataTransform, DataTransformCompileContext,
-    FacetDataScope, Mark, MarkState, RadiusExpression, derived_scalar,
+    FacetDataScope, GeometrySpace, Mark, MarkState, RadiusExpression, derived_scalar,
 };
 
 // Re-export channel config traits - ESSENTIAL for using channel methods
