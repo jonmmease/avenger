@@ -1,13 +1,19 @@
-use std::collections::HashMap;
+#![allow(dead_code)]
+
+use std::collections::{HashMap, VecDeque};
 
 use avenger_chart_core::{
     AvengerChartError, ResolvedUnitAspectConstraint, SharingLevel, UnitAspectAdjustedAxis,
     UnitAspectAdjustment, UnitAspectPolicy,
 };
 use avenger_chart_scales::ConfiguredScaleWithSpec;
+use avenger_chart_scales::domain_extent::{DomainBounds, DomainExtent};
 use avenger_scales::scales::{DomainKind, RangeKind};
 
-use super::{CompiledPlot, child_frame_domain_sharing_levels_for_plot};
+use super::{
+    CompiledPlot, CoordinationScopeKey, child_frame_domain_sharing_levels_for_plot,
+    union_domain_extents,
+};
 const UNIT_ASPECT_EPSILON: f64 = 1e-9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,6 +21,160 @@ const UNIT_ASPECT_EPSILON: f64 = 1e-9;
 pub(crate) enum UnitAspectSharingPolicy {
     AllowSharedExpansion,
     ForbidSharedExpansion,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum UnitAspectDomainNode {
+    Free { cell: String, scale: String },
+    Shared(CoordinationScopeKey),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct UnitAspectSpanGraphInput {
+    pub(crate) x_node: UnitAspectDomainNode,
+    pub(crate) y_node: UnitAspectDomainNode,
+    pub(crate) x_extent: DomainExtent,
+    pub(crate) y_extent: DomainExtent,
+    pub(crate) x_range_span: f64,
+    pub(crate) y_range_span: f64,
+    pub(crate) ratio: f64,
+}
+
+pub(crate) fn solve_unit_aspect_span_graph(
+    inputs: &[UnitAspectSpanGraphInput],
+) -> Result<HashMap<UnitAspectDomainNode, DomainExtent>, AvengerChartError> {
+    let mut extents = HashMap::<UnitAspectDomainNode, DomainExtent>::new();
+    let mut edges = HashMap::<UnitAspectDomainNode, Vec<(UnitAspectDomainNode, f64)>>::new();
+
+    for input in inputs {
+        validate_positive_finite(input.ratio, "unit_aspect ratio")?;
+        let x_range_span = validate_positive_finite(input.x_range_span, "x range span")?;
+        let y_range_span = validate_positive_finite(input.y_range_span, "y range span")?;
+        merge_node_extent(&mut extents, input.x_node.clone(), input.x_extent.clone());
+        merge_node_extent(&mut extents, input.y_node.clone(), input.y_extent.clone());
+
+        let offset = (y_range_span / (input.ratio * x_range_span)).ln();
+        if input.x_node == input.y_node {
+            if offset.abs() > UNIT_ASPECT_EPSILON {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "unit_aspect uses the same domain node for x and y but the plot-area \
+                     equation requires different spans"
+                )));
+            }
+            continue;
+        }
+
+        edges
+            .entry(input.x_node.clone())
+            .or_default()
+            .push((input.y_node.clone(), offset));
+        edges
+            .entry(input.y_node.clone())
+            .or_default()
+            .push((input.x_node.clone(), -offset));
+    }
+
+    let mut offsets = HashMap::<UnitAspectDomainNode, f64>::new();
+    let mut component_by_node = HashMap::<UnitAspectDomainNode, UnitAspectDomainNode>::new();
+    for node in extents.keys() {
+        if offsets.contains_key(node) {
+            continue;
+        }
+        let component = node.clone();
+        offsets.insert(node.clone(), 0.0);
+        component_by_node.insert(node.clone(), component.clone());
+        let mut queue = VecDeque::from([node.clone()]);
+        while let Some(current) = queue.pop_front() {
+            let current_offset = offsets[&current];
+            for (next, edge_offset) in edges.get(&current).into_iter().flatten() {
+                let candidate = current_offset + edge_offset;
+                match offsets.get(next) {
+                    Some(existing) => {
+                        if (existing - candidate).abs() > UNIT_ASPECT_EPSILON {
+                            return Err(AvengerChartError::InvalidArgument(
+                                "unit_aspect shared domain equations are inconsistent".to_string(),
+                            ));
+                        }
+                    }
+                    None => {
+                        offsets.insert(next.clone(), candidate);
+                        component_by_node.insert(next.clone(), component.clone());
+                        queue.push_back(next.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    let mut component_required_shift = HashMap::<UnitAspectDomainNode, f64>::new();
+    for node in extents.keys() {
+        let component = component_by_node[node].clone();
+        let base_span = numeric_extent_span(&extents[node], node)?;
+        let required = base_span.ln() - offsets[node];
+        component_required_shift
+            .entry(component)
+            .and_modify(|existing| *existing = existing.max(required))
+            .or_insert(required);
+    }
+
+    extents
+        .into_iter()
+        .map(|(node, extent)| {
+            let component = component_by_node[&node].clone();
+            let shift = component_required_shift[&component];
+            let target_span = (offsets[&node] + shift).exp();
+            Ok((node, expand_numeric_extent(&extent, target_span)))
+        })
+        .collect()
+}
+
+fn validate_positive_finite(value: f64, label: &str) -> Result<f64, AvengerChartError> {
+    if value.is_finite() && value > 0.0 {
+        Ok(value)
+    } else {
+        Err(AvengerChartError::InvalidArgument(format!(
+            "{label} must be positive and finite, got {value}"
+        )))
+    }
+}
+
+fn merge_node_extent(
+    extents: &mut HashMap<UnitAspectDomainNode, DomainExtent>,
+    node: UnitAspectDomainNode,
+    extent: DomainExtent,
+) {
+    extents
+        .entry(node)
+        .and_modify(|existing| *existing = union_domain_extents(existing, &extent))
+        .or_insert(extent);
+}
+
+fn numeric_extent_span(
+    extent: &DomainExtent,
+    node: &UnitAspectDomainNode,
+) -> Result<f64, AvengerChartError> {
+    let DomainBounds::Numeric { min, max } = &extent.bounds else {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "unit_aspect span graph requires numeric extents, got {node:?}"
+        )));
+    };
+    validate_positive_finite((max - min).abs(), "domain span")
+}
+
+fn expand_numeric_extent(extent: &DomainExtent, target_span: f64) -> DomainExtent {
+    let DomainBounds::Numeric { min, max } = &extent.bounds else {
+        return extent.clone();
+    };
+    let center = (*min + *max) / 2.0;
+    let half = target_span / 2.0;
+    DomainExtent {
+        bounds: DomainBounds::Numeric {
+            min: center - half,
+            max: center + half,
+        },
+        radius: extent.radius.clone(),
+        ordered_discrete: extent.ordered_discrete,
+    }
 }
 
 impl CompiledPlot {
@@ -230,5 +390,221 @@ fn expanded_domain_around_center(domain: (f64, f64), target_span: f64) -> (f64, 
         (center - half, center + half)
     } else {
         (center + half, center - half)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plot::compiled::CoordinationKind;
+
+    fn free(cell: &str, scale: &str) -> UnitAspectDomainNode {
+        UnitAspectDomainNode::Free {
+            cell: cell.to_string(),
+            scale: scale.to_string(),
+        }
+    }
+
+    fn shared(group: &str) -> UnitAspectDomainNode {
+        UnitAspectDomainNode::Shared(CoordinationScopeKey::container_group(
+            CoordinationKind::ScaleDomain,
+            0,
+            group,
+        ))
+    }
+
+    fn extent(span: f64) -> DomainExtent {
+        DomainExtent::numeric(0.0, span)
+    }
+
+    fn graph_input(
+        x_node: UnitAspectDomainNode,
+        y_node: UnitAspectDomainNode,
+        x_span: f64,
+        y_span: f64,
+        x_range_span: f64,
+        y_range_span: f64,
+    ) -> UnitAspectSpanGraphInput {
+        UnitAspectSpanGraphInput {
+            x_node,
+            y_node,
+            x_extent: extent(x_span),
+            y_extent: extent(y_span),
+            x_range_span,
+            y_range_span,
+            ratio: 1.0,
+        }
+    }
+
+    fn numeric_span(extent: &DomainExtent) -> f64 {
+        let DomainBounds::Numeric { min, max } = &extent.bounds else {
+            panic!("expected numeric extent");
+        };
+        *max - *min
+    }
+
+    fn assert_close(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 1e-6,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn span_graph_solves_free_free_component() {
+        let x = free("cell0", "x");
+        let y = free("cell0", "y");
+        let solved = solve_unit_aspect_span_graph(&[graph_input(
+            x.clone(),
+            y.clone(),
+            10.0,
+            10.0,
+            200.0,
+            100.0,
+        )])
+        .expect("solve");
+
+        assert_close(numeric_span(&solved[&x]), 20.0);
+        assert_close(numeric_span(&solved[&y]), 10.0);
+    }
+
+    #[test]
+    fn span_graph_solves_shared_free_component() {
+        let shared_x = shared("x");
+        let y0 = free("cell0", "y");
+        let y1 = free("cell1", "y");
+        let solved = solve_unit_aspect_span_graph(&[
+            graph_input(shared_x.clone(), y0.clone(), 10.0, 10.0, 200.0, 100.0),
+            graph_input(shared_x.clone(), y1.clone(), 8.0, 5.0, 200.0, 100.0),
+        ])
+        .expect("solve");
+
+        assert_close(numeric_span(&solved[&shared_x]), 20.0);
+        assert_close(numeric_span(&solved[&y0]), 10.0);
+        assert_close(numeric_span(&solved[&y1]), 10.0);
+    }
+
+    #[test]
+    fn span_graph_solves_free_shared_component() {
+        let x0 = free("cell0", "x");
+        let x1 = free("cell1", "x");
+        let shared_y = shared("y");
+        let solved = solve_unit_aspect_span_graph(&[
+            graph_input(x0.clone(), shared_y.clone(), 10.0, 10.0, 200.0, 100.0),
+            graph_input(x1.clone(), shared_y.clone(), 5.0, 8.0, 200.0, 100.0),
+        ])
+        .expect("solve");
+
+        assert_close(numeric_span(&solved[&x0]), 20.0);
+        assert_close(numeric_span(&solved[&x1]), 20.0);
+        assert_close(numeric_span(&solved[&shared_y]), 10.0);
+    }
+
+    #[test]
+    fn span_graph_solves_shared_shared_component() {
+        let x = shared("x");
+        let y = shared("y");
+        let solved = solve_unit_aspect_span_graph(&[graph_input(
+            x.clone(),
+            y.clone(),
+            10.0,
+            10.0,
+            200.0,
+            100.0,
+        )])
+        .expect("solve");
+
+        assert_close(numeric_span(&solved[&x]), 20.0);
+        assert_close(numeric_span(&solved[&y]), 10.0);
+    }
+
+    #[test]
+    fn span_graph_solves_repeat_matrix_component() {
+        let x_a = shared("x_a");
+        let x_b = shared("x_b");
+        let y_a = shared("y_a");
+        let y_b = shared("y_b");
+        let solved = solve_unit_aspect_span_graph(&[
+            graph_input(x_a.clone(), y_a.clone(), 10.0, 10.0, 200.0, 100.0),
+            graph_input(x_a.clone(), y_b.clone(), 10.0, 10.0, 200.0, 100.0),
+            graph_input(x_b.clone(), y_a.clone(), 10.0, 10.0, 200.0, 100.0),
+            graph_input(x_b.clone(), y_b.clone(), 10.0, 10.0, 200.0, 100.0),
+        ])
+        .expect("solve");
+
+        assert_close(numeric_span(&solved[&x_a]), 20.0);
+        assert_close(numeric_span(&solved[&x_b]), 20.0);
+        assert_close(numeric_span(&solved[&y_a]), 10.0);
+        assert_close(numeric_span(&solved[&y_b]), 10.0);
+    }
+
+    #[test]
+    fn span_graph_rejects_inconsistent_cycle() {
+        let x = shared("x");
+        let y = shared("y");
+        let err = solve_unit_aspect_span_graph(&[
+            graph_input(x.clone(), y.clone(), 10.0, 10.0, 200.0, 100.0),
+            graph_input(x, y, 10.0, 10.0, 400.0, 100.0),
+        ])
+        .expect_err("inconsistent equations");
+
+        assert!(err.to_string().contains("inconsistent"));
+    }
+
+    #[test]
+    fn span_graph_rejects_incompatible_same_domain_xy_node() {
+        let node = shared("same");
+        let err = solve_unit_aspect_span_graph(&[graph_input(
+            node.clone(),
+            node,
+            10.0,
+            10.0,
+            200.0,
+            100.0,
+        )])
+        .expect_err("same node incompatible");
+
+        assert!(err.to_string().contains("same domain node"));
+    }
+
+    #[test]
+    fn span_graph_allows_compatible_same_domain_xy_node() {
+        let node = shared("same");
+        let solved = solve_unit_aspect_span_graph(&[graph_input(
+            node.clone(),
+            node.clone(),
+            10.0,
+            10.0,
+            100.0,
+            100.0,
+        )])
+        .expect("same node compatible");
+
+        assert_close(numeric_span(&solved[&node]), 10.0);
+    }
+
+    #[test]
+    fn span_graph_preserves_radius_metadata() {
+        let x = shared("x");
+        let y = shared("y");
+        let input = UnitAspectSpanGraphInput {
+            x_node: x.clone(),
+            y_node: y.clone(),
+            x_extent: DomainExtent::numeric_with_radius(0.0, 10.0, 3.0, 4.0),
+            y_extent: extent(10.0),
+            x_range_span: 200.0,
+            y_range_span: 100.0,
+            ratio: 1.0,
+        };
+        let solved = solve_unit_aspect_span_graph(&[input]).expect("solve");
+
+        assert_eq!(
+            solved[&x]
+                .radius
+                .as_ref()
+                .map(|radius| (radius.max_lower, radius.max_upper)),
+            Some((3.0, 4.0))
+        );
+        assert_close(numeric_span(&solved[&x]), 20.0);
     }
 }

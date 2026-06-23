@@ -140,6 +140,25 @@ this plan:
 - whether shared facet/repeat preview is implemented immediately or falls back
   to full rebuild until a later phase.
 
+## Progress Tracking Rules
+
+This document is the progress ledger for implementation. Every concrete task
+that changes code, tests, docs, or visual baselines should have a checkbox in
+the phase where it is expected to land.
+
+Rules for future agents:
+
+- Work one phase at a time unless a later task is required to keep an earlier
+  phase compiling.
+- Check off a task only after the code is implemented, formatted, tested, and
+  included in the phase commit.
+- Check off a baseline only after the visual scenario and PNG baseline have
+  landed, the image has been reviewed, and the matching phase task is checked.
+- If a baseline cannot be accepted in its planned phase, leave the checkbox
+  unchecked and add a short deferral note naming the phase that will accept it.
+- Each phase commit must include the checklist updates for that phase, so the
+  document can be used as an implementation resume point.
+
 ## Cartesian Type Shape
 
 `avenger-chart-cartesian/src/coord.rs` currently defines:
@@ -1059,50 +1078,74 @@ check off the catalog item and the matching phase task in the same commit.
 Prefer examples where the unconstrained and constrained behavior are visually
 obvious at thumbnail size.
 
-- [ ] Phase 5:
+Visual scenarios should live in a new visual-test module such as
+`avenger-chart/tests/visual_tests/test_cartesian_unit_aspect.rs`, registered
+from `visual_tests/mod.rs`. The baseline category should be
+`cartesian_unit_aspect`.
+
+- [ ] Phase 5 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/diagonal_default_distorted.png`
-      compares against the constrained case using the same non-square fixed
-      plot area and `y = x` data without `unit_aspect`; the diagonal should not
-      be 45 degrees.
-- [ ] Phase 5:
+      Scenario name: `cartesian_unit_aspect_diagonal_default_distorted`.
+      Spec: fixed non-square plot area, approximately `600 x 300`, line data
+      `y = x` over a symmetric numeric domain, ordinary Cartesian coordinate
+      without `unit_aspect`. Acceptance: the diagonal is visibly not 45 degrees,
+      establishing the control image for the constrained baseline.
+- [ ] Phase 5 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/diagonal_equal_units.png`
-      uses `unit_aspect(1.0)` with a fixed non-square plot area and `y = x`
-      data; the diagonal should be visibly 45 degrees.
-- [ ] Phase 5:
+      Scenario name: `cartesian_unit_aspect_diagonal_equal_units`.
+      Spec: same data, marks, style, and fixed non-square plot area as the
+      distorted control, but with `Cartesian::new().unit_aspect(1.0)`.
+      Acceptance: the `y = x` line is visibly 45 degrees and one domain is
+      expanded symmetrically around its original center.
+- [ ] Phase 5 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/circle_equal_units.png`
-      draws a data-space circle or dense polyline approximation under
-      `unit_aspect(1.0)` in a non-square plot area; the result should remain a
-      circle, not an ellipse.
-- [ ] Phase 5:
+      Scenario name: `cartesian_unit_aspect_circle_equal_units`.
+      Spec: dense parametric circle polyline, e.g. `(cos(t), sin(t))`, in the
+      same non-square plot area with `unit_aspect(1.0)`. Acceptance: the circle
+      renders as a circle, not an ellipse, and remains inside the expanded axes.
+- [ ] Phase 5 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/guide_expanded_domain.png`
-      shows axes/ticks/labels after domain expansion; tick labels should match
-      the expanded domain, and marks should not appear clipped at the expanded
-      edge.
-- [ ] Phase 4 or 6:
+      Scenario name: `cartesian_unit_aspect_guide_expanded_domain`.
+      Spec: explicit symmetric starting domains, visible axes and grid, and a
+      non-square plot area that forces x or y expansion. Acceptance: ticks and
+      labels are generated from the expanded domain rather than the original
+      domain, and marks near the original edge are not clipped.
+- [ ] Phase 4 or Phase 6 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/facet_shared_equal_units.png`
-      shows a facet or repeat case with shared constrained domains and common
-      cell plot-area aspect; each cell should preserve the same unit aspect and
-      reuse the coordinated shared domain.
-- [ ] Phase 4:
+      Scenario name: `cartesian_unit_aspect_facet_shared_equal_units`.
+      Spec: facet or generated repeat with shared constrained domains and
+      common cell plot-area aspect, using line or circle marks that make aspect
+      distortion obvious in every cell. Acceptance: all cells preserve equal
+      units and coordinated domains are identical where sharing requires it.
+- [ ] Phase 4 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/radius_aware_symbols_shared.png`
-      places sized symbols near domain edges in a shared facet/repeat case; the
-      radius-aware padded domains should feed the unit-aspect solver so symbols
-      are not clipped and the final ratio is preserved.
-- [ ] Phase 6:
+      Scenario name: `cartesian_unit_aspect_radius_aware_symbols_shared`.
+      Spec: sized symbols near numeric domain edges in a shared facet/repeat
+      unit-aspect cohort. Acceptance: radius-aware padded base domains feed the
+      span graph, symbols are not clipped, and the final unit ratio is still
+      preserved.
+- [ ] Phase 6 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/canvas_refined_equal_units.png`
-      uses canvas or mixed sizing with visible guides; after layout refinement,
-      the final rendered marks should still preserve equal units.
-- [ ] Phase 8 or 9:
+      Scenario name: `cartesian_unit_aspect_canvas_refined_equal_units`.
+      Spec: canvas or mixed sizing with visible guides where guide overflow
+      changes the realized plot area during refinement. Acceptance: the final
+      rendered marks preserve equal units after refinement, not just in the
+      first estimated layout pass.
+- [ ] Phase 8 or Phase 9 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/box_zoom_viewport_drag.png`
-      captures a drag overlay or interaction sequence for
-      `BoxZoom::unit_aspect()` in a non-square plot; the overlay box should be
-      constrained to the current viewport aspect and release should preserve the
-      coordinate ratio.
-- [ ] Phase 8 or 9:
+      Scenario name: `cartesian_unit_aspect_box_zoom_viewport_drag`.
+      Spec: interaction visual test that captures the active drag overlay for
+      `BoxZoom::unit_aspect()` in a non-square plot. Acceptance: the overlay is
+      constrained to the viewport aspect, and the eventual raw-domain update
+      would preserve the coordinate unit ratio.
+- [ ] Phase 8 or Phase 9 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/box_selection_metric_drag.png`
-      captures `BoxSelection::unit_aspect_box(CoordinateMetric)` with
-      `unit_aspect(2.0)`; it should be visibly different from viewport mode and
-      prove the non-1.0 ratio semantics.
+      Scenario name: `cartesian_unit_aspect_box_selection_metric_drag`.
+      Spec: interaction visual test for
+      `BoxSelection::unit_aspect_box(CoordinateMetric)` on a
+      `unit_aspect(2.0)` coordinate. Acceptance: the metric-constrained box is
+      visibly different from viewport mode and demonstrates the non-1.0 ratio
+      semantics.
 
 ## Implementation Phases
 
@@ -1158,16 +1201,16 @@ of leaving an ambiguous unchecked item.
 
 ### Phase 3: Sharing-Aware Domain Solver
 
-- [ ] Implement the unit-aspect span graph over domain-sharing nodes.
-- [ ] Represent free domains as per-cell/per-channel nodes and non-free domains
+- [x] Implement the unit-aspect span graph over domain-sharing nodes.
+- [x] Represent free domains as per-cell/per-channel nodes and non-free domains
       as existing facet or child-frame `CoordinationScopeKey`s.
-- [ ] Solve connected components in log space and expand domains around their
+- [x] Solve connected components in log space and expand domains around their
       base centers.
-- [ ] Detect inconsistent cycles and same-domain x/y incompatibilities.
-- [ ] Preserve numeric `DomainExtent` metadata, including radius padding.
-- [ ] Add unit tests for free/free, shared/free, free/shared, shared/shared,
+- [x] Detect inconsistent cycles and same-domain x/y incompatibilities.
+- [x] Preserve numeric `DomainExtent` metadata, including radius padding.
+- [x] Add unit tests for free/free, shared/free, free/shared, shared/shared,
       repeat-matrix graph, and inconsistent-cycle cases.
-- [ ] Commit Phase 3.
+- [x] Commit Phase 3.
 
 ### Phase 4: Facet/Repeat Shared Domain Integration
 
