@@ -206,7 +206,7 @@ fn apply_unit_aspect_constraint(
 ) -> Result<UnitAspectAdjustment, AvengerChartError> {
     if constraint.policy != UnitAspectPolicy::ExpandDomain {
         return Err(AvengerChartError::InvalidArgument(
-            "unit_aspect only supports expand-domain policy in v1".to_string(),
+            "unit_aspect supports expand-domain policy".to_string(),
         ));
     }
 

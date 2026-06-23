@@ -1555,7 +1555,7 @@ fn validate_unit_aspect_concat_domain_sharing(
                 }
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "{container_name} does not support non-free child-frame domain sharing for \
-                     unit_aspect child scale '{scale_name}' ({axis} channel) in v1; use local \
+                     unit_aspect child scale '{scale_name}' ({axis} channel); use local \
                      child domains, facet/repeat sharing, or remove unit_aspect"
                 )));
             }

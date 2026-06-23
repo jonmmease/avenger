@@ -51,10 +51,10 @@ Facet and generated-repeat plots can share unit-aspect constrained domains. The
 layout solver expands coordinated domains once for the group so each cell keeps
 the requested unit ratio.
 
-Authored concat/grid/wrap plots reject v1 cases where a unit-aspect child also
-shares the constrained x or y domain across differently sized child frames. Use
-local child domains, facet/repeat sharing, or remove `unit_aspect` for those
-authored concat/grid cases.
+Authored concat/grid/wrap plots reject cases where a unit-aspect child also
+shares the constrained x or y domain across child frames. Use local child
+domains, facet/repeat sharing, or remove `unit_aspect` for those authored
+concat/grid cases.
 
 ## Box Tools
 
@@ -85,10 +85,10 @@ BoxZoom::cartesian()
 ```
 
 The unit-aspect box options require a matching active Cartesian
-`unit_aspect(...)` constraint for the tool's x/y channels. A fixed-aspect brush
-that is independent of coordinate unit aspect is a separate future feature.
+`unit_aspect(...)` constraint for the tool's x/y channels. They do not define a
+separate fixed-aspect brush independent of the coordinate unit aspect.
 
-## V1 Restrictions
+## Restrictions
 
 - `ratio` must be positive and finite.
 - The constrained x and y channels must each resolve to exactly one distinct
@@ -96,8 +96,8 @@ that is independent of coordinate unit aspect is a separate future feature.
 - Scale domains and ranges must have positive finite spans after normal scale
   inference, padding, `zero`, `nice`, explicit domains, and raw-domain
   parameters have been applied.
-- V1 only supports `UnitAspectPolicy::ExpandDomain`; it does not shrink or
-  letterbox the plot area.
+- `UnitAspectPolicy::ExpandDomain` is the supported policy; unit aspect does
+  not shrink or letterbox the plot area.
 - The expanded domain is not re-niced after the constraint is applied.
 - Authored concat/grid/wrap plots reject cross-child sharing of constrained
   domains; facet and generated-repeat sharing are supported.

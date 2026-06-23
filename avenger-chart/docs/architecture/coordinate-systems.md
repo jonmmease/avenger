@@ -76,7 +76,7 @@ plot-area height. Cartesian positioned subplots use `subplot_x` and
 Cartesian coordinates can also enforce a fixed displayed unit ratio with
 `Cartesian::unit_aspect(...)` or `Cartesian::equal_units()`. See
 [`cartesian-unit-aspect.md`](../cartesian-unit-aspect.md) for authoring
-examples, tool behavior, and v1 restrictions.
+examples, tool behavior, and restrictions.
 
 `avenger-chart-polar` owns `Polar`, `PolarAxis`, `PolarGuide`,
 `PolarOptions`, Polar position configs, Polar guide evaluation, and the Polar
