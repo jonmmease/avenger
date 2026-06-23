@@ -401,9 +401,8 @@ mod tests {
     use std::{
         any::Any,
         sync::{
-            Arc,
+            Arc, Mutex,
             atomic::{AtomicUsize, Ordering},
-            Mutex,
         },
     };
 

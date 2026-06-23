@@ -23,16 +23,10 @@ impl CompiledPlot {
     pub(crate) fn validate_coordinate_domain_metrics(&self) -> Result<(), AvengerChartError> {
         for descriptor in self.coordinate_domain_descriptors() {
             for metric in &descriptor.metrics {
-                let x_scale = self.one_coordinate_metric_scale(
-                    &descriptor,
-                    &metric.x_channel,
-                    "x",
-                )?;
-                let y_scale = self.one_coordinate_metric_scale(
-                    &descriptor,
-                    &metric.y_channel,
-                    "y",
-                )?;
+                let x_scale =
+                    self.one_coordinate_metric_scale(&descriptor, &metric.x_channel, "x")?;
+                let y_scale =
+                    self.one_coordinate_metric_scale(&descriptor, &metric.y_channel, "y")?;
                 if x_scale == y_scale {
                     return Err(AvengerChartError::InvalidArgument(format!(
                         "coordinate domain metric '{}' x and y channels both resolve to scale '{}'",
