@@ -1360,18 +1360,28 @@ scale refresh and no-ratcheting. If a visual preview case becomes useful, add it
 to the visual-baseline catalog before implementing it and add a matching Phase 7
 checkbox here.
 
-- [ ] Add `CompiledPlot::has_unit_aspect_constraints()` or equivalent.
-- [ ] Bypass raw-domain in-place scale patching when unit-aspect constraints
+Phase 7 decision note:
+
+- Single-plot unit-aspect preview can reuse the layout profile, but it must
+  rebuild scales from the cached `ScaleBuilder` instead of patching raw domains
+  in place. Cached data marks may still be retargeted because the scale
+  adjustment is computed from the post-unit-aspect scales.
+- Child-frame/facet/repeat unit-aspect preview falls back to exact evaluation in
+  v1. Per-cell profile reuse would need sharing-aware unit-aspect graph solves
+  at each reused child plot-area size.
+
+- [x] Add `CompiledPlot::has_unit_aspect_constraints()` or equivalent.
+- [x] Bypass raw-domain in-place scale patching when unit-aspect constraints
       are active.
-- [ ] Refresh scales from cached `ScaleBuilder` for raw-domain preview and
+- [x] Refresh scales from cached `ScaleBuilder` for raw-domain preview and
       resize preview.
-- [ ] Ensure mark reuse sees post-constraint domains.
-- [ ] Decide and document whether shared facet/repeat preview refreshes solved
+- [x] Ensure mark reuse sees post-constraint domains.
+- [x] Decide and document whether shared facet/repeat preview refreshes solved
       domains in place or falls back to full rebuild.
-- [ ] Fall back to full rebuild when cached-builder refresh is unavailable or
+- [x] Fall back to full rebuild when cached-builder refresh is unavailable or
       per-cell facet refresh is not implemented.
-- [ ] Add preview, resize, and no-ratcheting tests.
-- [ ] Commit Phase 7.
+- [x] Add preview, resize, and no-ratcheting tests.
+- [x] Commit Phase 7.
 
 ### Phase 8: Box Tool Support
 

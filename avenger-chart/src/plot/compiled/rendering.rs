@@ -6907,6 +6907,17 @@ impl CompiledPlot {
             ));
         }
 
+        if plot_tree_has_unit_aspect_constraints(self)
+            && layout_profile
+                .measurement
+                .child_frame_container_view()?
+                .is_some()
+        {
+            return Ok(PreviewLayoutProfileAttempt::fallback(
+                PreviewProfileFallbackReason::PhysicalStructureMismatch,
+            ));
+        }
+
         let measured_layout_spec = Self::layout_spec_for_resolved_chart_sizing(
             &evaluated_layout_spec,
             facet_tree.as_ref(),
@@ -7007,7 +7018,8 @@ impl CompiledPlot {
         let can_reuse_single_plot_raw_domain_scales =
             matches!(resolved_chart_sizing, ResolvedChartSizing::SinglePlot)
                 && !changed_params_touch_layout_size
-                && has_active_root_raw_domain_overrides;
+                && has_active_root_raw_domain_overrides
+                && !self.has_unit_aspect_constraints();
         let can_reuse_root_facet_scales =
             matches!(resolved_chart_sizing, ResolvedChartSizing::FacetBand(_))
                 && can_reuse_profile_facet_tree

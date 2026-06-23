@@ -2630,6 +2630,61 @@ mod tests {
         }
     }
 
+    fn evaluated_unit_aspect_ratio(evaluated: &EvaluatedPlot) -> f32 {
+        let scope = evaluated
+            .interaction
+            .scopes
+            .iter()
+            .find(|scope| scope.scales.contains_key("x") && scope.scales.contains_key("y"))
+            .expect("coordinate scope with x/y scales");
+        let x_scale = scope.scales.get("x").expect("x scale");
+        let y_scale = scope.scales.get("y").expect("y scale");
+        let x_domain = x_scale
+            .numeric_interval_domain()
+            .expect("x domain is numeric");
+        let y_domain = y_scale
+            .numeric_interval_domain()
+            .expect("y domain is numeric");
+        let x_range = x_scale
+            .numeric_interval_range()
+            .expect("x range is numeric");
+        let y_range = y_scale
+            .numeric_interval_range()
+            .expect("y range is numeric");
+        let px_per_x = (x_range.1 - x_range.0).abs() / (x_domain.1 - x_domain.0).abs();
+        let px_per_y = (y_range.1 - y_range.0).abs() / (y_domain.1 - y_domain.0).abs();
+        px_per_y / px_per_x
+    }
+
+    fn evaluated_xy_domains(evaluated: &EvaluatedPlot) -> ((f32, f32), (f32, f32)) {
+        let scope = evaluated
+            .interaction
+            .scopes
+            .iter()
+            .find(|scope| scope.scales.contains_key("x") && scope.scales.contains_key("y"))
+            .expect("coordinate scope with x/y scales");
+        let x_domain = scope
+            .scales
+            .get("x")
+            .expect("x scale")
+            .numeric_interval_domain()
+            .expect("x domain is numeric");
+        let y_domain = scope
+            .scales
+            .get("y")
+            .expect("y scale")
+            .numeric_interval_domain()
+            .expect("y domain is numeric");
+        (x_domain, y_domain)
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() <= 1e-4,
+            "expected {expected}, got {actual}"
+        );
+    }
+
     async fn compile_session_test_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -2821,6 +2876,104 @@ mod tests {
                     })
                     .y_with(col("y"), |c| c.axis(|a| a.visible(false)))
                     .size(20.0),
+            )
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_unit_aspect_raw_domain_param_preview_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let x_domain = Param::raw_domain("x_domain");
+        let raw = x_domain.expr();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+            .add_param(x_domain.clone())
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), move |c| {
+                        c.scale_with::<Linear>(move |s| {
+                            s.raw_domain(raw.clone()).nice(false).zero(false)
+                        })
+                        .axis(|a| a.visible(false))
+                    })
+                    .y_with(col("y"), |c| {
+                        c.scale_with::<Linear>(|s| s.domain((0.0, 10.0)).nice(false).zero(false))
+                            .axis(|a| a.visible(false))
+                    })
+                    .size(20.0),
+            )
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_unit_aspect_width_param_preview_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+            .add_param(width.clone())
+            .canvas_size(width.expr(), 320.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .x_with(col("x"), |c| {
+                        c.scale_with::<Linear>(|s| s.domain((0.0, 10.0)).nice(false).zero(false))
+                            .axis(|a| a.visible(false))
+                    })
+                    .y_with(col("y"), |c| {
+                        c.scale_with::<Linear>(|s| s.domain((0.0, 10.0)).nice(false).zero(false))
+                            .axis(|a| a.visible(false))
+                    })
+                    .size(20.0),
+            )
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_unit_aspect_facet_width_param_preview_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('A', 0.0, 0.0), ('A', 10.0, 10.0),
+                    ('B', 0.0, 1.0), ('B', 10.0, 9.0)
+                ) AS t(group_name, x, y)",
+            )
+            .await?;
+        Plot::<FacetColumn>::new()
+            .add_param(width.clone())
+            .canvas_size(width.expr(), 320.0)
+            .data(df)
+            .mark(
+                Subplot::new(
+                    Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(
+                        Symbol::new()
+                            .x_with(col("x"), |c| {
+                                c.scale_with::<Linear>(|s| {
+                                    s.domain((0.0, 10.0)).nice(false).zero(false)
+                                })
+                                .axis(|a| a.visible(false))
+                            })
+                            .y_with(col("y"), |c| {
+                                c.scale_with::<Linear>(|s| {
+                                    s.domain((0.0, 10.0)).nice(false).zero(false)
+                                })
+                                .axis(|a| a.visible(false))
+                            })
+                            .size(20.0),
+                    ),
+                )
+                .column(col("group_name")),
             )
             .compile(ctx)
             .await
@@ -4116,6 +4269,147 @@ mod tests {
             &evaluated.scene_graph,
             &one_shot.scene_graph,
             6.0,
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_unit_aspect_raw_domain_rebuilds_scales()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_unit_aspect_raw_domain_param_preview_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial unit-aspect profile"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert("x_domain".to_string(), list_domain(2.0, 6.0));
+        let (evaluated, preview) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert!(
+            preview.timings.preview_scale_refresh_us > 0,
+            "unit-aspect raw-domain Preview should rebuild scales from the cached builder"
+        );
+        assert!(
+            count_symbol_scale_adjustments(&evaluated.scene_graph) > 0,
+            "retargeted marks should use scale adjustments from post-unit-aspect scales"
+        );
+        assert_close(evaluated_unit_aspect_ratio(&evaluated), 1.0);
+
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch)).await?;
+        assert_symbol_positions_close_with_tolerance(
+            &evaluated.scene_graph,
+            &one_shot.scene_graph,
+            6.0,
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_unit_aspect_resize_does_not_ratchet_domains()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_unit_aspect_width_param_preview_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        let params =
+            |width| IndexMap::from([("width".to_string(), ScalarValue::Float64(Some(width)))]);
+
+        let (first, first_metrics) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(params(640.0)),
+            )
+            .await?;
+        let (middle, _) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(params(500.0)),
+            )
+            .await?;
+        let (second, second_metrics) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(params(640.0)),
+            )
+            .await?;
+
+        assert_eq!(first_metrics.pipeline.preview_profile_reuses, 1);
+        assert_eq!(second_metrics.pipeline.preview_profile_reuses, 1);
+        assert!(
+            first_metrics.timings.preview_scale_refresh_us > 0
+                && second_metrics.timings.preview_scale_refresh_us > 0,
+            "unit-aspect resize Preview should refresh scales"
+        );
+        assert_close(evaluated_unit_aspect_ratio(&first), 1.0);
+        assert_close(evaluated_unit_aspect_ratio(&middle), 1.0);
+        assert_close(evaluated_unit_aspect_ratio(&second), 1.0);
+
+        let (first_x, first_y) = evaluated_xy_domains(&first);
+        let (middle_x, middle_y) = evaluated_xy_domains(&middle);
+        let (second_x, second_y) = evaluated_xy_domains(&second);
+        assert_close(first_x.0, second_x.0);
+        assert_close(first_x.1, second_x.1);
+        assert_close(first_y.0, second_y.0);
+        assert_close(first_y.1, second_y.1);
+        assert!(
+            first_x != middle_x || first_y != middle_y,
+            "different preview widths should produce different constrained domains"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_unit_aspect_child_frames_fall_back_to_exact()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_unit_aspect_facet_width_param_preview_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+
+        session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+
+        let mut patch = IndexMap::new();
+        patch.insert("width".to_string(), ScalarValue::Float64(Some(640.0)));
+        let (_evaluated, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 0);
+        assert_eq!(preview.pipeline.preview_fallbacks, 1);
+        assert_eq!(
+            preview.pipeline.preview_profile_fallback_reasons,
+            vec![PreviewProfileFallbackReason::PhysicalStructureMismatch]
+        );
+        assert!(
+            preview.facet_layout.plot_component_measure_calls > 0,
+            "unit-aspect child-frame Preview should fall back to exact measurement"
         );
 
         Ok(())
