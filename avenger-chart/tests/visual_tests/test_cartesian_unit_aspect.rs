@@ -4,7 +4,9 @@ use datafusion::arrow::{
     datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
 };
+use datafusion::common::ScalarValue;
 use datafusion::prelude::*;
+use indexmap::IndexMap;
 use std::{f64::consts::TAU, sync::Arc};
 
 use super::helpers::assert_visual_match_default;
@@ -276,6 +278,75 @@ async fn cartesian_unit_aspect_canvas_refined_equal_units() {
         None,
         CATEGORY,
         "canvas_refined_equal_units",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn cartesian_unit_aspect_box_zoom_viewport_drag() {
+    let ctx = SessionContext::new();
+    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+        .canvas_size(620.0, 360.0)
+        .data(circle_data(&ctx))
+        .tool(BoxZoom::cartesian().unit_aspect())
+        .mark(
+            Line::new()
+                .x_with(col("x"), |channel| {
+                    unit_circle_domain(channel, "viewport x")
+                })
+                .y_with(col("y"), |channel| {
+                    unit_circle_domain(channel, "viewport y")
+                })
+                .order(col("order"))
+                .stroke("#0f766e")
+                .stroke_width(2.5),
+        )
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |channel| {
+                    unit_circle_domain(channel, "viewport x")
+                })
+                .y_with(col("y"), |channel| {
+                    unit_circle_domain(channel, "viewport y")
+                })
+                .fill("#facc15")
+                .stroke("#14532d")
+                .stroke_width(0.8)
+                .size(55.0),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile unit-aspect viewport box zoom");
+    let mut params = IndexMap::new();
+    params.insert(
+        "__tool_box_zoom__active".to_string(),
+        ScalarValue::Boolean(Some(true)),
+    );
+    params.insert(
+        "__tool_box_zoom__x0".to_string(),
+        ScalarValue::Float64(Some(-0.9)),
+    );
+    params.insert(
+        "__tool_box_zoom__y0".to_string(),
+        ScalarValue::Float64(Some(-0.45)),
+    );
+    params.insert(
+        "__tool_box_zoom__x1".to_string(),
+        ScalarValue::Float64(Some(0.9)),
+    );
+    params.insert(
+        "__tool_box_zoom__y1".to_string(),
+        ScalarValue::Float64(Some(0.45)),
+    );
+
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        Some(params),
+        CATEGORY,
+        "box_zoom_viewport_drag",
     )
     .await;
 }

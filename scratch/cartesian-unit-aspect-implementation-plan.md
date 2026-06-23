@@ -1154,7 +1154,7 @@ Baseline schedule:
       changes the realized plot area during refinement. Acceptance: the final
       rendered marks preserve equal units after refinement, not just in the
       first estimated layout pass.
-- [ ] Phase 8 or Phase 9 baseline:
+- [x] Phase 8 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/box_zoom_viewport_drag.png`
       Scenario name: `cartesian_unit_aspect_box_zoom_viewport_drag`.
       Spec: interaction visual test that captures the active drag overlay for
@@ -1169,6 +1169,12 @@ Baseline schedule:
       `unit_aspect(2.0)` coordinate. Acceptance: the metric-constrained box is
       visibly different from viewport mode and demonstrates the non-1.0 ratio
       semantics.
+
+      Deferral note: Phase 8 covers the `BoxSelection` constrained endpoint,
+      selection-clause, and store-row expressions with unit tests. A faithful
+      visual baseline still needs deterministic interaction capture or test
+      injection for store-backed tool state; the current visual helper can
+      inject params for `BoxZoom` but not mutable store rows for box selection.
 
 ## Implementation Phases
 
@@ -1390,19 +1396,19 @@ the visual harness can deterministically capture active drag overlays. If that
 capture is not ready, keep the baseline catalog items unchecked and let Phase 9
 either accept them or record a deferral note.
 
-- [ ] Extend `ToolExpansionContext` with unit-aspect constraint metadata.
-- [ ] Add `UnitAspectBox` with `CoordinateMetric` and `Viewport`.
-- [ ] Add `BoxSelection::unit_aspect()` and
+- [x] Extend `ToolExpansionContext` with unit-aspect constraint metadata.
+- [x] Add `UnitAspectBox` with `CoordinateMetric` and `Viewport`.
+- [x] Add `BoxSelection::unit_aspect()` and
       `BoxSelection::unit_aspect_box(...)`.
-- [ ] Add `BoxZoom::unit_aspect()` and `BoxZoom::unit_aspect_box(...)`.
-- [ ] Add constrained endpoint expression helpers.
-- [ ] Use constrained intervals in `BoxSelection` store rows and selection
+- [x] Add `BoxZoom::unit_aspect()` and `BoxZoom::unit_aspect_box(...)`.
+- [x] Add constrained endpoint expression helpers.
+- [x] Use constrained intervals in `BoxSelection` store rows and selection
       clauses.
-- [ ] Use constrained endpoints in `BoxZoom` drag overlay and release raw-domain
+- [x] Use constrained endpoints in `BoxZoom` drag overlay and release raw-domain
       params.
-- [ ] Update `BoxZoom` min-size checks to use constrained pixel dimensions.
-- [ ] Add tool expansion and expression tests, including `unit_aspect(2.0)`.
-- [ ] Add or prepare
+- [x] Update `BoxZoom` min-size checks to use constrained pixel dimensions.
+- [x] Add tool expansion and expression tests, including `unit_aspect(2.0)`.
+- [x] Add or prepare
       `cartesian_unit_aspect/box_zoom_viewport_drag.png`
       (`cartesian_unit_aspect_box_zoom_viewport_drag`; see catalog spec) once
       the drag overlay is available to the visual test harness.
@@ -1410,7 +1416,15 @@ either accept them or record a deferral note.
       `cartesian_unit_aspect/box_selection_metric_drag.png`
       (`cartesian_unit_aspect_box_selection_metric_drag`; see catalog spec)
       once selection-store assertions and visual capture are available.
-- [ ] Commit Phase 8.
+- [x] Commit Phase 8.
+
+Phase 8 deferral note:
+
+- `box_selection_metric_drag.png` remains intentionally unchecked. The code path
+  is covered by constrained endpoint, selection-clause, and store-row tests, but
+  the visual harness cannot yet inject mutable store rows or deterministically
+  replay the drag/store update. Phase 9 should either add that harness support
+  or keep the catalog deferral explicit.
 
 ### Phase 9: Remaining Visual Baselines And Docs
 

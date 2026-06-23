@@ -22,6 +22,7 @@ pub use avenger_chart_core::{
 };
 pub use avenger_chart_tools::{
     BoxSelection, BoxSelectionResolve, BoxZoom, LassoSelection, PanScrollZoom, PointSelection,
+    UnitAspectBox,
 };
 
 #[derive(Clone)]
@@ -91,6 +92,7 @@ impl ToolCompileContext {
         &self,
         tools: &[Arc<dyn ChartTool<C>>],
         scale_targets: &[ToolScaleTarget],
+        unit_aspect_constraints: &[avenger_chart_core::UnitAspectConstraint],
     ) -> Result<Vec<ActiveToolExpansion<C>>, AvengerChartError> {
         let mut active = Vec::new();
         let mut local_ids = HashSet::new();
@@ -102,7 +104,8 @@ impl ToolCompileContext {
                     "Duplicate chart tool id '{id}'"
                 )));
             }
-            let mut expansion_context = ToolExpansionContext::new(&id, scale_targets);
+            let mut expansion_context = ToolExpansionContext::new(&id, scale_targets)
+                .with_unit_aspect_constraints(unit_aspect_constraints);
             if let Some(repeat_context) = self.repeat_context.as_ref() {
                 expansion_context = expansion_context.with_repeat_context(repeat_context);
             }
@@ -1150,6 +1153,48 @@ mod tests {
         );
         assert!(raw_domain_debug(&compiled, "x").contains("__tool_box_zoom__x_domain"));
         assert!(raw_domain_debug(&compiled, "y").contains("__tool_box_zoom__y_domain"));
+    }
+
+    #[tokio::test]
+    async fn box_zoom_unit_aspect_requires_coordinate_constraint() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let err = match Plot::<Cartesian>::new()
+            .data(df)
+            .mark(Symbol::new().x(col("x")).y(col("y")))
+            .tool(BoxZoom::cartesian().unit_aspect())
+            .compile(&ctx)
+            .await
+        {
+            Ok(_) => panic!("unit-aspect box zoom should require a coordinate constraint"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("no active Cartesian unit_aspect"));
+    }
+
+    #[tokio::test]
+    async fn box_zoom_unit_aspect_receives_coordinate_constraint() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let compiled = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+            .data(df)
+            .mark(Symbol::new().x(col("x")).y(col("y")))
+            .tool(BoxZoom::cartesian().unit_aspect())
+            .compile(&ctx)
+            .await
+            .expect("compile");
+
+        let drag = compiled
+            .event_bindings()
+            .iter()
+            .find(|binding| binding.event_type == ChartEventType::CursorMoved)
+            .expect("drag binding");
+        assert_eq!(
+            drag.filters.len(),
+            9,
+            "unit-aspect box zoom should request start-domain and start-plot-size guards"
+        );
     }
 
     #[tokio::test]

@@ -67,6 +67,7 @@ pub use avenger_chart_core::{
 };
 pub use avenger_chart_tools::{
     BoxSelection, BoxSelectionResolve, BoxZoom, LassoSelection, PanScrollZoom, PointSelection,
+    UnitAspectBox,
 };
 pub use avenger_chart_transforms::lump;
 pub use avenger_chart_transforms::{

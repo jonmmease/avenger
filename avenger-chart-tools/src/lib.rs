@@ -13,8 +13,8 @@ use avenger_chart_marks::Rect;
 use datafusion::{
     arrow::datatypes::DataType,
     common::ScalarValue,
-    functions::expr_fn::power,
-    prelude::{Expr, col, lit},
+    functions::expr_fn::{abs, power},
+    prelude::{Expr, col, lit, when},
 };
 
 #[derive(Clone, Debug)]
@@ -816,6 +816,17 @@ pub enum BoxSelectionResolve {
     Intersect,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnitAspectBox {
+    CoordinateMetric,
+    Viewport,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ResolvedUnitAspectBox {
+    mode: UnitAspectBox,
+}
+
 #[derive(Clone, Debug)]
 pub struct BoxSelection {
     selection_id: String,
@@ -832,6 +843,7 @@ pub struct BoxSelection {
     repeat_cell_chrome: bool,
     double_click_clear: bool,
     enabled_by_default: bool,
+    unit_aspect_box: Option<UnitAspectBox>,
 }
 
 impl BoxSelection {
@@ -852,6 +864,7 @@ impl BoxSelection {
             repeat_cell_chrome: false,
             double_click_clear: true,
             enabled_by_default: true,
+            unit_aspect_box: None,
         }
     }
 
@@ -938,6 +951,15 @@ impl BoxSelection {
 
     pub fn enabled_by_default(mut self, enabled: bool) -> Self {
         self.enabled_by_default = enabled;
+        self
+    }
+
+    pub fn unit_aspect(self) -> Self {
+        self.unit_aspect_box(UnitAspectBox::CoordinateMetric)
+    }
+
+    pub fn unit_aspect_box(mut self, mode: UnitAspectBox) -> Self {
+        self.unit_aspect_box = Some(mode);
         self
     }
 
@@ -1044,9 +1066,22 @@ impl BoxSelection {
         }
     }
 
-    fn selection_clause(&self) -> SelectionClauseUpdate {
-        let x_interval = drag_domain_interval(&self.x_channel);
-        let y_interval = drag_domain_interval(&self.y_channel);
+    fn selection_clause(
+        &self,
+        unit_aspect_box: Option<ResolvedUnitAspectBox>,
+    ) -> SelectionClauseUpdate {
+        let x_interval = constrained_drag_interval(
+            &self.x_channel,
+            &self.x_channel,
+            &self.y_channel,
+            unit_aspect_box,
+        );
+        let y_interval = constrained_drag_interval(
+            &self.y_channel,
+            &self.x_channel,
+            &self.y_channel,
+            unit_aspect_box,
+        );
         SelectionClauseUpdate::interval(self.row_id_expr())
             .facet_scope(self.facet_scope)
             .dimension(self.x_dimension.clone())
@@ -1062,20 +1097,30 @@ impl BoxSelection {
             .build()
     }
 
-    fn selection_update(&self) -> SelectionUpdate {
+    fn selection_update(&self, unit_aspect_box: Option<ResolvedUnitAspectBox>) -> SelectionUpdate {
         match self.resolve {
             BoxSelectionResolve::Global => {
-                SelectionUpdate::replace_all_clauses([self.selection_clause()])
+                SelectionUpdate::replace_all_clauses([self.selection_clause(unit_aspect_box)])
             }
             BoxSelectionResolve::Union | BoxSelectionResolve::Intersect => {
-                SelectionUpdate::upsert_clause(self.selection_clause())
+                SelectionUpdate::upsert_clause(self.selection_clause(unit_aspect_box))
             }
         }
     }
 
-    fn store_row(&self) -> StoreRow {
-        let x_interval = drag_domain_interval(&self.x_channel);
-        let y_interval = drag_domain_interval(&self.y_channel);
+    fn store_row(&self, unit_aspect_box: Option<ResolvedUnitAspectBox>) -> StoreRow {
+        let x_interval = constrained_drag_interval(
+            &self.x_channel,
+            &self.x_channel,
+            &self.y_channel,
+            unit_aspect_box,
+        );
+        let y_interval = constrained_drag_interval(
+            &self.y_channel,
+            &self.x_channel,
+            &self.y_channel,
+            unit_aspect_box,
+        );
         StoreRow::new()
             .field("id", self.row_id_expr())
             .field("cell_id", self.cell_id_expr())
@@ -1087,11 +1132,13 @@ impl BoxSelection {
             .field("y_max", ev::interval_end(y_interval))
     }
 
-    fn store_update(&self) -> StoreUpdate {
+    fn store_update(&self, unit_aspect_box: Option<ResolvedUnitAspectBox>) -> StoreUpdate {
         match self.resolve {
-            BoxSelectionResolve::Global => StoreUpdate::replace_rows([self.store_row()]),
+            BoxSelectionResolve::Global => {
+                StoreUpdate::replace_rows([self.store_row(unit_aspect_box)])
+            }
             BoxSelectionResolve::Union | BoxSelectionResolve::Intersect => {
-                StoreUpdate::upsert_rows([self.store_row()])
+                StoreUpdate::upsert_rows([self.store_row(unit_aspect_box)])
             }
         }
     }
@@ -1104,7 +1151,7 @@ impl ChartTool<Cartesian> for BoxSelection {
 
     fn expand(
         &self,
-        _ctx: ToolExpansionContext<'_>,
+        ctx: ToolExpansionContext<'_>,
     ) -> Result<ToolExpansion<Cartesian>, AvengerChartError> {
         if self.x_channel.is_empty() || self.y_channel.is_empty() {
             return Err(AvengerChartError::InvalidArgument(format!(
@@ -1112,6 +1159,13 @@ impl ChartTool<Cartesian> for BoxSelection {
                 self.tool_id
             )));
         }
+        let unit_aspect_box = resolve_unit_aspect_box(
+            ctx,
+            self.unit_aspect_box,
+            &self.tool_id,
+            &self.x_channel,
+            &self.y_channel,
+        )?;
 
         let enabled = Param::new(
             self.enabled_param_name(),
@@ -1132,8 +1186,9 @@ impl ChartTool<Cartesian> for BoxSelection {
                 &self.drag_button,
                 &self.x_channel,
                 &self.y_channel,
-                self.selection_update(),
-                self.store_update(),
+                self.selection_update(unit_aspect_box),
+                self.store_update(unit_aspect_box),
+                unit_aspect_box,
             ))
             .event_binding(box_selection_release_binding(
                 &enabled.name,
@@ -1142,8 +1197,9 @@ impl ChartTool<Cartesian> for BoxSelection {
                 &self.drag_button,
                 &self.x_channel,
                 &self.y_channel,
-                self.selection_update(),
-                self.store_update(),
+                self.selection_update(unit_aspect_box),
+                self.store_update(unit_aspect_box),
+                unit_aspect_box,
             ))
             .mark(self.overlay_mark())
             .metadata(
@@ -1173,8 +1229,9 @@ fn box_selection_drag_binding(
     y_channel: &str,
     selection_update: SelectionUpdate,
     store_update: StoreUpdate,
+    unit_aspect_box: Option<ResolvedUnitAspectBox>,
 ) -> ChartEventBinding {
-    ChartEventBinding::on(ChartEventType::CursorMoved)
+    let mut binding = ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown)
                 .filter(ev::button().eq(lit(drag_button.to_string()))),
@@ -1187,7 +1244,11 @@ fn box_selection_drag_binding(
         .filter(ev::event_at_start_clipped_coord(y_channel).is_not_null())
         .set_selection_at_start_scope(selection_id, selection_update)
         .set_store_at_start_scope(store_name, store_update)
-        .preview()
+        .preview();
+    for filter in unit_aspect_box_filters(unit_aspect_box, x_channel, y_channel) {
+        binding = binding.filter(filter);
+    }
+    binding
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1200,8 +1261,9 @@ fn box_selection_release_binding(
     y_channel: &str,
     selection_update: SelectionUpdate,
     store_update: StoreUpdate,
+    unit_aspect_box: Option<ResolvedUnitAspectBox>,
 ) -> ChartEventBinding {
-    ChartEventBinding::on_between_end(
+    let mut binding = ChartEventBinding::on_between_end(
         ChartEventStream::on(ChartEventType::MouseDown)
             .filter(ev::button().eq(lit(drag_button.to_string()))),
         ChartEventStream::on(ChartEventType::MouseUp),
@@ -1213,7 +1275,11 @@ fn box_selection_release_binding(
     .filter(ev::event_at_start_clipped_coord(y_channel).is_not_null())
     .set_selection_at_start_scope(selection_id, selection_update)
     .set_store_at_start_scope(store_name, store_update)
-    .exact()
+    .exact();
+    for filter in unit_aspect_box_filters(unit_aspect_box, x_channel, y_channel) {
+        binding = binding.filter(filter);
+    }
+    binding
 }
 
 fn box_selection_clear_binding(
@@ -1240,6 +1306,7 @@ pub struct BoxZoom {
     drag_button: String,
     min_size_px: f64,
     enabled_by_default: bool,
+    unit_aspect_box: Option<UnitAspectBox>,
 }
 
 impl BoxZoom {
@@ -1255,6 +1322,7 @@ impl BoxZoom {
             drag_button: "left".to_string(),
             min_size_px: 4.0,
             enabled_by_default: true,
+            unit_aspect_box: None,
         }
     }
 
@@ -1308,6 +1376,15 @@ impl BoxZoom {
         self
     }
 
+    pub fn unit_aspect(self) -> Self {
+        self.unit_aspect_box(UnitAspectBox::Viewport)
+    }
+
+    pub fn unit_aspect_box(mut self, mode: UnitAspectBox) -> Self {
+        self.unit_aspect_box = Some(mode);
+        self
+    }
+
     fn enabled_param_name(&self) -> String {
         generated_tool_name(&self.id, "enabled")
     }
@@ -1335,7 +1412,7 @@ impl ChartTool<Cartesian> for BoxZoom {
 
     fn expand(
         &self,
-        _ctx: ToolExpansionContext<'_>,
+        ctx: ToolExpansionContext<'_>,
     ) -> Result<ToolExpansion<Cartesian>, AvengerChartError> {
         if self.x_channel.is_empty() || self.y_channel.is_empty() {
             return Err(AvengerChartError::InvalidArgument(format!(
@@ -1349,6 +1426,13 @@ impl ChartTool<Cartesian> for BoxZoom {
                 self.id
             )));
         }
+        let unit_aspect_box = resolve_unit_aspect_box(
+            ctx,
+            self.unit_aspect_box,
+            &self.id,
+            &self.x_channel,
+            &self.y_channel,
+        )?;
 
         let enabled = Param::new(
             self.enabled_param_name(),
@@ -1451,12 +1535,16 @@ impl ChartTool<Cartesian> for BoxZoom {
                 &box_y0,
                 &box_x1,
                 &box_y1,
+                unit_aspect_box,
             ))
             .event_binding(box_zoom_cancel_binding(
                 &enabled.name,
                 &self.drag_button,
                 self.min_size_px,
                 &active,
+                unit_aspect_box,
+                &self.x_channel,
+                &self.y_channel,
             ))
             .event_binding(box_zoom_release_binding(
                 &enabled.name,
@@ -1464,6 +1552,7 @@ impl ChartTool<Cartesian> for BoxZoom {
                 self.min_size_px,
                 &active,
                 &channels,
+                unit_aspect_box,
             ))
             .event_binding(box_zoom_reset_binding(&enabled.name, &active, &channels))
             .mark(overlay)
@@ -1509,8 +1598,9 @@ fn box_zoom_drag_binding(
     box_y0: &Param,
     box_x1: &Param,
     box_y1: &Param,
+    unit_aspect_box: Option<ResolvedUnitAspectBox>,
 ) -> ChartEventBinding {
-    ChartEventBinding::on(ChartEventType::CursorMoved)
+    let mut binding = ChartEventBinding::on(ChartEventType::CursorMoved)
         .filter(ev::param(enabled_param).eq(lit(true)))
         .filter(ev::start_coord(x_channel).is_not_null())
         .filter(ev::start_coord(y_channel).is_not_null())
@@ -1523,9 +1613,19 @@ fn box_zoom_drag_binding(
         .set_param_at_start_scope(active, lit(true))
         .set_param_at_start_scope(box_x0, ev::start_coord(x_channel))
         .set_param_at_start_scope(box_y0, ev::start_coord(y_channel))
-        .set_param_at_start_scope(box_x1, ev::event_at_start_clipped_coord(x_channel))
-        .set_param_at_start_scope(box_y1, ev::event_at_start_clipped_coord(y_channel))
-        .preview()
+        .set_param_at_start_scope(
+            box_x1,
+            constrained_drag_endpoint(x_channel, x_channel, y_channel, unit_aspect_box),
+        )
+        .set_param_at_start_scope(
+            box_y1,
+            constrained_drag_endpoint(y_channel, x_channel, y_channel, unit_aspect_box),
+        )
+        .preview();
+    for filter in unit_aspect_box_filters(unit_aspect_box, x_channel, y_channel) {
+        binding = binding.filter(filter);
+    }
+    binding
 }
 
 fn box_zoom_cancel_binding(
@@ -1533,15 +1633,25 @@ fn box_zoom_cancel_binding(
     drag_button: &str,
     min_size_px: f64,
     active: &Param,
+    unit_aspect_box: Option<ResolvedUnitAspectBox>,
+    x_channel: &str,
+    y_channel: &str,
 ) -> ChartEventBinding {
-    ChartEventBinding::on_between_end(
+    let mut binding = ChartEventBinding::on_between_end(
         box_zoom_drag_start_stream(drag_button),
         box_zoom_drag_end_stream(drag_button),
     )
     .filter(ev::param(enabled_param).eq(lit(true)))
-    .filter(drag_distance_squared().lt(lit(min_size_px * min_size_px)))
+    .filter(
+        constrained_drag_distance_squared_px(unit_aspect_box, x_channel, y_channel)
+            .lt(lit(min_size_px * min_size_px)),
+    )
     .set_param_at_start_scope(active, lit(false))
-    .preview()
+    .preview();
+    for filter in unit_aspect_box_filters(unit_aspect_box, x_channel, y_channel) {
+        binding = binding.filter(filter);
+    }
+    binding
 }
 
 fn box_zoom_release_binding(
@@ -1550,21 +1660,33 @@ fn box_zoom_release_binding(
     min_size_px: f64,
     active: &Param,
     channels: &[(String, Param); 2],
+    unit_aspect_box: Option<ResolvedUnitAspectBox>,
 ) -> ChartEventBinding {
+    let x_channel = channels[0].0.as_str();
+    let y_channel = channels[1].0.as_str();
     let mut binding = ChartEventBinding::on_between_end(
         box_zoom_drag_start_stream(drag_button),
         box_zoom_drag_end_stream(drag_button),
     )
     .filter(ev::param(enabled_param).eq(lit(true)))
-    .filter(drag_distance_squared().gt_eq(lit(min_size_px * min_size_px)))
+    .filter(
+        constrained_drag_distance_squared_px(unit_aspect_box, x_channel, y_channel)
+            .gt_eq(lit(min_size_px * min_size_px)),
+    )
     .set_param_at_start_scope(active, lit(false))
     .exact();
+    for filter in unit_aspect_box_filters(unit_aspect_box, x_channel, y_channel) {
+        binding = binding.filter(filter);
+    }
 
     for (channel, param) in channels {
         binding = binding
             .filter(ev::start_coord(channel).is_not_null())
             .filter(ev::event_at_start_clipped_coord(channel).is_not_null())
-            .set_param_at_start_scope(param, drag_domain_interval(channel));
+            .set_param_at_start_scope(
+                param,
+                constrained_drag_interval(channel, x_channel, y_channel, unit_aspect_box),
+            );
     }
 
     binding
@@ -1598,11 +1720,152 @@ fn drag_distance_squared() -> Expr {
     dx.clone() * dx + dy.clone() * dy
 }
 
-fn drag_domain_interval(channel: &str) -> Expr {
+fn resolve_unit_aspect_box(
+    ctx: ToolExpansionContext<'_>,
+    requested: Option<UnitAspectBox>,
+    tool_id: &str,
+    x_channel: &str,
+    y_channel: &str,
+) -> Result<Option<ResolvedUnitAspectBox>, AvengerChartError> {
+    let Some(mode) = requested else {
+        return Ok(None);
+    };
+    if ctx
+        .unit_aspect_constraint_for_channels(x_channel, y_channel)
+        .is_none()
+    {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "tool '{tool_id}' requested a unit-aspect box, but no active Cartesian \
+             unit_aspect constraint targets channels '{x_channel}' and '{y_channel}'"
+        )));
+    }
+    Ok(Some(ResolvedUnitAspectBox { mode }))
+}
+
+fn constrained_drag_interval(
+    channel: &str,
+    x_channel: &str,
+    y_channel: &str,
+    unit_aspect_box: Option<ResolvedUnitAspectBox>,
+) -> Expr {
     ev::interval_ordered(
         ev::start_coord(channel),
-        ev::event_at_start_clipped_coord(channel),
+        constrained_drag_endpoint(channel, x_channel, y_channel, unit_aspect_box),
     )
+}
+
+fn constrained_drag_endpoint(
+    channel: &str,
+    x_channel: &str,
+    y_channel: &str,
+    unit_aspect_box: Option<ResolvedUnitAspectBox>,
+) -> Expr {
+    let Some(unit_aspect_box) = unit_aspect_box else {
+        return ev::event_at_start_clipped_coord(channel);
+    };
+    let endpoints = constrained_box_expressions(x_channel, y_channel, unit_aspect_box);
+    if channel == x_channel {
+        endpoints.x1
+    } else if channel == y_channel {
+        endpoints.y1
+    } else {
+        ev::event_at_start_clipped_coord(channel)
+    }
+}
+
+fn constrained_drag_distance_squared_px(
+    unit_aspect_box: Option<ResolvedUnitAspectBox>,
+    x_channel: &str,
+    y_channel: &str,
+) -> Expr {
+    let Some(unit_aspect_box) = unit_aspect_box else {
+        return drag_distance_squared();
+    };
+    let endpoints = constrained_box_expressions(x_channel, y_channel, unit_aspect_box);
+    let x_span = start_domain_span(x_channel);
+    let y_span = start_domain_span(y_channel);
+    let dx_px = endpoints.abs_dx * ev::start_plot_width() / x_span;
+    let dy_px = endpoints.abs_dy * ev::start_plot_height() / y_span;
+    dx_px.clone() * dx_px + dy_px.clone() * dy_px
+}
+
+fn unit_aspect_box_filters(
+    unit_aspect_box: Option<ResolvedUnitAspectBox>,
+    x_channel: &str,
+    y_channel: &str,
+) -> Vec<Expr> {
+    if unit_aspect_box.is_none() {
+        return Vec::new();
+    }
+    vec![
+        start_domain_span(x_channel).gt(lit(0.0_f64)),
+        start_domain_span(y_channel).gt(lit(0.0_f64)),
+        ev::start_plot_width().gt(lit(0.0_f64)),
+        ev::start_plot_height().gt(lit(0.0_f64)),
+    ]
+}
+
+struct ConstrainedBoxExpressions {
+    x1: Expr,
+    y1: Expr,
+    abs_dx: Expr,
+    abs_dy: Expr,
+}
+
+fn constrained_box_expressions(
+    x_channel: &str,
+    y_channel: &str,
+    unit_aspect_box: ResolvedUnitAspectBox,
+) -> ConstrainedBoxExpressions {
+    let dx = ev::event_at_start_clipped_coord(x_channel) - ev::start_coord(x_channel);
+    let dy = ev::event_at_start_clipped_coord(y_channel) - ev::start_coord(y_channel);
+    let abs_dx = abs_expr(dx.clone());
+    let abs_dy = abs_expr(dy.clone());
+    let target_dy_per_dx = target_dy_per_dx(x_channel, y_channel, unit_aspect_box.mode);
+    let y_exceeds_target = abs_dy.clone().gt(abs_dx.clone() * target_dy_per_dx.clone());
+
+    let constrained_abs_dx = when(y_exceeds_target.clone(), abs_dx.clone())
+        .otherwise(abs_dy.clone() / target_dy_per_dx.clone())
+        .expect("valid constrained x box expression");
+    let constrained_abs_dy = when(y_exceeds_target, abs_dx * target_dy_per_dx)
+        .otherwise(abs_dy)
+        .expect("valid constrained y box expression");
+
+    let x1 = ev::start_coord(x_channel) + sign_expr(dx) * constrained_abs_dx.clone();
+    let y1 = ev::start_coord(y_channel) + sign_expr(dy) * constrained_abs_dy.clone();
+
+    ConstrainedBoxExpressions {
+        x1,
+        y1,
+        abs_dx: constrained_abs_dx,
+        abs_dy: constrained_abs_dy,
+    }
+}
+
+fn target_dy_per_dx(x_channel: &str, y_channel: &str, mode: UnitAspectBox) -> Expr {
+    let x_span = start_domain_span(x_channel);
+    let y_span = start_domain_span(y_channel);
+    match mode {
+        UnitAspectBox::CoordinateMetric => {
+            ev::start_plot_width() * y_span / (ev::start_plot_height() * x_span)
+        }
+        UnitAspectBox::Viewport => y_span / x_span,
+    }
+}
+
+fn start_domain_span(channel: &str) -> Expr {
+    let domain = ev::start_domain(channel);
+    abs_expr(ev::interval_end(domain.clone()) - ev::interval_start(domain))
+}
+
+fn abs_expr(expr: Expr) -> Expr {
+    abs(expr)
+}
+
+fn sign_expr(expr: Expr) -> Expr {
+    when(expr.clone().lt(lit(0.0_f64)), lit(-1.0_f64))
+        .otherwise(lit(1.0_f64))
+        .expect("valid sign expression")
 }
 
 fn drag_pan_binding(
@@ -1713,7 +1976,138 @@ fn sanitize_tool_name_part(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use avenger_chart_core::{
+        CompiledScalarExpressionProgram, PhysicalScalarExpressionSpec,
+        PhysicalScalarProgramOptions, UnitAspectConstraint, UnitAspectPolicy,
+        one_row_batch_from_scalars,
+    };
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::prelude::SessionContext;
+
     use super::*;
+
+    fn unit_aspect_context<'a>(
+        tool_id: &'a str,
+        constraints: &'a [UnitAspectConstraint],
+    ) -> ToolExpansionContext<'a> {
+        ToolExpansionContext::empty(tool_id).with_unit_aspect_constraints(constraints)
+    }
+
+    fn xy_unit_aspect_constraint(ratio: f64) -> UnitAspectConstraint {
+        UnitAspectConstraint {
+            x_channel: "x".to_string(),
+            y_channel: "y".to_string(),
+            ratio,
+            policy: UnitAspectPolicy::ExpandDomain,
+        }
+    }
+
+    fn domain_scalar(min: f64, max: f64) -> ScalarValue {
+        ScalarValue::List(ScalarValue::new_list(
+            &[
+                ScalarValue::Float64(Some(min)),
+                ScalarValue::Float64(Some(max)),
+            ],
+            &DataType::Float64,
+            true,
+        ))
+    }
+
+    fn scalar_f64(value: &ScalarValue) -> f64 {
+        match value {
+            ScalarValue::Float64(Some(value)) => *value,
+            other => panic!("expected Float64 scalar, got {other:?}"),
+        }
+    }
+
+    fn assert_close(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    fn evaluate_unit_aspect_box(mode: UnitAspectBox) -> Vec<ScalarValue> {
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new(ev::start_coord_column_name("x"), DataType::Float64, false),
+            Field::new(ev::start_coord_column_name("y"), DataType::Float64, false),
+            Field::new(
+                ev::event_at_start_clipped_coord_column_name("x"),
+                DataType::Float64,
+                false,
+            ),
+            Field::new(
+                ev::event_at_start_clipped_coord_column_name("y"),
+                DataType::Float64,
+                false,
+            ),
+            Field::new(
+                ev::start_domain_column_name("x"),
+                DataType::new_list(DataType::Float64, true),
+                false,
+            ),
+            Field::new(
+                ev::start_domain_column_name("y"),
+                DataType::new_list(DataType::Float64, true),
+                false,
+            ),
+            Field::new(ev::START_PLOT_WIDTH_FIELD, DataType::Float64, false),
+            Field::new(ev::START_PLOT_HEIGHT_FIELD, DataType::Float64, false),
+        ]));
+        let unit_aspect_box = Some(ResolvedUnitAspectBox { mode });
+        let endpoints =
+            constrained_box_expressions("x", "y", unit_aspect_box.expect("resolved box"));
+        let program = CompiledScalarExpressionProgram::compile(
+            &ctx,
+            schema.clone(),
+            vec![
+                PhysicalScalarExpressionSpec::new("x1", endpoints.x1),
+                PhysicalScalarExpressionSpec::new("y1", endpoints.y1),
+                PhysicalScalarExpressionSpec::new(
+                    "distance",
+                    constrained_drag_distance_squared_px(unit_aspect_box, "x", "y"),
+                ),
+            ],
+            PhysicalScalarProgramOptions::default(),
+        )
+        .expect("compile expressions");
+        let batch = one_row_batch_from_scalars(
+            schema,
+            &HashMap::from([
+                (
+                    ev::start_coord_column_name("x"),
+                    ScalarValue::Float64(Some(0.0)),
+                ),
+                (
+                    ev::start_coord_column_name("y"),
+                    ScalarValue::Float64(Some(0.0)),
+                ),
+                (
+                    ev::event_at_start_clipped_coord_column_name("x"),
+                    ScalarValue::Float64(Some(8.0)),
+                ),
+                (
+                    ev::event_at_start_clipped_coord_column_name("y"),
+                    ScalarValue::Float64(Some(10.0)),
+                ),
+                (ev::start_domain_column_name("x"), domain_scalar(0.0, 10.0)),
+                (ev::start_domain_column_name("y"), domain_scalar(0.0, 10.0)),
+                (
+                    ev::START_PLOT_WIDTH_FIELD.to_string(),
+                    ScalarValue::Float64(Some(100.0)),
+                ),
+                (
+                    ev::START_PLOT_HEIGHT_FIELD.to_string(),
+                    ScalarValue::Float64(Some(200.0)),
+                ),
+            ]),
+        )
+        .expect("test batch");
+        program.evaluate_values(&batch).expect("evaluate box")
+    }
 
     #[test]
     fn pan_scroll_zoom_expands_to_params_bindings_edits_and_metadata() {
@@ -1977,6 +2371,39 @@ mod tests {
     }
 
     #[test]
+    fn unit_aspect_box_coordinate_metric_uses_start_scale_geometry() {
+        let values = evaluate_unit_aspect_box(UnitAspectBox::CoordinateMetric);
+
+        assert_close(scalar_f64(&values[0]), 8.0);
+        assert_close(scalar_f64(&values[1]), 4.0);
+        assert_close(scalar_f64(&values[1]) / scalar_f64(&values[0]), 0.5);
+        assert_close(scalar_f64(&values[2]), 12_800.0);
+    }
+
+    #[test]
+    fn unit_aspect_box_viewport_uses_start_domain_ratio() {
+        let values = evaluate_unit_aspect_box(UnitAspectBox::Viewport);
+
+        assert_close(scalar_f64(&values[0]), 8.0);
+        assert_close(scalar_f64(&values[1]), 8.0);
+        assert_close(scalar_f64(&values[1]) / scalar_f64(&values[0]), 1.0);
+    }
+
+    #[test]
+    fn unit_aspect_box_requires_matching_coordinate_constraint() {
+        let tool = BoxSelection::cartesian("brush").unit_aspect();
+        let err = match tool.expand(ToolExpansionContext::empty(ChartTool::id(&tool))) {
+            Ok(_) => panic!("unit aspect box without coordinate constraint should fail"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("no active Cartesian unit_aspect"));
+
+        let constraints = [xy_unit_aspect_constraint(2.0)];
+        tool.expand(unit_aspect_context(ChartTool::id(&tool), &constraints))
+            .expect("matching unit aspect constraint");
+    }
+
+    #[test]
     fn box_selection_expands_to_store_selection_bindings_and_overlay_mark() {
         let tool = BoxSelection::cartesian("brush").dimensions(col("source_x"), col("source_y"));
         let expansion = tool
@@ -2107,5 +2534,22 @@ mod tests {
             reset.evaluation_mode,
             avenger_chart_core::event::ChartEventEvaluationMode::Exact
         );
+    }
+
+    #[test]
+    fn box_zoom_unit_aspect_defaults_to_viewport_mode() {
+        let tool = BoxZoom::cartesian().unit_aspect();
+        let constraints = [xy_unit_aspect_constraint(1.0)];
+        let expansion = tool
+            .expand(unit_aspect_context(ChartTool::id(&tool), &constraints))
+            .expect("expand");
+
+        let drag = expansion
+            .event_bindings
+            .iter()
+            .find(|binding| binding.event_type == ChartEventType::CursorMoved)
+            .expect("drag binding");
+        assert_eq!(drag.filters.len(), 9);
+        assert_eq!(drag.assignments.len(), 5);
     }
 }
