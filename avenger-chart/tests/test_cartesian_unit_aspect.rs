@@ -81,6 +81,17 @@ fn assert_close(actual: f32, expected: f32) {
     );
 }
 
+fn unit_aspect_ratio_from_domains(
+    x_domain: (f32, f32),
+    y_domain: (f32, f32),
+    width: f32,
+    height: f32,
+) -> f32 {
+    let px_per_x = width / (x_domain.1 - x_domain.0).abs();
+    let px_per_y = height / (y_domain.1 - y_domain.0).abs();
+    px_per_y / px_per_x
+}
+
 #[tokio::test]
 async fn cartesian_unit_aspect_compiles_and_serializes() {
     let ctx = SessionContext::new();
@@ -338,6 +349,23 @@ async fn cartesian_unit_aspect_supports_non_equal_ratio() {
     assert_close(x_domain.1, 25.0);
     assert_close(y_domain.0, 0.0);
     assert_close(y_domain.1, 10.0);
+}
+
+#[tokio::test]
+async fn cartesian_unit_aspect_final_scales_satisfy_fixed_plot_ratio() {
+    let ctx = SessionContext::new();
+
+    let (x_domain, y_domain) = unit_aspect_domains(&ctx, 1.0, 600.0, 300.0).await;
+    assert_close(
+        unit_aspect_ratio_from_domains(x_domain, y_domain, 600.0, 300.0),
+        1.0,
+    );
+
+    let (x_domain, y_domain) = unit_aspect_domains(&ctx, 2.0, 600.0, 300.0).await;
+    assert_close(
+        unit_aspect_ratio_from_domains(x_domain, y_domain, 600.0, 300.0),
+        2.0,
+    );
 }
 
 #[tokio::test]

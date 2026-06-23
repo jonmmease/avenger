@@ -1090,41 +1090,41 @@ Visual scenarios should live in a new visual-test module such as
 from `visual_tests/mod.rs`. The baseline category should be
 `cartesian_unit_aspect`.
 
-- [ ] Phase 5 baseline:
+- [x] Phase 5 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/diagonal_default_distorted.png`
       Scenario name: `cartesian_unit_aspect_diagonal_default_distorted`.
       Spec: fixed non-square plot area, approximately `600 x 300`, line data
       `y = x` over a symmetric numeric domain, ordinary Cartesian coordinate
       without `unit_aspect`. Acceptance: the diagonal is visibly not 45 degrees,
       establishing the control image for the constrained baseline.
-- [ ] Phase 5 baseline:
+- [x] Phase 5 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/diagonal_equal_units.png`
       Scenario name: `cartesian_unit_aspect_diagonal_equal_units`.
       Spec: same data, marks, style, and fixed non-square plot area as the
       distorted control, but with `Cartesian::new().unit_aspect(1.0)`.
       Acceptance: the `y = x` line is visibly 45 degrees and one domain is
       expanded symmetrically around its original center.
-- [ ] Phase 5 baseline:
+- [x] Phase 5 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/circle_equal_units.png`
       Scenario name: `cartesian_unit_aspect_circle_equal_units`.
       Spec: dense parametric circle polyline, e.g. `(cos(t), sin(t))`, in the
       same non-square plot area with `unit_aspect(1.0)`. Acceptance: the circle
       renders as a circle, not an ellipse, and remains inside the expanded axes.
-- [ ] Phase 5 baseline:
+- [x] Phase 5 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/guide_expanded_domain.png`
       Scenario name: `cartesian_unit_aspect_guide_expanded_domain`.
       Spec: explicit symmetric starting domains, visible axes and grid, and a
       non-square plot area that forces x or y expansion. Acceptance: ticks and
       labels are generated from the expanded domain rather than the original
       domain, and marks near the original edge are not clipped.
-- [ ] Phase 4 or Phase 6 baseline:
+- [x] Phase 4 or Phase 6 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/facet_shared_equal_units.png`
       Scenario name: `cartesian_unit_aspect_facet_shared_equal_units`.
       Spec: facet or generated repeat with shared constrained domains and
       common cell plot-area aspect, using line or circle marks that make aspect
       distortion obvious in every cell. Acceptance: all cells preserve equal
       units and coordinated domains are identical where sharing requires it.
-- [ ] Phase 4 baseline:
+- [x] Phase 4 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/radius_aware_symbols_shared.png`
       Scenario name: `cartesian_unit_aspect_radius_aware_symbols_shared`.
       Spec: sized symbols near numeric domain edges in a shared facet/repeat
@@ -1283,37 +1283,37 @@ Phase 4 progress note:
 - [x] Allow facet-guide overflow estimates for unit-aspect subplots to use the
       sharing-tolerant scale-build policy before concrete cell overrides exist.
 - [x] Add radius-aware shared unit-aspect runtime tests.
-- [ ] Add or prepare
+- [x] Add or prepare
       `cartesian_unit_aspect/facet_shared_equal_units.png`
       (`cartesian_unit_aspect_facet_shared_equal_units`; see catalog spec) when
       the facet/repeat graph integration is renderable in this phase.
-- [ ] Add or prepare
+- [x] Add or prepare
       `cartesian_unit_aspect/radius_aware_symbols_shared.png`
       (`cartesian_unit_aspect_radius_aware_symbols_shared`; see catalog spec)
       using sized symbols near coordinated domain edges.
 - [x] Commit Phase 4 generated-repeat domain override slice.
 - [x] Commit Phase 4 facet-domain slice.
-- [ ] Commit Phase 4.
+- [x] Commit Phase 4.
 
 ### Phase 5: Fixed Plot-Area Layout And Guides
 
-- [ ] Add fixed plot-area runtime tests proving final scales satisfy
+- [x] Add fixed plot-area runtime tests proving final scales satisfy
       `px_per_y / px_per_x == ratio`.
-- [ ] Add guide measurement tests proving ticks/labels use expanded domains.
-- [ ] Add and review
+- [x] Add guide measurement tests proving ticks/labels use expanded domains.
+- [x] Add and review
       `cartesian_unit_aspect/diagonal_default_distorted.png`
       (`cartesian_unit_aspect_diagonal_default_distorted`; see catalog spec).
-- [ ] Add and review
+- [x] Add and review
       `cartesian_unit_aspect/diagonal_equal_units.png`
       (`cartesian_unit_aspect_diagonal_equal_units`; see catalog spec).
-- [ ] Add and review
+- [x] Add and review
       `cartesian_unit_aspect/circle_equal_units.png`
       (`cartesian_unit_aspect_circle_equal_units`; see catalog spec).
-- [ ] Add and review
+- [x] Add and review
       `cartesian_unit_aspect/guide_expanded_domain.png`
       (`cartesian_unit_aspect_guide_expanded_domain`; see catalog spec).
-- [ ] Review the Phase 5 generated baseline images before accepting them.
-- [ ] Commit Phase 5.
+- [x] Review the Phase 5 generated baseline images before accepting them.
+- [x] Commit Phase 5.
 
 ### Phase 6: Canvas/Mixed Layout Refinement
 

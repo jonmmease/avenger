@@ -14,6 +14,7 @@ pub mod test_box_zoom_tool;
 pub mod test_cartesian_mark_channels;
 pub mod test_cartesian_scene_marks;
 pub mod test_cartesian_subplot;
+pub mod test_cartesian_unit_aspect;
 pub mod test_case_expression_title_simple;
 pub mod test_categorical_scale_ordering;
 pub mod test_categorical_scale_sharing;
