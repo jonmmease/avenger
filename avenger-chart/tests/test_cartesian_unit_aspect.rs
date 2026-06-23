@@ -196,16 +196,8 @@ async fn generated_repeat_allows_unit_aspect_shared_child_domain() {
         )
         .await
         .unwrap();
-    let cell = Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(
-        Line::new()
-            .x_with(repeat::column(), |x| {
-                x.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
-            })
-            .y_with(col("y"), |y| {
-                y.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
-                    .with_domain_scope(CoordinationScope::Shared)
-            }),
-    );
+    let cell = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+        .mark(Line::new().x(repeat::column()).y(col("y")));
     let plot = Plot::<RepeatColumns>::new()
         .plot_size(400.0, 100.0)
         .data(df)

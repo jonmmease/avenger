@@ -14,6 +14,7 @@ use datafusion::{
 };
 
 use avenger_chart_core::{AxisSpec, DomainCoordination};
+use avenger_chart_scales::domain_extent::DomainBounds;
 
 use crate::{
     error::AvengerChartError,
@@ -209,6 +210,7 @@ impl ChildFrameRuntime {
         facet_path: &[ScalarValue],
         domain_extents: &[&HashMap<String, DomainExtent>],
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
+        let unit_aspect_domain_overrides = HashMap::new();
         self.measure_with_builder_and_unit_aspect_policy(
             plot,
             eval_ctx,
@@ -217,6 +219,7 @@ impl ChildFrameRuntime {
             data_override,
             facet_path,
             domain_extents,
+            &unit_aspect_domain_overrides,
             UnitAspectSharingPolicy::ForbidSharedExpansion,
         )
         .await
@@ -232,6 +235,7 @@ impl ChildFrameRuntime {
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
         domain_extents: &[&HashMap<String, DomainExtent>],
+        unit_aspect_domain_overrides: &HashMap<String, DomainExtent>,
         unit_aspect_sharing_policy: UnitAspectSharingPolicy,
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
         let extended_builder;
@@ -275,6 +279,7 @@ impl ChildFrameRuntime {
             builder: scale_builder,
             plot,
             unit_aspect_sharing_policy,
+            unit_aspect_domain_overrides: unit_aspect_domain_overrides.clone(),
         };
         Box::pin(plot.measure_plot_components(
             eval_ctx,
@@ -392,11 +397,13 @@ impl<'a> PreparedChildFramePlot<'a> {
         facet_path: &[ScalarValue],
         domain_extents: &[&HashMap<String, DomainExtent>],
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
+        let unit_aspect_domain_overrides = HashMap::new();
         self.measure_with_unit_aspect_policy(
             eval_ctx,
             layout_spec,
             facet_path,
             domain_extents,
+            &unit_aspect_domain_overrides,
             UnitAspectSharingPolicy::ForbidSharedExpansion,
         )
         .await
@@ -408,6 +415,7 @@ impl<'a> PreparedChildFramePlot<'a> {
         layout_spec: &EvaluatedLayoutSpec,
         facet_path: &[ScalarValue],
         domain_extents: &[&HashMap<String, DomainExtent>],
+        unit_aspect_domain_overrides: &HashMap<String, DomainExtent>,
         unit_aspect_sharing_policy: UnitAspectSharingPolicy,
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
         let mut child_eval_ctx = eval_ctx.clone();
@@ -430,6 +438,7 @@ impl<'a> PreparedChildFramePlot<'a> {
                 self.data_override.as_ref(),
                 facet_path,
                 domain_extents,
+                unit_aspect_domain_overrides,
                 unit_aspect_sharing_policy,
             ),
         )
@@ -492,6 +501,7 @@ struct UnitAspectPolicyScaleProvider<'a> {
     builder: &'a ScaleBuilder,
     plot: &'a CompiledPlot,
     unit_aspect_sharing_policy: UnitAspectSharingPolicy,
+    unit_aspect_domain_overrides: HashMap<String, DomainExtent>,
 }
 
 #[async_trait::async_trait]
@@ -503,7 +513,7 @@ impl<'a> ScaleProvider for UnitAspectPolicyScaleProvider<'a> {
         ctx: &SessionContext,
         params: &indexmap::IndexMap<String, ScalarValue>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
-        Box::pin(self.plot.build_scales_from_builder_with_unit_aspect_policy(
+        let mut scales = Box::pin(self.plot.build_scales_from_builder_with_unit_aspect_policy(
             self.builder,
             plot_area_width,
             plot_area_height,
@@ -511,8 +521,35 @@ impl<'a> ScaleProvider for UnitAspectPolicyScaleProvider<'a> {
             params,
             self.unit_aspect_sharing_policy,
         ))
-        .await
+        .await?;
+        apply_unit_aspect_domain_overrides(&mut scales, &self.unit_aspect_domain_overrides)?;
+        Ok(scales)
     }
+}
+
+fn apply_unit_aspect_domain_overrides(
+    scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
+    overrides: &HashMap<String, DomainExtent>,
+) -> Result<(), AvengerChartError> {
+    for (scale_name, extent) in overrides {
+        let DomainBounds::Numeric { min, max } = &extent.bounds else {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "unit_aspect domain override for scale '{scale_name}' requires numeric bounds"
+            )));
+        };
+        let scale = scales.get_mut(scale_name).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "unit_aspect domain override references missing scale '{scale_name}'"
+            ))
+        })?;
+        scale.set_configured(
+            scale
+                .configured()
+                .clone()
+                .with_domain_interval((*min as f32, *max as f32)),
+        );
+    }
+    Ok(())
 }
 
 #[async_trait::async_trait]

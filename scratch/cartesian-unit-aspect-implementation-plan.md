@@ -152,6 +152,9 @@ Rules for future agents:
   phase compiling.
 - Check off a task only after the code is implemented, formatted, tested, and
   included in the phase commit.
+- Add a visual-baseline catalog item before generating any new PNG baseline.
+  The catalog item must include the target file, scenario name, minimum data and
+  layout shape, and visual acceptance criteria.
 - Check off a baseline only after the visual scenario and PNG baseline have
   landed, the image has been reviewed, and the matching phase task is checked.
 - If a baseline cannot be accepted in its planned phase, leave the checkbox
@@ -1078,6 +1081,10 @@ check off the catalog item and the matching phase task in the same commit.
 Prefer examples where the unconstrained and constrained behavior are visually
 obvious at thumbnail size.
 
+If implementation work reveals another behavior that needs visual coverage, add
+the new baseline here first with the same file/scenario/spec/acceptance shape,
+then add a phase checkbox that names when it will land.
+
 Visual scenarios should live in a new visual-test module such as
 `avenger-chart/tests/visual_tests/test_cartesian_unit_aspect.rs`, registered
 from `visual_tests/mod.rs`. The baseline category should be
@@ -1223,26 +1230,32 @@ Phase 4 progress note:
 - Generated-repeat insertion point: concat measurement builds seeded
   operating-point child plot areas, runs
   `coordinated_child_frame_domain_extents_with_unit_aspect(...)` for
-  `ConcatOrigin::Repeat*`, then passes the solved extents into
-  `measure_prepared_concat_child(...)`.
-- Current repeat slice feeds solved domains back as adjusted `DomainExtent`s
-  and uses `UnitAspectSharingPolicy::AllowSharedExpansion` only for generated
-  repeat child measurement. This is a bridge. Full Phase 4 still needs the
-  configured-domain override path so scale padding/nice/radius-aware expansion
-  cannot require a second per-child shared-axis adjustment.
+  `ConcatOrigin::Repeat*`, then passes ordinary coordinated extents plus
+  `unit_aspect_domain_overrides` into `measure_prepared_concat_child(...)`.
+- Generated-repeat solved domains feed back through a separate
+  `unit_aspect_domain_overrides` map keyed by scale name. The child-frame scale
+  provider applies those overrides after the normal scale build, which keeps
+  child-local scale normalization from requiring a second shared-axis
+  adjustment.
+- Remaining Phase 4 graph-input work: use base configured domains after
+  radius-aware padding, via a cached-builder scale prepass when enriched
+  `DomainExtent` metadata is not enough.
 
 - [x] Spike and document the exact facet insertion point for graph solve.
 - [x] Spike and document the exact generated-repeat concat insertion point for
       graph solve.
-- [ ] Decide and document how solved domains are fed back into scale builds:
-      adjusted `DomainExtent`, a separate unit-aspect override map, or another
-      explicit representation.
+- [x] Decide and document how solved domains are fed back into scale builds:
+      use a separate `unit_aspect_domain_overrides` map, keyed by scale name,
+      and apply it after ordinary child scale construction.
 - [ ] Decide and document whether shared graph inputs come from a cached-builder
       base-domain prepass or enriched `DomainExtent` metadata.
 - [ ] Integrate the graph solver into facet domain coordination after ordinary
       extents are coordinated and before cell builders are measured.
 - [x] Integrate the graph solver into generated repeat concat measurement using
       `ConcatOrigin::Repeat*`.
+- [x] Feed generated-repeat unit-aspect solved domains through
+      `unit_aspect_domain_overrides` so the final child scale domains match the
+      graph solution after scale normalization.
 - [ ] Use base configured domains after radius-aware padding for graph inputs,
       via a cached-builder scale prepass when needed.
 - [x] Ensure ordinary authored concat/grid/wrap cross-child sharing errors before
@@ -1255,13 +1268,15 @@ Phase 4 progress note:
       can render with unit-aspect shared domains.
 - [ ] Add facet shared-domain runtime tests.
 - [ ] Add radius-aware shared unit-aspect runtime tests.
-- [ ] Add or prepare the
-      `cartesian_unit_aspect/facet_shared_equal_units.png` visual baseline when
+- [ ] Add or prepare
+      `cartesian_unit_aspect/facet_shared_equal_units.png`
+      (`cartesian_unit_aspect_facet_shared_equal_units`; see catalog spec) when
       the facet/repeat graph integration is renderable in this phase.
-- [ ] Add or prepare the
-      `cartesian_unit_aspect/radius_aware_symbols_shared.png` visual baseline
+- [ ] Add or prepare
+      `cartesian_unit_aspect/radius_aware_symbols_shared.png`
+      (`cartesian_unit_aspect_radius_aware_symbols_shared`; see catalog spec)
       using sized symbols near coordinated domain edges.
-- [x] Commit Phase 4 repeat-domain slice.
+- [x] Commit Phase 4 generated-repeat domain override slice.
 - [ ] Commit Phase 4.
 
 ### Phase 5: Fixed Plot-Area Layout And Guides
@@ -1269,14 +1284,18 @@ Phase 4 progress note:
 - [ ] Add fixed plot-area runtime tests proving final scales satisfy
       `px_per_y / px_per_x == ratio`.
 - [ ] Add guide measurement tests proving ticks/labels use expanded domains.
-- [ ] Add
-      `cartesian_unit_aspect/diagonal_default_distorted.png`.
-- [ ] Add
-      `cartesian_unit_aspect/diagonal_equal_units.png`.
-- [ ] Add
-      `cartesian_unit_aspect/circle_equal_units.png`.
-- [ ] Add
-      `cartesian_unit_aspect/guide_expanded_domain.png`.
+- [ ] Add and review
+      `cartesian_unit_aspect/diagonal_default_distorted.png`
+      (`cartesian_unit_aspect_diagonal_default_distorted`; see catalog spec).
+- [ ] Add and review
+      `cartesian_unit_aspect/diagonal_equal_units.png`
+      (`cartesian_unit_aspect_diagonal_equal_units`; see catalog spec).
+- [ ] Add and review
+      `cartesian_unit_aspect/circle_equal_units.png`
+      (`cartesian_unit_aspect_circle_equal_units`; see catalog spec).
+- [ ] Add and review
+      `cartesian_unit_aspect/guide_expanded_domain.png`
+      (`cartesian_unit_aspect_guide_expanded_domain`; see catalog spec).
 - [ ] Review the Phase 5 generated baseline images before accepting them.
 - [ ] Commit Phase 5.
 
@@ -1291,12 +1310,14 @@ Phase 4 progress note:
 - [ ] Add convergence diagnostics through existing refinement metrics.
 - [ ] Add canvas/mixed sizing tests.
 - [ ] Add no-ratcheting tests for repeated plot-area changes.
-- [ ] Add
-      `cartesian_unit_aspect/canvas_refined_equal_units.png`.
-- [ ] Add
-      `cartesian_unit_aspect/facet_shared_equal_units.png` here if it was only
-      prepared, not accepted, in Phase 4 because final plot-area refinement was
-      required.
+- [ ] Add and review
+      `cartesian_unit_aspect/canvas_refined_equal_units.png`
+      (`cartesian_unit_aspect_canvas_refined_equal_units`; see catalog spec).
+- [ ] Add and review
+      `cartesian_unit_aspect/facet_shared_equal_units.png`
+      (`cartesian_unit_aspect_facet_shared_equal_units`; see catalog spec) here
+      if it was only prepared, not accepted, in Phase 4 because final plot-area
+      refinement was required.
 - [ ] Commit Phase 6.
 
 ### Phase 7: Preview And Interaction Retargeting
@@ -1328,11 +1349,13 @@ Phase 4 progress note:
       params.
 - [ ] Update `BoxZoom` min-size checks to use constrained pixel dimensions.
 - [ ] Add tool expansion and expression tests, including `unit_aspect(2.0)`.
-- [ ] Add or prepare the
-      `cartesian_unit_aspect/box_zoom_viewport_drag.png` interaction baseline
-      once the drag overlay is available to the visual test harness.
-- [ ] Add or prepare the
-      `cartesian_unit_aspect/box_selection_metric_drag.png` interaction baseline
+- [ ] Add or prepare
+      `cartesian_unit_aspect/box_zoom_viewport_drag.png`
+      (`cartesian_unit_aspect_box_zoom_viewport_drag`; see catalog spec) once
+      the drag overlay is available to the visual test harness.
+- [ ] Add or prepare
+      `cartesian_unit_aspect/box_selection_metric_drag.png`
+      (`cartesian_unit_aspect_box_selection_metric_drag`; see catalog spec)
       once selection-store assertions and visual capture are available.
 - [ ] Commit Phase 8.
 

@@ -80,6 +80,12 @@ impl<'a> ChildFrameUnitAspectDomainSharingInput<'a> {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct ChildFrameUnitAspectDomainSharingOutput {
+    pub(crate) coordinated_domain_extents: Vec<HashMap<String, DomainExtent>>,
+    pub(crate) unit_aspect_domain_overrides: Vec<HashMap<String, DomainExtent>>,
+}
+
 /// Extract the strongest scale-sharing level requested by each child plot channel.
 pub(crate) fn child_frame_domain_sharing_levels_for_plot(
     plot: &CompiledPlot,
@@ -217,7 +223,7 @@ pub(crate) fn coordinated_child_frame_domain_extents(
 
 pub(crate) fn coordinated_child_frame_domain_extents_with_unit_aspect(
     children: &[ChildFrameUnitAspectDomainSharingInput<'_>],
-) -> Result<Vec<HashMap<String, DomainExtent>>, AvengerChartError> {
+) -> Result<ChildFrameUnitAspectDomainSharingOutput, AvengerChartError> {
     let domain_inputs = children
         .iter()
         .map(|child| ChildFrameDomainSharingInput {
@@ -229,6 +235,7 @@ pub(crate) fn coordinated_child_frame_domain_extents_with_unit_aspect(
     let unified = unified_child_frame_domain_extents(&domain_inputs);
     let mut coordinated =
         coordinated_child_frame_domain_extents_from_unified(&domain_inputs, &unified);
+    let mut overrides = vec![HashMap::new(); children.len()];
 
     let mut graph_inputs = Vec::new();
     for child in children {
@@ -260,7 +267,10 @@ pub(crate) fn coordinated_child_frame_domain_extents_with_unit_aspect(
     }
 
     if graph_inputs.is_empty() {
-        return Ok(coordinated);
+        return Ok(ChildFrameUnitAspectDomainSharingOutput {
+            coordinated_domain_extents: coordinated,
+            unit_aspect_domain_overrides: overrides,
+        });
     }
 
     let solved = solve_unit_aspect_span_graph(&graph_inputs)?;
@@ -274,12 +284,16 @@ pub(crate) fn coordinated_child_frame_domain_extents_with_unit_aspect(
                 };
                 if let Some(extent) = solved.get(&node) {
                     coordinated[index].insert(scale_name.clone(), extent.clone());
+                    overrides[index].insert(scale_name.clone(), extent.clone());
                 }
             }
         }
     }
 
-    Ok(coordinated)
+    Ok(ChildFrameUnitAspectDomainSharingOutput {
+        coordinated_domain_extents: coordinated,
+        unit_aspect_domain_overrides: overrides,
+    })
 }
 
 fn unified_child_frame_domain_extents(
@@ -713,8 +727,10 @@ mod tests {
             ),
         ];
 
-        let coordinated =
+        let output =
             coordinated_child_frame_domain_extents_with_unit_aspect(&inputs).expect("solve");
+        let coordinated = output.coordinated_domain_extents;
+        let overrides = output.unit_aspect_domain_overrides;
 
         assert_eq!(coordinated.len(), 2);
         assert_span(coordinated[0].get("x").expect("left x"), 20.0);
@@ -722,6 +738,10 @@ mod tests {
         assert_eq!(coordinated[0].get("x"), coordinated[1].get("x"));
         assert_span(coordinated[0].get("y").expect("left y"), 10.0);
         assert_span(coordinated[1].get("y").expect("right y"), 10.0);
+        assert_span(overrides[0].get("x").expect("left x override"), 20.0);
+        assert_span(overrides[0].get("y").expect("left y override"), 10.0);
+        assert_span(overrides[1].get("x").expect("right x override"), 20.0);
+        assert_span(overrides[1].get("y").expect("right y override"), 10.0);
     }
 
     #[test]
