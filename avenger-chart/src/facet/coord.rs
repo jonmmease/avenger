@@ -18,7 +18,8 @@ use avenger_chart_core::{
     AvengerChartError, AxisPosition, CoordMeasurement, CoordinateSystem, CoordinateSystemCore,
     CoordinateSystemTransform, CoordinateSystemTransformCore, CoordinatedLayout,
     CoordinatedOverflow, DomainCoordination, FacetAxis, FacetEmptyCellPolicy, LayoutBounds,
-    NoGuide, OverflowSpaceRequirement, PlotGeometry, SharingLevel, SubplotGeometry,
+    NoGuide, OverflowSpaceRequirement, PlotGeometry, ResolvedUnitAspectConstraint, SharingLevel,
+    SubplotGeometry,
 };
 #[cfg(test)]
 use avenger_chart_core::{DerivedScalarsByChannel, GuideSharingContext};
@@ -36,7 +37,8 @@ use crate::{
         coordination_plans::CoordinationNodeKey,
         domain_coordination::{
             aggregate_domain_extents, coordinated_extents_for_cell_with_owner_paths,
-            coordinated_nested_extent_for_cell, domain_infos_for_cell_with_owner_paths,
+            coordinated_nested_extent_for_cell, domain_coordination_scope_key_with_owner,
+            domain_infos_for_cell_with_owner_paths,
         },
         guide::FacetColGuideConfig,
         layout_plan::{
@@ -68,10 +70,11 @@ use crate::{
     },
     marks::CompiledMark,
     plot::compiled::{
-        ChildFrameRegion, CompiledPlot, ComponentsMeasurement, CoordinationKind,
-        CoordinationScopeKey, fixed_child_plot_area_layout_spec,
-        measure_child_frame_plot_with_builder,
-        scales::build_scale_builder_from_compiled_plot_with_facet_scope, union_domain_extents,
+        ChildFrameRegion, ChildFrameRuntime, CompiledPlot, ComponentsMeasurement, CoordinationKind,
+        CoordinationScopeKey, UnitAspectDomainNode, UnitAspectSharingPolicy,
+        UnitAspectSpanGraphInput, fixed_child_plot_area_layout_spec,
+        scales::build_scale_builder_from_compiled_plot_with_facet_scope,
+        solve_unit_aspect_span_graph, union_domain_extents,
     },
     render::{EvaluationContext, FacetSubtreeCheckpoint, FacetSubtreeSelector},
     scales::{ConfiguredScaleWithSpec, ScaleBuilder, domain_extent::DomainExtent},
@@ -1110,6 +1113,7 @@ struct FacetCellDraft {
     measurement: Option<ComponentsMeasurement>,
     local_domain_extents: HashMap<String, ChannelDomainExtent>,
     coordinated_domain_extents: HashMap<String, DomainExtent>,
+    unit_aspect_domain_overrides: HashMap<String, DomainExtent>,
 }
 
 enum NestedScalePlan<'a> {
@@ -1885,10 +1889,12 @@ async fn execute_measurement_from_plan(
     shared_scale_builder: &ScaleBuilder,
     eval_ctx: &EvaluationContext,
     coordinated_domain_extents: &HashMap<String, DomainExtent>,
+    unit_aspect_domain_overrides: &HashMap<String, DomainExtent>,
 ) -> Result<ComponentsMeasurement, AvengerChartError> {
+    let runtime = ChildFrameRuntime::new();
     match plan {
         NestedScalePlan::EmptySharedNoData => {
-            Box::pin(measure_child_frame_plot_with_builder(
+            Box::pin(runtime.measure_with_builder_and_unit_aspect_policy(
                 compiled_subplot,
                 subplot_eval_ctx,
                 subplot_layout_spec,
@@ -1896,11 +1902,13 @@ async fn execute_measurement_from_plan(
                 None,
                 &cell.full_path,
                 &[coordinated_domain_extents],
+                unit_aspect_domain_overrides,
+                UnitAspectSharingPolicy::AllowSharedExpansion,
             ))
             .await
         }
         NestedScalePlan::PerCellCachedBuilder { cached_builder } => {
-            Box::pin(measure_child_frame_plot_with_builder(
+            Box::pin(runtime.measure_with_builder_and_unit_aspect_policy(
                 compiled_subplot,
                 subplot_eval_ctx,
                 subplot_layout_spec,
@@ -1908,6 +1916,8 @@ async fn execute_measurement_from_plan(
                 Some(data_override),
                 &cell.full_path,
                 &[coordinated_domain_extents],
+                unit_aspect_domain_overrides,
+                UnitAspectSharingPolicy::AllowSharedExpansion,
             ))
             .await
         }
@@ -1921,7 +1931,7 @@ async fn execute_measurement_from_plan(
                     compiled_subplot.get_theme().as_ref(),
                 ))
                 .await?;
-            let measurement = Box::pin(measure_child_frame_plot_with_builder(
+            let measurement = Box::pin(runtime.measure_with_builder_and_unit_aspect_policy(
                 compiled_subplot,
                 subplot_eval_ctx,
                 subplot_layout_spec,
@@ -1929,6 +1939,8 @@ async fn execute_measurement_from_plan(
                 Some(data_override),
                 &cell.full_path,
                 &[coordinated_domain_extents],
+                unit_aspect_domain_overrides,
+                UnitAspectSharingPolicy::AllowSharedExpansion,
             ))
             .await?;
 
@@ -1938,7 +1950,7 @@ async fn execute_measurement_from_plan(
             cached_builder,
             ancestor_filtered_df,
         } => {
-            Box::pin(measure_child_frame_plot_with_builder(
+            Box::pin(runtime.measure_with_builder_and_unit_aspect_policy(
                 compiled_subplot,
                 subplot_eval_ctx,
                 subplot_layout_spec,
@@ -1946,11 +1958,13 @@ async fn execute_measurement_from_plan(
                 Some(&ancestor_filtered_df),
                 &cell.full_path,
                 &[coordinated_domain_extents],
+                unit_aspect_domain_overrides,
+                UnitAspectSharingPolicy::AllowSharedExpansion,
             ))
             .await
         }
         NestedScalePlan::Shared => {
-            Box::pin(measure_child_frame_plot_with_builder(
+            Box::pin(runtime.measure_with_builder_and_unit_aspect_policy(
                 compiled_subplot,
                 subplot_eval_ctx,
                 subplot_layout_spec,
@@ -1958,6 +1972,8 @@ async fn execute_measurement_from_plan(
                 Some(data_override),
                 &cell.full_path,
                 &[coordinated_domain_extents],
+                unit_aspect_domain_overrides,
+                UnitAspectSharingPolicy::AllowSharedExpansion,
             ))
             .await
         }
@@ -1973,6 +1989,7 @@ async fn measure_nested_cell(
     subplot_eval_ctx: &EvaluationContext,
     nested_ctx: &FacetBandNestedMeasureContext,
     coordinated_domain_extents: &HashMap<String, DomainExtent>,
+    unit_aspect_domain_overrides: &HashMap<String, DomainExtent>,
 ) -> Result<ComponentsMeasurement, AvengerChartError> {
     let subplot_layout_spec =
         fixed_child_plot_area_layout_spec(subplot_plot_width, subplot_plot_height);
@@ -2000,6 +2017,7 @@ async fn measure_nested_cell(
         &nested_ctx.scale_artifacts.shared_scale_builder,
         &nested_ctx.eval_ctx,
         coordinated_domain_extents,
+        unit_aspect_domain_overrides,
     ))
     .await
 }
@@ -2092,6 +2110,7 @@ async fn build_facet_band_measure_plan(
                 measurement: None,
                 local_domain_extents: HashMap::new(),
                 coordinated_domain_extents: HashMap::new(),
+                unit_aspect_domain_overrides: HashMap::new(),
             })
         })
         .collect::<Result<_, AvengerChartError>>()?;
@@ -2171,6 +2190,7 @@ fn prepared_cells_as_drafts(
             measurement: None,
             local_domain_extents: HashMap::new(),
             coordinated_domain_extents: HashMap::new(),
+            unit_aspect_domain_overrides: HashMap::new(),
         })
         .collect()
 }
@@ -2259,6 +2279,8 @@ async fn build_overflow_probe(
         &runtime_state.compiled_subplot,
         &runtime_state.nested_measure_ctx,
         prepared_inputs.cell_semantics.empty_cell_policy,
+        subplot_plot_width,
+        subplot_plot_height,
     ))
     .await?;
     let overflow_probe_summary = measure_overflow_probe(
@@ -2322,6 +2344,8 @@ async fn coordinate_cell_domains_before_measurement(
     compiled_subplot: &Arc<CompiledPlot>,
     nested_ctx: &FacetBandNestedMeasureContext,
     empty_cell_policy: FacetEmptyCellPolicy,
+    subplot_plot_width: f32,
+    subplot_plot_height: f32,
 ) -> Result<HashMap<String, DomainCoordination>, AvengerChartError> {
     let mut ordered_owner_extent_cache: HashMap<(Vec<ScalarValue>, String), DomainExtent> =
         HashMap::new();
@@ -2519,7 +2543,173 @@ async fn coordinate_cell_domains_before_measurement(
         }
     }
 
+    let unit_aspect_constraints = compiled_subplot.resolved_unit_aspect_constraints()?;
+    apply_facet_unit_aspect_domain_overrides(
+        cells,
+        &unit_aspect_constraints,
+        &channel_domain_coordinations,
+        facet_depth,
+        &unified,
+        nested_ctx,
+        subplot_plot_width,
+        subplot_plot_height,
+    )?;
+
     Ok(channel_domain_coordinations)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_facet_unit_aspect_domain_overrides(
+    cells: &mut [FacetCellDraft],
+    constraints: &[ResolvedUnitAspectConstraint],
+    channel_domain_coordinations: &HashMap<String, DomainCoordination>,
+    facet_depth: u8,
+    unified: &HashMap<CoordinationScopeKey, DomainExtent>,
+    nested_ctx: &FacetBandNestedMeasureContext,
+    subplot_plot_width: f32,
+    subplot_plot_height: f32,
+) -> Result<(), AvengerChartError> {
+    if constraints.is_empty() {
+        return Ok(());
+    }
+
+    let mut graph_inputs = Vec::new();
+    for cell in cells.iter() {
+        for constraint in constraints {
+            let Some((x_node, x_extent)) = facet_unit_aspect_domain_node_and_extent(
+                cell,
+                channel_domain_coordinations,
+                facet_depth,
+                unified,
+                nested_ctx,
+                &constraint.x_scale,
+            ) else {
+                continue;
+            };
+            let Some((y_node, y_extent)) = facet_unit_aspect_domain_node_and_extent(
+                cell,
+                channel_domain_coordinations,
+                facet_depth,
+                unified,
+                nested_ctx,
+                &constraint.y_scale,
+            ) else {
+                continue;
+            };
+            graph_inputs.push(UnitAspectSpanGraphInput {
+                x_node,
+                y_node,
+                x_extent,
+                y_extent,
+                x_range_span: f64::from(subplot_plot_width),
+                y_range_span: f64::from(subplot_plot_height),
+                ratio: constraint.ratio,
+            });
+        }
+    }
+
+    if graph_inputs.is_empty() {
+        return Ok(());
+    }
+
+    let solved = solve_unit_aspect_span_graph(&graph_inputs)?;
+    for cell in cells.iter_mut() {
+        for constraint in constraints {
+            for scale_name in [&constraint.x_scale, &constraint.y_scale] {
+                let Some((node, _)) = facet_unit_aspect_domain_node_and_extent(
+                    cell,
+                    channel_domain_coordinations,
+                    facet_depth,
+                    unified,
+                    nested_ctx,
+                    scale_name,
+                ) else {
+                    continue;
+                };
+                if let Some(extent) = solved.get(&node) {
+                    cell.coordinated_domain_extents
+                        .insert(scale_name.clone(), extent.clone());
+                    cell.unit_aspect_domain_overrides
+                        .insert(scale_name.clone(), extent.clone());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn facet_unit_aspect_domain_node_and_extent(
+    cell: &FacetCellDraft,
+    channel_domain_coordinations: &HashMap<String, DomainCoordination>,
+    facet_depth: u8,
+    unified: &HashMap<CoordinationScopeKey, DomainExtent>,
+    nested_ctx: &FacetBandNestedMeasureContext,
+    scale_name: &str,
+) -> Option<(UnitAspectDomainNode, DomainExtent)> {
+    if let Some(annotated) = cell.local_domain_extents.get(scale_name) {
+        if !annotated.domain_sharing_level.is_free() {
+            let key = facet_domain_scope_key_for_cell(
+                cell,
+                scale_name,
+                annotated.domain_sharing_level,
+                &annotated.domain_coordination,
+                facet_depth,
+                nested_ctx,
+            );
+            let extent = unified
+                .get(&key)
+                .cloned()
+                .unwrap_or_else(|| annotated.extent.clone());
+            return Some((UnitAspectDomainNode::Shared(key), extent));
+        }
+
+        return Some((
+            UnitAspectDomainNode::Free {
+                cell: format!("{:?}", cell.plan.full_path),
+                scale: scale_name.to_string(),
+            },
+            annotated.extent.clone(),
+        ));
+    }
+
+    let coordination = channel_domain_coordinations.get(scale_name)?;
+    let sharing_level = SharingLevel::from(coordination.scope);
+    if sharing_level.is_free() {
+        return None;
+    }
+
+    let key = facet_domain_scope_key_for_cell(
+        cell,
+        scale_name,
+        sharing_level,
+        coordination,
+        facet_depth,
+        nested_ctx,
+    );
+    let extent = unified.get(&key)?.clone();
+    Some((UnitAspectDomainNode::Shared(key), extent))
+}
+
+fn facet_domain_scope_key_for_cell(
+    cell: &FacetCellDraft,
+    scale_name: &str,
+    sharing_level: SharingLevel,
+    coordination: &DomainCoordination,
+    facet_depth: u8,
+    nested_ctx: &FacetBandNestedMeasureContext,
+) -> CoordinationScopeKey {
+    let owner_path = nested_ctx
+        .facet_tree
+        .sharing_owner_path(&cell.plan.full_path, sharing_level.raw());
+    domain_coordination_scope_key_with_owner(
+        scale_name,
+        &cell.plan.full_path,
+        sharing_level,
+        coordination,
+        facet_depth,
+        Some(&owner_path),
+    )
 }
 
 async fn capture_estimated_overflow_probe_if_requested(
@@ -2685,6 +2875,7 @@ async fn measure_cells_overflow_probe(
                     &cell_eval_ctx,
                     nested_ctx,
                     &cell.coordinated_domain_extents,
+                    &cell.unit_aspect_domain_overrides,
                 ))
                 .await?
             };
@@ -2711,6 +2902,7 @@ async fn measure_cells_overflow_probe(
                 &cell_eval_ctx,
                 nested_ctx,
                 &cell.coordinated_domain_extents,
+                &cell.unit_aspect_domain_overrides,
             ))
             .await?;
             Box::pin(capture_estimated_overflow_probe_if_requested(
@@ -3241,6 +3433,19 @@ impl<'a> FacetBandMeasurePipeline<'a> {
 
         let mut final_probe_cells =
             prepared_cells_as_drafts(&overflow_probe.prepared_inputs, &prepared_runtime);
+        Box::pin(coordinate_cell_domains_before_measurement(
+            &mut final_probe_cells,
+            overflow_probe.prepared_inputs.cell_semantics.facet_depth,
+            &prepared_runtime.compiled_subplot,
+            &prepared_runtime.nested_measure_ctx,
+            overflow_probe
+                .prepared_inputs
+                .cell_semantics
+                .empty_cell_policy,
+            final_subplot_plot_width,
+            final_subplot_plot_height,
+        ))
+        .await?;
         let final_overflow_summary = measure_overflow_probe(
             overflow_probe.prepared_inputs.cell_semantics.node_id.axis,
             overflow_probe.prepared_inputs.cell_semantics.facet_depth,
@@ -5356,6 +5561,8 @@ mod tests {
             &compiled_subplot,
             &nested_measure_ctx,
             FacetEmptyCellPolicy::Hole,
+            140.0,
+            140.0,
         )
         .await?;
 
@@ -5440,6 +5647,8 @@ mod tests {
             &compiled_subplot,
             &nested_measure_ctx,
             FacetEmptyCellPolicy::Hole,
+            140.0,
+            140.0,
         )
         .await?;
         measure_overflow_probe(

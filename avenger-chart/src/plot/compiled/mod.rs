@@ -70,7 +70,7 @@ pub(crate) use self::child_frame_container::{
 pub(crate) use self::child_frame_coordination::ChildFrameLayoutSlot;
 pub(crate) use self::child_frame_runtime::{
     ChildFrameDataSelection, ChildFrameRuntime, PreparedChildFramePlot,
-    fixed_child_plot_area_layout_spec, measure_child_frame_plot_with_builder,
+    fixed_child_plot_area_layout_spec,
 };
 pub(crate) use self::child_frame_scope::{
     ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel, ChildFrameSharingPath,
@@ -924,6 +924,26 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
+        self.build_scales_for_dataframe_with_unit_aspect_policy(
+            df,
+            plot_area_width,
+            plot_area_height,
+            ctx,
+            params,
+            UnitAspectSharingPolicy::ForbidSharedExpansion,
+        )
+        .await
+    }
+
+    pub(crate) async fn build_scales_for_dataframe_with_unit_aspect_policy(
+        &self,
+        df: &DataFrame,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        unit_aspect_sharing_policy: UnitAspectSharingPolicy,
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         let eval_ctx =
             CoreEvaluationContext::new(self.get_theme(), Arc::new(ctx.clone()), params.clone())
                 .with_time_context(self.time_context.clone());
@@ -935,12 +955,13 @@ impl CompiledPlot {
         ))
         .await?;
 
-        Box::pin(self.build_scales_from_builder(
+        Box::pin(self.build_scales_from_builder_with_unit_aspect_policy(
             &scale_builder,
             plot_area_width,
             plot_area_height,
             ctx,
             params,
+            unit_aspect_sharing_policy,
         ))
         .await
     }

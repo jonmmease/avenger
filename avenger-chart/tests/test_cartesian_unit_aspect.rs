@@ -218,6 +218,35 @@ async fn generated_repeat_allows_unit_aspect_shared_child_domain() {
 }
 
 #[tokio::test]
+async fn facet_column_allows_unit_aspect_shared_child_domain() {
+    let ctx = SessionContext::new();
+    let df = ctx
+        .sql(
+            "SELECT 'left' AS panel, 0.0 AS x, 0.0 AS y \
+             UNION ALL SELECT 'left' AS panel, 10.0 AS x, 10.0 AS y \
+             UNION ALL SELECT 'right' AS panel, 0.0 AS x, 0.0 AS y \
+             UNION ALL SELECT 'right' AS panel, 5.0 AS x, 10.0 AS y",
+        )
+        .await
+        .unwrap();
+    let child = Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(
+        Line::new()
+            .x_with(col("x"), |x| x.with_domain_scope(CoordinationScope::Shared))
+            .y_with(col("y"), |y| y.with_domain_scope(CoordinationScope::Shared)),
+    );
+    let plot = Plot::<FacetColumn>::new()
+        .plot_size(400.0, 100.0)
+        .data(df)
+        .mark(Subplot::new(child).column(col("panel")));
+    let compiled = plot.compile(&ctx).await.expect("compile facet");
+
+    SvgRenderer::new()
+        .render(&compiled, &ctx, None)
+        .await
+        .expect("facet should solve unit_aspect shared domains");
+}
+
+#[tokio::test]
 async fn cartesian_unit_aspect_expands_x_for_wide_plot_area() {
     let ctx = SessionContext::new();
     let (x_domain, y_domain) = unit_aspect_domains(&ctx, 1.0, 200.0, 100.0).await;

@@ -1237,9 +1237,19 @@ Phase 4 progress note:
   provider applies those overrides after the normal scale build, which keeps
   child-local scale normalization from requiring a second shared-axis
   adjustment.
-- Remaining Phase 4 graph-input work: use base configured domains after
-  radius-aware padding, via a cached-builder scale prepass when enriched
-  `DomainExtent` metadata is not enough.
+- Facet solved domains use the same explicit `unit_aspect_domain_overrides`
+  representation. `coordinate_cell_domains_before_measurement(...)` now takes
+  the estimated subplot plot-area size, builds facet-owner scope keys, solves
+  the span graph, and installs overrides before measuring cell builders.
+- Facet guide overflow estimates may need to build subplot scales before the
+  facet solve has a concrete cell measurement. For unit-aspect subplots, that
+  estimate uses `UnitAspectSharingPolicy::AllowSharedExpansion`; actual cell
+  measurements still use the sharing solver and override map.
+- Current graph inputs come from enriched `DomainExtent` values extracted by
+  the existing scale-builder precompute path. Remaining Phase 4 graph-input
+  work: verify/use base configured domains after radius-aware padding, via a
+  cached-builder scale prepass if enriched `DomainExtent` metadata is not
+  enough.
 
 - [x] Spike and document the exact facet insertion point for graph solve.
 - [x] Spike and document the exact generated-repeat concat insertion point for
@@ -1247,9 +1257,9 @@ Phase 4 progress note:
 - [x] Decide and document how solved domains are fed back into scale builds:
       use a separate `unit_aspect_domain_overrides` map, keyed by scale name,
       and apply it after ordinary child scale construction.
-- [ ] Decide and document whether shared graph inputs come from a cached-builder
+- [x] Decide and document whether shared graph inputs come from a cached-builder
       base-domain prepass or enriched `DomainExtent` metadata.
-- [ ] Integrate the graph solver into facet domain coordination after ordinary
+- [x] Integrate the graph solver into facet domain coordination after ordinary
       extents are coordinated and before cell builders are measured.
 - [x] Integrate the graph solver into generated repeat concat measurement using
       `ConcatOrigin::Repeat*`.
@@ -1266,7 +1276,10 @@ Phase 4 progress note:
       inconsistent shared equations.
 - [x] Add a generated-repeat runtime smoke test proving repeat-origin children
       can render with unit-aspect shared domains.
-- [ ] Add facet shared-domain runtime tests.
+- [x] Add a facet shared-domain runtime smoke test proving facet-origin children
+      can render with unit-aspect shared domains.
+- [x] Allow facet-guide overflow estimates for unit-aspect subplots to use the
+      sharing-tolerant scale-build policy before concrete cell overrides exist.
 - [ ] Add radius-aware shared unit-aspect runtime tests.
 - [ ] Add or prepare
       `cartesian_unit_aspect/facet_shared_equal_units.png`
@@ -1277,6 +1290,7 @@ Phase 4 progress note:
       (`cartesian_unit_aspect_radius_aware_symbols_shared`; see catalog spec)
       using sized symbols near coordinated domain edges.
 - [x] Commit Phase 4 generated-repeat domain override slice.
+- [x] Commit Phase 4 facet-domain slice.
 - [ ] Commit Phase 4.
 
 ### Phase 5: Fixed Plot-Area Layout And Guides

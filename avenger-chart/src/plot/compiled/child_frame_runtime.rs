@@ -199,32 +199,6 @@ impl ChildFrameRuntime {
         })
     }
 
-    /// Measure a child plot with a caller-provided scale builder.
-    pub(crate) async fn measure_with_builder(
-        &self,
-        plot: &CompiledPlot,
-        eval_ctx: &EvaluationContext,
-        layout_spec: &EvaluatedLayoutSpec,
-        scale_builder: &ScaleBuilder,
-        data_override: Option<&DataFrame>,
-        facet_path: &[ScalarValue],
-        domain_extents: &[&HashMap<String, DomainExtent>],
-    ) -> Result<ComponentsMeasurement, AvengerChartError> {
-        let unit_aspect_domain_overrides = HashMap::new();
-        self.measure_with_builder_and_unit_aspect_policy(
-            plot,
-            eval_ctx,
-            layout_spec,
-            scale_builder,
-            data_override,
-            facet_path,
-            domain_extents,
-            &unit_aspect_domain_overrides,
-            UnitAspectSharingPolicy::ForbidSharedExpansion,
-        )
-        .await
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn measure_with_builder_and_unit_aspect_policy(
         &self,
@@ -596,28 +570,6 @@ fn plot_scale_type_name(scale_spec: &PlotScaleSpec) -> &'static str {
 /// Fixed plot-area layout for a child plot measured inside a container.
 pub(crate) fn fixed_child_plot_area_layout_spec(width: f32, height: f32) -> EvaluatedLayoutSpec {
     ChildFrameRuntime::new().fixed_plot_area_layout_spec(width, height)
-}
-
-/// Measure a child plot with a caller-provided scale builder.
-pub(crate) async fn measure_child_frame_plot_with_builder(
-    plot: &CompiledPlot,
-    eval_ctx: &EvaluationContext,
-    layout_spec: &EvaluatedLayoutSpec,
-    scale_builder: &ScaleBuilder,
-    data_override: Option<&DataFrame>,
-    facet_path: &[ScalarValue],
-    domain_extents: &[&HashMap<String, DomainExtent>],
-) -> Result<ComponentsMeasurement, AvengerChartError> {
-    Box::pin(ChildFrameRuntime::new().measure_with_builder(
-        plot,
-        eval_ctx,
-        layout_spec,
-        scale_builder,
-        data_override,
-        facet_path,
-        domain_extents,
-    ))
-    .await
 }
 
 #[cfg(test)]
