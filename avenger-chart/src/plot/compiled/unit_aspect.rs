@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::{HashMap, VecDeque};
 
 use avenger_chart_core::{
@@ -188,48 +186,23 @@ impl CompiledPlot {
             return Ok(Vec::new());
         }
 
-        if matches!(
+        let sharing = matches!(
             sharing_policy,
             UnitAspectSharingPolicy::ForbidSharedExpansion
-        ) {
-            validate_local_unit_aspect_sharing(self, &constraints)?;
-        }
+        )
+        .then(|| child_frame_domain_sharing_levels_for_plot(self));
 
         constraints
             .iter()
-            .map(|constraint| apply_unit_aspect_constraint(scales, constraint))
+            .map(|constraint| apply_unit_aspect_constraint(scales, constraint, sharing.as_ref()))
             .collect()
     }
-}
-
-fn validate_local_unit_aspect_sharing(
-    plot: &CompiledPlot,
-    constraints: &[ResolvedUnitAspectConstraint],
-) -> Result<(), AvengerChartError> {
-    let sharing = child_frame_domain_sharing_levels_for_plot(plot);
-    for constraint in constraints {
-        for (axis, scale_name) in [
-            ("x", constraint.x_scale.as_str()),
-            ("y", constraint.y_scale.as_str()),
-        ] {
-            let Some(coordination) = sharing.get(scale_name) else {
-                continue;
-            };
-            if SharingLevel::from(coordination.scope).is_free() {
-                continue;
-            }
-            return Err(AvengerChartError::InvalidArgument(format!(
-                "unit_aspect scale '{scale_name}' ({axis} channel) uses non-free domain sharing; \
-                 shared unit_aspect domains require the sharing-aware domain solver"
-            )));
-        }
-    }
-    Ok(())
 }
 
 fn apply_unit_aspect_constraint(
     scales: &mut HashMap<String, ConfiguredScaleWithSpec>,
     constraint: &ResolvedUnitAspectConstraint,
+    sharing: Option<&HashMap<String, avenger_chart_core::DomainCoordination>>,
 ) -> Result<UnitAspectAdjustment, AvengerChartError> {
     if constraint.policy != UnitAspectPolicy::ExpandDomain {
         return Err(AvengerChartError::InvalidArgument(
@@ -270,6 +243,8 @@ fn apply_unit_aspect_constraint(
         }
     }
 
+    reject_forbidden_shared_axis_expansion(constraint, adjusted_axis, sharing)?;
+
     if adjusted_axis == UnitAspectAdjustedAxis::X {
         let x_scale = scales.get_mut(&constraint.x_scale).ok_or_else(|| {
             AvengerChartError::InvalidArgument(format!(
@@ -307,6 +282,31 @@ fn apply_unit_aspect_constraint(
         adjusted_x_domain,
         adjusted_y_domain,
     })
+}
+
+fn reject_forbidden_shared_axis_expansion(
+    constraint: &ResolvedUnitAspectConstraint,
+    adjusted_axis: UnitAspectAdjustedAxis,
+    sharing: Option<&HashMap<String, avenger_chart_core::DomainCoordination>>,
+) -> Result<(), AvengerChartError> {
+    let Some(sharing) = sharing else {
+        return Ok(());
+    };
+    let (axis, scale_name) = match adjusted_axis {
+        UnitAspectAdjustedAxis::X => ("x", constraint.x_scale.as_str()),
+        UnitAspectAdjustedAxis::Y => ("y", constraint.y_scale.as_str()),
+        UnitAspectAdjustedAxis::None => return Ok(()),
+    };
+    let Some(coordination) = sharing.get(scale_name) else {
+        return Ok(());
+    };
+    if SharingLevel::from(coordination.scope).is_free() {
+        return Ok(());
+    }
+    Err(AvengerChartError::InvalidArgument(format!(
+        "unit_aspect scale '{scale_name}' ({axis} channel) would expand a non-free shared \
+         domain; shared unit_aspect domains require the sharing-aware domain solver"
+    )))
 }
 
 fn numeric_linear_domain(

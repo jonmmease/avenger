@@ -187,6 +187,45 @@ async fn authored_concat_rejects_unit_aspect_shared_child_domain() {
 }
 
 #[tokio::test]
+async fn generated_repeat_allows_unit_aspect_shared_child_domain() {
+    let ctx = SessionContext::new();
+    let df = ctx
+        .sql(
+            "SELECT 0.0 AS a, 0.0 AS b, 0.0 AS y \
+             UNION ALL SELECT 10.0 AS a, 5.0 AS b, 10.0 AS y",
+        )
+        .await
+        .unwrap();
+    let cell = Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(
+        Line::new()
+            .x_with(repeat::column(), |x| {
+                x.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
+            })
+            .y_with(col("y"), |y| {
+                y.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
+                    .with_domain_scope(CoordinationScope::Shared)
+            }),
+    );
+    let plot = Plot::<RepeatColumns>::new()
+        .plot_size(400.0, 100.0)
+        .data(df)
+        .columns([
+            RepeatVariable::new("a", col("a")),
+            RepeatVariable::new("b", col("b")),
+        ])
+        .with_repeat_domain_coordination(RepeatDomainCoordination::by_variable(
+            CoordinationScope::Shared,
+        ))
+        .cell(cell);
+    let compiled = plot.compile(&ctx).await.expect("compile repeat");
+
+    SvgRenderer::new()
+        .render(&compiled, &ctx, None)
+        .await
+        .expect("generated repeat should solve unit_aspect shared domains");
+}
+
+#[tokio::test]
 async fn cartesian_unit_aspect_expands_x_for_wide_plot_area() {
     let ctx = SessionContext::new();
     let (x_domain, y_domain) = unit_aspect_domains(&ctx, 1.0, 200.0, 100.0).await;

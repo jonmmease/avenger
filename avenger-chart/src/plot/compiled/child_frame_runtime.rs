@@ -25,8 +25,9 @@ use crate::{
 
 use super::{
     ChildFrameChannelDomainExtent, ChildFrameSharingLevel, CompiledPlot, ComponentsMeasurement,
-    child_frame_domain_sharing_levels_for_plot, extract_child_frame_shared_domain_extents,
-    scale_provider::{DynamicScaleProvider, ScaleProvider},
+    UnitAspectSharingPolicy, child_frame_domain_sharing_levels_for_plot,
+    extract_child_frame_domain_extents,
+    scale_provider::ScaleProvider,
     scales::build_scale_builder_from_compiled_plot_with_render_context,
     session::{ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope},
 };
@@ -145,9 +146,11 @@ impl ChildFrameRuntime {
                 eval_ctx.record_scale_domain_cache_hit();
                 let channel_domain_sharing_levels =
                     child_frame_domain_sharing_levels_for_plot(plot);
-                let local_domain_extents = extract_child_frame_shared_domain_extents(
+                let unit_aspect_channels = unit_aspect_extent_channels(plot)?;
+                let local_domain_extents = extract_child_frame_domain_extents(
                     &builder,
                     &channel_domain_sharing_levels,
+                    &unit_aspect_channels,
                 );
                 return Ok(PreparedChildFramePlot {
                     plot,
@@ -171,9 +174,11 @@ impl ChildFrameRuntime {
         .await?;
 
         let channel_domain_sharing_levels = child_frame_domain_sharing_levels_for_plot(plot);
-        let local_domain_extents = extract_child_frame_shared_domain_extents(
+        let unit_aspect_channels = unit_aspect_extent_channels(plot)?;
+        let local_domain_extents = extract_child_frame_domain_extents(
             &scale_builder,
             &channel_domain_sharing_levels,
+            &unit_aspect_channels,
         );
         if let Some((cache, key)) = cache_lookup {
             cache
@@ -203,6 +208,31 @@ impl ChildFrameRuntime {
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
         domain_extents: &[&HashMap<String, DomainExtent>],
+    ) -> Result<ComponentsMeasurement, AvengerChartError> {
+        self.measure_with_builder_and_unit_aspect_policy(
+            plot,
+            eval_ctx,
+            layout_spec,
+            scale_builder,
+            data_override,
+            facet_path,
+            domain_extents,
+            UnitAspectSharingPolicy::ForbidSharedExpansion,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn measure_with_builder_and_unit_aspect_policy(
+        &self,
+        plot: &CompiledPlot,
+        eval_ctx: &EvaluationContext,
+        layout_spec: &EvaluatedLayoutSpec,
+        scale_builder: &ScaleBuilder,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        domain_extents: &[&HashMap<String, DomainExtent>],
+        unit_aspect_sharing_policy: UnitAspectSharingPolicy,
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
         let extended_builder;
         let scale_builder = if domain_extents.iter().all(|extents| extents.is_empty()) {
@@ -241,9 +271,10 @@ impl ChildFrameRuntime {
             };
             &extended_builder
         };
-        let scale_provider = DynamicScaleProvider {
+        let scale_provider = UnitAspectPolicyScaleProvider {
             builder: scale_builder,
             plot,
+            unit_aspect_sharing_policy,
         };
         Box::pin(plot.measure_plot_components(
             eval_ctx,
@@ -254,6 +285,15 @@ impl ChildFrameRuntime {
         ))
         .await
     }
+}
+
+fn unit_aspect_extent_channels(plot: &CompiledPlot) -> Result<HashSet<String>, AvengerChartError> {
+    let mut channels = HashSet::new();
+    for constraint in plot.resolved_unit_aspect_constraints()? {
+        channels.insert(constraint.x_scale);
+        channels.insert(constraint.y_scale);
+    }
+    Ok(channels)
 }
 
 /// Prepared measurement state for one child plot.
@@ -352,6 +392,24 @@ impl<'a> PreparedChildFramePlot<'a> {
         facet_path: &[ScalarValue],
         domain_extents: &[&HashMap<String, DomainExtent>],
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
+        self.measure_with_unit_aspect_policy(
+            eval_ctx,
+            layout_spec,
+            facet_path,
+            domain_extents,
+            UnitAspectSharingPolicy::ForbidSharedExpansion,
+        )
+        .await
+    }
+
+    pub(crate) async fn measure_with_unit_aspect_policy(
+        &self,
+        eval_ctx: &EvaluationContext,
+        layout_spec: &EvaluatedLayoutSpec,
+        facet_path: &[ScalarValue],
+        domain_extents: &[&HashMap<String, DomainExtent>],
+        unit_aspect_sharing_policy: UnitAspectSharingPolicy,
+    ) -> Result<ComponentsMeasurement, AvengerChartError> {
         let mut child_eval_ctx = eval_ctx.clone();
         let local_facet_path;
         let facet_path = if let Some(facet_tree) = &self.local_facet_tree {
@@ -363,15 +421,18 @@ impl<'a> PreparedChildFramePlot<'a> {
         } else {
             facet_path
         };
-        Box::pin(ChildFrameRuntime::new().measure_with_builder(
-            self.plot,
-            &child_eval_ctx,
-            layout_spec,
-            &self.scale_builder,
-            self.data_override.as_ref(),
-            facet_path,
-            domain_extents,
-        ))
+        Box::pin(
+            ChildFrameRuntime::new().measure_with_builder_and_unit_aspect_policy(
+                self.plot,
+                &child_eval_ctx,
+                layout_spec,
+                &self.scale_builder,
+                self.data_override.as_ref(),
+                facet_path,
+                domain_extents,
+                unit_aspect_sharing_policy,
+            ),
+        )
         .await
     }
 
@@ -425,6 +486,33 @@ struct ScaleOverrideProvider<'a> {
     plot: &'a CompiledPlot,
     fallbacks: HashMap<String, ConfiguredScaleWithSpec>,
     overrides: HashMap<String, ConfiguredScaleWithSpec>,
+}
+
+struct UnitAspectPolicyScaleProvider<'a> {
+    builder: &'a ScaleBuilder,
+    plot: &'a CompiledPlot,
+    unit_aspect_sharing_policy: UnitAspectSharingPolicy,
+}
+
+#[async_trait::async_trait]
+impl<'a> ScaleProvider for UnitAspectPolicyScaleProvider<'a> {
+    async fn build_scales(
+        &self,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        ctx: &SessionContext,
+        params: &indexmap::IndexMap<String, ScalarValue>,
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
+        Box::pin(self.plot.build_scales_from_builder_with_unit_aspect_policy(
+            self.builder,
+            plot_area_width,
+            plot_area_height,
+            ctx,
+            params,
+            self.unit_aspect_sharing_policy,
+        ))
+        .await
+    }
 }
 
 #[async_trait::async_trait]

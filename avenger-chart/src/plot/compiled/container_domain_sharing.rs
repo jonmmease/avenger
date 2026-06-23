@@ -4,10 +4,11 @@
 //! child-frame domain requests. Container implementations still decide which
 //! child frames exist and what their scope keys are.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use avenger_chart_core::{
-    DomainCoordination, DomainCoordinationGroup, SharingLevel, sharing_group_boundary,
+    AvengerChartError, DomainCoordination, DomainCoordinationGroup, ResolvedUnitAspectConstraint,
+    SharingLevel, sharing_group_boundary,
 };
 
 use crate::{
@@ -17,7 +18,8 @@ use crate::{
 
 use super::{
     ChildFrameDomainRequest, ChildFrameScopeKey, CompiledPlot, CoordinationKind,
-    CoordinationScopeKey, aggregate_domain_requests, coordination_scope::CoordinationGroup,
+    CoordinationScopeKey, UnitAspectDomainNode, UnitAspectSpanGraphInput,
+    aggregate_domain_requests, coordination_scope::CoordinationGroup, solve_unit_aspect_span_graph,
 };
 
 /// One local channel domain plus the child-frame domain coordination that applies to it.
@@ -44,6 +46,36 @@ impl<'a> ChildFrameDomainSharingInput<'a> {
             scope_key,
             local_domain_extents,
             channel_domain_sharing_levels,
+        }
+    }
+}
+
+/// Domain-sharing plus plot-area inputs for unit-aspect child-frame solves.
+pub(crate) struct ChildFrameUnitAspectDomainSharingInput<'a> {
+    pub(crate) domain_input: ChildFrameDomainSharingInput<'a>,
+    pub(crate) unit_aspect_constraints: Vec<ResolvedUnitAspectConstraint>,
+    pub(crate) plot_area_width: f32,
+    pub(crate) plot_area_height: f32,
+}
+
+impl<'a> ChildFrameUnitAspectDomainSharingInput<'a> {
+    pub(crate) fn new(
+        scope_key: &'a ChildFrameScopeKey,
+        local_domain_extents: &'a HashMap<String, ChildFrameChannelDomainExtent>,
+        channel_domain_sharing_levels: &'a HashMap<String, DomainCoordination>,
+        unit_aspect_constraints: Vec<ResolvedUnitAspectConstraint>,
+        plot_area_width: f32,
+        plot_area_height: f32,
+    ) -> Self {
+        Self {
+            domain_input: ChildFrameDomainSharingInput::new(
+                scope_key,
+                local_domain_extents,
+                channel_domain_sharing_levels,
+            ),
+            unit_aspect_constraints,
+            plot_area_width,
+            plot_area_height,
         }
     }
 }
@@ -84,33 +116,39 @@ fn collect_channel_domain_coordination(
 }
 
 /// Extract local child-frame domain extents only for channels that request sharing.
-pub(crate) fn extract_child_frame_shared_domain_extents(
+pub(crate) fn extract_child_frame_domain_extents(
     scale_builder: &ScaleBuilder,
     domain_coordinations: &HashMap<String, DomainCoordination>,
+    extra_channels: &HashSet<String>,
 ) -> HashMap<String, ChildFrameChannelDomainExtent> {
-    let shared_channels = domain_coordinations
+    let mut channels = domain_coordinations
         .iter()
         .filter_map(|(channel, coordination)| {
             (!SharingLevel::from(coordination.scope).is_free()).then_some(channel.as_str())
         })
         .collect::<Vec<_>>();
-    if shared_channels.is_empty() {
+    channels.extend(extra_channels.iter().map(String::as_str));
+    channels.sort_unstable();
+    channels.dedup();
+    if channels.is_empty() {
         return HashMap::new();
     }
 
     scale_builder
-        .extract_domain_extents(&shared_channels)
+        .extract_domain_extents(&channels)
         .into_iter()
-        .filter_map(|(channel, extent)| {
-            domain_coordinations.get(&channel).map(|coordination| {
-                (
-                    channel,
-                    ChildFrameChannelDomainExtent {
-                        extent,
-                        domain_coordination: coordination.clone(),
-                    },
-                )
-            })
+        .map(|(channel, extent)| {
+            let domain_coordination = domain_coordinations
+                .get(&channel)
+                .cloned()
+                .unwrap_or_else(|| DomainCoordination::scale_name(SharingLevel::FREE.into()));
+            (
+                channel,
+                ChildFrameChannelDomainExtent {
+                    extent,
+                    domain_coordination,
+                },
+            )
         })
         .collect()
 }
@@ -173,15 +211,94 @@ fn child_frame_domain_request(
 pub(crate) fn coordinated_child_frame_domain_extents(
     children: &[ChildFrameDomainSharingInput<'_>],
 ) -> Vec<HashMap<String, DomainExtent>> {
-    let unified = aggregate_domain_requests(children.iter().flat_map(|child| {
+    let unified = unified_child_frame_domain_extents(children);
+    coordinated_child_frame_domain_extents_from_unified(children, &unified)
+}
+
+pub(crate) fn coordinated_child_frame_domain_extents_with_unit_aspect(
+    children: &[ChildFrameUnitAspectDomainSharingInput<'_>],
+) -> Result<Vec<HashMap<String, DomainExtent>>, AvengerChartError> {
+    let domain_inputs = children
+        .iter()
+        .map(|child| ChildFrameDomainSharingInput {
+            scope_key: child.domain_input.scope_key,
+            local_domain_extents: child.domain_input.local_domain_extents,
+            channel_domain_sharing_levels: child.domain_input.channel_domain_sharing_levels,
+        })
+        .collect::<Vec<_>>();
+    let unified = unified_child_frame_domain_extents(&domain_inputs);
+    let mut coordinated =
+        coordinated_child_frame_domain_extents_from_unified(&domain_inputs, &unified);
+
+    let mut graph_inputs = Vec::new();
+    for child in children {
+        for constraint in &child.unit_aspect_constraints {
+            let Some((x_node, x_extent)) = unit_aspect_domain_node_and_extent(
+                &child.domain_input,
+                &unified,
+                &constraint.x_scale,
+            ) else {
+                continue;
+            };
+            let Some((y_node, y_extent)) = unit_aspect_domain_node_and_extent(
+                &child.domain_input,
+                &unified,
+                &constraint.y_scale,
+            ) else {
+                continue;
+            };
+            graph_inputs.push(UnitAspectSpanGraphInput {
+                x_node,
+                y_node,
+                x_extent,
+                y_extent,
+                x_range_span: f64::from(child.plot_area_width),
+                y_range_span: f64::from(child.plot_area_height),
+                ratio: constraint.ratio,
+            });
+        }
+    }
+
+    if graph_inputs.is_empty() {
+        return Ok(coordinated);
+    }
+
+    let solved = solve_unit_aspect_span_graph(&graph_inputs)?;
+    for (index, child) in children.iter().enumerate() {
+        for constraint in &child.unit_aspect_constraints {
+            for scale_name in [&constraint.x_scale, &constraint.y_scale] {
+                let Some((node, _)) =
+                    unit_aspect_domain_node_and_extent(&child.domain_input, &unified, scale_name)
+                else {
+                    continue;
+                };
+                if let Some(extent) = solved.get(&node) {
+                    coordinated[index].insert(scale_name.clone(), extent.clone());
+                }
+            }
+        }
+    }
+
+    Ok(coordinated)
+}
+
+fn unified_child_frame_domain_extents(
+    children: &[ChildFrameDomainSharingInput<'_>],
+) -> HashMap<CoordinationScopeKey, DomainExtent> {
+    aggregate_domain_requests(children.iter().flat_map(|child| {
         child
             .local_domain_extents
             .iter()
             .filter_map(move |(channel, annotated)| {
                 child_frame_domain_request(child.scope_key, channel, annotated)
             })
-    }));
+    }))
+}
 
+fn coordinated_child_frame_domain_extents_from_unified(
+    children: &[ChildFrameDomainSharingInput<'_>],
+    unified: &HashMap<CoordinationScopeKey, DomainExtent>,
+) -> Vec<HashMap<String, DomainExtent>> {
     children
         .iter()
         .map(|child| {
@@ -201,8 +318,38 @@ pub(crate) fn coordinated_child_frame_domain_extents(
         .collect()
 }
 
+fn unit_aspect_domain_node_and_extent(
+    child: &ChildFrameDomainSharingInput<'_>,
+    unified: &HashMap<CoordinationScopeKey, DomainExtent>,
+    scale_name: &str,
+) -> Option<(UnitAspectDomainNode, DomainExtent)> {
+    if let Some(coordination) = child.channel_domain_sharing_levels.get(scale_name)
+        && !SharingLevel::from(coordination.scope).is_free()
+    {
+        let key = child_frame_domain_scope_key(child.scope_key, scale_name, coordination);
+        let extent = unified.get(&key).cloned().or_else(|| {
+            child
+                .local_domain_extents
+                .get(scale_name)
+                .map(|local| local.extent.clone())
+        })?;
+        return Some((UnitAspectDomainNode::Shared(key), extent));
+    }
+
+    let extent = child.local_domain_extents.get(scale_name)?.extent.clone();
+    Some((
+        UnitAspectDomainNode::Free {
+            cell: format!("{:?}", child.scope_key),
+            scale: scale_name.to_string(),
+        },
+        extent,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
+    use avenger_chart_core::{ResolvedUnitAspectConstraint, UnitAspectPolicy};
+
     use crate::{
         container::{ChildFrameKey, ContainerPathSegment},
         prelude::*,
@@ -245,6 +392,34 @@ mod tests {
             extent: DomainExtent::numeric(0.0, max),
             domain_coordination: DomainCoordination::named(sharing_level.into(), group).unwrap(),
         }
+    }
+
+    fn unit_aspect_constraint() -> ResolvedUnitAspectConstraint {
+        ResolvedUnitAspectConstraint {
+            x_channel: "x".to_string(),
+            y_channel: "y".to_string(),
+            x_scale: "x".to_string(),
+            y_scale: "y".to_string(),
+            ratio: 1.0,
+            policy: UnitAspectPolicy::ExpandDomain,
+        }
+    }
+
+    fn numeric_span(extent: &DomainExtent) -> f64 {
+        let avenger_chart_scales::domain_extent::DomainBounds::Numeric { min, max } =
+            &extent.bounds
+        else {
+            panic!("expected numeric extent");
+        };
+        *max - *min
+    }
+
+    fn assert_span(extent: &DomainExtent, expected: f64) {
+        let actual = numeric_span(extent);
+        assert!(
+            (actual - expected).abs() < 1e-6,
+            "expected span {expected}, got {actual}"
+        );
     }
 
     #[test]
@@ -500,5 +675,96 @@ mod tests {
             Some(&DomainExtent::numeric(0.0, 101.0))
         );
         assert_eq!(coordinated[0].get("x"), coordinated[1].get("x"));
+    }
+
+    #[test]
+    fn unit_aspect_child_frame_domains_expand_shared_x_from_free_y() {
+        let left_scope = child_scope(None, 0, Some("left"));
+        let right_scope = child_scope(None, 1, Some("right"));
+        let left_extents = HashMap::from([
+            ("x".to_string(), extent(10.0, SharingLevel::GLOBAL)),
+            ("y".to_string(), extent(10.0, SharingLevel::FREE)),
+        ]);
+        let right_extents = HashMap::from([
+            ("x".to_string(), extent(8.0, SharingLevel::GLOBAL)),
+            ("y".to_string(), extent(5.0, SharingLevel::FREE)),
+        ]);
+        let sharing_levels = HashMap::from([(
+            "x".to_string(),
+            DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
+        )]);
+        let constraints = unit_aspect_constraint();
+        let inputs = [
+            ChildFrameUnitAspectDomainSharingInput::new(
+                &left_scope,
+                &left_extents,
+                &sharing_levels,
+                vec![constraints.clone()],
+                200.0,
+                100.0,
+            ),
+            ChildFrameUnitAspectDomainSharingInput::new(
+                &right_scope,
+                &right_extents,
+                &sharing_levels,
+                vec![constraints],
+                200.0,
+                100.0,
+            ),
+        ];
+
+        let coordinated =
+            coordinated_child_frame_domain_extents_with_unit_aspect(&inputs).expect("solve");
+
+        assert_eq!(coordinated.len(), 2);
+        assert_span(coordinated[0].get("x").expect("left x"), 20.0);
+        assert_span(coordinated[1].get("x").expect("right x"), 20.0);
+        assert_eq!(coordinated[0].get("x"), coordinated[1].get("x"));
+        assert_span(coordinated[0].get("y").expect("left y"), 10.0);
+        assert_span(coordinated[1].get("y").expect("right y"), 10.0);
+    }
+
+    #[test]
+    fn unit_aspect_child_frame_domains_reject_inconsistent_shared_equations() {
+        let left_scope = child_scope(None, 0, Some("left"));
+        let right_scope = child_scope(None, 1, Some("right"));
+        let local_extents = HashMap::from([
+            ("x".to_string(), extent(10.0, SharingLevel::GLOBAL)),
+            ("y".to_string(), extent(10.0, SharingLevel::GLOBAL)),
+        ]);
+        let sharing_levels = HashMap::from([
+            (
+                "x".to_string(),
+                DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
+            ),
+            (
+                "y".to_string(),
+                DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
+            ),
+        ]);
+        let constraints = unit_aspect_constraint();
+        let inputs = [
+            ChildFrameUnitAspectDomainSharingInput::new(
+                &left_scope,
+                &local_extents,
+                &sharing_levels,
+                vec![constraints.clone()],
+                200.0,
+                100.0,
+            ),
+            ChildFrameUnitAspectDomainSharingInput::new(
+                &right_scope,
+                &local_extents,
+                &sharing_levels,
+                vec![constraints],
+                400.0,
+                100.0,
+            ),
+        ];
+
+        let err = coordinated_child_frame_domain_extents_with_unit_aspect(&inputs)
+            .expect_err("inconsistent repeat equations should fail");
+
+        assert!(err.to_string().contains("inconsistent"));
     }
 }

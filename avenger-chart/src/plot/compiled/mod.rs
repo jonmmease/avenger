@@ -81,9 +81,10 @@ pub(crate) use self::container_band_guide::{
     measure_container_band_guide_slab, render_container_band_guide_slab,
 };
 pub(crate) use self::container_domain_sharing::{
-    ChildFrameChannelDomainExtent, ChildFrameDomainSharingInput, apply_domain_group_to_key,
+    ChildFrameChannelDomainExtent, ChildFrameDomainSharingInput,
+    ChildFrameUnitAspectDomainSharingInput, apply_domain_group_to_key,
     child_frame_domain_sharing_levels_for_plot, coordinated_child_frame_domain_extents,
-    extract_child_frame_shared_domain_extents,
+    coordinated_child_frame_domain_extents_with_unit_aspect, extract_child_frame_domain_extents,
 };
 pub(crate) use self::container_guide::{
     measure_child_frame_container_guide_overflow, render_child_frame_container_guide_labels,
@@ -116,7 +117,10 @@ pub(crate) use self::session::{
     ScopedParamStore, ScopedSelectionStore, ScopedStoreState, TextMeasurementCacheHandle,
     TextMeasurementCacheKey,
 };
-pub(crate) use self::unit_aspect::UnitAspectSharingPolicy;
+pub(crate) use self::unit_aspect::{
+    UnitAspectDomainNode, UnitAspectSharingPolicy, UnitAspectSpanGraphInput,
+    solve_unit_aspect_span_graph,
+};
 
 use super::title::{PlotSubtitle, PlotTitle};
 
@@ -849,6 +853,26 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
+        self.build_scales_from_builder_with_unit_aspect_policy(
+            builder,
+            plot_area_width,
+            plot_area_height,
+            ctx,
+            params,
+            UnitAspectSharingPolicy::ForbidSharedExpansion,
+        )
+        .await
+    }
+
+    pub(crate) async fn build_scales_from_builder_with_unit_aspect_policy(
+        &self,
+        builder: &ScaleBuilder,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        unit_aspect_sharing_policy: UnitAspectSharingPolicy,
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         // Build coordinate system range bindings map
         let mut coord_system_range_bindings = HashMap::<String, ScaleRangeBinding>::new();
         for channel in builder.channel_builders().keys() {
@@ -876,10 +900,7 @@ impl CompiledPlot {
         ))
         .await?;
 
-        self.apply_unit_aspect_constraints(
-            &mut built,
-            UnitAspectSharingPolicy::ForbidSharedExpansion,
-        )?;
+        self.apply_unit_aspect_constraints(&mut built, unit_aspect_sharing_policy)?;
 
         Ok(built)
     }

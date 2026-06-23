@@ -1214,8 +1214,25 @@ of leaving an ambiguous unchecked item.
 
 ### Phase 4: Facet/Repeat Shared Domain Integration
 
-- [ ] Spike and document the exact facet insertion point for graph solve.
-- [ ] Spike and document the exact generated-repeat concat insertion point for
+Phase 4 progress note:
+
+- Facet insertion point: `coordinate_cell_domains_before_measurement(...)`
+  after `aggregate_domain_extents(...)` has produced ordinary coordinated
+  extents and before `coordinated_extents_for_cell_with_owner_paths(...)`
+  fills each `FacetCellDraft`.
+- Generated-repeat insertion point: concat measurement builds seeded
+  operating-point child plot areas, runs
+  `coordinated_child_frame_domain_extents_with_unit_aspect(...)` for
+  `ConcatOrigin::Repeat*`, then passes the solved extents into
+  `measure_prepared_concat_child(...)`.
+- Current repeat slice feeds solved domains back as adjusted `DomainExtent`s
+  and uses `UnitAspectSharingPolicy::AllowSharedExpansion` only for generated
+  repeat child measurement. This is a bridge. Full Phase 4 still needs the
+  configured-domain override path so scale padding/nice/radius-aware expansion
+  cannot require a second per-child shared-axis adjustment.
+
+- [x] Spike and document the exact facet insertion point for graph solve.
+- [x] Spike and document the exact generated-repeat concat insertion point for
       graph solve.
 - [ ] Decide and document how solved domains are fed back into scale builds:
       adjusted `DomainExtent`, a separate unit-aspect override map, or another
@@ -1224,20 +1241,27 @@ of leaving an ambiguous unchecked item.
       base-domain prepass or enriched `DomainExtent` metadata.
 - [ ] Integrate the graph solver into facet domain coordination after ordinary
       extents are coordinated and before cell builders are measured.
-- [ ] Integrate the graph solver into generated repeat concat measurement using
+- [x] Integrate the graph solver into generated repeat concat measurement using
       `ConcatOrigin::Repeat*`.
 - [ ] Use base configured domains after radius-aware padding for graph inputs,
       via a cached-builder scale prepass when needed.
-- [ ] Ensure ordinary authored concat/grid/wrap cross-child sharing errors before
+- [x] Ensure ordinary authored concat/grid/wrap cross-child sharing errors before
       graph solving.
 - [ ] Add facet/repeat sharing tests, authored-concat rejection tests, and
       radius-aware shared unit-aspect tests.
+- [x] Add child-frame unit-aspect graph tests for repeat-style shared/free and
+      inconsistent shared equations.
+- [x] Add a generated-repeat runtime smoke test proving repeat-origin children
+      can render with unit-aspect shared domains.
+- [ ] Add facet shared-domain runtime tests.
+- [ ] Add radius-aware shared unit-aspect runtime tests.
 - [ ] Add or prepare the
       `cartesian_unit_aspect/facet_shared_equal_units.png` visual baseline when
       the facet/repeat graph integration is renderable in this phase.
 - [ ] Add or prepare the
       `cartesian_unit_aspect/radius_aware_symbols_shared.png` visual baseline
       using sized symbols near coordinated domain edges.
+- [x] Commit Phase 4 repeat-domain slice.
 - [ ] Commit Phase 4.
 
 ### Phase 5: Fixed Plot-Area Layout And Guides
