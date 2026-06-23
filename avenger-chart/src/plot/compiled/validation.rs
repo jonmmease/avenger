@@ -121,6 +121,13 @@ impl CompiledPlot {
         self.validate_transform_output_scale_sharing_recursive()
     }
 
+    pub(crate) fn validate_unit_aspect_constraints(&self) -> Result<(), AvengerChartError> {
+        if self.has_unit_aspect_constraints() {
+            self.resolved_unit_aspect_constraints()?;
+        }
+        Ok(())
+    }
+
     fn collect_param_specs(&self, out: &mut HashMap<String, CompiledParamSpec>) {
         for (name, spec) in &self.param_specs {
             out.entry(name.clone()).or_insert_with(|| spec.clone());

@@ -15,7 +15,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
 
 use crate::{
-    concat::{ConcatGuide, GridConcat, HConcat, VConcat, WrapConcat},
+    concat::{ConcatGuide, ConcatOrigin, GridConcat, HConcat, VConcat, WrapConcat},
     tools::ToolCompileContext,
 };
 
@@ -337,7 +337,7 @@ impl CoordinateSystem for RepeatColumns {
     type Guide = ConcatGuide;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(HConcat::new())
+        Box::new(HConcat::new().with_origin(ConcatOrigin::RepeatColumns))
     }
 }
 
@@ -351,7 +351,7 @@ impl CoordinateSystem for RepeatRows {
     type Guide = ConcatGuide;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(VConcat::new())
+        Box::new(VConcat::new().with_origin(ConcatOrigin::RepeatRows))
     }
 }
 
@@ -368,7 +368,8 @@ impl CoordinateSystem for RepeatGrid {
         Box::new(
             GridConcat::new()
                 .rows(self.rows.len().max(1))
-                .columns(self.columns.len().max(1)),
+                .columns(self.columns.len().max(1))
+                .with_origin(ConcatOrigin::RepeatGrid),
         )
     }
 }
@@ -383,7 +384,11 @@ impl CoordinateSystem for RepeatWrap {
     type Guide = ConcatGuide;
 
     fn create_transform(&self) -> Box<dyn CoordinateSystemTransform> {
-        Box::new(WrapConcat::new().with_column_mode(self.column_mode.clone()))
+        Box::new(
+            WrapConcat::new()
+                .with_column_mode(self.column_mode.clone())
+                .with_origin(ConcatOrigin::RepeatWrap),
+        )
     }
 }
 

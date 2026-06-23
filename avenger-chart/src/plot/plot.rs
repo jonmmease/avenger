@@ -24,7 +24,7 @@ use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
 
 use crate::{
-    concat::{GridConcat, HConcat, VConcat, WrapConcat},
+    concat::{ConcatOrigin, GridConcat, HConcat, VConcat, WrapConcat},
     event::{ChartEventBinding, ChartEventStream, rewrite_reserved_event_binding_local_datums},
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
     legend::ColorbarOverlay,
@@ -752,6 +752,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // 6. Validate scoped raw-domain params are shared at least as broadly as
         // the scales they drive (catches Free/Level pan misconfigurations early).
+        compiled.validate_unit_aspect_constraints()?;
         compiled.validate_scoped_raw_domain_sharing(session_context)?;
         compiled.validate_transform_output_scale_sharing()?;
 
@@ -1543,7 +1544,11 @@ fn lower_repeat_columns_plot<C: CoordinateSystem>(
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
     let parts = split_repeat_plot(plot, "RepeatColumns")?;
-    Ok(finish_lowered_repeat_plot(parts, HConcat::new(), marks))
+    Ok(finish_lowered_repeat_plot(
+        parts,
+        HConcat::new().with_origin(ConcatOrigin::RepeatColumns),
+        marks,
+    ))
 }
 
 fn lower_repeat_rows_plot<C: CoordinateSystem>(
@@ -1579,7 +1584,11 @@ fn lower_repeat_rows_plot<C: CoordinateSystem>(
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
     let parts = split_repeat_plot(plot, "RepeatRows")?;
-    Ok(finish_lowered_repeat_plot(parts, VConcat::new(), marks))
+    Ok(finish_lowered_repeat_plot(
+        parts,
+        VConcat::new().with_origin(ConcatOrigin::RepeatRows),
+        marks,
+    ))
 }
 
 fn lower_repeat_grid_plot<C: CoordinateSystem>(
@@ -1627,7 +1636,8 @@ fn lower_repeat_grid_plot<C: CoordinateSystem>(
         GridConcat::new()
             .rows(row_count)
             .columns(column_count)
-            .with_axis_guide_visibility_config(repeat.axis_guide_visibility_config()),
+            .with_axis_guide_visibility_config(repeat.axis_guide_visibility_config())
+            .with_origin(ConcatOrigin::RepeatGrid),
         marks,
     ))
 }
@@ -1671,7 +1681,9 @@ fn lower_repeat_wrap_plot<C: CoordinateSystem>(
     let parts = split_repeat_plot(plot, "RepeatWrap")?;
     Ok(finish_lowered_repeat_plot(
         parts,
-        WrapConcat::new().with_column_mode(repeat.column_mode_config().clone()),
+        WrapConcat::new()
+            .with_column_mode(repeat.column_mode_config().clone())
+            .with_origin(ConcatOrigin::RepeatWrap),
         marks,
     ))
 }

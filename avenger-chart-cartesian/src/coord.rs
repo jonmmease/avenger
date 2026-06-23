@@ -1,9 +1,10 @@
 use std::{any::Any, collections::HashMap};
 
 use avenger_chart_core::{
-    AvengerChartError, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
-    CoordinateSystemTransformCore, InteractionPointInversionRequest, PlotAreaRangeEndpoint,
-    PlotGeometry, PointGeometry, ScaleRangeBinding,
+    AvengerChartError, CartesianUnitAspect, CoordinateSystem, CoordinateSystemCore,
+    CoordinateSystemTransform, CoordinateSystemTransformCore, InteractionPointInversionRequest,
+    PlotAreaRangeEndpoint, PlotGeometry, PointGeometry, ScaleRangeBinding, UnitAspectConstraint,
+    UnitAspectPolicy,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
@@ -22,12 +23,57 @@ fn cartesian_range_channel(channel: &str) -> &str {
 }
 
 /// Cartesian coordinate system with x and y axes.
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct Cartesian;
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Cartesian {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    unit_aspect: Option<CartesianUnitAspect>,
+}
+
+impl Cartesian {
+    pub const fn new() -> Self {
+        Self { unit_aspect: None }
+    }
+
+    pub fn unit_aspect(mut self, ratio: f64) -> Self {
+        self.unit_aspect = Some(CartesianUnitAspect { ratio });
+        self
+    }
+
+    pub fn equal_units(self) -> Self {
+        self.unit_aspect(1.0)
+    }
+
+    pub fn without_unit_aspect(mut self) -> Self {
+        self.unit_aspect = None;
+        self
+    }
+
+    pub fn unit_aspect_constraint(&self) -> Option<CartesianUnitAspect> {
+        self.unit_aspect
+    }
+}
+
+impl Default for Cartesian {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl CoordinateSystemCore for Cartesian {
     fn required_channels(&self) -> &'static [&'static str] {
         &["x", "y"]
+    }
+
+    fn validate(&self) -> Result<(), AvengerChartError> {
+        if let Some(unit_aspect) = self.unit_aspect
+            && (!unit_aspect.ratio.is_finite() || unit_aspect.ratio <= 0.0)
+        {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Cartesian unit_aspect ratio must be positive and finite, got {}",
+                unit_aspect.ratio
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -113,6 +159,18 @@ impl CoordinateSystemTransformCore for Cartesian {
         }
 
         options
+    }
+
+    fn unit_aspect_constraints(&self) -> Vec<UnitAspectConstraint> {
+        self.unit_aspect
+            .map(|unit_aspect| UnitAspectConstraint {
+                x_channel: "x".to_string(),
+                y_channel: "y".to_string(),
+                ratio: unit_aspect.ratio,
+                policy: UnitAspectPolicy::ExpandDomain,
+            })
+            .into_iter()
+            .collect()
     }
 
     fn interaction_invertible_channels(&self) -> Vec<String> {
@@ -225,7 +283,51 @@ mod tests {
 
     #[test]
     fn cartesian_interaction_invertible_channels_are_x_and_y() {
-        assert_eq!(Cartesian.interaction_invertible_channels(), vec!["x", "y"]);
+        assert_eq!(
+            Cartesian::new().interaction_invertible_channels(),
+            vec!["x", "y"]
+        );
+    }
+
+    #[test]
+    fn cartesian_unit_aspect_builders_store_constraint() {
+        let coord = Cartesian::new().unit_aspect(2.0);
+        assert_eq!(
+            coord.unit_aspect_constraint(),
+            Some(CartesianUnitAspect { ratio: 2.0 })
+        );
+        assert_eq!(
+            coord.unit_aspect_constraints(),
+            vec![UnitAspectConstraint {
+                x_channel: "x".to_string(),
+                y_channel: "y".to_string(),
+                ratio: 2.0,
+                policy: UnitAspectPolicy::ExpandDomain,
+            }]
+        );
+        assert_eq!(coord.without_unit_aspect().unit_aspect_constraint(), None);
+        assert_eq!(
+            Cartesian::new().equal_units().unit_aspect_constraint(),
+            Some(CartesianUnitAspect { ratio: 1.0 })
+        );
+    }
+
+    #[test]
+    fn cartesian_unit_aspect_validate_rejects_non_positive_or_non_finite() {
+        for ratio in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let err = Cartesian::new()
+                .unit_aspect(ratio)
+                .validate()
+                .expect_err("invalid unit aspect ratio should fail validation");
+            assert!(
+                matches!(err, AvengerChartError::InvalidArgument(_)),
+                "unexpected error for ratio {ratio}: {err:?}"
+            );
+        }
+        Cartesian::new()
+            .unit_aspect(1.0)
+            .validate()
+            .expect("positive finite ratio");
     }
 
     #[test]
@@ -235,7 +337,7 @@ mod tests {
             "x".to_string(),
             LinearScale::configured((0.0, 10.0), (0.0, 100.0)),
         );
-        let inverted = Cartesian
+        let inverted = Cartesian::new()
             .invert_interaction_point(InteractionPointInversionRequest {
                 local_point: [25.0, 0.0],
                 plot_area_width: 100.0,
@@ -259,7 +361,7 @@ mod tests {
             "y".to_string(),
             LinearScale::configured((0.0, 10.0), (100.0, 0.0)),
         );
-        let inverted = Cartesian
+        let inverted = Cartesian::new()
             .invert_interaction_point(InteractionPointInversionRequest {
                 local_point: [0.0, 25.0],
                 plot_area_width: 100.0,
@@ -280,7 +382,7 @@ mod tests {
         let mut scales = HashMap::new();
         scales.insert("x".to_string(), BandScale::configured(domain, (0.0, 300.0)));
 
-        let inverted = Cartesian
+        let inverted = Cartesian::new()
             .invert_interaction_point(InteractionPointInversionRequest {
                 local_point: [150.0, 0.0],
                 plot_area_width: 300.0,
@@ -308,7 +410,7 @@ mod tests {
             NestedBandScale::configured(domain, (0.0, 300.0)),
         );
 
-        let inverted = Cartesian
+        let inverted = Cartesian::new()
             .invert_interaction_point(InteractionPointInversionRequest {
                 local_point: [150.0, 0.0],
                 plot_area_width: 300.0,
@@ -336,7 +438,7 @@ mod tests {
                 .with_option("padding_inner_px_levels", ",20"),
         );
 
-        let inverted = Cartesian
+        let inverted = Cartesian::new()
             .invert_interaction_point(InteractionPointInversionRequest {
                 local_point: [105.0, 0.0],
                 plot_area_width: 220.0,
@@ -352,7 +454,7 @@ mod tests {
     #[test]
     fn interaction_invert_missing_scale_is_invalid_argument() {
         let scales = HashMap::new();
-        let err = Cartesian
+        let err = Cartesian::new()
             .invert_interaction_point(InteractionPointInversionRequest {
                 local_point: [25.0, 0.0],
                 plot_area_width: 100.0,

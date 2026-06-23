@@ -44,8 +44,9 @@ use avenger_chart_core::{
     CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot,
     CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
     EvaluationContext as CoreEvaluationContext, EventDatumFieldSpec, FacetDataScope, Legend,
-    LogicalPlanNodeExt, MarkDataMode, ScaleInferenceHint, ScaleRangeBinding, SerializableDataFrame,
-    SerializableScalarMap, Theme, TimeContext, ToolMetadata, channel::strip_trailing_numbers,
+    LogicalPlanNodeExt, MarkDataMode, ResolvedUnitAspectConstraint, ScaleInferenceHint,
+    ScaleRangeBinding, SerializableDataFrame, SerializableScalarMap, Theme, TimeContext,
+    ToolMetadata, channel::strip_trailing_numbers,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
@@ -153,6 +154,23 @@ fn is_data_transparent_group(group: &CompiledMarkGroupState) -> bool {
         && group.data.transforms().is_empty()
         && group.data_mode == MarkDataMode::Inherit
         && group.facet_data_scope == FacetDataScope::FILTERED
+}
+
+fn one_unit_aspect_scale(
+    coord_channel: &str,
+    scale_names: &[String],
+    axis_label: &str,
+) -> Result<String, AvengerChartError> {
+    match scale_names {
+        [scale_name] => Ok(scale_name.clone()),
+        [] => Err(AvengerChartError::InvalidArgument(format!(
+            "unit_aspect {axis_label} channel '{coord_channel}' does not resolve to a scale"
+        ))),
+        names => Err(AvengerChartError::InvalidArgument(format!(
+            "unit_aspect {axis_label} channel '{coord_channel}' resolves to multiple scales: {}",
+            names.join(", ")
+        ))),
+    }
 }
 
 #[serde_as]
@@ -286,6 +304,74 @@ impl CompiledPlot {
             }
             group_index = group.parent_group_index?;
         }
+    }
+
+    pub(crate) fn has_unit_aspect_constraints(&self) -> bool {
+        !self.coord_transform.unit_aspect_constraints().is_empty()
+    }
+
+    pub(crate) fn resolved_unit_aspect_constraints(
+        &self,
+    ) -> Result<Vec<ResolvedUnitAspectConstraint>, AvengerChartError> {
+        self.coord_transform
+            .unit_aspect_constraints()
+            .into_iter()
+            .map(|constraint| {
+                if !constraint.ratio.is_finite() || constraint.ratio <= 0.0 {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "unit_aspect ratio must be positive and finite, got {}",
+                        constraint.ratio
+                    )));
+                }
+
+                let x_scales = self.scale_names_for_coord_channel(&constraint.x_channel);
+                let y_scales = self.scale_names_for_coord_channel(&constraint.y_channel);
+                let x_scale = one_unit_aspect_scale(&constraint.x_channel, &x_scales, "x")?;
+                let y_scale = one_unit_aspect_scale(&constraint.y_channel, &y_scales, "y")?;
+                if x_scale == y_scale {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "unit_aspect channels '{}' and '{}' both resolve to scale '{}'",
+                        constraint.x_channel, constraint.y_channel, x_scale
+                    )));
+                }
+
+                Ok(ResolvedUnitAspectConstraint {
+                    x_channel: constraint.x_channel,
+                    y_channel: constraint.y_channel,
+                    x_scale,
+                    y_scale,
+                    ratio: constraint.ratio,
+                    policy: constraint.policy,
+                })
+            })
+            .collect()
+    }
+
+    fn scale_names_for_coord_channel(&self, coord_channel: &str) -> Vec<String> {
+        let mut names = BTreeSet::new();
+        for (scale_name, mapped_coord_channel) in &self.scale_to_coord_channel {
+            if mapped_coord_channel == coord_channel {
+                names.insert(scale_name.clone());
+            }
+        }
+        for mark in &self.marks {
+            for (channel_name, channel_value) in mark.data_context().channels() {
+                if !self.coord_transform.channel_uses_scale(channel_name) {
+                    continue;
+                }
+                let base_channel = strip_trailing_numbers(channel_name);
+                if base_channel != coord_channel {
+                    continue;
+                }
+                if let Some(scale_name) = channel_value.get_scale_name(channel_name) {
+                    names.insert(scale_name);
+                }
+            }
+        }
+        if names.is_empty() && self.scale_specs.contains_key(coord_channel) {
+            names.insert(coord_channel.to_string());
+        }
+        names.into_iter().collect()
     }
 
     pub(crate) fn scale_inference_hints_for_mark(

@@ -26,13 +26,14 @@ pub use crate::event::{
 pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use crate::repeat;
 pub use crate::repeat::{RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap};
-pub use avenger_chart_cartesian::Cartesian;
+pub use avenger_chart_cartesian::{Cartesian, CartesianUnitAspect};
 pub use avenger_chart_core::time;
 pub use avenger_chart_core::{
     AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CoordinationScope, CursorStyle,
     EmptySelectionBehavior, FacetEmptyCellPolicy, IntoPlotMark, MarkGroup, PlotMark, Selection,
     SelectionClauseUpdate, SelectionCombine, SelectionSceneQuery, SelectionUpdate, Store,
     StoreData, StoreFieldPatch, StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext,
+    UnitAspectAdjustedAxis, UnitAspectAdjustment, UnitAspectConstraint, UnitAspectPolicy,
     WeekStart, ZeroDCoord,
 };
 pub use avenger_chart_core::{

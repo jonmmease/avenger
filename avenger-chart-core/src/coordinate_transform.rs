@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 
 use crate::{
     AvengerChartError, CompiledMark, CoordMeasurement, PlotGeometry, ScaleRangeBinding,
-    ScaleTypePreference,
+    ScaleTypePreference, UnitAspectConstraint,
 };
 
 /// Display/equilibrium geometry for a generated position channel.
@@ -156,6 +156,15 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
     /// caches use this list to avoid reusing stale mark geometry when those
     /// params change.
     fn runtime_param_dependencies(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Unit-aspect constraints owned by this coordinate transform.
+    ///
+    /// Coordinates return coordinate-channel pairs here. Plot compilation
+    /// resolves those channels to concrete scale names after mark channel
+    /// configuration has been collected.
+    fn unit_aspect_constraints(&self) -> Vec<UnitAspectConstraint> {
         Vec::new()
     }
 

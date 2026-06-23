@@ -268,6 +268,10 @@ pub(crate) struct PreparedChildFramePlot<'a> {
 }
 
 impl<'a> PreparedChildFramePlot<'a> {
+    pub(crate) fn plot(&self) -> &'a CompiledPlot {
+        self.plot
+    }
+
     pub(crate) fn local_domain_extents(&self) -> &HashMap<String, ChildFrameChannelDomainExtent> {
         &self.local_domain_extents
     }

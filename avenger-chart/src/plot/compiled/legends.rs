@@ -264,7 +264,7 @@ fn legend_continuous_surface_interaction_scopes(
                 coord_node_path: Vec::new(),
                 subplot_id_path: Vec::new(),
                 child_frame_path: Vec::new(),
-                coord_transform: Box::new(Cartesian),
+                coord_transform: Box::new(Cartesian::new()),
                 channels: vec![surface.value_channel.clone(), surface.band_channel.clone()],
                 scales,
                 sharing_owner_paths: HashMap::new(),
@@ -1678,7 +1678,7 @@ impl CompiledPlot {
                 RenderState::new(surface.bounds.width, surface.bounds.height, scales.clone());
             let coord_measurement = EmptyCoordMeasurement;
             let render_ctx = RenderContext::new(eval_ctx, &render_state, &[], &coord_measurement);
-            let coord_transform = Cartesian;
+            let coord_transform = Cartesian::new();
 
             for mark in marks {
                 let Some(prepared) = prepare_mark_data_runtime(MarkDataRequest {

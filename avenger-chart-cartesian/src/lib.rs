@@ -4,6 +4,7 @@ pub mod coord;
 pub mod guide;
 pub mod marks;
 
+pub use avenger_chart_core::CartesianUnitAspect;
 pub use axis::{AxisPosition, CartesianAxis, evaluate_cartesian_axis};
 pub use channels::CartesianPositionConfig;
 pub use coord::Cartesian;

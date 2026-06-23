@@ -5,6 +5,7 @@ pub mod guide;
 pub mod marks;
 
 pub use avenger_chart_core::AxisPosition;
+pub use avenger_chart_core::CartesianUnitAspect;
 pub use axis::CartesianAxis;
 pub use channels::CartesianPositionConfig;
 pub use coord::Cartesian;

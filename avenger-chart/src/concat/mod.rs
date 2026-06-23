@@ -158,12 +158,25 @@ fn seeded_track_budgets(
 }
 
 /// Horizontal concatenation of `Subplot` marks.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ConcatOrigin {
+    #[default]
+    Authored,
+    RepeatColumns,
+    RepeatRows,
+    RepeatGrid,
+    RepeatWrap,
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct HConcat {
     #[serde(default)]
     spacing: Option<f32>,
     #[serde(default)]
     widths: Option<Vec<TrackSizing>>,
+    #[serde(default)]
+    origin: ConcatOrigin,
 }
 
 impl HConcat {
@@ -191,6 +204,15 @@ impl HConcat {
     pub(crate) fn widths_config(&self) -> Option<&[TrackSizing]> {
         self.widths.as_deref()
     }
+
+    pub(crate) fn origin(&self) -> ConcatOrigin {
+        self.origin
+    }
+
+    pub(crate) fn with_origin(mut self, origin: ConcatOrigin) -> Self {
+        self.origin = origin;
+        self
+    }
 }
 
 /// Vertical concatenation of `Subplot` marks.
@@ -200,6 +222,8 @@ pub struct VConcat {
     spacing: Option<f32>,
     #[serde(default)]
     heights: Option<Vec<TrackSizing>>,
+    #[serde(default)]
+    origin: ConcatOrigin,
 }
 
 impl VConcat {
@@ -227,6 +251,15 @@ impl VConcat {
     pub(crate) fn heights_config(&self) -> Option<&[TrackSizing]> {
         self.heights.as_deref()
     }
+
+    pub(crate) fn origin(&self) -> ConcatOrigin {
+        self.origin
+    }
+
+    pub(crate) fn with_origin(mut self, origin: ConcatOrigin) -> Self {
+        self.origin = origin;
+        self
+    }
 }
 
 /// Explicit two-dimensional concatenation of `Subplot` marks.
@@ -242,6 +275,8 @@ pub struct GridConcat {
     row_heights: Option<Vec<TrackSizing>>,
     #[serde(default)]
     axis_guide_visibility: AxisGuideVisibilityConfig,
+    #[serde(default)]
+    origin: ConcatOrigin,
 }
 
 /// Row-major wrapped concatenation of `Subplot` marks.
@@ -252,6 +287,8 @@ pub struct WrapConcat {
     spacing: Option<f32>,
     #[serde(default)]
     axis_guide_visibility: AxisGuideVisibilityConfig,
+    #[serde(default)]
+    origin: ConcatOrigin,
 }
 
 impl Default for WrapConcat {
@@ -260,6 +297,7 @@ impl Default for WrapConcat {
             column_mode: FacetWrapColumnMode::Auto,
             spacing: None,
             axis_guide_visibility: AxisGuideVisibilityConfig::auto(),
+            origin: ConcatOrigin::Authored,
         }
     }
 }
@@ -312,6 +350,15 @@ impl WrapConcat {
 
     pub(crate) fn axis_guide_visibility_config(&self) -> AxisGuideVisibilityConfig {
         self.axis_guide_visibility
+    }
+
+    pub(crate) fn origin(&self) -> ConcatOrigin {
+        self.origin
+    }
+
+    pub(crate) fn with_origin(mut self, origin: ConcatOrigin) -> Self {
+        self.origin = origin;
+        self
     }
 }
 
@@ -385,6 +432,15 @@ impl GridConcat {
 
     pub(crate) fn axis_guide_visibility_config(&self) -> AxisGuideVisibilityConfig {
         self.axis_guide_visibility
+    }
+
+    pub(crate) fn origin(&self) -> ConcatOrigin {
+        self.origin
+    }
+
+    pub(crate) fn with_origin(mut self, origin: ConcatOrigin) -> Self {
+        self.origin = origin;
+        self
     }
 }
 
@@ -1412,6 +1468,44 @@ fn coordinated_domain_extents_for_concat_children(
     coordinated_child_frame_domain_extents(&inputs)
 }
 
+fn validate_unit_aspect_concat_domain_sharing(
+    origin: ConcatOrigin,
+    container_name: &str,
+    children: &[PreparedConcatChild<'_>],
+) -> Result<(), AvengerChartError> {
+    if origin != ConcatOrigin::Authored {
+        return Ok(());
+    }
+
+    for child in children {
+        let constraints = child.child_plot.plot().resolved_unit_aspect_constraints()?;
+        for constraint in constraints {
+            for (axis, scale_name) in [
+                ("x", constraint.x_scale.as_str()),
+                ("y", constraint.y_scale.as_str()),
+            ] {
+                let Some(coordination) = child
+                    .child_plot
+                    .channel_domain_sharing_levels()
+                    .get(scale_name)
+                else {
+                    continue;
+                };
+                if SharingLevel::from(coordination.scope).is_free() {
+                    continue;
+                }
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "{container_name} does not support non-free child-frame domain sharing for \
+                     unit_aspect child scale '{scale_name}' ({axis} channel) in v1; use local \
+                     child domains, facet/repeat sharing, or remove unit_aspect"
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn prepare_concat_child<'a>(
     subplot: &'a CompiledConcatSubplot,
     eval_ctx: &EvaluationContext,
@@ -1488,6 +1582,7 @@ async fn measure_prepared_concat_child(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn measure_concat_coord_system(
     direction: Orientation,
+    origin: ConcatOrigin,
     spacing: f32,
     main_sizes: Option<&[TrackSizing]>,
     plot_width: f32,
@@ -1519,6 +1614,14 @@ pub(crate) async fn measure_concat_coord_system(
     for subplot in subplots {
         prepared_children.push(Box::pin(prepare_concat_child(subplot, eval_ctx, data)).await?);
     }
+    validate_unit_aspect_concat_domain_sharing(
+        origin,
+        match direction {
+            Orientation::Horizontal => "HConcat",
+            Orientation::Vertical => "VConcat",
+        },
+        &prepared_children,
+    )?;
 
     let coordinated_domain_extents =
         coordinated_domain_extents_for_concat_children(&prepared_children);
@@ -1622,6 +1725,7 @@ pub(crate) async fn measure_grid_concat_coord_system(
     for subplot in subplots {
         prepared_children.push(Box::pin(prepare_concat_child(subplot, eval_ctx, data)).await?);
     }
+    validate_unit_aspect_concat_domain_sharing(grid.origin(), "GridConcat", &prepared_children)?;
     let semantic_children = prepared_children
         .iter()
         .filter_map(|prepared| {
@@ -1757,6 +1861,7 @@ pub(crate) async fn measure_wrap_concat_coord_system(
     for subplot in subplots {
         prepared_children.push(Box::pin(prepare_concat_child(subplot, eval_ctx, data)).await?);
     }
+    validate_unit_aspect_concat_domain_sharing(wrap.origin(), "WrapConcat", &prepared_children)?;
     let semantic_children = prepared_children
         .iter()
         .enumerate()

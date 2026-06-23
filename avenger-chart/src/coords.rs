@@ -200,6 +200,7 @@ pub(crate) async fn measure_coordinate_system_transform(
     if let Some(hconcat) = any.downcast_ref::<crate::concat::HConcat>() {
         return Box::pin(crate::concat::measure_concat_coord_system(
             crate::layout::Orientation::Horizontal,
+            hconcat.origin(),
             hconcat.spacing_px(),
             hconcat.widths_config(),
             request.plot_width(),
@@ -215,6 +216,7 @@ pub(crate) async fn measure_coordinate_system_transform(
     if let Some(vconcat) = any.downcast_ref::<crate::concat::VConcat>() {
         return Box::pin(crate::concat::measure_concat_coord_system(
             crate::layout::Orientation::Vertical,
+            vconcat.origin(),
             vconcat.spacing_px(),
             vconcat.heights_config(),
             request.plot_width(),
@@ -300,7 +302,7 @@ mod tests {
     #[test]
     fn test_coordinate_transform_serialization() {
         // Create a coordinate system transform
-        let cartesian = Cartesian;
+        let cartesian = Cartesian::new();
         let transform: Box<dyn CoordinateSystemTransform> = Box::new(cartesian);
 
         // Serialize it

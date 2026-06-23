@@ -85,6 +85,7 @@ pub mod time_expr;
 pub mod title_spec;
 pub mod tools;
 pub mod transform;
+pub mod unit_aspect;
 pub mod zero_d;
 
 #[doc(hidden)]
@@ -307,5 +308,9 @@ pub use transform::{
     CompiledDataTransform, DataTransform, DataTransformCompileContext,
     DataTransformExecutionContext, DataTransformFacetContext, DataTransformResult,
     DataTransformStage, apply_compiled_data_transforms,
+};
+pub use unit_aspect::{
+    CartesianUnitAspect, ResolvedUnitAspectConstraint, UnitAspectAdjustedAxis,
+    UnitAspectAdjustment, UnitAspectConstraint, UnitAspectPolicy,
 };
 pub use zero_d::ZeroDCoord;
