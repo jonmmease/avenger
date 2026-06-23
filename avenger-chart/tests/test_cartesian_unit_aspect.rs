@@ -1,5 +1,7 @@
 use avenger_chart::prelude::*;
-use avenger_chart::render::SvgRenderer;
+use avenger_chart::render::{
+    EvaluatedPlot, EvaluationOptions, FacetLayoutRefinement, InteractionScopeKind, SvgRenderer,
+};
 use datafusion::common::ScalarValue;
 use datafusion::prelude::{SessionContext, col};
 use indexmap::IndexMap;
@@ -90,6 +92,91 @@ fn unit_aspect_ratio_from_domains(
     let px_per_x = width / (x_domain.1 - x_domain.0).abs();
     let px_per_y = height / (y_domain.1 - y_domain.0).abs();
     px_per_y / px_per_x
+}
+
+fn coordinate_scope_unit_aspect_ratio(evaluated: &EvaluatedPlot) -> f32 {
+    let scope = evaluated
+        .interaction
+        .scopes
+        .iter()
+        .find(|scope| scope.kind == InteractionScopeKind::Coordinate)
+        .expect("coordinate interaction scope");
+    let x_domain = scope
+        .scales
+        .get("x")
+        .expect("x scale")
+        .numeric_interval_domain()
+        .expect("x numeric domain");
+    let y_domain = scope
+        .scales
+        .get("y")
+        .expect("y scale")
+        .numeric_interval_domain()
+        .expect("y numeric domain");
+    let x_range = scope
+        .scales
+        .get("x")
+        .expect("x scale")
+        .numeric_interval_range()
+        .expect("x numeric range");
+    let y_range = scope
+        .scales
+        .get("y")
+        .expect("y scale")
+        .numeric_interval_range()
+        .expect("y numeric range");
+
+    unit_aspect_ratio_from_domains(
+        x_domain,
+        y_domain,
+        (x_range.1 - x_range.0).abs(),
+        (y_range.1 - y_range.0).abs(),
+    )
+}
+
+fn coordinate_scope_domains(evaluated: &EvaluatedPlot) -> ((f32, f32), (f32, f32)) {
+    let scope = evaluated
+        .interaction
+        .scopes
+        .iter()
+        .find(|scope| scope.kind == InteractionScopeKind::Coordinate)
+        .expect("coordinate interaction scope");
+    let x_domain = scope
+        .scales
+        .get("x")
+        .expect("x scale")
+        .numeric_interval_domain()
+        .expect("x numeric domain");
+    let y_domain = scope
+        .scales
+        .get("y")
+        .expect("y scale")
+        .numeric_interval_domain()
+        .expect("y numeric domain");
+    (x_domain, y_domain)
+}
+
+fn coordinate_scope_unit_aspect_ratios(evaluated: &EvaluatedPlot) -> Vec<f32> {
+    evaluated
+        .interaction
+        .scopes
+        .iter()
+        .filter(|scope| scope.kind == InteractionScopeKind::Coordinate)
+        .filter_map(|scope| {
+            let x_scale = scope.scales.get("x")?;
+            let y_scale = scope.scales.get("y")?;
+            let x_domain = x_scale.numeric_interval_domain().ok()?;
+            let y_domain = y_scale.numeric_interval_domain().ok()?;
+            let x_range = x_scale.numeric_interval_range().ok()?;
+            let y_range = y_scale.numeric_interval_range().ok()?;
+            Some(unit_aspect_ratio_from_domains(
+                x_domain,
+                y_domain,
+                (x_range.1 - x_range.0).abs(),
+                (y_range.1 - y_range.0).abs(),
+            ))
+        })
+        .collect()
 }
 
 #[tokio::test]
@@ -366,6 +453,239 @@ async fn cartesian_unit_aspect_final_scales_satisfy_fixed_plot_ratio() {
         unit_aspect_ratio_from_domains(x_domain, y_domain, 600.0, 300.0),
         2.0,
     );
+}
+
+#[tokio::test]
+async fn cartesian_unit_aspect_canvas_refinement_final_scales_satisfy_realized_plot_ratio() {
+    let ctx = SessionContext::new();
+    let df = xy_data(&ctx).await;
+    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+        .canvas_size(560.0, 340.0)
+        .data(df)
+        .mark(
+            Line::new()
+                .x_with(col("x"), |x| {
+                    x.scale_with::<Linear>(|scale| {
+                        scale.domain((0.0, 10.0)).nice(false).zero(false)
+                    })
+                    .axis(|axis| axis.title("refined canvas x").grid(true))
+                })
+                .y_with(col("y"), |y| {
+                    y.scale_with::<Linear>(|scale| {
+                        scale.domain((0.0, 10.0)).nice(false).zero(false)
+                    })
+                    .axis(|axis| axis.title("refined canvas y").grid(true))
+                }),
+        );
+    let compiled = plot.compile(&ctx).await.expect("compile canvas plot");
+    let (evaluated, metrics) = compiled
+        .evaluate_with_options_and_metrics(
+            &ctx,
+            None,
+            EvaluationOptions {
+                facet_layout_refinement: FacetLayoutRefinement {
+                    max_refinement_passes: 2,
+                    overflow_growth_epsilon: 0.5,
+                },
+                ..EvaluationOptions::default()
+            },
+        )
+        .await
+        .expect("evaluate canvas plot");
+
+    assert!(
+        metrics.facet_layout.refinement_pass_count >= 1,
+        "canvas layout should run refinement: {metrics:?}"
+    );
+    assert_close(coordinate_scope_unit_aspect_ratio(&evaluated), 1.0);
+}
+
+#[tokio::test]
+async fn cartesian_unit_aspect_canvas_refinement_does_not_ratchet_domains() {
+    let ctx = SessionContext::new();
+    let width = Param::new("canvas_width", ScalarValue::Float64(Some(560.0)));
+    let df = xy_data(&ctx).await;
+    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+        .add_param(width.clone())
+        .canvas_size(width.expr(), 340.0)
+        .data(df)
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |x| {
+                    x.scale_with::<Linear>(|scale| {
+                        scale.domain((0.0, 10.0)).nice(false).zero(false)
+                    })
+                    .axis(|axis| axis.title("param x").grid(true))
+                })
+                .y_with(col("y"), |y| {
+                    y.scale_with::<Linear>(|scale| {
+                        scale.domain((0.0, 10.0)).nice(false).zero(false)
+                    })
+                    .axis(|axis| axis.title("param y").grid(true))
+                })
+                .size(80.0),
+        );
+    let compiled = plot.compile(&ctx).await.expect("compile param-width plot");
+    let options = EvaluationOptions {
+        facet_layout_refinement: FacetLayoutRefinement {
+            max_refinement_passes: 2,
+            overflow_growth_epsilon: 0.5,
+        },
+        ..EvaluationOptions::default()
+    };
+    let params = |value| {
+        IndexMap::from([(
+            "canvas_width".to_string(),
+            ScalarValue::Float64(Some(value)),
+        )])
+    };
+
+    let (first, _) = compiled
+        .evaluate_with_options_and_metrics(&ctx, Some(params(560.0)), options.clone())
+        .await
+        .expect("evaluate first width");
+    let (middle, _) = compiled
+        .evaluate_with_options_and_metrics(&ctx, Some(params(460.0)), options.clone())
+        .await
+        .expect("evaluate middle width");
+    let (second, _) = compiled
+        .evaluate_with_options_and_metrics(&ctx, Some(params(560.0)), options)
+        .await
+        .expect("evaluate repeated width");
+
+    let (first_x, first_y) = coordinate_scope_domains(&first);
+    let (middle_x, middle_y) = coordinate_scope_domains(&middle);
+    let (second_x, second_y) = coordinate_scope_domains(&second);
+
+    assert_close(coordinate_scope_unit_aspect_ratio(&first), 1.0);
+    assert_close(coordinate_scope_unit_aspect_ratio(&middle), 1.0);
+    assert_close(coordinate_scope_unit_aspect_ratio(&second), 1.0);
+    assert_close(first_x.0, second_x.0);
+    assert_close(first_x.1, second_x.1);
+    assert_close(first_y.0, second_y.0);
+    assert_close(first_y.1, second_y.1);
+    assert!(
+        first_x != middle_x || first_y != middle_y,
+        "different plot-area sizes should produce different constrained domains"
+    );
+}
+
+#[tokio::test]
+async fn facet_column_unit_aspect_canvas_refinement_reruns_shared_domain_solve() {
+    let ctx = SessionContext::new();
+    let df = ctx
+        .sql(
+            "SELECT 'left' AS panel, 0.0 AS x, 0.0 AS y \
+             UNION ALL SELECT 'left' AS panel, 10.0 AS x, 10.0 AS y \
+             UNION ALL SELECT 'right' AS panel, 0.0 AS x, 0.0 AS y \
+             UNION ALL SELECT 'right' AS panel, 5.0 AS x, 10.0 AS y",
+        )
+        .await
+        .unwrap();
+    let child = Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(
+        Line::new()
+            .x_with(col("x"), |x| {
+                x.with_domain_scope(CoordinationScope::Shared)
+                    .axis(|axis| axis.title("shared canvas x").grid(true))
+            })
+            .y_with(col("y"), |y| {
+                y.with_domain_scope(CoordinationScope::Shared)
+                    .axis(|axis| axis.title("shared canvas y").grid(true))
+            }),
+    );
+    let plot = Plot::<FacetColumn>::new()
+        .canvas_size(660.0, 360.0)
+        .data(df)
+        .mark(Subplot::new(child).column(col("panel")));
+    let compiled = plot.compile(&ctx).await.expect("compile canvas facet");
+    let (evaluated, metrics) = compiled
+        .evaluate_with_options_and_metrics(
+            &ctx,
+            None,
+            EvaluationOptions {
+                facet_layout_refinement: FacetLayoutRefinement {
+                    max_refinement_passes: 2,
+                    overflow_growth_epsilon: 0.5,
+                },
+                ..EvaluationOptions::default()
+            },
+        )
+        .await
+        .expect("evaluate canvas facet");
+
+    assert!(
+        metrics.facet_layout.refinement_pass_count >= 1,
+        "facet canvas layout should run refinement: {metrics:?}"
+    );
+    let ratios = coordinate_scope_unit_aspect_ratios(&evaluated);
+    assert!(
+        ratios.len() >= 2,
+        "expected child coordinate scopes with x/y scales"
+    );
+    for ratio in ratios {
+        assert_close(ratio, 1.0);
+    }
+}
+
+#[tokio::test]
+async fn generated_repeat_unit_aspect_canvas_refinement_reruns_shared_domain_solve() {
+    let ctx = SessionContext::new();
+    let df = ctx
+        .sql(
+            "SELECT 0.0 AS a, 0.0 AS b, 0.0 AS y \
+             UNION ALL SELECT 10.0 AS a, 5.0 AS b, 10.0 AS y",
+        )
+        .await
+        .unwrap();
+    let cell = Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(
+        Line::new()
+            .x_with(repeat::column(), |x| {
+                x.axis(|axis| axis.title("repeat canvas x").grid(true))
+            })
+            .y_with(col("y"), |y| {
+                y.with_domain_scope(CoordinationScope::Shared)
+                    .axis(|axis| axis.title("repeat canvas y").grid(true))
+            }),
+    );
+    let plot = Plot::<RepeatColumns>::new()
+        .canvas_size(660.0, 320.0)
+        .data(df)
+        .columns([
+            RepeatVariable::new("a", col("a")),
+            RepeatVariable::new("b", col("b")),
+        ])
+        .with_repeat_domain_coordination(RepeatDomainCoordination::by_variable(
+            CoordinationScope::Shared,
+        ))
+        .cell(cell);
+    let compiled = plot.compile(&ctx).await.expect("compile canvas repeat");
+    let (evaluated, metrics) = compiled
+        .evaluate_with_options_and_metrics(
+            &ctx,
+            None,
+            EvaluationOptions {
+                facet_layout_refinement: FacetLayoutRefinement {
+                    max_refinement_passes: 2,
+                    overflow_growth_epsilon: 0.5,
+                },
+                ..EvaluationOptions::default()
+            },
+        )
+        .await
+        .expect("evaluate canvas repeat");
+
+    assert!(
+        metrics.facet_layout.refinement_pass_count >= 1,
+        "repeat canvas layout should run refinement: {metrics:?}"
+    );
+    let ratios = coordinate_scope_unit_aspect_ratios(&evaluated);
+    assert!(
+        ratios.len() >= 2,
+        "expected repeat child coordinate scopes with x/y scales"
+    );
+    for ratio in ratios {
+        assert_close(ratio, 1.0);
+    }
 }
 
 #[tokio::test]

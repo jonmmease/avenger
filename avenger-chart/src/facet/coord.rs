@@ -2591,13 +2591,17 @@ async fn unit_aspect_base_domain_extents_for_facet_cells(
             extents_by_cell.push(HashMap::new());
             continue;
         };
+        let (cell_plot_width, cell_plot_height) = nested_ctx
+            .eval_ctx
+            .facet_probe_size_override(&cell.plan.full_path)
+            .unwrap_or((subplot_plot_width, subplot_plot_height));
         extents_by_cell.push(
             unit_aspect_base_domain_extents_for_builder(
                 compiled_subplot.as_ref(),
                 &nested_ctx.eval_ctx,
                 scale_builder,
-                subplot_plot_width,
-                subplot_plot_height,
+                cell_plot_width,
+                cell_plot_height,
                 &[&cell.coordinated_domain_extents],
             )
             .await?,
@@ -2632,6 +2636,10 @@ fn apply_facet_unit_aspect_domain_overrides(
 
     let mut graph_inputs = Vec::new();
     for (cell, base_domain_extents) in cells.iter().zip(unit_aspect_base_domain_extents.iter()) {
+        let (cell_plot_width, cell_plot_height) = nested_ctx
+            .eval_ctx
+            .facet_probe_size_override(&cell.plan.full_path)
+            .unwrap_or((subplot_plot_width, subplot_plot_height));
         for constraint in constraints {
             let Some((x_node, x_extent)) = facet_unit_aspect_domain_node_and_extent(
                 cell,
@@ -2660,8 +2668,8 @@ fn apply_facet_unit_aspect_domain_overrides(
                 y_node,
                 x_extent,
                 y_extent,
-                x_range_span: f64::from(subplot_plot_width),
-                y_range_span: f64::from(subplot_plot_height),
+                x_range_span: f64::from(cell_plot_width),
+                y_range_span: f64::from(cell_plot_height),
                 ratio: constraint.ratio,
             });
         }

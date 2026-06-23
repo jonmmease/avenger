@@ -152,9 +152,15 @@ Rules for future agents:
   phase compiling.
 - Check off a task only after the code is implemented, formatted, tested, and
   included in the phase commit.
+- Treat checkboxes as the source of truth for resumability. If new work is
+  discovered during implementation, add a specific unchecked task before doing
+  it; do not hide required work inside prose-only notes.
 - Add a visual-baseline catalog item before generating any new PNG baseline.
   The catalog item must include the target file, scenario name, minimum data and
   layout shape, and visual acceptance criteria.
+- Track each planned baseline twice: once in the visual-baseline catalog and
+  once as an unchecked phase task naming the same file and scenario. The catalog
+  item owns the detailed spec; the phase task owns the implementation timing.
 - Check off a baseline only after the visual scenario and PNG baseline have
   landed, the image has been reviewed, and the matching phase task is checked.
 - If a baseline cannot be accepted in its planned phase, leave the checkbox
@@ -1090,6 +1096,16 @@ Visual scenarios should live in a new visual-test module such as
 from `visual_tests/mod.rs`. The baseline category should be
 `cartesian_unit_aspect`.
 
+Baseline schedule:
+
+- [x] Phase 4/5: fixed and shared-domain unit-aspect proof baselines are
+      accepted.
+- [x] Phase 6: add the canvas/mixed refinement baseline.
+- [ ] Phase 8: prepare active interaction-drag baselines if the visual harness
+      can capture them.
+- [ ] Phase 9: accept or explicitly defer any interaction baselines prepared in
+      Phase 8.
+
 - [x] Phase 5 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/diagonal_default_distorted.png`
       Scenario name: `cartesian_unit_aspect_diagonal_default_distorted`.
@@ -1131,7 +1147,7 @@ from `visual_tests/mod.rs`. The baseline category should be
       unit-aspect cohort. Acceptance: radius-aware padded base domains feed the
       span graph, symbols are not clipped, and the final unit ratio is still
       preserved.
-- [ ] Phase 6 baseline:
+- [x] Phase 6 baseline:
       `avenger-chart/tests/baselines/cartesian_unit_aspect/canvas_refined_equal_units.png`
       Scenario name: `cartesian_unit_aspect_canvas_refined_equal_units`.
       Spec: canvas or mixed sizing with visible guides where guide overflow
@@ -1317,26 +1333,32 @@ Phase 4 progress note:
 
 ### Phase 6: Canvas/Mixed Layout Refinement
 
-- [ ] Extend existing `max_refinement_passes` refinement flow to account for
+- [x] Extend existing `max_refinement_passes` refinement flow to account for
       unit-aspect scale signature changes.
-- [ ] Rebuild scales from cached `ScaleBuilder` at realized plot-area sizes.
-- [ ] Avoid final range-only retargeting for unit-aspect scales unless base
+- [x] Rebuild scales from cached `ScaleBuilder` at realized plot-area sizes.
+- [x] Avoid final range-only retargeting for unit-aspect scales unless base
       domains are available.
-- [ ] Re-run facet/repeat sharing graph solves when plot-area sizes change.
-- [ ] Add convergence diagnostics through existing refinement metrics.
-- [ ] Add canvas/mixed sizing tests.
-- [ ] Add no-ratcheting tests for repeated plot-area changes.
-- [ ] Add and review
+- [x] Re-run facet/repeat sharing graph solves when plot-area sizes change.
+- [x] Add convergence diagnostics through existing refinement metrics.
+- [x] Add canvas/mixed sizing tests.
+- [x] Add no-ratcheting tests for repeated plot-area changes.
+- [x] Add and review
       `cartesian_unit_aspect/canvas_refined_equal_units.png`
       (`cartesian_unit_aspect_canvas_refined_equal_units`; see catalog spec).
-- [ ] Add and review
+- [x] Confirm
       `cartesian_unit_aspect/facet_shared_equal_units.png`
-      (`cartesian_unit_aspect_facet_shared_equal_units`; see catalog spec) here
-      if it was only prepared, not accepted, in Phase 4 because final plot-area
-      refinement was required.
-- [ ] Commit Phase 6.
+      (`cartesian_unit_aspect_facet_shared_equal_units`; see catalog spec) was
+      already accepted before Phase 6, so no additional Phase 6 baseline action
+      was required.
+- [x] Commit Phase 6.
 
 ### Phase 7: Preview And Interaction Retargeting
+
+Visual baseline note: no new PNG baseline is expected for Phase 7 unless the
+preview renderer exposes a stable visual capture path. Use behavioral tests for
+scale refresh and no-ratcheting. If a visual preview case becomes useful, add it
+to the visual-baseline catalog before implementing it and add a matching Phase 7
+checkbox here.
 
 - [ ] Add `CompiledPlot::has_unit_aspect_constraints()` or equivalent.
 - [ ] Bypass raw-domain in-place scale patching when unit-aspect constraints
@@ -1352,6 +1374,11 @@ Phase 4 progress note:
 - [ ] Commit Phase 7.
 
 ### Phase 8: Box Tool Support
+
+Visual baseline note: Phase 8 should prepare interaction baselines only after
+the visual harness can deterministically capture active drag overlays. If that
+capture is not ready, keep the baseline catalog items unchecked and let Phase 9
+either accept them or record a deferral note.
 
 - [ ] Extend `ToolExpansionContext` with unit-aspect constraint metadata.
 - [ ] Add `UnitAspectBox` with `CoordinateMetric` and `Viewport`.

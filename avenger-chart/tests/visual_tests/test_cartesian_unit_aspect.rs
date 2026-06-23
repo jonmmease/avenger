@@ -251,6 +251,36 @@ async fn cartesian_unit_aspect_guide_expanded_domain() {
 }
 
 #[tokio::test]
+async fn cartesian_unit_aspect_canvas_refined_equal_units() {
+    let ctx = SessionContext::new();
+    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+        .canvas_size(620.0, 360.0)
+        .data(circle_data(&ctx))
+        .mark(
+            Line::new()
+                .x_with(col("x"), |channel| {
+                    unit_circle_domain(channel, "refined canvas x")
+                })
+                .y_with(col("y"), |channel| {
+                    unit_circle_domain(channel, "refined canvas y")
+                })
+                .order(col("order"))
+                .stroke("#0891b2")
+                .stroke_width(3.0),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile canvas refinement");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        CATEGORY,
+        "canvas_refined_equal_units",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn cartesian_unit_aspect_facet_shared_equal_units() {
     let ctx = SessionContext::new();
     let child = Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(

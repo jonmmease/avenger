@@ -146,6 +146,33 @@ fn plot_contains_responsive_wrap_concat(plot: &CompiledPlot) -> bool {
     })
 }
 
+fn plot_tree_has_unit_aspect_constraints(plot: &CompiledPlot) -> bool {
+    if plot.has_unit_aspect_constraints() {
+        return true;
+    }
+
+    plot.marks.iter().any(|mark| {
+        if let Some(subplot) = compiled_concat_subplot(mark.as_ref())
+            && plot_tree_has_unit_aspect_constraints(subplot.compiled_subplot())
+        {
+            return true;
+        }
+        if let Some(subplot) = facet_subplot_ref(mark.as_ref())
+            && plot_tree_has_unit_aspect_constraints(subplot.compiled_subplot())
+        {
+            return true;
+        }
+        if let Some(subplot) = mark.as_positioned_subplot()
+            && plot_tree_has_unit_aspect_constraints(compiled_subplot_payload_child_plot(
+                subplot.payload(),
+            ))
+        {
+            return true;
+        }
+        false
+    })
+}
+
 fn derived_scalars_by_channel(
     scales: &HashMap<String, ConfiguredScaleWithSpec>,
 ) -> DerivedScalarsByChannel {
@@ -1221,6 +1248,7 @@ fn translated_component_debug_frame_layout(
 struct RefinementIterationOutcome {
     reached_snapshot_checkpoint: bool,
     overflow_grew: Option<bool>,
+    plot_area_retargeted: bool,
     realized_padding_feedback: Arc<FacetBandPaddingFeedbackMap>,
 }
 
@@ -3286,9 +3314,11 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         plot_area_width: f32,
         plot_area_height: f32,
-    ) -> Result<(), AvengerChartError> {
+    ) -> Result<bool, AvengerChartError> {
         let plot_area_width = plot_area_width.max(1.0);
         let plot_area_height = plot_area_height.max(1.0);
+        let plot_area_retargeted = (measurement.plot_area_width - plot_area_width).abs() > 0.01
+            || (measurement.plot_area_height - plot_area_height).abs() > 0.01;
 
         retarget_scale_ranges_for_plot_area(
             &mut measurement.scales,
@@ -3315,7 +3345,7 @@ impl CompiledPlot {
         // turn `width`/`height` into inner plot dimensions.
         self.finalize_measurement_layout_state(measurement, eval_ctx, facet_path, true)?;
 
-        Ok(())
+        Ok(plot_area_retargeted)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3437,6 +3467,7 @@ impl CompiledPlot {
                 return Ok(RefinementIterationOutcome {
                     reached_snapshot_checkpoint: true,
                     overflow_grew: None,
+                    plot_area_retargeted: false,
                     realized_padding_feedback: Arc::new(HashMap::new()),
                 });
             }
@@ -3459,11 +3490,12 @@ impl CompiledPlot {
             return Ok(RefinementIterationOutcome {
                 reached_snapshot_checkpoint: true,
                 overflow_grew: None,
+                plot_area_retargeted: false,
                 realized_padding_feedback: Arc::new(HashMap::new()),
             });
         }
 
-        self.realize_canvas_plot_area_no_overflow_remeasure(
+        let plot_area_retargeted = self.realize_canvas_plot_area_no_overflow_remeasure(
             measurement,
             active_eval_ctx,
             facet_path,
@@ -3475,8 +3507,21 @@ impl CompiledPlot {
             return Ok(RefinementIterationOutcome {
                 reached_snapshot_checkpoint: true,
                 overflow_grew: None,
+                plot_area_retargeted,
                 realized_padding_feedback: Arc::new(HashMap::new()),
             });
+        }
+
+        if plot_area_retargeted && plot_tree_has_unit_aspect_constraints(self) {
+            Box::pin(self.remeasure_canvas_coord_at_current_plot_area(
+                measurement,
+                active_eval_ctx,
+                scale_provider,
+                data_override,
+                facet_path,
+            ))
+            .await?;
+            coordinate_overflow_for_guides(measurement, active_eval_ctx).await?;
         }
 
         let realized_padding_feedback =
@@ -3505,6 +3550,7 @@ impl CompiledPlot {
         Ok(RefinementIterationOutcome {
             reached_snapshot_checkpoint: false,
             overflow_grew,
+            plot_area_retargeted,
             realized_padding_feedback,
         })
     }
@@ -3829,7 +3875,7 @@ impl CompiledPlot {
         evaluated_layout_spec: &EvaluatedLayoutSpec,
         data_override: Option<&DataFrame>,
         facet_path: &[ScalarValue],
-    ) -> Result<(), AvengerChartError> {
+    ) -> Result<bool, AvengerChartError> {
         let policy = eval_ctx.facet_runtime_sizing_mode().policy();
         if let Some(facet_band) = measurement
             .coord_measurement
@@ -3854,12 +3900,14 @@ impl CompiledPlot {
 
             facet_band.realize_coordinated_child_frame_allocations();
         } else {
-            return Ok(());
+            return Ok(false);
         }
 
         let (subtree_width, subtree_height) =
             Self::facet_subtree_realized_plot_area_extent(measurement)
                 .unwrap_or((measurement.plot_area_width, measurement.plot_area_height));
+        let original_plot_area_width = measurement.plot_area_width;
+        let original_plot_area_height = measurement.plot_area_height;
         let mut plot_area_width = measurement.plot_area_width;
         let mut plot_area_height = measurement.plot_area_height;
         if policy.width.is_leaf_plot_area_sized() {
@@ -3877,6 +3925,9 @@ impl CompiledPlot {
 
         measurement.plot_area_width = plot_area_width;
         measurement.plot_area_height = plot_area_height;
+        let mut plot_area_retargeted =
+            (original_plot_area_width - measurement.plot_area_width).abs() > 0.01
+                || (original_plot_area_height - measurement.plot_area_height).abs() > 0.01;
 
         let realized_layout_spec = if facet_path.is_empty() {
             Self::layout_spec_for_policy_plot_area_size(
@@ -3915,6 +3966,7 @@ impl CompiledPlot {
                 plot_area_width,
                 plot_area_height,
             )?;
+            plot_area_retargeted = true;
             true
         } else {
             self.finalize_measurement_layout_state(measurement, eval_ctx, facet_path, false)?;
@@ -3964,6 +4016,7 @@ impl CompiledPlot {
                     realized_width,
                     realized_height,
                 )?;
+                plot_area_retargeted = true;
             } else {
                 self.finalize_measurement_layout_state(measurement, eval_ctx, facet_path, true)?;
             }
@@ -3985,7 +4038,7 @@ impl CompiledPlot {
             )?;
         }
 
-        Ok(())
+        Ok(plot_area_retargeted)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4026,12 +4079,13 @@ impl CompiledPlot {
                 return Ok(RefinementIterationOutcome {
                     reached_snapshot_checkpoint: true,
                     overflow_grew: None,
+                    plot_area_retargeted: false,
                     realized_padding_feedback: Arc::new(HashMap::new()),
                 });
             }
         }
 
-        Box::pin(self.realize_policy_extents_no_remeasure(
+        let plot_area_retargeted = Box::pin(self.realize_policy_extents_no_remeasure(
             measurement,
             active_eval_ctx,
             evaluated_layout_spec,
@@ -4048,8 +4102,21 @@ impl CompiledPlot {
             return Ok(RefinementIterationOutcome {
                 reached_snapshot_checkpoint: true,
                 overflow_grew: None,
+                plot_area_retargeted,
                 realized_padding_feedback: Arc::new(HashMap::new()),
             });
+        }
+
+        if plot_area_retargeted && plot_tree_has_unit_aspect_constraints(self) {
+            Box::pin(self.remeasure_policy_coord_at_current_plot_area(
+                measurement,
+                active_eval_ctx,
+                evaluated_layout_spec,
+                data_override,
+                facet_path,
+            ))
+            .await?;
+            coordinate_overflow_for_guides(measurement, active_eval_ctx).await?;
         }
 
         let realized_padding_feedback =
@@ -4086,6 +4153,7 @@ impl CompiledPlot {
         Ok(RefinementIterationOutcome {
             reached_snapshot_checkpoint: false,
             overflow_grew,
+            plot_area_retargeted,
             realized_padding_feedback,
         })
     }
@@ -4173,6 +4241,7 @@ impl CompiledPlot {
             return Ok(());
         }
 
+        let unit_aspect_domains_depend_on_retarget = plot_tree_has_unit_aspect_constraints(self);
         for pass in 1..=max_refinement_passes {
             let outcome = Box::pin(self.run_refinement_iteration(
                 mode,
@@ -4189,12 +4258,18 @@ impl CompiledPlot {
 
             eval_ctx.record_facet_refinement_pass();
             let overflow_grew = outcome.overflow_grew.unwrap_or(false);
+            let unit_aspect_retargeted =
+                unit_aspect_domains_depend_on_retarget && outcome.plot_area_retargeted;
             trace!(
                 trace_prefix,
-                pass, overflow_grew, "refinement pass completed"
+                pass,
+                overflow_grew,
+                plot_area_retargeted = outcome.plot_area_retargeted,
+                unit_aspect_retargeted,
+                "refinement pass completed"
             );
 
-            if !overflow_grew {
+            if !overflow_grew && !unit_aspect_retargeted {
                 eval_ctx.record_facet_refinement_converged();
                 return Ok(());
             }
@@ -4251,6 +4326,7 @@ impl CompiledPlot {
         }
 
         let mut padding_feedback = outcome.realized_padding_feedback;
+        let unit_aspect_domains_depend_on_retarget = plot_tree_has_unit_aspect_constraints(self);
         for pass in 1..=max_refinement_passes {
             let target = (pass == target_iteration).then_some(target_checkpoint);
             let outcome = Box::pin(self.run_refinement_iteration(
@@ -4268,7 +4344,10 @@ impl CompiledPlot {
             if outcome.reached_snapshot_checkpoint {
                 return Ok(());
             }
-            if !outcome.overflow_grew.unwrap_or(false) {
+            let overflow_grew = outcome.overflow_grew.unwrap_or(false);
+            let unit_aspect_retargeted =
+                unit_aspect_domains_depend_on_retarget && outcome.plot_area_retargeted;
+            if !overflow_grew && !unit_aspect_retargeted {
                 break;
             }
             padding_feedback = outcome.realized_padding_feedback;
