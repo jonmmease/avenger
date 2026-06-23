@@ -19,6 +19,7 @@ pub mod scale_provider;
 pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_from_marks
 mod session;
 mod titles;
+mod unit_aspect;
 mod validation;
 
 use std::{
@@ -115,6 +116,7 @@ pub(crate) use self::session::{
     ScopedParamStore, ScopedSelectionStore, ScopedStoreState, TextMeasurementCacheHandle,
     TextMeasurementCacheKey,
 };
+pub(crate) use self::unit_aspect::UnitAspectSharingPolicy;
 
 use super::title::{PlotSubtitle, PlotTitle};
 
@@ -862,7 +864,7 @@ impl CompiledPlot {
 
         let theme = self.get_theme();
         let default_range_resolver = scales::default_range_for_compiled_marks(&self.marks);
-        let built = Box::pin(builder.build_scales(
+        let mut built = Box::pin(builder.build_scales(
             plot_area_width,
             plot_area_height,
             &coord_system_range_bindings,
@@ -873,6 +875,11 @@ impl CompiledPlot {
             params,
         ))
         .await?;
+
+        self.apply_unit_aspect_constraints(
+            &mut built,
+            UnitAspectSharingPolicy::ForbidSharedExpansion,
+        )?;
 
         Ok(built)
     }

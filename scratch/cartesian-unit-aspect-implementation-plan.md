@@ -1143,18 +1143,18 @@ of leaving an ambiguous unchecked item.
 
 ### Phase 2: Scale Constraint Helper
 
-- [ ] Implement `apply_unit_aspect_constraints(...)`.
-- [ ] Add `UnitAspectSharingPolicy` so local builds can forbid expanding a
+- [x] Implement `apply_unit_aspect_constraints(...)`.
+- [x] Add `UnitAspectSharingPolicy` so local builds can forbid expanding a
       shared axis that should have been handled by coordination.
-- [ ] Require finite positive ratios and positive finite domain/range spans.
-- [ ] Require linear continuous numeric interval domains/ranges.
-- [ ] Expand the smaller required domain around its center.
-- [ ] Return `UnitAspectAdjustment` diagnostics.
-- [ ] Call the helper from `CompiledPlot::build_scales_from_builder(...)`.
-- [ ] Confirm the helper only runs on freshly built scales in normal build
+- [x] Require finite positive ratios and positive finite domain/range spans.
+- [x] Require linear continuous numeric interval domains/ranges.
+- [x] Expand the smaller required domain around its center.
+- [x] Return `UnitAspectAdjustment` diagnostics.
+- [x] Call the helper from `CompiledPlot::build_scales_from_builder(...)`.
+- [x] Confirm the helper only runs on freshly built scales in normal build
       paths.
-- [ ] Add core scale-application tests.
-- [ ] Commit Phase 2.
+- [x] Add core scale-application tests.
+- [x] Commit Phase 2.
 
 ### Phase 3: Sharing-Aware Domain Solver
 
