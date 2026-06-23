@@ -7,9 +7,13 @@
 use std::collections::{HashMap, HashSet};
 
 use avenger_chart_core::{
-    AvengerChartError, DomainCoordination, DomainCoordinationGroup, ResolvedUnitAspectConstraint,
-    SharingLevel, sharing_group_boundary,
+    AvengerChartError, CoordinateDomainCellKey, CoordinateDomainCellRequest,
+    CoordinateDomainDescriptor, CoordinateDomainGroupRequest, CoordinateDomainNode,
+    CoordinateDomainScaleState, CoordinateDomainSharedNodeKey, CoordinateDomainSharingPolicy,
+    DomainCoordination, DomainCoordinationGroup, SharingLevel, sharing_group_boundary,
 };
+use datafusion::common::ScalarValue;
+use indexmap::IndexMap;
 
 use crate::{
     channel::value::strip_trailing_numbers,
@@ -18,8 +22,7 @@ use crate::{
 
 use super::{
     ChildFrameDomainRequest, ChildFrameScopeKey, CompiledPlot, CoordinationKind,
-    CoordinationScopeKey, UnitAspectDomainNode, UnitAspectSpanGraphInput,
-    aggregate_domain_requests, coordination_scope::CoordinationGroup, solve_unit_aspect_span_graph,
+    CoordinationScopeKey, aggregate_domain_requests, coordination_scope::CoordinationGroup,
 };
 
 /// One local channel domain plus the child-frame domain coordination that applies to it.
@@ -50,50 +53,27 @@ impl<'a> ChildFrameDomainSharingInput<'a> {
     }
 }
 
-/// Domain-sharing plus plot-area inputs for unit-aspect child-frame solves.
-pub(crate) struct ChildFrameUnitAspectDomainSharingInput<'a> {
-    pub(crate) domain_input: ChildFrameDomainSharingInput<'a>,
-    pub(crate) unit_aspect_constraints: Vec<ResolvedUnitAspectConstraint>,
-    pub(crate) unit_aspect_base_domain_extents: HashMap<String, DomainExtent>,
+#[derive(Debug)]
+pub(crate) struct ChildFrameCoordinateDomainSharingOutput {
+    pub(crate) coordinated_domain_extents: Vec<HashMap<String, DomainExtent>>,
+    pub(crate) coordinate_domain_overrides: Vec<HashMap<String, DomainExtent>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChildFrameCoordinateDomainGroupKind {
+    FacetRepeat,
+    AuthoredConcat,
+}
+
+pub(crate) struct ChildFrameCoordinateDomainCell<'a> {
+    pub(crate) plot: &'a CompiledPlot,
+    pub(crate) cell_key: CoordinateDomainCellKey,
     pub(crate) plot_area_width: f32,
     pub(crate) plot_area_height: f32,
-}
-
-impl<'a> ChildFrameUnitAspectDomainSharingInput<'a> {
-    pub(crate) fn new(
-        scope_key: &'a ChildFrameScopeKey,
-        local_domain_extents: &'a HashMap<String, ChildFrameChannelDomainExtent>,
-        channel_domain_sharing_levels: &'a HashMap<String, DomainCoordination>,
-        unit_aspect_constraints: Vec<ResolvedUnitAspectConstraint>,
-        plot_area_width: f32,
-        plot_area_height: f32,
-    ) -> Self {
-        Self {
-            domain_input: ChildFrameDomainSharingInput::new(
-                scope_key,
-                local_domain_extents,
-                channel_domain_sharing_levels,
-            ),
-            unit_aspect_constraints,
-            unit_aspect_base_domain_extents: HashMap::new(),
-            plot_area_width,
-            plot_area_height,
-        }
-    }
-
-    pub(crate) fn with_unit_aspect_base_domain_extents(
-        mut self,
-        extents: HashMap<String, DomainExtent>,
-    ) -> Self {
-        self.unit_aspect_base_domain_extents = extents;
-        self
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct ChildFrameUnitAspectDomainSharingOutput {
-    pub(crate) coordinated_domain_extents: Vec<HashMap<String, DomainExtent>>,
-    pub(crate) unit_aspect_domain_overrides: Vec<HashMap<String, DomainExtent>>,
+    pub(crate) params: &'a IndexMap<String, ScalarValue>,
+    pub(crate) coordinated_domain_extents: HashMap<String, DomainExtent>,
+    pub(crate) descriptor_scale_states:
+        Vec<(CoordinateDomainDescriptor, Vec<CoordinateDomainScaleState>)>,
 }
 
 /// Extract the strongest scale-sharing level requested by each child plot channel.
@@ -231,75 +211,132 @@ pub(crate) fn coordinated_child_frame_domain_extents(
     coordinated_child_frame_domain_extents_from_unified(children, &unified)
 }
 
-pub(crate) fn coordinated_child_frame_domain_extents_with_unit_aspect(
-    children: &[ChildFrameUnitAspectDomainSharingInput<'_>],
-) -> Result<ChildFrameUnitAspectDomainSharingOutput, AvengerChartError> {
-    let domain_inputs = children
+pub(crate) fn resolve_child_frame_coordinate_domain_extents(
+    group_kind: ChildFrameCoordinateDomainGroupKind,
+    children: &[ChildFrameCoordinateDomainCell<'_>],
+) -> Result<ChildFrameCoordinateDomainSharingOutput, AvengerChartError> {
+    let mut coordinated = children
         .iter()
-        .map(|child| ChildFrameDomainSharingInput {
-            scope_key: child.domain_input.scope_key,
-            local_domain_extents: child.domain_input.local_domain_extents,
-            channel_domain_sharing_levels: child.domain_input.channel_domain_sharing_levels,
-        })
+        .map(|child| child.coordinated_domain_extents.clone())
         .collect::<Vec<_>>();
-    let unified = unified_child_frame_domain_extents(&domain_inputs);
-    let mut coordinated =
-        coordinated_child_frame_domain_extents_from_unified(&domain_inputs, &unified);
     let mut overrides = vec![HashMap::new(); children.len()];
 
-    let mut graph_inputs = Vec::new();
-    for child in children {
-        for constraint in &child.unit_aspect_constraints {
-            let Some((x_node, x_extent)) =
-                unit_aspect_domain_node_and_extent(child, &unified, &constraint.x_scale)
-            else {
-                continue;
-            };
-            let Some((y_node, y_extent)) =
-                unit_aspect_domain_node_and_extent(child, &unified, &constraint.y_scale)
-            else {
-                continue;
-            };
-            graph_inputs.push(UnitAspectSpanGraphInput {
-                x_node,
-                y_node,
-                x_extent,
-                y_extent,
-                x_range_span: f64::from(child.plot_area_width),
-                y_range_span: f64::from(child.plot_area_height),
-                ratio: constraint.ratio,
-            });
-        }
-    }
-
-    if graph_inputs.is_empty() {
-        return Ok(ChildFrameUnitAspectDomainSharingOutput {
+    let descriptor_ids = children
+        .iter()
+        .flat_map(|child| {
+            child
+                .descriptor_scale_states
+                .iter()
+                .map(|(descriptor, _)| descriptor.id.clone())
+        })
+        .collect::<HashSet<_>>();
+    if descriptor_ids.is_empty() {
+        return Ok(ChildFrameCoordinateDomainSharingOutput {
             coordinated_domain_extents: coordinated,
-            unit_aspect_domain_overrides: overrides,
+            coordinate_domain_overrides: overrides,
         });
     }
 
-    let solved = solve_unit_aspect_span_graph(&graph_inputs)?;
-    for (index, child) in children.iter().enumerate() {
-        for constraint in &child.unit_aspect_constraints {
-            for scale_name in [&constraint.x_scale, &constraint.y_scale] {
-                let Some((node, _)) =
-                    unit_aspect_domain_node_and_extent(child, &unified, scale_name)
-                else {
-                    continue;
-                };
-                if let Some(extent) = solved.get(&node) {
-                    coordinated[index].insert(scale_name.clone(), extent.clone());
-                    overrides[index].insert(scale_name.clone(), extent.clone());
-                }
+    for descriptor_id in descriptor_ids {
+        let mut descriptor = None::<CoordinateDomainDescriptor>;
+        let mut child_indices = Vec::new();
+        let mut request_cells = Vec::new();
+        let mut key_to_index = HashMap::new();
+        let mut has_shared_nodes = false;
+        for (index, child) in children.iter().enumerate() {
+            let Some((child_descriptor, scale_states)) = child
+                .descriptor_scale_states
+                .iter()
+                .find(|(descriptor, _)| descriptor.id == descriptor_id)
+            else {
+                continue;
+            };
+            if scale_states.is_empty() {
+                continue;
+            }
+            descriptor.get_or_insert_with(|| child_descriptor.clone());
+            has_shared_nodes |= scale_states
+                .iter()
+                .any(|state| matches!(state.node, CoordinateDomainNode::Shared { .. }));
+            key_to_index.insert(child.cell_key.clone(), index);
+            child_indices.push(index);
+            request_cells.push(CoordinateDomainCellRequest {
+                cell_key: &child.cell_key,
+                plot_area_width: child.plot_area_width,
+                plot_area_height: child.plot_area_height,
+                params: child.params,
+                scale_states,
+            });
+        }
+
+        let Some(descriptor) = descriptor else {
+            continue;
+        };
+        validate_coordinate_domain_group_policy(&descriptor, group_kind, has_shared_nodes)?;
+        let Some(first_child_index) = child_indices.first().copied() else {
+            continue;
+        };
+        let Some(provider) = children[first_child_index]
+            .plot
+            .coord_transform
+            .domain_provider()
+        else {
+            continue;
+        };
+        let resolution = provider.resolve_domain_group(CoordinateDomainGroupRequest {
+            descriptor_id: &descriptor.id,
+            cells: &request_cells,
+        })?;
+
+        for cell_resolution in resolution.cells {
+            let Some(index) = key_to_index.get(&cell_resolution.cell_key).copied() else {
+                return Err(AvengerChartError::InternalError(format!(
+                    "coordinate domain descriptor '{}' returned unknown child-frame cell key '{}'",
+                    descriptor.id,
+                    cell_resolution.cell_key.as_str()
+                )));
+            };
+            for (scale_name, extent) in cell_resolution.domain_overrides {
+                coordinated[index].insert(scale_name.clone(), extent.clone());
+                overrides[index].insert(scale_name, extent);
             }
         }
     }
 
-    Ok(ChildFrameUnitAspectDomainSharingOutput {
+    Ok(ChildFrameCoordinateDomainSharingOutput {
         coordinated_domain_extents: coordinated,
-        unit_aspect_domain_overrides: overrides,
+        coordinate_domain_overrides: overrides,
     })
+}
+
+fn validate_coordinate_domain_group_policy(
+    descriptor: &CoordinateDomainDescriptor,
+    group_kind: ChildFrameCoordinateDomainGroupKind,
+    has_shared_nodes: bool,
+) -> Result<(), AvengerChartError> {
+    if !has_shared_nodes {
+        return Ok(());
+    }
+    match descriptor.sharing_policy {
+        CoordinateDomainSharingPolicy::AnyCompatibleGroup => Ok(()),
+        CoordinateDomainSharingPolicy::FacetRepeatGroups
+            if group_kind == ChildFrameCoordinateDomainGroupKind::FacetRepeat =>
+        {
+            Ok(())
+        }
+        CoordinateDomainSharingPolicy::FacetRepeatGroups => {
+            Err(AvengerChartError::InvalidArgument(format!(
+                "coordinate domain descriptor '{}' does not support authored concat/grid shared domains",
+                descriptor.id
+            )))
+        }
+        CoordinateDomainSharingPolicy::LocalOnly => {
+            Err(AvengerChartError::InvalidArgument(format!(
+                "coordinate domain descriptor '{}' does not support shared child-frame domains",
+                descriptor.id
+            )))
+        }
+    }
 }
 
 fn unified_child_frame_domain_extents(
@@ -338,66 +375,281 @@ fn coordinated_child_frame_domain_extents_from_unified(
         .collect()
 }
 
-fn unit_aspect_domain_node_and_extent(
-    child: &ChildFrameUnitAspectDomainSharingInput<'_>,
-    unified: &HashMap<CoordinationScopeKey, DomainExtent>,
+pub(crate) fn child_frame_coordinate_domain_node_for_scale(
+    cell_key: &CoordinateDomainCellKey,
+    child_scope: &ChildFrameScopeKey,
+    channel_domain_sharing_levels: &HashMap<String, DomainCoordination>,
     scale_name: &str,
-) -> Option<(UnitAspectDomainNode, DomainExtent)> {
-    if let Some(coordination) = child
-        .domain_input
-        .channel_domain_sharing_levels
-        .get(scale_name)
+) -> CoordinateDomainNode {
+    if let Some(coordination) = channel_domain_sharing_levels.get(scale_name)
         && !SharingLevel::from(coordination.scope).is_free()
     {
-        let key =
-            child_frame_domain_scope_key(child.domain_input.scope_key, scale_name, coordination);
-        let extent = child
-            .unit_aspect_base_domain_extents
-            .get(scale_name)
-            .cloned()
-            .or_else(|| unified.get(&key).cloned())
-            .or_else(|| {
-                child
-                    .domain_input
-                    .local_domain_extents
-                    .get(scale_name)
-                    .map(|local| local.extent.clone())
-            })?;
-        return Some((UnitAspectDomainNode::Shared(key), extent));
+        let key = child_frame_domain_scope_key(child_scope, scale_name, coordination);
+        return CoordinateDomainNode::Shared {
+            key: CoordinateDomainSharedNodeKey::new(format!("{key:?}")),
+        };
     }
 
-    let extent = child
-        .unit_aspect_base_domain_extents
-        .get(scale_name)
-        .cloned()
-        .or_else(|| {
-            child
-                .domain_input
-                .local_domain_extents
-                .get(scale_name)
-                .map(|local| local.extent.clone())
-        })?;
-    Some((
-        UnitAspectDomainNode::Free {
-            cell: format!("{:?}", child.domain_input.scope_key),
-            scale: scale_name.to_string(),
-        },
-        extent,
-    ))
+    CoordinateDomainNode::Local {
+        cell_key: cell_key.clone(),
+        scale_name: scale_name.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use avenger_chart_core::{ResolvedUnitAspectConstraint, UnitAspectPolicy};
+    use std::{
+        any::Any,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+            Mutex,
+        },
+    };
+
+    use avenger_common::value::ScalarOrArray;
+    use avenger_scales::scales::ScaleImpl;
+    use serde::{Deserialize, Serialize};
+
+    use avenger_chart_core::{
+        AxisSpec, CompiledGuide, CompiledMark, CompiledParamSpec, CompiledSelectionSpec,
+        CompiledStoreSpec, CoordinateDomainBinding, CoordinateDomainCellKey,
+        CoordinateDomainCellResolution, CoordinateDomainDescriptor, CoordinateDomainGroupRequest,
+        CoordinateDomainGroupResolution, CoordinateDomainNode, CoordinateDomainProvider,
+        CoordinateDomainRole, CoordinateDomainScaleState, CoordinateDomainSharedNodeKey,
+        CoordinateDomainSharingPolicy, CoordinateSystemTransform, CoordinateSystemTransformCore,
+        EventDatumFieldSpec, Legend, PlotGeometry, ScaleRangeBinding, Theme, TimeContext,
+        ToolMetadata,
+    };
+    use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
+    use datafusion_proto::protobuf::LogicalPlanNode;
+    use indexmap::IndexMap;
 
     use crate::{
         container::{ChildFrameKey, ContainerPathSegment},
+        layout::LayoutSpec,
         prelude::*,
         scales::domain_extent::DomainExtent,
     };
 
     use super::*;
     use datafusion::prelude::{SessionContext, col};
+
+    static FAKE_GROUP_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static FAKE_GROUP_CELL_COUNT: AtomicUsize = AtomicUsize::new(0);
+    static FAKE_PROVIDER_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+    struct FakeCoordinateDomainTransform {
+        policy_code: u8,
+    }
+
+    impl FakeCoordinateDomainTransform {
+        fn new(sharing_policy: CoordinateDomainSharingPolicy) -> Self {
+            let policy_code = match sharing_policy {
+                CoordinateDomainSharingPolicy::LocalOnly => 0,
+                CoordinateDomainSharingPolicy::FacetRepeatGroups => 1,
+                CoordinateDomainSharingPolicy::AnyCompatibleGroup => 2,
+            };
+            Self { policy_code }
+        }
+
+        fn sharing_policy(&self) -> CoordinateDomainSharingPolicy {
+            match self.policy_code {
+                0 => CoordinateDomainSharingPolicy::LocalOnly,
+                1 => CoordinateDomainSharingPolicy::FacetRepeatGroups,
+                _ => CoordinateDomainSharingPolicy::AnyCompatibleGroup,
+            }
+        }
+
+        fn descriptor(&self) -> CoordinateDomainDescriptor {
+            fake_coordinate_domain_descriptor(self.sharing_policy())
+        }
+    }
+
+    impl CoordinateSystemTransformCore for FakeCoordinateDomainTransform {
+        fn required_channels(&self) -> &'static [&'static str] {
+            &[]
+        }
+
+        fn transform(
+            &self,
+            _position_channels: &HashMap<&str, ScalarOrArray<f32>>,
+            _position_values: Option<&HashMap<&str, Vec<ScalarValue>>>,
+            _plot_width: f32,
+            _plot_height: f32,
+        ) -> Result<Box<dyn PlotGeometry>, AvengerChartError> {
+            Err(AvengerChartError::InternalError(
+                "fake coordinate transform is not renderable".to_string(),
+            ))
+        }
+
+        fn default_range_binding(&self, _channel: &str) -> Option<ScaleRangeBinding> {
+            None
+        }
+
+        fn default_scale_options(
+            &self,
+            _channel: &str,
+            _scale_impl: &dyn ScaleImpl,
+        ) -> HashMap<String, ScalarValue> {
+            HashMap::new()
+        }
+
+        fn domain_provider(&self) -> Option<&dyn CoordinateDomainProvider> {
+            Some(self)
+        }
+    }
+
+    impl CoordinateDomainProvider for FakeCoordinateDomainTransform {
+        fn domain_descriptors(&self) -> Vec<CoordinateDomainDescriptor> {
+            vec![self.descriptor()]
+        }
+
+        fn resolve_domain_group(
+            &self,
+            request: CoordinateDomainGroupRequest<'_>,
+        ) -> Result<CoordinateDomainGroupResolution, AvengerChartError> {
+            FAKE_GROUP_CALLS.fetch_add(1, Ordering::SeqCst);
+            FAKE_GROUP_CELL_COUNT.store(request.cells.len(), Ordering::SeqCst);
+            Ok(CoordinateDomainGroupResolution {
+                cells: request
+                    .cells
+                    .iter()
+                    .map(|cell| CoordinateDomainCellResolution {
+                        cell_key: cell.cell_key.clone(),
+                        domain_overrides: cell
+                            .scale_states
+                            .iter()
+                            .map(|state| {
+                                (
+                                    state.scale_name.clone(),
+                                    DomainExtent::numeric(0.0, f64::from(cell.plot_area_width)),
+                                )
+                            })
+                            .collect(),
+                        metadata: Vec::new(),
+                    })
+                    .collect(),
+            })
+        }
+    }
+
+    #[typetag::serde]
+    impl CoordinateSystemTransform for FakeCoordinateDomainTransform {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn clone_box(&self) -> Box<dyn CoordinateSystemTransform> {
+            Box::new(*self)
+        }
+    }
+
+    fn fake_coordinate_domain_descriptor(
+        sharing_policy: CoordinateDomainSharingPolicy,
+    ) -> CoordinateDomainDescriptor {
+        let mut descriptor = CoordinateDomainDescriptor::new("fake_coordinate_domain");
+        descriptor.bindings = vec![
+            CoordinateDomainBinding::observed("x", CoordinateDomainRole::X),
+            CoordinateDomainBinding::observed("y", CoordinateDomainRole::Y),
+        ];
+        descriptor.sharing_policy = sharing_policy;
+        descriptor.depends_on_plot_area = true;
+        descriptor
+    }
+
+    fn fake_compiled_plot(sharing_policy: CoordinateDomainSharingPolicy) -> CompiledPlot {
+        CompiledPlot {
+            coord_transform: Box::new(FakeCoordinateDomainTransform::new(sharing_policy)),
+            compiled_guide: None::<Arc<dyn CompiledGuide>>,
+            marks: Vec::<Arc<dyn CompiledMark>>::new(),
+            mark_groups: Vec::new(),
+            mark_group_index_by_mark: Vec::new(),
+            axis_specs: HashMap::<String, AxisSpec>::new(),
+            legends: IndexMap::<String, Legend>::new(),
+            legend_colorbar_overlays: Vec::new(),
+            layout_spec: LayoutSpec::default(),
+            title: None,
+            subtitle: None,
+            theme: None::<Arc<Theme>>,
+            time_context: TimeContext::default(),
+            scale_to_coord_channel: HashMap::new(),
+            scale_specs: HashMap::<String, ScaleSpec>::new(),
+            data: None::<LogicalPlanNode>,
+            default_params: IndexMap::new(),
+            param_specs: IndexMap::<String, CompiledParamSpec>::new(),
+            store_specs: IndexMap::<String, CompiledStoreSpec>::new(),
+            event_bindings: Vec::new(),
+            event_datum_fields: Vec::<EventDatumFieldSpec>::new(),
+            event_coord_fields: Vec::<EventDatumFieldSpec>::new(),
+            selection_specs: IndexMap::<String, CompiledSelectionSpec>::new(),
+            cursor_params: Vec::new(),
+            tool_metadata: Vec::<ToolMetadata>::new(),
+        }
+    }
+
+    fn fake_coordinate_domain_cell<'a>(
+        plot: &'a CompiledPlot,
+        params: &'a IndexMap<String, ScalarValue>,
+        cell_id: &str,
+        plot_area_width: f32,
+        x_node: CoordinateDomainNode,
+        y_node: CoordinateDomainNode,
+    ) -> ChildFrameCoordinateDomainCell<'a> {
+        let descriptor = plot
+            .coord_transform
+            .domain_provider()
+            .expect("fake provider")
+            .domain_descriptors()
+            .pop()
+            .expect("fake descriptor");
+        ChildFrameCoordinateDomainCell {
+            plot,
+            cell_key: CoordinateDomainCellKey::new(cell_id),
+            plot_area_width,
+            plot_area_height: 100.0,
+            params,
+            coordinated_domain_extents: HashMap::new(),
+            descriptor_scale_states: vec![(
+                descriptor,
+                vec![
+                    fake_scale_state("x", CoordinateDomainRole::X, x_node),
+                    fake_scale_state("y", CoordinateDomainRole::Y, y_node),
+                ],
+            )],
+        }
+    }
+
+    fn fake_scale_state(
+        scale_name: &str,
+        role: CoordinateDomainRole,
+        node: CoordinateDomainNode,
+    ) -> CoordinateDomainScaleState {
+        CoordinateDomainScaleState {
+            scale_name: scale_name.to_string(),
+            coord_channel: scale_name.to_string(),
+            role,
+            base_domain: Some(DomainExtent::numeric(0.0, 10.0)),
+            range: Some((0.0, 100.0)),
+            node,
+            has_explicit_domain: false,
+            raw_domain_param: None,
+        }
+    }
+
+    fn local_node(cell_id: &str, scale_name: &str) -> CoordinateDomainNode {
+        CoordinateDomainNode::Local {
+            cell_key: CoordinateDomainCellKey::new(cell_id),
+            scale_name: scale_name.to_string(),
+        }
+    }
+
+    fn shared_node(key: &str) -> CoordinateDomainNode {
+        CoordinateDomainNode::Shared {
+            key: CoordinateDomainSharedNodeKey::new(key),
+        }
+    }
 
     fn child_scope(
         ancestor: Option<&str>,
@@ -432,34 +684,6 @@ mod tests {
             extent: DomainExtent::numeric(0.0, max),
             domain_coordination: DomainCoordination::named(sharing_level.into(), group).unwrap(),
         }
-    }
-
-    fn unit_aspect_constraint() -> ResolvedUnitAspectConstraint {
-        ResolvedUnitAspectConstraint {
-            x_channel: "x".to_string(),
-            y_channel: "y".to_string(),
-            x_scale: "x".to_string(),
-            y_scale: "y".to_string(),
-            ratio: 1.0,
-            policy: UnitAspectPolicy::ExpandDomain,
-        }
-    }
-
-    fn numeric_span(extent: &DomainExtent) -> f64 {
-        let avenger_chart_scales::domain_extent::DomainBounds::Numeric { min, max } =
-            &extent.bounds
-        else {
-            panic!("expected numeric extent");
-        };
-        *max - *min
-    }
-
-    fn assert_span(extent: &DomainExtent, expected: f64) {
-        let actual = numeric_span(extent);
-        assert!(
-            (actual - expected).abs() < 1e-6,
-            "expected span {expected}, got {actual}"
-        );
     }
 
     #[test]
@@ -718,99 +942,88 @@ mod tests {
     }
 
     #[test]
-    fn unit_aspect_child_frame_domains_expand_shared_x_from_free_y() {
-        let left_scope = child_scope(None, 0, Some("left"));
-        let right_scope = child_scope(None, 1, Some("right"));
-        let left_extents = HashMap::from([
-            ("x".to_string(), extent(10.0, SharingLevel::GLOBAL)),
-            ("y".to_string(), extent(10.0, SharingLevel::FREE)),
-        ]);
-        let right_extents = HashMap::from([
-            ("x".to_string(), extent(8.0, SharingLevel::GLOBAL)),
-            ("y".to_string(), extent(5.0, SharingLevel::FREE)),
-        ]);
-        let sharing_levels = HashMap::from([(
-            "x".to_string(),
-            DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
-        )]);
-        let constraints = unit_aspect_constraint();
-        let inputs = [
-            ChildFrameUnitAspectDomainSharingInput::new(
-                &left_scope,
-                &left_extents,
-                &sharing_levels,
-                vec![constraints.clone()],
-                200.0,
-                100.0,
+    fn generic_child_frame_coordinate_domain_solver_calls_provider_for_facet_repeat_group() {
+        let _guard = FAKE_PROVIDER_TEST_LOCK.lock().expect("test lock");
+        FAKE_GROUP_CALLS.store(0, Ordering::SeqCst);
+        FAKE_GROUP_CELL_COUNT.store(0, Ordering::SeqCst);
+        let plot = fake_compiled_plot(CoordinateDomainSharingPolicy::FacetRepeatGroups);
+        let params = IndexMap::new();
+        let children = [
+            fake_coordinate_domain_cell(
+                &plot,
+                &params,
+                "left",
+                120.0,
+                shared_node("shared:x"),
+                local_node("left", "y"),
             ),
-            ChildFrameUnitAspectDomainSharingInput::new(
-                &right_scope,
-                &right_extents,
-                &sharing_levels,
-                vec![constraints],
-                200.0,
-                100.0,
+            fake_coordinate_domain_cell(
+                &plot,
+                &params,
+                "right",
+                80.0,
+                shared_node("shared:x"),
+                local_node("right", "y"),
             ),
         ];
 
-        let output =
-            coordinated_child_frame_domain_extents_with_unit_aspect(&inputs).expect("solve");
-        let coordinated = output.coordinated_domain_extents;
-        let overrides = output.unit_aspect_domain_overrides;
+        let output = resolve_child_frame_coordinate_domain_extents(
+            ChildFrameCoordinateDomainGroupKind::FacetRepeat,
+            &children,
+        )
+        .expect("facet/repeat coordinate-domain solve");
 
-        assert_eq!(coordinated.len(), 2);
-        assert_span(coordinated[0].get("x").expect("left x"), 20.0);
-        assert_span(coordinated[1].get("x").expect("right x"), 20.0);
-        assert_eq!(coordinated[0].get("x"), coordinated[1].get("x"));
-        assert_span(coordinated[0].get("y").expect("left y"), 10.0);
-        assert_span(coordinated[1].get("y").expect("right y"), 10.0);
-        assert_span(overrides[0].get("x").expect("left x override"), 20.0);
-        assert_span(overrides[0].get("y").expect("left y override"), 10.0);
-        assert_span(overrides[1].get("x").expect("right x override"), 20.0);
-        assert_span(overrides[1].get("y").expect("right y override"), 10.0);
+        assert_eq!(FAKE_GROUP_CALLS.load(Ordering::SeqCst), 1);
+        assert_eq!(FAKE_GROUP_CELL_COUNT.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            output.coordinate_domain_overrides[0].get("x"),
+            Some(&DomainExtent::numeric(0.0, 120.0))
+        );
+        assert_eq!(
+            output.coordinate_domain_overrides[1].get("x"),
+            Some(&DomainExtent::numeric(0.0, 80.0))
+        );
+        assert_eq!(
+            output.coordinated_domain_extents[0].get("x"),
+            output.coordinate_domain_overrides[0].get("x")
+        );
     }
 
     #[test]
-    fn unit_aspect_child_frame_domains_reject_inconsistent_shared_equations() {
-        let left_scope = child_scope(None, 0, Some("left"));
-        let right_scope = child_scope(None, 1, Some("right"));
-        let local_extents = HashMap::from([
-            ("x".to_string(), extent(10.0, SharingLevel::GLOBAL)),
-            ("y".to_string(), extent(10.0, SharingLevel::GLOBAL)),
-        ]);
-        let sharing_levels = HashMap::from([
-            (
-                "x".to_string(),
-                DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
+    fn provider_policy_rejects_authored_concat_shared_coordinate_domain_groups() {
+        let _guard = FAKE_PROVIDER_TEST_LOCK.lock().expect("test lock");
+        FAKE_GROUP_CALLS.store(0, Ordering::SeqCst);
+        let plot = fake_compiled_plot(CoordinateDomainSharingPolicy::FacetRepeatGroups);
+        let params = IndexMap::new();
+        let children = [
+            fake_coordinate_domain_cell(
+                &plot,
+                &params,
+                "left",
+                120.0,
+                shared_node("shared:x"),
+                local_node("left", "y"),
             ),
-            (
-                "y".to_string(),
-                DomainCoordination::scale_name(SharingLevel::GLOBAL.into()),
-            ),
-        ]);
-        let constraints = unit_aspect_constraint();
-        let inputs = [
-            ChildFrameUnitAspectDomainSharingInput::new(
-                &left_scope,
-                &local_extents,
-                &sharing_levels,
-                vec![constraints.clone()],
-                200.0,
-                100.0,
-            ),
-            ChildFrameUnitAspectDomainSharingInput::new(
-                &right_scope,
-                &local_extents,
-                &sharing_levels,
-                vec![constraints],
-                400.0,
-                100.0,
+            fake_coordinate_domain_cell(
+                &plot,
+                &params,
+                "right",
+                80.0,
+                shared_node("shared:x"),
+                local_node("right", "y"),
             ),
         ];
 
-        let err = coordinated_child_frame_domain_extents_with_unit_aspect(&inputs)
-            .expect_err("inconsistent repeat equations should fail");
+        let err = resolve_child_frame_coordinate_domain_extents(
+            ChildFrameCoordinateDomainGroupKind::AuthoredConcat,
+            &children,
+        )
+        .expect_err("authored concat shared provider group should fail");
 
-        assert!(err.to_string().contains("inconsistent"));
+        assert_eq!(FAKE_GROUP_CALLS.load(Ordering::SeqCst), 0);
+        assert!(
+            err.to_string()
+                .contains("does not support authored concat/grid shared domains")
+        );
     }
 }

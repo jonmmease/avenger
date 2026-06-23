@@ -35,8 +35,8 @@ use crate::{
     layout::BandPosition,
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, ContainerBandGuideMeasurementConfig,
-        ContainerBandGuideRenderConfig, UnitAspectSharingPolicy, measure_container_band_guide_slab,
-        render_container_band_guide_slab,
+        ContainerBandGuideRenderConfig, CoordinateDomainBuildPolicy,
+        measure_container_band_guide_slab, render_container_band_guide_slab,
     },
     serialization::LogicalPlanNodeExt,
     theme::{Theme, ThemeContext},
@@ -759,26 +759,17 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
     }
 
     let scale_start = Instant::now();
-    let subplot_scales = if subplot.has_unit_aspect_constraints() {
-        Box::pin(subplot.build_scales_for_dataframe_with_unit_aspect_policy(
+    let subplot_scales = Box::pin(
+        subplot.build_scales_for_dataframe_with_coordinate_domain_policy(
             data,
             subplot_width,
             subplot_height,
             ctx,
             params,
-            UnitAspectSharingPolicy::AllowSharedExpansion,
-        ))
-        .await?
-    } else {
-        Box::pin(subplot.build_scales_for_dataframe(
-            data,
-            subplot_width,
-            subplot_height,
-            ctx,
-            params,
-        ))
-        .await?
-    };
+            CoordinateDomainBuildPolicy::AllowSharedOverrides,
+        ),
+    )
+    .await?;
     let scale_elapsed = scale_start.elapsed();
     let configured_scales: HashMap<String, ConfiguredScale> = subplot_scales
         .iter()

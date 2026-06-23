@@ -84,9 +84,10 @@ BoxZoom::cartesian()
     .unit_aspect_box(UnitAspectBox::CoordinateMetric);
 ```
 
-The unit-aspect box options require a matching active Cartesian
-`unit_aspect(...)` constraint for the tool's x/y channels. They do not define a
-separate fixed-aspect brush independent of the coordinate unit aspect.
+The unit-aspect box options require an active coordinate metric for the tool's
+x/y channels. `Cartesian::unit_aspect(...)` exposes that metric, so the tools do
+not define a separate fixed-aspect brush independent of the coordinate unit
+aspect.
 
 ## Restrictions
 
@@ -96,8 +97,8 @@ separate fixed-aspect brush independent of the coordinate unit aspect.
 - Scale domains and ranges must have positive finite spans after normal scale
   inference, padding, `zero`, `nice`, explicit domains, and raw-domain
   parameters have been applied.
-- `UnitAspectPolicy::ExpandDomain` is the supported policy; unit aspect does
-  not shrink or letterbox the plot area.
+- Unit aspect expands scale domains; it does not shrink or letterbox the plot
+  area.
 - The expanded domain is not re-niced after the constraint is applied.
 - Authored concat/grid/wrap plots reject cross-child sharing of constrained
   domains; facet and generated-repeat sharing are supported.

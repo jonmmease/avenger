@@ -9,7 +9,7 @@ use avenger_chart_core::{
     coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
     coerce_stroke_cap_channel_values_with_renderer, coerce_stroke_dash_channel,
     coerce_stroke_join_channel_values_with_renderer, default_scale_type_for_data_type,
-    impl_mark_trait_common, is_continuous_scale, line_rendering,
+    impl_mark_trait_common, is_continuous_scale, stroke_rendering,
 };
 use avenger_chart_marks::{Line, line_channel_defaults};
 use avenger_color::ColorOrGradient;
@@ -254,7 +254,7 @@ impl CompiledMark for CompiledPolarLine {
         let visual = self.coerce_line_visual_channels(Some(data), scalars, &mark_context, len)?;
         let detail_columns = DetailColumns::from_mark_data(self, data)?;
         let stroke_values = visual.stroke.as_vec(len, None);
-        let stroke_strings = line_rendering::color_channel_strings(&visual.stroke, len);
+        let stroke_strings = stroke_rendering::color_channel_strings(&visual.stroke, len);
         let stroke_width_values = visual.stroke_width.as_vec(len, None);
         let opacity_values = visual.opacity.as_vec(len, None);
 
@@ -301,15 +301,15 @@ impl CompiledMark for CompiledPolarLine {
                 &stroke_values[first_index],
                 f32::from_bits(partition_key.opacity_bits),
             );
-            let stroke_dash = line_rendering::stroke_dash_from_name(&partition_key.stroke_dash)?;
-            let stroke_cap = line_rendering::coerce_stroke_cap_strings(
+            let stroke_dash = stroke_rendering::stroke_dash_from_name(&partition_key.stroke_dash)?;
+            let stroke_cap = stroke_rendering::coerce_stroke_cap_strings(
                 std::slice::from_ref(&partition_key.stroke_cap),
                 "stroke_cap",
             )?
             .first()
             .copied()
             .unwrap_or(StrokeCap::Round);
-            let stroke_join = line_rendering::coerce_stroke_join_strings(
+            let stroke_join = stroke_rendering::coerce_stroke_join_strings(
                 std::slice::from_ref(&partition_key.stroke_join),
                 "stroke_join",
             )?
@@ -399,7 +399,7 @@ impl CompiledPolarLine {
             coerce_opacity_channel_with_renderer(self, data, scalars, "opacity", context, 1.0)?;
         let defined =
             coerce_bool_channel_with_renderer(self, data, scalars, "defined", context, true)?;
-        let stroke_dash = line_rendering::optional_stroke_dash(coerce_stroke_dash_channel(
+        let stroke_dash = stroke_rendering::optional_stroke_dash(coerce_stroke_dash_channel(
             data,
             scalars,
             "stroke_dash",
@@ -424,9 +424,9 @@ impl CompiledPolarLine {
         Ok(LineVisualChannels {
             stroke,
             stroke_width,
-            stroke_dash_strings: line_rendering::stroke_dash_strings(&stroke_dash, len),
-            stroke_cap_strings: line_rendering::stroke_cap_strings(&stroke_cap, len),
-            stroke_join_strings: line_rendering::stroke_join_strings(&stroke_join, len),
+            stroke_dash_strings: stroke_rendering::stroke_dash_strings(&stroke_dash, len),
+            stroke_cap_strings: stroke_rendering::stroke_cap_strings(&stroke_cap, len),
+            stroke_join_strings: stroke_rendering::stroke_join_strings(&stroke_join, len),
             opacity,
             defined,
         })
@@ -460,8 +460,8 @@ fn gather_display_space_line(
 ) -> SampledLineGeometry {
     SampledLineGeometry {
         len: indices.len(),
-        x: line_rendering::gather_by_indices(x, len, indices),
-        y: line_rendering::gather_by_indices(y, len, indices),
+        x: stroke_rendering::gather_by_indices(x, len, indices),
+        y: stroke_rendering::gather_by_indices(y, len, indices),
         defined: ScalarOrArray::new_array(
             indices
                 .iter()

@@ -22,7 +22,7 @@ use crate::{
     coerce_stroke_join_channel_values_with_renderer, coerce_text_align_channel,
     coerce_text_baseline_channel, coerce_text_channel, evaluate_item_assignments,
     item_bbox_column_name, item_channel_column_name, item_channel_name_from_column,
-    item_data_column_name, item_data_name_from_column, line_rendering,
+    item_data_column_name, item_data_name_from_column, stroke_rendering,
 };
 
 #[doc(hidden)]
@@ -149,7 +149,7 @@ where
         mark_context,
         1.0,
     )?;
-    let leader_stroke_dash = line_rendering::optional_stroke_dash(coerce_stroke_dash_channel(
+    let leader_stroke_dash = stroke_rendering::optional_stroke_dash(coerce_stroke_dash_channel(
         data,
         scalars,
         "leader_stroke_dash",
@@ -412,29 +412,29 @@ fn build_text_item_frame(
         bool_item_channel("leader", text_mark.leader.as_vec(len, None)),
         string_item_channel(
             "color",
-            line_rendering::color_channel_strings(
+            stroke_rendering::color_channel_strings(
                 &text_raw_color_channel(&text_mark.color, &text_mark.opacity, len),
                 len,
             ),
         ),
         string_item_channel(
             "leader_stroke",
-            line_rendering::color_channel_strings(
+            stroke_rendering::color_channel_strings(
                 &text_raw_color_channel(&text_mark.leader_stroke, &text_mark.opacity, len),
                 len,
             ),
         ),
         string_item_channel(
             "leader_stroke_dash",
-            line_rendering::stroke_dash_strings(&text_mark.leader_stroke_dash, len),
+            stroke_rendering::stroke_dash_strings(&text_mark.leader_stroke_dash, len),
         ),
         string_item_channel(
             "leader_stroke_cap",
-            line_rendering::stroke_cap_strings(&text_mark.leader_stroke_cap, len),
+            stroke_rendering::stroke_cap_strings(&text_mark.leader_stroke_cap, len),
         ),
         string_item_channel(
             "leader_stroke_join",
-            line_rendering::stroke_join_strings(&text_mark.leader_stroke_join, len),
+            stroke_rendering::stroke_join_strings(&text_mark.leader_stroke_join, len),
         ),
         string_item_channel(
             "leader_shape",

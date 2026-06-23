@@ -1731,12 +1731,12 @@ fn resolve_unit_aspect_box(
         return Ok(None);
     };
     if ctx
-        .unit_aspect_constraint_for_channels(x_channel, y_channel)
+        .coordinate_metric_for_channels(x_channel, y_channel)
         .is_none()
     {
         return Err(AvengerChartError::InvalidArgument(format!(
-            "tool '{tool_id}' requested a unit-aspect box, but no active Cartesian \
-             unit_aspect constraint targets channels '{x_channel}' and '{y_channel}'"
+            "tool '{tool_id}' requested a unit-aspect box, but no active coordinate metric \
+             targets channels '{x_channel}' and '{y_channel}'"
         )));
     }
     Ok(Some(ResolvedUnitAspectBox { mode }))
@@ -1979,29 +1979,23 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use avenger_chart_core::{
-        CompiledScalarExpressionProgram, PhysicalScalarExpressionSpec,
-        PhysicalScalarProgramOptions, UnitAspectConstraint, UnitAspectPolicy,
-        one_row_batch_from_scalars,
+        CompiledScalarExpressionProgram, CoordinateMetricDescriptor, PhysicalScalarExpressionSpec,
+        PhysicalScalarProgramOptions, one_row_batch_from_scalars,
     };
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::prelude::SessionContext;
 
     use super::*;
 
-    fn unit_aspect_context<'a>(
+    fn coordinate_metric_context<'a>(
         tool_id: &'a str,
-        constraints: &'a [UnitAspectConstraint],
+        metrics: &'a [CoordinateMetricDescriptor],
     ) -> ToolExpansionContext<'a> {
-        ToolExpansionContext::empty(tool_id).with_unit_aspect_constraints(constraints)
+        ToolExpansionContext::empty(tool_id).with_coordinate_metrics(metrics)
     }
 
-    fn xy_unit_aspect_constraint(ratio: f64) -> UnitAspectConstraint {
-        UnitAspectConstraint {
-            x_channel: "x".to_string(),
-            y_channel: "y".to_string(),
-            ratio,
-            policy: UnitAspectPolicy::ExpandDomain,
-        }
+    fn xy_coordinate_metric() -> CoordinateMetricDescriptor {
+        CoordinateMetricDescriptor::new("unit_aspect", "x", "y")
     }
 
     fn domain_scalar(min: f64, max: f64) -> ScalarValue {
@@ -2396,11 +2390,11 @@ mod tests {
             Ok(_) => panic!("unit aspect box without coordinate constraint should fail"),
             Err(err) => err,
         };
-        assert!(err.to_string().contains("no active Cartesian unit_aspect"));
+        assert!(err.to_string().contains("no active coordinate metric"));
 
-        let constraints = [xy_unit_aspect_constraint(2.0)];
-        tool.expand(unit_aspect_context(ChartTool::id(&tool), &constraints))
-            .expect("matching unit aspect constraint");
+        let metrics = [xy_coordinate_metric()];
+        tool.expand(coordinate_metric_context(ChartTool::id(&tool), &metrics))
+            .expect("matching coordinate metric");
     }
 
     #[test]
@@ -2539,9 +2533,9 @@ mod tests {
     #[test]
     fn box_zoom_unit_aspect_defaults_to_viewport_mode() {
         let tool = BoxZoom::cartesian().unit_aspect();
-        let constraints = [xy_unit_aspect_constraint(1.0)];
+        let metrics = [xy_coordinate_metric()];
         let expansion = tool
-            .expand(unit_aspect_context(ChartTool::id(&tool), &constraints))
+            .expand(coordinate_metric_context(ChartTool::id(&tool), &metrics))
             .expect("expand");
 
         let drag = expansion

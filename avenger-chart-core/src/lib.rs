@@ -13,6 +13,7 @@ pub mod compound;
 pub mod configured_scale_legend;
 pub mod container_sharing;
 pub mod coord_measurement;
+pub mod coordinate_domain;
 pub mod coordinate_guide;
 pub mod coordinate_system;
 pub mod coordinate_transform;
@@ -23,6 +24,7 @@ pub mod datafusion_utils;
 pub mod derived_scalar;
 pub mod detail_columns;
 pub mod domain_coordination;
+pub mod domain_extent;
 pub mod error;
 pub mod evaluation_context;
 pub mod event;
@@ -43,7 +45,6 @@ pub mod layout_types;
 pub mod legend;
 pub mod legend_renderer;
 pub mod legend_spec;
-pub mod line_rendering;
 pub mod mark;
 pub mod mark_channel_coercion;
 pub mod mark_effects;
@@ -76,6 +77,7 @@ pub mod serialization;
 pub mod sharing;
 pub mod sharing_mode;
 pub mod store;
+pub mod stroke_rendering;
 pub mod subplot_child_plot;
 pub mod text_rendering;
 pub mod theme;
@@ -120,6 +122,16 @@ pub use container_sharing::{
     sharing_group_boundary,
 };
 pub use coord_measurement::{CoordMeasurement, EmptyCoordMeasurement};
+pub use coordinate_domain::{
+    CoordinateDomainBinding, CoordinateDomainCellKey, CoordinateDomainCellRequest,
+    CoordinateDomainCellResolution, CoordinateDomainDescriptor, CoordinateDomainGroupRequest,
+    CoordinateDomainGroupResolution, CoordinateDomainMaterialization, CoordinateDomainMetadata,
+    CoordinateDomainNode, CoordinateDomainOwnership, CoordinateDomainParamSpec,
+    CoordinateDomainProvider, CoordinateDomainResolvedState, CoordinateDomainRole,
+    CoordinateDomainScaleState, CoordinateDomainScaleType, CoordinateDomainSharedNodeKey,
+    CoordinateDomainSharingPolicy, CoordinateMetricDescriptor, NumericDomainSpanEquation,
+    solve_numeric_domain_span_graph,
+};
 pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};
 pub use coordinate_system::{CoordinateSystem, CoordinateSystemCore};
 pub use coordinate_transform::{
@@ -146,6 +158,10 @@ pub use derived_scalar::{
 pub use detail_columns::DetailColumns;
 pub use domain_coordination::{
     DomainCoordination, DomainCoordinationGroup, validate_domain_group_id,
+};
+pub use domain_extent::{
+    DomainBounds, DomainExtent, RadiusPadding, SerializableDataExtents, SerializableDomainValue,
+    SerializableStructField, union_domain_extents,
 };
 pub use error::AvengerChartError;
 pub use evaluation_context::{EvaluationContext, EvaluationDiagnostics};
@@ -309,8 +325,5 @@ pub use transform::{
     DataTransformExecutionContext, DataTransformFacetContext, DataTransformResult,
     DataTransformStage, apply_compiled_data_transforms,
 };
-pub use unit_aspect::{
-    CartesianUnitAspect, ResolvedUnitAspectConstraint, UnitAspectAdjustedAxis,
-    UnitAspectAdjustment, UnitAspectConstraint, UnitAspectPolicy,
-};
+pub use unit_aspect::CartesianUnitAspect;
 pub use zero_d::ZeroDCoord;

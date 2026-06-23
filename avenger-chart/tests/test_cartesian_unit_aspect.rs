@@ -280,8 +280,10 @@ async fn authored_concat_rejects_unit_aspect_shared_child_domain() {
         .await
         .expect_err("authored concat sharing should be rejected");
 
-    assert!(err.to_string().contains("HConcat does not support"));
-    assert!(err.to_string().contains("unit_aspect child scale"));
+    assert!(
+        err.to_string()
+            .contains("does not support authored concat/grid shared domains")
+    );
 }
 
 #[tokio::test]

@@ -33,7 +33,6 @@ pub use avenger_chart_core::{
     EmptySelectionBehavior, FacetEmptyCellPolicy, IntoPlotMark, MarkGroup, PlotMark, Selection,
     SelectionClauseUpdate, SelectionCombine, SelectionSceneQuery, SelectionUpdate, Store,
     StoreData, StoreFieldPatch, StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext,
-    UnitAspectAdjustedAxis, UnitAspectAdjustment, UnitAspectConstraint, UnitAspectPolicy,
     WeekStart, ZeroDCoord,
 };
 pub use avenger_chart_core::{

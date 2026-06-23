@@ -8,8 +8,8 @@ use datafusion::{
 use indexmap::IndexMap;
 
 use crate::{
-    AvengerChartError, CompiledMark, CoordMeasurement, PlotGeometry, ScaleRangeBinding,
-    ScaleTypePreference, UnitAspectConstraint,
+    AvengerChartError, CompiledMark, CoordMeasurement, CoordinateDomainProvider, PlotGeometry,
+    ScaleRangeBinding, ScaleTypePreference,
 };
 
 /// Display/equilibrium geometry for a generated position channel.
@@ -159,20 +159,21 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
         Vec::new()
     }
 
-    /// Unit-aspect constraints owned by this coordinate transform.
-    ///
-    /// Coordinates return coordinate-channel pairs here. Plot compilation
-    /// resolves those channels to concrete scale names after mark channel
-    /// configuration has been collected.
-    fn unit_aspect_constraints(&self) -> Vec<UnitAspectConstraint> {
-        Vec::new()
-    }
-
     /// Optional coordinate-owned measurement provider.
     ///
     /// The high-level facade calls this after generic child-frame measurement
     /// helpers and before built-in concat/facet downcast dispatch.
     fn measurement_provider(&self) -> Option<&dyn CoordinateMeasurementProvider> {
+        None
+    }
+
+    /// Optional coordinate-owned domain realization provider.
+    ///
+    /// Coordinates that need to realize final scale domains from plot-area
+    /// geometry, params, sharing topology, or fitted data extents can expose a
+    /// provider here. Ordinary coordinates return `None` and use the standard
+    /// scale-domain inference path.
+    fn domain_provider(&self) -> Option<&dyn CoordinateDomainProvider> {
         None
     }
 

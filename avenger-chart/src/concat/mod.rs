@@ -37,22 +37,22 @@ use crate::{
     },
     marks::{CompiledMark, CompiledMarkCore},
     plot::compiled::{
-        ChildFrameDataSelection, ChildFrameDomainSharingInput, ChildFrameLayoutSlot,
-        ChildFrameRegion, ChildFrameRuntime, ChildFrameUnitAspectDomainSharingInput, CompiledPlot,
+        ChildFrameCoordinateDomainGroupKind, ChildFrameDataSelection, ChildFrameDomainSharingInput,
+        ChildFrameLayoutSlot, ChildFrameRegion, ChildFrameRuntime, CompiledPlot,
         ComponentsMeasurement, ContainerLabelPlacement, PreparedChildFramePlot,
-        UnitAspectSharingPolicy, child_frame_container_view_from_concat,
+        child_frame_container_view_from_concat, child_frame_coordinate_domain_node_for_scale,
         container_path_without_facet_segments, coordinated_child_frame_domain_extents,
-        coordinated_child_frame_domain_extents_with_unit_aspect,
         measure_child_frame_container_guide_overflow, render_child_frame_container_guide_labels,
+        resolve_child_frame_coordinate_domain_extents,
     },
     render::EvaluationContext,
     scales::{DomainExtent, ScaleRangeBinding},
     theme::Theme,
 };
 use avenger_chart_core::{
-    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CoordinationAxis,
-    DefaultLogicalExprNodeExt, ExprHelpers, FacetWrapColumnMode, IntoExpr, SharingLevel,
-    contains_aggregate, params_to_datafusion,
+    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CoordinateDomainCellKey,
+    CoordinationAxis, DefaultLogicalExprNodeExt, ExprHelpers, FacetWrapColumnMode, IntoExpr,
+    SharingLevel, contains_aggregate, params_to_datafusion,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 
@@ -1450,7 +1450,7 @@ fn semantic_axis_guide_visibility_for_child(
 
 struct ConcatDomainCoordination {
     coordinated_domain_extents: Vec<HashMap<String, DomainExtent>>,
-    unit_aspect_domain_overrides: Vec<HashMap<String, DomainExtent>>,
+    coordinate_domain_overrides: Vec<HashMap<String, DomainExtent>>,
 }
 
 async fn coordinated_domain_extents_for_concat_children(
@@ -1484,95 +1484,62 @@ async fn coordinated_domain_extents_for_concat_children(
         .collect::<Vec<_>>();
 
     let ordinary_coordinated = coordinated_child_frame_domain_extents(&domain_inputs);
-    if origin == ConcatOrigin::Authored {
-        return Ok(ConcatDomainCoordination {
-            coordinated_domain_extents: ordinary_coordinated,
-            unit_aspect_domain_overrides: vec![HashMap::new(); children.len()],
-        });
-    }
+    let group_kind = match origin {
+        ConcatOrigin::Authored => ChildFrameCoordinateDomainGroupKind::AuthoredConcat,
+        ConcatOrigin::RepeatColumns
+        | ConcatOrigin::RepeatRows
+        | ConcatOrigin::RepeatGrid
+        | ConcatOrigin::RepeatWrap => ChildFrameCoordinateDomainGroupKind::FacetRepeat,
+    };
 
-    let mut inputs = Vec::with_capacity(children.len());
+    let mut coordinate_domain_cells = Vec::with_capacity(children.len());
     for (((child, scope_key), child_plot_area), coordinated_extents) in children
         .iter()
         .zip(scope_keys.iter())
         .zip(child_plot_areas.iter())
         .zip(ordinary_coordinated.iter())
     {
-        let unit_aspect_base_domain_extents = child
+        let cell_key = CoordinateDomainCellKey::new(format!("{scope_key:?}"));
+        let scale_names = child
             .child_plot
-            .unit_aspect_base_domain_extents(
+            .local_domain_extents()
+            .keys()
+            .chain(child.child_plot.channel_domain_sharing_levels().keys())
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        let node_by_scale_name = scale_names
+            .into_iter()
+            .map(|scale_name| {
+                let node = child_frame_coordinate_domain_node_for_scale(
+                    &cell_key,
+                    scope_key,
+                    child.child_plot.channel_domain_sharing_levels(),
+                    &scale_name,
+                );
+                (scale_name, node)
+            })
+            .collect::<HashMap<_, _>>();
+        let coordinate_domain_cell = child
+            .child_plot
+            .coordinate_domain_cell(
                 eval_ctx,
                 child_plot_area.width,
                 child_plot_area.height,
                 &[coordinated_extents],
+                cell_key,
+                coordinated_extents.clone(),
+                &node_by_scale_name,
             )
             .await?;
-        inputs.push(
-            ChildFrameUnitAspectDomainSharingInput::new(
-                scope_key,
-                child.child_plot.local_domain_extents(),
-                child.child_plot.channel_domain_sharing_levels(),
-                child.child_plot.plot().resolved_unit_aspect_constraints()?,
-                child_plot_area.width,
-                child_plot_area.height,
-            )
-            .with_unit_aspect_base_domain_extents(unit_aspect_base_domain_extents),
-        );
+        coordinate_domain_cells.push(coordinate_domain_cell);
     }
 
-    let output = coordinated_child_frame_domain_extents_with_unit_aspect(&inputs)?;
+    let output =
+        resolve_child_frame_coordinate_domain_extents(group_kind, &coordinate_domain_cells)?;
     Ok(ConcatDomainCoordination {
         coordinated_domain_extents: output.coordinated_domain_extents,
-        unit_aspect_domain_overrides: output.unit_aspect_domain_overrides,
+        coordinate_domain_overrides: output.coordinate_domain_overrides,
     })
-}
-
-fn validate_unit_aspect_concat_domain_sharing(
-    origin: ConcatOrigin,
-    container_name: &str,
-    children: &[PreparedConcatChild<'_>],
-) -> Result<(), AvengerChartError> {
-    if origin != ConcatOrigin::Authored {
-        return Ok(());
-    }
-
-    for child in children {
-        let constraints = child.child_plot.plot().resolved_unit_aspect_constraints()?;
-        for constraint in constraints {
-            for (axis, scale_name) in [
-                ("x", constraint.x_scale.as_str()),
-                ("y", constraint.y_scale.as_str()),
-            ] {
-                let Some(coordination) = child
-                    .child_plot
-                    .channel_domain_sharing_levels()
-                    .get(scale_name)
-                else {
-                    continue;
-                };
-                if SharingLevel::from(coordination.scope).is_free() {
-                    continue;
-                }
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "{container_name} does not support non-free child-frame domain sharing for \
-                     unit_aspect child scale '{scale_name}' ({axis} channel); use local \
-                     child domains, facet/repeat sharing, or remove unit_aspect"
-                )));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn unit_aspect_policy_for_concat_origin(origin: ConcatOrigin) -> UnitAspectSharingPolicy {
-    match origin {
-        ConcatOrigin::Authored => UnitAspectSharingPolicy::ForbidSharedExpansion,
-        ConcatOrigin::RepeatColumns
-        | ConcatOrigin::RepeatRows
-        | ConcatOrigin::RepeatGrid
-        | ConcatOrigin::RepeatWrap => UnitAspectSharingPolicy::AllowSharedExpansion,
-    }
 }
 
 async fn prepare_concat_child<'a>(
@@ -1613,8 +1580,7 @@ async fn measure_prepared_concat_child(
     facet_path: &[ScalarValue],
     coordinated_domain_extents: &HashMap<String, DomainExtent>,
     facet_scoped_domain_extents: &HashMap<String, DomainExtent>,
-    unit_aspect_domain_overrides: &HashMap<String, DomainExtent>,
-    unit_aspect_sharing_policy: UnitAspectSharingPolicy,
+    coordinate_domain_overrides: &HashMap<String, DomainExtent>,
 ) -> Result<ConcatChildMeasurement, AvengerChartError> {
     let runtime = ChildFrameRuntime::new();
     let child_layout_spec =
@@ -1627,13 +1593,12 @@ async fn measure_prepared_concat_child(
     for level in sharing_level_iter {
         child_eval_ctx = child_eval_ctx.with_child_frame_sharing_level_appended(level);
     }
-    let measurement = Box::pin(prepared.child_plot.measure_with_unit_aspect_policy(
+    let measurement = Box::pin(prepared.child_plot.measure_with_coordinate_domains(
         &child_eval_ctx,
         &child_layout_spec,
         facet_path,
         &[coordinated_domain_extents, facet_scoped_domain_extents],
-        unit_aspect_domain_overrides,
-        unit_aspect_sharing_policy,
+        Some(coordinate_domain_overrides),
     ))
     .await?;
 
@@ -1687,14 +1652,6 @@ pub(crate) async fn measure_concat_coord_system(
     for subplot in subplots {
         prepared_children.push(Box::pin(prepare_concat_child(subplot, eval_ctx, data)).await?);
     }
-    validate_unit_aspect_concat_domain_sharing(
-        origin,
-        match direction {
-            Orientation::Horizontal => "HConcat",
-            Orientation::Vertical => "VConcat",
-        },
-        &prepared_children,
-    )?;
 
     let child_plot_areas = prepared_children
         .iter()
@@ -1714,15 +1671,13 @@ pub(crate) async fn measure_concat_coord_system(
         eval_ctx,
     )
     .await?;
-    let unit_aspect_policy = unit_aspect_policy_for_concat_origin(origin);
-
     let mut children = Vec::with_capacity(prepared_children.len());
     let child_count = prepared_children.len();
-    for (((prepared, coordinated_extents), unit_aspect_overrides), child_plot_area) in
+    for (((prepared, coordinated_extents), coordinate_domain_overrides), child_plot_area) in
         prepared_children
             .iter()
             .zip(domain_coordination.coordinated_domain_extents.iter())
-            .zip(domain_coordination.unit_aspect_domain_overrides.iter())
+            .zip(domain_coordination.coordinate_domain_overrides.iter())
             .zip(child_plot_areas.iter().copied())
     {
         let facet_scoped_extents = eval_ctx
@@ -1740,8 +1695,7 @@ pub(crate) async fn measure_concat_coord_system(
                 facet_path,
                 coordinated_extents,
                 &facet_scoped_extents,
-                unit_aspect_overrides,
-                unit_aspect_policy,
+                coordinate_domain_overrides,
             ))
             .await?,
         );
@@ -1814,7 +1768,6 @@ pub(crate) async fn measure_grid_concat_coord_system(
     for subplot in subplots {
         prepared_children.push(Box::pin(prepare_concat_child(subplot, eval_ctx, data)).await?);
     }
-    validate_unit_aspect_concat_domain_sharing(grid.origin(), "GridConcat", &prepared_children)?;
     let semantic_children = prepared_children
         .iter()
         .filter_map(|prepared| {
@@ -1858,14 +1811,12 @@ pub(crate) async fn measure_grid_concat_coord_system(
         eval_ctx,
     )
     .await?;
-    let unit_aspect_policy = unit_aspect_policy_for_concat_origin(grid.origin());
-
     let mut children = Vec::with_capacity(prepared_children.len());
-    for (((prepared, coordinated_extents), unit_aspect_overrides), child_plot_area) in
+    for (((prepared, coordinated_extents), coordinate_domain_overrides), child_plot_area) in
         prepared_children
             .iter()
             .zip(domain_coordination.coordinated_domain_extents.iter())
-            .zip(domain_coordination.unit_aspect_domain_overrides.iter())
+            .zip(domain_coordination.coordinate_domain_overrides.iter())
             .zip(child_plot_areas.iter().copied())
     {
         let placement = prepared.grid_placement().ok_or_else(|| {
@@ -1898,8 +1849,7 @@ pub(crate) async fn measure_grid_concat_coord_system(
                 facet_path,
                 coordinated_extents,
                 &facet_scoped_extents,
-                unit_aspect_overrides,
-                unit_aspect_policy,
+                coordinate_domain_overrides,
             ))
             .await?,
         );
@@ -1971,7 +1921,6 @@ pub(crate) async fn measure_wrap_concat_coord_system(
     for subplot in subplots {
         prepared_children.push(Box::pin(prepare_concat_child(subplot, eval_ctx, data)).await?);
     }
-    validate_unit_aspect_concat_domain_sharing(wrap.origin(), "WrapConcat", &prepared_children)?;
     let semantic_children = prepared_children
         .iter()
         .enumerate()
@@ -1999,16 +1948,16 @@ pub(crate) async fn measure_wrap_concat_coord_system(
         eval_ctx,
     )
     .await?;
-    let unit_aspect_policy = unit_aspect_policy_for_concat_origin(wrap.origin());
-
     let mut children = Vec::with_capacity(prepared_children.len());
-    for (slot_index, (((prepared, coordinated_extents), unit_aspect_overrides), child_plot_area)) in
-        prepared_children
-            .iter()
-            .zip(domain_coordination.coordinated_domain_extents.iter())
-            .zip(domain_coordination.unit_aspect_domain_overrides.iter())
-            .zip(child_plot_areas.iter().copied())
-            .enumerate()
+    for (
+        slot_index,
+        (((prepared, coordinated_extents), coordinate_domain_overrides), child_plot_area),
+    ) in prepared_children
+        .iter()
+        .zip(domain_coordination.coordinated_domain_extents.iter())
+        .zip(domain_coordination.coordinate_domain_overrides.iter())
+        .zip(child_plot_areas.iter().copied())
+        .enumerate()
     {
         let facet_scoped_extents = eval_ctx
             .facet_scale_builder_precompute_store()
@@ -2039,8 +1988,7 @@ pub(crate) async fn measure_wrap_concat_coord_system(
             facet_path,
             coordinated_extents,
             &facet_scoped_extents,
-            unit_aspect_overrides,
-            unit_aspect_policy,
+            coordinate_domain_overrides,
         ))
         .await?;
         child.grid_placement = Some(GridPlacementConfig {

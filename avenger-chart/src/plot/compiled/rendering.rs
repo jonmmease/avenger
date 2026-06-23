@@ -146,26 +146,30 @@ fn plot_contains_responsive_wrap_concat(plot: &CompiledPlot) -> bool {
     })
 }
 
-fn plot_tree_has_unit_aspect_constraints(plot: &CompiledPlot) -> bool {
-    if plot.has_unit_aspect_constraints() {
+fn plot_tree_has_plot_area_dependent_coordinate_domains(plot: &CompiledPlot) -> bool {
+    if plot
+        .coordinate_domain_descriptors()
+        .iter()
+        .any(|descriptor| descriptor.depends_on_plot_area)
+    {
         return true;
     }
 
     plot.marks.iter().any(|mark| {
         if let Some(subplot) = compiled_concat_subplot(mark.as_ref())
-            && plot_tree_has_unit_aspect_constraints(subplot.compiled_subplot())
+            && plot_tree_has_plot_area_dependent_coordinate_domains(subplot.compiled_subplot())
         {
             return true;
         }
         if let Some(subplot) = facet_subplot_ref(mark.as_ref())
-            && plot_tree_has_unit_aspect_constraints(subplot.compiled_subplot())
+            && plot_tree_has_plot_area_dependent_coordinate_domains(subplot.compiled_subplot())
         {
             return true;
         }
         if let Some(subplot) = mark.as_positioned_subplot()
-            && plot_tree_has_unit_aspect_constraints(compiled_subplot_payload_child_plot(
-                subplot.payload(),
-            ))
+            && plot_tree_has_plot_area_dependent_coordinate_domains(
+                compiled_subplot_payload_child_plot(subplot.payload()),
+            )
         {
             return true;
         }
@@ -3512,7 +3516,7 @@ impl CompiledPlot {
             });
         }
 
-        if plot_area_retargeted && plot_tree_has_unit_aspect_constraints(self) {
+        if plot_area_retargeted && plot_tree_has_plot_area_dependent_coordinate_domains(self) {
             Box::pin(self.remeasure_canvas_coord_at_current_plot_area(
                 measurement,
                 active_eval_ctx,
@@ -4107,7 +4111,7 @@ impl CompiledPlot {
             });
         }
 
-        if plot_area_retargeted && plot_tree_has_unit_aspect_constraints(self) {
+        if plot_area_retargeted && plot_tree_has_plot_area_dependent_coordinate_domains(self) {
             Box::pin(self.remeasure_policy_coord_at_current_plot_area(
                 measurement,
                 active_eval_ctx,
@@ -4241,7 +4245,8 @@ impl CompiledPlot {
             return Ok(());
         }
 
-        let unit_aspect_domains_depend_on_retarget = plot_tree_has_unit_aspect_constraints(self);
+        let coordinate_domains_depend_on_retarget =
+            plot_tree_has_plot_area_dependent_coordinate_domains(self);
         for pass in 1..=max_refinement_passes {
             let outcome = Box::pin(self.run_refinement_iteration(
                 mode,
@@ -4258,18 +4263,18 @@ impl CompiledPlot {
 
             eval_ctx.record_facet_refinement_pass();
             let overflow_grew = outcome.overflow_grew.unwrap_or(false);
-            let unit_aspect_retargeted =
-                unit_aspect_domains_depend_on_retarget && outcome.plot_area_retargeted;
+            let coordinate_domain_retargeted =
+                coordinate_domains_depend_on_retarget && outcome.plot_area_retargeted;
             trace!(
                 trace_prefix,
                 pass,
                 overflow_grew,
                 plot_area_retargeted = outcome.plot_area_retargeted,
-                unit_aspect_retargeted,
+                coordinate_domain_retargeted,
                 "refinement pass completed"
             );
 
-            if !overflow_grew && !unit_aspect_retargeted {
+            if !overflow_grew && !coordinate_domain_retargeted {
                 eval_ctx.record_facet_refinement_converged();
                 return Ok(());
             }
@@ -4326,7 +4331,8 @@ impl CompiledPlot {
         }
 
         let mut padding_feedback = outcome.realized_padding_feedback;
-        let unit_aspect_domains_depend_on_retarget = plot_tree_has_unit_aspect_constraints(self);
+        let coordinate_domains_depend_on_retarget =
+            plot_tree_has_plot_area_dependent_coordinate_domains(self);
         for pass in 1..=max_refinement_passes {
             let target = (pass == target_iteration).then_some(target_checkpoint);
             let outcome = Box::pin(self.run_refinement_iteration(
@@ -4345,9 +4351,9 @@ impl CompiledPlot {
                 return Ok(());
             }
             let overflow_grew = outcome.overflow_grew.unwrap_or(false);
-            let unit_aspect_retargeted =
-                unit_aspect_domains_depend_on_retarget && outcome.plot_area_retargeted;
-            if !overflow_grew && !unit_aspect_retargeted {
+            let coordinate_domain_retargeted =
+                coordinate_domains_depend_on_retarget && outcome.plot_area_retargeted;
+            if !overflow_grew && !coordinate_domain_retargeted {
                 break;
             }
             padding_feedback = outcome.realized_padding_feedback;
@@ -6907,7 +6913,7 @@ impl CompiledPlot {
             ));
         }
 
-        if plot_tree_has_unit_aspect_constraints(self)
+        if plot_tree_has_plot_area_dependent_coordinate_domains(self)
             && layout_profile
                 .measurement
                 .child_frame_container_view()?
@@ -7015,11 +7021,15 @@ impl CompiledPlot {
             HashMap::new()
         };
         let has_active_root_raw_domain_overrides = !root_raw_domain_overrides.is_empty();
+        let root_has_plot_area_dependent_coordinate_domains = self
+            .coordinate_domain_descriptors()
+            .iter()
+            .any(|descriptor| descriptor.depends_on_plot_area);
         let can_reuse_single_plot_raw_domain_scales =
             matches!(resolved_chart_sizing, ResolvedChartSizing::SinglePlot)
                 && !changed_params_touch_layout_size
                 && has_active_root_raw_domain_overrides
-                && !self.has_unit_aspect_constraints();
+                && !root_has_plot_area_dependent_coordinate_domains;
         let can_reuse_root_facet_scales =
             matches!(resolved_chart_sizing, ResolvedChartSizing::FacetBand(_))
                 && can_reuse_profile_facet_tree

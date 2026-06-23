@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use avenger_chart_core::{
-    CompiledMark, CompiledParamSpec, DefaultLogicalExprNodeExt, DomainCoordination,
-    DomainCoordinationGroup,
+    CompiledMark, CompiledParamSpec, CoordinateDomainDescriptor, CoordinateDomainMaterialization,
+    DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::logical_expr::Expr;
@@ -20,6 +20,75 @@ use crate::{
 use super::CompiledPlot;
 
 impl CompiledPlot {
+    pub(crate) fn validate_coordinate_domain_metrics(&self) -> Result<(), AvengerChartError> {
+        for descriptor in self.coordinate_domain_descriptors() {
+            for metric in &descriptor.metrics {
+                let x_scale = self.one_coordinate_metric_scale(
+                    &descriptor,
+                    &metric.x_channel,
+                    "x",
+                )?;
+                let y_scale = self.one_coordinate_metric_scale(
+                    &descriptor,
+                    &metric.y_channel,
+                    "y",
+                )?;
+                if x_scale == y_scale {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "coordinate domain metric '{}' x and y channels both resolve to scale '{}'",
+                        metric.id, x_scale
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn one_coordinate_metric_scale(
+        &self,
+        descriptor: &CoordinateDomainDescriptor,
+        coord_channel: &str,
+        axis_label: &str,
+    ) -> Result<String, AvengerChartError> {
+        let mut names = Vec::new();
+        for binding in &descriptor.bindings {
+            if binding.coord_channel != coord_channel {
+                continue;
+            }
+            if let Some(scale_name) = &binding.scale_name {
+                names.push(scale_name.clone());
+                continue;
+            }
+            let mut channel_names = self.scale_names_for_coord_channel(coord_channel);
+            if channel_names.is_empty()
+                && matches!(
+                    binding.materialize,
+                    CoordinateDomainMaterialization::CreateIfAbsent { .. }
+                )
+            {
+                channel_names.push(coord_channel.to_string());
+            }
+            names.extend(channel_names);
+        }
+        if names.is_empty() {
+            names = self.scale_names_for_coord_channel(coord_channel);
+        }
+        names.sort();
+        names.dedup();
+        match names.as_slice() {
+            [scale_name] => Ok(scale_name.clone()),
+            [] => Err(AvengerChartError::InvalidArgument(format!(
+                "coordinate domain metric '{}' {axis_label} channel '{coord_channel}' does not resolve to a scale",
+                descriptor.id
+            ))),
+            names => Err(AvengerChartError::InvalidArgument(format!(
+                "coordinate domain metric '{}' {axis_label} channel '{coord_channel}' resolves to multiple scales: {}",
+                descriptor.id,
+                names.join(", ")
+            ))),
+        }
+    }
+
     /// Validate that all required positional scales exist
     pub(super) fn validate_positional_scales_exist(
         &self,
@@ -119,13 +188,6 @@ impl CompiledPlot {
 
     pub(crate) fn validate_transform_output_scale_sharing(&self) -> Result<(), AvengerChartError> {
         self.validate_transform_output_scale_sharing_recursive()
-    }
-
-    pub(crate) fn validate_unit_aspect_constraints(&self) -> Result<(), AvengerChartError> {
-        if self.has_unit_aspect_constraints() {
-            self.resolved_unit_aspect_constraints()?;
-        }
-        Ok(())
     }
 
     fn collect_param_specs(&self, out: &mut HashMap<String, CompiledParamSpec>) {

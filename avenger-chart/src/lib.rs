@@ -139,10 +139,7 @@ pub mod parallel {
     pub use avenger_chart_parallel::*;
 }
 
-pub use avenger_chart_core::{
-    CartesianUnitAspect, ResolvedUnitAspectConstraint, UnitAspectAdjustedAxis,
-    UnitAspectAdjustment, UnitAspectConstraint, UnitAspectPolicy,
-};
+pub use avenger_chart_core::CartesianUnitAspect;
 pub use avenger_chart_core::{
     define_common_mark_channels, define_position_channels, impl_mark_base, impl_mark_trait_common,
     impl_supported_channels,

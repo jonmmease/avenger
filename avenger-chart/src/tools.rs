@@ -92,7 +92,7 @@ impl ToolCompileContext {
         &self,
         tools: &[Arc<dyn ChartTool<C>>],
         scale_targets: &[ToolScaleTarget],
-        unit_aspect_constraints: &[avenger_chart_core::UnitAspectConstraint],
+        coordinate_metrics: &[avenger_chart_core::CoordinateMetricDescriptor],
     ) -> Result<Vec<ActiveToolExpansion<C>>, AvengerChartError> {
         let mut active = Vec::new();
         let mut local_ids = HashSet::new();
@@ -105,7 +105,7 @@ impl ToolCompileContext {
                 )));
             }
             let mut expansion_context = ToolExpansionContext::new(&id, scale_targets)
-                .with_unit_aspect_constraints(unit_aspect_constraints);
+                .with_coordinate_metrics(coordinate_metrics);
             if let Some(repeat_context) = self.repeat_context.as_ref() {
                 expansion_context = expansion_context.with_repeat_context(repeat_context);
             }

@@ -1,10 +1,14 @@
 use std::{any::Any, collections::HashMap};
 
 use avenger_chart_core::{
-    AvengerChartError, CartesianUnitAspect, CoordinateSystem, CoordinateSystemCore,
-    CoordinateSystemTransform, CoordinateSystemTransformCore, InteractionPointInversionRequest,
-    PlotAreaRangeEndpoint, PlotGeometry, PointGeometry, ScaleRangeBinding, UnitAspectConstraint,
-    UnitAspectPolicy,
+    AvengerChartError, CartesianUnitAspect, CoordinateDomainBinding, CoordinateDomainCellRequest,
+    CoordinateDomainCellResolution, CoordinateDomainDescriptor, CoordinateDomainGroupRequest,
+    CoordinateDomainGroupResolution, CoordinateDomainMaterialization, CoordinateDomainProvider,
+    CoordinateDomainRole, CoordinateDomainScaleState, CoordinateDomainScaleType,
+    CoordinateDomainSharingPolicy, CoordinateMetricDescriptor, CoordinateSystem,
+    CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore, DomainExtent,
+    InteractionPointInversionRequest, NumericDomainSpanEquation, PlotAreaRangeEndpoint,
+    PlotGeometry, PointGeometry, ScaleRangeBinding, solve_numeric_domain_span_graph,
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
@@ -161,16 +165,9 @@ impl CoordinateSystemTransformCore for Cartesian {
         options
     }
 
-    fn unit_aspect_constraints(&self) -> Vec<UnitAspectConstraint> {
+    fn domain_provider(&self) -> Option<&dyn CoordinateDomainProvider> {
         self.unit_aspect
-            .map(|unit_aspect| UnitAspectConstraint {
-                x_channel: "x".to_string(),
-                y_channel: "y".to_string(),
-                ratio: unit_aspect.ratio,
-                policy: UnitAspectPolicy::ExpandDomain,
-            })
-            .into_iter()
-            .collect()
+            .map(|_| self as &dyn CoordinateDomainProvider)
     }
 
     fn interaction_invertible_channels(&self) -> Vec<String> {
@@ -232,6 +229,142 @@ impl CoordinateSystemTransformCore for Cartesian {
             inverted.insert((*channel).to_string(), value);
         }
         Ok(inverted)
+    }
+}
+
+impl CoordinateDomainProvider for Cartesian {
+    fn domain_descriptors(&self) -> Vec<CoordinateDomainDescriptor> {
+        let Some(_) = self.unit_aspect else {
+            return Vec::new();
+        };
+
+        let mut descriptor = CoordinateDomainDescriptor::new("cartesian_unit_aspect");
+        descriptor.bindings = vec![
+            CoordinateDomainBinding::observed("x", CoordinateDomainRole::X)
+                .requiring_scale_type(CoordinateDomainScaleType::LinearNumeric),
+            CoordinateDomainBinding::observed("y", CoordinateDomainRole::Y)
+                .requiring_scale_type(CoordinateDomainScaleType::LinearNumeric),
+        ];
+        descriptor.metrics = vec![CoordinateMetricDescriptor::new(
+            "cartesian_unit_aspect",
+            "x",
+            "y",
+        )];
+        descriptor.sharing_policy = CoordinateDomainSharingPolicy::FacetRepeatGroups;
+        descriptor.depends_on_plot_area = true;
+        descriptor.bindings.iter_mut().for_each(|binding| {
+            binding.materialize = CoordinateDomainMaterialization::ExistingOnly
+        });
+        vec![descriptor]
+    }
+
+    fn resolve_domain_group(
+        &self,
+        request: CoordinateDomainGroupRequest<'_>,
+    ) -> Result<CoordinateDomainGroupResolution, AvengerChartError> {
+        let Some(unit_aspect) = self.unit_aspect else {
+            return Ok(CoordinateDomainGroupResolution::default());
+        };
+        if !unit_aspect.ratio.is_finite() || unit_aspect.ratio <= 0.0 {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "unit_aspect ratio must be positive and finite, got {}",
+                unit_aspect.ratio
+            )));
+        }
+
+        let mut equations = Vec::new();
+        for cell in request.cells {
+            let x_state = one_metric_state(cell, "x")?;
+            let y_state = one_metric_state(cell, "y")?;
+            equations.push(NumericDomainSpanEquation {
+                x_node: x_state.node.clone(),
+                y_node: y_state.node.clone(),
+                x_extent: required_domain_extent(x_state, "x")?,
+                y_extent: required_domain_extent(y_state, "y")?,
+                x_range_span: required_range_span(x_state, "x")?,
+                y_range_span: required_range_span(y_state, "y")?,
+                ratio: unit_aspect.ratio,
+            });
+        }
+
+        let solved = solve_numeric_domain_span_graph(&equations)?;
+        let mut cells = Vec::with_capacity(request.cells.len());
+        for cell in request.cells {
+            let x_state = one_metric_state(cell, "x")?;
+            let y_state = one_metric_state(cell, "y")?;
+            let mut domain_overrides = HashMap::new();
+            for state in [x_state, y_state] {
+                if let Some(extent) = solved.get(&state.node) {
+                    domain_overrides.insert(state.scale_name.clone(), extent.clone());
+                }
+            }
+            cells.push(CoordinateDomainCellResolution {
+                cell_key: cell.cell_key.clone(),
+                domain_overrides,
+                metadata: Vec::new(),
+            });
+        }
+
+        Ok(CoordinateDomainGroupResolution { cells })
+    }
+}
+
+fn one_metric_state<'a>(
+    cell: &'a CoordinateDomainCellRequest<'_>,
+    channel: &str,
+) -> Result<&'a CoordinateDomainScaleState, AvengerChartError> {
+    let matches = cell
+        .scale_states
+        .iter()
+        .filter(|state| state.coord_channel == channel)
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [state] => Ok(*state),
+        [] => Err(AvengerChartError::InvalidArgument(format!(
+            "unit_aspect {channel} channel does not resolve to a scale"
+        ))),
+        states => Err(AvengerChartError::InvalidArgument(format!(
+            "unit_aspect {channel} channel resolves to multiple scales: {}",
+            states
+                .iter()
+                .map(|state| state.scale_name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
+}
+
+fn required_domain_extent(
+    state: &CoordinateDomainScaleState,
+    axis: &str,
+) -> Result<DomainExtent, AvengerChartError> {
+    state.base_domain.clone().ok_or_else(|| {
+        AvengerChartError::InvalidArgument(format!(
+            "unit_aspect {axis} scale '{}' requires a numeric interval domain",
+            state.scale_name
+        ))
+    })
+}
+
+fn required_range_span(
+    state: &CoordinateDomainScaleState,
+    axis: &str,
+) -> Result<f64, AvengerChartError> {
+    let Some((start, end)) = state.range else {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "unit_aspect {axis} scale '{}' requires a numeric interval range",
+            state.scale_name
+        )));
+    };
+    let span = (end - start).abs();
+    if span.is_finite() && span > 0.0 {
+        Ok(span)
+    } else {
+        Err(AvengerChartError::InvalidArgument(format!(
+            "unit_aspect {axis} range for scale '{}' must have positive finite span, got {:?}",
+            state.scale_name,
+            (start, end)
+        )))
     }
 }
 
@@ -297,13 +430,18 @@ mod tests {
             Some(CartesianUnitAspect { ratio: 2.0 })
         );
         assert_eq!(
-            coord.unit_aspect_constraints(),
-            vec![UnitAspectConstraint {
-                x_channel: "x".to_string(),
-                y_channel: "y".to_string(),
-                ratio: 2.0,
-                policy: UnitAspectPolicy::ExpandDomain,
-            }]
+            coord
+                .domain_provider()
+                .expect("unit_aspect coordinate domain provider")
+                .domain_descriptors()
+                .into_iter()
+                .flat_map(|descriptor| descriptor.metrics)
+                .collect::<Vec<_>>(),
+            vec![CoordinateMetricDescriptor::new(
+                "cartesian_unit_aspect",
+                "x",
+                "y"
+            )]
         );
         assert_eq!(coord.without_unit_aspect().unit_aspect_constraint(), None);
         assert_eq!(

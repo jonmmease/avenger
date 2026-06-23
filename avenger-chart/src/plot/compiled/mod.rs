@@ -9,6 +9,7 @@ mod container_domain_sharing;
 mod container_guide;
 mod container_labels;
 mod container_sharing;
+mod coordinate_domains;
 mod coordination_scope;
 mod domain_coordination;
 mod layout_profile;
@@ -19,7 +20,6 @@ pub mod scale_provider;
 pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_from_marks
 mod session;
 mod titles;
-mod unit_aspect;
 mod validation;
 
 use std::{
@@ -43,9 +43,9 @@ use serde_with::{FromInto, serde_as};
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChannelValue, CompiledDataContext, CompiledGuide, CompiledMark,
     CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot,
-    CompiledSubplotPayload, CoordMeasurement, CoordinateSystemTransform,
-    EvaluationContext as CoreEvaluationContext, EventDatumFieldSpec, FacetDataScope, Legend,
-    LogicalPlanNodeExt, MarkDataMode, ResolvedUnitAspectConstraint, ScaleInferenceHint,
+    CompiledSubplotPayload, CoordMeasurement, CoordinateDomainResolvedState,
+    CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext, EventDatumFieldSpec,
+    FacetDataScope, Legend, LogicalPlanNodeExt, MarkDataMode, ScaleInferenceHint,
     ScaleRangeBinding, SerializableDataFrame, SerializableScalarMap, Theme, TimeContext,
     ToolMetadata, channel::strip_trailing_numbers,
 };
@@ -70,7 +70,7 @@ pub(crate) use self::child_frame_container::{
 pub(crate) use self::child_frame_coordination::ChildFrameLayoutSlot;
 pub(crate) use self::child_frame_runtime::{
     ChildFrameDataSelection, ChildFrameRuntime, PreparedChildFramePlot,
-    fixed_child_plot_area_layout_spec, unit_aspect_base_domain_extents_for_builder,
+    coordinate_domain_cell_for_builder, fixed_child_plot_area_layout_spec,
 };
 pub(crate) use self::child_frame_scope::{
     ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel, ChildFrameSharingPath,
@@ -81,10 +81,11 @@ pub(crate) use self::container_band_guide::{
     measure_container_band_guide_slab, render_container_band_guide_slab,
 };
 pub(crate) use self::container_domain_sharing::{
-    ChildFrameChannelDomainExtent, ChildFrameDomainSharingInput,
-    ChildFrameUnitAspectDomainSharingInput, apply_domain_group_to_key,
-    child_frame_domain_sharing_levels_for_plot, coordinated_child_frame_domain_extents,
-    coordinated_child_frame_domain_extents_with_unit_aspect, extract_child_frame_domain_extents,
+    ChildFrameChannelDomainExtent, ChildFrameCoordinateDomainCell,
+    ChildFrameCoordinateDomainGroupKind, ChildFrameDomainSharingInput, apply_domain_group_to_key,
+    child_frame_coordinate_domain_node_for_scale, child_frame_domain_sharing_levels_for_plot,
+    coordinated_child_frame_domain_extents, extract_child_frame_domain_extents,
+    resolve_child_frame_coordinate_domain_extents,
 };
 pub(crate) use self::container_guide::{
     measure_child_frame_container_guide_overflow, render_child_frame_container_guide_labels,
@@ -96,6 +97,9 @@ pub(crate) use self::container_sharing::{
     ContainerEdgeLevelProjection, EdgeOwnershipRequest, EdgeOwnershipScope, SharingGroupEdge,
     edge_ownership_scope_for_request, owner_for_scope, project_container_edge_levels,
     shared_path_key,
+};
+pub(crate) use self::coordinate_domains::{
+    CoordinateDomainBuildPolicy, apply_coordinate_domain_overrides,
 };
 pub(crate) use self::coordination_scope::{CoordinationKind, CoordinationScopeKey};
 pub(crate) use self::domain_coordination::union_domain_extents;
@@ -116,10 +120,6 @@ pub(crate) use self::session::{
     GuideOverflowCacheHandle, LegendMeasurementCacheHandle, ScaleDomainCacheHandle,
     ScopedParamStore, ScopedSelectionStore, ScopedStoreState, TextMeasurementCacheHandle,
     TextMeasurementCacheKey,
-};
-pub(crate) use self::unit_aspect::{
-    UnitAspectDomainNode, UnitAspectSharingPolicy, UnitAspectSpanGraphInput,
-    solve_unit_aspect_span_graph,
 };
 
 use super::title::{PlotSubtitle, PlotTitle};
@@ -155,28 +155,16 @@ pub(crate) struct MarkGroupDataCacheKey {
 pub(crate) type MarkGroupDataCacheHandle =
     Arc<Mutex<HashMap<MarkGroupDataCacheKey, Arc<PreparedBaseData>>>>;
 
+pub(crate) struct ResolvedScaleSet {
+    pub(crate) scales: HashMap<String, ConfiguredScaleWithSpec>,
+    pub(crate) _coordinate_domains: CoordinateDomainResolvedState,
+}
+
 fn is_data_transparent_group(group: &CompiledMarkGroupState) -> bool {
     !group.data.has_explicit_data_source()
         && group.data.transforms().is_empty()
         && group.data_mode == MarkDataMode::Inherit
         && group.facet_data_scope == FacetDataScope::FILTERED
-}
-
-fn one_unit_aspect_scale(
-    coord_channel: &str,
-    scale_names: &[String],
-    axis_label: &str,
-) -> Result<String, AvengerChartError> {
-    match scale_names {
-        [scale_name] => Ok(scale_name.clone()),
-        [] => Err(AvengerChartError::InvalidArgument(format!(
-            "unit_aspect {axis_label} channel '{coord_channel}' does not resolve to a scale"
-        ))),
-        names => Err(AvengerChartError::InvalidArgument(format!(
-            "unit_aspect {axis_label} channel '{coord_channel}' resolves to multiple scales: {}",
-            names.join(", ")
-        ))),
-    }
 }
 
 #[serde_as]
@@ -312,48 +300,7 @@ impl CompiledPlot {
         }
     }
 
-    pub(crate) fn has_unit_aspect_constraints(&self) -> bool {
-        !self.coord_transform.unit_aspect_constraints().is_empty()
-    }
-
-    pub(crate) fn resolved_unit_aspect_constraints(
-        &self,
-    ) -> Result<Vec<ResolvedUnitAspectConstraint>, AvengerChartError> {
-        self.coord_transform
-            .unit_aspect_constraints()
-            .into_iter()
-            .map(|constraint| {
-                if !constraint.ratio.is_finite() || constraint.ratio <= 0.0 {
-                    return Err(AvengerChartError::InvalidArgument(format!(
-                        "unit_aspect ratio must be positive and finite, got {}",
-                        constraint.ratio
-                    )));
-                }
-
-                let x_scales = self.scale_names_for_coord_channel(&constraint.x_channel);
-                let y_scales = self.scale_names_for_coord_channel(&constraint.y_channel);
-                let x_scale = one_unit_aspect_scale(&constraint.x_channel, &x_scales, "x")?;
-                let y_scale = one_unit_aspect_scale(&constraint.y_channel, &y_scales, "y")?;
-                if x_scale == y_scale {
-                    return Err(AvengerChartError::InvalidArgument(format!(
-                        "unit_aspect channels '{}' and '{}' both resolve to scale '{}'",
-                        constraint.x_channel, constraint.y_channel, x_scale
-                    )));
-                }
-
-                Ok(ResolvedUnitAspectConstraint {
-                    x_channel: constraint.x_channel,
-                    y_channel: constraint.y_channel,
-                    x_scale,
-                    y_scale,
-                    ratio: constraint.ratio,
-                    policy: constraint.policy,
-                })
-            })
-            .collect()
-    }
-
-    fn scale_names_for_coord_channel(&self, coord_channel: &str) -> Vec<String> {
+    pub(crate) fn scale_names_for_coord_channel(&self, coord_channel: &str) -> Vec<String> {
         let mut names = BTreeSet::new();
         for (scale_name, mapped_coord_channel) in &self.scale_to_coord_channel {
             if mapped_coord_channel == coord_channel {
@@ -853,18 +800,18 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
-        self.build_scales_from_builder_with_unit_aspect_policy(
+        self.build_scales_from_builder_with_coordinate_domain_policy(
             builder,
             plot_area_width,
             plot_area_height,
             ctx,
             params,
-            UnitAspectSharingPolicy::ForbidSharedExpansion,
+            CoordinateDomainBuildPolicy::RejectSharedOverrides,
         )
         .await
     }
 
-    pub(crate) async fn build_scales_from_builder_without_unit_aspect(
+    pub(crate) async fn build_scales_from_builder_without_coordinate_domains(
         &self,
         builder: &ScaleBuilder,
         plot_area_width: f32,
@@ -881,16 +828,17 @@ impl CompiledPlot {
             None,
         )
         .await
+        .map(|resolved| resolved.scales)
     }
 
-    pub(crate) async fn build_scales_from_builder_with_unit_aspect_policy(
+    pub(crate) async fn build_scales_from_builder_with_coordinate_domain_policy(
         &self,
         builder: &ScaleBuilder,
         plot_area_width: f32,
         plot_area_height: f32,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
-        unit_aspect_sharing_policy: UnitAspectSharingPolicy,
+        build_policy: CoordinateDomainBuildPolicy,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         self.build_scales_from_builder_inner(
             builder,
@@ -898,9 +846,10 @@ impl CompiledPlot {
             plot_area_height,
             ctx,
             params,
-            Some(unit_aspect_sharing_policy),
+            Some(build_policy),
         )
         .await
+        .map(|resolved| resolved.scales)
     }
 
     async fn build_scales_from_builder_inner(
@@ -910,15 +859,22 @@ impl CompiledPlot {
         plot_area_height: f32,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
-        unit_aspect_sharing_policy: Option<UnitAspectSharingPolicy>,
-    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
+        build_policy: Option<CoordinateDomainBuildPolicy>,
+    ) -> Result<ResolvedScaleSet, AvengerChartError> {
+        let coordinate_domain_descriptors = build_policy
+            .is_some()
+            .then(|| self.coordinate_domain_descriptors())
+            .unwrap_or_default();
+        let materialized_builder =
+            self.materialize_coordinate_domain_builder(builder, &coordinate_domain_descriptors)?;
+        let builder = materialized_builder.as_ref().unwrap_or(builder);
+
         // Build coordinate system range bindings map
         let mut coord_system_range_bindings = HashMap::<String, ScaleRangeBinding>::new();
         for channel in builder.channel_builders().keys() {
             let base = self
-                .scale_to_coord_channel
-                .get(channel)
-                .map(String::as_str)
+                .coordinate_domain_channel_for_scale(&coordinate_domain_descriptors, channel)
+                .or_else(|| self.scale_to_coord_channel.get(channel).map(String::as_str))
                 .unwrap_or_else(|| strip_trailing_numbers(channel));
             if let Some(binding) = self.coord_transform.default_range_binding(base) {
                 coord_system_range_bindings.insert(channel.clone(), binding);
@@ -939,11 +895,20 @@ impl CompiledPlot {
         ))
         .await?;
 
-        if let Some(unit_aspect_sharing_policy) = unit_aspect_sharing_policy {
-            self.apply_unit_aspect_constraints(&mut built, unit_aspect_sharing_policy)?;
-        }
+        let coordinate_domains = self.apply_coordinate_domain_provider(
+            builder,
+            &mut built,
+            &coordinate_domain_descriptors,
+            plot_area_width,
+            plot_area_height,
+            params,
+            build_policy.unwrap_or(CoordinateDomainBuildPolicy::AllowSharedOverrides),
+        )?;
 
-        Ok(built)
+        Ok(ResolvedScaleSet {
+            scales: built,
+            _coordinate_domains: coordinate_domains,
+        })
     }
 
     /// Get scale specifications
@@ -965,25 +930,25 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
-        self.build_scales_for_dataframe_with_unit_aspect_policy(
+        self.build_scales_for_dataframe_with_coordinate_domain_policy(
             df,
             plot_area_width,
             plot_area_height,
             ctx,
             params,
-            UnitAspectSharingPolicy::ForbidSharedExpansion,
+            CoordinateDomainBuildPolicy::RejectSharedOverrides,
         )
         .await
     }
 
-    pub(crate) async fn build_scales_for_dataframe_with_unit_aspect_policy(
+    pub(crate) async fn build_scales_for_dataframe_with_coordinate_domain_policy(
         &self,
         df: &DataFrame,
         plot_area_width: f32,
         plot_area_height: f32,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
-        unit_aspect_sharing_policy: UnitAspectSharingPolicy,
+        build_policy: CoordinateDomainBuildPolicy,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         let eval_ctx =
             CoreEvaluationContext::new(self.get_theme(), Arc::new(ctx.clone()), params.clone())
@@ -996,14 +961,16 @@ impl CompiledPlot {
         ))
         .await?;
 
-        Box::pin(self.build_scales_from_builder_with_unit_aspect_policy(
-            &scale_builder,
-            plot_area_width,
-            plot_area_height,
-            ctx,
-            params,
-            unit_aspect_sharing_policy,
-        ))
+        Box::pin(
+            self.build_scales_from_builder_with_coordinate_domain_policy(
+                &scale_builder,
+                plot_area_width,
+                plot_area_height,
+                ctx,
+                params,
+                build_policy,
+            ),
+        )
         .await
     }
 }

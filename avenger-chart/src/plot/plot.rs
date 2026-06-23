@@ -486,11 +486,20 @@ impl<C: CoordinateSystem> Plot<C> {
             &pre_tool_scale_to_coord_channel,
             &pre_tool_scale_coordination,
         )?;
-        let tool_unit_aspect_constraints = pre_tool_coord_transform.unit_aspect_constraints();
+        let tool_coordinate_metrics = pre_tool_coord_transform
+            .domain_provider()
+            .map(|provider| {
+                provider
+                    .domain_descriptors()
+                    .into_iter()
+                    .flat_map(|descriptor| descriptor.metrics)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let active_tool_expansions = tool_context.expand_local_tools(
             &self.tools,
             &tool_scale_targets,
-            &tool_unit_aspect_constraints,
+            &tool_coordinate_metrics,
         )?;
         tool_context.register_local_stores(&self.stores)?;
         if !is_root {
@@ -756,7 +765,7 @@ impl<C: CoordinateSystem> Plot<C> {
 
         // 6. Validate scoped raw-domain params are shared at least as broadly as
         // the scales they drive (catches Free/Level pan misconfigurations early).
-        compiled.validate_unit_aspect_constraints()?;
+        compiled.validate_coordinate_domain_metrics()?;
         compiled.validate_scoped_raw_domain_sharing(session_context)?;
         compiled.validate_transform_output_scale_sharing()?;
 

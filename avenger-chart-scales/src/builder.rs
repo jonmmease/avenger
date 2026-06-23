@@ -449,6 +449,29 @@ impl ScaleBuilder {
         );
     }
 
+    /// Materialize a numeric linear scale with the neutral `[0, 1]` domain.
+    ///
+    /// Coordinate-owned domain providers use this for guide-only or tile-only
+    /// channels that must exist before the provider returns the final domain.
+    pub fn ensure_linear_numeric_placeholder(
+        &mut self,
+        channel_name: impl Into<String>,
+        options: HashMap<String, LogicalExprNode>,
+        derived_scalars: DerivedScalarMap,
+    ) {
+        let channel_name = channel_name.into();
+        if self.channel_scale_data.contains_key(&channel_name) {
+            return;
+        }
+        self.add_explicit_domain(
+            channel_name,
+            Box::new(Linear),
+            options,
+            ScaleDomain::new_interval(lit(0.0_f64), lit(1.0_f64)),
+            derived_scalars,
+        );
+    }
+
     /// Attach a raw-domain override to a cached scale channel.
     pub fn apply_raw_domain(
         &mut self,
@@ -475,6 +498,22 @@ impl ScaleBuilder {
     /// Get the channel builders
     pub fn channel_builders(&self) -> &HashMap<String, ChannelScaleData> {
         &self.channel_scale_data
+    }
+
+    pub fn channel_has_explicit_domain(&self, channel_name: &str) -> bool {
+        matches!(
+            self.channel_scale_data.get(channel_name),
+            Some(ChannelScaleData::ExplicitDomain { .. })
+        )
+    }
+
+    pub fn channel_has_raw_domain(&self, channel_name: &str) -> bool {
+        match self.channel_scale_data.get(channel_name) {
+            Some(ChannelScaleData::Standard { raw_domain, .. })
+            | Some(ChannelScaleData::RadiusAware { raw_domain, .. }) => raw_domain.is_some(),
+            Some(ChannelScaleData::ExplicitDomain { domain, .. }) => domain.raw_domain.is_some(),
+            None => false,
+        }
     }
 
     /// Apply coordinate-system default options to an existing cached channel.

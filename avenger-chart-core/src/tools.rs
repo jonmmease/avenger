@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::{
-    AvengerChartError, CoordinateSystemCore, CoordinationScope, DomainCoordination, Mark, Param,
-    RepeatContext, Selection, Store, UnitAspectConstraint, event::ChartEventBinding,
+    AvengerChartError, CoordinateMetricDescriptor, CoordinateSystemCore, CoordinationScope,
+    DomainCoordination, Mark, Param, RepeatContext, Selection, Store, event::ChartEventBinding,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +20,7 @@ pub trait ChartTool<C: CoordinateSystemCore>: Send + Sync + 'static {
 pub struct ToolExpansionContext<'a> {
     pub tool_id: &'a str,
     pub scale_targets: &'a [ToolScaleTarget],
-    pub unit_aspect_constraints: &'a [UnitAspectConstraint],
+    pub coordinate_metrics: &'a [CoordinateMetricDescriptor],
     pub repeat_context: Option<&'a RepeatContext>,
 }
 
@@ -29,7 +29,7 @@ impl<'a> ToolExpansionContext<'a> {
         Self {
             tool_id,
             scale_targets,
-            unit_aspect_constraints: &[],
+            coordinate_metrics: &[],
             repeat_context: None,
         }
     }
@@ -43,8 +43,8 @@ impl<'a> ToolExpansionContext<'a> {
         self
     }
 
-    pub fn with_unit_aspect_constraints(mut self, constraints: &'a [UnitAspectConstraint]) -> Self {
-        self.unit_aspect_constraints = constraints;
+    pub fn with_coordinate_metrics(mut self, metrics: &'a [CoordinateMetricDescriptor]) -> Self {
+        self.coordinate_metrics = metrics;
         self
     }
 
@@ -87,14 +87,14 @@ impl<'a> ToolExpansionContext<'a> {
         coordination
     }
 
-    pub fn unit_aspect_constraint_for_channels(
+    pub fn coordinate_metric_for_channels(
         &self,
         x_channel: &str,
         y_channel: &str,
-    ) -> Option<&'a UnitAspectConstraint> {
-        self.unit_aspect_constraints.iter().find(|constraint| {
-            constraint.x_channel == x_channel && constraint.y_channel == y_channel
-        })
+    ) -> Option<&'a CoordinateMetricDescriptor> {
+        self.coordinate_metrics
+            .iter()
+            .find(|metric| metric.x_channel == x_channel && metric.y_channel == y_channel)
     }
 }
 
