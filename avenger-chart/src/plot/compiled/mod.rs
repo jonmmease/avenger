@@ -70,7 +70,7 @@ pub(crate) use self::child_frame_container::{
 pub(crate) use self::child_frame_coordination::ChildFrameLayoutSlot;
 pub(crate) use self::child_frame_runtime::{
     ChildFrameDataSelection, ChildFrameRuntime, PreparedChildFramePlot,
-    fixed_child_plot_area_layout_spec,
+    fixed_child_plot_area_layout_spec, unit_aspect_base_domain_extents_for_builder,
 };
 pub(crate) use self::child_frame_scope::{
     ChildFrameKey, ChildFrameScopeKey, ChildFrameSharingLevel, ChildFrameSharingPath,
@@ -864,6 +864,25 @@ impl CompiledPlot {
         .await
     }
 
+    pub(crate) async fn build_scales_from_builder_without_unit_aspect(
+        &self,
+        builder: &ScaleBuilder,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
+        self.build_scales_from_builder_inner(
+            builder,
+            plot_area_width,
+            plot_area_height,
+            ctx,
+            params,
+            None,
+        )
+        .await
+    }
+
     pub(crate) async fn build_scales_from_builder_with_unit_aspect_policy(
         &self,
         builder: &ScaleBuilder,
@@ -872,6 +891,26 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
         unit_aspect_sharing_policy: UnitAspectSharingPolicy,
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
+        self.build_scales_from_builder_inner(
+            builder,
+            plot_area_width,
+            plot_area_height,
+            ctx,
+            params,
+            Some(unit_aspect_sharing_policy),
+        )
+        .await
+    }
+
+    async fn build_scales_from_builder_inner(
+        &self,
+        builder: &ScaleBuilder,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+        unit_aspect_sharing_policy: Option<UnitAspectSharingPolicy>,
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         // Build coordinate system range bindings map
         let mut coord_system_range_bindings = HashMap::<String, ScaleRangeBinding>::new();
@@ -900,7 +939,9 @@ impl CompiledPlot {
         ))
         .await?;
 
-        self.apply_unit_aspect_constraints(&mut built, unit_aspect_sharing_policy)?;
+        if let Some(unit_aspect_sharing_policy) = unit_aspect_sharing_policy {
+            self.apply_unit_aspect_constraints(&mut built, unit_aspect_sharing_policy)?;
+        }
 
         Ok(built)
     }

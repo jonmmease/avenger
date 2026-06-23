@@ -247,6 +247,67 @@ async fn facet_column_allows_unit_aspect_shared_child_domain() {
 }
 
 #[tokio::test]
+async fn generated_repeat_unit_aspect_shared_domain_handles_symbol_radius_padding() {
+    let ctx = SessionContext::new();
+    let df = ctx
+        .sql(
+            "SELECT 0.0 AS a, 0.0 AS b, 0.0 AS y \
+             UNION ALL SELECT 10.0 AS a, 5.0 AS b, 10.0 AS y",
+        )
+        .await
+        .unwrap();
+    let cell = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+        .mark(Symbol::new().x(repeat::column()).y(col("y")).size(2500.0));
+    let plot = Plot::<RepeatColumns>::new()
+        .plot_size(500.0, 120.0)
+        .data(df)
+        .columns([
+            RepeatVariable::new("a", col("a")),
+            RepeatVariable::new("b", col("b")),
+        ])
+        .with_repeat_domain_coordination(RepeatDomainCoordination::by_variable(
+            CoordinationScope::Shared,
+        ))
+        .cell(cell);
+    let compiled = plot.compile(&ctx).await.expect("compile repeat");
+
+    SvgRenderer::new()
+        .render(&compiled, &ctx, None)
+        .await
+        .expect("generated repeat should solve radius-aware unit_aspect domains");
+}
+
+#[tokio::test]
+async fn facet_column_unit_aspect_shared_domain_handles_symbol_radius_padding() {
+    let ctx = SessionContext::new();
+    let df = ctx
+        .sql(
+            "SELECT 'left' AS panel, 0.0 AS x, 0.0 AS y \
+             UNION ALL SELECT 'left' AS panel, 10.0 AS x, 10.0 AS y \
+             UNION ALL SELECT 'right' AS panel, 0.0 AS x, 0.0 AS y \
+             UNION ALL SELECT 'right' AS panel, 5.0 AS x, 10.0 AS y",
+        )
+        .await
+        .unwrap();
+    let child = Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(
+        Symbol::new()
+            .x_with(col("x"), |x| x.with_domain_scope(CoordinationScope::Shared))
+            .y_with(col("y"), |y| y.with_domain_scope(CoordinationScope::Shared))
+            .size(2500.0),
+    );
+    let plot = Plot::<FacetColumn>::new()
+        .plot_size(500.0, 120.0)
+        .data(df)
+        .mark(Subplot::new(child).column(col("panel")));
+    let compiled = plot.compile(&ctx).await.expect("compile facet");
+
+    SvgRenderer::new()
+        .render(&compiled, &ctx, None)
+        .await
+        .expect("facet should solve radius-aware unit_aspect domains");
+}
+
+#[tokio::test]
 async fn cartesian_unit_aspect_expands_x_for_wide_plot_area() {
     let ctx = SessionContext::new();
     let (x_domain, y_domain) = unit_aspect_domains(&ctx, 1.0, 200.0, 100.0).await;

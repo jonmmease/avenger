@@ -54,6 +54,7 @@ impl<'a> ChildFrameDomainSharingInput<'a> {
 pub(crate) struct ChildFrameUnitAspectDomainSharingInput<'a> {
     pub(crate) domain_input: ChildFrameDomainSharingInput<'a>,
     pub(crate) unit_aspect_constraints: Vec<ResolvedUnitAspectConstraint>,
+    pub(crate) unit_aspect_base_domain_extents: HashMap<String, DomainExtent>,
     pub(crate) plot_area_width: f32,
     pub(crate) plot_area_height: f32,
 }
@@ -74,9 +75,18 @@ impl<'a> ChildFrameUnitAspectDomainSharingInput<'a> {
                 channel_domain_sharing_levels,
             ),
             unit_aspect_constraints,
+            unit_aspect_base_domain_extents: HashMap::new(),
             plot_area_width,
             plot_area_height,
         }
+    }
+
+    pub(crate) fn with_unit_aspect_base_domain_extents(
+        mut self,
+        extents: HashMap<String, DomainExtent>,
+    ) -> Self {
+        self.unit_aspect_base_domain_extents = extents;
+        self
     }
 }
 
@@ -240,18 +250,14 @@ pub(crate) fn coordinated_child_frame_domain_extents_with_unit_aspect(
     let mut graph_inputs = Vec::new();
     for child in children {
         for constraint in &child.unit_aspect_constraints {
-            let Some((x_node, x_extent)) = unit_aspect_domain_node_and_extent(
-                &child.domain_input,
-                &unified,
-                &constraint.x_scale,
-            ) else {
+            let Some((x_node, x_extent)) =
+                unit_aspect_domain_node_and_extent(child, &unified, &constraint.x_scale)
+            else {
                 continue;
             };
-            let Some((y_node, y_extent)) = unit_aspect_domain_node_and_extent(
-                &child.domain_input,
-                &unified,
-                &constraint.y_scale,
-            ) else {
+            let Some((y_node, y_extent)) =
+                unit_aspect_domain_node_and_extent(child, &unified, &constraint.y_scale)
+            else {
                 continue;
             };
             graph_inputs.push(UnitAspectSpanGraphInput {
@@ -278,7 +284,7 @@ pub(crate) fn coordinated_child_frame_domain_extents_with_unit_aspect(
         for constraint in &child.unit_aspect_constraints {
             for scale_name in [&constraint.x_scale, &constraint.y_scale] {
                 let Some((node, _)) =
-                    unit_aspect_domain_node_and_extent(&child.domain_input, &unified, scale_name)
+                    unit_aspect_domain_node_and_extent(child, &unified, scale_name)
                 else {
                     continue;
                 };
@@ -333,27 +339,47 @@ fn coordinated_child_frame_domain_extents_from_unified(
 }
 
 fn unit_aspect_domain_node_and_extent(
-    child: &ChildFrameDomainSharingInput<'_>,
+    child: &ChildFrameUnitAspectDomainSharingInput<'_>,
     unified: &HashMap<CoordinationScopeKey, DomainExtent>,
     scale_name: &str,
 ) -> Option<(UnitAspectDomainNode, DomainExtent)> {
-    if let Some(coordination) = child.channel_domain_sharing_levels.get(scale_name)
+    if let Some(coordination) = child
+        .domain_input
+        .channel_domain_sharing_levels
+        .get(scale_name)
         && !SharingLevel::from(coordination.scope).is_free()
     {
-        let key = child_frame_domain_scope_key(child.scope_key, scale_name, coordination);
-        let extent = unified.get(&key).cloned().or_else(|| {
+        let key =
+            child_frame_domain_scope_key(child.domain_input.scope_key, scale_name, coordination);
+        let extent = child
+            .unit_aspect_base_domain_extents
+            .get(scale_name)
+            .cloned()
+            .or_else(|| unified.get(&key).cloned())
+            .or_else(|| {
+                child
+                    .domain_input
+                    .local_domain_extents
+                    .get(scale_name)
+                    .map(|local| local.extent.clone())
+            })?;
+        return Some((UnitAspectDomainNode::Shared(key), extent));
+    }
+
+    let extent = child
+        .unit_aspect_base_domain_extents
+        .get(scale_name)
+        .cloned()
+        .or_else(|| {
             child
+                .domain_input
                 .local_domain_extents
                 .get(scale_name)
                 .map(|local| local.extent.clone())
         })?;
-        return Some((UnitAspectDomainNode::Shared(key), extent));
-    }
-
-    let extent = child.local_domain_extents.get(scale_name)?.extent.clone();
     Some((
         UnitAspectDomainNode::Free {
-            cell: format!("{:?}", child.scope_key),
+            cell: format!("{:?}", child.domain_input.scope_key),
             scale: scale_name.to_string(),
         },
         extent,

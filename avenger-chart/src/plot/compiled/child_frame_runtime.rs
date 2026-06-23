@@ -212,43 +212,9 @@ impl ChildFrameRuntime {
         unit_aspect_domain_overrides: &HashMap<String, DomainExtent>,
         unit_aspect_sharing_policy: UnitAspectSharingPolicy,
     ) -> Result<ComponentsMeasurement, AvengerChartError> {
-        let extended_builder;
-        let scale_builder = if domain_extents.iter().all(|extents| extents.is_empty()) {
-            scale_builder
-        } else {
-            extended_builder = {
-                let mut builder = scale_builder.clone();
-                let seed_channels = plot
-                    .scale_to_coord_channel
-                    .keys()
-                    .chain(plot.scale_specs.keys())
-                    .cloned()
-                    .collect::<HashSet<_>>();
-                for extents in domain_extents {
-                    if !extents.is_empty() {
-                        let channels_before = builder
-                            .channel_builders()
-                            .keys()
-                            .cloned()
-                            .collect::<HashSet<_>>();
-                        builder.extend_with_domain_extents_for_channels(extents, &seed_channels);
-                        for channel in extents.keys() {
-                            if seed_channels.contains(channel)
-                                && !channels_before.contains(channel)
-                                && builder.channel_builders().contains_key(channel)
-                            {
-                                builder.apply_coordinate_default_options(
-                                    channel,
-                                    plot.coord_transform.as_ref(),
-                                )?;
-                            }
-                        }
-                    }
-                }
-                builder
-            };
-            &extended_builder
-        };
+        let extended_builder =
+            extend_scale_builder_with_domain_extents_for_plot(plot, scale_builder, domain_extents)?;
+        let scale_builder = extended_builder.as_ref().unwrap_or(scale_builder);
         let scale_provider = UnitAspectPolicyScaleProvider {
             builder: scale_builder,
             plot,
@@ -275,6 +241,102 @@ fn unit_aspect_extent_channels(plot: &CompiledPlot) -> Result<HashSet<String>, A
     Ok(channels)
 }
 
+pub(crate) fn extend_scale_builder_with_domain_extents_for_plot(
+    plot: &CompiledPlot,
+    scale_builder: &ScaleBuilder,
+    domain_extents: &[&HashMap<String, DomainExtent>],
+) -> Result<Option<ScaleBuilder>, AvengerChartError> {
+    if domain_extents.iter().all(|extents| extents.is_empty()) {
+        return Ok(None);
+    }
+
+    let mut builder = scale_builder.clone();
+    let seed_channels = plot
+        .scale_to_coord_channel
+        .keys()
+        .chain(plot.scale_specs.keys())
+        .cloned()
+        .collect::<HashSet<_>>();
+    for extents in domain_extents {
+        if extents.is_empty() {
+            continue;
+        }
+        let channels_before = builder
+            .channel_builders()
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        builder.extend_with_domain_extents_for_channels(extents, &seed_channels);
+        for channel in extents.keys() {
+            if seed_channels.contains(channel)
+                && !channels_before.contains(channel)
+                && builder.channel_builders().contains_key(channel)
+            {
+                builder.apply_coordinate_default_options(channel, plot.coord_transform.as_ref())?;
+            }
+        }
+    }
+
+    Ok(Some(builder))
+}
+
+pub(crate) async fn unit_aspect_base_domain_extents_for_builder(
+    plot: &CompiledPlot,
+    eval_ctx: &EvaluationContext,
+    scale_builder: &ScaleBuilder,
+    plot_area_width: f32,
+    plot_area_height: f32,
+    domain_extents: &[&HashMap<String, DomainExtent>],
+) -> Result<HashMap<String, DomainExtent>, AvengerChartError> {
+    if !plot.has_unit_aspect_constraints() {
+        return Ok(HashMap::new());
+    }
+
+    let extended_builder =
+        extend_scale_builder_with_domain_extents_for_plot(plot, scale_builder, domain_extents)?;
+    let scale_builder = extended_builder.as_ref().unwrap_or(scale_builder);
+    let scales = Box::pin(plot.build_scales_from_builder_without_unit_aspect(
+        scale_builder,
+        plot_area_width,
+        plot_area_height,
+        eval_ctx.session_context.as_ref(),
+        eval_ctx.params(),
+    ))
+    .await?;
+
+    unit_aspect_base_domain_extents_from_scales(plot, &scales)
+}
+
+fn unit_aspect_base_domain_extents_from_scales(
+    plot: &CompiledPlot,
+    scales: &HashMap<String, ConfiguredScaleWithSpec>,
+) -> Result<HashMap<String, DomainExtent>, AvengerChartError> {
+    let mut extents = HashMap::new();
+    for constraint in plot.resolved_unit_aspect_constraints()? {
+        for (axis, scale_name) in [
+            ("x", constraint.x_scale.as_str()),
+            ("y", constraint.y_scale.as_str()),
+        ] {
+            let Some(scale) = scales.get(scale_name) else {
+                continue;
+            };
+            let (min, max) = scale
+                .configured()
+                .numeric_interval_domain()
+                .map_err(|err| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "unit_aspect {axis} scale '{scale_name}' requires a numeric interval domain: {err}"
+                    ))
+                })?;
+            extents.insert(
+                scale_name.to_string(),
+                DomainExtent::numeric(f64::from(min), f64::from(max)),
+            );
+        }
+    }
+    Ok(extents)
+}
+
 /// Prepared measurement state for one child plot.
 pub(crate) struct PreparedChildFramePlot<'a> {
     plot: &'a CompiledPlot,
@@ -297,6 +359,24 @@ impl<'a> PreparedChildFramePlot<'a> {
 
     pub(crate) fn channel_domain_sharing_levels(&self) -> &HashMap<String, DomainCoordination> {
         &self.channel_domain_sharing_levels
+    }
+
+    pub(crate) async fn unit_aspect_base_domain_extents(
+        &self,
+        eval_ctx: &EvaluationContext,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        domain_extents: &[&HashMap<String, DomainExtent>],
+    ) -> Result<HashMap<String, DomainExtent>, AvengerChartError> {
+        unit_aspect_base_domain_extents_for_builder(
+            self.plot,
+            eval_ctx,
+            &self.scale_builder,
+            plot_area_width,
+            plot_area_height,
+            domain_extents,
+        )
+        .await
     }
 
     pub(crate) fn scale_type_signatures_by_channel(&self) -> HashMap<String, String> {

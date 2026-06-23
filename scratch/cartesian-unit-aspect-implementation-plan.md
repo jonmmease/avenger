@@ -1245,11 +1245,13 @@ Phase 4 progress note:
   facet solve has a concrete cell measurement. For unit-aspect subplots, that
   estimate uses `UnitAspectSharingPolicy::AllowSharedExpansion`; actual cell
   measurements still use the sharing solver and override map.
-- Current graph inputs come from enriched `DomainExtent` values extracted by
-  the existing scale-builder precompute path. Remaining Phase 4 graph-input
-  work: verify/use base configured domains after radius-aware padding, via a
-  cached-builder scale prepass if enriched `DomainExtent` metadata is not
-  enough.
+- Shared graph inputs now come from a cached-builder scale prepass with
+  unit-aspect disabled. The prepass runs after ordinary shared-domain
+  coordination at the current operating-point plot-area size, extracts the
+  configured numeric domains after `zero`/`nice`/padding/radius-aware symbol
+  padding, and feeds those base domains into the span graph. This avoids
+  solving from raw `DomainExtent` bounds and then having radius padding change
+  the final ratio afterward.
 
 - [x] Spike and document the exact facet insertion point for graph solve.
 - [x] Spike and document the exact generated-repeat concat insertion point for
@@ -1266,11 +1268,11 @@ Phase 4 progress note:
 - [x] Feed generated-repeat unit-aspect solved domains through
       `unit_aspect_domain_overrides` so the final child scale domains match the
       graph solution after scale normalization.
-- [ ] Use base configured domains after radius-aware padding for graph inputs,
+- [x] Use base configured domains after radius-aware padding for graph inputs,
       via a cached-builder scale prepass when needed.
 - [x] Ensure ordinary authored concat/grid/wrap cross-child sharing errors before
       graph solving.
-- [ ] Add facet/repeat sharing tests, authored-concat rejection tests, and
+- [x] Add facet/repeat sharing tests, authored-concat rejection tests, and
       radius-aware shared unit-aspect tests.
 - [x] Add child-frame unit-aspect graph tests for repeat-style shared/free and
       inconsistent shared equations.
@@ -1280,7 +1282,7 @@ Phase 4 progress note:
       can render with unit-aspect shared domains.
 - [x] Allow facet-guide overflow estimates for unit-aspect subplots to use the
       sharing-tolerant scale-build policy before concrete cell overrides exist.
-- [ ] Add radius-aware shared unit-aspect runtime tests.
+- [x] Add radius-aware shared unit-aspect runtime tests.
 - [ ] Add or prepare
       `cartesian_unit_aspect/facet_shared_equal_units.png`
       (`cartesian_unit_aspect_facet_shared_equal_units`; see catalog spec) when

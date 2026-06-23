@@ -1453,10 +1453,11 @@ struct ConcatDomainCoordination {
     unit_aspect_domain_overrides: Vec<HashMap<String, DomainExtent>>,
 }
 
-fn coordinated_domain_extents_for_concat_children(
+async fn coordinated_domain_extents_for_concat_children(
     children: &[PreparedConcatChild<'_>],
     origin: ConcatOrigin,
     child_plot_areas: &[Size],
+    eval_ctx: &EvaluationContext,
 ) -> Result<ConcatDomainCoordination, AvengerChartError> {
     if child_plot_areas.len() != children.len() {
         return Err(AvengerChartError::InternalError(format!(
@@ -1470,40 +1471,54 @@ fn coordinated_domain_extents_for_concat_children(
         .iter()
         .map(PreparedConcatChild::scope_key)
         .collect::<Vec<_>>();
-    if origin == ConcatOrigin::Authored {
-        let inputs = children
-            .iter()
-            .zip(scope_keys.iter())
-            .map(|(child, scope_key)| {
-                ChildFrameDomainSharingInput::new(
-                    scope_key,
-                    child.child_plot.local_domain_extents(),
-                    child.child_plot.channel_domain_sharing_levels(),
-                )
-            })
-            .collect::<Vec<_>>();
+    let domain_inputs = children
+        .iter()
+        .zip(scope_keys.iter())
+        .map(|(child, scope_key)| {
+            ChildFrameDomainSharingInput::new(
+                scope_key,
+                child.child_plot.local_domain_extents(),
+                child.child_plot.channel_domain_sharing_levels(),
+            )
+        })
+        .collect::<Vec<_>>();
 
+    let ordinary_coordinated = coordinated_child_frame_domain_extents(&domain_inputs);
+    if origin == ConcatOrigin::Authored {
         return Ok(ConcatDomainCoordination {
-            coordinated_domain_extents: coordinated_child_frame_domain_extents(&inputs),
+            coordinated_domain_extents: ordinary_coordinated,
             unit_aspect_domain_overrides: vec![HashMap::new(); children.len()],
         });
     }
 
-    let inputs = children
+    let mut inputs = Vec::with_capacity(children.len());
+    for (((child, scope_key), child_plot_area), coordinated_extents) in children
         .iter()
         .zip(scope_keys.iter())
         .zip(child_plot_areas.iter())
-        .map(|((child, scope_key), child_plot_area)| {
-            Ok(ChildFrameUnitAspectDomainSharingInput::new(
+        .zip(ordinary_coordinated.iter())
+    {
+        let unit_aspect_base_domain_extents = child
+            .child_plot
+            .unit_aspect_base_domain_extents(
+                eval_ctx,
+                child_plot_area.width,
+                child_plot_area.height,
+                &[coordinated_extents],
+            )
+            .await?;
+        inputs.push(
+            ChildFrameUnitAspectDomainSharingInput::new(
                 scope_key,
                 child.child_plot.local_domain_extents(),
                 child.child_plot.channel_domain_sharing_levels(),
                 child.child_plot.plot().resolved_unit_aspect_constraints()?,
                 child_plot_area.width,
                 child_plot_area.height,
-            ))
-        })
-        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+            )
+            .with_unit_aspect_base_domain_extents(unit_aspect_base_domain_extents),
+        );
+    }
 
     let output = coordinated_child_frame_domain_extents_with_unit_aspect(&inputs)?;
     Ok(ConcatDomainCoordination {
@@ -1696,7 +1711,9 @@ pub(crate) async fn measure_concat_coord_system(
         &prepared_children,
         origin,
         &child_plot_areas,
-    )?;
+        eval_ctx,
+    )
+    .await?;
     let unit_aspect_policy = unit_aspect_policy_for_concat_origin(origin);
 
     let mut children = Vec::with_capacity(prepared_children.len());
@@ -1838,7 +1855,9 @@ pub(crate) async fn measure_grid_concat_coord_system(
         &prepared_children,
         grid.origin(),
         &child_plot_areas,
-    )?;
+        eval_ctx,
+    )
+    .await?;
     let unit_aspect_policy = unit_aspect_policy_for_concat_origin(grid.origin());
 
     let mut children = Vec::with_capacity(prepared_children.len());
@@ -1977,7 +1996,9 @@ pub(crate) async fn measure_wrap_concat_coord_system(
         &prepared_children,
         wrap.origin(),
         &child_plot_areas,
-    )?;
+        eval_ctx,
+    )
+    .await?;
     let unit_aspect_policy = unit_aspect_policy_for_concat_origin(wrap.origin());
 
     let mut children = Vec::with_capacity(prepared_children.len());
