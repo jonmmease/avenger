@@ -57,6 +57,10 @@ name = "cartesian_pan"
 required-features = ["winit-wgpu"]
 
 [[example]]
+name = "cartesian_image_mark"
+required-features = ["winit-wgpu"]
+
+[[example]]
 name = "cartesian_facet_pan"
 required-features = ["winit-wgpu"]
 
