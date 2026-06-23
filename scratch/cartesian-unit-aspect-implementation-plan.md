@@ -1428,20 +1428,31 @@ Phase 8 deferral note:
 
 ### Phase 9: Remaining Visual Baselines And Docs
 
-- [ ] Accept
+- [x] Accept
       `cartesian_unit_aspect/box_zoom_viewport_drag.png` if it was only prepared
       in Phase 8.
-- [ ] Accept
-      `cartesian_unit_aspect/box_selection_metric_drag.png` if it was only
-      prepared in Phase 8.
-- [ ] Verify every baseline in the visual baseline catalog is either checked off
+- [x] Record deferral for
+      `cartesian_unit_aspect/box_selection_metric_drag.png`; it was not
+      prepared in Phase 8 because mutable store-backed tool state is not yet
+      injectable in the visual harness.
+- [x] Verify every baseline in the visual baseline catalog is either checked off
       or has a written deferral note in this plan.
-- [ ] Review all generated baseline images as a set before accepting the final
+- [x] Review all generated baseline images as a set before accepting the final
       visual updates.
-- [ ] Update user-facing docs/examples for Cartesian `unit_aspect`.
-- [ ] Document v1 restrictions: linear scales, expand-domain policy, authored
+- [x] Update user-facing docs/examples for Cartesian `unit_aspect`.
+- [x] Document v1 restrictions: linear scales, expand-domain policy, authored
       concat/grid sharing rejection, and explicit tool opt-in.
-- [ ] Commit Phase 9.
+- [x] Commit Phase 9.
+
+Phase 9 notes:
+
+- Reviewed a contact sheet of every
+  `avenger-chart/tests/baselines/cartesian_unit_aspect/*.png` image. The new
+  `box_zoom_viewport_drag.png` baseline visibly shows the viewport-shaped active
+  zoom overlay over an equal-units circle.
+- Added `avenger-chart/docs/cartesian-unit-aspect.md` with authoring examples,
+  ratio semantics, box-tool modes, and v1 restrictions. Linked it from the
+  coordinate-system architecture doc.
 
 ## Recommended V1 Scope
 

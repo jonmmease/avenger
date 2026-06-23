@@ -73,6 +73,11 @@ Default range bindings map `x` to plot-area width and `y` to inverted
 plot-area height. Cartesian positioned subplots use `subplot_x` and
 `subplot_y`, mapped to transform channels `x` and `y`.
 
+Cartesian coordinates can also enforce a fixed displayed unit ratio with
+`Cartesian::unit_aspect(...)` or `Cartesian::equal_units()`. See
+[`cartesian-unit-aspect.md`](../cartesian-unit-aspect.md) for authoring
+examples, tool behavior, and v1 restrictions.
+
 `avenger-chart-polar` owns `Polar`, `PolarAxis`, `PolarGuide`,
 `PolarOptions`, Polar position configs, Polar guide evaluation, and the Polar
 `Symbol` render implementation.
