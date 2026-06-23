@@ -28,6 +28,8 @@ avenger-geometry = { path = "../avenger-geometry" }
 avenger-text = { path = "../avenger-text" }
 avenger-guides = { path = "../avenger-guides" }
 avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-image = { path = "../avenger-image" }
+avenger-resource = { path = "../avenger-resource" }
 avenger-wgpu = { path = "../avenger-wgpu" }
 avenger-svg = { path = "../avenger-svg" }
 avenger-pdf = { path = "../avenger-pdf" }

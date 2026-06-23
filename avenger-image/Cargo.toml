@@ -21,3 +21,6 @@ reqwest = { workspace = true, optional = true, features = ["blocking"] }
 resvg = { workspace = true, optional = true }
 usvg = { workspace = true, optional = true }
 tiny-skia = { workspace = true, optional = true }
+
+[dependencies.avenger-resource]
+path = "../avenger-resource"

@@ -6,9 +6,17 @@ use avenger_common::{
 use avenger_image::RgbaImage;
 use avenger_scenegraph::{
     marks::{
-        arc::SceneArcMark, area::SceneAreaMark, group::SceneGroup, image::SceneImageMark,
-        line::SceneLineMark, path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark,
-        symbol::SceneSymbolMark, text::SceneTextMark, trail::SceneTrailMark,
+        arc::SceneArcMark,
+        area::SceneAreaMark,
+        group::SceneGroup,
+        image::{SceneImageMark, SceneImageSource},
+        line::SceneLineMark,
+        path::ScenePathMark,
+        rect::SceneRectMark,
+        rule::SceneRuleMark,
+        symbol::SceneSymbolMark,
+        text::SceneTextMark,
+        trail::SceneTrailMark,
     },
     scene_graph::SceneGraph,
 };
@@ -473,7 +481,7 @@ fn image_mark(image: RgbaImage, x: f32, smooth: bool) -> SceneImageMark {
         len: 1,
         aspect: false,
         smooth,
-        image: ScalarOrArray::new_scalar(image),
+        image: ScalarOrArray::new_scalar(SceneImageSource::Inline(image)),
         x: ScalarOrArray::new_scalar(x),
         y: ScalarOrArray::new_scalar(2.0),
         width: ScalarOrArray::new_scalar(10.0),

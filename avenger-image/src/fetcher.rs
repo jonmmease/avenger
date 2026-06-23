@@ -6,7 +6,7 @@ use crate::error::AvengerImageError;
 #[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))]
 use crate::reqwest_fetcher::ReqwestImageFetcher;
 
-pub trait ImageFetcher {
+pub trait ImageFetcher: Send + Sync {
     fn fetch_image(&self, url: &str) -> Result<DynamicImage, AvengerImageError>;
 }
 

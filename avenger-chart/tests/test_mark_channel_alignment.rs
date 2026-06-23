@@ -532,7 +532,11 @@ async fn image_data_uri_renders_without_network_resources() {
     }
 
     let image = images.first().expect("image mark");
-    let rgba = image.image.first().expect("decoded image");
+    let rgba = image
+        .image
+        .first()
+        .and_then(|source| source.inline_image())
+        .expect("decoded inline image");
     assert_eq!((rgba.width, rgba.height), (2, 2));
 }
 

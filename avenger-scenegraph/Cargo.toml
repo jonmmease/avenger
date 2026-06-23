@@ -45,6 +45,9 @@ path = "../avenger-color"
 path = "../avenger-image"
 default-features = false
 
+[dependencies.avenger-resource]
+path = "../avenger-resource"
+
 [dependencies.avenger-text]
 path = "../avenger-text"
 default-features = false
@@ -54,6 +57,7 @@ features = ["serde"]
 float-cmp = "0.10.0"
 geo = { workspace = true }
 geo-svg = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies.avenger-text]
 path = "../avenger-text"

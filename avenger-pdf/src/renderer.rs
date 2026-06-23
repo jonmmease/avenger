@@ -380,7 +380,7 @@ mod tests {
     use avenger_scenegraph::{
         marks::{
             group::{Clip, SceneGroup},
-            image::SceneImageMark,
+            image::{SceneImageMark, SceneImageSource},
             rect::SceneRectMark,
             text::SceneTextMark,
         },
@@ -695,11 +695,11 @@ mod tests {
                 len: 1,
                 aspect: false,
                 smooth: false,
-                image: ScalarOrArray::new_scalar(RgbaImage {
+                image: ScalarOrArray::new_scalar(SceneImageSource::Inline(RgbaImage {
                     width: 1,
                     height: 1,
                     data: vec![255, 0, 0, 255],
-                }),
+                })),
                 x: ScalarOrArray::new_scalar(4.0),
                 y: ScalarOrArray::new_scalar(5.0),
                 width: ScalarOrArray::new_scalar(12.0),
@@ -721,6 +721,21 @@ mod tests {
         assert!(svg.contains("<image "));
         assert!(svg.contains("data:image/png;base64,"));
         assert!(pdf_contains(&pdf, b"/Subtype /Image"));
+    }
+
+    #[test]
+    fn resource_image_marks_error_without_pdf_resource_resolution() {
+        let scene_graph = resource_image_scene_graph();
+
+        let err = PdfRenderer::new()
+            .render_scene_graph(&scene_graph)
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            AvengerPdfError::Svg(avenger_svg::AvengerSvgError::UnsupportedFeature(_))
+        ));
+        assert!(err.to_string().contains("resource-backed image marks"));
     }
 
     #[test]
@@ -833,5 +848,31 @@ mod tests {
 
     fn pdf_contains(pdf: &[u8], needle: &[u8]) -> bool {
         pdf.windows(needle.len()).any(|window| window == needle)
+    }
+
+    fn resource_image_scene_graph() -> SceneGraph {
+        SceneGraph {
+            width: 8.0,
+            height: 8.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneImageMark {
+                len: 1,
+                aspect: false,
+                image: ScalarOrArray::new_scalar(SceneImageSource::Resource(
+                    avenger_scenegraph::marks::image::SceneImageResource {
+                        key: "tile/0/0/0".into(),
+                        intrinsic_width: 2,
+                        intrinsic_height: 2,
+                        fallback_key: None,
+                    },
+                )),
+                x: ScalarOrArray::new_scalar(0.0),
+                y: ScalarOrArray::new_scalar(0.0),
+                width: ScalarOrArray::new_scalar(8.0),
+                height: ScalarOrArray::new_scalar(8.0),
+                ..Default::default()
+            }
+            .into()],
+        }
     }
 }

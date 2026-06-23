@@ -3,28 +3,58 @@
 //! This module evaluates compiled plots and renders the resulting scene graph
 //! through the `avenger-pdf` backend.
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
+use avenger_image::{ImageResourceCache, ImageResourceLoadOptions, ImageResourceResolver};
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
-use crate::{error::AvengerChartError, plot::CompiledPlot, render::EvaluationOptions};
+use crate::{
+    error::AvengerChartError,
+    plot::CompiledPlot,
+    render::{EvaluatedPlot, EvaluationOptions, resources::resolve_evaluated_plot_image_resources},
+};
 
 /// Renderer that exports evaluated plots as PDF bytes.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct PdfRenderer {
     scene_renderer: avenger_pdf::PdfRenderer,
+    image_resource_resolver: Arc<dyn ImageResourceResolver>,
+    image_resource_load_options: ImageResourceLoadOptions,
+}
+
+impl Default for PdfRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PdfRenderer {
     /// Create a renderer with default PDF options.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            scene_renderer: avenger_pdf::PdfRenderer::new(),
+            image_resource_resolver: Arc::new(ImageResourceCache::new()),
+            image_resource_load_options: ImageResourceLoadOptions::default(),
+        }
     }
 
     /// Override the PDF scenegraph renderer options.
     pub fn with_options(mut self, options: avenger_pdf::PdfRenderOptions) -> Self {
         self.scene_renderer = avenger_pdf::PdfRenderer::new().with_options(options);
+        self
+    }
+
+    pub fn with_image_resource_resolver(
+        mut self,
+        resolver: Arc<dyn ImageResourceResolver>,
+    ) -> Self {
+        self.image_resource_resolver = resolver;
+        self
+    }
+
+    pub fn with_image_resource_load_options(mut self, options: ImageResourceLoadOptions) -> Self {
+        self.image_resource_load_options = options;
         self
     }
 
@@ -58,8 +88,20 @@ impl PdfRenderer {
         options: EvaluationOptions,
     ) -> Result<Vec<u8>, AvengerChartError> {
         let evaluated_plot = compiled.evaluate_with_options(ctx, params, options).await?;
+        self.render_evaluated_plot(&evaluated_plot)
+    }
+
+    pub fn render_evaluated_plot(
+        &self,
+        evaluated_plot: &EvaluatedPlot,
+    ) -> Result<Vec<u8>, AvengerChartError> {
+        let scene_graph = resolve_evaluated_plot_image_resources(
+            evaluated_plot,
+            self.image_resource_resolver.as_ref(),
+            self.image_resource_load_options,
+        )?;
         self.scene_renderer
-            .render_scene_graph(&evaluated_plot.scene_graph)
+            .render_scene_graph(&scene_graph)
             .map_err(|err| AvengerChartError::InternalError(err.to_string()))
     }
 

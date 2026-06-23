@@ -572,8 +572,10 @@ dependencies = [
  "avenger-eventstream",
  "avenger-geometry",
  "avenger-guides",
+ "avenger-image",
  "avenger-layout",
  "avenger-pdf",
+ "avenger-resource",
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-svg",
@@ -674,6 +676,7 @@ dependencies = [
  "avenger-common",
  "avenger-geometry",
  "avenger-guides",
+ "avenger-resource",
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-text",
@@ -1043,6 +1046,7 @@ dependencies = [
 name = "avenger-image"
 version = "0.1.0"
 dependencies = [
+ "avenger-resource",
  "base64",
  "cfg-if",
  "image",
@@ -1087,6 +1091,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-resource"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "avenger-sample-data"
 version = "0.1.0"
 
@@ -1125,6 +1137,7 @@ dependencies = [
  "avenger-common",
  "avenger-geometry",
  "avenger-image",
+ "avenger-resource",
  "avenger-text",
  "float-cmp 0.10.0",
  "geo",
@@ -1137,6 +1150,7 @@ dependencies = [
  "pyo3",
  "rstar 0.12.2 (git+https://github.com/georust/rstar.git?branch=master)",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
 ]
 
@@ -1215,6 +1229,8 @@ dependencies = [
  "arc-swap",
  "avenger-color",
  "avenger-common",
+ "avenger-image",
+ "avenger-resource",
  "avenger-scenegraph",
  "avenger-text",
  "avenger-vega-scenegraph",

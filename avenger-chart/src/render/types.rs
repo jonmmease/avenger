@@ -3,6 +3,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use avenger_chart_core::{AvengerChartError, CoordinateSystemTransform, SceneQueryDatumField};
+use avenger_resource::ResourceRequest;
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::{
     arrow::{
@@ -1126,6 +1127,8 @@ fn scalar_unique_key(value: &ScalarValue) -> Option<String> {
 pub struct EvaluatedPlot {
     /// The complete scene graph ready for rendering
     pub scene_graph: SceneGraph,
+    /// External resources requested while evaluating scene output.
+    pub resource_requests: Vec<ResourceRequest>,
     /// Spatial index for efficient hit testing
     pub rtree: Option<SceneGraphRTree>,
     /// Interaction scopes for event routing and coordinate inversion.

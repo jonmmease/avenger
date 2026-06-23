@@ -4,6 +4,7 @@ extern crate lazy_static;
 pub mod canvas;
 pub mod error;
 pub mod frame_publisher;
+pub mod image_resources;
 pub mod marks;
 pub mod offscreen;
 pub(crate) mod readback;

@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use avenger_resource::ResourceRequest;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
@@ -29,6 +30,8 @@ pub struct EvaluationContext {
     pub time_context: TimeContext,
     #[doc(hidden)]
     pub diagnostics: Option<Arc<dyn EvaluationDiagnostics>>,
+    #[doc(hidden)]
+    pub resource_request_sink: Option<Arc<Mutex<Vec<ResourceRequest>>>>,
 }
 
 impl EvaluationContext {
@@ -43,6 +46,7 @@ impl EvaluationContext {
             params,
             time_context: TimeContext::default(),
             diagnostics: None,
+            resource_request_sink: None,
         }
     }
 
@@ -74,6 +78,7 @@ impl EvaluationContext {
             params,
             time_context: self.time_context.clone(),
             diagnostics: self.diagnostics.clone(),
+            resource_request_sink: self.resource_request_sink.clone(),
         }
     }
 
@@ -84,6 +89,7 @@ impl EvaluationContext {
             params: self.params.clone(),
             time_context,
             diagnostics: self.diagnostics.clone(),
+            resource_request_sink: self.resource_request_sink.clone(),
         }
     }
 
@@ -95,6 +101,19 @@ impl EvaluationContext {
             params: self.params.clone(),
             time_context: self.time_context.clone(),
             diagnostics: Some(diagnostics),
+            resource_request_sink: self.resource_request_sink.clone(),
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn with_resource_request_sink(&self, sink: Arc<Mutex<Vec<ResourceRequest>>>) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            time_context: self.time_context.clone(),
+            diagnostics: self.diagnostics.clone(),
+            resource_request_sink: Some(sink),
         }
     }
 
@@ -103,6 +122,37 @@ impl EvaluationContext {
         if let Some(diagnostics) = &self.diagnostics {
             diagnostics.record_scale_domain_collect();
         }
+    }
+
+    /// Record a resource that an evaluated scene needs an embedding host to load.
+    pub fn request_resource(&self, request: ResourceRequest) {
+        if let Some(sink) = &self.resource_request_sink {
+            let mut guard = sink.lock().expect("resource request sink lock poisoned");
+            if let Some(existing) = guard
+                .iter_mut()
+                .find(|existing| existing.key == request.key)
+            {
+                if request.priority > existing.priority {
+                    *existing = request;
+                } else {
+                    existing.priority = existing.priority.max(request.priority);
+                }
+            } else {
+                guard.push(request);
+            }
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn resource_requests_snapshot(&self) -> Vec<ResourceRequest> {
+        self.resource_request_sink
+            .as_ref()
+            .map(|sink| {
+                sink.lock()
+                    .expect("resource request sink lock poisoned")
+                    .clone()
+            })
+            .unwrap_or_default()
     }
 
     /// Create a new context with canvas dimensions added to params.
@@ -130,5 +180,68 @@ impl EvaluationContext {
     /// Resolve a mark default value with the context's runtime params applied.
     pub fn mark_default(&self, mark_type: &str, channel: &str) -> Option<ScalarValue> {
         self.theme.mark_default(mark_type, channel, &self.params)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use avenger_resource::{ResourceCachePolicy, ResourceKey, ResourceKind, ResourceSource};
+
+    #[test]
+    fn resource_request_sink_survives_context_clones() {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(SessionContext::new()),
+            IndexMap::new(),
+        )
+        .with_resource_request_sink(sink)
+        .with_time_context(TimeContext::default())
+        .with_params(IndexMap::new());
+
+        ctx.request_resource(ResourceRequest {
+            key: ResourceKey::new("tile/0/0/0"),
+            kind: ResourceKind::new("image"),
+            source: ResourceSource::Url {
+                url: "https://tiles.example/0/0/0.png".to_string(),
+            },
+            priority: 1.0,
+            cache_policy: ResourceCachePolicy::default(),
+        });
+
+        let requests = ctx.resource_requests_snapshot();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].key, ResourceKey::new("tile/0/0/0"));
+    }
+
+    #[test]
+    fn resource_request_sink_dedupes_by_key_and_keeps_highest_priority() {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(SessionContext::new()),
+            IndexMap::new(),
+        )
+        .with_resource_request_sink(sink);
+
+        let mut request = ResourceRequest {
+            key: ResourceKey::new("tile/0/0/0"),
+            kind: ResourceKind::new("image"),
+            source: ResourceSource::Url {
+                url: "https://tiles.example/0/0/0.png".to_string(),
+            },
+            priority: 1.0,
+            cache_policy: ResourceCachePolicy::default(),
+        };
+        ctx.request_resource(request.clone());
+        request.priority = 0.25;
+        ctx.request_resource(request.clone());
+        request.priority = 2.0;
+        ctx.request_resource(request);
+
+        let requests = ctx.resource_requests_snapshot();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].priority, 2.0);
     }
 }

@@ -18,13 +18,28 @@ pub fn initialize() {
 #[cfg(test)]
 mod test_image_baselines {
     use crate::initialize;
-    use avenger_scenegraph::scene_graph::SceneGraph;
+    use avenger_common::{
+        canvas::CanvasDimensions,
+        types::{ImageAlign, ImageBaseline},
+        value::ScalarOrArray,
+    };
+    use avenger_image::{ImageResourceResolver, ImageResourceState, RgbaImage};
+    use avenger_resource::ResourceKey;
+    use avenger_scenegraph::{
+        marks::image::{SceneImageMark, SceneImageResource, SceneImageSource},
+        scene_graph::SceneGraph,
+    };
     use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
-    use avenger_wgpu::canvas::{Canvas, PngCanvas};
+    use avenger_wgpu::{
+        canvas::{Canvas, CanvasConfig, PngCanvas},
+        error::AvengerWgpuError,
+        image_resources::{WgpuImagePlaceholder, WgpuImageResourceConfig, WgpuMissingImagePolicy},
+    };
     use dssim::Dssim;
     use rstest::rstest;
     use std::fs;
     use std::path::Path;
+    use std::sync::{Arc, Mutex};
 
     #[rstest(
         category,
@@ -240,4 +255,137 @@ mod test_image_baselines {
 
     #[test]
     fn test_marker() {} // Help IDE detect test module
+
+    #[test]
+    fn resource_image_pending_draws_placeholder() {
+        let key = ResourceKey::new("tile/0/0/0");
+        let resolver = Arc::new(FakeImageResolver::new(ImageResourceState::Pending));
+        let mut canvas = resource_image_canvas(resolver.clone());
+        let scene_graph = resource_image_scene_graph(key.clone());
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        assert_eq!(canvas.image_resource_status().pending, vec![key]);
+        assert_eq!(image.get_pixel(4, 4).0, [10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn resource_image_ready_after_pending_redraws_without_set_scene() {
+        let key = ResourceKey::new("tile/0/0/0");
+        let resolver = Arc::new(FakeImageResolver::new(ImageResourceState::Pending));
+        let mut canvas = resource_image_canvas(resolver.clone());
+        let scene_graph = resource_image_scene_graph(key.clone());
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let pending = pollster::block_on(canvas.render()).unwrap();
+        assert_eq!(pending.get_pixel(4, 4).0, [10, 20, 30, 255]);
+        assert_eq!(canvas.image_resource_status().pending, vec![key]);
+
+        resolver.set_state(ImageResourceState::Ready(Arc::new(solid_image([
+            0, 200, 60, 255,
+        ]))));
+        let ready = pollster::block_on(canvas.render()).unwrap();
+
+        assert!(canvas.image_resource_status().pending.is_empty());
+        assert!(canvas.image_resource_status().missing.is_empty());
+        assert!(canvas.image_resource_status().failed.is_empty());
+        assert_eq!(ready.get_pixel(4, 4).0, [0, 200, 60, 255]);
+    }
+
+    #[test]
+    fn resource_image_missing_errors_by_default() {
+        let key = ResourceKey::new("tile/0/0/0");
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [8.0, 8.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+        canvas.set_scene(&resource_image_scene_graph(key)).unwrap();
+
+        let error = pollster::block_on(canvas.render()).unwrap_err();
+        assert!(matches!(
+            error,
+            AvengerWgpuError::ImageResourceError(message)
+                if message.contains("No WGPU image resource resolver configured")
+        ));
+    }
+
+    fn resource_image_canvas(resolver: Arc<FakeImageResolver>) -> PngCanvas {
+        pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [8.0, 8.0],
+                scale: 1.0,
+            },
+            CanvasConfig {
+                image_resource_config: WgpuImageResourceConfig {
+                    resolver: Some(resolver),
+                    missing_policy: WgpuMissingImagePolicy::DrawPlaceholder,
+                    placeholder: WgpuImagePlaceholder::Solid([10, 20, 30, 255]),
+                },
+                ..Default::default()
+            },
+        ))
+        .unwrap()
+    }
+
+    fn resource_image_scene_graph(key: ResourceKey) -> SceneGraph {
+        SceneGraph {
+            width: 8.0,
+            height: 8.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneImageMark {
+                len: 1,
+                aspect: false,
+                smooth: false,
+                image: ScalarOrArray::new_scalar(SceneImageSource::Resource(SceneImageResource {
+                    key,
+                    intrinsic_width: 2,
+                    intrinsic_height: 2,
+                    fallback_key: None,
+                })),
+                x: ScalarOrArray::new_scalar(0.0),
+                y: ScalarOrArray::new_scalar(0.0),
+                width: ScalarOrArray::new_scalar(8.0),
+                height: ScalarOrArray::new_scalar(8.0),
+                align: ScalarOrArray::new_scalar(ImageAlign::Left),
+                baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+                ..Default::default()
+            }
+            .into()],
+        }
+    }
+
+    fn solid_image(color: [u8; 4]) -> RgbaImage {
+        RgbaImage {
+            width: 2,
+            height: 2,
+            data: color.repeat(4),
+        }
+    }
+
+    struct FakeImageResolver {
+        state: Mutex<ImageResourceState>,
+    }
+
+    impl FakeImageResolver {
+        fn new(state: ImageResourceState) -> Self {
+            Self {
+                state: Mutex::new(state),
+            }
+        }
+
+        fn set_state(&self, state: ImageResourceState) {
+            *self.state.lock().unwrap() = state;
+        }
+    }
+
+    impl ImageResourceResolver for FakeImageResolver {
+        fn image_state(&self, _key: &ResourceKey) -> ImageResourceState {
+            self.state.lock().unwrap().clone()
+        }
+    }
 }

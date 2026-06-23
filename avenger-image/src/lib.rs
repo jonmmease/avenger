@@ -1,5 +1,6 @@
 pub mod error;
 pub mod fetcher;
+pub mod resource_cache;
 
 #[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))]
 pub mod reqwest_fetcher;
@@ -9,12 +10,17 @@ pub mod svg;
 
 use std::sync::Arc;
 
+use avenger_resource::ResourceKey;
 use base64::{prelude::BASE64_STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 
 use error::AvengerImageError;
 pub use fetcher::make_image_fetcher;
 use fetcher::ImageFetcher;
+pub use resource_cache::{
+    load_image_resource_requests_blocking, ImageResourceCache, ImageResourceLoadError,
+    ImageResourceLoadOptions, IMAGE_RESOURCE_KIND,
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Hash, Serialize, Deserialize)]
 pub struct RgbaImage {
@@ -77,5 +83,25 @@ impl RgbaImage {
                 "Unsupported image URL: {s}"
             )))
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ImageResourceState {
+    Ready(Arc<RgbaImage>),
+    Pending,
+    Missing,
+    Failed(Arc<str>),
+}
+
+pub trait ImageResourceResolver: Send + Sync {
+    fn image_state(&self, key: &ResourceKey) -> ImageResourceState;
+
+    fn request_image(&self, request: &avenger_resource::ResourceRequest) {
+        let _ = request;
+    }
+
+    fn generation(&self) -> u64 {
+        0
     }
 }

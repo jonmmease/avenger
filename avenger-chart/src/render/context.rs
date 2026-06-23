@@ -299,7 +299,8 @@ impl EvaluationContext {
         facet_tree: Arc<EvaluatedFacetTree>,
     ) -> Self {
         Self {
-            core: CoreEvaluationContext::new(theme, session_context, params),
+            core: CoreEvaluationContext::new(theme, session_context, params)
+                .with_resource_request_sink(Arc::new(Mutex::new(Vec::new()))),
             facet_tree,
             facet_data_root: None,
             hide_invalid_facet_path_axes: false,
@@ -1874,6 +1875,7 @@ impl MarkRuntimeContext for RenderContext<'_> {
 mod tests {
     use super::*;
     use avenger_chart_core::axis_owner_ignore_empty_cells_from_params;
+    use avenger_resource::{ResourceCachePolicy, ResourceKey, ResourceKind, ResourceSource};
 
     #[test]
     fn axis_owner_ignore_empty_cells_is_inherited() {
@@ -1891,5 +1893,29 @@ mod tests {
         assert!(axis_owner_ignore_empty_cells_from_params(
             inherited.params()
         ));
+    }
+
+    #[test]
+    fn evaluation_context_collects_resource_requests_by_default() {
+        let ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(SessionContext::new()),
+            IndexMap::new(),
+            Arc::new(EvaluatedFacetTree::empty()),
+        );
+
+        ctx.request_resource(avenger_resource::ResourceRequest {
+            key: ResourceKey::new("tile/0/0/0"),
+            kind: ResourceKind::new("image"),
+            source: ResourceSource::Url {
+                url: "https://tiles.example/0/0/0.png".to_string(),
+            },
+            priority: 1.0,
+            cache_policy: ResourceCachePolicy::default(),
+        });
+
+        let requests = ctx.resource_requests_snapshot();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].key, ResourceKey::new("tile/0/0/0"));
     }
 }

@@ -6,11 +6,13 @@ pub mod canvas;
 pub mod context;
 pub mod debug;
 pub mod pdf;
+pub mod resources;
 pub mod svg;
 pub mod types;
 pub mod wgpu;
 
 // Re-export commonly used types
+pub use avenger_image::{ImageResourceCache, ImageResourceLoadOptions, ImageResourceResolver};
 pub use canvas::CanvasExt;
 pub use context::{EvaluationContext, RenderContext, RenderState};
 pub use pdf::PdfRenderer;

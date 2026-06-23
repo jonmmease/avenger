@@ -5,7 +5,10 @@ use avenger_common::{
     value::ScalarOrArray,
 };
 use avenger_image::{make_image_fetcher, RgbaImage};
-use avenger_scenegraph::marks::{image::SceneImageMark, mark::SceneMark};
+use avenger_scenegraph::marks::{
+    image::{SceneImageMark, SceneImageSource},
+    mark::SceneMark,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -109,7 +112,9 @@ impl VegaMarkContainer<VegaImageItem> {
             smooth,
             align: ScalarOrArray::new_array(align),
             baseline: ScalarOrArray::new_array(baseline),
-            image: ScalarOrArray::new_array(images),
+            image: ScalarOrArray::new_array(
+                images.into_iter().map(SceneImageSource::Inline).collect(),
+            ),
             x: ScalarOrArray::new_array(x),
             y: ScalarOrArray::new_array(y),
             width: ScalarOrArray::new_array(width),

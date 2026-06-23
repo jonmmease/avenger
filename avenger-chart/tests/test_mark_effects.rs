@@ -2855,7 +2855,11 @@ async fn image_expression_adjustment_updates_image_aspect_and_smooth_channels()
     assert!(!images[1].aspect);
     assert!(images[1].smooth);
     for image in &images {
-        let rendered_image = image.image_iter().next().expect("image datum");
+        let rendered_image = image
+            .image_source_iter()
+            .next()
+            .and_then(|source| source.inline_image())
+            .expect("image datum");
         assert_eq!(rendered_image.width, 2);
         assert_eq!(rendered_image.height, 2);
     }

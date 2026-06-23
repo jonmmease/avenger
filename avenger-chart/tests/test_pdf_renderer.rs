@@ -3,7 +3,21 @@ use std::path::PathBuf;
 use avenger_chart::{
     plot::CompiledPlot,
     prelude::*,
-    render::{PdfRenderer, SvgRenderer},
+    render::{
+        EvaluatedEventDatumState, EvaluatedInteractionState, EvaluatedPlot, PdfRenderer,
+        SvgRenderer,
+    },
+};
+use avenger_common::{
+    types::{ImageAlign, ImageBaseline},
+    value::ScalarOrArray,
+};
+use avenger_resource::{
+    ResourceCachePolicy, ResourceKey, ResourceKind, ResourceRequest, ResourceSource,
+};
+use avenger_scenegraph::{
+    marks::image::{SceneImageMark, SceneImageResource, SceneImageSource},
+    scene_graph::SceneGraph,
 };
 use datafusion::prelude::{SessionContext, col};
 
@@ -54,6 +68,31 @@ async fn renders_serialized_compiled_chart_to_pdf_bytes() {
 
     assert!(direct_pdf.starts_with(b"%PDF-"));
     assert!(roundtrip_pdf.starts_with(b"%PDF-"));
+}
+
+#[test]
+fn render_evaluated_plot_loads_resource_images_for_pdf() {
+    let evaluated = resource_evaluated_plot(ResourceSource::DataUri {
+        data_uri: TINY_PNG_DATA_URI.to_string(),
+    });
+    let pdf = PdfRenderer::new()
+        .render_evaluated_plot(&evaluated)
+        .unwrap();
+
+    assert!(pdf.starts_with(b"%PDF-"));
+}
+
+#[test]
+fn render_evaluated_plot_errors_before_pdf_conversion_when_resource_load_fails() {
+    let evaluated = resource_evaluated_plot(ResourceSource::Opaque {
+        provider: "test".to_string(),
+        id: "bad".to_string(),
+    });
+    let err = PdfRenderer::new()
+        .render_evaluated_plot(&evaluated)
+        .unwrap_err();
+
+    assert!(err.to_string().contains("failed to load image resources"));
 }
 
 #[tokio::test]
@@ -186,4 +225,50 @@ fn assert_embedded_pdf_font(pdf: &[u8]) {
 
 fn pdf_contains(pdf: &[u8], needle: &[u8]) -> bool {
     pdf.windows(needle.len()).any(|window| window == needle)
+}
+
+const TINY_PNG_DATA_URI: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAG0lEQVR4nGO4o6b2XzX59X8GscVe/3+dEf0PAE8fCXZKLiUkAAAAAElFTkSuQmCC";
+
+fn resource_evaluated_plot(source: ResourceSource) -> EvaluatedPlot {
+    let key = ResourceKey::new("tile/0/0/0");
+    let scene_graph = SceneGraph {
+        width: 8.0,
+        height: 8.0,
+        origin: [0.0, 0.0],
+        marks: vec![
+            SceneImageMark {
+                len: 1,
+                aspect: false,
+                smooth: false,
+                image: ScalarOrArray::new_scalar(SceneImageSource::Resource(SceneImageResource {
+                    key: key.clone(),
+                    intrinsic_width: 2,
+                    intrinsic_height: 2,
+                    fallback_key: None,
+                })),
+                x: ScalarOrArray::new_scalar(0.0),
+                y: ScalarOrArray::new_scalar(0.0),
+                width: ScalarOrArray::new_scalar(8.0),
+                height: ScalarOrArray::new_scalar(8.0),
+                align: ScalarOrArray::new_scalar(ImageAlign::Left),
+                baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+                ..Default::default()
+            }
+            .into(),
+        ],
+    };
+
+    EvaluatedPlot {
+        scene_graph,
+        resource_requests: vec![ResourceRequest {
+            key,
+            kind: ResourceKind::new("image"),
+            source,
+            priority: 0.0,
+            cache_policy: ResourceCachePolicy::default(),
+        }],
+        rtree: None,
+        interaction: EvaluatedInteractionState { scopes: Vec::new() },
+        event_datums: EvaluatedEventDatumState { rows: Vec::new() },
+    }
 }

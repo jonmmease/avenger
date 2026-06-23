@@ -45,6 +45,7 @@ use wgpu::{
 
 use crate::{
     error::AvengerWgpuError,
+    image_resources::{WgpuImageResourceConfig, WgpuImageResourceStatus},
     marks::{
         gradient::{to_color_or_gradient_coord, GradientAtlasBuilder},
         image::ImageAtlasBuilder,
@@ -1233,17 +1234,11 @@ impl MultiMarkRenderer {
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        let verts_inds = izip!(mark.image_iter(), mark.transformed_path_iter(origin))
+        let verts_inds = izip!(mark.image_source_iter(), mark.transformed_path_iter(origin))
             .map(
-                |(img, path)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
-                    let Some(rgba_image) = img.to_image() else {
-                        return Err(AvengerWgpuError::ConversionError(
-                            "Failed to convert raw image to rgba image".to_string(),
-                        ));
-                    };
-
+                |(image_source, path)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                     let (atlas_index, tex_coords) =
-                        self.image_atlas_builder.register_image(&rgba_image)?;
+                        self.image_atlas_builder.register_source(image_source.clone())?;
 
                     // Get bounding box of path
                     let bbox = bounding_box(&path);
@@ -1454,7 +1449,7 @@ impl MultiMarkRenderer {
         texture_view: &TextureView,
         resolve_target: Option<&TextureView>,
         text_bind_groups: &[BindGroup],
-    ) -> CommandBuffer {
+    ) -> Result<CommandBuffer, AvengerWgpuError> {
         let resources = MultiMarkRenderResources::new(device, texture_format, sample_count);
         self.render_with_resources(
             device,
@@ -1476,7 +1471,8 @@ impl MultiMarkRenderer {
         queue: &Queue,
         render_target_extent: Extent3d,
         resources: &MultiMarkRenderResources,
-    ) -> PreparedMulti {
+        image_resource_config: &WgpuImageResourceConfig,
+    ) -> Result<(PreparedMulti, WgpuImageResourceStatus), AvengerWgpuError> {
         // Uniforms
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Multi Uniform Buffer"),
@@ -1505,7 +1501,8 @@ impl MultiMarkRenderer {
         );
 
         // Image Textures
-        let (image_texture_size, image_images) = self.image_atlas_builder.build();
+        let (image_texture_size, image_images, image_resource_status) =
+            self.image_atlas_builder.build(image_resource_config)?;
         let image_texture_bind_groups = Self::make_texture_bind_groups(
             device,
             queue,
@@ -1581,7 +1578,7 @@ impl MultiMarkRenderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        PreparedMulti {
+        let prepared = PreparedMulti {
             uniform_bind_group,
             gradient_texture_bind_groups,
             image_texture_bind_groups,
@@ -1590,7 +1587,9 @@ impl MultiMarkRenderer {
             index_buffer,
             clip_vertex_buffer,
             clip_index_buffer,
-        }
+        };
+
+        Ok((prepared, image_resource_status))
     }
 
     /// Encode the draws for a set of batch ranges (a contiguous run of multi-marks,
@@ -1816,7 +1815,7 @@ impl MultiMarkRenderer {
         resolve_target: Option<&TextureView>,
         resources: &MultiMarkRenderResources,
         text_bind_groups: &[BindGroup],
-    ) -> CommandBuffer {
+    ) -> Result<CommandBuffer, AvengerWgpuError> {
         let timing_enabled =
             tracing::enabled!(target: "avenger_wgpu::render_breakdown", tracing::Level::DEBUG);
         let total_start = timing_enabled.then(Instant::now);
@@ -1853,7 +1852,9 @@ impl MultiMarkRenderer {
         let gradient_setup_us = checkpoint_us(&mut checkpoint);
 
         // Image Textures
-        let (image_texture_size, image_images) = self.image_atlas_builder.build();
+        let (image_texture_size, image_images, _) = self
+            .image_atlas_builder
+            .build(&WgpuImageResourceConfig::default())?;
         let image_texture_bind_groups = Self::make_texture_bind_groups(
             device,
             queue,
@@ -2099,7 +2100,7 @@ impl MultiMarkRenderer {
             );
         }
 
-        mark_encoder.finish()
+        Ok(mark_encoder.finish())
     }
 
     pub(crate) fn make_text_bind_groups_dual_sampler(

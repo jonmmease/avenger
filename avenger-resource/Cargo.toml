@@ -1,0 +1,10 @@
+[package]
+name = "avenger-resource"
+version = "0.0.1"
+edition = "2021"
+description = "Shared resource identity and request types for Avenger"
+license = "BSD-3-Clause"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }

@@ -529,7 +529,15 @@ impl SvgRenderer {
         origin: [f32; 2],
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
-        for (image, path) in izip!(mark.image_iter(), mark.transformed_path_iter(origin)) {
+        for (image_source, path) in
+            izip!(mark.image_source_iter(), mark.transformed_path_iter(origin))
+        {
+            let Some(image) = image_source.inline_image() else {
+                return Err(AvengerSvgError::UnsupportedFeature(
+                    "resource-backed image marks require resolution before SVG rendering"
+                        .to_string(),
+                ));
+            };
             let data_uri = rgba_image_to_png_data_uri(image)?;
             let bbox = bounding_box(&path);
             let x = bbox.min.x;
@@ -1317,7 +1325,7 @@ mod tests {
         marks::{
             arc::SceneArcMark,
             group::{Clip, SceneGroup},
-            image::SceneImageMark,
+            image::{SceneImageMark, SceneImageSource},
             rect::SceneRectMark,
             rule::SceneRuleMark,
             symbol::SceneSymbolMark,
@@ -1602,11 +1610,11 @@ mod tests {
                 len: 1,
                 aspect: false,
                 smooth: false,
-                image: ScalarOrArray::new_scalar(RgbaImage {
+                image: ScalarOrArray::new_scalar(SceneImageSource::Inline(RgbaImage {
                     width: 1,
                     height: 1,
                     data: vec![255, 0, 0, 255],
-                }),
+                })),
                 x: ScalarOrArray::new_scalar(2.0),
                 y: ScalarOrArray::new_scalar(3.0),
                 width: ScalarOrArray::new_scalar(4.0),
@@ -1623,6 +1631,18 @@ mod tests {
         assert!(svg.contains(r#"href="data:image/png;base64,"#));
         assert!(svg.contains(r#"image-rendering="pixelated""#));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn resource_image_marks_error_without_svg_resource_resolution() {
+        let scene_graph = resource_image_scene_graph();
+
+        let err = SvgRenderer::new()
+            .render_scene_graph(&scene_graph)
+            .unwrap_err();
+
+        assert!(matches!(err, AvengerSvgError::UnsupportedFeature(_)));
+        assert!(err.to_string().contains("resource-backed image marks"));
     }
 
     #[test]
@@ -1861,5 +1881,31 @@ mod tests {
         let rest = &svg[start..];
         let end = rest.find('"').expect("WOFF2 data URI should be quoted");
         BASE64_STANDARD.decode(&rest[..end]).unwrap()
+    }
+
+    fn resource_image_scene_graph() -> SceneGraph {
+        SceneGraph {
+            width: 8.0,
+            height: 8.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneImageMark {
+                len: 1,
+                aspect: false,
+                image: ScalarOrArray::new_scalar(SceneImageSource::Resource(
+                    avenger_scenegraph::marks::image::SceneImageResource {
+                        key: "tile/0/0/0".into(),
+                        intrinsic_width: 2,
+                        intrinsic_height: 2,
+                        fallback_key: None,
+                    },
+                )),
+                x: ScalarOrArray::new_scalar(0.0),
+                y: ScalarOrArray::new_scalar(0.0),
+                width: ScalarOrArray::new_scalar(8.0),
+                height: ScalarOrArray::new_scalar(8.0),
+                ..Default::default()
+            }
+            .into()],
+        }
     }
 }

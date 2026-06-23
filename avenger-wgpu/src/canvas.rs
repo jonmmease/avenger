@@ -38,6 +38,7 @@ use winit::{dpi::Size, event::WindowEvent, window::Window};
 
 use crate::{
     error::AvengerWgpuError,
+    image_resources::{WgpuImageResourceConfig, WgpuImageResourceStatus},
     marks::{
         instanced_mark::{InstancedMarkFingerprint, InstancedMarkRenderer},
         multi::{is_axis_aligned_angle, MultiMarkRenderer, TextLeaderRenderItem},
@@ -101,6 +102,7 @@ fn truncate_text_to_limit(
 pub struct CanvasConfig {
     pub text_builder_ctor: Option<TextBuildCtor>,
     pub font_resolution: FontResolutionOptions,
+    pub image_resource_config: WgpuImageResourceConfig,
 }
 
 pub trait Canvas {
@@ -850,6 +852,10 @@ impl WindowCanvas<'_> {
         self.frame_overlay = overlay;
     }
 
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.renderer.image_resource_status()
+    }
+
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.update_physical_size(new_size.width, new_size.height);
@@ -1182,6 +1188,10 @@ impl PngCanvas {
             "png.render"
         );
         Ok(img)
+    }
+
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.renderer.image_resource_status()
     }
 }
 

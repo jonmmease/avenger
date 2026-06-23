@@ -1,9 +1,10 @@
 use std::{fs, path::Path};
 
 use avenger_common::canvas::CanvasDimensions;
+use avenger_image::{ImageResourceCache, ImageResourceLoadOptions};
 use avenger_wgpu::canvas::{Canvas, PngCanvas};
 
-use crate::render::types::EvaluatedPlot;
+use crate::render::{resources::resolve_evaluated_plot_image_resources, types::EvaluatedPlot};
 
 /// Render an EvaluatedPlot directly to PNG, writing to the provided path.
 ///
@@ -29,14 +30,21 @@ pub async fn render_evaluated_plot_to_png(
     result: &EvaluatedPlot,
     output: impl AsRef<Path>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    let image_resource_resolver = ImageResourceCache::new();
+    let scene_graph = resolve_evaluated_plot_image_resources(
+        result,
+        &image_resource_resolver,
+        ImageResourceLoadOptions::default(),
+    )?;
+
     let dimensions = CanvasDimensions {
-        size: [result.scene_graph.width, result.scene_graph.height],
+        size: [scene_graph.width, scene_graph.height],
         scale: 4.0,
     };
 
     let mut canvas = PngCanvas::new(dimensions, Default::default()).await?;
     canvas
-        .set_scene(&result.scene_graph)
+        .set_scene(&scene_graph)
         .map_err(|err| format!("Failed to set scene: {}", err))?;
 
     let image = canvas.render().await?;

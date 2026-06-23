@@ -153,8 +153,9 @@ pub use avenger_chart_polar::PolarAxis;
 pub use crate::render::CanvasExt;
 pub use crate::render::{
     CoordinationCheckpoint, EvaluationMode, EvaluationOptions, FacetLayoutRefinement,
-    FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, LayoutDebugOverlayMode,
-    LayoutSnapshot, PdfRenderer, RefinementCheckpoint, SvgRenderer, WholeChartSnapshot,
+    FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, ImageResourceCache,
+    ImageResourceLoadOptions, ImageResourceResolver, LayoutDebugOverlayMode, LayoutSnapshot,
+    PdfRenderer, RefinementCheckpoint, SvgRenderer, WholeChartSnapshot,
 };
 
 // Re-export error type

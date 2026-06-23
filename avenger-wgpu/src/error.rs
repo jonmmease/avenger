@@ -33,6 +33,9 @@ pub enum AvengerWgpuError {
     #[error("Image allocation error: {0}")]
     ImageAllocationError(String),
 
+    #[error("Image resource error: {0}")]
+    ImageResourceError(String),
+
     #[error("Conversion error: {0}")]
     ConversionError(String),
 

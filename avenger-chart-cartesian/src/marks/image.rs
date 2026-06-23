@@ -17,7 +17,10 @@ use avenger_common::{
 };
 use avenger_image::RgbaImage;
 use avenger_scales::scales::coerce::Coercer;
-use avenger_scenegraph::marks::{image::SceneImageMark, mark::SceneMark};
+use avenger_scenegraph::marks::{
+    image::{SceneImageMark, SceneImageSource},
+    mark::SceneMark,
+};
 use datafusion::{
     arrow::{
         array::{ArrayRef, BooleanArray, Float32Array, RecordBatch, StringArray},
@@ -238,6 +241,7 @@ impl CompiledCartesianImage {
 
         let aspect_values = aspect.as_vec(len, None);
         let smooth_values = smooth.as_vec(len, None);
+        let image = image.map(|image| SceneImageSource::Inline(image.clone()));
         let mut groups: IndexMap<ImageRenderPartitionKey, Vec<usize>> = IndexMap::new();
         for i in 0..len {
             groups
@@ -583,7 +587,7 @@ fn coerce_image_channel(
                 AvengerChartError::InternalError(format!("Error coercing channel 'image': {error}"))
             })
     } else {
-        Ok(SceneImageMark::default().image)
+        Ok(ScalarOrArray::new_scalar(RgbaImage::default()))
     }
 }
 

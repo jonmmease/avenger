@@ -1,5 +1,6 @@
 use datafusion::common::ScalarValue;
 
+use avenger_resource::ResourceRequest;
 use avenger_scenegraph::marks::group::Clip;
 
 use crate::{BasePlotAreaScene, CoordMeasurement, MarkRenderContext, TextMeasurementService};
@@ -30,6 +31,10 @@ pub trait MarkRuntimeContext: Send + Sync {
 
     fn plot_area_origin(&self) -> [f32; 2] {
         [0.0, 0.0]
+    }
+
+    fn request_resource(&self, request: ResourceRequest) {
+        self.core_view().request_resource(request);
     }
 
     fn plot_width(&self) -> f32 {

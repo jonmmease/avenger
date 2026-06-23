@@ -17,6 +17,7 @@ use wgpu::{
 use crate::{
     canvas::{Canvas, CanvasConfig, CanvasFrameOverlay, TextBuildCtor},
     error::AvengerWgpuError,
+    image_resources::WgpuImageResourceStatus,
     marks::{
         instanced_mark::InstancedMarkRenderer,
         multi::{MultiMarkRenderResources, MultiMarkRenderer},
@@ -102,6 +103,10 @@ impl AvengerWgpuRenderer {
 
     pub fn sample_count(&self) -> u32 {
         self.core.sample_count()
+    }
+
+    pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        self.core.image_resource_status()
     }
 
     pub fn resize(&mut self, dimensions: CanvasDimensions) {
@@ -250,6 +255,7 @@ pub(crate) struct AvengerRendererCore {
     instanced_renderers: HashMap<u64, Arc<InstancedMarkRenderer>>,
     multi_render_resources: MultiMarkRenderResources,
     config: CanvasConfig,
+    image_resource_status: WgpuImageResourceStatus,
     // Text atlas shared by all multi-renderers; built + uploaded once per frame.
     text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
 }
@@ -278,6 +284,7 @@ impl AvengerRendererCore {
             instanced_renderers: HashMap::new(),
             multi_render_resources,
             config,
+            image_resource_status: WgpuImageResourceStatus::default(),
             text_atlas_builder,
         }
     }
@@ -296,6 +303,10 @@ impl AvengerRendererCore {
 
     pub(crate) fn sample_count(&self) -> u32 {
         self.sample_count
+    }
+
+    pub(crate) fn image_resource_status(&self) -> &WgpuImageResourceStatus {
+        &self.image_resource_status
     }
 
     pub(crate) fn marks(&self) -> &[ZIndexedMark] {
@@ -383,9 +394,14 @@ impl AvengerRendererCore {
 
         let multi_render_resources = self.multi_render_resources.clone();
         let text_bind_groups = self.build_text_bind_groups(device, queue);
-        let prepared =
-            self.shared_multi
-                .prepare(device, queue, target.extent, &multi_render_resources);
+        let (prepared, image_resource_status) = self.shared_multi.prepare(
+            device,
+            queue,
+            target.extent,
+            &multi_render_resources,
+            &self.config.image_resource_config,
+        )?;
+        self.image_resource_status = image_resource_status;
 
         let mut mark_encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Avenger Mark Render Encoder"),
@@ -641,7 +657,7 @@ impl AvengerRendererCore {
             resolve_target,
             &self.multi_render_resources,
             text_bind_groups,
-        )))
+        )?))
     }
 }
 

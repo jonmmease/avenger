@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use avenger_resource::ResourceRequest;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
@@ -56,5 +57,9 @@ impl<'a> MarkRenderContext<'a> {
 
     pub fn font_size(&self, context: &ThemeContext) -> Option<f32> {
         self.eval.font_size(context)
+    }
+
+    pub fn request_resource(&self, request: ResourceRequest) {
+        self.eval.request_resource(request);
     }
 }
