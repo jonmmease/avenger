@@ -178,7 +178,10 @@ impl CompiledPlot {
                         &binding.coord_channel,
                     )?;
                 }
-                let has_explicit_domain = builder.channel_has_explicit_domain(&scale_name);
+                let is_coordinate_domain_placeholder =
+                    builder.channel_has_coordinate_domain_placeholder(&scale_name);
+                let has_explicit_domain = builder.channel_has_explicit_domain(&scale_name)
+                    && !is_coordinate_domain_placeholder;
                 let raw_domain_param = builder
                     .channel_has_raw_domain(&scale_name)
                     .then(|| scale_name.clone());
@@ -206,7 +209,9 @@ impl CompiledPlot {
                     scale_name: scale_name.clone(),
                     coord_channel: binding.coord_channel.clone(),
                     role: binding.role.clone(),
-                    base_domain: domain_extent_for_scale(scale),
+                    base_domain: (!is_coordinate_domain_placeholder)
+                        .then(|| domain_extent_for_scale(scale))
+                        .flatten(),
                     range: numeric_range_for_scale(scale),
                     node,
                     has_explicit_domain,

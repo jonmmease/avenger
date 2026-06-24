@@ -32,7 +32,7 @@ current design is available.
 | [layout.md](layout.md) | Valid goal; concat covers some composition, but arbitrary dashboard composition is still separate. |
 | [async-rasterized-marks.md](async-rasterized-marks.md) | Valid goal; external Datashader-style rasterized mark crates need generic materialization/resource primitives. |
 | [async-m4-lines.md](async-m4-lines.md) | Valid goal; external M4 line-downsampling mark crates need generic view-dependent materialized data primitives. |
-| [map-tiles.md](map-tiles.md) | Valid goal; external Web Mercator coordinate crates can use coordinate-guide tile underlays after generic async-resource primitives land. |
+| [map-tiles.md](map-tiles.md) | Implementation started; `avenger-chart-webmercator` owns WebMercator, coordinate-owned tile configuration, guide-rendered resource image tiles, and WebMercator tools. |
 | [multi-dim-coords.md](multi-dim-coords.md) | Valid goal; requires a repeated or indexed channel model. |
 | [sankey-coords.md](sankey-coords.md) | Valid goal; likely a graph-layout coordinate/mark family, but other paradigms remain plausible. |
 | [hierarchical-coords.md](hierarchical-coords.md) | Follow-up goal; `avenger-chart-treemap` exists, while sunburst/icicle and shared hierarchy abstractions remain future work. |

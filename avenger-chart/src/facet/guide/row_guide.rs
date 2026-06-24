@@ -9,7 +9,7 @@ use crate::plot::compiled::CompiledPlot;
 use avenger_chart_cartesian::CartesianAxis;
 use avenger_chart_core::{
     AvengerChartError, CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide,
-    GuideOverflowPhase, GuideSharingContext, LayoutBounds, MeasurementResult,
+    GuideOverflowPhase, GuideRenderContext, GuideSharingContext, LayoutBounds, MeasurementResult,
     OverflowSpaceRequirement, SerializableDataFrame, SharingLevel, Theme,
 };
 use avenger_scales::scales::ConfiguredScale;
@@ -267,6 +267,7 @@ impl CompiledGuide for FacetRowGuide {
         data_override: Option<&datafusion::dataframe::DataFrame>,
         sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn CoordMeasurement,
+        _render_context: GuideRenderContext<'_>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Box::pin(band_guide_engine::evaluate_common::<RowGuideAxisOps>(
             &self.as_engine_state(),

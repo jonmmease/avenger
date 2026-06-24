@@ -29,7 +29,8 @@ use crate::{
     error::AvengerChartError,
     facet::evaluated_facet_tree::EvaluatedFacetTree,
     guide::{
-        CompiledGuide, CoordinateGuide, GuideSharingContext, GuideUpdate, OverflowSpaceRequirement,
+        CompiledGuide, CoordinateGuide, GuideRenderContext, GuideSharingContext, GuideUpdate,
+        OverflowSpaceRequirement,
     },
     layout::{
         EdgeDemand, Edges, GridShape, GridSlot, LayoutBounds, Orientation, Size, TrackSpacing,
@@ -579,6 +580,7 @@ impl CompiledGuide for ConcatGuide {
         _data_override: Option<&DataFrame>,
         _sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn CoordMeasurement,
+        _render_context: GuideRenderContext<'_>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let concat = concat_coord_ref(coord_measurement).ok_or_else(|| {
             AvengerChartError::InternalError(

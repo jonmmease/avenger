@@ -952,6 +952,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-webmercator"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-core",
+ "avenger-chart-marks",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-image",
+ "avenger-resource",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "datafusion",
+ "datafusion-proto",
+ "indexmap 2.9.0",
+ "serde",
+ "serde_json",
+ "tokio",
+ "typetag",
+]
+
+[[package]]
 name = "avenger-color"
 version = "0.1.0"
 dependencies = [

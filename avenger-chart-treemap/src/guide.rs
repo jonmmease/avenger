@@ -3,8 +3,8 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide,
-    EventDatumFieldSpec, GuideEventDatumRows, GuideSharingContext, GuideUpdate, LayoutBounds,
-    OverflowSpaceRequirement, Theme,
+    EventDatumFieldSpec, GuideEventDatumRows, GuideRenderContext, GuideSharingContext, GuideUpdate,
+    LayoutBounds, OverflowSpaceRequirement, Theme,
 };
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
@@ -139,6 +139,7 @@ impl CompiledGuide for TreemapGuide {
         _data_override: Option<&DataFrame>,
         _sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn CoordMeasurement,
+        _render_context: GuideRenderContext<'_>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let measurement = coord_measurement
             .as_any()

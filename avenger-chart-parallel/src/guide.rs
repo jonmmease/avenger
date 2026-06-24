@@ -2,9 +2,9 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{
     AvengerChartError, CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide,
-    EventDatumFieldSpec, GuideEventDatumRows, GuideSharingContext, LayoutBounds,
-    OverflowSpaceRequirement, ScalarValueHelpers, Theme, eval_to_scalars, evaluate_bool_expr,
-    evaluate_f32_expr, evaluate_string_expr, params_to_datafusion,
+    EventDatumFieldSpec, GuideEventDatumRows, GuideRenderContext, GuideSharingContext,
+    LayoutBounds, OverflowSpaceRequirement, ScalarValueHelpers, Theme, eval_to_scalars,
+    evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr, params_to_datafusion,
     serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_color::{ColorOrGradient, parse_color_string_strict};
@@ -276,6 +276,7 @@ impl CompiledGuide for CompiledParallelGuide {
         _data_override: Option<&DataFrame>,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
+        _render_context: GuideRenderContext<'_>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let datums = self
             .evaluated_axis_guide_datums(plot_width, plot_height, theme, params, ctx)
@@ -1180,6 +1181,7 @@ mod tests {
             None,
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
+            GuideRenderContext::without_resource_sink(300.0, 200.0),
         ))
         .expect("evaluate guide");
 
@@ -1238,6 +1240,7 @@ mod tests {
             None,
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
+            GuideRenderContext::without_resource_sink(300.0, 200.0),
         ))
         .expect("evaluate guide");
 
@@ -1356,6 +1359,7 @@ mod tests {
             None,
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
+            GuideRenderContext::without_resource_sink(300.0, 200.0),
         ))
         .expect("evaluate guide");
 
@@ -1426,6 +1430,7 @@ mod tests {
             None,
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
+            GuideRenderContext::without_resource_sink(300.0, 200.0),
         ))
         .expect("evaluate guide");
 
@@ -1550,6 +1555,7 @@ mod tests {
             None,
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
+            GuideRenderContext::without_resource_sink(300.0, 200.0),
         ))
         .expect("evaluate guide");
 
@@ -1627,6 +1633,7 @@ mod tests {
             None,
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
+            GuideRenderContext::without_resource_sink(300.0, 200.0),
         ))
         .expect("evaluate guide");
 

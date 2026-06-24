@@ -132,7 +132,9 @@ pub use coordinate_domain::{
     CoordinateDomainSharingPolicy, CoordinateMetricDescriptor, NumericDomainSpanEquation,
     solve_numeric_domain_span_graph,
 };
-pub use coordinate_guide::{CompiledGuide, CoordinateGuide, GuideSharingContext};
+pub use coordinate_guide::{
+    CompiledGuide, CoordinateGuide, GuideRenderContext, GuideSharingContext,
+};
 pub use coordinate_system::{CoordinateSystem, CoordinateSystemCore};
 pub use coordinate_transform::{
     CoordinateMeasureRequest, CoordinateMeasurementProvider, CoordinateSystemTransform,

@@ -11,9 +11,9 @@ use serde_with::serde_as;
 
 use avenger_chart_core::{
     AvengerChartError, CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide,
-    DefaultLogicalExprNodeExt, EmptyCoordMeasurement, GuideSharingContext, GuideUpdate, IntoExpr,
-    LayoutBounds, Maybe, MaybeOptionalExpr, OverflowSpaceRequirement, Theme, ThemeContext,
-    evaluate_string_expr, extract_channel_title_from_marks,
+    DefaultLogicalExprNodeExt, EmptyCoordMeasurement, GuideRenderContext, GuideSharingContext,
+    GuideUpdate, IntoExpr, LayoutBounds, Maybe, MaybeOptionalExpr, OverflowSpaceRequirement, Theme,
+    ThemeContext, evaluate_string_expr, extract_channel_title_from_marks,
 };
 use avenger_color::{ColorOrGradient, parse_color_string_strict};
 use avenger_common::value::ScalarOrArray;
@@ -195,6 +195,7 @@ impl CompiledGuide for PolarGuide {
                 data_override,
                 sharing_context,
                 coord_measurement,
+                GuideRenderContext::without_resource_sink(plot_width, plot_height),
             )
             .await?;
 
@@ -251,6 +252,7 @@ impl CompiledGuide for PolarGuide {
         _data_override: Option<&DataFrame>,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
+        _render_context: GuideRenderContext<'_>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 

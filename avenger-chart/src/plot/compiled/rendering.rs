@@ -33,8 +33,9 @@ use tracing::{Level, debug, trace};
 
 use avenger_chart_core::{
     AxisPosition, BasePlotAreaScene, CompiledGuide, DerivedScalarsByChannel, FacetEmptyCellPolicy,
-    FacetWrapColumnMode, LegendPosition, ScalarValueHelpers, TextMeasurementService,
-    eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
+    FacetWrapColumnMode, GuideRenderContext, LegendPosition, ScalarValueHelpers,
+    TextMeasurementService, eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe,
+    params_to_datafusion,
 };
 use avenger_text::measurement::{
     TextBounds, TextMeasurementConfig, TextMeasurer, default_text_measurer,
@@ -2247,6 +2248,7 @@ impl CompiledPlot {
     /// Create guide marks (axes, grids) for the coordinate system
     pub(super) async fn create_guide_marks(
         &self,
+        eval_ctx: &EvaluationContext,
         scales: &HashMap<String, ConfiguredScaleWithSpec>,
         plot_width: f32,
         plot_height: f32,
@@ -2301,6 +2303,7 @@ impl CompiledPlot {
                     data_override,
                     sharing_context,
                     coord_measurement,
+                    GuideRenderContext::new(&eval_ctx.core, plot_width, plot_height),
                 )
                 .await
         } else {
@@ -5263,6 +5266,7 @@ impl CompiledPlot {
 
                 let guide_marks = self
                     .create_guide_marks(
+                        &mark_eval_ctx,
                         &merged_scales,
                         plot_area_width,
                         plot_area_height,
@@ -5359,6 +5363,7 @@ impl CompiledPlot {
                 // Pass data_override so nested facets use filtered data
                 let guide_marks = self
                     .create_guide_marks(
+                        &mark_eval_ctx,
                         &merged_scales,
                         plot_area_width,
                         plot_area_height,

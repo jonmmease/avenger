@@ -7,9 +7,9 @@ use std::{
 use avenger_chart_core::{
     AvengerChartError, AxisPosition, CompiledGuide, CompiledMarkCore, CoordMeasurement,
     CoordinateGuide, DefaultLogicalExprNodeExt, EmptyCoordMeasurement, GuideOverflowPhase,
-    GuideSharingContext, GuideUpdate, IntoExpr, LayoutBounds, Maybe, MaybeOptionalExpr,
-    OverflowSpaceRequirement, SharingLevel, Theme, ThemeContext, evaluate_string_expr,
-    extract_channel_title_from_marks, strip_trailing_numbers,
+    GuideRenderContext, GuideSharingContext, GuideUpdate, IntoExpr, LayoutBounds, Maybe,
+    MaybeOptionalExpr, OverflowSpaceRequirement, SharingLevel, Theme, ThemeContext,
+    evaluate_string_expr, extract_channel_title_from_marks, strip_trailing_numbers,
 };
 use avenger_color::{ColorOrGradient, parse_color_string_strict};
 use avenger_common::value::ScalarOrArray;
@@ -284,6 +284,7 @@ impl CompiledGuide for CartesianGuide {
                 data_override,
                 sharing_context,
                 coord_measurement,
+                GuideRenderContext::without_resource_sink(plot_width, plot_height),
             )
             .await?;
 
@@ -367,6 +368,7 @@ impl CompiledGuide for CartesianGuide {
         _data_override: Option<&DataFrame>,
         sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
+        _render_context: GuideRenderContext<'_>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 

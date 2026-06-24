@@ -9,10 +9,11 @@ use avenger_chart_core::{
     compile_positioned_subplot_mark, AvengerChartError, CompiledGuide, CompiledMark,
     CompiledMarkCore, CompiledMarkState, CompiledPositionedSubplot, CoordMeasurement,
     CoordinateGuide, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
-    CoordinateSystemTransformCore, GuideSharingContext, GuideUpdate, LayoutBounds, Mark,
-    OverflowSpaceRequirement, PlotAreaRangeEndpoint, PlotGeometry, PositionedSubplotChannel,
-    PositionedSubplotSpec, ScaleRangeBinding, SubplotContainerCoordinateSystem, SubplotGeometry,
-    SubplotMarkCore, SubplotRect, Theme, ZeroDCoord,
+    CoordinateSystemTransformCore, GuideRenderContext, GuideSharingContext, GuideUpdate,
+    LayoutBounds, Mark, OverflowSpaceRequirement, PlotAreaRangeEndpoint, PlotGeometry,
+    PositionedSubplotChannel, PositionedSubplotSpec, ScaleRangeBinding,
+    SubplotContainerCoordinateSystem, SubplotGeometry, SubplotMarkCore, SubplotRect, Theme,
+    ZeroDCoord,
 };
 use avenger_chart_external_test::external_subplot_coord::{
     ExternalSubplotCoord, ExternalSubplotPositionChannels,
@@ -351,6 +352,7 @@ impl CompiledGuide for NonPointSubplotCoordGuide {
         _data_override: Option<&DataFrame>,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
+        _render_context: GuideRenderContext<'_>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())
     }

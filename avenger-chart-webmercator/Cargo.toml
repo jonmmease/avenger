@@ -1,0 +1,27 @@
+[package]
+name = "avenger-chart-webmercator"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-chart-marks = { path = "../avenger-chart-marks" }
+avenger-common = { path = "../avenger-common" }
+avenger-image = { path = "../avenger-image" }
+avenger-resource = { path = "../avenger-resource" }
+avenger-scales = { path = "../avenger-scales" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+async-trait = { workspace = true }
+datafusion = { workspace = true }
+datafusion-proto = "48.0.1"
+indexmap = { workspace = true }
+serde = { workspace = true }
+typetag = "0.2"
+
+[dev-dependencies]
+avenger-app = { path = "../avenger-app" }
+avenger-chart = { path = "../avenger-chart" }
+avenger-chart-app = { path = "../avenger-chart-app" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

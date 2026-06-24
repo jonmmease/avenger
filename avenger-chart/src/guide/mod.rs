@@ -7,5 +7,6 @@
 pub use avenger_chart_core::overflow::spacing_keys;
 pub use avenger_chart_core::{
     AxisVisibility, CompiledGuide, CoordinateGuide, GuideContext, GuideOverflowPhase,
-    GuideSharingContext, GuideUpdate, MeasurementResult, NoGuide, OverflowSpaceRequirement,
+    GuideRenderContext, GuideSharingContext, GuideUpdate, MeasurementResult, NoGuide,
+    OverflowSpaceRequirement,
 };

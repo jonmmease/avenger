@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AvengerChartError, CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide,
-    GuideSharingContext, GuideUpdate, LayoutBounds, OverflowSpaceRequirement, Theme,
+    GuideRenderContext, GuideSharingContext, GuideUpdate, LayoutBounds, OverflowSpaceRequirement,
+    Theme,
 };
 
 /// Empty guide for coordinate systems without visual guides.
@@ -75,6 +76,7 @@ impl CompiledGuide for NoGuide {
         _data_override: Option<&DataFrame>,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
+        _render_context: GuideRenderContext<'_>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())
     }

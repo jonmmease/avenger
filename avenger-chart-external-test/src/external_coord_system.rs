@@ -9,8 +9,8 @@ use avenger_chart_core::{
     CompiledMark, CompiledMarkCore, CompiledMarkState, CoordMeasurement, CoordinateGuide,
     CoordinateMeasureRequest, CoordinateMeasurementProvider, CoordinateSystem,
     CoordinateSystemCore, CoordinateSystemTransform, CoordinateSystemTransformCore,
-    GuideSharingContext, LayoutBounds, Mark, MarkRuntimeContext, MarkState, NoGuide,
-    OverflowSpaceRequirement, PlotGeometry, PointGeometry, PositionConfig, Theme,
+    GuideRenderContext, GuideSharingContext, LayoutBounds, Mark, MarkRuntimeContext, MarkState,
+    NoGuide, OverflowSpaceRequirement, PlotGeometry, PointGeometry, PositionConfig, Theme,
 };
 use avenger_chart_core::{Auto, Scale, ScaleChannelValue};
 use avenger_color::ColorOrGradient;
@@ -248,6 +248,7 @@ impl CompiledGuide for CompiledIsometricGuide {
         _data_override: Option<&datafusion::dataframe::DataFrame>,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
+        _render_context: GuideRenderContext<'_>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(vec![])
     }

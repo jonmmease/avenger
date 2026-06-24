@@ -150,6 +150,9 @@ pub struct ScaleBuilder {
     pub(crate) channel_scale_data: HashMap<String, ChannelScaleData>,
     /// Data type for each channel (needed for default_channel_range())
     pub(crate) channel_data_types: HashMap<String, DataType>,
+    /// Channels materialized by a coordinate-domain provider, not authored by
+    /// the user as explicit-domain scales.
+    pub(crate) coordinate_domain_placeholders: HashSet<String>,
 }
 
 /// Cached data for a single channel's scale
@@ -375,6 +378,7 @@ impl ScaleBuilder {
         Self {
             channel_scale_data: HashMap::new(),
             channel_data_types: HashMap::new(),
+            coordinate_domain_placeholders: HashSet::new(),
         }
     }
 
@@ -464,12 +468,13 @@ impl ScaleBuilder {
             return;
         }
         self.add_explicit_domain(
-            channel_name,
+            channel_name.clone(),
             Box::new(Linear),
             options,
             ScaleDomain::new_interval(lit(0.0_f64), lit(1.0_f64)),
             derived_scalars,
         );
+        self.coordinate_domain_placeholders.insert(channel_name);
     }
 
     /// Attach a raw-domain override to a cached scale channel.
@@ -505,6 +510,10 @@ impl ScaleBuilder {
             self.channel_scale_data.get(channel_name),
             Some(ChannelScaleData::ExplicitDomain { .. })
         )
+    }
+
+    pub fn channel_has_coordinate_domain_placeholder(&self, channel_name: &str) -> bool {
+        self.coordinate_domain_placeholders.contains(channel_name)
     }
 
     pub fn channel_has_raw_domain(&self, channel_name: &str) -> bool {

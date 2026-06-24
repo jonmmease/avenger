@@ -2,9 +2,22 @@
 
 ## Status
 
-Ready for design spike. The coordinate-system guide framing is clear, but the
-runtime needs new generic async-resource primitives before map tiles should be
-implemented.
+Implementation has started. The current detailed checklist lives in
+`scratch/web-mercator-coordinate-implementation-plan.md`.
+
+The generic resource/image and guide-resource substrate now exists: scenegraph
+images can reference resources, chart SVG/PDF/static export can resolve and
+inline those resources, WGPU can render unresolved images with placeholders,
+image cache completion can request host redraw, and coordinate guides receive a
+`GuideRenderContext` that can collect resource requests.
+
+Implementation has also started in the external
+`avenger-chart-webmercator` crate. The current slice includes projection and
+viewport realization, coordinate-owned raster tile configuration, a
+guide-rendered resource tile layer, `Symbol<WebMercator>`, and pan/wheel/reset
+plus Shift+drag box-zoom viewport tools with app-session interaction coverage.
+Remaining work is mostly box-zoom preview coverage, container/shared-viewport
+coverage, examples, and visual baselines.
 
 ## Goal
 
@@ -12,31 +25,32 @@ Support dynamic raster map tile underlays for a future `WebMercator`
 coordinate system without making tiles a special case in the app, renderer, or
 tool layers.
 
-The intended authoring shape is a coordinate-guide option:
+The intended authoring shape is coordinate-owned tile configuration:
 
 ```rust
-Plot::<WebMercator>::new()
-    .guide(|g| {
-        g.tile_underlay(
-            RasterTileLayer::xyz("https://example.com/{z}/{x}/{y}.png")
-                .tile_size(256)
-                .max_zoom(19)
-                .attribution("...")
-        )
-    })
-    .tool(PanScrollZoom::web_mercator())
+Plot::with_coord(
+    WebMercator::new().tiles(
+        RasterTileLayer::xyz("https://example.com/{z}/{x}/{y}.png")
+            .tile_size(256)
+            .max_zoom(19)
+            .attribution("..."),
+    ),
+)
+    .tool(WebMercatorPanZoom::new())
     .mark(...)
 ```
 
-The tool manipulates coordinate domains. The coordinate guide observes the
-current view, determines which tiles are visible, requests missing images, and
-renders whichever tile resources are ready.
+The tool manipulates coordinate-owned viewport params. The stateless coordinate
+guide observes the realized view plus coordinate-owned tile-layer payload,
+determines which tiles are visible, requests image resources, and emits
+resource-backed image marks. A separate public `.guide(...)` configuration
+surface is not part of the design.
 
 ## External Crate Target
 
-`WebMercator` and its tile underlay should be implemented in an external
-coordinate crate, for example `avenger-chart-web-mercator`, not in the
-`avenger-chart` facade.
+`WebMercator` and its tile underlay live in an external coordinate crate named
+`avenger-chart-webmercator`, not in the `avenger-chart` facade. Its Rust crate
+name is `avenger_chart_webmercator`.
 
 That crate owns:
 
@@ -50,19 +64,19 @@ That crate owns:
 
 The crate should depend on `avenger-chart-core` and lower-level resource,
 scenegraph, image, and projection utilities. It should not require
-`avenger-chart`. The facade can re-export the crate for convenience, but tile
-rendering should not rely on root-crate downcasts or special cases.
+`avenger-chart` outside tests, examples, and documentation. Tile rendering must
+not rely on root-crate downcasts, facade re-exports, or WebMercator-specific
+special cases.
 
 Any Web-Mercator-specific navigation tool should also be external or generic.
-For example, `avenger-chart-web-mercator` can expose a helper tool that expands
-to ordinary raw-domain params and event bindings, while the core tool system
-only needs generic invertible-coordinate and sharing contracts.
+For example, `avenger-chart-webmercator` can expose a helper tool that expands
+to viewport params and event bindings, while the core tool system only needs
+generic invertible-coordinate and sharing contracts.
 
-Map tiles should share the same async runtime substrate as async rasterized
-marks and async M4 lines, but they are resource requests rather than computed
-data materializations. The common pieces are stable keys, nonblocking requests,
-executor registration, cache states, completion invalidation, and renderer
-resource lookup.
+Map tiles should share the same async runtime substrate as other resource-backed
+content, but they are resource requests rather than computed data
+materializations. The common pieces are stable keys, nonblocking requests,
+cache states, completion invalidation, and renderer resource lookup.
 
 ## Research Basis
 
@@ -103,8 +117,8 @@ behave like image-based guide chrome for a spatial coordinate system:
 - tiles do not create legends,
 - tiles are not datum-bearing selection targets by default,
 - tile visibility follows the coordinate transform and current plot-area size,
-- pan and zoom update the coordinate domains; tile selection follows from the
-  new visible Web Mercator extent.
+- pan and zoom update coordinate-owned viewport params; tile selection follows
+  from the new visible Web Mercator extent.
 
 This keeps tile math in the coordinate crate. `WebMercator` owns projection,
 tile zoom selection, wrap behavior at the antimeridian, and tile bounds. The
@@ -113,10 +127,9 @@ chart app and renderer only see generic resource-backed image scene marks.
 ```mermaid
 flowchart TD
     Core["avenger-chart-core"]
-    WebMercator["external avenger-chart-web-mercator"]
+    WebMercator["external avenger-chart-webmercator"]
     Resources["resource/image runtime"]
-    Facade["optional facade re-export"]
-    Params["params and raw domains"]
+    Params["viewport params"]
     Session["PlotSession evaluate"]
     Guide["WebMercator guide"]
     Manifest["visible tile manifest"]
@@ -128,7 +141,6 @@ flowchart TD
 
     Core --> WebMercator
     Resources --> WebMercator
-    WebMercator --> Facade
     Params --> Session
     Session --> Guide
     WebMercator --> Guide
@@ -142,179 +154,48 @@ flowchart TD
     App --> Session
 ```
 
-## Required Generic Primitives
+## Current Generic Substrate
 
-### 1. Resource Requests
+The Web Mercator crate can now build on these generic pieces:
 
-Evaluation needs a way to declare resources it would like to have without
-blocking evaluation.
+- `ResourceRequest`/`ResourceKey` and image resource kind live outside
+  `avenger-chart`.
+- `SceneImageSource::Resource` lets scenegraph images refer to stable resource
+  keys instead of decoded image bytes.
+- `ImageResourceCache` owns loading/cache state and can request render
+  invalidation when a resource becomes ready or failed.
+- WGPU can draw placeholders for unresolved image resources and reuse uploaded
+  textures across redraws.
+- chart SVG/PDF/static export can resolve image resource requests, inline ready
+  images into a temporary scenegraph, and render deterministic output.
+- winit and egui hosts can subscribe to render invalidations and redraw even
+  when the user is idle.
+- `CompiledGuide::evaluate(..., GuideRenderContext)` gives coordinate guides
+  plot size and a resource request sink.
 
-```rust
-pub struct ResourceRequest {
-    pub key: ResourceKey,
-    pub kind: ResourceKind,
-    pub source: ResourceSource,
-    pub priority: f32,
-    pub cache_policy: ResourceCachePolicy,
-}
-```
+For raster tiles, `WebMercator` stores tile-layer configuration, the coordinate
+measurement carries that payload together with the realized viewport, and the
+stateless guide renders from the measurement. The guide should create stable
+keys such as `tile_layer_id/z/x/y/scale`, expand the URL template into an image
+`ResourceRequest`, and emit one resource-backed `SceneImageMark` per visible
+tile.
 
-For raster tiles, the key is stable across evaluations, such as
-`tile_layer_id/z/x/y/scale`. The source is usually an HTTP URL after template
-expansion. Other future uses could include remote images, icons, JSON data,
-Parquet fragments, or vector tile payloads.
+## Remaining Generic Gaps
 
-### 2. Resource Cache And Loader
+These gaps are useful to track, but they should not block
+`avenger-chart-webmercator`:
 
-`PlotSession` or the app runtime needs a resource cache with explicit states:
+- guide layer slots for a formal underlay/overlay split;
+- device pixel ratio in guide evaluation context for sharper tile zoom choice;
+- richer image cache policy knobs for HTTP cache headers, concurrency,
+  retry/backoff, and provider-specific headers;
+- optional resource metadata stores for debugging overlays or user-authored
+  placeholder layers;
+- a future executor registry if non-image resource kinds need to be loaded by
+  external crates.
 
-- `Missing`
-- `Queued`
-- `Loading`
-- `Ready`
-- `Error`
-- optionally `Stale`
-
-The cache should support max concurrency, priority updates, stale request
-cancellation, memory limits, provider cache headers, and retry/backoff policy.
-The cache should not be part of `CompiledPlot`; it is session/runtime state.
-
-### 3. Resource Completion Invalidation
-
-When a resource finishes loading, the app should request a redraw without user
-input. Resource completion should coalesce so a burst of tile completions does
-not cause one full chart evaluation per tile.
-
-The invalidation should be narrow:
-
-- if the scene contains resource-backed image marks whose geometry is already
-  known, the renderer may only need to upload the newly ready image and redraw;
-- if the guide wants to change fallback scene marks or tile opacity, the
-  session may need a lightweight reevaluation.
-
-### 4. Resource-Backed Scene Images
-
-`SceneImageMark` currently stores decoded `RgbaImage` values. That is useful
-for static images but too expensive for dynamic map tiles. The scenegraph
-needs an image source representation with both inline and resource-backed
-forms:
-
-```rust
-pub enum SceneImageSource {
-    Inline(RgbaImage),
-    Resource(ResourceKey),
-}
-```
-
-The renderer resolves `ResourceKey` through the current resource cache. If the
-image is not ready, the renderer skips the image or draws a configured
-placeholder. The WGPU renderer should keep a texture cache keyed by
-`ResourceKey` so pan/zoom redraws do not repeatedly upload unchanged tiles.
-
-### 5. Async Image Fetching
-
-`avenger-image` currently exposes synchronous URL-to-`RgbaImage` conversion.
-Dynamic tiles need an async loading path:
-
-- HTTP fetch with headers and cancellation,
-- decode off the render path,
-- support for PNG/JPEG/WebP as needed,
-- provider attribution and cache metadata,
-- wasm-compatible fetch support when targeting browsers.
-
-Static image marks may keep the existing inline path. URL-backed image marks
-should eventually migrate to the same resource pipeline so remote images do
-not block chart evaluation.
-
-### 6. Guide-Generated Resource Content
-
-`CompiledGuide::evaluate` currently returns scene marks. It should be able to
-also return resource requests, or write them into an evaluation resource
-collector.
-
-For map tiles, the guide-generated content is:
-
-- a sorted tile manifest for the current extent,
-- one resource request per missing or stale tile,
-- one resource-backed `SceneImageMark` per visible tile,
-- optional placeholder rects for missing/error tiles,
-- attribution text or attribution metadata for app chrome.
-
-This should remain a generic guide capability. Other coordinates may use it
-for remote basemap layers, celestial image surveys, large tiled heatmap
-rasters, or lazy-loaded geographic reference shapes.
-
-### 7. View Context For Guides
-
-The tile guide needs a stable context containing:
-
-- plot-area width and height,
-- configured coordinate scales and domains,
-- current params,
-- coordinate measurement,
-- clipping bounds,
-- device pixel ratio or tile pixel ratio when available,
-- evaluation mode if tile strategy differs between Preview and Exact.
-
-Most of this already flows through guide measurement/evaluation. The missing
-piece is a formal resource collector and, possibly, device pixel ratio from the
-host.
-
-### 8. Runtime Store Patching From Resource Tasks
-
-Stores are still useful for resource metadata but should not be the primary
-decoded-image cache. The runtime should allow non-event tasks to patch stores
-and request render. This lets an async resource task update a metadata store
-such as:
-
-```text
-tile_key, z, x, y, x0, y0, x1, y1, status, error
-```
-
-This supports user-authored placeholder layers and debugging overlays without
-placing image bytes in Arrow rows.
-
-### 9. Coordinate Guide Layer Slots
-
-Coordinate guides currently return scene marks as one guide result. Map tiles
-need a first-class underlay slot so guide-generated tiles render below data
-marks, while axes, gridlines, labels, and other guide chrome can keep their
-existing ordering.
-
-A future guide evaluation result should distinguish at least:
-
-- plot-background or underlay marks,
-- data-space guide marks that may render below data,
-- ordinary guide chrome,
-- optional overlay guide marks.
-
-The tile layer should use the underlay/data-space guide slot. This is still a
-generic guide capability: other coordinates could use it for reference rasters,
-survey imagery, background grids, or projected map outlines.
-
-### 10. Extensible Resource And Materialization Executors
-
-Resource requests must be executable without `avenger-chart` matching on every
-future resource kind. The resource layer should provide a registry keyed by
-serializable resource kind or source type:
-
-```rust
-pub trait ResourceExecutor: Send + Sync {
-    fn kind(&self) -> &'static str;
-    async fn load(&self, request: ResourceRequest) -> Result<ResourceValue, ResourceError>;
-}
-```
-
-Built-in executors can handle HTTP images and inline image refs. External
-coordinate crates can use those generic executors for raster tiles or register
-their own providers. The serialized chart should carry resource requests and
-resource-source specs; the app/session supplies the executor registry and any
-non-serialized runtime credentials.
-
-This should align with the materialization executor registry used by external
-data marks. A resource executor fetches or decodes external content. A
-materialization executor computes derived content from chart data. Both are
-nonblocking runtime services keyed by serializable specs.
+The implementation can use ordinary guide scene marks with an under-data
+z-index, the built-in image cache, and explicit tile attribution marks.
 
 ## Tile Layer Behavior
 
@@ -330,8 +211,8 @@ the provider limit.
 
 For each visible `z/x/y`, the guide computes the tile bounds in Web Mercator
 domain coordinates, transforms those corners to plot pixels, and emits an
-image mark covering that rectangle. The initial implementation can assume
-axis-aligned Web Mercator tiles in an unrotated plot area.
+image mark covering that rectangle. Web Mercator starts with axis-aligned tiles
+in an unrotated plot area.
 
 ### Fallbacks
 
@@ -371,9 +252,8 @@ let basemap = RasterTileLayer::xyz("https://tile.openstreetmap.org/{z}/{x}/{y}.p
     .attribution("© OpenStreetMap contributors")
     .cache_policy(TileCachePolicy::http());
 
-let plot = Plot::<WebMercator>::new()
-    .guide(|g| g.tile_underlay(basemap))
-    .tool(PanScrollZoom::web_mercator())
+let plot = Plot::with_coord(WebMercator::new().tiles(basemap))
+    .tool(WebMercatorPanZoom::new())
     .mark(
         Symbol::new()
             .longitude(col("lon"))
@@ -382,30 +262,28 @@ let plot = Plot::<WebMercator>::new()
     );
 ```
 
-The guide API is convenient, but the implementation should lower to generic
-resource primitives. A custom coordinate crate should be able to define its own
+The coordinate configuration is the public API. Internally, `WebMercator`
+copies tile-layer configuration into `WebMercatorCoordMeasurement`, and
+`WebMercatorGuide` lowers the realized visible tiles to generic resource-backed
+image marks. A custom coordinate crate should be able to define its own
 resource-backed guide content without depending on a tile-specific runtime.
 
-## Foundational Utilities For External Coordinates
+## Crate And Utility Boundary
 
-To make `WebMercator` genuinely external, the shared crates need these public
-utilities:
+`avenger-chart-webmercator` should be genuinely external. It should depend on
+public lower-level crates, not on root-crate special cases:
 
-- guide evaluation contexts that expose plot size, scale domains, params,
-  device pixel ratio, and an evaluation resource collector;
-- guide layer slots for underlays and overlays;
-- resource-backed scene images in `avenger-scenegraph`;
-- async image fetch/decode and cache primitives outside `avenger-chart`;
-- an executor registry for resource requests emitted by external crates;
-- projection/tile math helpers that can live in the external Web Mercator
-  crate or a lower-level geography utility crate;
-- a way for external coordinate crates to provide coordinate-specific
-  interaction helpers without changing `avenger-chart-tools`;
-- deterministic fixture resource resolvers for tests and visual baselines.
+- coordinate traits, guide traits, domain-provider traits, params, and scale
+  metadata from `avenger-chart-core`;
+- mark definitions from `avenger-chart-marks`;
+- resource keys/requests/invalidation from `avenger-resource`;
+- image resource loading/cache helpers from `avenger-image`;
+- scene image resource marks from `avenger-scenegraph`;
+- projection and tile math owned by the Web Mercator crate itself.
 
-The root facade should only collect the generic guide/resource output and pass
-it to the session/app/renderer. It should not know that a given resource came
-from Web Mercator tiles.
+The root facade should only pass generic guide/resource output to the
+session/app/renderer. It should not know that a given resource came from Web
+Mercator tiles.
 
 ## Unified Async Runtime Family
 
@@ -417,9 +295,11 @@ This plan is part of a broader family:
 - [async-m4-lines.md](async-m4-lines.md): external data marks that compute
   sampled vector line data from source data.
 
-The shared runtime should handle stable keys, executor registries, cache
-states, completion invalidation, and renderer/app redraw. The chart facade
-should not know which external crate emitted a given request.
+The shared runtime should handle stable keys, cache states, completion
+invalidation, and renderer/app redraw. Future executor registries may be useful
+for non-image resource kinds, but raster tiles can start with the existing image
+resource path. The chart facade should not know which external crate emitted a
+given request.
 
 ## Why Not A Regular Image Mark Layer
 
@@ -439,56 +319,43 @@ general resource-backed scene primitives.
 
 ## Implementation Phases
 
-### Phase 1: Resource Model Spike
+See `scratch/web-mercator-coordinate-implementation-plan.md` for the current
+checklist. At a high level:
 
-- Add `ResourceKey`, `ResourceRequest`, `ResourceKind`, `ResourceState`, and
-  `ResourceCachePolicy`.
-- Add an evaluation-side resource request collector.
-- Return resource diagnostics from `PlotSession` metrics.
-- Add tests proving evaluation can request missing resources without blocking.
+### Phase 0: External Crate
 
-### Phase 2: Resource-Backed Images
+- Add `avenger-chart-webmercator` as a workspace member with Rust crate name
+  `avenger_chart_webmercator`.
+- Keep `avenger-chart` as a dev-dependency only.
 
-- Extend scenegraph image sources to support inline images and resource refs.
-- Update WGPU image rendering to resolve resource refs.
-- Add renderer texture caching keyed by resource key.
-- Keep PNG/headless rendering deterministic by providing a resource resolver in
-  test contexts.
+### Phase 1: Projection And Coordinate
 
-### Phase 3: Async Image Loader
+- Add EPSG:3857 projection/inverse helpers and coordinate skeleton.
+- Use projected x/y meters internally; longitude/latitude authoring lowers to
+  projected x/y.
 
-- Add async image fetch/decode in `avenger-image` or a new lower-level
-  resource crate.
-- Respect cache headers where available.
-- Add request cancellation and concurrency limits.
-- Add wasm-compatible fetch support if practical.
+### Phase 2: Viewport Domain Provider
 
-### Phase 4: Guide Resource Output
+- Implement coordinate-owned `center_x`, `center_y`, and `units_per_pixel`
+  realization through `CoordinateDomainProvider`.
+- Infer center/zoom from symbols when not authored, and infer zoom around an
+  authored center when only center is provided.
 
-- Extend `CompiledGuide::evaluate` or its evaluation context with a resource
-  collector.
-- Allow guide-generated scene marks to reference resource keys.
-- Add guide layer slots so resource-backed underlays render below data marks
-  without special-casing tiles in plot rendering.
-- Add unit tests with a synthetic coordinate guide that requests images and
-  renders placeholders.
+### Phase 3: Marks, Tiles, And Tools
 
-### Phase 5: External `WebMercator` Coordinate Spike
+- Implement `Symbol<WebMercator>`.
+- Add coordinate-owned `RasterTileLayer` configuration and guide-generated
+  resource-backed image marks.
+- Add `WebMercatorPanZoom` that edits viewport params, not raw scale domains.
+- Add viewport-aspect Web Mercator box zoom.
 
-- Add an `avenger-chart-web-mercator` crate with `WebMercator` coordinate
-  transforms for longitude/latitude or projected Web Mercator channels.
-- Add pan/scroll-zoom support through raw domains.
-- Add raster tile manifest calculation from current domain and plot size.
-- Render ready resource-backed tiles under data marks.
-- Prove the crate can be used without depending on the `avenger-chart` facade,
-  then add optional facade re-exports.
+### Phase 4: Containers, Export, And Baselines
 
-### Phase 6: Tile Cache And Fallback Polish
-
-- Add parent-tile fallback or stale tile fallback.
-- Add optional fade-in.
-- Add cache eviction metrics.
-- Add attribution rendering or app-surface attribution metadata.
+- Validate facet/repeat shared viewport behavior through the generic
+  coordinate-domain group solver.
+- Keep SVG/PDF/static export tests passing with deterministic tile resources.
+- Add WGPU baselines for symbols, tile underlays, placeholders, ready resources,
+  attribution, and shared/free viewport containers.
 
 ## Testing Plan
 
@@ -505,17 +372,18 @@ general resource-backed scene primitives.
 - Add metrics for requested, queued, loaded, errored, cache-hit, texture-hit,
   and stale-dropped resources.
 
-## Open Design Questions
+## Decisions And Remaining Questions
 
-- Should resource cache ownership live in `PlotSession`, `avenger-chart-app`,
-  or a lower-level `avenger-resource` crate shared by other apps?
-- Should guide-generated resource requests force reevaluation on completion, or
-  can the renderer update ready textures without rebuilding the scenegraph?
-- Should attribution be scenegraph content, app chrome, or both?
-- Should URL-backed ordinary `Image` marks migrate immediately to resource
-  refs, or should static image marks keep the synchronous path until map tiles
-  prove the resource layer?
-- How should tile layers expose provider headers and auth tokens without making
-  serialized `CompiledPlot` contain secrets?
-- Should reusable projection math live in `avenger-chart-web-mercator` itself
-  or in a lower-level crate intended for multiple geographic coordinates?
+- Resource cache ownership should stay in the lower-level resource/image stack,
+  with chart apps wiring requests to the resolver.
+- Guide-generated image requests do not need to force reevaluation on completion;
+  renderer/app invalidation is enough when geometry is unchanged.
+- URL-backed ordinary `Image` marks do not need to migrate immediately beyond
+  the current resource-image path used by app examples and export resolution.
+- Attribution should be supported as scenegraph content first; app-chrome
+  attribution metadata can be added later if needed.
+- Provider headers and auth tokens still need a runtime-only configuration
+  story that does not serialize secrets into compiled plots.
+- Projection and tile math should start in `avenger-chart-webmercator`. A lower
+  geography utility crate can be split out only after another coordinate system
+  wants the same math.
