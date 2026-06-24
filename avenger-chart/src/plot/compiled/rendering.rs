@@ -6691,6 +6691,34 @@ impl CompiledPlot {
         Ok(())
     }
 
+    async fn refresh_preview_provider_coord_measurement(
+        &self,
+        measurement: &mut ComponentsMeasurement,
+        eval_ctx: &EvaluationContext,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+        ctx: &SessionContext,
+    ) -> Result<(), AvengerChartError> {
+        if self.coord_transform.measurement_provider().is_none() {
+            return Ok(());
+        }
+        if measurement.child_frame_container_view()?.is_some() {
+            return Ok(());
+        }
+
+        measurement.coord_measurement = Box::pin(self.measure_coord_system(
+            &measurement.scales,
+            measurement.plot_area_width,
+            measurement.plot_area_height,
+            eval_ctx,
+            data_override,
+            facet_path,
+            ctx,
+        ))
+        .await?;
+        Ok(())
+    }
+
     pub(crate) async fn evaluate_preview_with_layout_profile_and_metrics(
         &self,
         ctx: &SessionContext,
@@ -7169,6 +7197,15 @@ impl CompiledPlot {
                 facet_domain_override_start.elapsed(),
             );
         });
+
+        Box::pin(self.refresh_preview_provider_coord_measurement(
+            &mut measurement,
+            &eval_ctx,
+            None,
+            &[],
+            ctx,
+        ))
+        .await?;
 
         Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
             metrics.record_preview_profile_reuse();
