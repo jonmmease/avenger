@@ -61,6 +61,7 @@ lyon_path = { workspace = true }
 paste = "1.0"
 
 [dev-dependencies]
+avenger-chart-webmercator = { path = "../avenger-chart-webmercator" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 image-compare = "0.4"
 bincode = "1.3"

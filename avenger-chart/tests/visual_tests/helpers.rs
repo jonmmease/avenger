@@ -4,7 +4,12 @@ use crate::tracing::try_init_tracing;
 use avenger_chart::plot::CompiledPlot;
 use avenger_chart::render::{EvaluatedPlot, EvaluationOptions};
 use avenger_common::canvas::CanvasDimensions;
+use avenger_image::{
+    ImageResourceCache, ImageResourceLoadOptions, ImageResourceResolver,
+    load_image_resource_requests_blocking,
+};
 use avenger_pdf::PdfRenderer as SceneGraphPdfRenderer;
+use avenger_scenegraph::image_resources::resolve_ready_image_resources;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_svg::{SvgRenderOptions, SvgRenderer};
 use avenger_text::{FontResolutionOptions, MissingFontPolicy};
@@ -183,6 +188,36 @@ async fn evaluate_compiled_plot(
         .evaluate(ctx, params)
         .await
         .expect("Failed to evaluate plot")
+}
+
+fn scene_graph_with_resolved_image_resources(
+    evaluated: &EvaluatedPlot,
+    resolver: Option<&dyn ImageResourceResolver>,
+) -> SceneGraph {
+    if evaluated.resource_requests.is_empty() {
+        return evaluated.scene_graph.clone();
+    }
+
+    if let Some(resolver) = resolver {
+        load_image_resource_requests_blocking(
+            resolver,
+            &evaluated.resource_requests,
+            ImageResourceLoadOptions::default(),
+        )
+        .expect("Failed to load visual test image resources");
+        return resolve_ready_image_resources(&evaluated.scene_graph, resolver)
+            .expect("Failed to inline visual test image resources");
+    }
+
+    let cache = ImageResourceCache::new();
+    load_image_resource_requests_blocking(
+        &cache,
+        &evaluated.resource_requests,
+        ImageResourceLoadOptions::default(),
+    )
+    .expect("Failed to load visual test image resources");
+    resolve_ready_image_resources(&evaluated.scene_graph, &cache)
+        .expect("Failed to inline visual test image resources")
 }
 
 async fn evaluate_compiled_plot_with_options(
@@ -965,21 +1000,70 @@ async fn assert_visual_match_baseline_only(
     baseline_name: &str,
     tolerance: f64,
 ) {
+    assert_visual_match_baseline_only_with_image_resolver(
+        compiled,
+        ctx,
+        params,
+        category,
+        baseline_name,
+        tolerance,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn assert_visual_match_with_image_resolver(
+    compiled: &CompiledPlot,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+    category: &str,
+    baseline_name: &str,
+    tolerance: f64,
+    resolver: &dyn ImageResourceResolver,
+) {
+    assert_visual_match_baseline_only_with_image_resolver(
+        compiled,
+        ctx,
+        params,
+        category,
+        baseline_name,
+        tolerance,
+        Some(resolver),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn assert_visual_match_baseline_only_with_image_resolver(
+    compiled: &CompiledPlot,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+    category: &str,
+    baseline_name: &str,
+    tolerance: f64,
+    resolver: Option<&dyn ImageResourceResolver>,
+) {
     try_init_tracing();
 
     let baseline_path = get_baseline_path(category, baseline_name);
 
     if sidecar_baselines_only_enabled() {
         let direct_result = evaluate_compiled_plot(compiled, ctx, params).await;
-        assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
-        assert_pdf_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
+        let direct_scene_graph =
+            scene_graph_with_resolved_image_resources(&direct_result, resolver);
+        assert_svg_scene_graph_match(&direct_scene_graph, category, baseline_name);
+        assert_pdf_scene_graph_match(&direct_scene_graph, category, baseline_name);
         return;
     }
 
     let (direct_result, serialized_result) =
         evaluate_compiled_plot_with_serialization(compiled, ctx, params).await;
-    let direct_image = render_scene_graph_to_wgpu_image(&direct_result.scene_graph).await;
-    let serialized_image = render_scene_graph_to_wgpu_image(&serialized_result.scene_graph).await;
+    let direct_scene_graph = scene_graph_with_resolved_image_resources(&direct_result, resolver);
+    let serialized_scene_graph =
+        scene_graph_with_resolved_image_resources(&serialized_result, resolver);
+    let direct_image = render_scene_graph_to_wgpu_image(&direct_scene_graph).await;
+    let serialized_image = render_scene_graph_to_wgpu_image(&serialized_scene_graph).await;
 
     let config = VisualTestConfig {
         threshold: tolerance,
@@ -1018,8 +1102,8 @@ async fn assert_visual_match_baseline_only(
         );
     }
 
-    assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
-    assert_pdf_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
+    assert_svg_scene_graph_match(&direct_scene_graph, category, baseline_name);
+    assert_pdf_scene_graph_match(&direct_scene_graph, category, baseline_name);
 }
 
 /// Test a CompiledPlot against its baseline with default tolerance (99.99%)

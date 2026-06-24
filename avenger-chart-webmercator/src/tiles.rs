@@ -25,11 +25,11 @@ pub struct RasterTileLayer {
     min_zoom: u8,
     #[serde(default = "default_max_zoom")]
     max_zoom: u8,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     attribution: Option<String>,
     #[serde(default)]
     cache_policy: ResourceCachePolicy,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     subdomains: Vec<String>,
     #[serde(default = "default_tile_zindex")]
     zindex: i32,
@@ -441,5 +441,17 @@ mod tests {
         let tile = layer.visible_tiles(&view).expect("tiles").remove(0);
         let request = layer.resource_request(&tile);
         assert!(matches!(request.source, ResourceSource::DataUri { .. }));
+    }
+
+    #[test]
+    fn raster_tile_layer_survives_bincode_with_empty_optional_fields() {
+        let layer = layer()
+            .min_zoom(1)
+            .max_zoom(3)
+            .attribution("Tile contributors");
+        let bytes = bincode::serialize(&layer).expect("serialize tile layer");
+        let restored: RasterTileLayer =
+            bincode::deserialize(&bytes).expect("deserialize tile layer");
+        assert_eq!(restored, layer);
     }
 }

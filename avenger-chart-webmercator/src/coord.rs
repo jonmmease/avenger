@@ -33,13 +33,13 @@ const WEB_MERCATOR_METRIC_ID: &str = "webmercator_projected_units";
 pub struct WebMercator {
     #[serde(default = "default_viewport_id")]
     viewport_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     center_x: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     center_y: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     zoom: Option<f64>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     tile_layers: Vec<RasterTileLayer>,
 }
 
@@ -833,5 +833,27 @@ mod tests {
         assert_eq!(restored.center_x, Some(1.0));
         assert_eq!(restored.center_y, Some(2.0));
         assert_eq!(restored.zoom, Some(3.0));
+    }
+
+    #[test]
+    fn coordinate_with_tiles_survives_bincode_round_trip() {
+        let coord = WebMercator::new()
+            .viewport_id("map")
+            .center_lon_lat(0.0, 0.0)
+            .zoom(3.0)
+            .tiles(
+                crate::tiles::RasterTileLayer::xyz("https://tiles.example/{z}/{x}/{y}.png")
+                    .id("base")
+                    .attribution("Tile contributors"),
+            );
+
+        let bytes = bincode::serialize(&coord).expect("serialize WebMercator coordinate");
+        let restored: WebMercator =
+            bincode::deserialize(&bytes).expect("deserialize WebMercator coordinate");
+        assert_eq!(restored.viewport_id, coord.viewport_id);
+        assert_eq!(restored.center_x, coord.center_x);
+        assert_eq!(restored.center_y, coord.center_y);
+        assert_eq!(restored.zoom, coord.zoom);
+        assert_eq!(restored.tile_layers, coord.tile_layers);
     }
 }

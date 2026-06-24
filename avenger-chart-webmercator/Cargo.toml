@@ -24,5 +24,6 @@ avenger-app = { path = "../avenger-app" }
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-app = { path = "../avenger-chart-app" }
 avenger-eventstream = { path = "../avenger-eventstream" }
+bincode = "1.3"
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

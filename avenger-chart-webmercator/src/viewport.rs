@@ -8,11 +8,11 @@ use crate::tiles::RasterTileLayer;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WebMercatorViewport {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub center_x: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub center_y: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub zoom: Option<f64>,
 }
 
