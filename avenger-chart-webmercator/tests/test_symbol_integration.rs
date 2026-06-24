@@ -1,8 +1,12 @@
-use avenger_chart::prelude::Plot;
+use avenger_chart::prelude::{Plot, Rule, Text};
 use avenger_chart::render::InteractionScopeKind;
 use avenger_chart_webmercator::{
     Symbol, WebMercator, WebMercatorSymbolPositionChannels, project_lon_lat,
 };
+use avenger_scenegraph::marks::{
+    mark::SceneMark, rule::SceneRuleMark, symbol::SceneSymbolMark, text::SceneTextMark,
+};
+use datafusion::logical_expr::lit;
 use datafusion::prelude::{SessionContext, col};
 
 #[tokio::test]
@@ -115,4 +119,139 @@ async fn fitted_domain_spans_for_symbol_size(size: f64) -> (f64, f64) {
         f64::from(x_domain.1) - f64::from(x_domain.0),
         f64::from(y_domain.1) - f64::from(y_domain.0),
     )
+}
+
+#[tokio::test]
+async fn symbol_adjustments_use_rendered_webmercator_item_frame() {
+    let base_x = rendered_symbol_x(
+        Symbol::new()
+            .unit_data()
+            .projected_x(0.0)
+            .projected_y(0.0)
+            .size(100.0),
+    )
+    .await;
+    let adjusted_x = rendered_symbol_x(
+        Symbol::new()
+            .unit_data()
+            .projected_x(0.0)
+            .projected_y(0.0)
+            .size(100.0)
+            .adjust(|point| point.x(point.channel("x") + lit(12.0))),
+    )
+    .await;
+
+    assert_close(adjusted_x - base_x, 12.0, 1e-4);
+}
+
+#[tokio::test]
+async fn symbol_can_derive_rule_from_rendered_webmercator_geometry() {
+    let evaluated = evaluated_single_symbol_plot(
+        Symbol::new()
+            .unit_data()
+            .projected_x(0.0)
+            .projected_y(0.0)
+            .size(100.0)
+            .derive(|point| {
+                Rule::<WebMercator>::new()
+                    .with_channel_value("x", point.channel("x").into())
+                    .with_channel_value("y", point.channel("y").into())
+                    .with_channel_value("x2", (point.channel("x") + lit(18.0)).into())
+                    .with_channel_value("y2", point.channel("y").into())
+                    .stroke("#ef4444")
+                    .stroke_width(2.0)
+            }),
+    )
+    .await;
+    let rule = first_rule(&evaluated.scene_graph.marks).expect("derived rule");
+    let x = rule.x.as_vec(rule.len as usize, None)[0];
+    let x2 = rule.x2.as_vec(rule.len as usize, None)[0];
+
+    assert_close(x2 - x, 18.0, 1e-4);
+}
+
+#[tokio::test]
+async fn symbol_can_derive_text_from_rendered_webmercator_geometry_and_source_data() {
+    let ctx = SessionContext::new();
+    let df = ctx
+        .sql("SELECT 0.0 AS lon, 0.0 AS lat, 'origin' AS label")
+        .await
+        .expect("dataframe");
+    let evaluated = Plot::with_coord(WebMercator::new().center_projected(0.0, 0.0).zoom(2.0))
+        .plot_size(300.0, 300.0)
+        .data(df)
+        .mark(
+            Symbol::new()
+                .longitude(col("lon"))
+                .latitude(col("lat"))
+                .size(100.0)
+                .derive(|point| {
+                    Text::<WebMercator>::new()
+                        .with_channel_value("x", (point.channel("x") + lit(6.0)).into())
+                        .with_channel_value("y", point.channel("y").into())
+                        .text(point.data("label"))
+                        .font_size(14.0)
+                }),
+        )
+        .compile(&ctx)
+        .await
+        .expect("compile")
+        .evaluate(&ctx, None)
+        .await
+        .expect("evaluate");
+
+    let text = first_text(&evaluated.scene_graph.marks).expect("derived text");
+    assert_eq!(text.text.as_vec(text.len as usize, None)[0], "origin");
+}
+
+async fn rendered_symbol_x(mark: Symbol<WebMercator>) -> f32 {
+    let evaluated = evaluated_single_symbol_plot(mark).await;
+    let symbol = first_symbol(&evaluated.scene_graph.marks).expect("symbol");
+    symbol.x.as_vec(symbol.len as usize, None)[0]
+}
+
+async fn evaluated_single_symbol_plot(
+    mark: Symbol<WebMercator>,
+) -> avenger_chart::render::EvaluatedPlot {
+    let ctx = SessionContext::new();
+    Plot::with_coord(WebMercator::new().center_projected(0.0, 0.0).zoom(2.0))
+        .plot_size(300.0, 300.0)
+        .mark(mark)
+        .compile(&ctx)
+        .await
+        .expect("compile")
+        .evaluate(&ctx, None)
+        .await
+        .expect("evaluate")
+}
+
+fn first_symbol(marks: &[SceneMark]) -> Option<&SceneSymbolMark> {
+    marks.iter().find_map(|mark| match mark {
+        SceneMark::Symbol(symbol) => Some(symbol),
+        SceneMark::Group(group) => first_symbol(&group.marks),
+        _ => None,
+    })
+}
+
+fn first_rule(marks: &[SceneMark]) -> Option<&SceneRuleMark> {
+    marks.iter().find_map(|mark| match mark {
+        SceneMark::Rule(rule) => Some(rule),
+        SceneMark::Group(group) => first_rule(&group.marks),
+        _ => None,
+    })
+}
+
+fn first_text(marks: &[SceneMark]) -> Option<&SceneTextMark> {
+    marks.iter().find_map(|mark| match mark {
+        SceneMark::Text(text) => Some(text.as_ref()),
+        SceneMark::Group(group) => first_text(&group.marks),
+        _ => None,
+    })
+}
+
+fn assert_close(actual: f32, expected: f32, tolerance: f32) {
+    assert!(
+        (actual - expected).abs() <= tolerance,
+        "expected {actual} to be within {tolerance} of {expected}"
+    );
 }
