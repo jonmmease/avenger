@@ -23,6 +23,30 @@ async fn landmarks(ctx: &SessionContext) -> datafusion::prelude::DataFrame {
     .expect("landmark data")
 }
 
+async fn facet_points(ctx: &SessionContext) -> datafusion::prelude::DataFrame {
+    ctx.sql(
+        "SELECT * FROM (VALUES
+            ('Near', -1.0, -0.8, '#2563eb', 130.0),
+            ('Near',  1.0,  0.8, '#2563eb', 180.0),
+            ('Far',  19.0, -0.8, '#dc2626', 130.0),
+            ('Far',  21.0,  0.8, '#dc2626', 180.0)
+        ) AS t(panel, lon, lat, color, size)",
+    )
+    .await
+    .expect("facet WebMercator data")
+}
+
+async fn repeat_points(ctx: &SessionContext) -> datafusion::prelude::DataFrame {
+    ctx.sql(
+        "SELECT * FROM (VALUES
+            (-1.0, 19.0, -1.2, 2.2),
+            ( 1.0, 21.0,  1.2, 4.2)
+        ) AS t(near_lon, far_lon, south_lat, north_lat)",
+    )
+    .await
+    .expect("repeat WebMercator data")
+}
+
 fn landmark_symbols() -> Symbol<WebMercator> {
     Symbol::new()
         .longitude(col("lon"))
@@ -33,6 +57,18 @@ fn landmark_symbols() -> Symbol<WebMercator> {
         })
         .stroke("#111827")
         .stroke_width(1.5)
+}
+
+fn colored_symbols() -> Symbol<WebMercator> {
+    Symbol::new()
+        .longitude(col("lon"))
+        .latitude(col("lat"))
+        .size(col("size"))
+        .fill_with(col("color"), |fill| {
+            fill.no_scale().legend(|legend| legend.visible(false))
+        })
+        .stroke("#111827")
+        .stroke_width(1.2)
 }
 
 fn webmercator_child(coord: WebMercator) -> Plot<WebMercator> {
@@ -149,6 +185,88 @@ async fn symbol_wide_vs_tall_same_zoom() {
         "symbol_wide_vs_tall_same_zoom",
     )
     .await;
+}
+
+#[tokio::test]
+async fn facet_shared_viewport() {
+    let ctx = SessionContext::new();
+    let child = Plot::with_coord(WebMercator::new()).mark(
+        colored_symbols()
+            .longitude_with(col("lon"), |x| {
+                x.with_domain_scope(CoordinationScope::Shared)
+            })
+            .latitude_with(col("lat"), |y| {
+                y.with_domain_scope(CoordinationScope::Shared)
+            }),
+    );
+    let plot = Plot::<FacetColumn>::new()
+        .plot_size(250.0, 190.0)
+        .title("Shared WebMercator viewport")
+        .data(facet_points(&ctx).await)
+        .mark(Subplot::new(child).column(col("panel")));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile shared WebMercator facet");
+    assert_visual_match_default(&compiled, &ctx, None, CATEGORY, "facet_shared_viewport").await;
+}
+
+#[tokio::test]
+async fn facet_free_viewports() {
+    let ctx = SessionContext::new();
+    let child = Plot::with_coord(WebMercator::new()).mark(
+        colored_symbols()
+            .longitude_with(col("lon"), |x| x.with_domain_scope(CoordinationScope::Free))
+            .latitude_with(col("lat"), |y| y.with_domain_scope(CoordinationScope::Free)),
+    );
+    let plot = Plot::<FacetColumn>::new()
+        .plot_size(250.0, 190.0)
+        .title("Free WebMercator viewports")
+        .data(facet_points(&ctx).await)
+        .mark(Subplot::new(child).column(col("panel")));
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile free WebMercator facet");
+    assert_visual_match_default(&compiled, &ctx, None, CATEGORY, "facet_free_viewports").await;
+}
+
+#[tokio::test]
+async fn repeat_shared_fit() {
+    let ctx = SessionContext::new();
+    let cell = Plot::with_coord(WebMercator::new())
+        .plot_size(190.0, 150.0)
+        .mark(
+            Symbol::new()
+                .longitude(repeat::column())
+                .latitude(repeat::row())
+                .size(150.0)
+                .fill("#0f766e")
+                .stroke("#111827")
+                .stroke_width(1.2),
+        );
+    let plot = Plot::<RepeatGrid>::new()
+        .canvas_size(560.0, 420.0)
+        .title("Repeat WebMercator shared fit")
+        .data(repeat_points(&ctx).await)
+        .rows([
+            RepeatVariable::new("south_lat", col("south_lat")).title("South"),
+            RepeatVariable::new("north_lat", col("north_lat")).title("North"),
+        ])
+        .columns([
+            RepeatVariable::new("near_lon", col("near_lon")).title("Near"),
+            RepeatVariable::new("far_lon", col("far_lon")).title("Far"),
+        ])
+        .matrix_domains()
+        .cell(cell);
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile repeated WebMercator grid");
+    assert_visual_match_default(&compiled, &ctx, None, CATEGORY, "repeat_shared_fit").await;
 }
 
 #[tokio::test]
