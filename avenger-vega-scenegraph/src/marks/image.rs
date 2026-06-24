@@ -4,7 +4,7 @@ use avenger_common::{
     types::{ImageAlign, ImageBaseline},
     value::ScalarOrArray,
 };
-use avenger_image::{make_image_fetcher, RgbaImage};
+use avenger_image::{RgbaImage, make_image_fetcher};
 use avenger_scenegraph::marks::{
     image::{SceneImageMark, SceneImageSource},
     mark::SceneMark,
@@ -119,6 +119,7 @@ impl VegaMarkContainer<VegaImageItem> {
             y: ScalarOrArray::new_array(y),
             width: ScalarOrArray::new_array(width),
             height: ScalarOrArray::new_array(height),
+            unavailable_policy: Default::default(),
             indices,
             zindex: self.zindex,
         })))

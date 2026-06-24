@@ -12,7 +12,7 @@ use avenger_common::{
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{
     group::Clip,
-    image::{SceneImageMark, SceneImageResource, SceneImageSource},
+    image::{SceneImageMark, SceneImageResource, SceneImageSource, SceneImageUnavailablePolicy},
     mark::SceneMark,
     text::SceneTextMark,
 };
@@ -20,7 +20,10 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionCont
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{tiles::VisibleRasterTile, viewport::WebMercatorCoordMeasurement};
+use crate::{
+    tiles::{PlannedTileUnavailablePolicy, VisibleRasterTile},
+    viewport::WebMercatorCoordMeasurement,
+};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct WebMercatorGuide;
@@ -95,9 +98,13 @@ impl CompiledGuide for WebMercatorGuide {
         let mut marks = Vec::new();
         let mut attribution_index = 0usize;
         for layer in &measurement.tile_layers {
-            for tile in layer.visible_tiles(&measurement.view)? {
-                render_context.request_resource(layer.resource_request(&tile));
-                marks.push(tile_image_mark(layer.zindex_value(), &tile).into());
+            let plan = layer.tile_plan(&measurement.view)?;
+            for request in plan.prefetch_requests {
+                render_context.request_resource(request);
+            }
+            for planned in plan.rendered_tiles {
+                render_context.request_resource(layer.resource_request(&planned.tile));
+                marks.push(tile_image_mark(layer.zindex_value(), &planned).into());
             }
             if let Some(attribution) = layer.attribution_text() {
                 marks.push(attribution_mark(
@@ -126,7 +133,14 @@ impl CompiledGuide for WebMercatorGuide {
     }
 }
 
-fn tile_image_mark(zindex: i32, tile: &VisibleRasterTile) -> SceneImageMark {
+fn tile_image_mark(zindex: i32, planned: &crate::tiles::PlannedRasterTile) -> SceneImageMark {
+    let tile: &VisibleRasterTile = &planned.tile;
+    let unavailable_policy = match planned.unavailable_policy {
+        PlannedTileUnavailablePolicy::RendererDefault => {
+            SceneImageUnavailablePolicy::RendererDefault
+        }
+        PlannedTileUnavailablePolicy::Skip => SceneImageUnavailablePolicy::Skip,
+    };
     SceneImageMark {
         name: format!(
             "webmercator-tile-{}-{}-{}-{}-{}",
@@ -149,6 +163,7 @@ fn tile_image_mark(zindex: i32, tile: &VisibleRasterTile) -> SceneImageMark {
         height: ScalarOrArray::new_scalar(tile.pixel_height),
         align: ScalarOrArray::new_scalar(ImageAlign::Left),
         baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+        unavailable_policy,
         zindex: Some(zindex),
         ..Default::default()
     }

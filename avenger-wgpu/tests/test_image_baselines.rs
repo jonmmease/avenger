@@ -26,7 +26,9 @@ mod test_image_baselines {
     use avenger_image::{ImageResourceResolver, ImageResourceState, RgbaImage};
     use avenger_resource::ResourceKey;
     use avenger_scenegraph::{
-        marks::image::{SceneImageMark, SceneImageResource, SceneImageSource},
+        marks::image::{
+            SceneImageMark, SceneImageResource, SceneImageSource, SceneImageUnavailablePolicy,
+        },
         scene_graph::SceneGraph,
     };
     use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
@@ -261,13 +263,31 @@ mod test_image_baselines {
         let key = ResourceKey::new("tile/0/0/0");
         let resolver = Arc::new(FakeImageResolver::new(ImageResourceState::Pending));
         let mut canvas = resource_image_canvas(resolver.clone());
-        let scene_graph = resource_image_scene_graph(key.clone());
+        let scene_graph = resource_image_scene_graph_with_policy(
+            key.clone(),
+            SceneImageUnavailablePolicy::RendererDefault,
+        );
 
         canvas.set_scene(&scene_graph).unwrap();
         let image = pollster::block_on(canvas.render()).unwrap();
 
         assert_eq!(canvas.image_resource_status().pending, vec![key]);
         assert_eq!(image.get_pixel(4, 4).0, [10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn resource_image_pending_skip_policy_suppresses_placeholder() {
+        let key = ResourceKey::new("tile/0/0/0");
+        let resolver = Arc::new(FakeImageResolver::new(ImageResourceState::Pending));
+        let mut canvas = resource_image_canvas(resolver.clone());
+        let scene_graph =
+            resource_image_scene_graph_with_policy(key.clone(), SceneImageUnavailablePolicy::Skip);
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        assert_eq!(canvas.image_resource_status().pending, vec![key]);
+        assert_eq!(image.get_pixel(4, 4).0, [255, 255, 255, 255]);
     }
 
     #[test]
@@ -333,29 +353,41 @@ mod test_image_baselines {
     }
 
     fn resource_image_scene_graph(key: ResourceKey) -> SceneGraph {
+        resource_image_scene_graph_with_policy(key, SceneImageUnavailablePolicy::RendererDefault)
+    }
+
+    fn resource_image_scene_graph_with_policy(
+        key: ResourceKey,
+        unavailable_policy: SceneImageUnavailablePolicy,
+    ) -> SceneGraph {
         SceneGraph {
             width: 8.0,
             height: 8.0,
             origin: [0.0, 0.0],
-            marks: vec![SceneImageMark {
-                len: 1,
-                aspect: false,
-                smooth: false,
-                image: ScalarOrArray::new_scalar(SceneImageSource::Resource(SceneImageResource {
-                    key,
-                    intrinsic_width: 2,
-                    intrinsic_height: 2,
-                    fallback_key: None,
-                })),
-                x: ScalarOrArray::new_scalar(0.0),
-                y: ScalarOrArray::new_scalar(0.0),
-                width: ScalarOrArray::new_scalar(8.0),
-                height: ScalarOrArray::new_scalar(8.0),
-                align: ScalarOrArray::new_scalar(ImageAlign::Left),
-                baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
-                ..Default::default()
-            }
-            .into()],
+            marks: vec![
+                SceneImageMark {
+                    len: 1,
+                    aspect: false,
+                    smooth: false,
+                    image: ScalarOrArray::new_scalar(SceneImageSource::Resource(
+                        SceneImageResource {
+                            key,
+                            intrinsic_width: 2,
+                            intrinsic_height: 2,
+                            fallback_key: None,
+                        },
+                    )),
+                    x: ScalarOrArray::new_scalar(0.0),
+                    y: ScalarOrArray::new_scalar(0.0),
+                    width: ScalarOrArray::new_scalar(8.0),
+                    height: ScalarOrArray::new_scalar(8.0),
+                    align: ScalarOrArray::new_scalar(ImageAlign::Left),
+                    baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+                    unavailable_policy,
+                    ..Default::default()
+                }
+                .into(),
+            ],
         }
     }
 

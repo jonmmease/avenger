@@ -15,6 +15,6 @@ pub use projection::{
     clamp_latitude, project_lon_lat, units_per_pixel_for_zoom, unproject_xy,
     zoom_for_units_per_pixel,
 };
-pub use tiles::{RasterTileLayer, VisibleRasterTile};
+pub use tiles::{RasterTileLayer, TileLoadingPolicy, VisibleRasterTile};
 pub use tools::WebMercatorPanZoom;
 pub use viewport::{WebMercatorCoordMeasurement, WebMercatorView, WebMercatorViewport};

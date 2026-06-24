@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use avenger_resource::ResourceRequest;
+use avenger_resource::{ResourceRequest, ResourceRequestPurpose};
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
@@ -132,11 +132,17 @@ impl EvaluationContext {
                 .iter_mut()
                 .find(|existing| existing.key == request.key)
             {
-                if request.priority > existing.priority {
+                let priority = existing.priority.max(request.priority);
+                if existing.purpose == ResourceRequestPurpose::Prefetch
+                    && request.purpose == ResourceRequestPurpose::Required
+                {
                     *existing = request;
-                } else {
-                    existing.priority = existing.priority.max(request.priority);
+                } else if existing.purpose == request.purpose
+                    && request.priority > existing.priority
+                {
+                    *existing = request;
                 }
+                existing.priority = priority;
             } else {
                 guard.push(request);
             }
@@ -208,6 +214,7 @@ mod tests {
             },
             priority: 1.0,
             cache_policy: ResourceCachePolicy::default(),
+            purpose: ResourceRequestPurpose::Required,
         });
 
         let requests = ctx.resource_requests_snapshot();
@@ -233,6 +240,7 @@ mod tests {
             },
             priority: 1.0,
             cache_policy: ResourceCachePolicy::default(),
+            purpose: ResourceRequestPurpose::Required,
         };
         ctx.request_resource(request.clone());
         request.priority = 0.25;
@@ -243,5 +251,36 @@ mod tests {
         let requests = ctx.resource_requests_snapshot();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].priority, 2.0);
+    }
+
+    #[test]
+    fn resource_request_sink_promotes_required_over_prefetch() {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(SessionContext::new()),
+            IndexMap::new(),
+        )
+        .with_resource_request_sink(sink);
+
+        let mut request = ResourceRequest {
+            key: ResourceKey::new("tile/0/0/0"),
+            kind: ResourceKind::new("image"),
+            source: ResourceSource::Url {
+                url: "https://tiles.example/0/0/0.png".to_string(),
+            },
+            priority: -1.0,
+            cache_policy: ResourceCachePolicy::default(),
+            purpose: ResourceRequestPurpose::Prefetch,
+        };
+        ctx.request_resource(request.clone());
+        request.priority = 0.0;
+        request.purpose = ResourceRequestPurpose::Required;
+        ctx.request_resource(request);
+
+        let requests = ctx.resource_requests_snapshot();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].purpose, ResourceRequestPurpose::Required);
+        assert_eq!(requests[0].priority, 0.0);
     }
 }

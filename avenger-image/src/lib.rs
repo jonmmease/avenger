@@ -19,7 +19,7 @@ pub use fetcher::make_image_fetcher;
 use fetcher::ImageFetcher;
 pub use resource_cache::{
     load_image_resource_requests_blocking, ImageResourceCache, ImageResourceLoadError,
-    ImageResourceLoadOptions, IMAGE_RESOURCE_KIND,
+    ImageResourceLoadOptions, DEFAULT_IMAGE_RESOURCE_CACHE_CAPACITY, IMAGE_RESOURCE_KIND,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Hash, Serialize, Deserialize)]

@@ -9,7 +9,8 @@ use avenger_chart_core::{
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_resource::{
-    ResourceCachePolicy, ResourceKey, ResourceKind, ResourceRequest, ResourceSource,
+    ResourceCachePolicy, ResourceKey, ResourceKind, ResourceRequest, ResourceRequestPurpose,
+    ResourceSource,
 };
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
@@ -173,5 +174,6 @@ fn guide_resource_request() -> ResourceRequest {
         },
         priority: 0.0,
         cache_policy: ResourceCachePolicy::default(),
+        purpose: ResourceRequestPurpose::Required,
     }
 }

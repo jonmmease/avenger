@@ -28,26 +28,26 @@ use itertools::izip;
 use lyon::{
     algorithms::aabb::bounding_box,
     geom::{
-        euclid::{Point2D, Vector2D},
         Angle, Box2D,
+        euclid::{Point2D, Vector2D},
     },
     lyon_tessellation::{
         BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, LineCap,
         LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex, StrokeVertexConstructor,
         VertexBuffers,
     },
-    path::{builder::BorderRadii, geom::point, Path, Winding},
+    path::{Path, Winding, builder::BorderRadii, geom::point},
 };
 use wgpu::{
-    util::DeviceExt, BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue,
-    RenderPipeline, ShaderModule, TextureFormat, TextureView, VertexBufferLayout,
+    BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue, RenderPipeline,
+    ShaderModule, TextureFormat, TextureView, VertexBufferLayout, util::DeviceExt,
 };
 
 use crate::{
     error::AvengerWgpuError,
     image_resources::{WgpuImageResourceConfig, WgpuImageResourceStatus},
     marks::{
-        gradient::{to_color_or_gradient_coord, GradientAtlasBuilder},
+        gradient::{GradientAtlasBuilder, to_color_or_gradient_coord},
         image::ImageAtlasBuilder,
     },
 };
@@ -1238,7 +1238,10 @@ impl MultiMarkRenderer {
             .map(
                 |(image_source, path)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
                     let (atlas_index, tex_coords) =
-                        self.image_atlas_builder.register_source(image_source.clone())?;
+                        self.image_atlas_builder.register_source(
+                            image_source.clone(),
+                            mark.unavailable_policy,
+                        )?;
 
                     // Get bounding box of path
                     let bbox = bounding_box(&path);

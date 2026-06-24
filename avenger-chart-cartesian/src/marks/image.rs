@@ -275,6 +275,7 @@ impl CompiledCartesianImage {
                     height: height.clone(),
                     align: align.clone(),
                     baseline: baseline.clone(),
+                    unavailable_policy: Default::default(),
                     indices: indices_ref,
                     zindex: self.state.zindex,
                     interactive: true,

@@ -1,6 +1,8 @@
 use avenger_image::{ImageResourceState, RgbaImage as AvengerRgbaImage};
 use avenger_resource::ResourceKey;
-use avenger_scenegraph::marks::image::{SceneImageResource, SceneImageSource};
+use avenger_scenegraph::marks::image::{
+    SceneImageResource, SceneImageSource, SceneImageUnavailablePolicy,
+};
 use etagere::Size;
 use image::{DynamicImage, Rgba};
 use wgpu::Extent3d;
@@ -37,6 +39,7 @@ struct ImageAtlasEntry {
     width: u32,
     height: u32,
     source: SceneImageSource,
+    unavailable_policy: SceneImageUnavailablePolicy,
 }
 
 impl Default for ImageAtlasBuilder {
@@ -63,6 +66,7 @@ impl ImageAtlasBuilder {
     pub fn register_source(
         &mut self,
         source: SceneImageSource,
+        unavailable_policy: SceneImageUnavailablePolicy,
     ) -> Result<(usize, ImageAtlasCoords), AvengerWgpuError> {
         let [width, height] = source.intrinsic_size();
         if width == 0 || height == 0 {
@@ -124,6 +128,7 @@ impl ImageAtlasBuilder {
             width,
             height,
             source,
+            unavailable_policy,
         });
 
         Ok((atlas_index, coords))
@@ -301,7 +306,13 @@ fn unavailable_image(
     config: &WgpuImageResourceConfig,
     reason: &str,
 ) -> Result<Option<image::RgbaImage>, AvengerWgpuError> {
-    match config.missing_policy {
+    let missing_policy = match entry.unavailable_policy {
+        SceneImageUnavailablePolicy::RendererDefault => config.missing_policy,
+        SceneImageUnavailablePolicy::Skip => WgpuMissingImagePolicy::Skip,
+        SceneImageUnavailablePolicy::DrawPlaceholder => WgpuMissingImagePolicy::DrawPlaceholder,
+        SceneImageUnavailablePolicy::Error => WgpuMissingImagePolicy::Error,
+    };
+    match missing_policy {
         WgpuMissingImagePolicy::DrawPlaceholder => Ok(Some(make_placeholder(
             entry.width,
             entry.height,

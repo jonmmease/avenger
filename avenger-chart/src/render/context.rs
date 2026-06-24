@@ -1912,6 +1912,7 @@ mod tests {
             },
             priority: 1.0,
             cache_policy: ResourceCachePolicy::default(),
+            purpose: avenger_resource::ResourceRequestPurpose::Required,
         });
 
         let requests = ctx.resource_requests_snapshot();

@@ -80,7 +80,8 @@ async fn build_app(
         .id("osm")
         .max_zoom(19)
         .attribution("OpenStreetMap contributors")
-        .zindex(-10);
+        .zindex(-10)
+        .smooth_zoom();
     let coord = WebMercator::new()
         .viewport_id("nyc")
         .center_lon_lat(-73.9857, 40.7484)

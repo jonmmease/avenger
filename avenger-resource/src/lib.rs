@@ -76,6 +76,14 @@ impl Default for ResourceCachePolicy {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ResourceRequestPurpose {
+    #[default]
+    Required,
+    Prefetch,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ResourceRequest {
@@ -86,6 +94,8 @@ pub struct ResourceRequest {
     pub priority: f32,
     #[serde(default)]
     pub cache_policy: ResourceCachePolicy,
+    #[serde(default)]
+    pub purpose: ResourceRequestPurpose,
 }
 
 #[derive(Debug, thiserror::Error)]

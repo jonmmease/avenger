@@ -3,10 +3,12 @@ use avenger_chart::{
     doc::render::render_evaluated_plot_to_png,
     render::{EvaluatedPlot, PdfRenderer, SvgRenderer},
 };
-use avenger_chart_webmercator::{RasterTileLayer, WebMercator, WebMercatorViewport};
-use avenger_resource::{ResourceKey, ResourceSource};
+use avenger_chart_webmercator::{
+    RasterTileLayer, TileLoadingPolicy, WebMercator, WebMercatorViewport,
+};
+use avenger_resource::{ResourceKey, ResourceRequestPurpose, ResourceSource};
 use avenger_scenegraph::marks::{
-    image::{SceneImageMark, SceneImageSource},
+    image::{SceneImageMark, SceneImageSource, SceneImageUnavailablePolicy},
     mark::SceneMark,
     text::SceneTextMark,
 };
@@ -65,6 +67,46 @@ async fn tile_resources_render_to_svg_pdf_and_png_exports() {
     let _ = std::fs::remove_file(png_path);
 }
 
+#[tokio::test]
+async fn smooth_zoom_tile_guide_renders_fallback_marks_and_prefetch_requests() {
+    let evaluated = evaluated_smooth_tile_plot().await;
+    let image_marks = collect_image_marks(evaluated.scene_graph.children());
+    assert!(
+        image_marks
+            .iter()
+            .all(|mark| mark.unavailable_policy == SceneImageUnavailablePolicy::Skip),
+        "smooth tile marks should skip pending images instead of drawing placeholders"
+    );
+
+    let rendered_keys = image_marks
+        .iter()
+        .filter_map(|mark| {
+            mark.image_source_iter().find_map(|source| match source {
+                SceneImageSource::Resource(resource) => Some(resource.key.clone()),
+                _ => None,
+            })
+        })
+        .collect::<Vec<_>>();
+    let prefetch_requests = evaluated
+        .resource_requests
+        .iter()
+        .filter(|request| request.purpose == ResourceRequestPurpose::Prefetch)
+        .collect::<Vec<_>>();
+
+    assert!(!prefetch_requests.is_empty());
+    assert!(
+        prefetch_requests
+            .iter()
+            .all(|request| !rendered_keys.contains(&request.key))
+    );
+    assert!(
+        evaluated
+            .resource_requests
+            .iter()
+            .any(|request| request.purpose == ResourceRequestPurpose::Required)
+    );
+}
+
 async fn evaluated_tile_plot() -> EvaluatedPlot {
     let ctx = SessionContext::new();
     let coord = WebMercator::new()
@@ -81,6 +123,38 @@ async fn evaluated_tile_plot() -> EvaluatedPlot {
         );
 
     Plot::with_coord(coord)
+        .compile(&ctx)
+        .await
+        .expect("compile")
+        .evaluate(&ctx, None)
+        .await
+        .expect("evaluate")
+}
+
+async fn evaluated_smooth_tile_plot() -> EvaluatedPlot {
+    let ctx = SessionContext::new();
+    let coord = WebMercator::new()
+        .viewport(
+            WebMercatorViewport::new()
+                .center_lon_lat(0.0, 0.0)
+                .zoom(1.0),
+        )
+        .tiles(
+            RasterTileLayer::xyz(TINY_PNG_DATA_URI)
+                .id("base")
+                .max_zoom(2)
+                .loading_policy(TileLoadingPolicy::SmoothZoom {
+                    fallback_below: 1,
+                    fallback_above: 0,
+                    prefetch_below: 1,
+                    prefetch_above: 1,
+                    max_rendered_fallback_tiles: 128,
+                    max_prefetch_tiles: 128,
+                }),
+        );
+
+    Plot::with_coord(coord)
+        .plot_size(256.0, 256.0)
         .compile(&ctx)
         .await
         .expect("compile")

@@ -1084,6 +1084,7 @@ dependencies = [
  "cfg-if",
  "image",
  "lazy_static 1.5.0",
+ "lru",
  "reqwest",
  "resvg",
  "serde",
@@ -4993,6 +4994,15 @@ dependencies = [
  "thiserror 2.0.18",
  "ttf-parser",
  "weezl",
+]
+
+[[package]]
+name = "lru"
+version = "0.12.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
+dependencies = [
+ "hashbrown 0.15.2",
 ]
 
 [[package]]

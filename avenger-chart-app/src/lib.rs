@@ -984,7 +984,8 @@ mod tests {
     };
     use avenger_image::{ImageResourceResolver, ImageResourceState};
     use avenger_resource::{
-        RenderInvalidationHub, ResourceCachePolicy, ResourceKey, ResourceKind, ResourceSource,
+        RenderInvalidationHub, ResourceCachePolicy, ResourceKey, ResourceKind,
+        ResourceRequestPurpose, ResourceSource,
     };
     use avenger_scenegraph::scene_graph::SceneGraph;
 
@@ -1057,6 +1058,7 @@ mod tests {
             },
             priority: 1.0,
             cache_policy: ResourceCachePolicy::default(),
+            purpose: ResourceRequestPurpose::Required,
         };
         let non_image_request = ResourceRequest {
             key: ResourceKey::new("metadata/test"),
@@ -1067,16 +1069,32 @@ mod tests {
             },
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
+            purpose: ResourceRequestPurpose::Required,
+        };
+        let prefetch_image_request = ResourceRequest {
+            key: ResourceKey::new("image/prefetch"),
+            kind: ResourceKind::new(IMAGE_RESOURCE_KIND),
+            source: ResourceSource::Url {
+                url: TEST_IMAGE_URL.to_string(),
+            },
+            priority: -1.0,
+            cache_policy: ResourceCachePolicy::default(),
+            purpose: ResourceRequestPurpose::Prefetch,
         };
 
         request_image_resources(
             &resources,
-            &[image_request.clone(), non_image_request.clone()],
+            &[
+                image_request.clone(),
+                non_image_request.clone(),
+                prefetch_image_request.clone(),
+            ],
         );
 
         let recorded_requests = resolver.requests();
-        assert_eq!(recorded_requests.len(), 1);
+        assert_eq!(recorded_requests.len(), 2);
         assert_eq!(recorded_requests[0], image_request);
+        assert_eq!(recorded_requests[1], prefetch_image_request);
     }
 
     fn empty_rtree() -> SceneGraphRTree {

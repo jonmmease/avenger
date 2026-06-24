@@ -11,7 +11,8 @@ use avenger_common::{
 };
 use avenger_image::{ImageResourceLoadOptions, ImageResourceResolver, ImageResourceState};
 use avenger_resource::{
-    ResourceCachePolicy, ResourceKey, ResourceKind, ResourceRequest, ResourceSource,
+    ResourceCachePolicy, ResourceKey, ResourceKind, ResourceRequest, ResourceRequestPurpose,
+    ResourceSource,
 };
 use avenger_scenegraph::{
     marks::image::{SceneImageMark, SceneImageResource, SceneImageSource},
@@ -305,6 +306,7 @@ fn resource_evaluated_plot(include_request: bool) -> EvaluatedPlot {
             },
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
+            purpose: ResourceRequestPurpose::Required,
         })
         .into_iter()
         .collect();

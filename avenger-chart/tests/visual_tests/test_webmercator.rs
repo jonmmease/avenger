@@ -6,7 +6,9 @@ use super::helpers::{
 };
 use avenger_chart::plot::CompiledPlot;
 use avenger_chart::prelude::*;
-use avenger_chart_webmercator::{Symbol, WebMercator, WebMercatorSymbolPositionChannels};
+use avenger_chart_webmercator::{
+    Symbol, TileLoadingPolicy, WebMercator, WebMercatorSymbolPositionChannels,
+};
 use avenger_image::{ImageResourceResolver, ImageResourceState, RgbaImage as AvengerRgbaImage};
 use avenger_resource::ResourceKey;
 use avenger_wgpu::{
@@ -375,6 +377,69 @@ async fn tiles_ready_resource() {
 }
 
 #[tokio::test]
+async fn tiles_smooth_zoom_ready_fallback_pending_target() {
+    let ctx = SessionContext::new();
+    let plot = Plot::with_coord(
+        WebMercator::new().center_lon_lat(0.0, 0.0).zoom(1.0).tiles(
+            avenger_chart_webmercator::RasterTileLayer::xyz(
+                "https://tiles.example/{z}/{x}/{y}.png",
+            )
+            .id("smooth")
+            .max_zoom(2)
+            .loading_policy(TileLoadingPolicy::SmoothZoom {
+                fallback_below: 1,
+                fallback_above: 0,
+                prefetch_below: 1,
+                prefetch_above: 1,
+                max_rendered_fallback_tiles: 128,
+                max_prefetch_tiles: 128,
+            }),
+        ),
+    )
+    .plot_size(256.0, 256.0)
+    .canvas_size(320.0, 330.0)
+    .title("Smooth tile fallback")
+    .mark(
+        Symbol::new()
+            .longitude(0.0)
+            .latitude(0.0)
+            .size(140.0)
+            .fill("#dc2626")
+            .stroke("#111827"),
+    );
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile smooth tile fallback");
+    let resolver: Arc<dyn ImageResourceResolver> = Arc::new(SmoothZoomFallbackResolver::new());
+    let (direct_status, serialized_status) = assert_visual_match_wgpu_only_with_canvas_config(
+        &compiled,
+        &ctx,
+        None,
+        CATEGORY,
+        "tiles_smooth_zoom_ready_fallback_pending_target",
+        0.9999,
+        CanvasConfig {
+            image_resource_config: WgpuImageResourceConfig {
+                resolver: Some(resolver),
+                missing_policy: WgpuMissingImagePolicy::DrawPlaceholder,
+                placeholder: WgpuImagePlaceholder::Checkerboard,
+            },
+            ..Default::default()
+        },
+    )
+    .await;
+
+    assert!(
+        !direct_status.pending.is_empty(),
+        "target tiles should still be reported pending"
+    );
+    assert!(direct_status.missing.is_empty());
+    assert!(direct_status.failed.is_empty());
+    assert_eq!(direct_status.pending, serialized_status.pending);
+}
+
+#[tokio::test]
 async fn tiles_tall_square_pixels() {
     let ctx = SessionContext::new();
     let plot = Plot::with_coord(
@@ -562,4 +627,47 @@ impl ImageResourceResolver for PendingImageResolver {
     }
 
     fn request_image(&self, _request: &avenger_resource::ResourceRequest) {}
+}
+
+struct SmoothZoomFallbackResolver {
+    fallback: Arc<AvengerRgbaImage>,
+}
+
+impl SmoothZoomFallbackResolver {
+    fn new() -> Self {
+        Self {
+            fallback: Arc::new(checker_fallback_tile()),
+        }
+    }
+}
+
+impl ImageResourceResolver for SmoothZoomFallbackResolver {
+    fn image_state(&self, key: &ResourceKey) -> ImageResourceState {
+        if key == &ResourceKey::new("webmercator/smooth/0/0/0/256") {
+            ImageResourceState::Ready(self.fallback.clone())
+        } else {
+            ImageResourceState::Pending
+        }
+    }
+
+    fn request_image(&self, _request: &avenger_resource::ResourceRequest) {}
+}
+
+fn checker_fallback_tile() -> AvengerRgbaImage {
+    let mut data = Vec::with_capacity(256 * 256 * 4);
+    for y in 0..256 {
+        for x in 0..256 {
+            let color = if ((x / 32) + (y / 32)) % 2 == 0 {
+                [30, 100, 180, 255]
+            } else {
+                [70, 150, 210, 255]
+            };
+            data.extend_from_slice(&color);
+        }
+    }
+    AvengerRgbaImage {
+        width: 256,
+        height: 256,
+        data,
+    }
 }

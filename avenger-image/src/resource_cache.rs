@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    num::NonZeroUsize,
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
@@ -7,7 +7,7 @@ use std::{
 
 use avenger_resource::{
     RenderInvalidationReason, RenderInvalidationRequest, RenderInvalidationSink, ResourceKey,
-    ResourceRequest, ResourceSource,
+    ResourceRequest, ResourceRequestPurpose, ResourceSource,
 };
 
 use crate::{
@@ -16,6 +16,7 @@ use crate::{
 };
 
 pub const IMAGE_RESOURCE_KIND: &str = "image";
+pub const DEFAULT_IMAGE_RESOURCE_CACHE_CAPACITY: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImageResourceLoadOptions {
@@ -44,16 +45,38 @@ pub enum ImageResourceLoadError {
 
 #[derive(Debug, Clone)]
 enum CachedImageState {
-    Pending,
+    Pending(u64),
     Ready(Arc<RgbaImage>),
     Failed(Arc<str>),
 }
 
-#[derive(Default)]
 struct ImageResourceCacheInner {
-    states: HashMap<ResourceKey, CachedImageState>,
+    states: lru::LruCache<ResourceKey, CachedImageState>,
     generation: u64,
+    next_request_id: u64,
     render_invalidation_sink: Option<Arc<dyn RenderInvalidationSink>>,
+}
+
+impl Default for ImageResourceCacheInner {
+    fn default() -> Self {
+        Self::new(default_image_resource_cache_capacity())
+    }
+}
+
+impl ImageResourceCacheInner {
+    fn new(capacity: NonZeroUsize) -> Self {
+        Self {
+            states: lru::LruCache::new(capacity),
+            generation: 0,
+            next_request_id: 0,
+            render_invalidation_sink: None,
+        }
+    }
+
+    fn next_request_id(&mut self) -> u64 {
+        self.next_request_id = self.next_request_id.wrapping_add(1);
+        self.next_request_id
+    }
 }
 
 /// Shared image-resource cache that loads requested images away from render calls.
@@ -72,9 +95,26 @@ impl ImageResourceCache {
         Self::default()
     }
 
+    pub fn with_capacity(capacity: NonZeroUsize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(ImageResourceCacheInner::new(capacity))),
+            fetcher: None,
+        }
+    }
+
     pub fn with_fetcher(fetcher: Arc<dyn ImageFetcher>) -> Self {
         Self {
             inner: Arc::new(Mutex::new(ImageResourceCacheInner::default())),
+            fetcher: Some(fetcher),
+        }
+    }
+
+    pub fn with_fetcher_and_capacity(
+        fetcher: Arc<dyn ImageFetcher>,
+        capacity: NonZeroUsize,
+    ) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(ImageResourceCacheInner::new(capacity))),
             fetcher: Some(fetcher),
         }
     }
@@ -100,8 +140,9 @@ impl ImageResourceCache {
             .lock()
             .expect("image resource cache lock poisoned")
             .states
-            .values()
-            .filter(|state| matches!(state, CachedImageState::Pending))
+            .iter()
+            .map(|(_, state)| state)
+            .filter(|state| matches!(state, CachedImageState::Pending(_)))
             .count()
     }
 
@@ -112,12 +153,26 @@ impl ImageResourceCache {
                 .inner
                 .lock()
                 .expect("image resource cache lock poisoned");
-            inner.states.insert(key, state);
+            inner.states.put(key, state);
             inner.generation = inner.generation.wrapping_add(1);
             inner.render_invalidation_sink.clone()
         };
         request_image_render_invalidation(sink);
     }
+
+    #[cfg(test)]
+    fn len_for_testing(&self) -> usize {
+        self.inner
+            .lock()
+            .expect("image resource cache lock poisoned")
+            .states
+            .len()
+    }
+}
+
+fn default_image_resource_cache_capacity() -> NonZeroUsize {
+    NonZeroUsize::new(DEFAULT_IMAGE_RESOURCE_CACHE_CAPACITY)
+        .expect("default image resource cache capacity must be non-zero")
 }
 
 pub fn load_image_resource_requests_blocking(
@@ -126,10 +181,9 @@ pub fn load_image_resource_requests_blocking(
     options: ImageResourceLoadOptions,
 ) -> Result<(), ImageResourceLoadError> {
     let mut keys = Vec::new();
-    for request in requests
-        .iter()
-        .filter(|request| request.kind.0 == IMAGE_RESOURCE_KIND)
-    {
+    for request in requests.iter().filter(|request| {
+        request.kind.0 == IMAGE_RESOURCE_KIND && request.purpose == ResourceRequestPurpose::Required
+    }) {
         resolver.request_image(request);
         if !keys.contains(&request.key) {
             keys.push(request.key.clone());
@@ -177,13 +231,15 @@ pub fn load_image_resource_requests_blocking(
 
 impl ImageResourceResolver for ImageResourceCache {
     fn image_state(&self, key: &ResourceKey) -> ImageResourceState {
-        self.inner
+        let mut inner = self
+            .inner
             .lock()
-            .expect("image resource cache lock poisoned")
+            .expect("image resource cache lock poisoned");
+        inner
             .states
             .get(key)
             .map(|state| match state {
-                CachedImageState::Pending => ImageResourceState::Pending,
+                CachedImageState::Pending(_) => ImageResourceState::Pending,
                 CachedImageState::Ready(image) => ImageResourceState::Ready(image.clone()),
                 CachedImageState::Failed(error) => ImageResourceState::Failed(error.clone()),
             })
@@ -191,27 +247,31 @@ impl ImageResourceResolver for ImageResourceCache {
     }
 
     fn request_image(&self, request: &ResourceRequest) {
-        let should_spawn = {
+        let request_id = {
             let mut inner = self
                 .inner
                 .lock()
                 .expect("image resource cache lock poisoned");
-            if matches!(
-                inner.states.get(&request.key),
-                Some(CachedImageState::Pending | CachedImageState::Ready(_))
-            ) {
-                false
-            } else {
-                inner
-                    .states
-                    .insert(request.key.clone(), CachedImageState::Pending);
-                inner.generation = inner.generation.wrapping_add(1);
-                true
+            match inner.states.get(&request.key) {
+                Some(CachedImageState::Pending(_) | CachedImageState::Ready(_)) => None,
+                Some(CachedImageState::Failed(_)) | None => {
+                    let request_id = inner.next_request_id();
+                    inner
+                        .states
+                        .put(request.key.clone(), CachedImageState::Pending(request_id));
+                    inner.generation = inner.generation.wrapping_add(1);
+                    Some(request_id)
+                }
             }
         };
 
-        if should_spawn {
-            spawn_image_load(self.inner.clone(), self.fetcher.clone(), request.clone());
+        if let Some(request_id) = request_id {
+            spawn_image_load(
+                self.inner.clone(),
+                self.fetcher.clone(),
+                request.clone(),
+                request_id,
+            );
         }
     }
 
@@ -223,11 +283,34 @@ impl ImageResourceResolver for ImageResourceCache {
     }
 }
 
+fn finish_image_load(
+    inner: Arc<Mutex<ImageResourceCacheInner>>,
+    key: ResourceKey,
+    request_id: u64,
+    state: CachedImageState,
+) {
+    let sink = {
+        let mut inner = inner.lock().expect("image resource cache lock poisoned");
+        if matches!(
+            inner.states.peek(&key),
+            Some(CachedImageState::Pending(pending_id)) if *pending_id == request_id
+        ) {
+            inner.states.put(key, state);
+            inner.generation = inner.generation.wrapping_add(1);
+            inner.render_invalidation_sink.clone()
+        } else {
+            None
+        }
+    };
+    request_image_render_invalidation(sink);
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn spawn_image_load(
     inner: Arc<Mutex<ImageResourceCacheInner>>,
     fetcher: Option<Arc<dyn ImageFetcher>>,
     request: ResourceRequest,
+    request_id: u64,
 ) {
     std::thread::spawn(move || {
         let key = request.key.clone();
@@ -235,13 +318,7 @@ fn spawn_image_load(
             Ok(image) => CachedImageState::Ready(Arc::new(image)),
             Err(error) => CachedImageState::Failed(Arc::from(error.to_string())),
         };
-        let sink = {
-            let mut inner = inner.lock().expect("image resource cache lock poisoned");
-            inner.states.insert(key, state);
-            inner.generation = inner.generation.wrapping_add(1);
-            inner.render_invalidation_sink.clone()
-        };
-        request_image_render_invalidation(sink);
+        finish_image_load(inner, key, request_id, state);
     });
 }
 
@@ -250,19 +327,16 @@ fn spawn_image_load(
     inner: Arc<Mutex<ImageResourceCacheInner>>,
     _fetcher: Option<Arc<dyn ImageFetcher>>,
     request: ResourceRequest,
+    request_id: u64,
 ) {
-    let sink = {
-        let mut inner = inner.lock().expect("image resource cache lock poisoned");
-        inner.states.insert(
-            request.key,
-            CachedImageState::Failed(Arc::from(
-                "ImageResourceCache does not provide a wasm image loader; supply a browser resolver",
-            )),
-        );
-        inner.generation = inner.generation.wrapping_add(1);
-        inner.render_invalidation_sink.clone()
-    };
-    request_image_render_invalidation(sink);
+    finish_image_load(
+        inner,
+        request.key,
+        request_id,
+        CachedImageState::Failed(Arc::from(
+            "ImageResourceCache does not provide a wasm image loader; supply a browser resolver",
+        )),
+    );
 }
 
 fn request_image_render_invalidation(sink: Option<Arc<dyn RenderInvalidationSink>>) {
@@ -288,7 +362,7 @@ fn load_resource_image(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::{num::NonZeroUsize, sync::Mutex};
 
     use avenger_resource::{
         RenderInvalidationHub, RenderInvalidationReason, ResourceCachePolicy, ResourceKind,
@@ -305,6 +379,7 @@ mod tests {
             source,
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
+            purpose: ResourceRequestPurpose::Required,
         }
     }
 
@@ -322,6 +397,18 @@ mod tests {
             assert!(start.elapsed() < Duration::from_secs(5));
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    fn capacity(value: usize) -> NonZeroUsize {
+        NonZeroUsize::new(value).expect("test cache capacity must be non-zero")
+    }
+
+    fn ready_state(red: u8) -> CachedImageState {
+        CachedImageState::Ready(Arc::new(RgbaImage {
+            width: 1,
+            height: 1,
+            data: vec![red, 0, 0, 255],
+        }))
     }
 
     #[test]
@@ -368,6 +455,59 @@ mod tests {
         assert!(matches!(
             cache.image_state(&ResourceKey::new("bad")),
             ImageResourceState::Failed(_)
+        ));
+    }
+
+    #[test]
+    fn cache_evicts_least_recently_used_resource() {
+        let cache = ImageResourceCache::with_capacity(capacity(2));
+        cache.set_state_for_testing(ResourceKey::new("a"), ready_state(1));
+        cache.set_state_for_testing(ResourceKey::new("b"), ready_state(2));
+        assert_eq!(cache.len_for_testing(), 2);
+
+        assert!(matches!(
+            cache.image_state(&ResourceKey::new("a")),
+            ImageResourceState::Ready(_)
+        ));
+        cache.set_state_for_testing(ResourceKey::new("c"), ready_state(3));
+
+        assert!(matches!(
+            cache.image_state(&ResourceKey::new("a")),
+            ImageResourceState::Ready(_)
+        ));
+        assert!(matches!(
+            cache.image_state(&ResourceKey::new("b")),
+            ImageResourceState::Missing
+        ));
+        assert!(matches!(
+            cache.image_state(&ResourceKey::new("c")),
+            ImageResourceState::Ready(_)
+        ));
+        assert_eq!(cache.len_for_testing(), 2);
+    }
+
+    #[test]
+    fn evicted_pending_load_does_not_reenter_cache_when_it_finishes() {
+        let cache = ImageResourceCache::with_capacity(capacity(1));
+        cache.set_state_for_testing(ResourceKey::new("old"), CachedImageState::Pending(7));
+        cache.set_state_for_testing(ResourceKey::new("new"), ready_state(2));
+        let before = cache.generation();
+
+        finish_image_load(
+            cache.inner.clone(),
+            ResourceKey::new("old"),
+            7,
+            ready_state(1),
+        );
+
+        assert_eq!(cache.generation(), before);
+        assert!(matches!(
+            cache.image_state(&ResourceKey::new("old")),
+            ImageResourceState::Missing
+        ));
+        assert!(matches!(
+            cache.image_state(&ResourceKey::new("new")),
+            ImageResourceState::Ready(_)
         ));
     }
 
@@ -589,6 +729,31 @@ mod tests {
             },
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
+            purpose: ResourceRequestPurpose::Required,
+        };
+
+        load_image_resource_requests_blocking(
+            &resolver,
+            &[request],
+            ImageResourceLoadOptions::default(),
+        )
+        .unwrap();
+
+        assert!(resolver.requests.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn blocking_loader_ignores_prefetch_image_resources() {
+        let resolver = AlwaysPendingResolver::default();
+        let request = ResourceRequest {
+            key: ResourceKey::new("prefetch"),
+            kind: ResourceKind::new("image"),
+            source: ResourceSource::DataUri {
+                data_uri: TINY_PNG_DATA_URI.to_string(),
+            },
+            priority: -1.0,
+            cache_policy: ResourceCachePolicy::default(),
+            purpose: ResourceRequestPurpose::Prefetch,
         };
 
         load_image_resource_requests_blocking(

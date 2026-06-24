@@ -13,7 +13,7 @@ use itertools::izip;
 use lyon_path::Path;
 use serde::{Deserialize, Serialize};
 
-use super::mark::{default_interactive, SceneMark};
+use super::mark::{SceneMark, default_interactive};
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -65,6 +65,20 @@ pub struct SceneImageResource {
     pub fallback_key: Option<ResourceKey>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SceneImageUnavailablePolicy {
+    #[default]
+    RendererDefault,
+    Skip,
+    DrawPlaceholder,
+    Error,
+}
+
+fn is_default_unavailable_policy(policy: &SceneImageUnavailablePolicy) -> bool {
+    *policy == SceneImageUnavailablePolicy::RendererDefault
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneImageMark {
@@ -82,6 +96,8 @@ pub struct SceneImageMark {
     pub height: ScalarOrArray<f32>,
     pub align: ScalarOrArray<ImageAlign>,
     pub baseline: ScalarOrArray<ImageBaseline>,
+    #[serde(default, skip_serializing_if = "is_default_unavailable_policy")]
+    pub unavailable_policy: SceneImageUnavailablePolicy,
     pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
 }
@@ -207,6 +223,7 @@ impl Hash for SceneImageMark {
         self.height.hash(state);
         self.align.hash(state);
         self.baseline.hash(state);
+        self.unavailable_policy.hash(state);
         self.indices.hash(state);
         self.zindex.hash(state);
     }
@@ -228,6 +245,7 @@ impl Default for SceneImageMark {
             height: ScalarOrArray::new_scalar(0.0),
             align: ScalarOrArray::new_scalar(Default::default()),
             baseline: ScalarOrArray::new_scalar(Default::default()),
+            unavailable_policy: SceneImageUnavailablePolicy::RendererDefault,
             image: ScalarOrArray::new_scalar(Default::default()),
             zindex: None,
         }
