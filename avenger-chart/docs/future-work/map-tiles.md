@@ -11,13 +11,13 @@ inline those resources, WGPU can render unresolved images with placeholders,
 image cache completion can request host redraw, and coordinate guides receive a
 `GuideRenderContext` that can collect resource requests.
 
-Implementation has also started in the external
-`avenger-chart-webmercator` crate. The current slice includes projection and
-viewport realization, coordinate-owned raster tile configuration, a
-guide-rendered resource tile layer, `Symbol<WebMercator>`, and pan/wheel/reset
-plus Shift+drag box-zoom viewport tools with app-session interaction coverage.
-Remaining work is mostly box-zoom preview coverage, container/shared-viewport
-coverage, examples, and visual baselines.
+Implementation has landed in the external `avenger-chart-webmercator` crate.
+The current slice includes projection and viewport realization,
+coordinate-owned raster tile configuration, a guide-rendered resource tile
+layer, `Symbol<WebMercator>`, pan/wheel/reset plus Shift+drag box-zoom viewport
+tools with preview coverage, container/shared-viewport coverage, static export
+coverage, examples, and visual baselines. See
+[`../webmercator.md`](../webmercator.md) for the current authoring surface.
 
 ## Goal
 
