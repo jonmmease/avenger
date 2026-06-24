@@ -391,6 +391,7 @@ async fn tiles_smooth_zoom_ready_fallback_pending_target() {
                 fallback_above: 0,
                 prefetch_below: 1,
                 prefetch_above: 1,
+                pan_prefetch_margin_tiles: 1,
                 max_rendered_fallback_tiles: 128,
                 max_prefetch_tiles: 128,
             }),

@@ -100,6 +100,12 @@ async fn smooth_zoom_tile_guide_renders_fallback_marks_and_prefetch_requests() {
             .all(|request| !rendered_keys.contains(&request.key))
     );
     assert!(
+        prefetch_requests
+            .iter()
+            .any(|request| tile_key_zoom(&request.key) == 2),
+        "expected smooth tile guide to prefetch at the target zoom for short pan gestures"
+    );
+    assert!(
         evaluated
             .resource_requests
             .iter()
@@ -137,17 +143,18 @@ async fn evaluated_smooth_tile_plot() -> EvaluatedPlot {
         .viewport(
             WebMercatorViewport::new()
                 .center_lon_lat(0.0, 0.0)
-                .zoom(1.0),
+                .zoom(2.0),
         )
         .tiles(
             RasterTileLayer::xyz(TINY_PNG_DATA_URI)
                 .id("base")
-                .max_zoom(2)
+                .max_zoom(3)
                 .loading_policy(TileLoadingPolicy::SmoothZoom {
                     fallback_below: 1,
                     fallback_above: 0,
                     prefetch_below: 1,
                     prefetch_above: 1,
+                    pan_prefetch_margin_tiles: 1,
                     max_rendered_fallback_tiles: 128,
                     max_prefetch_tiles: 128,
                 }),
@@ -169,6 +176,15 @@ fn unique_png_path() -> PathBuf {
         .expect("time since epoch")
         .as_nanos();
     std::env::temp_dir().join(format!("avenger-webmercator-tile-{nanos}.png"))
+}
+
+fn tile_key_zoom(key: &ResourceKey) -> u8 {
+    key.0
+        .split('/')
+        .nth(2)
+        .expect("tile key zoom")
+        .parse()
+        .expect("tile key zoom number")
 }
 
 fn collect_image_marks(marks: &[SceneMark]) -> Vec<&SceneImageMark> {

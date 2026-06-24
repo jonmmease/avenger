@@ -4,6 +4,7 @@ use avenger_resource::{
     ResourceSource,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::projection::{
     DEFAULT_TILE_SIZE, WEB_MERCATOR_LIMIT, zoom_for_units_per_pixel_with_tile_size,
@@ -17,6 +18,7 @@ const DEFAULT_SMOOTH_ZOOM_FALLBACK_BELOW: u8 = 1;
 const DEFAULT_SMOOTH_ZOOM_FALLBACK_ABOVE: u8 = 1;
 const DEFAULT_SMOOTH_ZOOM_PREFETCH_BELOW: u8 = 1;
 const DEFAULT_SMOOTH_ZOOM_PREFETCH_ABOVE: u8 = 1;
+const DEFAULT_SMOOTH_ZOOM_PAN_PREFETCH_MARGIN_TILES: u8 = 1;
 const DEFAULT_SMOOTH_ZOOM_MAX_RENDERED_FALLBACK_TILES: usize = 128;
 const DEFAULT_SMOOTH_ZOOM_MAX_PREFETCH_TILES: usize = 128;
 
@@ -30,6 +32,8 @@ pub enum TileLoadingPolicy {
         fallback_above: u8,
         prefetch_below: u8,
         prefetch_above: u8,
+        #[serde(default = "default_smooth_zoom_pan_prefetch_margin_tiles")]
+        pan_prefetch_margin_tiles: u8,
         max_rendered_fallback_tiles: usize,
         max_prefetch_tiles: usize,
     },
@@ -42,6 +46,7 @@ impl TileLoadingPolicy {
             fallback_above: DEFAULT_SMOOTH_ZOOM_FALLBACK_ABOVE,
             prefetch_below: DEFAULT_SMOOTH_ZOOM_PREFETCH_BELOW,
             prefetch_above: DEFAULT_SMOOTH_ZOOM_PREFETCH_ABOVE,
+            pan_prefetch_margin_tiles: DEFAULT_SMOOTH_ZOOM_PAN_PREFETCH_MARGIN_TILES,
             max_rendered_fallback_tiles: DEFAULT_SMOOTH_ZOOM_MAX_RENDERED_FALLBACK_TILES,
             max_prefetch_tiles: DEFAULT_SMOOTH_ZOOM_MAX_PREFETCH_TILES,
         }
@@ -240,27 +245,7 @@ impl RasterTileLayer {
     ) -> Result<Vec<VisibleRasterTile>, AvengerChartError> {
         self.validate()?;
 
-        let z = z.clamp(self.min_zoom, self.max_zoom);
-        let tile_count = tile_count(z);
-        let tile_span = world_span() / tile_count as f64;
-        let x_start = tile_floor((view.x_domain.0 + WEB_MERCATOR_LIMIT) / tile_span);
-        let x_end = tile_ceil_exclusive((view.x_domain.1 + WEB_MERCATOR_LIMIT) / tile_span);
-        let y_start = tile_floor((WEB_MERCATOR_LIMIT - view.y_domain.1) / tile_span).max(0);
-        let y_end = tile_ceil_exclusive((WEB_MERCATOR_LIMIT - view.y_domain.0) / tile_span)
-            .min(tile_count - 1);
-
-        if y_start > y_end || x_start > x_end {
-            return Ok(Vec::new());
-        }
-
-        let mut tiles = Vec::new();
-        for y in y_start..=y_end {
-            for unwrapped_x in x_start..=x_end {
-                let wrapped_x = unwrapped_x.rem_euclid(tile_count);
-                tiles.push(self.visible_tile(view, z, unwrapped_x, wrapped_x, y, tile_span));
-            }
-        }
-        Ok(tiles)
+        Ok(self.visible_tiles_for_range(view, self.tile_range_at_zoom(view, z)))
     }
 
     pub fn tile_plan(&self, view: &WebMercatorView) -> Result<RasterTilePlan, AvengerChartError> {
@@ -281,6 +266,7 @@ impl RasterTileLayer {
             fallback_above,
             prefetch_below,
             prefetch_above,
+            pan_prefetch_margin_tiles,
             max_rendered_fallback_tiles,
             max_prefetch_tiles,
         } = &self.loading_policy
@@ -321,6 +307,29 @@ impl RasterTileLayer {
 
         let rendered_fallback_zooms = fallback_zooms;
         let mut prefetch_requests = Vec::new();
+        let mut requested_keys = rendered_tiles
+            .iter()
+            .map(|tile| tile.tile.resource_key.clone())
+            .collect::<HashSet<_>>();
+
+        if *pan_prefetch_margin_tiles > 0 {
+            let expanded_target_range = self
+                .tile_range_at_zoom(view, target_zoom)
+                .expanded_by(*pan_prefetch_margin_tiles);
+            for tile in self.visible_tiles_for_range(view, expanded_target_range) {
+                if prefetch_requests.len() >= *max_prefetch_tiles {
+                    break;
+                }
+                if requested_keys.insert(tile.resource_key.clone()) {
+                    prefetch_requests.push(self.resource_request_with_purpose(
+                        &tile,
+                        ResourceRequestPurpose::Prefetch,
+                        -0.25,
+                    ));
+                }
+            }
+        }
+
         for z in nearby_zoom_candidates(
             target_zoom,
             *prefetch_below,
@@ -338,11 +347,13 @@ impl RasterTileLayer {
                 if prefetch_requests.len() >= *max_prefetch_tiles {
                     break;
                 }
-                prefetch_requests.push(self.resource_request_with_purpose(
-                    &tile,
-                    ResourceRequestPurpose::Prefetch,
-                    -1.0,
-                ));
+                if requested_keys.insert(tile.resource_key.clone()) {
+                    prefetch_requests.push(self.resource_request_with_purpose(
+                        &tile,
+                        ResourceRequestPurpose::Prefetch,
+                        -1.0,
+                    ));
+                }
             }
         }
 
@@ -408,6 +419,53 @@ impl RasterTileLayer {
         }
     }
 
+    fn tile_range_at_zoom(&self, view: &WebMercatorView, z: u8) -> TileRange {
+        let z = z.clamp(self.min_zoom, self.max_zoom);
+        let tile_count = tile_count(z);
+        let tile_span = world_span() / tile_count as f64;
+        let x_start = tile_floor((view.x_domain.0 + WEB_MERCATOR_LIMIT) / tile_span);
+        let x_end = tile_ceil_exclusive((view.x_domain.1 + WEB_MERCATOR_LIMIT) / tile_span);
+        let y_start = tile_floor((WEB_MERCATOR_LIMIT - view.y_domain.1) / tile_span).max(0);
+        let y_end = tile_ceil_exclusive((WEB_MERCATOR_LIMIT - view.y_domain.0) / tile_span)
+            .min(tile_count - 1);
+
+        TileRange {
+            z,
+            tile_count,
+            tile_span,
+            x_start,
+            x_end,
+            y_start,
+            y_end,
+        }
+    }
+
+    fn visible_tiles_for_range(
+        &self,
+        view: &WebMercatorView,
+        range: TileRange,
+    ) -> Vec<VisibleRasterTile> {
+        if range.is_empty() {
+            return Vec::new();
+        }
+
+        let mut tiles = Vec::new();
+        for y in range.y_start..=range.y_end {
+            for unwrapped_x in range.x_start..=range.x_end {
+                let wrapped_x = unwrapped_x.rem_euclid(range.tile_count);
+                tiles.push(self.visible_tile(
+                    view,
+                    range.z,
+                    unwrapped_x,
+                    wrapped_x,
+                    y,
+                    range.tile_span,
+                ));
+            }
+        }
+        tiles
+    }
+
     fn tile_url(&self, z: u8, x: i64, y: i64) -> String {
         let subdomain = self.subdomain(z, x, y);
         self.url_template
@@ -468,6 +526,34 @@ pub enum PlannedTileUnavailablePolicy {
     Skip,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct TileRange {
+    z: u8,
+    tile_count: i64,
+    tile_span: f64,
+    x_start: i64,
+    x_end: i64,
+    y_start: i64,
+    y_end: i64,
+}
+
+impl TileRange {
+    fn expanded_by(self, margin_tiles: u8) -> Self {
+        let margin = i64::from(margin_tiles);
+        Self {
+            x_start: self.x_start - margin,
+            x_end: self.x_end + margin,
+            y_start: (self.y_start - margin).max(0),
+            y_end: (self.y_end + margin).min(self.tile_count - 1),
+            ..self
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        self.y_start > self.y_end || self.x_start > self.x_end
+    }
+}
+
 fn default_layer_id() -> String {
     DEFAULT_LAYER_ID.to_string()
 }
@@ -482,6 +568,10 @@ fn default_max_zoom() -> u8 {
 
 fn default_tile_zindex() -> i32 {
     -100
+}
+
+fn default_smooth_zoom_pan_prefetch_margin_tiles() -> u8 {
+    DEFAULT_SMOOTH_ZOOM_PAN_PREFETCH_MARGIN_TILES
 }
 
 fn world_span() -> f64 {
@@ -550,6 +640,16 @@ mod tests {
 
     fn layer() -> RasterTileLayer {
         RasterTileLayer::xyz("https://tiles.example/{z}/{x}/{y}.png").id("base")
+    }
+
+    fn tile_key_parts(key: &ResourceKey) -> (u8, i64, i64) {
+        let parts = key.0.split('/').collect::<Vec<_>>();
+        assert_eq!(parts.len(), 6, "unexpected tile key format: {}", key.0);
+        (
+            parts[2].parse().expect("tile zoom"),
+            parts[3].parse().expect("tile x"),
+            parts[4].parse().expect("tile y"),
+        )
     }
 
     #[test]
@@ -658,14 +758,15 @@ mod tests {
 
     #[test]
     fn smooth_zoom_tile_plan_renders_fallbacks_before_target_and_prefetches_extra_zooms() {
-        let view = WebMercatorView::from_center_zoom(0.0, 0.0, 1.0, 256.0, 256.0);
+        let view = WebMercatorView::from_center_zoom(0.0, 0.0, 2.0, 256.0, 256.0);
         let plan = layer()
-            .max_zoom(2)
+            .max_zoom(3)
             .loading_policy(TileLoadingPolicy::SmoothZoom {
                 fallback_below: 1,
                 fallback_above: 0,
                 prefetch_below: 1,
                 prefetch_above: 1,
+                pan_prefetch_margin_tiles: 1,
                 max_rendered_fallback_tiles: 128,
                 max_prefetch_tiles: 128,
             })
@@ -680,12 +781,12 @@ mod tests {
         assert!(
             plan.rendered_tiles[..first_target]
                 .iter()
-                .all(|tile| !tile.is_target && tile.tile.z == 0)
+                .all(|tile| !tile.is_target && tile.tile.z == 1)
         );
         assert!(
             plan.rendered_tiles[first_target..]
                 .iter()
-                .all(|tile| tile.is_target && tile.tile.z == 1)
+                .all(|tile| tile.is_target && tile.tile.z == 2)
         );
         assert!(
             plan.rendered_tiles
@@ -701,20 +802,26 @@ mod tests {
         assert!(
             plan.prefetch_requests
                 .iter()
-                .all(|request| request.key.0.contains("/2/"))
+                .any(|request| tile_key_parts(&request.key).0 == 2 && request.priority == -0.25)
+        );
+        assert!(
+            plan.prefetch_requests
+                .iter()
+                .any(|request| tile_key_parts(&request.key).0 == 3 && request.priority == -1.0)
         );
     }
 
     #[test]
     fn smooth_zoom_tile_plan_caps_rendered_fallbacks_and_prefetches() {
-        let view = WebMercatorView::from_center_zoom(0.0, 0.0, 1.0, 512.0, 512.0);
+        let view = WebMercatorView::from_center_zoom(0.0, 0.0, 2.0, 512.0, 512.0);
         let plan = layer()
-            .max_zoom(2)
+            .max_zoom(3)
             .loading_policy(TileLoadingPolicy::SmoothZoom {
                 fallback_below: 1,
                 fallback_above: 1,
                 prefetch_below: 1,
                 prefetch_above: 1,
+                pan_prefetch_margin_tiles: 1,
                 max_rendered_fallback_tiles: 2,
                 max_prefetch_tiles: 1,
             })
@@ -728,7 +835,119 @@ mod tests {
                 .count()
                 <= 2
         );
-        assert!(plan.prefetch_requests.len() <= 1);
+        assert_eq!(plan.prefetch_requests.len(), 1);
+        assert_eq!(tile_key_parts(&plan.prefetch_requests[0].key).0, 2);
+        assert_eq!(plan.prefetch_requests[0].priority, -0.25);
+    }
+
+    #[test]
+    fn smooth_zoom_prefetch_cap_prefers_pan_over_neighbor_zoom() {
+        let view = WebMercatorView::from_center_zoom(0.0, 0.0, 2.0, 256.0, 256.0);
+        let plan = layer()
+            .max_zoom(3)
+            .loading_policy(TileLoadingPolicy::SmoothZoom {
+                fallback_below: 0,
+                fallback_above: 0,
+                prefetch_below: 0,
+                prefetch_above: 1,
+                pan_prefetch_margin_tiles: 1,
+                max_rendered_fallback_tiles: 0,
+                max_prefetch_tiles: 1,
+            })
+            .tile_plan(&view)
+            .expect("tile plan");
+
+        assert_eq!(plan.prefetch_requests.len(), 1);
+        assert_eq!(tile_key_parts(&plan.prefetch_requests[0].key).0, 2);
+        assert_eq!(plan.prefetch_requests[0].priority, -0.25);
+    }
+
+    #[test]
+    fn smooth_zoom_pan_prefetch_excludes_rendered_target_tiles() {
+        let view = WebMercatorView::from_center_zoom(0.0, 0.0, 2.0, 256.0, 256.0);
+        let plan = layer()
+            .max_zoom(2)
+            .smooth_zoom()
+            .tile_plan(&view)
+            .expect("tile plan");
+        let rendered_keys = plan
+            .rendered_tiles
+            .iter()
+            .map(|tile| tile.tile.resource_key.clone())
+            .collect::<HashSet<_>>();
+
+        assert!(plan.prefetch_requests.iter().any(|request| {
+            tile_key_parts(&request.key).0 == 2
+                && request.purpose == ResourceRequestPurpose::Prefetch
+        }));
+        assert!(
+            plan.prefetch_requests
+                .iter()
+                .all(|request| !rendered_keys.contains(&request.key))
+        );
+    }
+
+    #[test]
+    fn smooth_zoom_pan_prefetch_wraps_x_and_clamps_y() {
+        let tile_span = world_span() / 4.0;
+        let view = WebMercatorView::from_center_zoom(
+            WEB_MERCATOR_LIMIT - tile_span / 4.0,
+            WEB_MERCATOR_LIMIT - tile_span / 4.0,
+            2.0,
+            64.0,
+            64.0,
+        );
+        let plan = layer()
+            .min_zoom(2)
+            .max_zoom(2)
+            .loading_policy(TileLoadingPolicy::SmoothZoom {
+                fallback_below: 0,
+                fallback_above: 0,
+                prefetch_below: 0,
+                prefetch_above: 0,
+                pan_prefetch_margin_tiles: 1,
+                max_rendered_fallback_tiles: 0,
+                max_prefetch_tiles: 128,
+            })
+            .tile_plan(&view)
+            .expect("tile plan");
+        let prefetch_parts = plan
+            .prefetch_requests
+            .iter()
+            .map(|request| tile_key_parts(&request.key))
+            .collect::<Vec<_>>();
+
+        assert!(prefetch_parts.iter().any(|(_, x, _)| *x == 0));
+        assert!(
+            prefetch_parts
+                .iter()
+                .all(|(z, _, y)| *z == 2 && (0..=3).contains(y))
+        );
+    }
+
+    #[test]
+    fn smooth_zoom_zero_pan_margin_keeps_only_neighbor_zoom_prefetch() {
+        let view = WebMercatorView::from_center_zoom(0.0, 0.0, 2.0, 256.0, 256.0);
+        let plan = layer()
+            .max_zoom(3)
+            .loading_policy(TileLoadingPolicy::SmoothZoom {
+                fallback_below: 0,
+                fallback_above: 0,
+                prefetch_below: 0,
+                prefetch_above: 1,
+                pan_prefetch_margin_tiles: 0,
+                max_rendered_fallback_tiles: 0,
+                max_prefetch_tiles: 128,
+            })
+            .tile_plan(&view)
+            .expect("tile plan");
+
+        assert!(!plan.prefetch_requests.is_empty());
+        assert!(
+            plan.prefetch_requests
+                .iter()
+                .all(|request| tile_key_parts(&request.key).0 == 3 && request.priority == -1.0)
+        );
     }
 
     #[test]
