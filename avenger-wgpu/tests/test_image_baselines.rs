@@ -18,6 +18,7 @@ pub fn initialize() {
 #[cfg(test)]
 mod test_image_baselines {
     use crate::initialize;
+    use avenger_color::ColorOrGradient;
     use avenger_common::{
         canvas::CanvasDimensions,
         types::{ImageAlign, ImageBaseline},
@@ -29,6 +30,7 @@ mod test_image_baselines {
         marks::image::{
             SceneImageMark, SceneImageResource, SceneImageSource, SceneImageUnavailablePolicy,
         },
+        marks::rect::SceneRectMark,
         scene_graph::SceneGraph,
     };
     use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
@@ -334,6 +336,27 @@ mod test_image_baselines {
         ));
     }
 
+    #[test]
+    fn adjacent_linear_images_do_not_show_atlas_seam() {
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [32.0, 16.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+        canvas
+            .set_scene(&adjacent_image_seam_scene_graph())
+            .unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        for y in 1..15 {
+            assert_red_pixel(image.get_pixel(15, y).0, 15, y);
+            assert_red_pixel(image.get_pixel(16, y).0, 16, y);
+        }
+    }
+
     fn resource_image_canvas(resolver: Arc<FakeImageResolver>) -> PngCanvas {
         pollster::block_on(PngCanvas::new(
             CanvasDimensions {
@@ -364,39 +387,90 @@ mod test_image_baselines {
             width: 8.0,
             height: 8.0,
             origin: [0.0, 0.0],
-            marks: vec![
-                SceneImageMark {
-                    len: 1,
-                    aspect: false,
-                    smooth: false,
-                    image: ScalarOrArray::new_scalar(SceneImageSource::Resource(
-                        SceneImageResource {
-                            key,
-                            intrinsic_width: 2,
-                            intrinsic_height: 2,
-                            fallback_key: None,
-                        },
-                    )),
-                    x: ScalarOrArray::new_scalar(0.0),
-                    y: ScalarOrArray::new_scalar(0.0),
-                    width: ScalarOrArray::new_scalar(8.0),
-                    height: ScalarOrArray::new_scalar(8.0),
-                    align: ScalarOrArray::new_scalar(ImageAlign::Left),
-                    baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
-                    unavailable_policy,
-                    ..Default::default()
-                }
-                .into(),
-            ],
+            marks: vec![SceneImageMark {
+                len: 1,
+                aspect: false,
+                smooth: false,
+                image: ScalarOrArray::new_scalar(SceneImageSource::Resource(SceneImageResource {
+                    key,
+                    intrinsic_width: 2,
+                    intrinsic_height: 2,
+                    fallback_key: None,
+                })),
+                x: ScalarOrArray::new_scalar(0.0),
+                y: ScalarOrArray::new_scalar(0.0),
+                width: ScalarOrArray::new_scalar(8.0),
+                height: ScalarOrArray::new_scalar(8.0),
+                align: ScalarOrArray::new_scalar(ImageAlign::Left),
+                baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+                unavailable_policy,
+                ..Default::default()
+            }
+            .into()],
         }
     }
 
     fn solid_image(color: [u8; 4]) -> RgbaImage {
+        solid_image_with_size(color, 2, 2)
+    }
+
+    fn solid_image_with_size(color: [u8; 4], width: u32, height: u32) -> RgbaImage {
         RgbaImage {
-            width: 2,
-            height: 2,
-            data: color.repeat(4),
+            width,
+            height,
+            data: color.repeat((width * height) as usize),
         }
+    }
+
+    fn adjacent_image_seam_scene_graph() -> SceneGraph {
+        SceneGraph {
+            width: 32.0,
+            height: 16.0,
+            origin: [0.0, 0.0],
+            marks: vec![
+                SceneRectMark {
+                    len: 1,
+                    x: ScalarOrArray::new_scalar(0.0),
+                    y: ScalarOrArray::new_scalar(0.0),
+                    width: Some(ScalarOrArray::new_scalar(32.0)),
+                    height: Some(ScalarOrArray::new_scalar(16.0)),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+                    zindex: Some(0),
+                    ..Default::default()
+                }
+                .into(),
+                inline_image_mark(0.0, 0.0, 16.0, 16.0).into(),
+                inline_image_mark(16.0, 0.0, 16.0, 16.0).into(),
+            ],
+        }
+    }
+
+    fn inline_image_mark(x: f32, y: f32, width: f32, height: f32) -> SceneImageMark {
+        SceneImageMark {
+            len: 1,
+            aspect: false,
+            smooth: true,
+            image: ScalarOrArray::new_scalar(SceneImageSource::Inline(solid_image_with_size(
+                [220, 20, 20, 255],
+                4,
+                4,
+            ))),
+            x: ScalarOrArray::new_scalar(x),
+            y: ScalarOrArray::new_scalar(y),
+            width: ScalarOrArray::new_scalar(width),
+            height: ScalarOrArray::new_scalar(height),
+            align: ScalarOrArray::new_scalar(ImageAlign::Left),
+            baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+            zindex: Some(1),
+            ..Default::default()
+        }
+    }
+
+    fn assert_red_pixel(pixel: [u8; 4], x: u32, y: u32) {
+        assert!(
+            pixel[0] >= 200 && pixel[1] <= 35 && pixel[2] <= 35 && pixel[3] == 255,
+            "expected red image pixel at ({x}, {y}), got {pixel:?}"
+        );
     }
 
     struct FakeImageResolver {
