@@ -17,6 +17,8 @@ pub struct CanvasMetrics {
     pub background_render_frames_published: u64,
     pub background_render_frames_consumed: u64,
     pub stale_background_render_frames_dropped: u64,
+    pub render_invalidation_events_received: u64,
+    pub latest_render_invalidation_epoch: u64,
     pub offscreen_texture_renders: u64,
     pub texture_registrations: u64,
     pub texture_updates: u64,

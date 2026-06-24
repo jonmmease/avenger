@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+pub mod render_invalidation;
+
+pub use render_invalidation::{
+    RenderInvalidation, RenderInvalidationCallback, RenderInvalidationHub,
+    RenderInvalidationReason, RenderInvalidationRequest, RenderInvalidationSchedule,
+    RenderInvalidationSink, RenderInvalidationSubscription,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ResourceKey(pub String);

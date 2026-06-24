@@ -14,6 +14,7 @@ avenger-chart-app = { path = "../avenger-chart-app" }
 avenger-common = { path = "../avenger-common" }
 avenger-egui = { path = "../avenger-egui" }
 avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-resource = { path = "../avenger-resource" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-wgpu = { path = "../avenger-wgpu" }
 

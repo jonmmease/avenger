@@ -1,5 +1,8 @@
 use std::{
-    sync::{Arc, Mutex as StdMutex},
+    sync::{
+        Arc, Mutex as StdMutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Instant as StdInstant,
 };
 
@@ -9,8 +12,12 @@ use avenger_app::{
 };
 use avenger_common::{canvas::CanvasDimensions, time::Instant as AvengerInstant};
 use avenger_eventstream::window::WindowEvent;
+use avenger_resource::{
+    RenderInvalidationHub, RenderInvalidationSchedule, RenderInvalidationSubscription,
+};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::{
+    canvas::CanvasConfig,
     error::AvengerWgpuError,
     frame_publisher::{
         BeginFrameError, FrameGeneration, FramePublisher, FramePublisherStatus, FrameRenderMetrics,
@@ -41,6 +48,10 @@ where
     scene_error: Arc<StdMutex<Option<String>>>,
     metrics: Arc<StdMutex<CanvasMetrics>>,
     gpu: Arc<StdMutex<Option<EguiCanvasGpuState>>>,
+    canvas_config: Arc<StdMutex<CanvasConfig>>,
+    render_invalidation_hub: Arc<StdMutex<Option<RenderInvalidationHub>>>,
+    render_invalidation_subscription: Arc<StdMutex<Option<RenderInvalidationSubscription>>>,
+    render_invalidation_epoch: Arc<AtomicU64>,
 }
 
 impl<State> AvengerCanvasHandle<State>
@@ -59,6 +70,10 @@ where
             scene_error: Arc::new(StdMutex::new(None)),
             metrics: Arc::new(StdMutex::new(CanvasMetrics::default())),
             gpu: Arc::new(StdMutex::new(None)),
+            canvas_config: Arc::new(StdMutex::new(CanvasConfig::default())),
+            render_invalidation_hub: Arc::new(StdMutex::new(None)),
+            render_invalidation_subscription: Arc::new(StdMutex::new(None)),
+            render_invalidation_epoch: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -75,6 +90,10 @@ where
             scene_error: Arc::new(StdMutex::new(None)),
             metrics: Arc::new(StdMutex::new(CanvasMetrics::default())),
             gpu: Arc::new(StdMutex::new(None)),
+            canvas_config: Arc::new(StdMutex::new(CanvasConfig::default())),
+            render_invalidation_hub: Arc::new(StdMutex::new(None)),
+            render_invalidation_subscription: Arc::new(StdMutex::new(None)),
+            render_invalidation_epoch: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -299,6 +318,38 @@ where
             .expect("avenger egui metrics lock poisoned") = CanvasMetrics::default();
     }
 
+    pub fn set_canvas_config(&self, canvas_config: CanvasConfig) {
+        *self
+            .canvas_config
+            .lock()
+            .expect("avenger egui canvas-config lock poisoned") = canvas_config;
+    }
+
+    pub fn canvas_config(&self) -> CanvasConfig {
+        self.canvas_config
+            .lock()
+            .expect("avenger egui canvas-config lock poisoned")
+            .clone()
+    }
+
+    pub fn set_render_invalidation_hub(&self, hub: Option<RenderInvalidationHub>) {
+        let epoch = hub.as_ref().map(RenderInvalidationHub::epoch).unwrap_or(0);
+        self.render_invalidation_epoch
+            .store(epoch, Ordering::SeqCst);
+        *self
+            .render_invalidation_hub
+            .lock()
+            .expect("avenger egui render-invalidation hub lock poisoned") = hub;
+        *self
+            .render_invalidation_subscription
+            .lock()
+            .expect("avenger egui render-invalidation subscription lock poisoned") = None;
+    }
+
+    pub fn render_invalidation_epoch(&self) -> u64 {
+        self.render_invalidation_epoch.load(Ordering::SeqCst)
+    }
+
     pub fn show_metrics(&self, ui: &mut egui::Ui) {
         let metrics = self.metrics();
         let status = self.frame_status();
@@ -399,9 +450,16 @@ where
                 &render_state.device,
                 dimensions,
                 wgpu::TextureFormat::Rgba8Unorm,
+                self.canvas_config(),
             )
         });
-        gpu.render_scene(render_state, scene_graph, dimensions, &self.metrics)
+        gpu.render_scene(
+            render_state,
+            scene_graph,
+            dimensions,
+            self.render_invalidation_epoch(),
+            &self.metrics,
+        )
     }
 
     pub fn request_background_scene_texture(
@@ -451,13 +509,16 @@ where
                 &render_state.device,
                 dimensions,
                 wgpu::TextureFormat::Rgba8Unorm,
+                self.canvas_config(),
             )
         });
+        let render_invalidation_epoch = self.render_invalidation_epoch();
         gpu.request_background_scene_texture(
             render_state,
             scene_generation,
             scene_graph,
             dimensions,
+            render_invalidation_epoch,
             repaint,
             self.metrics.clone(),
         )
@@ -502,6 +563,54 @@ where
 
     fn spawn_scene_worker(&self, runtime: tokio::runtime::Handle, repaint: Option<egui::Context>) {
         SceneWorkerParts::from_handle(self).spawn(runtime, repaint);
+    }
+
+    fn ensure_render_invalidation_subscription(&self, ctx: &egui::Context) {
+        if self
+            .render_invalidation_subscription
+            .lock()
+            .expect("avenger egui render-invalidation subscription lock poisoned")
+            .is_some()
+        {
+            return;
+        }
+        let hub = self
+            .render_invalidation_hub
+            .lock()
+            .expect("avenger egui render-invalidation hub lock poisoned")
+            .clone();
+        let Some(hub) = hub else {
+            return;
+        };
+        let current_epoch = hub.epoch();
+        let previous_epoch = self
+            .render_invalidation_epoch
+            .swap(current_epoch, Ordering::SeqCst);
+        if current_epoch > previous_epoch {
+            update_metrics(&self.metrics, |metrics| {
+                metrics.latest_render_invalidation_epoch = current_epoch;
+            });
+            ctx.request_repaint();
+        }
+        let ctx = ctx.clone();
+        let epoch = self.render_invalidation_epoch.clone();
+        let metrics = self.metrics.clone();
+        let subscription = hub.subscribe(Arc::new(move |invalidation| {
+            epoch.store(invalidation.epoch, Ordering::SeqCst);
+            update_metrics(&metrics, |metrics| {
+                metrics.render_invalidation_events_received += 1;
+                metrics.latest_render_invalidation_epoch = invalidation.epoch;
+            });
+            match invalidation.schedule {
+                RenderInvalidationSchedule::Now => ctx.request_repaint(),
+                RenderInvalidationSchedule::After(delay) => ctx.request_repaint_after(delay),
+            }
+        }));
+        *self
+            .render_invalidation_subscription
+            .lock()
+            .expect("avenger egui render-invalidation subscription lock poisoned") =
+            Some(subscription);
     }
 }
 
@@ -726,6 +835,8 @@ where
             let available = ui.available_size_before_wrap();
             egui::vec2(available.x.max(320.0), available.y.max(240.0))
         });
+        self.handle
+            .ensure_render_invalidation_subscription(ui.ctx());
         let (rect, response) = ui.allocate_exact_size(desired_size, self.sense);
         if response.clicked() || response.drag_started() {
             response.request_focus();

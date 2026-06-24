@@ -12,9 +12,12 @@ use std::sync::Arc;
 
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
-    ChartAppOptions, ChartResizeBinding, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
-    chart_avenger_app,
+    CanvasConfig, ChartAppOptions, ChartResizeBinding, ChartRuntimeResources, WgpuImagePlaceholder,
+    WgpuImageResourceConfig, WgpuMissingImagePolicy, WinitWgpuAvengerApp,
+    WinitWgpuAvengerAppOptions, chart_avenger_app_with_runtime_resources,
 };
+use avenger_image::ImageResourceCache;
+use avenger_resource::RenderInvalidationHub;
 use datafusion::prelude::SessionContext;
 use winit::window::WindowAttributes;
 
@@ -25,18 +28,36 @@ fn main() {
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("build tokio runtime");
-    let avenger_app = tokio_runtime.block_on(build_app());
-    let options = WinitWgpuAvengerAppOptions::new(2.0).window_attributes(
-        WindowAttributes::default()
-            .with_title("avenger-chart image mark app (drag to pan, scroll to zoom)")
-            .with_resizable(false),
+    let invalidations = RenderInvalidationHub::default();
+    let image_cache = Arc::new(
+        ImageResourceCache::new().with_render_invalidation_sink(Arc::new(invalidations.clone())),
     );
+    let runtime_resources = ChartRuntimeResources::new(image_cache.clone(), invalidations.clone());
+    let canvas_config = CanvasConfig {
+        image_resource_config: WgpuImageResourceConfig {
+            resolver: Some(image_cache),
+            missing_policy: WgpuMissingImagePolicy::DrawPlaceholder,
+            placeholder: WgpuImagePlaceholder::Checkerboard,
+        },
+        ..CanvasConfig::default()
+    };
+    let avenger_app = tokio_runtime.block_on(build_app(runtime_resources));
+    let options = WinitWgpuAvengerAppOptions::new(2.0)
+        .window_attributes(
+            WindowAttributes::default()
+                .with_title("avenger-chart image mark app (drag to pan, scroll to zoom)")
+                .with_resizable(false),
+        )
+        .canvas_config(canvas_config)
+        .render_invalidation_hub(invalidations);
     let (mut app, event_loop) =
         WinitWgpuAvengerApp::new_and_event_loop_with_options(avenger_app, options, tokio_runtime);
     event_loop.run_app(&mut app).expect("run app");
 }
 
-async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartAppState> {
+async fn build_app(
+    runtime_resources: ChartRuntimeResources,
+) -> avenger_app::app::AvengerApp<avenger_chart_app::ChartAppState> {
     let ctx = Arc::new(SessionContext::new());
     let df = ctx
         .sql(
@@ -89,7 +110,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .tool(PanScrollZoom::cartesian().settle_exact(true));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
-    chart_avenger_app(
+    chart_avenger_app_with_runtime_resources(
         compiled,
         ctx,
         ChartAppOptions {
@@ -98,6 +119,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             exact_on_resize_settle: true,
             log_metrics: true,
         },
+        runtime_resources,
     )
     .await
     .expect("build chart app")

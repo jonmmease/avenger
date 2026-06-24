@@ -27,6 +27,8 @@ use avenger_eventstream::{
     stream::{EventStreamConfig, UpdateStatus},
 };
 use avenger_geometry::rtree::SceneGraphRTree;
+use avenger_image::{IMAGE_RESOURCE_KIND, ImageResourceResolver};
+use avenger_resource::{RenderInvalidationHub, ResourceRequest};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use datafusion::{prelude::SessionContext, scalar::ScalarValue};
 use indexmap::IndexMap;
@@ -36,7 +38,9 @@ use crate::event_binding::{event_streams_for_bindings, event_streams_for_plot_bi
 
 #[cfg(feature = "winit-wgpu")]
 pub use avenger_winit_wgpu::{
-    CanvasFrameOptions, WindowSceneSizing, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
+    CanvasConfig, CanvasFrameOptions, WgpuImagePlaceholder, WgpuImageResourceConfig,
+    WgpuMissingImagePolicy, WindowSceneSizing, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
+    WinitWgpuEvent,
 };
 
 /// Parameter names that receive accepted virtual canvas resize dimensions.
@@ -97,6 +101,25 @@ impl Default for ChartAppOptions {
             resize_throttle_ms: None,
             exact_on_resize_settle: true,
             log_metrics: false,
+        }
+    }
+}
+
+/// Shared resource/runtime handles used by chart app evaluation and render hosts.
+#[derive(Clone)]
+pub struct ChartRuntimeResources {
+    pub image_resource_resolver: Arc<dyn ImageResourceResolver>,
+    pub render_invalidation_hub: RenderInvalidationHub,
+}
+
+impl ChartRuntimeResources {
+    pub fn new(
+        image_resource_resolver: Arc<dyn ImageResourceResolver>,
+        render_invalidation_hub: RenderInvalidationHub,
+    ) -> Self {
+        Self {
+            image_resource_resolver,
+            render_invalidation_hub,
         }
     }
 }
@@ -310,6 +333,8 @@ struct ChartAppRuntime {
     last_metrics: Option<EvaluationMetrics>,
     last_evaluation_elapsed: Option<Duration>,
     last_scene_size: Option<[f32; 2]>,
+    runtime_resources: Option<ChartRuntimeResources>,
+    last_resource_requests: Vec<ResourceRequest>,
     accepted_resize_count: usize,
     event_metrics: ChartEventMetrics,
     last_evaluated_param_revision: u64,
@@ -326,6 +351,15 @@ impl ChartAppState {
         resize_policy: ChartResizePolicy,
         options: ChartAppOptions,
     ) -> Self {
+        Self::new_with_runtime_resources(session, resize_policy, options, None)
+    }
+
+    pub fn new_with_runtime_resources(
+        session: PlotSession,
+        resize_policy: ChartResizePolicy,
+        options: ChartAppOptions,
+        runtime_resources: Option<ChartRuntimeResources>,
+    ) -> Self {
         warn_about_ignored_bindings(resize_policy, &options.resize_binding);
         let params = session.params().clone();
         Self {
@@ -341,6 +375,8 @@ impl ChartAppState {
                 last_metrics: None,
                 last_evaluation_elapsed: None,
                 last_scene_size: None,
+                runtime_resources,
+                last_resource_requests: Vec::new(),
                 accepted_resize_count: 0,
                 event_metrics: ChartEventMetrics::default(),
                 last_evaluated_param_revision: 0,
@@ -431,6 +467,14 @@ impl ChartAppState {
 
     pub async fn last_scene_size(&self) -> Option<[f32; 2]> {
         self.runtime.lock().await.last_scene_size
+    }
+
+    pub async fn last_resource_requests(&self) -> Vec<ResourceRequest> {
+        self.runtime.lock().await.last_resource_requests.clone()
+    }
+
+    pub async fn runtime_resources(&self) -> Option<ChartRuntimeResources> {
+        self.runtime.lock().await.runtime_resources.clone()
     }
 
     pub async fn accepted_resize_count(&self) -> usize {
@@ -615,6 +659,10 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
         runtime.last_metrics = Some(metrics);
         runtime.last_evaluation_elapsed = Some(elapsed);
         runtime.last_scene_size = Some(scene_size);
+        runtime.last_resource_requests = evaluated.resource_requests.clone();
+        if let Some(resources) = &runtime.runtime_resources {
+            request_image_resources(resources, &evaluated.resource_requests);
+        }
         runtime.last_evaluated_param_revision = evaluation_param_revision;
         if state.param_revision() != evaluation_param_revision {
             runtime.next_evaluation_mode = EvaluationMode::Exact;
@@ -726,6 +774,24 @@ pub async fn chart_avenger_app(
     ctx: Arc<SessionContext>,
     options: ChartAppOptions,
 ) -> Result<AvengerApp<ChartAppState>, AvengerAppError> {
+    chart_avenger_app_inner(compiled_plot, ctx, options, None).await
+}
+
+pub async fn chart_avenger_app_with_runtime_resources(
+    compiled_plot: CompiledPlot,
+    ctx: Arc<SessionContext>,
+    options: ChartAppOptions,
+    runtime_resources: ChartRuntimeResources,
+) -> Result<AvengerApp<ChartAppState>, AvengerAppError> {
+    chart_avenger_app_inner(compiled_plot, ctx, options, Some(runtime_resources)).await
+}
+
+async fn chart_avenger_app_inner(
+    compiled_plot: CompiledPlot,
+    ctx: Arc<SessionContext>,
+    options: ChartAppOptions,
+    runtime_resources: Option<ChartRuntimeResources>,
+) -> Result<AvengerApp<ChartAppState>, AvengerAppError> {
     let resize_policy = compiled_plot.resize_policy();
     let mut event_streams = event_streams_for_plot_bindings(&compiled_plot, ctx.as_ref())?;
     let resize_bindings = resize_event_bindings(
@@ -744,7 +810,12 @@ pub async fn chart_avenger_app(
     )?);
     let session = Arc::new(compiled_plot).instantiate(ctx);
     let exact_on_resize_settle = options.exact_on_resize_settle;
-    let state = ChartAppState::new(session, resize_policy, options);
+    let state = ChartAppState::new_with_runtime_resources(
+        session,
+        resize_policy,
+        options,
+        runtime_resources,
+    );
     let mut streams = event_streams;
     if exact_on_resize_settle {
         streams.push((
@@ -757,6 +828,15 @@ pub async fn chart_avenger_app(
     }
 
     AvengerApp::try_new(state, Arc::new(ChartSceneGraphBuilder), streams).await
+}
+
+fn request_image_resources(resources: &ChartRuntimeResources, requests: &[ResourceRequest]) {
+    for request in requests
+        .iter()
+        .filter(|request| request.kind.0 == IMAGE_RESOURCE_KIND)
+    {
+        resources.image_resource_resolver.request_image(request);
+    }
 }
 
 fn resize_event_bindings(
@@ -895,14 +975,49 @@ fn warn_about_ignored_axis(axis: &str, policy: ChartResizeAxisPolicy, param: Opt
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex as StdMutex;
+
     use avenger_chart::prelude::*;
     use avenger_eventstream::{
         scene::SceneGraphEvent,
         window::{CanvasResizeEvent, WindowResizeEvent},
     };
+    use avenger_image::{ImageResourceResolver, ImageResourceState};
+    use avenger_resource::{
+        RenderInvalidationHub, ResourceCachePolicy, ResourceKey, ResourceKind, ResourceSource,
+    };
     use avenger_scenegraph::scene_graph::SceneGraph;
 
     use super::*;
+
+    const TEST_IMAGE_URL: &str = "https://example.com/test-image.png";
+
+    #[derive(Default)]
+    struct RecordingImageResolver {
+        requests: StdMutex<Vec<ResourceRequest>>,
+    }
+
+    impl RecordingImageResolver {
+        fn requests(&self) -> Vec<ResourceRequest> {
+            self.requests
+                .lock()
+                .expect("recording resolver lock poisoned")
+                .clone()
+        }
+    }
+
+    impl ImageResourceResolver for RecordingImageResolver {
+        fn image_state(&self, _key: &ResourceKey) -> ImageResourceState {
+            ImageResourceState::Missing
+        }
+
+        fn request_image(&self, request: &ResourceRequest) {
+            self.requests
+                .lock()
+                .expect("recording resolver lock poisoned")
+                .push(request.clone());
+        }
+    }
 
     async fn resize_test_state() -> ChartAppState {
         let ctx = SessionContext::new();
@@ -927,6 +1042,41 @@ mod tests {
                 log_metrics: false,
             },
         )
+    }
+
+    #[test]
+    fn request_image_resources_submits_only_image_requests() {
+        let resolver = Arc::new(RecordingImageResolver::default());
+        let resources =
+            ChartRuntimeResources::new(resolver.clone(), RenderInvalidationHub::default());
+        let image_request = ResourceRequest {
+            key: ResourceKey::new("image/test"),
+            kind: ResourceKind::new(IMAGE_RESOURCE_KIND),
+            source: ResourceSource::Url {
+                url: TEST_IMAGE_URL.to_string(),
+            },
+            priority: 1.0,
+            cache_policy: ResourceCachePolicy::default(),
+        };
+        let non_image_request = ResourceRequest {
+            key: ResourceKey::new("metadata/test"),
+            kind: ResourceKind::new("metadata"),
+            source: ResourceSource::Opaque {
+                provider: "test".to_string(),
+                id: "metadata".to_string(),
+            },
+            priority: 0.0,
+            cache_policy: ResourceCachePolicy::default(),
+        };
+
+        request_image_resources(
+            &resources,
+            &[image_request.clone(), non_image_request.clone()],
+        );
+
+        let recorded_requests = resolver.requests();
+        assert_eq!(recorded_requests.len(), 1);
+        assert_eq!(recorded_requests[0], image_request);
     }
 
     fn empty_rtree() -> SceneGraphRTree {

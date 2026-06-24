@@ -48,6 +48,7 @@ fn main() -> eframe::Result<()> {
                 scene_generation: 0,
                 rendered_scene_generation: None,
                 rendered_dimensions: None,
+                rendered_render_invalidation_epoch: None,
                 point_size: 120.0,
                 show_points: true,
                 last_error: None,
@@ -63,6 +64,7 @@ struct BasicChartApp {
     scene_generation: u64,
     rendered_scene_generation: Option<u64>,
     rendered_dimensions: Option<CanvasDimensions>,
+    rendered_render_invalidation_epoch: Option<u64>,
     point_size: f64,
     show_points: bool,
     last_error: Option<String>,
@@ -172,7 +174,10 @@ impl BasicChartApp {
             .rendered_dimensions
             .is_none_or(|rendered| !canvas_dimensions_eq(rendered, dimensions));
         let scene_changed = self.rendered_scene_generation != Some(self.scene_generation);
-        if !dimensions_changed && !scene_changed {
+        let render_invalidation_epoch = self.plot.render_invalidation_epoch();
+        let render_invalidated =
+            self.rendered_render_invalidation_epoch != Some(render_invalidation_epoch);
+        if !dimensions_changed && !scene_changed && !render_invalidated {
             return;
         }
 
@@ -194,9 +199,11 @@ impl BasicChartApp {
                         && status
                             .dimensions
                             .is_some_and(|rendered| canvas_dimensions_eq(rendered, dimensions))
+                        && status.render_invalidation_epoch == Some(render_invalidation_epoch)
                     {
                         self.rendered_scene_generation = Some(self.scene_generation);
                         self.rendered_dimensions = Some(dimensions);
+                        self.rendered_render_invalidation_epoch = Some(render_invalidation_epoch);
                     }
                 })
         {

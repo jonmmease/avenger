@@ -12,8 +12,10 @@ use avenger_egui::{
     AvengerCanvasHandle, Canvas, CanvasMetrics, CanvasOutput, FrameStatus, TextureRenderStatus,
 };
 use avenger_eventstream::window::WindowEvent;
+use avenger_resource::RenderInvalidationHub;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::{
+    canvas::CanvasConfig,
     error::AvengerWgpuError,
     frame_publisher::{FrameGeneration, FramePublisherStatus, RenderedFrame},
 };
@@ -163,6 +165,22 @@ impl AvengerPlotHandle {
 
     pub fn show_metrics(&self, ui: &mut egui::Ui) {
         self.canvas.show_metrics(ui);
+    }
+
+    pub fn set_canvas_config(&self, canvas_config: CanvasConfig) {
+        self.canvas.set_canvas_config(canvas_config);
+    }
+
+    pub fn canvas_config(&self) -> CanvasConfig {
+        self.canvas.canvas_config()
+    }
+
+    pub fn set_render_invalidation_hub(&self, hub: Option<RenderInvalidationHub>) {
+        self.canvas.set_render_invalidation_hub(hub);
+    }
+
+    pub fn render_invalidation_epoch(&self) -> u64 {
+        self.canvas.render_invalidation_epoch()
     }
 
     pub async fn current_scene_graph(&self) -> Option<Arc<SceneGraph>> {

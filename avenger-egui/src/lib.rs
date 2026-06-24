@@ -33,8 +33,12 @@ mod tests {
             WindowCursorMoved, WindowEvent, WindowMouseInput, WindowMouseWheel,
         },
     };
+    use avenger_resource::{
+        RenderInvalidationReason, RenderInvalidationRequest, RenderInvalidationSchedule,
+        RenderInvalidationSink,
+    };
     use avenger_scenegraph::scene_graph::SceneGraph;
-    use avenger_wgpu::frame_publisher::FrameGeneration;
+    use avenger_wgpu::{canvas::CanvasConfig, frame_publisher::FrameGeneration};
     use egui_wgpu::wgpu;
 
     use super::*;
@@ -262,20 +266,25 @@ mod tests {
             size: [640.0, 480.0],
             scale: 2.0,
         };
-        let key = RenderRequestKey::new(7, dimensions, wgpu::TextureFormat::Rgba8Unorm);
+        let key = RenderRequestKey::new(7, 0, dimensions, wgpu::TextureFormat::Rgba8Unorm);
 
         assert_eq!(
             key,
-            RenderRequestKey::new(7, dimensions, wgpu::TextureFormat::Rgba8Unorm)
+            RenderRequestKey::new(7, 0, dimensions, wgpu::TextureFormat::Rgba8Unorm)
         );
         assert_ne!(
             key,
-            RenderRequestKey::new(8, dimensions, wgpu::TextureFormat::Rgba8Unorm)
+            RenderRequestKey::new(8, 0, dimensions, wgpu::TextureFormat::Rgba8Unorm)
+        );
+        assert_ne!(
+            key,
+            RenderRequestKey::new(7, 1, dimensions, wgpu::TextureFormat::Rgba8Unorm)
         );
         assert_ne!(
             key,
             RenderRequestKey::new(
                 7,
+                0,
                 CanvasDimensions {
                     size: [641.0, 480.0],
                     scale: 2.0,
@@ -285,8 +294,54 @@ mod tests {
         );
         assert_ne!(
             key,
-            RenderRequestKey::new(7, dimensions, wgpu::TextureFormat::Bgra8Unorm)
+            RenderRequestKey::new(7, 0, dimensions, wgpu::TextureFormat::Bgra8Unorm)
         );
+    }
+
+    #[tokio::test]
+    async fn render_invalidation_subscription_updates_epoch_without_events() {
+        let handle = test_handle().await;
+        let hub = avenger_resource::RenderInvalidationHub::default();
+        handle.set_render_invalidation_hub(Some(hub.clone()));
+        let ctx = egui::Context::default();
+
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default()
+                .show(ctx, |ui| {
+                    Canvas::new(&handle)
+                        .desired_size(egui::vec2(320.0, 240.0))
+                        .show(ui);
+                })
+                .inner;
+        });
+        handle.take_pending_events();
+
+        hub.request_render(RenderInvalidationRequest {
+            reason: RenderInvalidationReason::ResourceChanged { kind: "image" },
+            schedule: RenderInvalidationSchedule::After(Duration::from_millis(1)),
+        });
+
+        assert_eq!(handle.render_invalidation_epoch(), 1);
+        assert_eq!(handle.pending_event_count(), 0);
+        assert_eq!(handle.frame_status().requested_generation, None);
+        let metrics = handle.metrics();
+        assert_eq!(metrics.render_invalidation_events_received, 1);
+        assert_eq!(metrics.latest_render_invalidation_epoch, 1);
+    }
+
+    #[tokio::test]
+    async fn render_invalidation_hub_set_observes_existing_epoch() {
+        let handle = test_handle().await;
+        let hub = avenger_resource::RenderInvalidationHub::default();
+        hub.request_render(RenderInvalidationRequest::now(
+            RenderInvalidationReason::ResourceChanged { kind: "image" },
+        ));
+
+        handle.set_render_invalidation_hub(Some(hub));
+
+        assert_eq!(handle.render_invalidation_epoch(), 1);
+        assert_eq!(handle.pending_event_count(), 0);
+        assert_eq!(handle.frame_status().requested_generation, None);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -448,6 +503,7 @@ mod tests {
             1,
             empty_scene_graph(),
             dimensions,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             StdInstant::now(),
@@ -461,6 +517,7 @@ mod tests {
             1,
             empty_scene_graph(),
             dimensions,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             StdInstant::now(),
@@ -473,6 +530,7 @@ mod tests {
             2,
             empty_scene_graph(),
             dimensions,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             StdInstant::now(),
@@ -490,6 +548,51 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
+    fn background_render_state_treats_render_invalidation_epoch_as_request_key() {
+        let mut state = BackgroundRenderState::default();
+        let dimensions = test_dimensions(640.0, 480.0);
+
+        let first = state.enqueue_request(
+            1,
+            empty_scene_graph(),
+            dimensions,
+            0,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            StdInstant::now(),
+        );
+        let duplicate = state.enqueue_request(
+            1,
+            empty_scene_graph(),
+            dimensions,
+            0,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            StdInstant::now(),
+        );
+        let invalidated = state.enqueue_request(
+            1,
+            empty_scene_graph(),
+            dimensions,
+            1,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+            StdInstant::now(),
+        );
+
+        assert_eq!(first.render_generation, Some(1));
+        assert_eq!(duplicate, BackgroundEnqueueResult::default());
+        assert_eq!(invalidated.render_generation, Some(2));
+        assert!(invalidated.coalesced_previous);
+        assert_eq!(state.requested_scene_generation, Some(1));
+        assert_eq!(state.requested_render_invalidation_epoch, Some(1));
+        let pending = state.pending_request.as_ref().expect("pending request");
+        assert_eq!(pending.scene_generation, 1);
+        assert_eq!(pending.render_invalidation_epoch, 1);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
     fn background_render_state_marks_in_progress_generation_stale_after_newer_request() {
         let mut state = BackgroundRenderState::default();
         let dimensions = test_dimensions(640.0, 480.0);
@@ -497,6 +600,7 @@ mod tests {
             1,
             empty_scene_graph(),
             dimensions,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             StdInstant::now(),
@@ -513,6 +617,7 @@ mod tests {
             2,
             empty_scene_graph(),
             dimensions,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             StdInstant::now(),
@@ -541,6 +646,7 @@ mod tests {
             1,
             empty_scene_graph(),
             initial,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             StdInstant::now(),
@@ -549,6 +655,7 @@ mod tests {
             1,
             empty_scene_graph(),
             resized,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             StdInstant::now(),
@@ -564,6 +671,7 @@ mod tests {
             1,
             empty_scene_graph(),
             resized,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             StdInstant::now(),
@@ -611,6 +719,7 @@ mod tests {
             device,
             queue,
             wgpu::TextureFormat::Rgba8Unorm,
+            CanvasConfig::default(),
             metrics.clone(),
         );
 
@@ -619,6 +728,7 @@ mod tests {
             1,
             empty_scene_graph(),
             initial,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             metrics.as_ref(),
@@ -632,6 +742,7 @@ mod tests {
             2,
             empty_scene_graph(),
             initial,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             metrics.as_ref(),
@@ -650,6 +761,7 @@ mod tests {
             3,
             empty_scene_graph(),
             resized,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             metrics.as_ref(),
@@ -684,6 +796,7 @@ mod tests {
             device,
             queue,
             wgpu::TextureFormat::Rgba8Unorm,
+            CanvasConfig::default(),
             metrics.clone(),
             BackgroundRenderWorkerHooks {
                 before_set_scene_delay: Duration::from_millis(200),
@@ -697,6 +810,7 @@ mod tests {
             1,
             empty_scene_graph(),
             dimensions,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             metrics.as_ref(),
@@ -708,6 +822,7 @@ mod tests {
             2,
             empty_scene_graph(),
             dimensions,
+            0,
             wgpu::TextureFormat::Rgba8Unorm,
             None,
             metrics.as_ref(),

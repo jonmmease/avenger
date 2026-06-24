@@ -11,6 +11,7 @@ eframe = ["dep:eframe"]
 avenger-app = { path = "../avenger-app" }
 avenger-common = { path = "../avenger-common" }
 avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-resource = { path = "../avenger-resource" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-wgpu = { path = "../avenger-wgpu" }
 

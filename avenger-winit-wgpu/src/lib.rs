@@ -3,11 +3,19 @@ use avenger_common::{canvas::CanvasDimensions, cursor::CursorStyle, time::Instan
 use avenger_eventstream::window::{
     CanvasResizeEvent, WindowEvent as AvengerWindowEvent, WindowResizeEvent,
 };
+use avenger_resource::{
+    RenderInvalidation, RenderInvalidationHub, RenderInvalidationSchedule,
+    RenderInvalidationSubscription,
+};
+pub use avenger_wgpu::{
+    canvas::CanvasConfig,
+    image_resources::{WgpuImagePlaceholder, WgpuImageResourceConfig, WgpuMissingImagePolicy},
+};
 use avenger_wgpu::{
     canvas::{Canvas, CanvasFrameOverlay, WindowCanvas},
     error::AvengerWgpuError,
 };
-use std::time::Instant as StdInstant;
+use std::{sync::Arc, time::Instant as StdInstant};
 use winit::{
     application::ApplicationHandler,
     dpi::{PhysicalSize, Size},
@@ -27,6 +35,36 @@ pub use file_watcher::FileWatcher;
 
 #[cfg(target_arch = "wasm32")]
 pub struct FileWatcher;
+
+#[derive(Clone)]
+pub enum WinitWgpuEvent {
+    App(AvengerWindowEvent),
+    RenderInvalidated(RenderInvalidation),
+}
+
+fn send_render_invalidation_event(
+    event_proxy: EventLoopProxy<WinitWgpuEvent>,
+    invalidation: RenderInvalidation,
+) {
+    match invalidation.schedule {
+        RenderInvalidationSchedule::Now => {
+            let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated(invalidation));
+        }
+        RenderInvalidationSchedule::After(delay) => {
+            #[cfg(not(target_arch = "wasm32"))]
+            std::thread::spawn(move || {
+                std::thread::sleep(delay);
+                let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated(invalidation));
+            });
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let _ = delay;
+                let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated(invalidation));
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WindowSceneSizing {
@@ -301,6 +339,8 @@ pub struct WinitWgpuAvengerAppOptions {
     pub window_scene_sizing: WindowSceneSizing,
     pub resize_settle_delay_ms: Option<u64>,
     pub canvas_frame: Option<CanvasFrameOptions>,
+    pub canvas_config: CanvasConfig,
+    pub render_invalidation_hub: Option<RenderInvalidationHub>,
 }
 
 impl WinitWgpuAvengerAppOptions {
@@ -311,6 +351,8 @@ impl WinitWgpuAvengerAppOptions {
             window_scene_sizing: WindowSceneSizing::SurfaceFollowsWindow,
             resize_settle_delay_ms: None,
             canvas_frame: None,
+            canvas_config: CanvasConfig::default(),
+            render_invalidation_hub: None,
         }
     }
 
@@ -333,6 +375,16 @@ impl WinitWgpuAvengerAppOptions {
         self.canvas_frame = canvas_frame;
         self
     }
+
+    pub fn canvas_config(mut self, canvas_config: CanvasConfig) -> Self {
+        self.canvas_config = canvas_config;
+        self
+    }
+
+    pub fn render_invalidation_hub(mut self, hub: RenderInvalidationHub) -> Self {
+        self.render_invalidation_hub = Some(hub);
+        self
+    }
 }
 
 pub struct WinitWgpuAvengerApp<State>
@@ -345,9 +397,14 @@ where
     window_scene_sizing: WindowSceneSizing,
     resize_settle_delay_ms: Option<u64>,
     canvas_frame: Option<CanvasFrameState>,
-    event_proxy: EventLoopProxy<AvengerWindowEvent>,
+    canvas_config: CanvasConfig,
+    event_proxy: EventLoopProxy<WinitWgpuEvent>,
+    _render_invalidation_subscription: Option<RenderInvalidationSubscription>,
     pub avenger_app: std::rc::Rc<std::cell::RefCell<AvengerApp<State>>>,
     render_pending: bool,
+    render_invalidation_pending: bool,
+    last_requested_render_invalidation_epoch: u64,
+    last_rendered_render_invalidation_epoch: u64,
     pub file_watcher: Option<FileWatcher>,
     window_id: Option<winit::window::WindowId>,
     coalesced_event_count: usize,
@@ -371,7 +428,7 @@ where
         avenger_app: AvengerApp<State>,
         scale: f32,
         #[cfg(not(target_arch = "wasm32"))] tokio_runtime: tokio::runtime::Runtime,
-    ) -> (Self, EventLoop<AvengerWindowEvent>) {
+    ) -> (Self, EventLoop<WinitWgpuEvent>) {
         Self::new_and_event_loop_with_options(
             avenger_app,
             WinitWgpuAvengerAppOptions::new(scale),
@@ -384,12 +441,19 @@ where
         avenger_app: AvengerApp<State>,
         options: WinitWgpuAvengerAppOptions,
         #[cfg(not(target_arch = "wasm32"))] tokio_runtime: tokio::runtime::Runtime,
-    ) -> (Self, EventLoop<AvengerWindowEvent>) {
-        // Create event loop with AvengerWindowEvent as custom event type
-        let event_loop = EventLoop::<AvengerWindowEvent>::with_user_event()
+    ) -> (Self, EventLoop<WinitWgpuEvent>) {
+        // Create event loop with WinitWgpuEvent as custom event type
+        let event_loop = EventLoop::<WinitWgpuEvent>::with_user_event()
             .build()
             .expect("Failed to build event loop");
         let event_proxy = event_loop.create_proxy();
+        let render_invalidation_subscription =
+            options.render_invalidation_hub.as_ref().map(|hub| {
+                let event_proxy = event_proxy.clone();
+                hub.subscribe(Arc::new(move |invalidation| {
+                    send_render_invalidation_event(event_proxy.clone(), invalidation);
+                }))
+            });
 
         // File watching is only supported on desktop
         #[cfg(not(target_arch = "wasm32"))]
@@ -414,9 +478,14 @@ where
             window_scene_sizing: options.window_scene_sizing,
             resize_settle_delay_ms: options.resize_settle_delay_ms,
             canvas_frame: options.canvas_frame.map(CanvasFrameState::new),
+            canvas_config: options.canvas_config,
             event_proxy,
+            _render_invalidation_subscription: render_invalidation_subscription,
             avenger_app: std::rc::Rc::new(std::cell::RefCell::new(avenger_app)),
             render_pending: false,
+            render_invalidation_pending: false,
+            last_requested_render_invalidation_epoch: 0,
+            last_rendered_render_invalidation_epoch: 0,
             file_watcher,
             window_id: None,
             coalesced_event_count: 0,
@@ -538,6 +607,30 @@ where
         }
     }
 
+    fn handle_render_invalidation(&mut self, invalidation: RenderInvalidation) {
+        if invalidation.epoch <= self.last_rendered_render_invalidation_epoch {
+            return;
+        }
+        if invalidation.epoch <= self.last_requested_render_invalidation_epoch
+            && self.render_invalidation_pending
+        {
+            return;
+        }
+        let canvas = self.canvas.borrow();
+        let Some(canvas) = canvas.as_ref() else {
+            return;
+        };
+        self.last_requested_render_invalidation_epoch = invalidation.epoch;
+        self.render_invalidation_pending = true;
+        canvas.window().request_redraw();
+        tracing::debug!(
+            target: "avenger_winit_wgpu::resize",
+            epoch = invalidation.epoch,
+            schedule = ?invalidation.schedule,
+            "winit render invalidated"
+        );
+    }
+
     fn dispatch_pending_canvas_resize(&mut self) {
         let Some(event) = self.pending_canvas_resize.take() else {
             return;
@@ -573,8 +666,8 @@ where
             let event_proxy = self.event_proxy.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                let _ = event_proxy.send_event(AvengerWindowEvent::WindowResizeSettled(
-                    WindowResizeEvent { size },
+                let _ = event_proxy.send_event(WinitWgpuEvent::App(
+                    AvengerWindowEvent::WindowResizeSettled(WindowResizeEvent { size }),
                 ));
             });
         }
@@ -667,9 +760,11 @@ where
             self.refresh_canvas_frame_overlay();
         }
         if let Some(size) = outcome.resize {
-            let _ = self
-                .event_proxy
-                .send_event(AvengerWindowEvent::CanvasResize(CanvasResizeEvent { size }));
+            let _ =
+                self.event_proxy
+                    .send_event(WinitWgpuEvent::App(AvengerWindowEvent::CanvasResize(
+                        CanvasResizeEvent { size },
+                    )));
             tracing::trace!(
                 target: "avenger_winit_wgpu::resize",
                 width = size[0],
@@ -679,11 +774,9 @@ where
             );
         }
         if let Some(size) = outcome.resize_settled {
-            let _ = self
-                .event_proxy
-                .send_event(AvengerWindowEvent::CanvasResizeSettled(CanvasResizeEvent {
-                    size,
-                }));
+            let _ = self.event_proxy.send_event(WinitWgpuEvent::App(
+                AvengerWindowEvent::CanvasResizeSettled(CanvasResizeEvent { size }),
+            ));
             tracing::debug!(
                 target: "avenger_winit_wgpu::resize",
                 width = size[0],
@@ -735,7 +828,7 @@ where
     }
 }
 
-impl<State> ApplicationHandler<AvengerWindowEvent> for WinitWgpuAvengerApp<State>
+impl<State> ApplicationHandler<WinitWgpuEvent> for WinitWgpuAvengerApp<State>
 where
     State: Clone + Send + Sync + 'static,
 {
@@ -768,7 +861,7 @@ where
             (scene_graph, dimensions)
         };
 
-        let canvas_future = WindowCanvas::new(window, dimensions, Default::default());
+        let canvas_future = WindowCanvas::new(window, dimensions, self.canvas_config.clone());
 
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
@@ -812,12 +905,19 @@ where
         }
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AvengerWindowEvent) {
-        // Process file change events and other custom events
-        let Some(force) = self.user_event_force(&event) else {
-            return;
-        };
-        self.dispatch_avenger_event(event, force);
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: WinitWgpuEvent) {
+        match event {
+            WinitWgpuEvent::App(event) => {
+                // Process file change events and other custom events
+                let Some(force) = self.user_event_force(&event) else {
+                    return;
+                };
+                self.dispatch_avenger_event(event, force);
+            }
+            WinitWgpuEvent::RenderInvalidated(invalidation) => {
+                self.handle_render_invalidation(invalidation);
+            }
+        }
     }
 
     fn window_event(
@@ -883,6 +983,11 @@ where
                         match canvas.render() {
                             Ok(_) => {
                                 self.render_pending = false;
+                                if self.render_invalidation_pending {
+                                    self.last_rendered_render_invalidation_epoch =
+                                        self.last_requested_render_invalidation_epoch;
+                                    self.render_invalidation_pending = false;
+                                }
                                 rendered = true;
                                 // Phase 7 re-baseline: optional continuous render loop to
                                 // measure steady-state surface-draw cost / render-only fps.

@@ -5,7 +5,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use avenger_resource::{ResourceKey, ResourceRequest, ResourceSource};
+use avenger_resource::{
+    RenderInvalidationReason, RenderInvalidationRequest, RenderInvalidationSink, ResourceKey,
+    ResourceRequest, ResourceSource,
+};
 
 use crate::{
     error::AvengerImageError, fetcher::ImageFetcher, ImageResourceResolver, ImageResourceState,
@@ -46,10 +49,11 @@ enum CachedImageState {
     Failed(Arc<str>),
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct ImageResourceCacheInner {
     states: HashMap<ResourceKey, CachedImageState>,
     generation: u64,
+    render_invalidation_sink: Option<Arc<dyn RenderInvalidationSink>>,
 }
 
 /// Shared image-resource cache that loads requested images away from render calls.
@@ -75,6 +79,18 @@ impl ImageResourceCache {
         }
     }
 
+    pub fn with_render_invalidation_sink(self, sink: Arc<dyn RenderInvalidationSink>) -> Self {
+        self.set_render_invalidation_sink(Some(sink));
+        self
+    }
+
+    pub fn set_render_invalidation_sink(&self, sink: Option<Arc<dyn RenderInvalidationSink>>) {
+        self.inner
+            .lock()
+            .expect("image resource cache lock poisoned")
+            .render_invalidation_sink = sink;
+    }
+
     pub fn request(&self, request: ResourceRequest) {
         self.request_image(&request);
     }
@@ -91,12 +107,16 @@ impl ImageResourceCache {
 
     #[cfg(test)]
     fn set_state_for_testing(&self, key: ResourceKey, state: CachedImageState) {
-        let mut inner = self
-            .inner
-            .lock()
-            .expect("image resource cache lock poisoned");
-        inner.states.insert(key, state);
-        inner.generation = inner.generation.wrapping_add(1);
+        let sink = {
+            let mut inner = self
+                .inner
+                .lock()
+                .expect("image resource cache lock poisoned");
+            inner.states.insert(key, state);
+            inner.generation = inner.generation.wrapping_add(1);
+            inner.render_invalidation_sink.clone()
+        };
+        request_image_render_invalidation(sink);
     }
 }
 
@@ -215,9 +235,13 @@ fn spawn_image_load(
             Ok(image) => CachedImageState::Ready(Arc::new(image)),
             Err(error) => CachedImageState::Failed(Arc::from(error.to_string())),
         };
-        let mut inner = inner.lock().expect("image resource cache lock poisoned");
-        inner.states.insert(key, state);
-        inner.generation = inner.generation.wrapping_add(1);
+        let sink = {
+            let mut inner = inner.lock().expect("image resource cache lock poisoned");
+            inner.states.insert(key, state);
+            inner.generation = inner.generation.wrapping_add(1);
+            inner.render_invalidation_sink.clone()
+        };
+        request_image_render_invalidation(sink);
     });
 }
 
@@ -227,14 +251,26 @@ fn spawn_image_load(
     _fetcher: Option<Arc<dyn ImageFetcher>>,
     request: ResourceRequest,
 ) {
-    let mut inner = inner.lock().expect("image resource cache lock poisoned");
-    inner.states.insert(
-        request.key,
-        CachedImageState::Failed(Arc::from(
-            "ImageResourceCache does not provide a wasm image loader; supply a browser resolver",
-        )),
-    );
-    inner.generation = inner.generation.wrapping_add(1);
+    let sink = {
+        let mut inner = inner.lock().expect("image resource cache lock poisoned");
+        inner.states.insert(
+            request.key,
+            CachedImageState::Failed(Arc::from(
+                "ImageResourceCache does not provide a wasm image loader; supply a browser resolver",
+            )),
+        );
+        inner.generation = inner.generation.wrapping_add(1);
+        inner.render_invalidation_sink.clone()
+    };
+    request_image_render_invalidation(sink);
+}
+
+fn request_image_render_invalidation(sink: Option<Arc<dyn RenderInvalidationSink>>) {
+    if let Some(sink) = sink {
+        sink.request_render(RenderInvalidationRequest::now(
+            RenderInvalidationReason::ResourceChanged { kind: "image" },
+        ));
+    }
 }
 
 fn load_resource_image(
@@ -254,7 +290,9 @@ fn load_resource_image(
 mod tests {
     use std::sync::Mutex;
 
-    use avenger_resource::{ResourceCachePolicy, ResourceKind};
+    use avenger_resource::{
+        RenderInvalidationHub, RenderInvalidationReason, ResourceCachePolicy, ResourceKind,
+    };
 
     use super::*;
 
@@ -267,6 +305,22 @@ mod tests {
             source,
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
+        }
+    }
+
+    fn wait_for_image_state(
+        cache: &ImageResourceCache,
+        key: &ResourceKey,
+        is_done: impl Fn(&ImageResourceState) -> bool,
+    ) -> ImageResourceState {
+        let start = Instant::now();
+        loop {
+            let state = cache.image_state(key);
+            if is_done(&state) {
+                return state;
+            }
+            assert!(start.elapsed() < Duration::from_secs(5));
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 
@@ -315,6 +369,104 @@ mod tests {
             cache.image_state(&ResourceKey::new("bad")),
             ImageResourceState::Failed(_)
         ));
+    }
+
+    #[test]
+    fn cache_requests_render_when_data_uri_becomes_ready() {
+        let hub = RenderInvalidationHub::default();
+        let invalidations = Arc::new(Mutex::new(Vec::new()));
+        let invalidations_callback = invalidations.clone();
+        let _subscription = hub.subscribe(Arc::new(move |invalidation| {
+            invalidations_callback
+                .lock()
+                .expect("invalidations lock poisoned")
+                .push(invalidation);
+        }));
+        let cache = ImageResourceCache::new().with_render_invalidation_sink(Arc::new(hub.clone()));
+        let key = ResourceKey::new("tiny");
+
+        cache.request(image_request(
+            "tiny",
+            ResourceSource::DataUri {
+                data_uri: TINY_PNG_DATA_URI.to_string(),
+            },
+        ));
+
+        let state = wait_for_image_state(&cache, &key, |state| {
+            matches!(state, ImageResourceState::Ready(_))
+        });
+        assert!(matches!(state, ImageResourceState::Ready(_)));
+
+        let invalidations = invalidations.lock().expect("invalidations lock poisoned");
+        assert_eq!(invalidations.len(), 1);
+        assert!(matches!(
+            invalidations[0].reason,
+            RenderInvalidationReason::ResourceChanged { kind: "image" }
+        ));
+    }
+
+    #[test]
+    fn cache_requests_render_when_resource_fails() {
+        let hub = RenderInvalidationHub::default();
+        let invalidations = Arc::new(Mutex::new(Vec::new()));
+        let invalidations_callback = invalidations.clone();
+        let _subscription = hub.subscribe(Arc::new(move |invalidation| {
+            invalidations_callback
+                .lock()
+                .expect("invalidations lock poisoned")
+                .push(invalidation);
+        }));
+        let cache = ImageResourceCache::new().with_render_invalidation_sink(Arc::new(hub.clone()));
+        let key = ResourceKey::new("bad");
+
+        cache.request(image_request(
+            "bad",
+            ResourceSource::Opaque {
+                provider: "test".to_string(),
+                id: "bad".to_string(),
+            },
+        ));
+
+        let state = wait_for_image_state(&cache, &key, |state| {
+            matches!(state, ImageResourceState::Failed(_))
+        });
+        assert!(matches!(state, ImageResourceState::Failed(_)));
+
+        let invalidations = invalidations.lock().expect("invalidations lock poisoned");
+        assert_eq!(invalidations.len(), 1);
+    }
+
+    #[test]
+    fn cache_render_invalidation_callback_can_query_image_state() {
+        let hub = RenderInvalidationHub::default();
+        let cache = ImageResourceCache::new().with_render_invalidation_sink(Arc::new(hub.clone()));
+        let key = ResourceKey::new("tiny");
+        let cache_for_callback = cache.clone();
+        let key_for_callback = key.clone();
+        let callback_count = Arc::new(Mutex::new(0usize));
+        let callback_count_for_callback = callback_count.clone();
+        let _subscription = hub.subscribe(Arc::new(move |_| {
+            let _state = cache_for_callback.image_state(&key_for_callback);
+            *callback_count_for_callback
+                .lock()
+                .expect("callback count lock poisoned") += 1;
+        }));
+
+        cache.request(image_request(
+            "tiny",
+            ResourceSource::DataUri {
+                data_uri: TINY_PNG_DATA_URI.to_string(),
+            },
+        ));
+
+        let state = wait_for_image_state(&cache, &key, |state| {
+            matches!(state, ImageResourceState::Ready(_))
+        });
+        assert!(matches!(state, ImageResourceState::Ready(_)));
+        assert_eq!(
+            *callback_count.lock().expect("callback count lock poisoned"),
+            1
+        );
     }
 
     #[test]

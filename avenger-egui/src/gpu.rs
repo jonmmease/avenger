@@ -12,6 +12,7 @@ use std::{
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::{
+    canvas::CanvasConfig,
     error::AvengerWgpuError,
     offscreen::{OffscreenTargetDescriptor, OffscreenTargetPool, RenderedOffscreenFrame},
     renderer::{AvengerRendererConfig, AvengerWgpuRenderer},
@@ -26,6 +27,7 @@ pub struct TextureRenderStatus {
     pub texture_generation: Option<u64>,
     pub scene_generation: Option<u64>,
     pub dimensions: Option<CanvasDimensions>,
+    pub render_invalidation_epoch: Option<u64>,
     pub render_pending: bool,
 }
 
@@ -34,6 +36,7 @@ struct EguiTextureRegistryState {
     registered_generation: Option<u64>,
     registered_scene_generation: Option<u64>,
     registered_dimensions: Option<CanvasDimensions>,
+    registered_render_invalidation_epoch: Option<u64>,
     consumed_render_generation: Option<u64>,
 }
 
@@ -44,6 +47,7 @@ impl EguiTextureRegistryState {
             registered_generation: None,
             registered_scene_generation: None,
             registered_dimensions: None,
+            registered_render_invalidation_epoch: None,
             consumed_render_generation: None,
         }
     }
@@ -55,6 +59,7 @@ impl EguiTextureRegistryState {
         target_generation: u64,
         scene_generation: Option<u64>,
         dimensions: CanvasDimensions,
+        render_invalidation_epoch: u64,
         metrics: &StdMutex<CanvasMetrics>,
     ) -> egui::TextureId {
         let texture_publish_start = StdInstant::now();
@@ -80,6 +85,7 @@ impl EguiTextureRegistryState {
         self.registered_generation = Some(target_generation);
         self.registered_scene_generation = scene_generation;
         self.registered_dimensions = Some(dimensions);
+        self.registered_render_invalidation_epoch = Some(render_invalidation_epoch);
         update_metrics(metrics, |metrics| {
             if reused_texture_id {
                 metrics.texture_updates += 1;
@@ -108,6 +114,7 @@ impl EguiTextureRegistryState {
             rendered.target_generation,
             Some(rendered.scene_generation),
             rendered.dimensions,
+            rendered.render_invalidation_epoch,
             metrics,
         );
         self.consumed_render_generation = Some(rendered.render_generation);
@@ -123,6 +130,7 @@ impl EguiTextureRegistryState {
             texture_generation: self.registered_generation,
             scene_generation: self.registered_scene_generation,
             dimensions: self.registered_dimensions,
+            render_invalidation_epoch: self.registered_render_invalidation_epoch,
             render_pending: false,
         }
     }
@@ -134,6 +142,7 @@ pub(crate) struct EguiCanvasGpuState {
     background: Option<BackgroundRenderController>,
     registry: EguiTextureRegistryState,
     format: wgpu::TextureFormat,
+    canvas_config: CanvasConfig,
 }
 
 impl EguiCanvasGpuState {
@@ -141,6 +150,7 @@ impl EguiCanvasGpuState {
         _device: &wgpu::Device,
         _dimensions: CanvasDimensions,
         format: wgpu::TextureFormat,
+        canvas_config: CanvasConfig,
     ) -> Self {
         Self {
             sync: None,
@@ -148,6 +158,7 @@ impl EguiCanvasGpuState {
             background: None,
             registry: EguiTextureRegistryState::new(),
             format,
+            canvas_config,
         }
     }
 
@@ -156,15 +167,22 @@ impl EguiCanvasGpuState {
         render_state: &egui_wgpu::RenderState,
         scene_graph: &SceneGraph,
         dimensions: CanvasDimensions,
+        render_invalidation_epoch: u64,
         metrics: &StdMutex<CanvasMetrics>,
     ) -> Result<egui::TextureId, AvengerWgpuError> {
         let sync = self.sync.get_or_insert_with(|| {
-            EguiCanvasSyncGpuState::new(&render_state.device, dimensions, self.format)
+            EguiCanvasSyncGpuState::new(
+                &render_state.device,
+                dimensions,
+                self.format,
+                self.canvas_config.clone(),
+            )
         });
         sync.render_scene(
             render_state,
             scene_graph,
             dimensions,
+            render_invalidation_epoch,
             &mut self.registry,
             metrics,
         )
@@ -176,12 +194,19 @@ impl EguiCanvasGpuState {
         scene_generation: u64,
         scene_graph: Arc<SceneGraph>,
         dimensions: CanvasDimensions,
+        render_invalidation_epoch: u64,
         repaint: Option<egui::Context>,
         metrics: Arc<StdMutex<CanvasMetrics>>,
     ) -> Result<TextureRenderStatus, AvengerWgpuError> {
         #[cfg(target_arch = "wasm32")]
         {
-            self.render_scene(render_state, &scene_graph, dimensions, metrics.as_ref())?;
+            self.render_scene_with_invalidation_epoch(
+                render_state,
+                &scene_graph,
+                dimensions,
+                render_invalidation_epoch,
+                metrics.as_ref(),
+            )?;
             let mut status = self.registry.status();
             status.scene_generation = Some(scene_generation);
             self.registry.registered_scene_generation = Some(scene_generation);
@@ -195,6 +220,7 @@ impl EguiCanvasGpuState {
                     render_state.device.clone(),
                     render_state.queue.clone(),
                     self.format,
+                    self.canvas_config.clone(),
                     metrics.clone(),
                 )
             });
@@ -205,6 +231,7 @@ impl EguiCanvasGpuState {
                 scene_generation,
                 scene_graph,
                 dimensions,
+                render_invalidation_epoch,
                 self.format,
                 repaint,
                 metrics.as_ref(),
@@ -223,6 +250,33 @@ impl EguiCanvasGpuState {
 
     pub(crate) fn texture_id(&self) -> Option<egui::TextureId> {
         self.registry.texture_id
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn render_scene_with_invalidation_epoch(
+        &mut self,
+        render_state: &egui_wgpu::RenderState,
+        scene_graph: &SceneGraph,
+        dimensions: CanvasDimensions,
+        render_invalidation_epoch: u64,
+        metrics: &StdMutex<CanvasMetrics>,
+    ) -> Result<egui::TextureId, AvengerWgpuError> {
+        let sync = self.sync.get_or_insert_with(|| {
+            EguiCanvasSyncGpuState::new(
+                &render_state.device,
+                dimensions,
+                self.format,
+                self.canvas_config.clone(),
+            )
+        });
+        sync.render_scene(
+            render_state,
+            scene_graph,
+            dimensions,
+            render_invalidation_epoch,
+            &mut self.registry,
+            metrics,
+        )
     }
 
     pub(crate) fn frame_status(&self) -> FrameStatus {
@@ -255,6 +309,9 @@ impl EguiCanvasGpuState {
             render_pending: background_status.render_pending,
             latest_texture_scene_generation: self.registry.registered_scene_generation,
             requested_texture_scene_generation: background_status.requested_scene_generation,
+            latest_render_invalidation_epoch: self.registry.registered_render_invalidation_epoch,
+            requested_render_invalidation_epoch: background_status
+                .requested_render_invalidation_epoch,
             gpu_render_pending: background_status.render_pending,
             texture_render_mode,
         }
@@ -272,10 +329,13 @@ impl EguiCanvasSyncGpuState {
         device: &wgpu::Device,
         dimensions: CanvasDimensions,
         format: wgpu::TextureFormat,
+        canvas_config: CanvasConfig,
     ) -> Self {
         let renderer = AvengerWgpuRenderer::new(
             device,
-            AvengerRendererConfig::new(dimensions, format).with_sample_count(1),
+            AvengerRendererConfig::new(dimensions, format)
+                .with_sample_count(1)
+                .with_canvas_config(canvas_config),
         );
         let targets = OffscreenTargetPool::triple_buffered(
             device,
@@ -294,6 +354,7 @@ impl EguiCanvasSyncGpuState {
         render_state: &egui_wgpu::RenderState,
         scene_graph: &SceneGraph,
         dimensions: CanvasDimensions,
+        render_invalidation_epoch: u64,
         registry: &mut EguiTextureRegistryState,
         metrics: &StdMutex<CanvasMetrics>,
     ) -> Result<egui::TextureId, AvengerWgpuError> {
@@ -341,6 +402,7 @@ impl EguiCanvasSyncGpuState {
             rendered.generation,
             None,
             dimensions,
+            render_invalidation_epoch,
             metrics,
         );
         tracing::debug!(
@@ -357,6 +419,7 @@ impl EguiCanvasSyncGpuState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RenderRequestKey {
     pub(crate) scene_generation: u64,
+    pub(crate) render_invalidation_epoch: u64,
     pub(crate) width_bits: u32,
     pub(crate) height_bits: u32,
     pub(crate) scale_bits: u32,
@@ -366,11 +429,13 @@ pub(crate) struct RenderRequestKey {
 impl RenderRequestKey {
     pub(crate) fn new(
         scene_generation: u64,
+        render_invalidation_epoch: u64,
         dimensions: CanvasDimensions,
         format: wgpu::TextureFormat,
     ) -> Self {
         Self {
             scene_generation,
+            render_invalidation_epoch,
             width_bits: dimensions.size[0].to_bits(),
             height_bits: dimensions.size[1].to_bits(),
             scale_bits: dimensions.scale.to_bits(),
@@ -384,6 +449,7 @@ impl RenderRequestKey {
 pub(crate) struct BackgroundRenderRequest {
     pub(crate) render_generation: u64,
     pub(crate) scene_generation: u64,
+    pub(crate) render_invalidation_epoch: u64,
     pub(crate) scene_graph: Arc<SceneGraph>,
     pub(crate) dimensions: CanvasDimensions,
     pub(crate) format: wgpu::TextureFormat,
@@ -395,6 +461,7 @@ pub(crate) struct BackgroundRenderRequest {
 pub(crate) struct RenderedCanvasTexture {
     pub(crate) render_generation: u64,
     pub(crate) scene_generation: u64,
+    pub(crate) render_invalidation_epoch: u64,
     pub(crate) target_generation: u64,
     pub(crate) dimensions: CanvasDimensions,
     pub(crate) view: wgpu::TextureView,
@@ -405,6 +472,7 @@ pub(crate) struct RenderedCanvasTexture {
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct BackgroundRenderStatus {
     pub(crate) requested_scene_generation: Option<u64>,
+    pub(crate) requested_render_invalidation_epoch: Option<u64>,
     pub(crate) render_pending: bool,
 }
 
@@ -413,6 +481,7 @@ pub(crate) struct BackgroundRenderStatus {
 pub(crate) struct BackgroundRenderState {
     pub(crate) next_render_generation: u64,
     pub(crate) requested_scene_generation: Option<u64>,
+    pub(crate) requested_render_invalidation_epoch: Option<u64>,
     pub(crate) last_requested_key: Option<RenderRequestKey>,
     pub(crate) pending_request: Option<BackgroundRenderRequest>,
     pub(crate) latest_rendered: Option<Arc<RenderedCanvasTexture>>,
@@ -437,11 +506,17 @@ impl BackgroundRenderState {
         scene_generation: u64,
         scene_graph: Arc<SceneGraph>,
         dimensions: CanvasDimensions,
+        render_invalidation_epoch: u64,
         format: wgpu::TextureFormat,
         repaint: Option<egui::Context>,
         requested_at: StdInstant,
     ) -> BackgroundEnqueueResult {
-        let key = RenderRequestKey::new(scene_generation, dimensions, format);
+        let key = RenderRequestKey::new(
+            scene_generation,
+            render_invalidation_epoch,
+            dimensions,
+            format,
+        );
         if self.last_requested_key == Some(key) {
             return BackgroundEnqueueResult::default();
         }
@@ -453,6 +528,7 @@ impl BackgroundRenderState {
             .replace(BackgroundRenderRequest {
                 render_generation,
                 scene_generation,
+                render_invalidation_epoch,
                 scene_graph,
                 dimensions,
                 format,
@@ -462,6 +538,7 @@ impl BackgroundRenderState {
             .is_some();
         self.last_requested_key = Some(key);
         self.requested_scene_generation = Some(scene_generation);
+        self.requested_render_invalidation_epoch = Some(render_invalidation_epoch);
 
         BackgroundEnqueueResult {
             render_generation: Some(render_generation),
@@ -596,12 +673,14 @@ impl BackgroundRenderController {
         device: wgpu::Device,
         queue: wgpu::Queue,
         format: wgpu::TextureFormat,
+        canvas_config: CanvasConfig,
         metrics: Arc<StdMutex<CanvasMetrics>>,
     ) -> Self {
         Self::new_with_hooks(
             device,
             queue,
             format,
+            canvas_config,
             metrics,
             BackgroundRenderWorkerHooks::from_env(),
         )
@@ -612,16 +691,18 @@ impl BackgroundRenderController {
         device: wgpu::Device,
         queue: wgpu::Queue,
         format: wgpu::TextureFormat,
+        canvas_config: CanvasConfig,
         metrics: Arc<StdMutex<CanvasMetrics>>,
         hooks: BackgroundRenderWorkerHooks,
     ) -> Self {
-        Self::new_with_hooks(device, queue, format, metrics, hooks)
+        Self::new_with_hooks(device, queue, format, canvas_config, metrics, hooks)
     }
 
     fn new_with_hooks(
         device: wgpu::Device,
         queue: wgpu::Queue,
         format: wgpu::TextureFormat,
+        canvas_config: CanvasConfig,
         metrics: Arc<StdMutex<CanvasMetrics>>,
         hooks: BackgroundRenderWorkerHooks,
     ) -> Self {
@@ -635,6 +716,7 @@ impl BackgroundRenderController {
                     device,
                     queue,
                     format,
+                    canvas_config,
                     metrics.as_ref(),
                     hooks,
                 );
@@ -652,6 +734,7 @@ impl BackgroundRenderController {
         scene_generation: u64,
         scene_graph: Arc<SceneGraph>,
         dimensions: CanvasDimensions,
+        render_invalidation_epoch: u64,
         format: wgpu::TextureFormat,
         repaint: Option<egui::Context>,
         metrics: &StdMutex<CanvasMetrics>,
@@ -665,6 +748,7 @@ impl BackgroundRenderController {
             scene_generation,
             scene_graph,
             dimensions,
+            render_invalidation_epoch,
             format,
             repaint,
             StdInstant::now(),
@@ -681,6 +765,7 @@ impl BackgroundRenderController {
         tracing::debug!(
             render_generation,
             scene_generation,
+            render_invalidation_epoch,
             "queued background avenger canvas texture render"
         );
         self.shared.notify.notify_one();
@@ -754,6 +839,7 @@ impl BackgroundRenderController {
             .expect("avenger egui render-worker lock poisoned");
         BackgroundRenderStatus {
             requested_scene_generation: state.requested_scene_generation,
+            requested_render_invalidation_epoch: state.requested_render_invalidation_epoch,
             render_pending: state.is_pending(),
         }
     }
@@ -783,6 +869,7 @@ fn run_background_render_worker(
     device: wgpu::Device,
     queue: wgpu::Queue,
     format: wgpu::TextureFormat,
+    canvas_config: CanvasConfig,
     metrics: &StdMutex<CanvasMetrics>,
     hooks: BackgroundRenderWorkerHooks,
 ) {
@@ -819,6 +906,7 @@ fn run_background_render_worker(
             &device,
             &queue,
             format,
+            canvas_config.clone(),
             &mut renderer,
             &mut targets,
             &request,
@@ -851,6 +939,7 @@ fn render_background_request(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     _default_format: wgpu::TextureFormat,
+    canvas_config: CanvasConfig,
     renderer: &mut Option<AvengerWgpuRenderer>,
     targets: &mut Option<OffscreenTargetPool>,
     request: &BackgroundRenderRequest,
@@ -861,7 +950,9 @@ fn render_background_request(
     let renderer = renderer.get_or_insert_with(|| {
         AvengerWgpuRenderer::new(
             device,
-            AvengerRendererConfig::new(request.dimensions, format).with_sample_count(1),
+            AvengerRendererConfig::new(request.dimensions, format)
+                .with_sample_count(1)
+                .with_canvas_config(canvas_config),
         )
     });
     renderer.resize(request.dimensions);
@@ -928,6 +1019,7 @@ fn render_background_request(
     Ok(Some(RenderedCanvasTexture {
         render_generation: request.render_generation,
         scene_generation: request.scene_generation,
+        render_invalidation_epoch: request.render_invalidation_epoch,
         target_generation: rendered.generation,
         dimensions: request.dimensions,
         view,
@@ -1021,6 +1113,8 @@ pub struct FrameStatus {
     pub render_pending: bool,
     pub latest_texture_scene_generation: Option<u64>,
     pub requested_texture_scene_generation: Option<u64>,
+    pub latest_render_invalidation_epoch: Option<u64>,
+    pub requested_render_invalidation_epoch: Option<u64>,
     pub gpu_render_pending: bool,
     pub texture_render_mode: TextureRenderMode,
 }
