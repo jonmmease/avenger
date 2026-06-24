@@ -27,6 +27,30 @@ async fn facet_shared_webmercator_viewport_unions_projected_bounds() {
 }
 
 #[tokio::test]
+async fn facet_shared_webmercator_fixed_center_infers_zoom_from_all_panels() {
+    let ctx = SessionContext::new();
+    let evaluated = facet_webmercator_plot_with_coord(
+        &ctx,
+        WebMercator::new().center_projected(0.0, 0.0),
+        CoordinationScope::Shared,
+    )
+    .await
+    .expect("evaluate fixed-center shared WebMercator facet");
+    let scopes = coordinate_scopes(&evaluated);
+
+    assert_eq!(scopes.len(), 2);
+    assert_domains_close(x_domain(scopes[0]), x_domain(scopes[1]));
+    assert_domains_close(y_domain(scopes[0]), y_domain(scopes[1]));
+    assert_close(domain_center(x_domain(scopes[0])), 0.0);
+    assert_close(domain_center(y_domain(scopes[0])), 0.0);
+
+    let left = project_lon_lat(-1.0, 0.0);
+    let right = project_lon_lat(21.0, 0.0);
+    let shared_x = x_domain(scopes[0]);
+    assert!(shared_x.0 <= left.x && right.x <= shared_x.1);
+}
+
+#[tokio::test]
 async fn facet_free_webmercator_viewports_fit_each_panel_independently() {
     let ctx = SessionContext::new();
     let evaluated = facet_webmercator_plot(&ctx, CoordinationScope::Free)
@@ -143,6 +167,14 @@ async fn facet_webmercator_plot(
     ctx: &SessionContext,
     sharing: CoordinationScope,
 ) -> Result<avenger_chart::render::EvaluatedPlot, avenger_chart::prelude::AvengerChartError> {
+    facet_webmercator_plot_with_coord(ctx, WebMercator::new(), sharing).await
+}
+
+async fn facet_webmercator_plot_with_coord(
+    ctx: &SessionContext,
+    coord: WebMercator,
+    sharing: CoordinationScope,
+) -> Result<avenger_chart::render::EvaluatedPlot, avenger_chart::prelude::AvengerChartError> {
     let df = ctx
         .sql(
             "SELECT 'left' AS panel, -1.0 AS lon, 0.0 AS lat \
@@ -151,7 +183,7 @@ async fn facet_webmercator_plot(
              UNION ALL SELECT 'right' AS panel, 21.0 AS lon, 0.0 AS lat",
         )
         .await?;
-    let child = Plot::with_coord(WebMercator::new()).mark(
+    let child = Plot::with_coord(coord).mark(
         Symbol::new()
             .longitude_with(col("lon"), |x| x.with_domain_scope(sharing))
             .latitude_with(col("lat"), |y| y.with_domain_scope(sharing))
@@ -232,6 +264,10 @@ fn numeric_domain(scope: &EvaluatedInteractionScope, channel: &str) -> (f64, f64
 fn assert_domains_close(actual: (f64, f64), expected: (f64, f64)) {
     assert_close(actual.0, expected.0);
     assert_close(actual.1, expected.1);
+}
+
+fn domain_center(domain: (f64, f64)) -> f64 {
+    (domain.0 + domain.1) / 2.0
 }
 
 fn assert_close(actual: f64, expected: f64) {
