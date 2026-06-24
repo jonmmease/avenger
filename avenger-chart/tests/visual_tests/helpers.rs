@@ -13,7 +13,10 @@ use avenger_scenegraph::image_resources::resolve_ready_image_resources;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_svg::{SvgRenderOptions, SvgRenderer};
 use avenger_text::{FontResolutionOptions, MissingFontPolicy};
-use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+use avenger_wgpu::{
+    canvas::{Canvas, CanvasConfig, PngCanvas},
+    image_resources::WgpuImageResourceStatus,
+};
 use datafusion::common::ScalarValue;
 use image::RgbaImage;
 use indexmap::IndexMap;
@@ -233,21 +236,32 @@ async fn evaluate_compiled_plot_with_options(
 }
 
 pub async fn render_scene_graph_to_wgpu_image(scene_graph: &SceneGraph) -> RgbaImage {
+    render_scene_graph_to_wgpu_image_with_config(scene_graph, CanvasConfig::default())
+        .await
+        .0
+}
+
+pub async fn render_scene_graph_to_wgpu_image_with_config(
+    scene_graph: &SceneGraph,
+    config: CanvasConfig,
+) -> (RgbaImage, WgpuImageResourceStatus) {
     let dimensions = CanvasDimensions {
         size: [scene_graph.width, scene_graph.height],
         scale: DEFAULT_SCALE,
     };
 
-    let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
+    let mut canvas = PngCanvas::new(dimensions, config)
         .await
         .expect("Failed to create visual test canvas");
     canvas
         .set_scene(scene_graph)
         .expect("Failed to set visual test scene");
-    canvas
+    let image = canvas
         .render()
         .await
-        .expect("Failed to render visual test scene")
+        .expect("Failed to render visual test scene");
+    let status = canvas.image_resource_status().clone();
+    (image, status)
 }
 
 /// Helper to get platform-specific baseline path
@@ -1032,6 +1046,66 @@ pub async fn assert_visual_match_with_image_resolver(
         Some(resolver),
     )
     .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn assert_visual_match_wgpu_only_with_canvas_config(
+    compiled: &CompiledPlot,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+    category: &str,
+    baseline_name: &str,
+    tolerance: f64,
+    canvas_config: CanvasConfig,
+) -> (WgpuImageResourceStatus, WgpuImageResourceStatus) {
+    try_init_tracing();
+
+    let baseline_path = get_baseline_path(category, baseline_name);
+    let (direct_result, serialized_result) =
+        evaluate_compiled_plot_with_serialization(compiled, ctx, params).await;
+    let (direct_image, direct_status) = render_scene_graph_to_wgpu_image_with_config(
+        &direct_result.scene_graph,
+        canvas_config.clone(),
+    )
+    .await;
+    let (serialized_image, serialized_status) =
+        render_scene_graph_to_wgpu_image_with_config(&serialized_result.scene_graph, canvas_config)
+            .await;
+
+    let config = VisualTestConfig {
+        threshold: tolerance,
+        save_diff_on_failure: true,
+    };
+
+    if bless_wgpu_baselines_enabled() {
+        write_wgpu_baseline(&baseline_path, &direct_image);
+    }
+
+    if let Err(msg) = compare_images(&baseline_path, direct_image.clone(), &config) {
+        panic!(
+            "Visual test '{}' failed (direct WGPU-only rendering): {}",
+            baseline_name, msg
+        );
+    }
+
+    if let Err(msg) = compare_images(&baseline_path, serialized_image.clone(), &config) {
+        panic!(
+            "Visual test '{}' failed (serialized WGPU-only rendering): {}",
+            baseline_name, msg
+        );
+    }
+
+    let comparison = image_compare::rgba_hybrid_compare(&direct_image, &serialized_image)
+        .expect("Failed to compare direct and serialized WGPU-only renders");
+    if comparison.score < 0.99999 {
+        tracing::warn!(
+            baseline_name = baseline_name,
+            similarity = comparison.score,
+            "Serialization round-trip changed WGPU-only rendering"
+        );
+    }
+
+    (direct_status, serialized_status)
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -1,11 +1,18 @@
 use std::{collections::HashMap, sync::Arc};
 
-use super::helpers::{assert_visual_match_default, assert_visual_match_with_image_resolver};
+use super::helpers::{
+    assert_visual_match_default, assert_visual_match_wgpu_only_with_canvas_config,
+    assert_visual_match_with_image_resolver,
+};
 use avenger_chart::plot::CompiledPlot;
 use avenger_chart::prelude::*;
 use avenger_chart_webmercator::{Symbol, WebMercator, WebMercatorSymbolPositionChannels};
 use avenger_image::{ImageResourceResolver, ImageResourceState, RgbaImage as AvengerRgbaImage};
 use avenger_resource::ResourceKey;
+use avenger_wgpu::{
+    canvas::CanvasConfig,
+    image_resources::{WgpuImagePlaceholder, WgpuImageResourceConfig, WgpuMissingImagePolicy},
+};
 use datafusion::prelude::{SessionContext, col};
 
 const CATEGORY: &str = "webmercator";
@@ -86,6 +93,26 @@ fn osm_tile_layer() -> avenger_chart_webmercator::RasterTileLayer {
     .max_zoom(1)
     .attribution("OpenStreetMap contributors")
     .zindex(-100)
+}
+
+fn osm_tile_reference_plot(title: &'static str) -> Plot<WebMercator> {
+    Plot::with_coord(
+        WebMercator::new()
+            .center_lon_lat(0.0, 30.0)
+            .zoom(1.0)
+            .tiles(osm_tile_layer()),
+    )
+    .plot_size(512.0, 256.0)
+    .canvas_size(560.0, 340.0)
+    .title(title)
+    .mark(
+        Symbol::new()
+            .longitude(0.0)
+            .latitude(0.0)
+            .size(140.0)
+            .fill("#dc2626")
+            .stroke("#111827"),
+    )
 }
 
 #[tokio::test]
@@ -272,26 +299,79 @@ async fn repeat_shared_fit() {
 #[tokio::test]
 async fn tiles_wide_square_pixels() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(
-        WebMercator::new()
-            .center_lon_lat(0.0, 30.0)
-            .zoom(1.0)
-            .tiles(osm_tile_layer()),
-    )
-    .plot_size(512.0, 256.0)
-    .canvas_size(560.0, 340.0)
-    .title("OSM wide viewport")
-    .mark(
-        Symbol::new()
-            .longitude(0.0)
-            .latitude(0.0)
-            .size(140.0)
-            .fill("#dc2626")
-            .stroke("#111827"),
-    );
+    let plot = osm_tile_reference_plot("OSM wide viewport");
 
     let compiled = plot.compile(&ctx).await.expect("compile wide OSM tiles");
     assert_osm_tile_visual(&compiled, &ctx, "tiles_wide_square_pixels").await;
+}
+
+#[tokio::test]
+async fn tiles_placeholder() {
+    let ctx = SessionContext::new();
+    let plot = osm_tile_reference_plot("OSM tile placeholders");
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile placeholder OSM tiles");
+    let resolver: Arc<dyn ImageResourceResolver> = Arc::new(PendingImageResolver);
+    let (direct_status, serialized_status) = assert_visual_match_wgpu_only_with_canvas_config(
+        &compiled,
+        &ctx,
+        None,
+        CATEGORY,
+        "tiles_placeholder",
+        0.9999,
+        CanvasConfig {
+            image_resource_config: WgpuImageResourceConfig {
+                resolver: Some(resolver),
+                missing_policy: WgpuMissingImagePolicy::DrawPlaceholder,
+                placeholder: WgpuImagePlaceholder::Checkerboard,
+            },
+            ..Default::default()
+        },
+    )
+    .await;
+
+    assert!(
+        !direct_status.pending.is_empty(),
+        "placeholder render should report pending tile resources"
+    );
+    assert_eq!(direct_status.pending, serialized_status.pending);
+    assert!(direct_status.missing.is_empty());
+    assert!(direct_status.failed.is_empty());
+    assert!(serialized_status.missing.is_empty());
+    assert!(serialized_status.failed.is_empty());
+}
+
+#[tokio::test]
+async fn tiles_ready_resource() {
+    let ctx = SessionContext::new();
+    let plot = osm_tile_reference_plot("OSM ready resources");
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile ready-resource OSM tiles");
+    let resolver: Arc<dyn ImageResourceResolver> = Arc::new(OsmFixtureResolver::new());
+    let (direct_status, serialized_status) = assert_visual_match_wgpu_only_with_canvas_config(
+        &compiled,
+        &ctx,
+        None,
+        CATEGORY,
+        "tiles_ready_resource",
+        0.9999,
+        CanvasConfig {
+            image_resource_config: WgpuImageResourceConfig {
+                resolver: Some(resolver),
+                missing_policy: WgpuMissingImagePolicy::DrawPlaceholder,
+                placeholder: WgpuImagePlaceholder::Checkerboard,
+            },
+            ..Default::default()
+        },
+    )
+    .await;
+
+    assert!(direct_status.is_empty(), "{direct_status:?}");
+    assert!(serialized_status.is_empty(), "{serialized_status:?}");
 }
 
 #[tokio::test]
@@ -469,6 +549,16 @@ impl ImageResourceResolver for OsmFixtureResolver {
             .cloned()
             .map(ImageResourceState::Ready)
             .unwrap_or(ImageResourceState::Missing)
+    }
+
+    fn request_image(&self, _request: &avenger_resource::ResourceRequest) {}
+}
+
+struct PendingImageResolver;
+
+impl ImageResourceResolver for PendingImageResolver {
+    fn image_state(&self, _key: &ResourceKey) -> ImageResourceState {
+        ImageResourceState::Pending
     }
 
     fn request_image(&self, _request: &avenger_resource::ResourceRequest) {}
