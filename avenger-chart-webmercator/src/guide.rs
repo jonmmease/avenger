@@ -11,7 +11,7 @@ use avenger_common::{
 };
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{
-    group::Clip,
+    group::{Clip, SceneGroup},
     image::{SceneImageMark, SceneImageResource, SceneImageSource, SceneImageUnavailablePolicy},
     mark::SceneMark,
     text::SceneTextMark,
@@ -76,9 +76,9 @@ impl CompiledGuide for WebMercatorGuide {
     async fn evaluate(
         &self,
         _scales: &HashMap<String, ConfiguredScale>,
-        _plot_width: f32,
-        _plot_height: f32,
-        _plot_bounds: &LayoutBounds,
+        plot_width: f32,
+        plot_height: f32,
+        plot_bounds: &LayoutBounds,
         _guide_overflow: &OverflowSpaceRequirement,
         _theme: &Theme,
         _params: &IndexMap<String, ScalarValue>,
@@ -95,7 +95,7 @@ impl CompiledGuide for WebMercatorGuide {
             return Ok(Vec::new());
         };
 
-        let mut marks = Vec::new();
+        let mut plot_area_marks = Vec::new();
         let mut attribution_index = 0usize;
         for layer in &measurement.tile_layers {
             let plan = layer.tile_plan(&measurement.view)?;
@@ -104,10 +104,10 @@ impl CompiledGuide for WebMercatorGuide {
             }
             for planned in plan.rendered_tiles {
                 render_context.request_resource(layer.resource_request(&planned.tile));
-                marks.push(tile_image_mark(layer.zindex_value(), &planned).into());
+                plot_area_marks.push(tile_image_mark(layer.zindex_value(), &planned).into());
             }
             if let Some(attribution) = layer.attribution_text() {
-                marks.push(attribution_mark(
+                plot_area_marks.push(attribution_mark(
                     layer.layer_id(),
                     attribution,
                     render_context.plot_height(),
@@ -116,16 +116,40 @@ impl CompiledGuide for WebMercatorGuide {
                 attribution_index += 1;
             }
         }
-        Ok(marks)
+        if plot_area_marks.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        Ok(vec![
+            SceneGroup {
+                name: "webmercator-guide".to_string(),
+                interactive: false,
+                origin: [plot_bounds.x, plot_bounds.y],
+                clip: Clip::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: plot_width,
+                    height: plot_height,
+                },
+                marks: plot_area_marks,
+                ..Default::default()
+            }
+            .into(),
+        ])
     }
 
     fn get_clip(
         &self,
-        _plot_width: f32,
-        _plot_height: f32,
+        plot_width: f32,
+        plot_height: f32,
         _scales: &HashMap<String, ConfiguredScale>,
     ) -> Clip {
-        Clip::None
+        Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: plot_width,
+            height: plot_height,
+        }
     }
 
     fn as_any(&self) -> &dyn Any {

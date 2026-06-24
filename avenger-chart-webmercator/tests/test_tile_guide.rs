@@ -1,6 +1,7 @@
 use avenger_chart::prelude::Plot;
 use avenger_chart::{
     doc::render::render_evaluated_plot_to_png,
+    layout::Margins,
     render::{EvaluatedPlot, PdfRenderer, SvgRenderer},
 };
 use avenger_chart_webmercator::{
@@ -8,6 +9,7 @@ use avenger_chart_webmercator::{
 };
 use avenger_resource::{ResourceKey, ResourceRequestPurpose, ResourceSource};
 use avenger_scenegraph::marks::{
+    group::{Clip, SceneGroup},
     image::{SceneImageMark, SceneImageSource, SceneImageUnavailablePolicy},
     mark::SceneMark,
     text::SceneTextMark,
@@ -42,6 +44,57 @@ async fn tile_guide_requests_resources_and_renders_image_marks() {
     let text_marks = collect_text_marks(evaluated.scene_graph.children());
     assert_eq!(text_marks.len(), 1);
     assert_eq!(text_marks[0].text_iter().next().unwrap(), "Example tiles");
+}
+
+#[tokio::test]
+async fn tile_guide_honors_plot_area_origin_and_clip() {
+    let ctx = SessionContext::new();
+    let coord = WebMercator::new()
+        .viewport(
+            WebMercatorViewport::new()
+                .center_lon_lat(0.0, 0.0)
+                .zoom(0.0),
+        )
+        .tiles(
+            RasterTileLayer::xyz(TINY_PNG_DATA_URI)
+                .id("base")
+                .max_zoom(0),
+        );
+
+    let evaluated = Plot::with_coord(coord)
+        .canvas_size(300.0, 260.0)
+        .margins(Margins::uniform(20.0))
+        .compile(&ctx)
+        .await
+        .expect("compile")
+        .evaluate(&ctx, None)
+        .await
+        .expect("evaluate");
+
+    let guide_group =
+        find_group(evaluated.scene_graph.children(), "webmercator-guide").expect("guide group");
+    assert_eq!(guide_group.origin, [20.0, 20.0]);
+    assert_eq!(
+        guide_group.clip,
+        Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 260.0,
+            height: 220.0,
+        }
+    );
+
+    let data_group = first_root_child_group(evaluated.scene_graph.children()).expect("data group");
+    assert_eq!(data_group.origin, [20.0, 20.0]);
+    assert_eq!(
+        data_group.clip,
+        Clip::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 260.0,
+            height: 220.0,
+        }
+    );
 }
 
 #[tokio::test]
@@ -217,4 +270,29 @@ fn collect_text_marks_inner<'a>(marks: &'a [SceneMark], out: &mut Vec<&'a SceneT
             _ => {}
         }
     }
+}
+
+fn find_group<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a SceneGroup> {
+    for mark in marks {
+        let SceneMark::Group(group) = mark else {
+            continue;
+        };
+        if group.name == name {
+            return Some(group);
+        }
+        if let Some(group) = find_group(&group.marks, name) {
+            return Some(group);
+        }
+    }
+    None
+}
+
+fn first_root_child_group(marks: &[SceneMark]) -> Option<&SceneGroup> {
+    let SceneMark::Group(root) = marks.first()? else {
+        return None;
+    };
+    root.marks.iter().find_map(|mark| match mark {
+        SceneMark::Group(group) if group.name != "webmercator-guide" => Some(group),
+        _ => None,
+    })
 }
