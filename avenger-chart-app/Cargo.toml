@@ -38,6 +38,7 @@ typetag = "0.2"
 winit = { workspace = true, optional = true }
 
 [dev-dependencies]
+avenger-chart-webmercator = { path = "../avenger-chart-webmercator" }
 env_logger = "0.10"
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -60,6 +61,10 @@ required-features = ["winit-wgpu"]
 
 [[example]]
 name = "cartesian_image_mark"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "webmercator_tiles"
 required-features = ["winit-wgpu"]
 
 [[example]]
