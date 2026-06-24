@@ -34,7 +34,17 @@ async fn pan_zoom_tool_registers_viewport_params_and_bindings() {
             .param_specs()
             .contains_key("__webmercator_main_units_per_pixel")
     );
-    assert_eq!(compiled.event_bindings().len(), 4);
+    assert!(
+        compiled
+            .param_specs()
+            .contains_key("__tool_webmercator_pan_zoom__box_active")
+    );
+    assert!(
+        compiled
+            .param_specs()
+            .contains_key("__tool_webmercator_pan_zoom__box_x0")
+    );
+    assert_eq!(compiled.event_bindings().len(), 7);
     assert!(compiled.tool_metadata().iter().any(|meta| {
         meta.id == "webmercator_pan_zoom"
             && meta.enabled_param.as_deref() == Some("__tool_webmercator_pan_zoom__enabled")

@@ -1,3 +1,4 @@
+pub mod rect;
 pub mod symbol;
 
 use std::sync::Arc;
@@ -15,6 +16,7 @@ use crate::{
     projection::{EARTH_RADIUS_M, WEB_MERCATOR_MAX_LAT},
 };
 
+pub use rect::CompiledWebMercatorRect;
 pub use symbol::CompiledWebMercatorSymbol;
 
 pub type WebMercatorPositionConfig = GenericPositionConfig<()>;

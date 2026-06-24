@@ -1,19 +1,27 @@
 use avenger_app::app::AvengerApp;
 use avenger_chart::{prelude::Plot, render::InteractionScopeKind};
-use avenger_chart_app::{ChartAppOptions, ChartAppState, chart_avenger_app};
-use avenger_chart_webmercator::{WebMercator, WebMercatorPanZoom};
+use avenger_chart_app::{
+    ChartAppOptions, ChartAppState, ChartRuntimeResources, chart_avenger_app,
+    chart_avenger_app_with_runtime_resources,
+};
+use avenger_chart_webmercator::{RasterTileLayer, WebMercator, WebMercatorPanZoom};
 use avenger_common::time::{Duration, Instant};
 use avenger_eventstream::window::{
     ElementState, Key, MouseButton, MouseScrollDelta, NamedKey, WindowCursorMoved, WindowEvent,
     WindowKeyboardInput, WindowMouseInput, WindowMouseWheel,
 };
+use avenger_image::{ImageResourceResolver, ImageResourceState};
+use avenger_resource::{RenderInvalidationHub, ResourceKey, ResourceRequest};
 use datafusion::{common::ScalarValue, prelude::SessionContext};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 const VIEWPORT_ID: &str = "main";
 const CENTER_X_PARAM: &str = "__webmercator_main_center_x";
 const CENTER_Y_PARAM: &str = "__webmercator_main_center_y";
 const UNITS_PER_PIXEL_PARAM: &str = "__webmercator_main_units_per_pixel";
+const BOX_ACTIVE_PARAM: &str = "__tool_webmercator_pan_zoom__box_active";
+const BOX_X0_PARAM: &str = "__tool_webmercator_pan_zoom__box_x0";
+const BOX_X1_PARAM: &str = "__tool_webmercator_pan_zoom__box_x1";
 
 #[tokio::test]
 async fn pan_drag_updates_webmercator_viewport_params() {
@@ -146,14 +154,121 @@ async fn shift_drag_box_zoom_commits_viewport_aspect_selection() {
         param_f64(&state, UNITS_PER_PIXEL_PARAM),
         initial_units * 0.5,
     );
+    assert!(!param_bool(&state, BOX_ACTIVE_PARAM));
+}
+
+#[tokio::test]
+async fn shift_drag_box_zoom_previews_viewport_aspect_overlay_without_committing() {
+    let (mut app, state) = app_with_webmercator_pan_zoom().await;
+    let scope = coordinate_scope(&state).await;
+    let bounds = scope.bounds;
+    let center = scope_center(&scope);
+    let start_pos = [
+        center[0] - bounds.width * 0.25,
+        center[1] + bounds.height * 0.25,
+    ];
+    let end_pos = [
+        center[0] + bounds.width * 0.25,
+        center[1] - bounds.height * 0.25,
+    ];
+    let start = Instant::now();
+
+    dispatch_cursor(&mut app, start_pos, start).await;
+    dispatch_shift(
+        &mut app,
+        ElementState::Pressed,
+        start + Duration::from_millis(1),
+    )
+    .await;
+    dispatch_left_mouse(
+        &mut app,
+        ElementState::Pressed,
+        start + Duration::from_millis(2),
+    )
+    .await;
+    let update = dispatch_cursor(&mut app, end_pos, start + Duration::from_millis(16)).await;
+
+    assert!(update.status.rerender);
+    assert!(!update.status.rebuild_geometry);
+    assert!(param_bool(&state, BOX_ACTIVE_PARAM));
+    assert_ne!(
+        param_f64(&state, BOX_X0_PARAM),
+        param_f64(&state, BOX_X1_PARAM)
+    );
+    assert_null_param(&state, CENTER_X_PARAM);
+    assert_null_param(&state, CENTER_Y_PARAM);
+    assert_null_param(&state, UNITS_PER_PIXEL_PARAM);
+}
+
+#[tokio::test]
+async fn shift_drag_box_zoom_preview_is_nonblocking_with_pending_tiles() {
+    let resolver = Arc::new(PendingImageResolver::default());
+    let resources = ChartRuntimeResources::new(resolver.clone(), RenderInvalidationHub::default());
+    let coord = WebMercator::new()
+        .viewport_id(VIEWPORT_ID)
+        .center_projected(0.0, 0.0)
+        .zoom(1.0)
+        .tiles(
+            RasterTileLayer::xyz("https://example.com/tiles/{z}/{x}/{y}.png")
+                .max_zoom(1)
+                .attribution("Example"),
+        );
+    let (mut app, state) = app_with_webmercator_pan_zoom_and_resources(coord, resources).await;
+    assert!(
+        !state.last_resource_requests().await.is_empty(),
+        "tile guide should request image resources"
+    );
+    assert!(
+        !resolver.requests().is_empty(),
+        "chart app should submit tile image requests to the resolver"
+    );
+
+    let scope = coordinate_scope(&state).await;
+    let bounds = scope.bounds;
+    let center = scope_center(&scope);
+    let start_pos = [
+        center[0] - bounds.width * 0.25,
+        center[1] + bounds.height * 0.25,
+    ];
+    let end_pos = [
+        center[0] + bounds.width * 0.25,
+        center[1] - bounds.height * 0.25,
+    ];
+    let start = Instant::now();
+
+    dispatch_cursor(&mut app, start_pos, start).await;
+    dispatch_shift(
+        &mut app,
+        ElementState::Pressed,
+        start + Duration::from_millis(1),
+    )
+    .await;
+    dispatch_left_mouse(
+        &mut app,
+        ElementState::Pressed,
+        start + Duration::from_millis(2),
+    )
+    .await;
+    let update = dispatch_cursor(&mut app, end_pos, start + Duration::from_millis(16)).await;
+
+    assert!(update.status.rerender);
+    assert!(!update.status.rebuild_geometry);
+    assert!(update.scene_graph.is_some());
+    assert!(param_bool(&state, BOX_ACTIVE_PARAM));
 }
 
 async fn app_with_webmercator_pan_zoom() -> (AvengerApp<ChartAppState>, ChartAppState) {
-    let ctx = Arc::new(SessionContext::new());
     let coord = WebMercator::new()
         .viewport_id(VIEWPORT_ID)
         .center_projected(0.0, 0.0)
         .zoom(1.0);
+    app_with_webmercator_pan_zoom_for_coord(coord).await
+}
+
+async fn app_with_webmercator_pan_zoom_for_coord(
+    coord: WebMercator,
+) -> (AvengerApp<ChartAppState>, ChartAppState) {
+    let ctx = Arc::new(SessionContext::new());
     let compiled = Plot::with_coord(coord)
         .plot_size(400.0, 200.0)
         .tool(WebMercatorPanZoom::new().viewport_id(VIEWPORT_ID))
@@ -163,6 +278,29 @@ async fn app_with_webmercator_pan_zoom() -> (AvengerApp<ChartAppState>, ChartApp
     let mut app = chart_avenger_app(compiled, ctx, ChartAppOptions::default())
         .await
         .expect("create chart app");
+    let state = app.app_state_mut().clone();
+    (app, state)
+}
+
+async fn app_with_webmercator_pan_zoom_and_resources(
+    coord: WebMercator,
+    resources: ChartRuntimeResources,
+) -> (AvengerApp<ChartAppState>, ChartAppState) {
+    let ctx = Arc::new(SessionContext::new());
+    let compiled = Plot::with_coord(coord)
+        .plot_size(400.0, 200.0)
+        .tool(WebMercatorPanZoom::new().viewport_id(VIEWPORT_ID))
+        .compile(ctx.as_ref())
+        .await
+        .expect("compile WebMercator pan/zoom plot");
+    let mut app = chart_avenger_app_with_runtime_resources(
+        compiled,
+        ctx,
+        ChartAppOptions::default(),
+        resources,
+    )
+    .await
+    .expect("create chart app");
     let state = app.app_state_mut().clone();
     (app, state)
 }
@@ -272,9 +410,43 @@ fn param_f64(state: &ChartAppState, name: &str) -> f64 {
         .unwrap_or_else(|| panic!("missing numeric param {name}"))
 }
 
+fn param_bool(state: &ChartAppState, name: &str) -> bool {
+    match state.param_snapshot().params.get(name) {
+        Some(ScalarValue::Boolean(Some(value))) => *value,
+        other => panic!("expected boolean param {name}, got {other:?}"),
+    }
+}
+
 fn assert_null_param(state: &ChartAppState, name: &str) {
     let snapshot = state.param_snapshot();
     assert_eq!(snapshot.params.get(name), Some(&ScalarValue::Float64(None)));
+}
+
+#[derive(Default)]
+struct PendingImageResolver {
+    requests: Mutex<Vec<ResourceRequest>>,
+}
+
+impl PendingImageResolver {
+    fn requests(&self) -> Vec<ResourceRequest> {
+        self.requests
+            .lock()
+            .expect("pending resolver lock poisoned")
+            .clone()
+    }
+}
+
+impl ImageResourceResolver for PendingImageResolver {
+    fn image_state(&self, _key: &ResourceKey) -> ImageResourceState {
+        ImageResourceState::Pending
+    }
+
+    fn request_image(&self, request: &ResourceRequest) {
+        self.requests
+            .lock()
+            .expect("pending resolver lock poisoned")
+            .push(request.clone());
+    }
 }
 
 fn assert_close(actual: f64, expected: f64) {

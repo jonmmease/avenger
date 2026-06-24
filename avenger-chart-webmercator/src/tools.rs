@@ -1,8 +1,9 @@
 use avenger_chart_core::{
-    AvengerChartError, ChartEventBinding, ChartEventStream, ChartEventType, ChartTool,
-    CoordinationScope, Param, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamSharing,
-    event as ev,
+    AvengerChartError, ChannelValue, ChartEventBinding, ChartEventStream, ChartEventType,
+    ChartTool, CoordinationScope, Param, ToolExpansion, ToolExpansionContext, ToolMetadata,
+    ToolParamSharing, event as ev,
 };
+use avenger_chart_marks::Rect;
 use datafusion::{
     common::ScalarValue,
     functions::expr_fn::{abs, power},
@@ -117,6 +118,17 @@ impl WebMercatorPanZoom {
         generated_tool_name(&self.id, "enabled")
     }
 
+    fn active_param_name(&self) -> String {
+        generated_tool_name(&self.id, "box_active")
+    }
+
+    fn overlay_param(&self, suffix: &str) -> Param {
+        Param::new(
+            generated_tool_name(&self.id, suffix),
+            ScalarValue::Float64(Some(0.0)),
+        )
+    }
+
     fn center_x_param_name(&self) -> String {
         webmercator_param_name(&self.viewport_id, "center_x")
     }
@@ -219,16 +231,90 @@ impl ChartTool<WebMercator> for WebMercatorPanZoom {
         }
 
         if self.box_zoom {
+            let active = Param::new(self.active_param_name(), ScalarValue::Boolean(Some(false)));
+            let box_x0 = self.overlay_param("box_x0");
+            let box_y0 = self.overlay_param("box_y0");
+            let box_x1 = self.overlay_param("box_x1");
+            let box_y1 = self.overlay_param("box_y1");
+            let overlay = Rect::<WebMercator>::new()
+                .unit_data()
+                .exclude_from_scale_domains()
+                .visible(ev::param(active.name.as_str()))
+                .with_channel_value("x", ChannelValue::from(box_x0.expr()).with_scale_name("x"))
+                .with_channel_value("y", ChannelValue::from(box_y0.expr()).with_scale_name("y"))
+                .with_channel_value("x2", ChannelValue::from(box_x1.expr()).with_scale_name("x"))
+                .with_channel_value("y2", ChannelValue::from(box_y1.expr()).with_scale_name("y"))
+                .fill("rgba(66, 133, 244, 0.08)")
+                .stroke("#4285f4")
+                .stroke_width(1.5)
+                .zindex(10_000);
+
+            expansion = expansion
+                .param(
+                    active.clone(),
+                    ToolParamSharing::Explicit(CoordinationScope::Free),
+                )
+                .param(
+                    box_x0.clone(),
+                    ToolParamSharing::Explicit(CoordinationScope::Free),
+                )
+                .param(
+                    box_y0.clone(),
+                    ToolParamSharing::Explicit(CoordinationScope::Free),
+                )
+                .param(
+                    box_x1.clone(),
+                    ToolParamSharing::Explicit(CoordinationScope::Free),
+                )
+                .param(
+                    box_y1.clone(),
+                    ToolParamSharing::Explicit(CoordinationScope::Free),
+                )
+                .event_binding(box_zoom_start_binding(
+                    &enabled.name,
+                    &self.drag_button,
+                    &active,
+                    &box_x0,
+                    &box_y0,
+                    &box_x1,
+                    &box_y1,
+                    self.box_zoom_requires_shift,
+                ))
+                .event_binding(box_zoom_drag_binding(
+                    &enabled.name,
+                    &self.drag_button,
+                    &active,
+                    &box_x0,
+                    &box_y0,
+                    &box_x1,
+                    &box_y1,
+                    self.box_zoom_requires_shift,
+                ))
+                .event_binding(box_zoom_cancel_binding(
+                    &enabled.name,
+                    &self.drag_button,
+                    self.box_zoom_min_size_px,
+                    &active,
+                    self.box_zoom_requires_shift,
+                ))
+                .mark(overlay);
+
             expansion = expansion.event_binding(box_zoom_release_binding(
                 &enabled.name,
                 &self.drag_button,
                 &viewport,
                 self.box_zoom_min_size_px,
                 self.box_zoom_requires_shift,
+                &active,
             ));
         }
 
-        expansion = expansion.event_binding(reset_view_binding(&enabled.name, &viewport));
+        let reset_active_param = self.box_zoom.then(|| self.active_param_name());
+        expansion = expansion.event_binding(reset_view_binding(
+            &enabled.name,
+            &viewport,
+            reset_active_param.as_deref(),
+        ));
 
         Ok(expansion)
     }
@@ -317,8 +403,12 @@ fn scroll_zoom_binding(
         .consume(consume_wheel)
 }
 
-fn reset_view_binding(enabled_param: &str, viewport: &ViewportParams) -> ChartEventBinding {
-    ChartEventBinding::on(ChartEventType::DoubleClick)
+fn reset_view_binding(
+    enabled_param: &str,
+    viewport: &ViewportParams,
+    active_param: Option<&str>,
+) -> ChartEventBinding {
+    let mut binding = ChartEventBinding::on(ChartEventType::DoubleClick)
         .filter(ev::param(enabled_param).eq(lit(true)))
         .filter(ev::event_coord("x").is_not_null())
         .filter(ev::event_coord("y").is_not_null())
@@ -328,7 +418,95 @@ fn reset_view_binding(enabled_param: &str, viewport: &ViewportParams) -> ChartEv
             &viewport.units_per_pixel,
             lit(viewport.units_per_pixel.default.clone()),
         )
-        .exact()
+        .exact();
+    if let Some(active_param) = active_param {
+        binding = binding.set_param(active_param, lit(false));
+    }
+    binding
+}
+
+#[allow(clippy::too_many_arguments)]
+fn box_zoom_start_binding(
+    enabled_param: &str,
+    drag_button: &str,
+    active: &Param,
+    box_x0: &Param,
+    box_y0: &Param,
+    box_x1: &Param,
+    box_y1: &Param,
+    requires_shift: bool,
+) -> ChartEventBinding {
+    let mut binding = ChartEventBinding::on(ChartEventType::MouseDown)
+        .filter(ev::param(enabled_param).eq(lit(true)))
+        .filter(ev::button().eq(lit(drag_button.to_string())))
+        .filter(ev::event_coord("x").is_not_null())
+        .filter(ev::event_coord("y").is_not_null())
+        .set_param(active, lit(true))
+        .set_param(box_x0, ev::event_coord("x"))
+        .set_param(box_y0, ev::event_coord("y"))
+        .set_param(box_x1, ev::event_coord("x"))
+        .set_param(box_y1, ev::event_coord("y"))
+        .preview();
+    if requires_shift {
+        binding = binding.filter(ev::shift().eq(lit(true)));
+    }
+    binding
+}
+
+#[allow(clippy::too_many_arguments)]
+fn box_zoom_drag_binding(
+    enabled_param: &str,
+    drag_button: &str,
+    active: &Param,
+    box_x0: &Param,
+    box_y0: &Param,
+    box_x1: &Param,
+    box_y1: &Param,
+    requires_shift: bool,
+) -> ChartEventBinding {
+    let endpoints = webmercator_constrained_box_expressions();
+    ChartEventBinding::on(ChartEventType::CursorMoved)
+        .filter(ev::param(enabled_param).eq(lit(true)))
+        .filter(ev::start_coord("x").is_not_null())
+        .filter(ev::start_coord("y").is_not_null())
+        .filter(ev::event_at_start_clipped_coord("x").is_not_null())
+        .filter(ev::event_at_start_clipped_coord("y").is_not_null())
+        .filter(start_domain_span("x").gt(lit(0.0_f64)))
+        .filter(start_domain_span("y").gt(lit(0.0_f64)))
+        .filter(ev::start_plot_width().gt(lit(0.0_f64)))
+        .filter(ev::start_plot_height().gt(lit(0.0_f64)))
+        .between(
+            box_zoom_drag_start_stream(drag_button, requires_shift),
+            box_zoom_drag_end_stream(drag_button),
+        )
+        .set_param_at_start_scope(active, lit(true))
+        .set_param_at_start_scope(box_x0, ev::start_coord("x"))
+        .set_param_at_start_scope(box_y0, ev::start_coord("y"))
+        .set_param_at_start_scope(box_x1, endpoints.x1)
+        .set_param_at_start_scope(box_y1, endpoints.y1)
+        .preview()
+}
+
+fn box_zoom_cancel_binding(
+    enabled_param: &str,
+    drag_button: &str,
+    min_size_px: f64,
+    active: &Param,
+    requires_shift: bool,
+) -> ChartEventBinding {
+    let endpoints = webmercator_constrained_box_expressions();
+    ChartEventBinding::on_between_end(
+        box_zoom_drag_start_stream(drag_button, requires_shift),
+        box_zoom_drag_end_stream(drag_button),
+    )
+    .filter(ev::param(enabled_param).eq(lit(true)))
+    .filter(start_domain_span("x").gt(lit(0.0_f64)))
+    .filter(start_domain_span("y").gt(lit(0.0_f64)))
+    .filter(ev::start_plot_width().gt(lit(0.0_f64)))
+    .filter(ev::start_plot_height().gt(lit(0.0_f64)))
+    .filter(webmercator_box_distance_squared_px(&endpoints).lt(lit(min_size_px * min_size_px)))
+    .set_param_at_start_scope(active, lit(false))
+    .preview()
 }
 
 fn box_zoom_release_binding(
@@ -337,18 +515,12 @@ fn box_zoom_release_binding(
     viewport: &ViewportParams,
     min_size_px: f64,
     requires_shift: bool,
+    active: &Param,
 ) -> ChartEventBinding {
     let endpoints = webmercator_constrained_box_expressions();
-    let mut start = ChartEventStream::on(ChartEventType::MouseDown)
-        .filter(ev::button().eq(lit(drag_button.to_string())));
-    if requires_shift {
-        start = start.filter(ev::shift().eq(lit(true)));
-    }
-
     ChartEventBinding::on_between_end(
-        start,
-        ChartEventStream::on(ChartEventType::MouseUp)
-            .filter(ev::button().eq(lit(drag_button.to_string()))),
+        box_zoom_drag_start_stream(drag_button, requires_shift),
+        box_zoom_drag_end_stream(drag_button),
     )
     .filter(ev::param(enabled_param).eq(lit(true)))
     .filter(ev::start_coord("x").is_not_null())
@@ -372,7 +544,22 @@ fn box_zoom_release_binding(
         &viewport.units_per_pixel,
         endpoints.abs_dx / ev::start_plot_width(),
     )
+    .set_param_at_start_scope(active, lit(false))
     .exact()
+}
+
+fn box_zoom_drag_start_stream(drag_button: &str, requires_shift: bool) -> ChartEventStream {
+    let mut start = ChartEventStream::on(ChartEventType::MouseDown)
+        .filter(ev::button().eq(lit(drag_button.to_string())));
+    if requires_shift {
+        start = start.filter(ev::shift().eq(lit(true)));
+    }
+    start
+}
+
+fn box_zoom_drag_end_stream(drag_button: &str) -> ChartEventStream {
+    ChartEventStream::on(ChartEventType::MouseUp)
+        .filter(ev::button().eq(lit(drag_button.to_string())))
 }
 
 fn anchored_zoom_center(channel: &str, factor: Expr) -> Expr {
@@ -481,9 +668,10 @@ mod tests {
             .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
-        assert_eq!(expansion.params.len(), 4);
-        assert_eq!(expansion.event_bindings.len(), 4);
+        assert_eq!(expansion.params.len(), 9);
+        assert_eq!(expansion.event_bindings.len(), 7);
         assert!(expansion.scale_edits.is_empty());
+        assert_eq!(expansion.marks.len(), 1);
         assert!(
             expansion
                 .params
@@ -508,13 +696,25 @@ mod tests {
                 .iter()
                 .any(|param| param.param.name == "__webmercator_map_units_per_pixel")
         );
+        assert!(
+            expansion
+                .params
+                .iter()
+                .any(|param| param.param.name == "__tool_webmercator_pan_zoom__box_active")
+        );
+        assert!(
+            expansion
+                .params
+                .iter()
+                .any(|param| param.param.name == "__tool_webmercator_pan_zoom__box_x0")
+        );
 
         let reset = expansion
             .event_bindings
             .iter()
             .find(|binding| binding.event_type == ChartEventType::DoubleClick)
             .expect("reset binding");
-        assert_eq!(reset.assignments.len(), 3);
+        assert_eq!(reset.assignments.len(), 4);
         assert_eq!(reset.evaluation_mode, ChartEventEvaluationMode::Exact);
 
         let wheel = expansion
@@ -528,10 +728,24 @@ mod tests {
         let box_zoom = expansion
             .event_bindings
             .iter()
-            .find(|binding| binding.event_type == ChartEventType::MouseUp)
+            .find(|binding| {
+                binding.event_type == ChartEventType::MouseUp
+                    && binding.evaluation_mode == ChartEventEvaluationMode::Exact
+            })
             .expect("box zoom binding");
-        assert_eq!(box_zoom.assignments.len(), 3);
+        assert_eq!(box_zoom.assignments.len(), 4);
         assert_eq!(box_zoom.evaluation_mode, ChartEventEvaluationMode::Exact);
+
+        let overlay_drag = expansion
+            .event_bindings
+            .iter()
+            .find(|binding| {
+                binding.event_type == ChartEventType::CursorMoved
+                    && binding.assignments.len() == 5
+                    && binding.evaluation_mode == ChartEventEvaluationMode::Preview
+            })
+            .expect("overlay drag binding");
+        assert!(overlay_drag.between.is_some());
     }
 
     #[test]
