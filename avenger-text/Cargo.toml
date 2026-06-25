@@ -7,6 +7,8 @@ edition = "2021"
 serde = ["dep:serde"]
 cosmic-text = ["dep:cosmic-text", "lazy_static"]
 fontdb = ["dep:fontdb"]
+typst-math = ["dep:avenger-typst"]
+typst-math-raster = ["typst-math", "avenger-typst/raster"]
 default = ["serde", "cosmic-text"]
 
 [dependencies]
@@ -31,6 +33,12 @@ optional = true
 [dependencies.lazy_static]
 workspace = true
 optional = true
+
+[dependencies.avenger-typst]
+path = "../avenger-typst"
+optional = true
+default-features = false
+features = ["vendor-typst"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.92"

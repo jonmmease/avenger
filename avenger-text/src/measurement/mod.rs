@@ -132,7 +132,7 @@ impl FontMetrics {
 }
 
 /// Results from text measurement
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TextBounds {
     /// Total width of the text
     pub width: f32,

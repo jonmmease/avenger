@@ -1213,6 +1213,7 @@ dependencies = [
 name = "avenger-text"
 version = "0.0.8"
 dependencies = [
+ "avenger-typst",
  "cosmic-text",
  "fontdb",
  "image",
