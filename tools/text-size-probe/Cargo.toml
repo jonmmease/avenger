@@ -1,0 +1,27 @@
+[package]
+name = "text-size-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[features]
+default = []
+plain-none = []
+cosmic = ["dep:avenger-text", "avenger-text/cosmic-text"]
+typst-math = [
+    "dep:avenger-text",
+    "dep:avenger-typst",
+    "avenger-text/typst-math",
+    "avenger-typst/vendor-typst",
+]
+typst-math-raster = [
+    "typst-math",
+    "avenger-text/typst-math-raster",
+    "avenger-typst/raster",
+]
+
+[dependencies]
+avenger-text = { path = "../../avenger-text", default-features = false, optional = true }
+avenger-typst = { path = "../../avenger-typst", default-features = false, optional = true }
