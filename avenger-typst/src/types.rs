@@ -89,6 +89,7 @@ pub struct TextLineOutputRequest {
     pub paths: bool,
     pub raster: Option<RasterRequest>,
     pub pdf_text_layer: bool,
+    pub positioned_runs: bool,
 }
 
 impl Default for TextLineOutputRequest {
@@ -97,6 +98,7 @@ impl Default for TextLineOutputRequest {
             paths: true,
             raster: None,
             pdf_text_layer: false,
+            positioned_runs: false,
         }
     }
 }
@@ -187,6 +189,30 @@ pub struct TextLineArtifact {
     pub paths: Option<MathPathArtifact>,
     pub raster: Option<MathRasterArtifact>,
     pub pdf_text: Option<MathPdfTextLayer>,
+    pub positioned_runs: Vec<PositionedTextLineRun>,
     pub font_resources: Vec<MathFontResource>,
     pub warnings: Vec<MathTypesetWarning>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum PositionedTextLineRunKind {
+    Plain,
+    Math,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct PositionedTextLineRun {
+    pub kind: PositionedTextLineRunKind,
+    pub text: String,
+    pub byte_range: std::ops::Range<usize>,
+    /// X coordinate of the run start in the tight Typst line frame.
+    pub x: f32,
+    /// Baseline coordinate for plain text in the tight Typst line frame.
+    pub y: f32,
+    pub metrics: TypesetMetrics,
+    pub paths: Option<MathPathArtifact>,
+    pub pdf_text: Option<MathPdfTextLayer>,
+    pub font_resources: Vec<MathFontResource>,
 }

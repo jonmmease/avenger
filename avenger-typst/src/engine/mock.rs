@@ -8,7 +8,8 @@ use crate::pdf::{
 use crate::raster::{MathRasterArtifact, RgbaImageData};
 use crate::style::{Color, MathFontSpec};
 use crate::types::{
-    MathFragmentOptions, MathRunArtifact, TextLineArtifact, TextLineOptions, TypesetMetrics,
+    MathFragmentOptions, MathRunArtifact, PositionedTextLineRun, PositionedTextLineRunKind,
+    TextLineArtifact, TextLineOptions, TypesetMetrics,
 };
 use crate::warnings::MathTypesetWarning;
 
@@ -122,6 +123,21 @@ impl MockMathEngine {
         } else {
             None
         };
+        let positioned_runs = if options.outputs.positioned_runs {
+            vec![PositionedTextLineRun {
+                kind: PositionedTextLineRunKind::Plain,
+                text: source.to_string(),
+                byte_range: 0..source.len(),
+                x: 0.0,
+                y: metrics.baseline,
+                metrics,
+                paths: None,
+                pdf_text: None,
+                font_resources: Vec::new(),
+            }]
+        } else {
+            Vec::new()
+        };
 
         let raster = options.outputs.raster.map(|request| MathRasterArtifact {
             image: RgbaImageData {
@@ -142,6 +158,7 @@ impl MockMathEngine {
             paths,
             raster,
             pdf_text,
+            positioned_runs,
             font_resources,
             warnings: vec![MathTypesetWarning::MockBackend],
         })

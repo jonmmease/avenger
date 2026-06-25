@@ -29,8 +29,8 @@ use avenger_scenegraph::{
 use avenger_text::{
     math::TextMarkupMode,
     path::{
-        TextPathBuffer, TextPathExtractionConfig, TextPathExtractor, TextPathItem,
-        TextPathOutputMode, TypstTextPathExtractor,
+        TextPathBuffer, TextPathDrawItem, TextPathExtractionConfig, TextPathExtractor,
+        TextPathItem, TypstTextPathExtractor,
     },
 };
 use avenger_text::{
@@ -420,6 +420,21 @@ impl SvgRenderer {
             };
             #[cfg(not(feature = "typst-math"))]
             let text_bounds = measured_text_bounds;
+            #[cfg(feature = "typst-math")]
+            if let Some(buffer) = &typst_text_path_buffer {
+                if self.options.font_embedding == crate::options::SvgFontEmbedding::EmbedSubsetWoff2
+                {
+                    for run in &buffer.plain_runs {
+                        document.fonts.collect_text(
+                            &output_font,
+                            font_weight,
+                            font_style,
+                            &run.text,
+                            &self.options.font_resolution,
+                        )?;
+                    }
+                }
+            }
             if *leader {
                 if let Some(geometry) = compute_text_leader_geometry(TextLeaderGeometryInput {
                     target,
@@ -542,26 +557,28 @@ impl SvgRenderer {
         let Some(extractor) = extractor else {
             return Ok(None);
         };
-        let ColorOrGradient::Color(color) = color else {
-            return Err(AvengerSvgError::UnsupportedPaint(
-                "Typst SVG text paths do not support gradient text paint".to_string(),
-            ));
+        let path_color = match color {
+            ColorOrGradient::Color(color) => *color,
+            ColorOrGradient::GradientIndex(_) => [0.0, 0.0, 0.0, 1.0],
         };
 
         let config = TextPathExtractionConfig {
             text,
-            color,
+            color: &path_color,
             font,
             font_size,
             font_weight,
             font_style,
             limit: f32::INFINITY,
-            output_mode: TextPathOutputMode::AllText,
-            include_pdf_text_layer: false,
         };
         let buffer = extractor
             .extract_text_paths(&config)
             .map_err(|err| AvengerSvgError::Text(err.to_string()))?;
+        if matches!(color, ColorOrGradient::GradientIndex(_)) && !buffer.items.is_empty() {
+            return Err(AvengerSvgError::UnsupportedPaint(
+                "Typst SVG math paths do not support gradient text paint".to_string(),
+            ));
+        }
 
         Ok(Some(buffer))
     }
@@ -598,22 +615,35 @@ impl SvgRenderer {
         push_clip_attr(&mut document.body, clip_id);
         document.body.push_str(">\n");
 
-        for run in &buffer.plain_runs {
-            self.write_plain_text_run(
-                document,
-                &run.text,
-                x + run.x,
-                text_top + run.y_offset + run.bounds.ascent,
-                color,
-                font,
-                font_size,
-                font_weight,
-                font_style,
-            )?;
-        }
-
-        for item in &buffer.items {
-            self.write_math_text_path_item(document, item, x, text_top)?;
+        for draw_item in &buffer.draw_items {
+            match *draw_item {
+                TextPathDrawItem::PlainRun(index) => {
+                    let Some(run) = buffer.plain_runs.get(index) else {
+                        return Err(AvengerSvgError::Text(
+                            "Typst SVG text buffer referenced a missing plain run".to_string(),
+                        ));
+                    };
+                    self.write_plain_text_run(
+                        document,
+                        &run.text,
+                        x + run.x,
+                        text_top + run.y_offset + run.bounds.ascent,
+                        color,
+                        font,
+                        font_size,
+                        font_weight,
+                        font_style,
+                    )?;
+                }
+                TextPathDrawItem::PathItem(index) => {
+                    let Some(item) = buffer.items.get(index) else {
+                        return Err(AvengerSvgError::Text(
+                            "Typst SVG text buffer referenced a missing path item".to_string(),
+                        ));
+                    };
+                    self.write_math_text_path_item(document, item, x, text_top)?;
+                }
+            }
         }
 
         document.body.push_str("</g>\n");
@@ -656,7 +686,7 @@ impl SvgRenderer {
         document.body.push('"');
         document.body.push_str(r#" font-style=""#);
         document.body.push_str(font_style_value(font_style));
-        document.body.push_str(r#"">"#);
+        document.body.push_str(r#"" xml:space="preserve">"#);
         document.body.push_str(&crate::style::escape_text(text));
         document.body.push_str("</text>\n");
         Ok(())
@@ -1961,7 +1991,7 @@ mod tests {
 
     #[cfg(feature = "typst-math")]
     #[test]
-    fn renders_typst_text_as_whole_line_paths_when_math_is_active() {
+    fn renders_typst_text_as_native_text_and_math_paths_when_math_is_active() {
         let scene_graph = SceneGraph {
             width: 120.0,
             height: 30.0,
@@ -1993,7 +2023,9 @@ mod tests {
 
         assert!(plain_svg.contains("speed $v^2$ now</text>"));
         assert!(math_svg.contains("<path "));
-        assert!(!math_svg.contains("<text"));
+        assert!(math_svg.contains("<text "));
+        assert!(math_svg.contains("speed "));
+        assert!(math_svg.contains(" now"));
         assert!(!math_svg.contains("$v^2$"));
         assert!(math_svg.contains(r##"fill="#0040ff""##));
         assert!(usvg::Tree::from_str(&math_svg, &usvg::Options::default()).is_ok());

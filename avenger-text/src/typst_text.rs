@@ -55,6 +55,7 @@ impl TextMeasurer for TypstTextMeasurer {
                 paths: false,
                 raster: None,
                 pdf_text_layer: false,
+                positioned_runs: false,
             },
         ) {
             Ok(result) => bounds_from_metrics(
@@ -148,6 +149,7 @@ where
                 paths: false,
                 raster: Some(avenger_typst::RasterRequest { scale }),
                 pdf_text_layer: false,
+                positioned_runs: false,
             },
         )
         .map_err(|err| AvengerTextError::TextMeasurementError(err.to_string()))?;
@@ -236,6 +238,7 @@ fn measure_text_width_with_typst(
             paths: false,
             raster: None,
             pdf_text_layer: false,
+            positioned_runs: false,
         },
     )
     .map(|result| result.artifact.metrics.width)

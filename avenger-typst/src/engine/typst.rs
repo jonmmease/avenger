@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
@@ -22,7 +23,8 @@ use crate::style::{
     MathStyle, PlainTextStyle,
 };
 use crate::types::{
-    MathFragmentOptions, MathRunArtifact, TextLineArtifact, TextLineOptions, TypesetMetrics,
+    MathFragmentOptions, MathRunArtifact, PositionedTextLineRun, PositionedTextLineRunKind,
+    TextLineArtifact, TextLineOptions, TypesetMetrics,
 };
 
 use typst_library::diag::{FileError, FileResult, SourceResult};
@@ -31,8 +33,12 @@ use typst_library::foundations::{
     Args, Closure, Content, Context, Func, Module, NativeElement, NativeRuleMap, Packed, Scope,
     SequenceElem, ShowSet, StyleChain, Styles, SymbolElem, Value,
 };
-use typst_library::introspection::{EmptyIntrospector, Introspector, Locator};
-use typst_library::layout::{Abs, Frame, FrameItem, InlineElem, InlineItem, Size, Transform};
+use typst_library::introspection::{
+    EmptyIntrospector, Introspector, Location, Locator, Tag, TagElem, TagFlags,
+};
+use typst_library::layout::{
+    Abs, Frame, FrameItem, InlineElem, InlineItem, Point, Size, Transform,
+};
 use typst_library::math::{
     AlignPointElem, AttachElem, EquationElem, FracElem, LrElem, MatElem, MathSize, PrimesElem,
     RootElem,
@@ -48,7 +54,7 @@ use typst_library::visualize::{
 use typst_library::{Library, LibraryBuilder, World};
 use typst_syntax::ast::{self, Arg, MathTextKind};
 use typst_syntax::{FileId, Source, SyntaxMode};
-use typst_utils::{LazyHash, Protected};
+use typst_utils::{hash128, LazyHash, Protected};
 
 #[derive(Clone)]
 pub(crate) struct TypstMathEngine {
@@ -64,6 +70,26 @@ impl std::fmt::Debug for TypstMathEngine {
             .field("text_font_family", &self.text_font_family)
             .finish_non_exhaustive()
     }
+}
+
+struct TextLineLayout {
+    frame: Frame,
+    segments: Vec<TextLineSegment>,
+}
+
+#[derive(Clone)]
+struct TextLineSegment {
+    index: usize,
+    kind: PositionedTextLineRunKind,
+    text: String,
+    byte_range: std::ops::Range<usize>,
+    marker: TextLineSegmentMarker,
+}
+
+#[derive(Clone, Copy)]
+struct TextLineSegmentMarker {
+    location: Location,
+    key: u128,
 }
 
 impl TypstMathEngine {
@@ -124,10 +150,10 @@ impl TypstMathEngine {
         source: &str,
         options: &TextLineOptions,
     ) -> Result<TextLineArtifact, MathTypesetError> {
-        let frame = self.layout_text_line_frame(source, options)?;
-        let metrics = metrics_from_frame(&frame);
+        let layout = self.layout_text_line_frame(source, options)?;
+        let metrics = metrics_from_frame(&layout.frame);
         let path_artifact = if options.outputs.paths || options.outputs.raster.is_some() {
-            Some(paths_from_frame(&frame, metrics)?)
+            Some(paths_from_frame(&layout.frame, metrics)?)
         } else {
             None
         };
@@ -139,13 +165,18 @@ impl TypstMathEngine {
             None
         };
         let pdf_artifact = if options.outputs.pdf_text_layer {
-            Some(pdf_text_from_frame(&frame, metrics, source)?)
+            Some(pdf_text_from_frame(&layout.frame, metrics, source)?)
         } else {
             None
         };
         let (pdf_text, font_resources) = match pdf_artifact {
             Some(artifact) => (Some(artifact.text_layer), artifact.font_resources),
             None => (None, Vec::new()),
+        };
+        let positioned_runs = if options.outputs.positioned_runs {
+            positioned_runs_from_layout(&layout, metrics, options.outputs.pdf_text_layer)?
+        } else {
+            Vec::new()
         };
 
         Ok(TextLineArtifact {
@@ -154,6 +185,7 @@ impl TypstMathEngine {
             paths,
             raster,
             pdf_text,
+            positioned_runs,
             font_resources,
             warnings: Vec::new(),
         })
@@ -212,30 +244,59 @@ impl TypstMathEngine {
         &self,
         source: &str,
         options: &TextLineOptions,
-    ) -> Result<Frame, MathTypesetError> {
+    ) -> Result<TextLineLayout, MathTypesetError> {
         let segments = parse_segments(source, &options.delimiters)?;
         let library = self.world.library();
         let root_styles = StyleChain::new(&library.styles);
 
         let mut contents = Vec::new();
         let mut segment_styles = Vec::new();
+        let mut line_segments = Vec::new();
 
         for segment in segments {
             match segment {
-                ParsedSegment::Plain { text, .. } => {
+                ParsedSegment::Plain { text, range } => {
                     if text.is_empty() {
                         continue;
                     }
+                    let line_segment = tagged_text_line_segment(
+                        source,
+                        line_segments.len(),
+                        PositionedTextLineRunKind::Plain,
+                        text.clone(),
+                        range,
+                    );
+                    contents.push(segment_tag_content(line_segment.marker, true));
+                    segment_styles.push(Styles::new());
                     contents.push(TextElem::packed(text));
                     segment_styles.push(self.plain_text_styles(&options.text_style));
+                    contents.push(segment_tag_content(line_segment.marker, false));
+                    segment_styles.push(Styles::new());
+                    line_segments.push(line_segment);
                 }
-                ParsedSegment::Math { source, .. } => {
-                    let body = lower_math_source(&source)?;
+                ParsedSegment::Math {
+                    source: math_source,
+                    source_range,
+                    ..
+                } => {
+                    let body = lower_math_source(&math_source)?;
                     let equation = Packed::new(EquationElem::new(body).with_block(false));
+                    let line_segment = tagged_text_line_segment(
+                        source,
+                        line_segments.len(),
+                        PositionedTextLineRunKind::Math,
+                        math_source,
+                        source_range,
+                    );
+                    contents.push(segment_tag_content(line_segment.marker, true));
+                    segment_styles.push(Styles::new());
                     contents.push(
                         InlineElem::layouter(equation, typst_layout::layout_equation_inline).pack(),
                     );
                     segment_styles.push(self.math_text_styles(&options.math_style));
+                    contents.push(segment_tag_content(line_segment.marker, false));
+                    segment_styles.push(Styles::new());
+                    line_segments.push(line_segment);
                 }
             }
         }
@@ -243,7 +304,10 @@ impl TypstMathEngine {
         if contents.is_empty() {
             let mut frame = Frame::soft(Size::zero());
             frame.set_baseline(Abs::zero());
-            return Ok(frame);
+            return Ok(TextLineLayout {
+                frame,
+                segments: line_segments,
+            });
         }
 
         let chains = segment_styles
@@ -290,13 +354,18 @@ impl TypstMathEngine {
         })?;
 
         let mut frames = fragment.into_frames();
-        if frames.len() == 1 {
-            Ok(frames.remove(0))
+        let frame = if frames.len() == 1 {
+            frames.remove(0)
         } else {
-            Err(MathTypesetError::UnsupportedOutput(
+            return Err(MathTypesetError::UnsupportedOutput(
                 "Typst text line layout produced multiple frames",
-            ))
-        }
+            ));
+        };
+
+        Ok(TextLineLayout {
+            frame,
+            segments: line_segments,
+        })
     }
 
     fn override_styles(&self, options: &MathFragmentOptions) -> Styles {
@@ -812,6 +881,47 @@ fn find_math_font_family(book: &FontBook, family: &str) -> Option<String> {
     })
 }
 
+fn tagged_text_line_segment(
+    source: &str,
+    index: usize,
+    kind: PositionedTextLineRunKind,
+    text: String,
+    byte_range: std::ops::Range<usize>,
+) -> TextLineSegment {
+    let key = hash128(&(
+        "avenger-typst-text-line-segment",
+        source,
+        index,
+        byte_range.start,
+        byte_range.end,
+        kind,
+    ));
+    TextLineSegment {
+        index,
+        kind,
+        text,
+        byte_range,
+        marker: TextLineSegmentMarker {
+            location: Location::new(key),
+            key,
+        },
+    }
+}
+
+fn segment_tag_content(marker: TextLineSegmentMarker, start: bool) -> Content {
+    let flags = TagFlags {
+        introspectable: false,
+        tagged: false,
+    };
+    if start {
+        let mut marker_content = TextElem::packed("");
+        marker_content.set_location(marker.location);
+        TagElem::packed(Tag::Start(marker_content, flags))
+    } else {
+        TagElem::packed(Tag::End(marker.location, marker.key, flags))
+    }
+}
+
 fn normalize_font_family(family: &str) -> String {
     family
         .trim()
@@ -928,6 +1038,172 @@ fn paths_from_frame(
     })
 }
 
+struct ActivePositionedSegment {
+    segment_index: usize,
+    start: Point,
+    items: Vec<(Point, FrameItem)>,
+}
+
+fn positioned_runs_from_layout(
+    layout: &TextLineLayout,
+    line_metrics: TypesetMetrics,
+    include_pdf_text_layer: bool,
+) -> Result<Vec<PositionedTextLineRun>, MathTypesetError> {
+    let segment_by_location = layout
+        .segments
+        .iter()
+        .map(|segment| (segment.marker.location, segment.index))
+        .collect::<HashMap<_, _>>();
+    let mut active: Option<ActivePositionedSegment> = None;
+    let mut runs = Vec::new();
+
+    for (pos, item) in layout.frame.items() {
+        if let FrameItem::Tag(tag) = item {
+            match tag {
+                Tag::Start(content, _) => {
+                    if let Some(location) = content.location() {
+                        if let Some(&segment_index) = segment_by_location.get(&location) {
+                            if active.is_some() {
+                                return Err(MathTypesetError::UnsupportedOutput(
+                                    "nested Avenger Typst text segment tags are not supported",
+                                ));
+                            }
+                            active = Some(ActivePositionedSegment {
+                                segment_index,
+                                start: *pos,
+                                items: Vec::new(),
+                            });
+                            continue;
+                        }
+                    }
+                }
+                Tag::End(location, _, _) => {
+                    if let Some(&segment_index) = segment_by_location.get(location) {
+                        let Some(segment) = active.take() else {
+                            return Err(MathTypesetError::UnsupportedOutput(
+                                "Typst text segment end tag did not have a matching start tag",
+                            ));
+                        };
+                        if segment.segment_index != segment_index {
+                            return Err(MathTypesetError::UnsupportedOutput(
+                                "Typst text segment tags closed out of order",
+                            ));
+                        }
+                        runs.push(positioned_run_from_segment(
+                            &layout.segments[segment_index],
+                            segment,
+                            *pos,
+                            line_metrics,
+                            include_pdf_text_layer,
+                        )?);
+                        continue;
+                    }
+                }
+            }
+        }
+
+        if let Some(segment) = &mut active {
+            segment.items.push((*pos, item.clone()));
+        }
+    }
+
+    if active.is_some() {
+        return Err(MathTypesetError::UnsupportedOutput(
+            "Typst text segment start tag did not have a matching end tag",
+        ));
+    }
+    if runs.len() != layout.segments.len() {
+        return Err(MathTypesetError::UnsupportedOutput(
+            "Typst text segment positioning was incomplete",
+        ));
+    }
+
+    Ok(runs)
+}
+
+fn positioned_run_from_segment(
+    segment: &TextLineSegment,
+    positioned: ActivePositionedSegment,
+    end: Point,
+    line_metrics: TypesetMetrics,
+    include_pdf_text_layer: bool,
+) -> Result<PositionedTextLineRun, MathTypesetError> {
+    let x = abs_to_f32(positioned.start.x);
+    let y = first_text_baseline_y(&positioned.items).unwrap_or(line_metrics.baseline);
+    let width = (abs_to_f32(end.x) - x).max(0.0);
+    let metrics = TypesetMetrics {
+        width,
+        height: line_metrics.height,
+        baseline: line_metrics.baseline,
+        ascent: line_metrics.ascent,
+        descent: line_metrics.descent,
+    };
+    let (paths, pdf_text, font_resources) =
+        if matches!(segment.kind, PositionedTextLineRunKind::Math) {
+            let mut lowerer = PathLowerer::default();
+            for (pos, item) in &positioned.items {
+                lowerer.lower_positioned_item(*pos, item, Transform::identity())?;
+            }
+            let paths = Some(MathPathArtifact {
+                logical_width: width,
+                logical_height: line_metrics.height,
+                items: lowerer.items,
+            });
+            let pdf_artifact = if include_pdf_text_layer {
+                Some(pdf_text_from_positioned_items(
+                    &positioned.items,
+                    line_metrics,
+                    &segment.text,
+                )?)
+            } else {
+                None
+            };
+            match pdf_artifact {
+                Some(artifact) => (paths, Some(artifact.text_layer), artifact.font_resources),
+                None => (paths, None, Vec::new()),
+            }
+        } else {
+            (None, None, Vec::new())
+        };
+
+    Ok(PositionedTextLineRun {
+        kind: segment.kind,
+        text: segment.text.clone(),
+        byte_range: segment.byte_range.clone(),
+        x,
+        y,
+        metrics,
+        paths,
+        pdf_text,
+        font_resources,
+    })
+}
+
+fn first_text_baseline_y(items: &[(Point, FrameItem)]) -> Option<f32> {
+    items
+        .iter()
+        .find_map(|(pos, item)| first_text_baseline_y_in_item(*pos, item, Transform::identity()))
+}
+
+fn first_text_baseline_y_in_item(
+    pos: Point,
+    item: &FrameItem,
+    transform: Transform,
+) -> Option<f32> {
+    let item_transform = transform.pre_concat(Transform::translate(pos.x, pos.y));
+    match item {
+        FrameItem::Text(_) => Some(abs_to_f32(item_transform.ty)),
+        FrameItem::Group(group) => {
+            let group_transform = item_transform.pre_concat(group.transform);
+            group
+                .frame
+                .items()
+                .find_map(|(pos, item)| first_text_baseline_y_in_item(*pos, item, group_transform))
+        }
+        _ => None,
+    }
+}
+
 #[derive(Default)]
 struct PathLowerer {
     items: Vec<MathPathItem>,
@@ -937,29 +1213,36 @@ struct PathLowerer {
 impl PathLowerer {
     fn lower_frame(&mut self, frame: &Frame, transform: Transform) -> Result<(), MathTypesetError> {
         for (pos, item) in frame.items() {
-            let item_transform = transform.pre_concat(Transform::translate(pos.x, pos.y));
-            match item {
-                FrameItem::Group(group) => {
-                    if group.clip.is_some() {
-                        return Err(MathTypesetError::UnsupportedOutput(
-                            "clipped Typst math groups are not supported in path output yet",
-                        ));
-                    }
-                    let group_transform = item_transform.pre_concat(group.transform);
-                    self.lower_frame(&group.frame, group_transform)?;
-                }
-                FrameItem::Text(text) => self.lower_text(text, item_transform)?,
-                FrameItem::Shape(shape, _) => self.lower_shape(shape, item_transform)?,
-                FrameItem::Image(..) => {
-                    return Err(MathTypesetError::UnsupportedOutput(
-                        "Typst image frame items are not supported in math path output",
-                    ));
-                }
-                FrameItem::Link(..) | FrameItem::Tag(_) => {}
-            }
+            self.lower_positioned_item(*pos, item, transform)?;
         }
 
         Ok(())
+    }
+
+    fn lower_positioned_item(
+        &mut self,
+        pos: Point,
+        item: &FrameItem,
+        transform: Transform,
+    ) -> Result<(), MathTypesetError> {
+        let item_transform = transform.pre_concat(Transform::translate(pos.x, pos.y));
+        match item {
+            FrameItem::Group(group) => {
+                if group.clip.is_some() {
+                    return Err(MathTypesetError::UnsupportedOutput(
+                        "clipped Typst math groups are not supported in path output yet",
+                    ));
+                }
+                let group_transform = item_transform.pre_concat(group.transform);
+                self.lower_frame(&group.frame, group_transform)
+            }
+            FrameItem::Text(text) => self.lower_text(text, item_transform),
+            FrameItem::Shape(shape, _) => self.lower_shape(shape, item_transform),
+            FrameItem::Image(..) => Err(MathTypesetError::UnsupportedOutput(
+                "Typst image frame items are not supported in math path output",
+            )),
+            FrameItem::Link(..) | FrameItem::Tag(_) => Ok(()),
+        }
     }
 
     fn lower_text(
@@ -1089,6 +1372,27 @@ fn pdf_text_from_frame(
     })
 }
 
+fn pdf_text_from_positioned_items(
+    items: &[(Point, FrameItem)],
+    metrics: TypesetMetrics,
+    source: &str,
+) -> Result<PdfArtifact, MathTypesetError> {
+    let mut lowerer = PdfLowerer::default();
+    for (pos, item) in items {
+        lowerer.lower_positioned_item(*pos, item, Transform::identity())?;
+    }
+
+    Ok(PdfArtifact {
+        text_layer: MathPdfTextLayer {
+            logical_width: metrics.width,
+            logical_height: metrics.height,
+            semantic_text: source.to_string(),
+            glyph_runs: lowerer.glyph_runs,
+        },
+        font_resources: lowerer.font_resources,
+    })
+}
+
 #[derive(Default)]
 struct PdfLowerer {
     glyph_runs: Vec<MathPdfGlyphRun>,
@@ -1098,28 +1402,35 @@ struct PdfLowerer {
 impl PdfLowerer {
     fn lower_frame(&mut self, frame: &Frame, transform: Transform) -> Result<(), MathTypesetError> {
         for (pos, item) in frame.items() {
-            let item_transform = transform.pre_concat(Transform::translate(pos.x, pos.y));
-            match item {
-                FrameItem::Group(group) => {
-                    if group.clip.is_some() {
-                        return Err(MathTypesetError::UnsupportedOutput(
-                            "clipped Typst math groups are not supported in PDF glyph output yet",
-                        ));
-                    }
-                    let group_transform = item_transform.pre_concat(group.transform);
-                    self.lower_frame(&group.frame, group_transform)?;
-                }
-                FrameItem::Text(text) => self.lower_text(text, item_transform)?,
-                FrameItem::Shape(..) | FrameItem::Link(..) | FrameItem::Tag(_) => {}
-                FrameItem::Image(..) => {
-                    return Err(MathTypesetError::UnsupportedOutput(
-                        "Typst image frame items are not supported in PDF glyph output",
-                    ));
-                }
-            }
+            self.lower_positioned_item(*pos, item, transform)?;
         }
 
         Ok(())
+    }
+
+    fn lower_positioned_item(
+        &mut self,
+        pos: Point,
+        item: &FrameItem,
+        transform: Transform,
+    ) -> Result<(), MathTypesetError> {
+        let item_transform = transform.pre_concat(Transform::translate(pos.x, pos.y));
+        match item {
+            FrameItem::Group(group) => {
+                if group.clip.is_some() {
+                    return Err(MathTypesetError::UnsupportedOutput(
+                        "clipped Typst math groups are not supported in PDF glyph output yet",
+                    ));
+                }
+                let group_transform = item_transform.pre_concat(group.transform);
+                self.lower_frame(&group.frame, group_transform)
+            }
+            FrameItem::Text(text) => self.lower_text(text, item_transform),
+            FrameItem::Shape(..) | FrameItem::Link(..) | FrameItem::Tag(_) => Ok(()),
+            FrameItem::Image(..) => Err(MathTypesetError::UnsupportedOutput(
+                "Typst image frame items are not supported in PDF glyph output",
+            )),
+        }
     }
 
     fn lower_text(

@@ -1,8 +1,8 @@
 #![cfg(feature = "vendor-typst")]
 
 use avenger_typst::{
-    AvengerTypst, MathFragmentOptions, MathOutputRequest, MathStringRun, RasterRequest,
-    TextLineOutputRequest, TypstEngineBackend, TypstEngineConfig,
+    AvengerTypst, MathFragmentOptions, MathOutputRequest, MathStringRun, PositionedTextLineRunKind,
+    RasterRequest, TextLineOutputRequest, TypstEngineBackend, TypstEngineConfig,
 };
 use typst_syntax::{parse_math, SyntaxKind};
 
@@ -194,6 +194,54 @@ fn vendor_backend_lowers_mixed_text_line_to_paths() {
 }
 
 #[test]
+fn vendor_backend_returns_positioned_runs_for_mixed_text_line() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut options = avenger_typst::TextLineOptions::default();
+    options.outputs = TextLineOutputRequest {
+        paths: false,
+        raster: None,
+        pdf_text_layer: true,
+        positioned_runs: true,
+    };
+
+    let artifact = engine
+        .typeset_text_line("speed $v^2$ now", &options)
+        .unwrap();
+
+    assert_eq!(artifact.positioned_runs.len(), 3);
+    assert_eq!(
+        artifact.positioned_runs[0].kind,
+        PositionedTextLineRunKind::Plain
+    );
+    assert_eq!(artifact.positioned_runs[0].text, "speed ");
+    assert_eq!(
+        artifact.positioned_runs[1].kind,
+        PositionedTextLineRunKind::Math
+    );
+    assert!(artifact.positioned_runs[1]
+        .paths
+        .as_ref()
+        .is_some_and(|paths| !paths.items.is_empty()));
+    assert!(artifact.positioned_runs[1]
+        .pdf_text
+        .as_ref()
+        .is_some_and(|layer| !layer.glyph_runs.is_empty()));
+    assert!(!artifact.positioned_runs[1].font_resources.is_empty());
+    assert_eq!(
+        artifact.positioned_runs[2].kind,
+        PositionedTextLineRunKind::Plain
+    );
+    assert_eq!(artifact.positioned_runs[2].text, " now");
+    assert!(artifact.positioned_runs[0].x < artifact.positioned_runs[1].x);
+    assert!(artifact.positioned_runs[1].x < artifact.positioned_runs[2].x);
+    assert!(artifact.metrics.width > artifact.positioned_runs[2].x);
+}
+
+#[test]
 fn vendor_backend_returns_pdf_glyph_layer_for_text_line() {
     let engine = AvengerTypst::new(TypstEngineConfig {
         backend: TypstEngineBackend::VendorTypst,
@@ -205,6 +253,7 @@ fn vendor_backend_returns_pdf_glyph_layer_for_text_line() {
         paths: false,
         raster: None,
         pdf_text_layer: true,
+        positioned_runs: false,
     };
 
     let artifact = engine.typeset_text_line("score $R^2$", &options).unwrap();
@@ -229,6 +278,7 @@ fn vendor_backend_keeps_text_line_math_digits_out_of_text_font() {
         paths: false,
         raster: None,
         pdf_text_layer: true,
+        positioned_runs: false,
     };
 
     let artifact = engine

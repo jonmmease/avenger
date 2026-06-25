@@ -92,6 +92,7 @@ fn text_line_outputs_can_be_requested_from_mock_engine() {
         paths: true,
         raster: Some(RasterRequest { scale: 2.0 }),
         pdf_text_layer: true,
+        positioned_runs: true,
     };
 
     let artifact = engine()
@@ -102,6 +103,7 @@ fn text_line_outputs_can_be_requested_from_mock_engine() {
     assert!(artifact.paths.is_some());
     assert!(artifact.raster.is_some());
     assert!(artifact.pdf_text.is_some());
+    assert_eq!(artifact.positioned_runs.len(), 1);
     assert_eq!(artifact.font_resources.len(), 1);
 }
 

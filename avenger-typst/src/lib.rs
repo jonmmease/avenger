@@ -36,7 +36,8 @@ pub use style::{
 };
 pub use types::{
     MathFragmentOptions, MathOutputRequest, MathRun, MathRunArtifact, MathStringArtifact,
-    MathStringOptions, MathStringRun, MathSyntaxMode, PlainTextRun, TextLineArtifact,
-    TextLineOptions, TextLineOutputRequest, TypesetMetrics,
+    MathStringOptions, MathStringRun, MathSyntaxMode, PlainTextRun, PositionedTextLineRun,
+    PositionedTextLineRunKind, TextLineArtifact, TextLineOptions, TextLineOutputRequest,
+    TypesetMetrics,
 };
 pub use warnings::MathTypesetWarning;

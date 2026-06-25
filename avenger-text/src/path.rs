@@ -37,18 +37,6 @@ use crate::typst_text::{
     bounds_from_metrics, tight_bounds_from_metrics, typeset_line, TypstTextMeasurer,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TextPathOutputMode {
-    MathOnly,
-    AllText,
-}
-
-impl Default for TextPathOutputMode {
-    fn default() -> Self {
-        Self::MathOnly
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct TextPathExtractionConfig<'a> {
     pub text: &'a String,
@@ -58,8 +46,6 @@ pub struct TextPathExtractionConfig<'a> {
     pub font_weight: &'a FontWeight,
     pub font_style: &'a FontStyle,
     pub limit: f32,
-    pub output_mode: TextPathOutputMode,
-    pub include_pdf_text_layer: bool,
 }
 
 impl<'a> TextPathExtractionConfig<'a> {
@@ -105,28 +91,18 @@ pub struct PlainTextPathRun {
     pub bounds: TextBounds,
 }
 
-#[cfg(feature = "typst-math")]
 #[derive(Debug, Clone, PartialEq)]
-pub struct TextPdfLayer {
-    pub byte_range: Range<usize>,
-    pub x: f32,
-    pub y_offset: f32,
-    pub bounds: TextBounds,
-    pub layer: avenger_typst::MathPdfTextLayer,
-    pub font_resources: Vec<avenger_typst::MathFontResource>,
+pub enum TextPathDrawItem {
+    PlainRun(usize),
+    PathItem(usize),
 }
-
-#[cfg(feature = "typst-math")]
-#[deprecated(note = "use TextPdfLayer")]
-pub type TextMathPdfLayer = TextPdfLayer;
 
 #[derive(Debug, Clone)]
 pub struct TextPathBuffer {
     pub bounds: TextBounds,
     pub items: Vec<TextPathItem>,
     pub plain_runs: Vec<PlainTextPathRun>,
-    #[cfg(feature = "typst-math")]
-    pub pdf_layers: Vec<TextPdfLayer>,
+    pub draw_items: Vec<TextPathDrawItem>,
 }
 
 impl TextPathBuffer {
@@ -135,8 +111,7 @@ impl TextPathBuffer {
             bounds,
             items: Vec::new(),
             plain_runs: Vec::new(),
-            #[cfg(feature = "typst-math")]
-            pdf_layers: Vec::new(),
+            draw_items: Vec::new(),
         }
     }
 }
@@ -276,6 +251,7 @@ fn extract_cosmic_paths_with_resources(
     let buffer = make_cosmic_text_buffer(&measurement, font_system);
     let bounds = measure_text_buffer(&buffer);
     let mut output = TextPathBuffer::new(bounds.clone());
+    let plain_run_index = output.plain_runs.len();
     output.plain_runs.push(PlainTextPathRun {
         text: text.clone(),
         byte_range: 0..config.text.len(),
@@ -283,6 +259,9 @@ fn extract_cosmic_paths_with_resources(
         y_offset: 0.0,
         bounds: bounds.clone(),
     });
+    output
+        .draw_items
+        .push(TextPathDrawItem::PlainRun(plain_run_index));
 
     let fill = Some(*config.color);
     for run in buffer.layout_runs() {
@@ -295,6 +274,7 @@ fn extract_cosmic_paths_with_resources(
             };
             let x = glyph.x + glyph.font_size * glyph.x_offset;
             let y = bounds.ascent + glyph.y - glyph.font_size * glyph.y_offset;
+            let path_index = output.items.len();
             output.items.push(TextPathItem {
                 path: import_path_commands_with_offset(&commands, x, y),
                 fill,
@@ -302,6 +282,9 @@ fn extract_cosmic_paths_with_resources(
                 byte_range: 0..config.text.len(),
                 kind: TextPathKind::PlainGlyph,
             });
+            output
+                .draw_items
+                .push(TextPathDrawItem::PathItem(path_index));
         }
     }
 
@@ -376,9 +359,10 @@ impl TextPathExtractor for TypstTextPathExtractor {
             config.font_style,
             *config.color,
             avenger_typst::TextLineOutputRequest {
-                paths: true,
+                paths: false,
                 raster: None,
-                pdf_text_layer: config.include_pdf_text_layer,
+                pdf_text_layer: false,
+                positioned_runs: true,
             },
         )
         .map_err(|err| {
@@ -393,30 +377,43 @@ impl TextPathExtractor for TypstTextPathExtractor {
         let y_offset = bounds.ascent - tight_bounds.ascent;
         let mut output = TextPathBuffer::new(bounds.clone());
 
-        let paths = result.artifact.paths.ok_or_else(|| {
-            AvengerTextError::InternalError(
-                "Typst text path output was requested but missing".to_string(),
-            )
-        })?;
-        let byte_range = 0..text.len();
-        for item in paths.items {
-            output.items.push(typst_path_item_to_text_path_item(
-                item,
-                byte_range.clone(),
-                0.0,
-                y_offset,
-            ));
-        }
-
-        if let Some(layer) = result.artifact.pdf_text {
-            output.pdf_layers.push(TextPdfLayer {
-                byte_range,
-                x: 0.0,
-                y_offset,
-                bounds,
-                layer,
-                font_resources: result.artifact.font_resources,
-            });
+        for run in result.artifact.positioned_runs {
+            match run.kind {
+                avenger_typst::PositionedTextLineRunKind::Plain => {
+                    let run_bounds = tight_bounds_from_metrics(run.metrics);
+                    let run_index = output.plain_runs.len();
+                    output.plain_runs.push(PlainTextPathRun {
+                        text: run.text,
+                        byte_range: run.byte_range,
+                        x: run.x,
+                        y_offset: y_offset + run.y - run_bounds.ascent,
+                        bounds: run_bounds,
+                    });
+                    output
+                        .draw_items
+                        .push(TextPathDrawItem::PlainRun(run_index));
+                }
+                avenger_typst::PositionedTextLineRunKind::Math => {
+                    let paths = run.paths.ok_or_else(|| {
+                        AvengerTextError::InternalError(
+                            "Typst positioned math path output was requested but missing"
+                                .to_string(),
+                        )
+                    })?;
+                    for item in paths.items {
+                        let path_index = output.items.len();
+                        output.items.push(typst_path_item_to_text_path_item(
+                            item,
+                            run.byte_range.clone(),
+                            0.0,
+                            y_offset,
+                        ));
+                        output
+                            .draw_items
+                            .push(TextPathDrawItem::PathItem(path_index));
+                    }
+                }
+            }
         }
 
         Ok(output)
@@ -512,7 +509,7 @@ mod tests {
     use super::*;
     use crate::types::{FontStyle, FontWeight, FontWeightNameSpec};
 
-    fn config(text: &String, output_mode: TextPathOutputMode) -> TextPathExtractionConfig<'_> {
+    fn config(text: &String) -> TextPathExtractionConfig<'_> {
         static COLOR: [f32; 4] = [0.1, 0.2, 0.3, 1.0];
         static FONT: String = String::new();
         static WEIGHT: FontWeight = FontWeight::Name(FontWeightNameSpec::Normal);
@@ -526,8 +523,6 @@ mod tests {
             font_weight: &WEIGHT,
             font_style: &STYLE,
             limit: f32::INFINITY,
-            output_mode,
-            include_pdf_text_layer: true,
         }
     }
 
@@ -536,13 +531,12 @@ mod tests {
     fn cosmic_extractor_returns_plain_glyph_paths() {
         let extractor = CosmicTextPathExtractor::with_font_resolution(Default::default());
         let text = "plain".to_string();
-        let buffer = extractor
-            .extract_text_paths(&config(&text, TextPathOutputMode::AllText))
-            .unwrap();
+        let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
 
         assert!(buffer.bounds.width > 0.0);
         assert!(!buffer.items.is_empty());
         assert_eq!(buffer.plain_runs.len(), 1);
+        assert!(!buffer.draw_items.is_empty());
         assert!(buffer
             .items
             .iter()
@@ -559,18 +553,28 @@ mod tests {
 
     #[cfg(feature = "typst-text")]
     #[test]
-    fn typst_text_extractor_returns_whole_line_paths_and_pdf_layer() {
-        let typst = avenger_typst::AvengerTypst::new(Default::default()).unwrap();
+    fn typst_text_extractor_returns_plain_runs_and_math_paths() {
+        let typst = avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
+            backend: avenger_typst::TypstEngineBackend::VendorTypst,
+            ..Default::default()
+        })
+        .unwrap();
         let extractor = TypstTextPathExtractor::new(typst, math_config());
         let text = "speed $v^2$".to_string();
-        let buffer = extractor
-            .extract_text_paths(&config(&text, TextPathOutputMode::AllText))
-            .unwrap();
+        let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
 
-        assert!(buffer.plain_runs.is_empty());
-        assert_eq!(buffer.items.len(), 1);
+        assert_eq!(buffer.plain_runs.len(), 1);
+        assert_eq!(buffer.plain_runs[0].text, "speed ");
+        assert!(!buffer.items.is_empty());
         assert_eq!(buffer.items[0].kind, TextPathKind::MathGlyph);
-        assert_eq!(buffer.pdf_layers.len(), 1);
-        assert_eq!(buffer.pdf_layers[0].layer.semantic_text, text);
+        assert!(matches!(
+            buffer.draw_items.first(),
+            Some(TextPathDrawItem::PlainRun(0))
+        ));
+        assert!(buffer
+            .draw_items
+            .iter()
+            .skip(1)
+            .all(|item| matches!(item, TextPathDrawItem::PathItem(_))));
     }
 }
