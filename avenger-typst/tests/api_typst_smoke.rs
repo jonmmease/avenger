@@ -1,8 +1,8 @@
 #![cfg(feature = "vendor-typst")]
 
 use avenger_typst::{
-    AvengerTypst, MathFragmentOptions, MathOutputRequest, MathStringRun, TypstEngineBackend,
-    TypstEngineConfig,
+    AvengerTypst, MathFragmentOptions, MathOutputRequest, MathStringRun, MathTypesetError,
+    RasterRequest, TypstEngineBackend, TypstEngineConfig,
 };
 use typst_syntax::{parse_math, SyntaxKind};
 
@@ -150,4 +150,21 @@ fn vendor_string_artifact_deduplicates_pdf_font_resources() {
             artifact.font_resources[0].id
         );
     }
+}
+
+#[test]
+fn vendor_backend_reports_raster_unavailable_until_path_rasterization_exists() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut options = MathFragmentOptions::default();
+    options.outputs.raster = Some(RasterRequest { scale: 2.0 });
+
+    let err = engine.typeset_math_fragment("x", &options).unwrap_err();
+    assert_eq!(
+        err,
+        MathTypesetError::UnsupportedOutput("vendor-typst raster output is not wired yet")
+    );
 }
