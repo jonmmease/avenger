@@ -1236,6 +1236,8 @@ dependencies = [
  "avenger-typst-layout",
  "avenger-typst-library",
  "avenger-typst-syntax",
+ "avenger-typst-utils",
+ "comemo",
  "serde",
  "thiserror 2.0.18",
 ]

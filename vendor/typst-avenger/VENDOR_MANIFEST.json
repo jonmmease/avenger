@@ -2240,6 +2240,7 @@
     "mechanical:typst-library-stub-color-fonts",
     "mechanical:typst-library-font-variant-without-usvg",
     "mechanical:typst-library-color-without-assets",
+    "mechanical:typst-layout-export-math-fragment",
     "mechanical:typst-layout-linebreak-without-assets",
     "mechanical:typst-layout-unregister-unsupported"
   ],

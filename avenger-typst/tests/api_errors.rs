@@ -112,6 +112,6 @@ fn explicit_vendor_typst_backend_reaches_layout_boundary() {
 
     assert_eq!(
         err,
-        MathTypesetError::UnsupportedOutput("vendor-typst layout is not wired yet")
+        MathTypesetError::UnsupportedOutput("vendor-typst path output is not wired yet")
     );
 }

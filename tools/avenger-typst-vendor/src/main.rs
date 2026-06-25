@@ -964,6 +964,7 @@ fn rewrite_typst_layout_math_subset(
         return Ok(());
     }
 
+    patch_typst_layout_export_math_fragment(out, applied_patches)?;
     patch_typst_layout_linebreak_without_assets(out, applied_patches)?;
     patch_typst_layout_rules_without_unsupported(out, applied_patches)?;
 
@@ -1272,6 +1273,32 @@ fn patch_typst_layout_rules_without_unsupported(
         original,
         source,
         "mechanical:typst-layout-unregister-unsupported",
+        applied_patches,
+    )
+}
+
+fn patch_typst_layout_export_math_fragment(
+    out: &Path,
+    applied_patches: &mut Vec<String>,
+) -> Result<()> {
+    let path = out.join("crates/typst-layout/src/lib.rs");
+    let source = read_patch_source(&path)?;
+    let original = source.clone();
+    let needle = "pub use self::introspect::PagedIntrospector;\n";
+    let source = if source.contains("pub use self::math::layout_equation_inline;\n") {
+        source
+    } else {
+        source.replace(
+            needle,
+            "pub use self::introspect::PagedIntrospector;\npub use self::math::layout_equation_inline;\n",
+        )
+    };
+
+    write_if_changed(
+        &path,
+        original,
+        source,
+        "mechanical:typst-layout-export-math-fragment",
         applied_patches,
     )
 }
