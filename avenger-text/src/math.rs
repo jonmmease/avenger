@@ -11,7 +11,7 @@ use crate::{
     types::{FontStyle, FontWeight},
 };
 
-const DEFAULT_MATH_LINE_LEADING_FACTOR: f32 = 0.2;
+pub(crate) const DEFAULT_MATH_LINE_LEADING_FACTOR: f32 = 0.65;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TextMarkupMode {
@@ -668,12 +668,12 @@ mod tests {
         )
         .unwrap();
 
-        assert_close(layout.bounds.height, 22.0);
-        assert_close(layout.bounds.ascent, 13.0);
-        assert_close(layout.bounds.descent, 9.0);
+        assert_close(layout.bounds.height, 26.5);
+        assert_close(layout.bounds.ascent, 15.25);
+        assert_close(layout.bounds.descent, 11.25);
         assert!(matches!(
             &layout.runs[0],
-            MathAwareLaidOutRun::Math { y_offset, .. } if *y_offset == 1.0
+            MathAwareLaidOutRun::Math { y_offset, .. } if *y_offset == 3.25
         ));
     }
 

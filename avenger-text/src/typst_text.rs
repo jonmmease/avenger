@@ -16,6 +16,8 @@ use crate::{
 
 use crate::math::{MathMarkupErrorPolicy, TextMarkupMode, TextMathConfig};
 
+const TYPST_LINE_LEADING_FACTOR: f32 = crate::math::DEFAULT_MATH_LINE_LEADING_FACTOR;
+
 #[derive(Debug, Clone)]
 pub struct TypstTextMeasurer {
     typst: avenger_typst::AvengerTypst,
@@ -55,7 +57,11 @@ impl TextMeasurer for TypstTextMeasurer {
                 pdf_text_layer: false,
             },
         ) {
-            Ok(artifact) => bounds_from_metrics(artifact.metrics),
+            Ok(result) => bounds_from_metrics(
+                result.artifact.metrics,
+                config.font_size,
+                result.has_math_spans,
+            ),
             Err(_) => fallback_text_bounds(config.text, config.font_size),
         }
     }
@@ -129,7 +135,7 @@ where
             )
         });
         let fill = color_key(config.color);
-        let artifact = typeset_line(
+        let result = typeset_line(
             &self.typst,
             &self.math,
             &raster_text,
@@ -145,8 +151,13 @@ where
             },
         )
         .map_err(|err| AvengerTextError::TextMeasurementError(err.to_string()))?;
-        let bounds = bounds_from_metrics(artifact.metrics);
-        let raster = artifact.raster.ok_or_else(|| {
+        let tight_bounds = tight_bounds_from_metrics(result.artifact.metrics);
+        let bounds = bounds_from_metrics(
+            result.artifact.metrics,
+            config.font_size,
+            result.has_math_spans,
+        );
+        let raster = result.artifact.raster.ok_or_else(|| {
             AvengerTextError::InternalError(
                 "Typst text raster output was requested but missing".to_string(),
             )
@@ -194,9 +205,9 @@ where
                 },
                 GlyphPosition {
                     x: raster.origin_x,
-                    y: raster.origin_y - bounds.ascent,
+                    y: raster.origin_y - tight_bounds.ascent,
                     physical_x: (raster.origin_x * scale).round(),
-                    physical_y: ((raster.origin_y - bounds.ascent) * scale).round(),
+                    physical_y: ((raster.origin_y - tight_bounds.ascent) * scale).round(),
                 },
             )],
         })
@@ -227,8 +238,13 @@ fn measure_text_width_with_typst(
             pdf_text_layer: false,
         },
     )
-    .map(|artifact| artifact.metrics.width)
+    .map(|result| result.artifact.metrics.width)
     .unwrap_or_else(|_| fallback_text_bounds(text, font_size).width)
+}
+
+struct TypesetLineResult {
+    artifact: avenger_typst::TextLineArtifact,
+    has_math_spans: bool,
 }
 
 fn typeset_line(
@@ -241,7 +257,7 @@ fn typeset_line(
     font_style: &FontStyle,
     color: [f32; 4],
     outputs: avenger_typst::TextLineOutputRequest,
-) -> Result<avenger_typst::TextLineArtifact, avenger_typst::MathTypesetError> {
+) -> Result<TypesetLineResult, avenger_typst::MathTypesetError> {
     let options = text_line_options(
         math,
         text,
@@ -252,9 +268,13 @@ fn typeset_line(
         color,
         outputs.clone(),
     );
+    let has_math_spans = contains_active_math_span(math, text);
 
     match typst.typeset_text_line(text, &options) {
-        Ok(artifact) => Ok(artifact),
+        Ok(artifact) => Ok(TypesetLineResult {
+            artifact,
+            has_math_spans,
+        }),
         Err(err) if should_retry_as_plain(math) => {
             let mut plain_math = math.clone();
             plain_math.mode = TextMarkupMode::Plain;
@@ -270,6 +290,10 @@ fn typeset_line(
             );
             typst
                 .typeset_text_line(text, &plain_options)
+                .map(|artifact| TypesetLineResult {
+                    artifact,
+                    has_math_spans: false,
+                })
                 .map_err(|_| err)
         }
         Err(err) => Err(err),
@@ -382,7 +406,20 @@ fn limits_for_text(text: &str, mut limits: avenger_typst::MathLimits) -> avenger
     limits
 }
 
-fn bounds_from_metrics(metrics: avenger_typst::TypesetMetrics) -> TextBounds {
+fn bounds_from_metrics(
+    metrics: avenger_typst::TypesetMetrics,
+    font_size: f32,
+    has_math_spans: bool,
+) -> TextBounds {
+    let tight = tight_bounds_from_metrics(metrics);
+    if has_math_spans {
+        padded_math_line_bounds(tight, font_size)
+    } else {
+        tight
+    }
+}
+
+fn tight_bounds_from_metrics(metrics: avenger_typst::TypesetMetrics) -> TextBounds {
     TextBounds {
         width: metrics.width,
         height: metrics.height,
@@ -390,6 +427,85 @@ fn bounds_from_metrics(metrics: avenger_typst::TypesetMetrics) -> TextBounds {
         descent: metrics.descent,
         line_height: metrics.height.max(metrics.ascent + metrics.descent),
     }
+}
+
+fn padded_math_line_bounds(tight: TextBounds, font_size: f32) -> TextBounds {
+    let leading = font_size.max(0.0) * TYPST_LINE_LEADING_FACTOR;
+    let top = leading * 0.5;
+    let bottom = leading - top;
+    let height = tight.height + leading;
+
+    TextBounds {
+        width: tight.width,
+        height,
+        ascent: tight.ascent + top,
+        descent: tight.descent + bottom,
+        line_height: height.max(tight.line_height),
+    }
+}
+
+fn contains_active_math_span(math: &TextMathConfig, text: &str) -> bool {
+    match &math.mode {
+        TextMarkupMode::Plain => false,
+        TextMarkupMode::TypstMathDelimited(delimiters) => contains_delimited_span(text, delimiters),
+    }
+}
+
+fn contains_delimited_span(text: &str, delimiters: &avenger_typst::MathDelimiterOptions) -> bool {
+    let mut pos = 0usize;
+    while let Some((idx, ch)) = next_char(text, pos) {
+        let next_pos = idx + ch.len_utf8();
+        if Some(ch) == delimiters.escape {
+            if let Some((_, next)) = next_char(text, next_pos) {
+                if next == delimiters.delimiter || Some(next) == delimiters.escape {
+                    pos = next_pos + next.len_utf8();
+                    continue;
+                }
+            }
+        }
+
+        if ch == delimiters.delimiter && has_closing_delimiter(text, next_pos, delimiters) {
+            return true;
+        }
+
+        pos = next_pos;
+    }
+
+    false
+}
+
+fn has_closing_delimiter(
+    text: &str,
+    start: usize,
+    delimiters: &avenger_typst::MathDelimiterOptions,
+) -> bool {
+    let mut pos = start;
+    while let Some((idx, ch)) = next_char(text, pos) {
+        let next_pos = idx + ch.len_utf8();
+        if Some(ch) == delimiters.escape {
+            if let Some((_, next)) = next_char(text, next_pos) {
+                if next == delimiters.delimiter || Some(next) == delimiters.escape {
+                    pos = next_pos + next.len_utf8();
+                    continue;
+                }
+            }
+        }
+
+        if ch == delimiters.delimiter {
+            return true;
+        }
+
+        pos = next_pos;
+    }
+
+    false
+}
+
+fn next_char(text: &str, start: usize) -> Option<(usize, char)> {
+    text[start..]
+        .char_indices()
+        .next()
+        .map(|(offset, ch)| (start + offset, ch))
 }
 
 fn fallback_text_bounds(text: &str, font_size: f32) -> TextBounds {
@@ -454,6 +570,36 @@ mod tests {
         );
 
         assert_eq!(options.delimiters.delimiter, '\0');
+    }
+
+    #[test]
+    fn active_math_spans_ignore_escaped_dollars() {
+        let math = TextMathConfig {
+            mode: TextMarkupMode::TypstMathDelimited(Default::default()),
+            ..Default::default()
+        };
+
+        assert!(!contains_active_math_span(&math, r"Cost is \$5"));
+        assert!(contains_active_math_span(&math, r"Cost is \$5 and $x$"));
+    }
+
+    #[test]
+    fn math_bounds_include_typst_par_leading() {
+        let metrics = avenger_typst::TypesetMetrics {
+            width: 20.0,
+            height: 10.0,
+            baseline: 7.0,
+            ascent: 7.0,
+            descent: 3.0,
+        };
+
+        let plain = bounds_from_metrics(metrics, 10.0, false);
+        let math = bounds_from_metrics(metrics, 10.0, true);
+
+        assert_eq!(plain.height, 10.0);
+        assert!((math.height - 16.5).abs() <= 1e-4);
+        assert!((math.ascent - 10.25).abs() <= 1e-4);
+        assert!((math.descent - 6.25).abs() <= 1e-4);
     }
 
     #[test]
