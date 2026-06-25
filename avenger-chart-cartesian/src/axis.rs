@@ -11,14 +11,15 @@ use avenger_chart_core::{
     serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_guides::axis::{
-    band::make_band_axis_marks,
-    nested_band::{NestedBandAxisLevelConfig, make_nested_band_axis_marks},
-    numeric::make_numeric_axis_marks,
+    band::make_band_axis_marks_with_text_measurer,
+    nested_band::{NestedBandAxisLevelConfig, make_nested_band_axis_marks_with_text_measurer},
+    numeric::make_numeric_axis_marks_with_text_measurer,
     opts::{AxisConfig, AxisOrientation, AxisTickSpacing},
-    point::make_point_axis_marks,
+    point::make_point_axis_marks_with_text_measurer,
 };
 use avenger_scales::scales::{DomainKind, band::BandScale};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
+use avenger_text::measurement::TextMeasurer;
 use datafusion::{
     arrow::array::{Array, StructArray},
     common::ScalarValue,
@@ -506,6 +507,7 @@ pub async fn evaluate_cartesian_axis(
     facet_sharing_level: SharingLevel,
     child_frame_sharing_level: SharingLevel,
     nested_axis_levels: Option<&BTreeMap<usize, Box<CartesianAxis>>>,
+    text_measurer: &dyn TextMeasurer,
 ) -> Result<SceneMark, AvengerChartError> {
     let visible = if let Some(visible_node) = axis.visible.as_option().and_then(|o| o.as_ref()) {
         let visible_expr =
@@ -731,11 +733,29 @@ pub async fn evaluate_cartesian_axis(
         DomainKind::Categorical => {
             let scale_type = scale.scale_impl.scale_type();
             match scale_type {
-                "band" => make_band_axis_marks(scale, title, axis_origin, &axis_config)?,
-                "point" => make_point_axis_marks(scale.clone(), title, axis_origin, &axis_config)?,
+                "band" => make_band_axis_marks_with_text_measurer(
+                    scale,
+                    title,
+                    axis_origin,
+                    &axis_config,
+                    text_measurer,
+                )?,
+                "point" => make_point_axis_marks_with_text_measurer(
+                    scale.clone(),
+                    title,
+                    axis_origin,
+                    &axis_config,
+                    text_measurer,
+                )?,
                 "ordinal" => {
                     let band_scale = BandScale::from_point_scale(scale);
-                    make_band_axis_marks(&band_scale, title, axis_origin, &axis_config)?
+                    make_band_axis_marks_with_text_measurer(
+                        &band_scale,
+                        title,
+                        axis_origin,
+                        &axis_config,
+                        text_measurer,
+                    )?
                 }
                 _ => {
                     return Err(AvengerChartError::InternalError(format!(
@@ -745,14 +765,21 @@ pub async fn evaluate_cartesian_axis(
                 }
             }
         }
-        DomainKind::NestedCategorical => make_nested_band_axis_marks(
+        DomainKind::NestedCategorical => make_nested_band_axis_marks_with_text_measurer(
             scale,
             title,
             axis_origin,
             &axis_config,
             nested_axis_level_configs.as_ref(),
+            text_measurer,
         )?,
-        _ => make_numeric_axis_marks(scale, title, axis_origin, &axis_config)?,
+        _ => make_numeric_axis_marks_with_text_measurer(
+            scale,
+            title,
+            axis_origin,
+            &axis_config,
+            text_measurer,
+        )?,
     };
 
     Ok(SceneMark::Group(axis_group))

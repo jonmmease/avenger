@@ -58,7 +58,8 @@ pub use crate::layout::{
     CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, PlotConstraint,
 };
 pub use crate::plot::{
-    EvaluationRequest, Plot, PlotSession, PlotSubtitle, PlotTitle, TitleAlign, TitleSpan,
+    EvaluationRequest, Plot, PlotSession, PlotSessionOptions, PlotSubtitle, PlotTitle, TitleAlign,
+    TitleSpan,
 };
 pub use avenger_chart_core::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,

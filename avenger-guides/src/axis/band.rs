@@ -3,7 +3,10 @@ use avenger_common::value::ScalarOrArray;
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
-use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
+use avenger_text::{
+    measurement::{default_text_measurer, TextMeasurer},
+    types::{FontWeight, TextAlign, TextBaseline},
+};
 use rstar::AABB;
 
 use super::opts::{AxisConfig, AxisOrientation};
@@ -21,6 +24,17 @@ pub fn make_band_axis_marks(
     title: &str,
     origin: [f32; 2],
     config: &AxisConfig,
+) -> Result<SceneGroup, AvengerGuidesError> {
+    let text_measurer = default_text_measurer();
+    make_band_axis_marks_with_text_measurer(scale, title, origin, config, &text_measurer)
+}
+
+pub fn make_band_axis_marks_with_text_measurer(
+    scale: &ConfiguredScale,
+    title: &str,
+    origin: [f32; 2],
+    config: &AxisConfig,
+    text_measurer: &dyn TextMeasurer,
 ) -> Result<SceneGroup, AvengerGuidesError> {
     // Make sure ticks end up centered in the band
     // Unwrap is safe because this band value is always valid
@@ -105,16 +119,22 @@ pub fn make_band_axis_marks(
 
     // Add title if visible and non-empty
     if config.title_visible.unwrap_or(true) && !title.is_empty() {
-        axis_elements_group
-            .marks
-            .push(make_title(title, &scale, &axis_elements_group.bounding_box(), config)?.into());
+        axis_elements_group.marks.push(
+            make_title(
+                title,
+                &scale,
+                &axis_elements_group.bounding_box_with_text_measurer(text_measurer),
+                config,
+            )?
+            .into(),
+        );
     }
 
     // Add the axis elements group to the main group
     main_group.marks.push(axis_elements_group.into());
 
     // Measure the overall bounds to create a clip rect
-    let bbox = main_group.bounding_box();
+    let bbox = main_group.bounding_box_with_text_measurer(text_measurer);
 
     // Add clip rect to define bounds
     // Use the actual bounding box coordinates, not assuming 0,0

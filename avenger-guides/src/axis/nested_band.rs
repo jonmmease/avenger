@@ -52,6 +52,25 @@ pub fn make_nested_band_axis_marks(
     config: &AxisConfig,
     level_configs: Option<&BTreeMap<usize, NestedBandAxisLevelConfig>>,
 ) -> Result<SceneGroup, AvengerGuidesError> {
+    let text_measurer = default_text_measurer();
+    make_nested_band_axis_marks_with_text_measurer(
+        scale,
+        title,
+        origin,
+        config,
+        level_configs,
+        &text_measurer,
+    )
+}
+
+pub fn make_nested_band_axis_marks_with_text_measurer(
+    scale: &ConfiguredScale,
+    title: &str,
+    origin: [f32; 2],
+    config: &AxisConfig,
+    level_configs: Option<&BTreeMap<usize, NestedBandAxisLevelConfig>>,
+    text_measurer: &dyn TextMeasurer,
+) -> Result<SceneGroup, AvengerGuidesError> {
     let layout = nested_band_layout(&scale.config)?;
     let level_count = layout.leaf_level() + 1;
     let level_bands = (0..level_count)
@@ -82,8 +101,13 @@ pub fn make_nested_band_axis_marks(
         config.orientation,
         AxisOrientation::Left | AxisOrientation::Right
     );
-    let label_layouts =
-        nested_axis_level_label_layouts(&level_bands, is_vertical, config, level_configs);
+    let label_layouts = nested_axis_level_label_layouts(
+        &level_bands,
+        is_vertical,
+        config,
+        level_configs,
+        text_measurer,
+    );
     let offset = match config.orientation {
         AxisOrientation::Left => 0.0,
         AxisOrientation::Right => config.dimensions[0],
@@ -140,7 +164,7 @@ pub fn make_nested_band_axis_marks(
 
     let title = nested_axis_title(title, &layout, level_configs);
     if config.title_visible.unwrap_or(true) && !title.is_empty() {
-        let envelope = axis_group.bounding_box();
+        let envelope = axis_group.bounding_box_with_text_measurer(text_measurer);
         axis_group
             .marks
             .push(make_title(&title, scale, envelope.lower(), envelope.upper(), config)?.into());
@@ -148,7 +172,7 @@ pub fn make_nested_band_axis_marks(
 
     main_group.marks.push(axis_group.into());
 
-    let bbox = main_group.bounding_box();
+    let bbox = main_group.bounding_box_with_text_measurer(text_measurer);
     let padding = 2.0;
     main_group.clip = avenger_scenegraph::marks::group::Clip::Rect {
         x: bbox.lower()[0] - padding,
@@ -513,6 +537,7 @@ fn nested_axis_level_label_layouts(
     is_vertical: bool,
     config: &AxisConfig,
     level_configs: Option<&BTreeMap<usize, NestedBandAxisLevelConfig>>,
+    text_measurer: &dyn TextMeasurer,
 ) -> Vec<NestedAxisLevelLabelLayout> {
     let font_size = config.label_font_size.unwrap_or(TICK_FONT_SIZE);
     let font_weight = FontWeight::Number(config.label_font_weight.unwrap_or(400.0));
@@ -544,6 +569,7 @@ fn nested_axis_level_label_layouts(
             &font_weight,
             angle,
             is_vertical,
+            text_measurer,
         );
         layouts[level] = NestedAxisLevelLabelLayout {
             label_distance,
@@ -579,12 +605,12 @@ fn level_label_cross_extent(
     font_weight: &FontWeight,
     angle: f32,
     is_vertical: bool,
+    text_measurer: &dyn TextMeasurer,
 ) -> f32 {
-    let measurer = default_text_measurer();
     let (max_width, max_height) = bands
         .iter()
         .map(|band| {
-            let bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+            let bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: &band.label,
                 font: font_family,
                 font_size,
@@ -704,6 +730,7 @@ mod tests {
     use avenger_color::ColorOrGradient;
     use avenger_scales::scales::nested_band::{nested_axis_bands, NestedBandScale};
     use avenger_scenegraph::marks::mark::SceneMark;
+    use avenger_text::measurement::default_text_measurer;
     use avenger_text::types::{TextAlign, TextBaseline};
 
     use crate::axis::opts::{AxisConfig, AxisOrientation};
@@ -975,6 +1002,7 @@ mod tests {
             },
         )]);
 
+        let text_measurer = default_text_measurer();
         let layouts = nested_axis_level_label_layouts(
             &level_bands,
             false,
@@ -986,6 +1014,7 @@ mod tests {
                 ..Default::default()
             },
             Some(&configs),
+            &text_measurer,
         );
 
         assert_close(layouts[0].label_distance, TEXT_MARGIN);
@@ -1276,9 +1305,16 @@ mod tests {
             nested_axis_bands(&labeled_scale.config, 1).expect("labeled leaf bands"),
         ];
 
-        let key_layouts = nested_axis_level_label_layouts(&key_bands, false, &axis_config, None);
-        let labeled_layouts =
-            nested_axis_level_label_layouts(&labeled_bands, false, &axis_config, None);
+        let text_measurer = default_text_measurer();
+        let key_layouts =
+            nested_axis_level_label_layouts(&key_bands, false, &axis_config, None, &text_measurer);
+        let labeled_layouts = nested_axis_level_label_layouts(
+            &labeled_bands,
+            false,
+            &axis_config,
+            None,
+            &text_measurer,
+        );
 
         assert_close(
             key_layouts[1].label_distance,

@@ -42,7 +42,7 @@ pub(crate) struct FrameLayoutInput<'a> {
     pub(crate) legend_measurements: &'a LegendMeasurements,
     pub(crate) ctx: &'a SessionContext,
     pub(crate) params: &'a IndexMap<String, ScalarValue>,
-    pub(crate) eval_ctx: Option<&'a EvaluationContext>,
+    pub(crate) eval_ctx: &'a EvaluationContext,
 }
 
 /// Avenger-native frame layout solver.

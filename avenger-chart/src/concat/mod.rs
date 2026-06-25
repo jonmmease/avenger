@@ -13,6 +13,7 @@ use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_layout::GridRequirements;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
+use avenger_text::measurement::TextMeasurer;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -551,6 +552,7 @@ impl CompiledGuide for ConcatGuide {
         _ctx: &SessionContext,
         _sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
+        text_measurer: &dyn TextMeasurer,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         let Some(concat) = coord_measurement.and_then(concat_coord_ref) else {
             return Ok(OverflowSpaceRequirement::default());
@@ -564,6 +566,7 @@ impl CompiledGuide for ConcatGuide {
             concat_label_placement(concat),
             theme,
             params,
+            text_measurer,
         )
     }
 
@@ -581,6 +584,7 @@ impl CompiledGuide for ConcatGuide {
         _sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn CoordMeasurement,
         _render_context: GuideRenderContext<'_>,
+        text_measurer: &dyn TextMeasurer,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let concat = concat_coord_ref(coord_measurement).ok_or_else(|| {
             AvengerChartError::InternalError(
@@ -594,6 +598,7 @@ impl CompiledGuide for ConcatGuide {
             plot_bounds,
             theme,
             params,
+            text_measurer,
         )
     }
 

@@ -8,9 +8,9 @@ use avenger_chart_core::{
     DataTransformCompileContext, DefaultLogicalExprNodeExt, EventDatumFieldSpec, FacetDataScope,
     IntoExpr, IntoPlotMark, LegendRendererKind, LegendRendererSelection, Mark, MarkDataMode,
     MarkRuntimeContext, MarkState, OpacityChannelConfig, PlotMark, RenderedMarkData,
-    SizeChannelConfig, StoreData, StrokeWidthChannelConfig, apply_opacity_to_color_channel,
-    coerce_color_channel_with_renderer, coerce_font_style_channel, coerce_font_weight_channel,
-    coerce_numeric_channel, coerce_numeric_channel_with_renderer,
+    SizeChannelConfig, StoreData, StrokeWidthChannelConfig, TextMeasurementService,
+    apply_opacity_to_color_channel, coerce_color_channel_with_renderer, coerce_font_style_channel,
+    coerce_font_weight_channel, coerce_numeric_channel, coerce_numeric_channel_with_renderer,
     coerce_opacity_channel_with_renderer, coerce_text_align_channel, coerce_text_baseline_channel,
     coerce_text_channel, define_common_mark_channels, impl_mark_trait_common, is_continuous_scale,
 };
@@ -811,6 +811,7 @@ impl CompiledMark for CompiledTreeLabel {
                 self.fit,
                 self.min_width_px,
                 self.min_height_px,
+                context.text_measurement_service(),
             );
             fitted_text.push(label);
             x.push(label_rect.x + label_rect.width * 0.5);
@@ -1403,6 +1404,7 @@ impl CompiledMark for CompiledTreeHeader {
                 TreeLabelFit::Ellipsis,
                 4.0,
                 4.0,
+                context.text_measurement_service(),
             ));
             text_x.push(label_rect.x + label_rect.width * 0.5);
             text_y.push(label_rect.y + label_rect.height * 0.5);
@@ -2322,6 +2324,7 @@ fn fit_tree_label(
     fit: TreeLabelFit,
     min_width: f32,
     min_height: f32,
+    text_measurement_service: Option<&dyn TextMeasurementService>,
 ) -> String {
     if label.is_empty()
         || limit < min_width.max(0.0)
@@ -2330,38 +2333,37 @@ fn fit_tree_label(
     {
         return String::new();
     }
+    let plain_measurer = text_measurement_service
+        .is_none()
+        .then(default_text_measurer);
+    let measure_width = |candidate: &str| {
+        let config = TextMeasurementConfig {
+            text: candidate,
+            font,
+            font_size,
+            font_weight,
+            font_style,
+        };
+        if let Some(service) = text_measurement_service {
+            service.measure_text_bounds(&config).width
+        } else {
+            plain_measurer
+                .as_ref()
+                .expect("plain text measurer fallback")
+                .measure_text_bounds(&config)
+                .width
+        }
+    };
     match fit {
         TreeLabelFit::Hide => {
-            let measurer = default_text_measurer();
-            let width = measurer
-                .measure_text_bounds(&TextMeasurementConfig {
-                    text: label,
-                    font,
-                    font_size,
-                    font_weight,
-                    font_style,
-                })
-                .width;
+            let width = measure_width(label);
             if width <= limit {
                 label.to_string()
             } else {
                 String::new()
             }
         }
-        TreeLabelFit::Ellipsis => {
-            let measurer = default_text_measurer();
-            truncate_text_to_limit_with(label, limit, |candidate| {
-                measurer
-                    .measure_text_bounds(&TextMeasurementConfig {
-                        text: candidate,
-                        font,
-                        font_size,
-                        font_weight,
-                        font_style,
-                    })
-                    .width
-            })
-        }
+        TreeLabelFit::Ellipsis => truncate_text_to_limit_with(label, limit, measure_width),
     }
 }
 
@@ -2842,6 +2844,7 @@ mod tests {
             TreeLabelFit::Ellipsis,
             4.0,
             4.0,
+            None,
         );
         assert!(!label.is_empty());
         assert!(label.len() < "A very long product label".len());
@@ -2857,6 +2860,7 @@ mod tests {
             TreeLabelFit::Ellipsis,
             4.0,
             4.0,
+            None,
         );
         assert_eq!(hidden, "");
     }

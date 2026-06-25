@@ -13,9 +13,11 @@ use avenger_common::{
     types::SymbolShape,
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
-use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend_itemized};
+use avenger_guides::legend::symbol::{
+    SymbolLegendConfig, make_symbol_legend_itemized_with_text_measurer,
+};
 use avenger_scales::scales::RangeKind;
-use avenger_text::types::FontWeight;
+use avenger_text::{measurement::TextMeasurer, types::FontWeight};
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -104,6 +106,7 @@ impl LegendRenderer for CompiledSymbolLegend {
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
+        text_measurer: &dyn TextMeasurer,
     ) -> Result<Option<LegendRenderOutput>, AvengerChartError> {
         // Determine if this is a measure call (x=0, y=0) or actual render
         let is_measure = x == 0.0 && y == 0.0;
@@ -665,7 +668,8 @@ impl LegendRenderer for CompiledSymbolLegend {
         );
 
         // Create the legend marks
-        let mut output = make_symbol_legend_itemized(&legend_config)?;
+        let mut output =
+            make_symbol_legend_itemized_with_text_measurer(&legend_config, text_measurer)?;
 
         // Position the legend
         output.group.origin = [x, y];

@@ -6,6 +6,7 @@ use avenger_chart_core::DefaultLogicalExprNodeExt;
 use avenger_chart_core::{
     AvengerChartError, Legend, LegendPosition, Size2D, Theme, evaluate_bool_expr,
 };
+use avenger_text::measurement::TextMeasurer;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
@@ -34,6 +35,7 @@ pub async fn measure_legend_size_with_channels(
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
     ctx: &SessionContext,
+    text_measurer: &dyn TextMeasurer,
 ) -> Result<(Size2D, bool), AvengerChartError> {
     // Evaluate visibility expression - skip measurement if not visible
     let visible = if let Some(node) = legend.visible.as_option().and_then(|o| o.as_ref()) {
@@ -56,7 +58,15 @@ pub async fn measure_legend_size_with_channels(
 
     // Ask the renderer to measure itself with all merged channels
     let size = renderer
-        .measure(legend_channels, legend, available_space, theme, params, ctx)
+        .measure(
+            legend_channels,
+            legend,
+            available_space,
+            theme,
+            params,
+            ctx,
+            text_measurer,
+        )
         .await?;
     let flexible = renderer.prefers_flexible_layout();
     Ok((size, flexible))

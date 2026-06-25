@@ -9,6 +9,7 @@ use std::{
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_text::measurement::TextMeasurer;
 use datafusion::{common::ScalarValue, logical_expr::Expr, prelude::SessionContext};
 use indexmap::IndexMap;
 
@@ -85,6 +86,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
+        text_measurer: &dyn TextMeasurer,
     ) -> Result<Option<LegendRenderOutput>, AvengerChartError>;
 
     /// Measure the size this legend will require by rendering it
@@ -96,6 +98,7 @@ pub trait LegendRenderer: Send + Sync + 'static {
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
+        text_measurer: &dyn TextMeasurer,
     ) -> Result<Size2D, AvengerChartError> {
         // Default implementation: render at origin and measure bounds
 
@@ -110,10 +113,11 @@ pub trait LegendRenderer: Send + Sync + 'static {
                 theme,
                 params,
                 ctx,
+                text_measurer,
             )
             .await?
         {
-            let bounds = output.group.bounding_box();
+            let bounds = output.group.bounding_box_with_text_measurer(text_measurer);
 
             // Account for stroke width on background if present
             // Background strokes extend 0.5 pixels outside on each side (total 1.0 pixel)

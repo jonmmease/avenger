@@ -167,13 +167,9 @@ fn occlusion_rect_dataframe(ctx: &SessionContext) -> DataFrame {
         .expect("typst math occlusion rect dataframe")
 }
 
-async fn assert_typst_math_wgpu(
-    compiled: &CompiledPlot,
-    ctx: &SessionContext,
-    baseline_name: &str,
-) {
+async fn assert_typst_math_wgpu(compiled: CompiledPlot, ctx: &SessionContext, baseline_name: &str) {
     assert_visual_match_with_canvas_config_and_sidecars(
-        compiled,
+        Arc::new(compiled),
         ctx,
         None,
         CATEGORY,
@@ -211,7 +207,7 @@ async fn bessel_family_legend() {
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile Bessel plot");
-    assert_typst_math_wgpu(&compiled, &ctx, "bessel_family_legend").await;
+    assert_typst_math_wgpu(compiled, &ctx, "bessel_family_legend").await;
 }
 
 #[tokio::test]
@@ -241,7 +237,7 @@ async fn damped_oscillator_labels() {
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile oscillator plot");
-    assert_typst_math_wgpu(&compiled, &ctx, "damped_oscillator_labels").await;
+    assert_typst_math_wgpu(compiled, &ctx, "damped_oscillator_labels").await;
 }
 
 #[tokio::test]
@@ -271,7 +267,7 @@ async fn root_fraction_title() {
         .compile(&ctx)
         .await
         .expect("compile root fraction plot");
-    assert_typst_math_wgpu(&compiled, &ctx, "root_fraction_title").await;
+    assert_typst_math_wgpu(compiled, &ctx, "root_fraction_title").await;
 }
 
 #[tokio::test]
@@ -320,7 +316,7 @@ async fn bessel_equation_annotation() {
         .compile(&ctx)
         .await
         .expect("compile Bessel annotation plot");
-    assert_typst_math_wgpu(&compiled, &ctx, "bessel_equation_annotation").await;
+    assert_typst_math_wgpu(compiled, &ctx, "bessel_equation_annotation").await;
 }
 
 #[tokio::test]
@@ -352,7 +348,7 @@ async fn escaped_dollar_plain_text() {
         .compile(&ctx)
         .await
         .expect("compile escaped dollar plot");
-    assert_typst_math_wgpu(&compiled, &ctx, "escaped_dollar_plain_text").await;
+    assert_typst_math_wgpu(compiled, &ctx, "escaped_dollar_plain_text").await;
 }
 
 #[tokio::test]
@@ -394,5 +390,5 @@ async fn mark_occlusion_math_label() {
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile math z-order plot");
-    assert_typst_math_wgpu(&compiled, &ctx, "mark_occlusion_math_label").await;
+    assert_typst_math_wgpu(compiled, &ctx, "mark_occlusion_math_label").await;
 }

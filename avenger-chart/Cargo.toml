@@ -16,14 +16,17 @@ svg = [
 ]
 pdf = ["dep:avenger-pdf", "svg"]
 wgpu = ["dep:avenger-wgpu"]
+typst-math-layout = ["avenger-text/typst-math"]
 typst-math-raster = [
     "wgpu",
+    "typst-math-layout",
     "avenger-text/typst-math-raster",
     "avenger-wgpu/typst-math-raster",
 ]
 typst-math-svg-pdf = [
     "svg",
     "pdf",
+    "typst-math-layout",
     "avenger-text/typst-math",
     "avenger-svg/typst-math",
     "avenger-pdf/typst-math",

@@ -9,8 +9,10 @@ use avenger_chart_core::{
 use avenger_chart_core::{ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, DomainValues};
 use avenger_color::{ColorOrGradient, parse_color_string_strict};
 use avenger_common::{types::SymbolShape, value::ScalarOrArray};
-use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend_itemized};
-use avenger_text::types::FontWeight;
+use avenger_guides::legend::symbol::{
+    SymbolLegendConfig, make_symbol_legend_itemized_with_text_measurer,
+};
+use avenger_text::{measurement::TextMeasurer, types::FontWeight};
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -73,6 +75,7 @@ impl LegendRenderer for CompiledRectLegend {
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
+        text_measurer: &dyn TextMeasurer,
     ) -> Result<Option<LegendRenderOutput>, AvengerChartError> {
         if channels.is_empty() {
             return Ok(None);
@@ -340,7 +343,8 @@ impl LegendRenderer for CompiledRectLegend {
         legend_config.text = ScalarOrArray::new_array(text_values);
 
         // Create the legend marks
-        let mut output = make_symbol_legend_itemized(&legend_config)?;
+        let mut output =
+            make_symbol_legend_itemized_with_text_measurer(&legend_config, text_measurer)?;
 
         // Position the legend
         output.group.origin = [x, y];

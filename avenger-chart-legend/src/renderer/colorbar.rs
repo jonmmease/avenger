@@ -10,10 +10,12 @@ use avenger_color::parse_color_string_strict;
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_guides::legend::{
     GuideLegendContinuousOrientation,
-    colorbar::{ColorbarConfig, ColorbarOrientation, make_colorbar_marks_with_surfaces},
+    colorbar::{
+        ColorbarConfig, ColorbarOrientation, make_colorbar_marks_with_surfaces_with_text_measurer,
+    },
 };
 use avenger_scales::scales::{ConfiguredScale, DomainKind, RangeKind, linear::LinearScale};
-use avenger_text::types::FontWeight;
+use avenger_text::{measurement::TextMeasurer, types::FontWeight};
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -68,6 +70,7 @@ impl LegendRenderer for CompiledColorbar {
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
+        text_measurer: &dyn TextMeasurer,
     ) -> Result<Option<LegendRenderOutput>, AvengerChartError> {
         if channels.is_empty() {
             return Ok(None);
@@ -407,14 +410,17 @@ impl LegendRenderer for CompiledColorbar {
         // Create the colorbar marks at origin [0, 0] (will be positioned by group origin)
         let plot_origin = [0.0, 0.0];
 
-        let mut colorbar_output = make_colorbar_marks_with_surfaces(
+        let mut colorbar_output = make_colorbar_marks_with_surfaces_with_text_measurer(
             configured_scale,
             &title,
             plot_origin,
             &legend_config,
+            text_measurer,
         )?;
 
-        let bbox = colorbar_output.group.bounding_box();
+        let bbox = colorbar_output
+            .group
+            .bounding_box_with_text_measurer(text_measurer);
         let lower = bbox.lower();
         let upper = bbox.upper();
         trace!(
@@ -537,6 +543,7 @@ mod tests {
             let theme = Theme::light();
             let params = IndexMap::new();
             let ctx = SessionContext::new();
+            let text_measurer = avenger_text::measurement::default_text_measurer();
             let output = renderer
                 .evaluate(
                     &[channel],
@@ -548,6 +555,7 @@ mod tests {
                     &theme,
                     &params,
                     &ctx,
+                    &text_measurer,
                 )
                 .await
                 .expect("colorbar evaluates")

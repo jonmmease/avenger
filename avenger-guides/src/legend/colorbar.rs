@@ -9,7 +9,7 @@ use avenger_text::{
 
 use crate::{
     axis::{
-        numeric::make_numeric_axis_marks,
+        numeric::make_numeric_axis_marks_with_text_measurer,
         opts::{AxisConfig, AxisOrientation},
     },
     error::AvengerGuidesError,
@@ -28,11 +28,45 @@ pub fn make_colorbar_marks(
     Ok(make_colorbar_marks_with_surfaces(scale, title, origin, config)?.group)
 }
 
+pub fn make_colorbar_marks_with_text_measurer(
+    scale: &ConfiguredScale,
+    title: &str,
+    origin: [f32; 2],
+    config: &ColorbarConfig,
+    text_measurer: &dyn TextMeasurer,
+) -> Result<SceneGroup, AvengerGuidesError> {
+    Ok(make_colorbar_marks_with_surfaces_with_text_measurer(
+        scale,
+        title,
+        origin,
+        config,
+        text_measurer,
+    )?
+    .group)
+}
+
 pub fn make_colorbar_marks_with_surfaces(
     scale: &ConfiguredScale,
     title: &str,
     _origin: [f32; 2], // Unused - we always start at (0, 0) now
     config: &ColorbarConfig,
+) -> Result<GuideLegendOutput, AvengerGuidesError> {
+    let text_measurer = default_text_measurer();
+    make_colorbar_marks_with_surfaces_with_text_measurer(
+        scale,
+        title,
+        _origin,
+        config,
+        &text_measurer,
+    )
+}
+
+pub fn make_colorbar_marks_with_surfaces_with_text_measurer(
+    scale: &ConfiguredScale,
+    title: &str,
+    _origin: [f32; 2], // Unused - we always start at (0, 0) now
+    config: &ColorbarConfig,
+    text_measurer: &dyn TextMeasurer,
 ) -> Result<GuideLegendOutput, AvengerGuidesError> {
     match config.orientation {
         ColorbarOrientation::Top => {
@@ -45,7 +79,6 @@ pub fn make_colorbar_marks_with_surfaces(
 
             // For horizontal colorbars (Top/Bottom), measure tick label widths to reserve horizontal space
             // This ensures tick labels at left/right don't run into the background edge
-            let measurer = default_text_measurer();
             let label_font_size = config.label_font_size.unwrap_or(10.0);
             let label_font_weight = config
                 .label_font_weight
@@ -70,14 +103,14 @@ pub fn make_colorbar_marks_with_surfaces(
             };
 
             // Measure both labels and take the maximum width
-            let min_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+            let min_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: &min_label,
                 font: label_font_family,
                 font_size: label_font_size,
                 font_weight: label_font_weight,
                 font_style: &FontStyle::Normal,
             });
-            let max_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+            let max_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: &max_label,
                 font: label_font_family,
                 font_size: label_font_size,
@@ -163,11 +196,12 @@ pub fn make_colorbar_marks_with_surfaces(
             // For Top orientation, the axis renders upward from its origin
             // Place the axis origin at the top of the rect, minus margin
             let axis_origin = [0.0, -colorbar_margin];
-            let axis = noninteractive_group(make_numeric_axis_marks(
+            let axis = noninteractive_group(make_numeric_axis_marks_with_text_measurer(
                 &numeric_scale,
                 title,
                 axis_origin,
                 &axis_config,
+                text_measurer,
             )?);
 
             // Content marks
@@ -176,7 +210,7 @@ pub fn make_colorbar_marks_with_surfaces(
                 marks: content_marks.clone(),
                 ..Default::default()
             };
-            let content_bbox = content_group.bounding_box();
+            let content_bbox = content_group.bounding_box_with_text_measurer(text_measurer);
 
             // For Top axis, the content may extend into negative y if axis is above
             // Use the actual bounding box to determine height, but shift everything if needed
@@ -256,7 +290,6 @@ pub fn make_colorbar_marks_with_surfaces(
 
             // For horizontal colorbars (Top/Bottom), measure tick label widths to reserve horizontal space
             // This ensures tick labels at left/right don't run into the background edge
-            let measurer = default_text_measurer();
             let label_font_size = config.label_font_size.unwrap_or(10.0);
             let label_font_weight = config
                 .label_font_weight
@@ -281,14 +314,14 @@ pub fn make_colorbar_marks_with_surfaces(
             };
 
             // Measure both labels and take the maximum width
-            let min_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+            let min_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: &min_label,
                 font: label_font_family,
                 font_size: label_font_size,
                 font_weight: label_font_weight,
                 font_style: &FontStyle::Normal,
             });
-            let max_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+            let max_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: &max_label,
                 font: label_font_family,
                 font_size: label_font_size,
@@ -373,11 +406,12 @@ pub fn make_colorbar_marks_with_surfaces(
 
             // Position axis below the colorbar
             let axis_origin = [0.0, colorbar_height + colorbar_margin];
-            let axis = noninteractive_group(make_numeric_axis_marks(
+            let axis = noninteractive_group(make_numeric_axis_marks_with_text_measurer(
                 &numeric_scale,
                 title,
                 axis_origin,
                 &axis_config,
+                text_measurer,
             )?);
 
             // Content marks
@@ -386,7 +420,7 @@ pub fn make_colorbar_marks_with_surfaces(
                 marks: content_marks.clone(),
                 ..Default::default()
             };
-            let content_bbox = content_group.bounding_box();
+            let content_bbox = content_group.bounding_box_with_text_measurer(text_measurer);
 
             // Calculate background dimensions to ensure equal padding on all sides
             let min_y = content_bbox.lower()[1];
@@ -463,7 +497,6 @@ pub fn make_colorbar_marks_with_surfaces(
 
             // For vertical colorbars (Left/Right), measure tick label line height to reserve vertical space
             // This ensures tick labels at top/bottom don't run into the background edge
-            let measurer = default_text_measurer();
             let label_font_size = config.label_font_size.unwrap_or(10.0);
             let label_font_weight = config
                 .label_font_weight
@@ -471,7 +504,7 @@ pub fn make_colorbar_marks_with_surfaces(
                 .unwrap_or(&FontWeight::Number(400.0));
             let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
-            let text_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+            let text_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: "0",
                 font: label_font_family,
                 font_size: label_font_size,
@@ -544,8 +577,13 @@ pub fn make_colorbar_marks_with_surfaces(
             // So we need to find where to place the axis origin
 
             // First measure the axis to see its extent
-            let _axis_temp =
-                make_numeric_axis_marks(&numeric_scale, title, [0.0, 0.0], &axis_config)?;
+            let _axis_temp = make_numeric_axis_marks_with_text_measurer(
+                &numeric_scale,
+                title,
+                [0.0, 0.0],
+                &axis_config,
+                text_measurer,
+            )?;
 
             // The axis origin should be positioned so the axis ends at -colorbar_margin
             // (i.e., margin distance to the left of the rect at x=0)
@@ -572,11 +610,12 @@ pub fn make_colorbar_marks_with_surfaces(
             // Position axis to the left of rect with margin
             // Axis renders leftward from origin, so place origin at -margin (to the left of rect at x=0)
             let axis_origin = [-(colorbar_margin), 0.0];
-            let axis = noninteractive_group(make_numeric_axis_marks(
+            let axis = noninteractive_group(make_numeric_axis_marks_with_text_measurer(
                 &numeric_scale,
                 title,
                 axis_origin,
                 &axis_config,
+                text_measurer,
             )?);
 
             // Content marks
@@ -585,7 +624,7 @@ pub fn make_colorbar_marks_with_surfaces(
                 marks: content_marks.clone(),
                 ..Default::default()
             };
-            let content_bbox = content_group.bounding_box();
+            let content_bbox = content_group.bounding_box_with_text_measurer(text_measurer);
 
             // For Left axis, the content may extend into negative x if tick marks overhang
             // Use the actual bounding box to determine width, but shift everything if needed
@@ -666,7 +705,6 @@ pub fn make_colorbar_marks_with_surfaces(
 
             // For vertical colorbars (Left/Right), measure tick label line height to reserve vertical space
             // This ensures tick labels at top/bottom don't run into the background edge
-            let measurer = default_text_measurer();
             let label_font_size = config.label_font_size.unwrap_or(10.0);
             let label_font_weight = config
                 .label_font_weight
@@ -674,7 +712,7 @@ pub fn make_colorbar_marks_with_surfaces(
                 .unwrap_or(&FontWeight::Number(400.0));
             let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
-            let text_bounds = measurer.measure_text_bounds(&TextMeasurementConfig {
+            let text_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: "0",
                 font: label_font_family,
                 font_size: label_font_size,
@@ -758,11 +796,12 @@ pub fn make_colorbar_marks_with_surfaces(
 
             // Create a new scale with desired range for the axis
             let numeric_scale = scale.clone().with_range_interval((gradient_height, 0.0));
-            let axis = noninteractive_group(make_numeric_axis_marks(
+            let axis = noninteractive_group(make_numeric_axis_marks_with_text_measurer(
                 &numeric_scale,
                 title,
                 axis_origin,
                 &axis_config,
+                text_measurer,
             )?);
 
             // Content marks
@@ -771,7 +810,7 @@ pub fn make_colorbar_marks_with_surfaces(
                 marks: content_marks.clone(),
                 ..Default::default()
             };
-            let content_bbox = content_group.bounding_box();
+            let content_bbox = content_group.bounding_box_with_text_measurer(text_measurer);
 
             // Calculate background dimensions to ensure equal padding on all sides
             // Content will be shifted by bg_padding, so we need to account for this

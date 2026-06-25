@@ -59,6 +59,7 @@ impl CompiledGuide for NoGuide {
         _ctx: &SessionContext,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: Option<&dyn CoordMeasurement>,
+        _text_measurer: &dyn avenger_text::measurement::TextMeasurer,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement::default())
     }
@@ -77,6 +78,7 @@ impl CompiledGuide for NoGuide {
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
         _render_context: GuideRenderContext<'_>,
+        _text_measurer: &dyn avenger_text::measurement::TextMeasurer,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(Vec::new())
     }

@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use avenger_text::{
-    measurement::{TextBounds, TextMeasurementConfig, TextMeasurer, default_text_measurer},
+    measurement::{TextBounds, TextMeasurementConfig},
     types::{FontStyle, FontWeight, FontWeightNameSpec},
 };
 use datafusion::{common::ScalarValue, prelude::SessionContext};
@@ -116,7 +116,7 @@ async fn measure_text_bounds(
     default_font_size: f32,
     ctx: &SessionContext,
     params: &IndexMap<String, ScalarValue>,
-    eval_ctx: Option<&EvaluationContext>,
+    eval_ctx: &EvaluationContext,
 ) -> Result<TextBounds, AvengerChartError> {
     // Evaluate font_size
     let font_size = match font_size_field {
@@ -142,8 +142,6 @@ async fn measure_text_bounds(
     let text_expr_df = text_expr.to_expr(ctx)?;
     let text_value = evaluate_string_expr(&text_expr_df, ctx, params).await?;
 
-    // Measure text for layout (using Normal weight/style as approximation)
-    let measurer = default_text_measurer();
     let config = TextMeasurementConfig {
         text: &text_value,
         font: &font_family,
@@ -151,13 +149,16 @@ async fn measure_text_bounds(
         font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
         font_style: &FontStyle::Normal,
     };
-    let bounds = if let Some(cache) = eval_ctx.and_then(EvaluationContext::text_measurement_cache) {
+    let measurer = eval_ctx.text_measurer();
+    let cache_tag = eval_ctx.text_measurement_cache_tag();
+    let bounds = if let Some(cache) = eval_ctx.text_measurement_cache() {
         let key = TextMeasurementCacheKey::new(
             config.text,
             config.font,
             config.font_size,
             config.font_weight,
             config.font_style,
+            cache_tag,
         );
         let cached = {
             cache
@@ -166,14 +167,10 @@ async fn measure_text_bounds(
                 .get(&key)
         };
         if let Some(bounds) = cached {
-            if let Some(eval_ctx) = eval_ctx {
-                eval_ctx.record_text_measurement_cache_hit();
-            }
+            eval_ctx.record_text_measurement_cache_hit();
             bounds
         } else {
-            if let Some(eval_ctx) = eval_ctx {
-                eval_ctx.record_text_measurement_cache_miss();
-            }
+            eval_ctx.record_text_measurement_cache_miss();
             let bounds = measurer.measure_text_bounds(&config);
             cache
                 .lock()
@@ -253,7 +250,7 @@ impl FrameChromeBuilder {
         theme: &Theme,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
-        eval_ctx: Option<&EvaluationContext>,
+        eval_ctx: &EvaluationContext,
     ) -> Result<(Option<f32>, Option<f32>), AvengerChartError> {
         let title_height = if self.has_title
             && let Some(t) = title
@@ -321,7 +318,7 @@ impl FrameChromeBuilder {
         legend_sizes: &HashMap<String, Size2D>,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
-        eval_ctx: Option<&EvaluationContext>,
+        eval_ctx: &EvaluationContext,
     ) -> Result<FrameChrome, AvengerChartError> {
         let (title_height, subtitle_height) = self
             .measure_title_band_heights(title, subtitle, theme, ctx, params, eval_ctx)
@@ -420,10 +417,13 @@ mod tests {
     use avenger_chart_core::TitleSpan;
 
     use crate::{
+        facet::evaluated_facet_tree::EvaluatedFacetTree,
         guide::OverflowSpaceRequirement,
         layout::{EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode},
+        render::EvaluationContext,
         theme::Theme,
     };
+    use std::sync::Arc;
 
     use super::FrameChromeBuilder;
 
@@ -433,6 +433,12 @@ mod tests {
         let ctx = SessionContext::new();
         let params = IndexMap::new();
         let theme = Theme::light();
+        let eval_ctx = EvaluationContext::new(
+            Arc::new(theme.clone()),
+            Arc::new(ctx.clone()),
+            params.clone(),
+            Arc::new(EvaluatedFacetTree::empty()),
+        );
         let layout_spec = EvaluatedLayoutSpec {
             canvas: EvaluatedSizeMode::Fixed {
                 width: 400.0,
@@ -468,7 +474,7 @@ mod tests {
                 &Default::default(),
                 &ctx,
                 &params,
-                None,
+                &eval_ctx,
             )
             .await
             .expect("build below-threshold chrome");
@@ -499,7 +505,7 @@ mod tests {
                 &Default::default(),
                 &ctx,
                 &params,
-                None,
+                &eval_ctx,
             )
             .await
             .expect("build above-threshold chrome");

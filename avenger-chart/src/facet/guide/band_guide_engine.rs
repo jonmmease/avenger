@@ -10,6 +10,7 @@ use std::{
 };
 
 use avenger_scales::scales::ConfiguredScale;
+use avenger_text::measurement::TextMeasurer;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
@@ -36,12 +37,15 @@ use crate::{
     plot::compiled::{
         CompiledPlot, ComponentsMeasurement, ContainerBandGuideMeasurementConfig,
         ContainerBandGuideRenderConfig, CoordinateDomainBuildPolicy,
-        measure_container_band_guide_slab, render_container_band_guide_slab,
+        measure_container_band_guide_slab_with_text_measurer,
+        render_container_band_guide_slab_with_text_measurer,
     },
     serialization::LogicalPlanNodeExt,
     theme::{Theme, ThemeContext},
 };
 
+#[cfg(test)]
+use crate::render::context::TextMeasurementRuntime;
 #[cfg(test)]
 use avenger_chart_core::CoordinatedOverflow;
 
@@ -62,6 +66,7 @@ struct SubplotOverflowCacheKey {
     plot_height: u32,
     params: Vec<(String, String)>,
     sharing_signature: Vec<String>,
+    text_measurer_ptr: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -426,6 +431,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     ctx: &SessionContext,
     sharing_context: GuideSharingContext<'_>,
     coord_measurement: Option<&dyn CoordMeasurement>,
+    text_measurer: &dyn TextMeasurer,
     measurement_phase: FacetOverflowResolutionPhase,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
     let subplot_overflow = if let Some(resolved) = coord_measurement.and_then(|measurement| {
@@ -447,6 +453,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
             data_override,
             ctx,
             sharing_context,
+            text_measurer,
         ))
         .await?
     };
@@ -478,7 +485,8 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
     let title_for_cell = title_visible
         .then_some(state.facet_title.as_ref())
         .flatten();
-    let facet_guide_slab_size = measure_facet_guide_slab(&labels, title_for_cell, theme, params);
+    let facet_guide_slab_size =
+        measure_facet_guide_slab(&labels, title_for_cell, theme, params, text_measurer);
     let (mut guide_anchor, mut anchor_source) = O::resolve_measure_anchor(
         place_at_end,
         &subplot_overflow,
@@ -496,6 +504,7 @@ pub(crate) async fn measure_overflow_common<O: FacetGuideAxisOps>(
             data_override,
             ctx,
             sharing_context,
+            text_measurer,
         ))
         .await?;
         let measured_anchor = O::side_overflow_anchor(place_at_end, &measured_subplot_overflow);
@@ -544,6 +553,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     ctx: &SessionContext,
     sharing_context: GuideSharingContext<'_>,
     coord_measurement: &dyn CoordMeasurement,
+    text_measurer: &dyn TextMeasurer,
 ) -> Result<Vec<avenger_scenegraph::marks::mark::SceneMark>, AvengerChartError> {
     let evaluate_start = Instant::now();
     let place_at_end = O::place_at_end(state.position.as_deref());
@@ -578,7 +588,8 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     let title_for_cell = title_visible
         .then_some(state.facet_title.as_ref())
         .flatten();
-    let facet_guide_slab_size = measure_facet_guide_slab(&labels, title_for_cell, theme, params);
+    let facet_guide_slab_size =
+        measure_facet_guide_slab(&labels, title_for_cell, theme, params, text_measurer);
     let slab_elapsed = slab_start.elapsed();
 
     let anchor_start = Instant::now();
@@ -609,6 +620,7 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
                     data_override,
                     ctx,
                     sharing_context,
+                    text_measurer,
                 ))
                 .await?
             };
@@ -667,7 +679,12 @@ pub(crate) async fn evaluate_common<O: FacetGuideAxisOps>(
     };
 
     let render_start = Instant::now();
-    let marks = render_container_band_guide_slab(&render_config, theme, params);
+    let marks = render_container_band_guide_slab_with_text_measurer(
+        &render_config,
+        theme,
+        params,
+        text_measurer,
+    );
     let render_elapsed = render_start.elapsed();
     tracing::debug!(
         target: "avenger_chart::resize",
@@ -695,6 +712,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
     data_override: Option<&DataFrame>,
     ctx: &SessionContext,
     sharing_context: GuideSharingContext<'_>,
+    text_measurer: &dyn TextMeasurer,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
     let compute_start = Instant::now();
     let Some(subplot) = &state.compiled_subplot else {
@@ -739,6 +757,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
         sharing_context,
         nested_guide,
         cell_values.as_deref().unwrap_or(&[]),
+        text_measurer,
     );
     if let Some(cache_key) = cache_key.as_ref() {
         let cached = {
@@ -790,6 +809,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
                 ctx,
                 sharing_context,
                 None,
+                text_measurer,
             ))
             .await?
         } else {
@@ -813,6 +833,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
                 ctx,
                 first_context,
                 None,
+                text_measurer,
             ))
             .await?;
             if first_idx == last_idx {
@@ -834,6 +855,7 @@ pub(crate) async fn compute_subplot_overflow_common<O: FacetGuideAxisOps>(
                     ctx,
                     last_context,
                     None,
+                    text_measurer,
                 ))
                 .await?;
 
@@ -877,6 +899,7 @@ fn subplot_overflow_cache_key<O: FacetGuideAxisOps>(
     sharing_context: GuideSharingContext<'_>,
     nested_guide: Option<&dyn CompiledGuide>,
     cell_values: &[ScalarValue],
+    text_measurer: &dyn TextMeasurer,
 ) -> Option<SubplotOverflowCacheKey> {
     let compiled_subplot = state.compiled_subplot.as_ref()?;
     let mut params = params
@@ -898,6 +921,7 @@ fn subplot_overflow_cache_key<O: FacetGuideAxisOps>(
             cell_values,
             sharing_context,
         ),
+        text_measurer_ptr: text_measurer as *const dyn TextMeasurer as *const () as usize,
     })
 }
 
@@ -1004,6 +1028,7 @@ fn measure_facet_guide_slab(
     facet_title: Option<&String>,
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
+    text_measurer: &dyn TextMeasurer,
 ) -> f32 {
     if labels.is_empty() && facet_title.is_none() {
         return 0.0;
@@ -1021,7 +1046,7 @@ fn measure_facet_guide_slab(
         render_title: facet_title.is_some(),
     };
 
-    measure_container_band_guide_slab(&measurement_config)
+    measure_container_band_guide_slab_with_text_measurer(&measurement_config, text_measurer)
 }
 
 fn provisional_band_size<O: FacetGuideAxisOps>(
@@ -1438,10 +1463,22 @@ mod tests {
 
     #[test]
     fn measure_facet_guide_slab_reserves_title_without_measurement_labels() {
-        let empty = measure_facet_guide_slab(&[], None, &Theme::light(), &IndexMap::new());
+        let text_measurement = TextMeasurementRuntime::plain();
+        let empty = measure_facet_guide_slab(
+            &[],
+            None,
+            &Theme::light(),
+            &IndexMap::new(),
+            text_measurement.measurer.as_ref(),
+        );
         let title = "Category".to_string();
-        let title_only =
-            measure_facet_guide_slab(&[], Some(&title), &Theme::light(), &IndexMap::new());
+        let title_only = measure_facet_guide_slab(
+            &[],
+            Some(&title),
+            &Theme::light(),
+            &IndexMap::new(),
+            text_measurement.measurer.as_ref(),
+        );
 
         assert_eq!(empty, 0.0);
         assert!(title_only > 0.0);

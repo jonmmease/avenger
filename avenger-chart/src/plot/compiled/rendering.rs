@@ -37,9 +37,7 @@ use avenger_chart_core::{
     TextMeasurementService, eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe,
     params_to_datafusion,
 };
-use avenger_text::measurement::{
-    TextBounds, TextMeasurementConfig, TextMeasurer, default_text_measurer,
-};
+use avenger_text::measurement::{TextBounds, TextMeasurementConfig, TextMeasurer};
 
 use crate::{
     concat::compiled_subplot as compiled_concat_subplot,
@@ -77,7 +75,7 @@ use crate::{
     positioned_subplot::{PositionedCoordMeasurement, render_positioned_subplot_with_context},
     render::context::{
         EvaluationMetricsDiagnostics, FacetDimensionSizing, FacetRuntimeSizingMode,
-        FacetRuntimeSizingPolicy, FacetSubtreeSnapshotCapture,
+        FacetRuntimeSizingPolicy, FacetSubtreeSnapshotCapture, TextMeasurementRuntime,
     },
     render::{
         CoordinationCheckpoint, EvaluatedEventDatumRows, EvaluatedEventDatumState,
@@ -265,7 +263,6 @@ struct CachedAdjustmentTextMeasurementService<'a> {
 
 impl TextMeasurementService for CachedAdjustmentTextMeasurementService<'_> {
     fn measure_text_bounds(&self, config: &TextMeasurementConfig<'_>) -> TextBounds {
-        let measurer = default_text_measurer();
         if let Some(cache) = self.eval_ctx.text_measurement_cache() {
             let key = super::TextMeasurementCacheKey::new(
                 config.text,
@@ -273,6 +270,7 @@ impl TextMeasurementService for CachedAdjustmentTextMeasurementService<'_> {
                 config.font_size,
                 config.font_weight,
                 config.font_style,
+                self.eval_ctx.text_measurement_cache_tag(),
             );
             let cached = {
                 cache
@@ -285,7 +283,7 @@ impl TextMeasurementService for CachedAdjustmentTextMeasurementService<'_> {
                 bounds
             } else {
                 self.eval_ctx.record_text_measurement_cache_miss();
-                let bounds = measurer.measure_text_bounds(config);
+                let bounds = self.eval_ctx.text_measurer().measure_text_bounds(config);
                 cache
                     .lock()
                     .expect("text measurement cache lock poisoned")
@@ -293,7 +291,7 @@ impl TextMeasurementService for CachedAdjustmentTextMeasurementService<'_> {
                 bounds
             }
         } else {
-            measurer.measure_text_bounds(config)
+            self.eval_ctx.text_measurer().measure_text_bounds(config)
         }
     }
 }
@@ -2304,6 +2302,7 @@ impl CompiledPlot {
                     sharing_context,
                     coord_measurement,
                     GuideRenderContext::new(&eval_ctx.core, plot_width, plot_height),
+                    eval_ctx.text_measurer(),
                 )
                 .await
         } else {
@@ -2370,6 +2369,7 @@ impl CompiledPlot {
                     facet_path,
                     child_frame_sharing_path,
                     data_override,
+                    eval_ctx.text_measurement_cache_tag(),
                 );
                 (cache.clone(), key)
             });
@@ -2398,6 +2398,7 @@ impl CompiledPlot {
                             ctx,
                             sharing_context,
                             None, // No coordinate-system measurement is available during initial guide probing.
+                            eval_ctx.text_measurer(),
                         )
                         .await?;
                     let guide_elapsed = guide_start.elapsed();
@@ -2428,6 +2429,7 @@ impl CompiledPlot {
                         ctx,
                         sharing_context,
                         None, // No coordinate-system measurement is available during initial guide probing.
+                        eval_ctx.text_measurer(),
                     )
                     .await?;
                 let guide_elapsed = guide_start.elapsed();
@@ -2578,7 +2580,7 @@ impl CompiledPlot {
             legend_measurements: &legend_plan.measurements,
             ctx,
             params,
-            eval_ctx: Some(eval_ctx),
+            eval_ctx,
         }))
         .await?;
 
@@ -2781,6 +2783,7 @@ impl CompiledPlot {
                             plot_height,
                             params,
                             discriminator,
+                            eval_ctx.text_measurement_cache_tag(),
                         );
                         (cache.clone(), key)
                     })
@@ -2814,6 +2817,7 @@ impl CompiledPlot {
                         ctx,
                         sharing_context,
                         coord_measurement,
+                        eval_ctx.text_measurer(),
                         phase,
                     )
                     .await?;
@@ -2846,6 +2850,7 @@ impl CompiledPlot {
                     ctx,
                     sharing_context,
                     coord_measurement,
+                    eval_ctx.text_measurer(),
                     phase,
                 )
                 .await?;
@@ -5734,7 +5739,12 @@ impl CompiledPlot {
             origin: [0.0, 0.0],
         };
 
-        let rtree = build_scene_rtree.then(|| SceneGraphRTree::from_scene_graph(&scene_graph));
+        let rtree = build_scene_rtree.then(|| {
+            SceneGraphRTree::from_scene_graph_with_text_measurer(
+                &scene_graph,
+                eval_ctx.text_measurer(),
+            )
+        });
         let mut event_datum_rows =
             prefix_event_datum_rows(components.event_datums, &[0, data_group_index]);
         event_datum_rows.extend(prefix_event_datum_rows(
@@ -5884,10 +5894,16 @@ impl CompiledPlot {
         let evaluated = selected
             .plot
             .components_to_evaluated_plot(eval_ctx, components, true);
-        Ok(Self::pad_facet_subtree_snapshot(evaluated))
+        Ok(Self::pad_facet_subtree_snapshot(
+            evaluated,
+            eval_ctx.text_measurer(),
+        ))
     }
 
-    fn pad_facet_subtree_snapshot(evaluated: EvaluatedPlot) -> EvaluatedPlot {
+    fn pad_facet_subtree_snapshot(
+        evaluated: EvaluatedPlot,
+        text_measurer: &dyn TextMeasurer,
+    ) -> EvaluatedPlot {
         let mut interaction = evaluated.interaction;
         let event_datums = EvaluatedEventDatumState {
             rows: prefix_event_datum_rows(evaluated.event_datums.rows, &[0, 0]),
@@ -5899,7 +5915,13 @@ impl CompiledPlot {
             .rtree
             .as_ref()
             .map(|rtree| *rtree.envelope())
-            .unwrap_or_else(|| *SceneGraphRTree::from_scene_graph(&original_scene).envelope());
+            .unwrap_or_else(|| {
+                *SceneGraphRTree::from_scene_graph_with_text_measurer(
+                    &original_scene,
+                    text_measurer,
+                )
+                .envelope()
+            });
 
         let min_x = envelope.lower()[0].min(0.0);
         let min_y = envelope.lower()[1].min(0.0);
@@ -5927,7 +5949,8 @@ impl CompiledPlot {
             height: final_height,
             origin: [0.0, 0.0],
         };
-        let rtree = SceneGraphRTree::from_scene_graph(&scene_graph);
+        let rtree =
+            SceneGraphRTree::from_scene_graph_with_text_measurer(&scene_graph, text_measurer);
         // Shift interaction scope bounds to match the repositioned snapshot content.
         for scope in interaction.scopes.iter_mut() {
             scope.bounds.x += shift_x;
@@ -6203,6 +6226,7 @@ impl CompiledPlot {
                 Some(guide_overflow_cache),
                 Some(legend_measurement_cache),
                 Some(text_measurement_cache),
+                TextMeasurementRuntime::plain(),
                 None,
                 None,
                 Some(Arc::new(ScopedStoreState::new(self.store_specs.clone()))),
@@ -6223,6 +6247,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        text_measurement: TextMeasurementRuntime,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
         scoped_store_state: Option<Arc<ScopedStoreState>>,
@@ -6246,6 +6271,7 @@ impl CompiledPlot {
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
+            text_measurement,
             None,
             scoped_param_store,
             scoped_selection_store,
@@ -6271,6 +6297,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        text_measurement: TextMeasurementRuntime,
         layout_profile: Option<Arc<LayoutProfileSnapshot>>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
@@ -6437,13 +6464,13 @@ impl CompiledPlot {
             .map(|profile| profile.facet_cell_profiles.clone());
         let facet_cell_rendered_components_capture =
             Some(Arc::new(Mutex::new(FacetCellProfileIndex::default())));
-
         // Create EvaluationContext for the entire evaluation
-        let mut eval_ctx = EvaluationContext::new(
+        let mut eval_ctx = EvaluationContext::new_with_text_measurement(
             self.get_theme(),
             Arc::new(ctx.clone()),
             merged_params,
             facet_tree.clone(),
+            text_measurement,
         )
         .with_time_context(self.time_context.clone())
         .with_event_datum_fields(Arc::new(self.event_datum_types()))
@@ -6525,7 +6552,10 @@ impl CompiledPlot {
                         ))
                     })?;
                     return Ok(EvaluationOutcome {
-                        evaluated: Self::pad_facet_subtree_snapshot(evaluated),
+                        evaluated: Self::pad_facet_subtree_snapshot(
+                            evaluated,
+                            eval_ctx.text_measurer(),
+                        ),
                         layout_profile: None,
                     });
                 }
@@ -6731,6 +6761,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        text_measurement: TextMeasurementRuntime,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
         scoped_store_state: Option<Arc<ScopedStoreState>>,
@@ -6894,6 +6925,7 @@ impl CompiledPlot {
                     guide_overflow_cache,
                     legend_measurement_cache,
                     text_measurement_cache,
+                    text_measurement.clone(),
                     Some(Arc::new(layout_profile.clone())),
                     scoped_param_store.clone(),
                     scoped_selection_store.clone(),
@@ -6966,11 +6998,12 @@ impl CompiledPlot {
         );
         let dimensions = Self::resolve_dimensions_from_spec(&measured_layout_spec);
         let scale_domain_params = merged_params.clone();
-        let mut eval_ctx = EvaluationContext::new(
+        let mut eval_ctx = EvaluationContext::new_with_text_measurement(
             self.get_theme(),
             Arc::new(ctx.clone()),
             merged_params,
             facet_tree.clone(),
+            text_measurement,
         )
         .with_time_context(self.time_context.clone())
         .with_event_datum_fields(Arc::new(self.event_datum_types()))

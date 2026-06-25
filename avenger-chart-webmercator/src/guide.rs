@@ -16,6 +16,7 @@ use avenger_scenegraph::marks::{
     mark::SceneMark,
     text::SceneTextMark,
 };
+use avenger_text::measurement::TextMeasurer;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -69,6 +70,7 @@ impl CompiledGuide for WebMercatorGuide {
         _ctx: &SessionContext,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: Option<&dyn CoordMeasurement>,
+        _text_measurer: &dyn TextMeasurer,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement::default())
     }
@@ -87,6 +89,7 @@ impl CompiledGuide for WebMercatorGuide {
         _sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn CoordMeasurement,
         render_context: GuideRenderContext<'_>,
+        _text_measurer: &dyn TextMeasurer,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let Some(measurement) = coord_measurement
             .as_any()

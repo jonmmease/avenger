@@ -5,6 +5,7 @@
 //! child-frame container view.
 
 use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_text::measurement::TextMeasurer;
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
 
@@ -29,6 +30,7 @@ pub(crate) fn measure_child_frame_container_guide_overflow(
     label_placement: Option<ContainerLabelPlacement>,
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
+    text_measurer: &dyn TextMeasurer,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
     let mut overflow = child_frame_container_overflow(plot_width, plot_height, container)?;
     let Some(label_placement) = label_placement else {
@@ -40,6 +42,7 @@ pub(crate) fn measure_child_frame_container_guide_overflow(
         &container_label_items_from_child_frame_container(container)?,
         theme,
         params,
+        text_measurer,
     );
     match label_placement {
         ContainerLabelPlacement::Top => overflow.top += label_slab,
@@ -55,6 +58,7 @@ pub(crate) fn render_child_frame_container_guide_labels(
     plot_bounds: &LayoutBounds,
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
+    text_measurer: &dyn TextMeasurer,
 ) -> Result<Vec<SceneMark>, AvengerChartError> {
     let Some(label_placement) = label_placement else {
         return Ok(Vec::new());
@@ -66,5 +70,6 @@ pub(crate) fn render_child_frame_container_guide_labels(
         plot_bounds,
         theme,
         params,
+        text_measurer,
     ))
 }

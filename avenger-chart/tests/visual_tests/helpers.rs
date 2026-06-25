@@ -1,7 +1,7 @@
 // Helper functions for visual tests
 
 use crate::tracing::try_init_tracing;
-use avenger_chart::plot::CompiledPlot;
+use avenger_chart::plot::{CompiledPlot, EvaluationRequest, PlotSessionOptions};
 use avenger_chart::render::{EvaluatedPlot, EvaluationOptions};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_image::{
@@ -27,7 +27,7 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 /// Default dimensions for test charts
@@ -191,6 +191,57 @@ async fn evaluate_compiled_plot(
         .evaluate(ctx, params)
         .await
         .expect("Failed to evaluate plot")
+}
+
+fn evaluation_request(params: Option<IndexMap<String, ScalarValue>>) -> EvaluationRequest {
+    let request = EvaluationRequest::new().exact();
+    if let Some(params) = params {
+        request.params(params)
+    } else {
+        request
+    }
+}
+
+async fn evaluate_compiled_plot_with_serialization_and_session_options(
+    compiled: Arc<CompiledPlot>,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+    options: PlotSessionOptions,
+) -> (EvaluatedPlot, EvaluatedPlot) {
+    let mut direct_session = compiled
+        .clone()
+        .instantiate(Arc::new(ctx.clone()))
+        .with_options(options.clone());
+    let direct_result = direct_session
+        .evaluate(evaluation_request(params.clone()))
+        .await
+        .expect("Failed to evaluate plot directly with session options");
+
+    let serialized = bincode::serialize(compiled.as_ref())
+        .expect("Failed to serialize CompiledPlot with bincode");
+    let deserialized: CompiledPlot =
+        bincode::deserialize(&serialized).expect("Failed to deserialize CompiledPlot from bincode");
+    let mut serialized_session = Arc::new(deserialized)
+        .instantiate(Arc::new(ctx.clone()))
+        .with_options(options);
+    let bincode_result = serialized_session
+        .evaluate(evaluation_request(params))
+        .await
+        .expect("Failed to evaluate plot after bincode deserialization with session options");
+
+    if direct_result.scene_graph.width != bincode_result.scene_graph.width
+        || direct_result.scene_graph.height != bincode_result.scene_graph.height
+    {
+        tracing::warn!(
+            direct_width = direct_result.scene_graph.width,
+            direct_height = direct_result.scene_graph.height,
+            bincode_width = bincode_result.scene_graph.width,
+            bincode_height = bincode_result.scene_graph.height,
+            "Serialization round-trip changed scene dimensions with session options"
+        );
+    }
+
+    (direct_result, bincode_result)
 }
 
 fn scene_graph_with_resolved_image_resources(
@@ -853,8 +904,8 @@ fn pdf_visual_font_resolution() -> FontResolutionOptions {
     }
 }
 
-#[cfg(feature = "typst-math-svg-pdf")]
-fn sidecar_text_math_config(category: &str) -> avenger_text::math::TextMathConfig {
+#[cfg(feature = "typst-math-layout")]
+fn visual_text_math_config(category: &str) -> avenger_text::math::TextMathConfig {
     if category == "typst_math" {
         avenger_text::math::TextMathConfig {
             mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
@@ -863,6 +914,21 @@ fn sidecar_text_math_config(category: &str) -> avenger_text::math::TextMathConfi
     } else {
         avenger_text::math::TextMathConfig::default()
     }
+}
+
+#[cfg(feature = "typst-math-svg-pdf")]
+fn sidecar_text_math_config(category: &str) -> avenger_text::math::TextMathConfig {
+    visual_text_math_config(category)
+}
+
+fn sidecar_session_options(category: &str) -> PlotSessionOptions {
+    #[cfg(feature = "typst-math-layout")]
+    {
+        return PlotSessionOptions::default().text_math(visual_text_math_config(category));
+    }
+
+    #[allow(unreachable_code)]
+    PlotSessionOptions::default()
 }
 
 const DERIVED_PLOT_SIZE_BASELINES_ENV: &str = "AVENGER_CHART_DERIVED_PLOT_SIZE_BASELINES";
@@ -1126,7 +1192,7 @@ pub async fn assert_visual_match_wgpu_only_with_canvas_config(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn assert_visual_match_with_canvas_config_and_sidecars(
-    compiled: &CompiledPlot,
+    compiled: Arc<CompiledPlot>,
     ctx: &datafusion::prelude::SessionContext,
     params: Option<IndexMap<String, ScalarValue>>,
     category: &str,
@@ -1135,9 +1201,17 @@ pub async fn assert_visual_match_with_canvas_config_and_sidecars(
     canvas_config: CanvasConfig,
 ) {
     try_init_tracing();
+    let session_options = sidecar_session_options(category);
 
     if sidecar_baselines_only_enabled() {
-        let direct_result = evaluate_compiled_plot(compiled, ctx, params).await;
+        let mut session = compiled
+            .clone()
+            .instantiate(Arc::new(ctx.clone()))
+            .with_options(session_options);
+        let direct_result = session
+            .evaluate(evaluation_request(params))
+            .await
+            .expect("Failed to evaluate plot with sidecar session options");
         assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
         assert_pdf_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
         return;
@@ -1145,7 +1219,13 @@ pub async fn assert_visual_match_with_canvas_config_and_sidecars(
 
     let baseline_path = get_baseline_path(category, baseline_name);
     let (direct_result, serialized_result) =
-        evaluate_compiled_plot_with_serialization(compiled, ctx, params).await;
+        evaluate_compiled_plot_with_serialization_and_session_options(
+            compiled,
+            ctx,
+            params,
+            session_options,
+        )
+        .await;
     let direct_image = render_scene_graph_to_wgpu_image_with_config(
         &direct_result.scene_graph,
         canvas_config.clone(),

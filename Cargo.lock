@@ -968,6 +968,7 @@ dependencies = [
  "avenger-resource",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-text",
  "bincode",
  "datafusion",
  "datafusion-proto",

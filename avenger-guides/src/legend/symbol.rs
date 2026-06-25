@@ -174,8 +174,23 @@ pub fn make_symbol_legend(config: &SymbolLegendConfig) -> Result<SceneGroup, Ave
     Ok(make_symbol_legend_itemized(config)?.group)
 }
 
+pub fn make_symbol_legend_with_text_measurer(
+    config: &SymbolLegendConfig,
+    text_measurer: &dyn TextMeasurer,
+) -> Result<SceneGroup, AvengerGuidesError> {
+    Ok(make_symbol_legend_itemized_with_text_measurer(config, text_measurer)?.group)
+}
+
 pub fn make_symbol_legend_itemized(
     config: &SymbolLegendConfig,
+) -> Result<GuideLegendOutput, AvengerGuidesError> {
+    let text_measurer = default_text_measurer();
+    make_symbol_legend_itemized_with_text_measurer(config, &text_measurer)
+}
+
+pub fn make_symbol_legend_itemized_with_text_measurer(
+    config: &SymbolLegendConfig,
+    text_measurer: &dyn TextMeasurer,
 ) -> Result<GuideLegendOutput, AvengerGuidesError> {
     // Compute the common encoding length
     let len = compute_encoding_length(&[
@@ -244,7 +259,6 @@ pub fn make_symbol_legend_itemized(
             .unwrap_or(FontWeight::Number(400.0));
 
         // Measure the actual title text height
-        let measurer = default_text_measurer();
         let title_config = TextMeasurementConfig {
             text: title_text,
             font: &title_font,
@@ -252,7 +266,7 @@ pub fn make_symbol_legend_itemized(
             font_weight: &title_font_weight,
             font_style: &FontStyle::Normal,
         };
-        let title_bounds = measurer.measure_text_bounds(&title_config);
+        let title_bounds = text_measurer.measure_text_bounds(&title_config);
 
         // Use Top baseline and position title at vertical padding from top
         let title_y = vertical_padding;
@@ -295,6 +309,7 @@ pub fn make_symbol_legend_itemized(
             config.label_font_family.as_deref(),
             config.label_font_size,
             config.label_font_weight.as_ref(),
+            text_measurer,
         );
         let height = group.bounding_box().height();
         if i == 0 {
@@ -316,7 +331,7 @@ pub fn make_symbol_legend_itemized(
         marks: groups.clone(),
         ..Default::default()
     };
-    let content_bbox = temp_group.bounding_box();
+    let content_bbox = temp_group.bounding_box_with_text_measurer(text_measurer);
 
     // Calculate total dimensions including padding
     // The background rect always exists and defines our coordinate system
@@ -381,6 +396,7 @@ fn make_symbol_group(
     label_font_family: Option<&str>,
     label_font_size: Option<f32>,
     label_font_weight: Option<&FontWeight>,
+    text_measurer: &dyn TextMeasurer,
 ) -> SceneGroup {
     //
     let mut single_symbol_mark = symbols_mark.single_symbol_mark(index);
@@ -428,7 +444,7 @@ fn make_symbol_group(
         marks: content_marks.clone(),
         ..Default::default()
     }
-    .bounding_box();
+    .bounding_box_with_text_measurer(text_measurer);
     let reserved_row_height = (symbol_height + padding * 2.0).round();
     let hit_x0 = content_bbox.lower()[0].min(0.0);
     let hit_y0 = content_bbox.lower()[1].min(0.0);

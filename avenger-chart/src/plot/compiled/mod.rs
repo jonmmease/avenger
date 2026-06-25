@@ -78,7 +78,8 @@ pub(crate) use self::child_frame_scope::{
 };
 pub(crate) use self::container_band_guide::{
     ContainerBandGuideMeasurementConfig, ContainerBandGuideRenderConfig,
-    measure_container_band_guide_slab, render_container_band_guide_slab,
+    measure_container_band_guide_slab_with_text_measurer,
+    render_container_band_guide_slab_with_text_measurer,
 };
 pub(crate) use self::container_domain_sharing::{
     ChildFrameChannelDomainExtent, ChildFrameCoordinateDomainCell,
@@ -113,8 +114,9 @@ pub(crate) use self::mark_data_runtime::{
     prepare_base_data, prepare_logical_mark_data, prepare_mark_data as prepare_mark_data_runtime,
 };
 pub use self::session::{
-    EvaluationRequest, PlotSession, ScopedParamAssignment, ScopedParamStoreSnapshot,
-    ScopedStoreAssignment, SelectionAssignment, SelectionStateUpdate, StoreStateUpdate,
+    EvaluationRequest, PlotSession, PlotSessionOptions, ScopedParamAssignment,
+    ScopedParamStoreSnapshot, ScopedStoreAssignment, SelectionAssignment, SelectionStateUpdate,
+    StoreStateUpdate,
 };
 pub(crate) use self::session::{
     GuideOverflowCacheHandle, LegendMeasurementCacheHandle, ScaleDomainCacheHandle,

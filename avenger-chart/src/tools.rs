@@ -1170,7 +1170,7 @@ mod tests {
             Err(err) => err,
         };
 
-        assert!(err.to_string().contains("no active Cartesian unit_aspect"));
+        assert!(err.to_string().contains("no active coordinate metric"));
     }
 
     #[tokio::test]

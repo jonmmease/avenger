@@ -48,7 +48,7 @@ use crate::{
     plot::compiled::ChildFrameSharingPath,
     render::{
         EvaluatedPlot, EvaluationMetrics, EvaluationMode, EvaluationOptions,
-        PreviewProfileFallbackReason, types::LegendMeasurement,
+        PreviewProfileFallbackReason, context::TextMeasurementRuntime, types::LegendMeasurement,
     },
     scales::ConfiguredScaleWithSpec,
 };
@@ -194,6 +194,7 @@ pub(crate) struct GuideOverflowCacheKey {
     facet_tree_structure: Vec<String>,
     child_frame_sharing_path: String,
     data_override_plan: Option<String>,
+    measurement: String,
 }
 
 /// Session-owned cache for exact legend measurement profiles.
@@ -227,6 +228,7 @@ pub(crate) struct LegendMeasurementCacheKey {
     available_height: u32,
     position: String,
     params: Vec<(String, String)>,
+    measurement: String,
 }
 
 /// Session-owned cache for exact text layout measurements.
@@ -252,6 +254,7 @@ pub(crate) struct TextMeasurementCacheKey {
     font_size: u32,
     font_weight: String,
     font_style: String,
+    measurement: String,
 }
 
 impl TextMeasurementCacheKey {
@@ -261,6 +264,7 @@ impl TextMeasurementCacheKey {
         font_size: f32,
         font_weight: &FontWeight,
         font_style: &FontStyle,
+        measurement: &str,
     ) -> Self {
         Self {
             text: text.to_string(),
@@ -268,6 +272,7 @@ impl TextMeasurementCacheKey {
             font_size: font_size.to_bits(),
             font_weight: format!("{font_weight:?}"),
             font_style: format!("{font_style:?}"),
+            measurement: measurement.to_string(),
         }
     }
 }
@@ -1275,6 +1280,43 @@ pub struct EvaluationRequest {
     options: EvaluationOptions,
 }
 
+/// Runtime options owned by a reusable `PlotSession`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlotSessionOptions {
+    /// Optional Typst math markup behavior used by chart layout and measurement.
+    #[cfg(feature = "typst-math-layout")]
+    pub text_math: avenger_text::math::TextMathConfig,
+}
+
+impl Default for PlotSessionOptions {
+    fn default() -> Self {
+        Self {
+            #[cfg(feature = "typst-math-layout")]
+            text_math: avenger_text::math::TextMathConfig::default(),
+        }
+    }
+}
+
+impl PlotSessionOptions {
+    #[cfg(feature = "typst-math-layout")]
+    pub fn text_math(mut self, text_math: avenger_text::math::TextMathConfig) -> Self {
+        self.text_math = text_math;
+        self
+    }
+
+    pub(crate) fn text_measurement_runtime(
+        &self,
+    ) -> Result<TextMeasurementRuntime, AvengerChartError> {
+        #[cfg(feature = "typst-math-layout")]
+        {
+            return TextMeasurementRuntime::from_math_config(&self.text_math);
+        }
+
+        #[allow(unreachable_code)]
+        Ok(TextMeasurementRuntime::plain())
+    }
+}
+
 impl Default for EvaluationRequest {
     fn default() -> Self {
         Self::new()
@@ -1352,6 +1394,7 @@ pub struct PlotSession {
     last_request: Option<EvaluationRequestSummary>,
     layout_profile: Option<LayoutProfileSnapshot>,
     last_metrics: Option<EvaluationMetrics>,
+    options: PlotSessionOptions,
     scale_domain_cache: ScaleDomainCacheHandle,
     facet_semantic_cache: FacetSemanticCacheHandle,
     facet_scale_builder_precompute_cache: FacetScaleBuilderPrecomputeCacheHandle,
@@ -1387,6 +1430,7 @@ impl PlotSession {
             last_request: None,
             layout_profile: None,
             last_metrics: None,
+            options: PlotSessionOptions::default(),
             scale_domain_cache,
             facet_semantic_cache,
             facet_scale_builder_precompute_cache,
@@ -1524,6 +1568,36 @@ impl PlotSession {
         self.last_metrics.take()
     }
 
+    pub fn options(&self) -> &PlotSessionOptions {
+        &self.options
+    }
+
+    pub fn set_options(&mut self, options: PlotSessionOptions) {
+        if self.options != options {
+            self.options = options;
+            self.layout_profile = None;
+            self.last_request = None;
+        }
+    }
+
+    pub fn with_options(mut self, options: PlotSessionOptions) -> Self {
+        self.set_options(options);
+        self
+    }
+
+    #[cfg(feature = "typst-math-layout")]
+    pub fn set_text_math(&mut self, text_math: avenger_text::math::TextMathConfig) {
+        let mut options = self.options.clone();
+        options.text_math = text_math;
+        self.set_options(options);
+    }
+
+    #[cfg(feature = "typst-math-layout")]
+    pub fn with_text_math(mut self, text_math: avenger_text::math::TextMathConfig) -> Self {
+        self.set_text_math(text_math);
+        self
+    }
+
     /// Build a shareable handle to the scoped store for per-cell evaluation,
     /// only when non-root (`Free`/`Level`) assignments exist. Returns `None` on
     /// the common path so evaluation stays allocation-free and unchanged.
@@ -1557,6 +1631,7 @@ impl PlotSession {
         let mode = request.mode;
         let next_params = self.params_for_request(&request);
         let options = options_for_evaluation_mode(mode, request.options);
+        let text_measurement = self.options.text_measurement_runtime()?;
         let use_measurement_profile_caches = mode != EvaluationMode::ForceRemeasure;
         let scoped_store = self.scoped_param_store_handle();
         let selection_store = self.scoped_selection_store_handle();
@@ -1581,6 +1656,7 @@ impl PlotSession {
                         use_measurement_profile_caches
                             .then(|| self.legend_measurement_cache.clone()),
                         use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                        text_measurement.clone(),
                         scoped_store.clone(),
                         selection_store.clone(),
                         store_state.clone(),
@@ -1618,6 +1694,7 @@ impl PlotSession {
                     use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                     use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                     use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                    text_measurement.clone(),
                     scoped_store.clone(),
                     selection_store.clone(),
                     store_state.clone(),
@@ -1660,6 +1737,7 @@ impl PlotSession {
                 use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                 use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                 use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                text_measurement,
                 scoped_store,
                 selection_store,
                 store_state,
@@ -1765,6 +1843,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         child_frame_sharing_path: &ChildFrameSharingPath,
         data_override: Option<&DataFrame>,
+        measurement: &str,
     ) -> GuideOverflowCacheKey {
         let mut scale_signatures = scales
             .iter()
@@ -1789,6 +1868,7 @@ impl CompiledPlot {
             facet_tree_structure: facet_tree.structure_cache_key(),
             child_frame_sharing_path: format!("{child_frame_sharing_path:?}"),
             data_override_plan: data_override.map(|df| format!("{:?}", df.logical_plan())),
+            measurement: measurement.to_string(),
         }
     }
 
@@ -1800,6 +1880,7 @@ impl CompiledPlot {
         estimate_height: f32,
         params: &IndexMap<String, ScalarValue>,
         discriminator: String,
+        measurement: &str,
     ) -> GuideOverflowCacheKey {
         let mut scale_signatures = scales
             .iter()
@@ -1821,6 +1902,7 @@ impl CompiledPlot {
             facet_tree_structure: vec![discriminator],
             child_frame_sharing_path: String::new(),
             data_override_plan: None,
+            measurement: measurement.to_string(),
         }
     }
 
@@ -1830,6 +1912,7 @@ impl CompiledPlot {
         available_space: Size2D,
         position: LegendPosition,
         params: &IndexMap<String, ScalarValue>,
+        measurement: &str,
     ) -> LegendMeasurementCacheKey {
         LegendMeasurementCacheKey {
             program_ptr: self as *const _ as usize,
@@ -1848,6 +1931,7 @@ impl CompiledPlot {
                 .iter()
                 .map(|(name, value)| (name.clone(), format!("{value:?}")))
                 .collect(),
+            measurement: measurement.to_string(),
         }
     }
 }
