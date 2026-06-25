@@ -16,6 +16,8 @@ pub struct PdfRenderOptions {
     pub compress: bool,
     /// Scale used when the converter must rasterize unsupported SVG features.
     pub raster_scale: f32,
+    #[cfg(feature = "typst-math")]
+    pub text_math: avenger_text::math::TextMathConfig,
 }
 
 impl Default for PdfRenderOptions {
@@ -26,6 +28,8 @@ impl Default for PdfRenderOptions {
             font_resolution: FontResolutionOptions::default(),
             compress: true,
             raster_scale: 1.5,
+            #[cfg(feature = "typst-math")]
+            text_math: avenger_text::math::TextMathConfig::default(),
         }
     }
 }

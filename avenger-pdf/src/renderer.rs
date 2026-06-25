@@ -93,6 +93,8 @@ impl PdfRenderer {
             font_resolution: self.options.font_resolution.clone(),
             font_embedding: SvgFontEmbedding::None,
             include_metadata: false,
+            #[cfg(feature = "typst-math")]
+            text_math: self.options.text_math.clone(),
         }
     }
 
@@ -577,6 +579,58 @@ mod tests {
         assert!(
             compact_extracted.contains("SelectablePDFtext"),
             "extracted text was: {extracted:?}"
+        );
+    }
+
+    #[cfg(feature = "typst-math")]
+    #[test]
+    fn typst_math_pdf_keeps_plain_runs_as_text_and_math_as_paths() {
+        let scene_graph = SceneGraph {
+            width: 120.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("speed $v^2$ now".to_string()),
+                x: ScalarOrArray::new_scalar(6.0),
+                y: ScalarOrArray::new_scalar(18.0),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let renderer = PdfRenderer::new().with_options(PdfRenderOptions {
+            compress: false,
+            text_math: avenger_text::math::TextMathConfig {
+                mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let svg = renderer.render_svg_for_pdf(&scene_graph).unwrap();
+        let tree = svg2pdf::usvg::Tree::from_str(&svg, &renderer.usvg_options()).unwrap();
+        let pdf = renderer.render_scene_graph(&scene_graph).unwrap();
+        let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
+        let compact_extracted = extracted
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>();
+
+        assert!(svg.contains(">speed </text>"));
+        assert!(svg.contains("> now</text>"));
+        assert!(svg.contains("<path "));
+        assert!(!svg.contains("$v^2$"));
+        assert!(tree.has_text_nodes());
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(pdf_contains(&pdf, b"/ToUnicode"));
+        assert!(
+            compact_extracted.contains("speednow"),
+            "extracted text was: {extracted:?}"
+        );
+        assert!(
+            !compact_extracted.contains("v2") && !compact_extracted.contains("$v^2$"),
+            "math should be visible paths in this phase, extracted text was: {extracted:?}"
         );
     }
 

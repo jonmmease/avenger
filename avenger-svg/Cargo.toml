@@ -5,6 +5,9 @@ edition = "2021"
 description = "SVG string renderer for Avenger scene graphs"
 license = "BSD-3-Clause"
 
+[features]
+typst-math = ["avenger-text/typst-math"]
+
 [dependencies]
 thiserror = { workspace = true }
 itertools = { workspace = true }

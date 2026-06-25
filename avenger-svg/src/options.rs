@@ -8,6 +8,8 @@ pub struct SvgRenderOptions {
     pub font_resolution: FontResolutionOptions,
     pub font_embedding: SvgFontEmbedding,
     pub include_metadata: bool,
+    #[cfg(feature = "typst-math")]
+    pub text_math: avenger_text::math::TextMathConfig,
 }
 
 impl Default for SvgRenderOptions {
@@ -19,6 +21,8 @@ impl Default for SvgRenderOptions {
             font_resolution: FontResolutionOptions::default(),
             font_embedding: SvgFontEmbedding::EmbedSubsetWoff2,
             include_metadata: false,
+            #[cfg(feature = "typst-math")]
+            text_math: avenger_text::math::TextMathConfig::default(),
         }
     }
 }

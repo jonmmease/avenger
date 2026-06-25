@@ -25,6 +25,15 @@ use avenger_scenegraph::{
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
+#[cfg(feature = "typst-math")]
+use avenger_text::{
+    math::TextMarkupMode,
+    path::{
+        CosmicTextPathExtractor, MathAwareTextPathExtractor, TextPathBuffer,
+        TextPathExtractionConfig, TextPathExtractor, TextPathItem, TextPathKind,
+        TextPathOutputMode,
+    },
+};
 use avenger_text::{
     measurement::{
         default_text_measurer, truncate_text_to_limit_with, TextMeasurementConfig, TextMeasurer,
@@ -280,6 +289,8 @@ impl SvgRenderer {
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
         let text_measurer = default_text_measurer();
+        #[cfg(feature = "typst-math")]
+        let math_path_extractor = self.math_path_extractor()?;
         let leader_stroke_dash_values = mark
             .leader_stroke_dash
             .as_ref()
@@ -372,13 +383,29 @@ impl SvgRenderer {
             }
             let target = [target[0] + origin[0], target[1] + origin[1]];
             let label = [label[0] + origin[0], label[1] + origin[1]];
-            let text_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
+            let measured_text_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
                 text: &text,
                 font: &output_font,
                 font_size: *font_size,
                 font_weight,
                 font_style,
             });
+            #[cfg(feature = "typst-math")]
+            let (text_bounds, math_path_buffer) = if let Some(buffer) = self.extract_math_paths(
+                math_path_extractor.as_ref(),
+                &text,
+                color,
+                &output_font,
+                *font_size,
+                font_weight,
+                font_style,
+            )? {
+                (buffer.bounds.clone(), Some(buffer))
+            } else {
+                (measured_text_bounds, None)
+            };
+            #[cfg(not(feature = "typst-math"))]
+            let text_bounds = measured_text_bounds;
             if *leader {
                 if let Some(geometry) = compute_text_leader_geometry(TextLeaderGeometryInput {
                     target,
@@ -408,6 +435,25 @@ impl SvgRenderer {
                         clip_id,
                     )?;
                 }
+            }
+
+            #[cfg(feature = "typst-math")]
+            if let Some(buffer) = math_path_buffer {
+                self.write_math_aware_text(
+                    document,
+                    &buffer,
+                    label,
+                    align,
+                    baseline,
+                    *angle,
+                    color,
+                    &output_font,
+                    *font_size,
+                    font_weight,
+                    font_style,
+                    clip_id,
+                )?;
+                continue;
             }
 
             let [x, text_top] = text_bounds.calculate_origin(label, align, baseline);
@@ -453,6 +499,204 @@ impl SvgRenderer {
             document.body.push_str("</text>\n");
         }
 
+        Ok(())
+    }
+
+    #[cfg(feature = "typst-math")]
+    fn math_path_extractor(
+        &self,
+    ) -> Result<Option<MathAwareTextPathExtractor<CosmicTextPathExtractor>>, AvengerSvgError> {
+        if matches!(&self.options.text_math.mode, TextMarkupMode::Plain) {
+            return Ok(None);
+        }
+
+        let plain =
+            CosmicTextPathExtractor::with_font_resolution(self.options.font_resolution.clone());
+        MathAwareTextPathExtractor::with_vendor_typst(plain, self.options.text_math.clone())
+            .map(Some)
+            .map_err(|err| AvengerSvgError::Text(err.to_string()))
+    }
+
+    #[cfg(feature = "typst-math")]
+    #[allow(clippy::too_many_arguments)]
+    fn extract_math_paths(
+        &self,
+        extractor: Option<&MathAwareTextPathExtractor<CosmicTextPathExtractor>>,
+        text: &String,
+        color: &ColorOrGradient,
+        font: &String,
+        font_size: f32,
+        font_weight: &FontWeight,
+        font_style: &FontStyle,
+    ) -> Result<Option<TextPathBuffer>, AvengerSvgError> {
+        let Some(extractor) = extractor else {
+            return Ok(None);
+        };
+        if !text.contains('$') {
+            return Ok(None);
+        }
+        let ColorOrGradient::Color(color) = color else {
+            return Err(AvengerSvgError::UnsupportedPaint(
+                "Typst math SVG text does not support gradient text paint".to_string(),
+            ));
+        };
+
+        let config = TextPathExtractionConfig {
+            text,
+            color,
+            font,
+            font_size,
+            font_weight,
+            font_style,
+            limit: f32::INFINITY,
+            output_mode: TextPathOutputMode::MathOnly,
+            include_pdf_text_layer: false,
+        };
+        let buffer = extractor
+            .extract_text_paths(&config)
+            .map_err(|err| AvengerSvgError::Text(err.to_string()))?;
+        let has_math_paths = buffer
+            .items
+            .iter()
+            .any(|item| matches!(item.kind, TextPathKind::MathGlyph | TextPathKind::MathShape));
+
+        Ok(has_math_paths.then_some(buffer))
+    }
+
+    #[cfg(feature = "typst-math")]
+    #[allow(clippy::too_many_arguments)]
+    fn write_math_aware_text(
+        &self,
+        document: &mut SvgDocument,
+        buffer: &TextPathBuffer,
+        label: [f32; 2],
+        align: &avenger_text::types::TextAlign,
+        baseline: &avenger_text::types::TextBaseline,
+        angle: f32,
+        color: &ColorOrGradient,
+        font: &str,
+        font_size: f32,
+        font_weight: &FontWeight,
+        font_style: &FontStyle,
+        clip_id: Option<&str>,
+    ) -> Result<(), AvengerSvgError> {
+        let [x, text_top] = buffer.bounds.calculate_origin(label, align, baseline);
+        document.body.push_str("<g");
+        if angle != 0.0 {
+            document.body.push_str(r#" transform="rotate("#);
+            push_number(&mut document.body, angle, self.options.precision)?;
+            document.body.push(' ');
+            push_number(&mut document.body, label[0], self.options.precision)?;
+            document.body.push(' ');
+            push_number(&mut document.body, label[1], self.options.precision)?;
+            document.body.push(')');
+            document.body.push('"');
+        }
+        push_clip_attr(&mut document.body, clip_id);
+        document.body.push_str(">\n");
+
+        for run in &buffer.plain_runs {
+            self.write_plain_text_run(
+                document,
+                &run.text,
+                x + run.x,
+                text_top + run.y_offset + run.bounds.ascent,
+                color,
+                font,
+                font_size,
+                font_weight,
+                font_style,
+            )?;
+        }
+
+        for item in &buffer.items {
+            self.write_math_text_path_item(document, item, x, text_top)?;
+        }
+
+        document.body.push_str("</g>\n");
+        Ok(())
+    }
+
+    #[cfg(feature = "typst-math")]
+    #[allow(clippy::too_many_arguments)]
+    fn write_plain_text_run(
+        &self,
+        document: &mut SvgDocument,
+        text: &str,
+        x: f32,
+        y: f32,
+        color: &ColorOrGradient,
+        font: &str,
+        font_size: f32,
+        font_weight: &FontWeight,
+        font_style: &FontStyle,
+    ) -> Result<(), AvengerSvgError> {
+        document.body.push_str(r#"<text x=""#);
+        push_number(&mut document.body, x, self.options.precision)?;
+        document.body.push_str(r#"" y=""#);
+        push_number(&mut document.body, y, self.options.precision)?;
+        document.body.push('"');
+        push_color_or_text_paint(&mut document.body, color, self.options.precision)?;
+        document
+            .body
+            .push_str(r#" text-anchor="start" dominant-baseline="alphabetic""#);
+        document.body.push_str(r#" font-family=""#);
+        document.body.push_str(&crate::style::escape_attr(font));
+        document.body.push('"');
+        document.body.push_str(r#" font-size=""#);
+        push_number(&mut document.body, font_size, self.options.precision)?;
+        document.body.push('"');
+        document.body.push_str(r#" font-weight=""#);
+        document
+            .body
+            .push_str(&font_weight_value(font_weight, self.options.precision)?);
+        document.body.push('"');
+        document.body.push_str(r#" font-style=""#);
+        document.body.push_str(font_style_value(font_style));
+        document.body.push_str(r#"">"#);
+        document.body.push_str(&crate::style::escape_text(text));
+        document.body.push_str("</text>\n");
+        Ok(())
+    }
+
+    #[cfg(feature = "typst-math")]
+    fn write_math_text_path_item(
+        &self,
+        document: &mut SvgDocument,
+        item: &TextPathItem,
+        x: f32,
+        y: f32,
+    ) -> Result<(), AvengerSvgError> {
+        let d = lyon_path_to_svg_d(&item.path, self.options.precision)?;
+        if d.is_empty() {
+            return Ok(());
+        }
+
+        document.body.push_str(r#"<path d=""#);
+        document.body.push_str(&d);
+        document.body.push('"');
+        if let Some(fill) = item.fill {
+            push_color_attrs(&mut document.body, "fill", fill, self.options.precision)?;
+        } else {
+            document.body.push_str(r#" fill="none""#);
+        }
+        if let Some(stroke) = &item.stroke {
+            push_color_attrs(
+                &mut document.body,
+                "stroke",
+                stroke.color,
+                self.options.precision,
+            )?;
+            document.body.push_str(r#" stroke-width=""#);
+            push_number(&mut document.body, stroke.width, self.options.precision)?;
+            document.body.push('"');
+        }
+        document.body.push_str(r#" transform="translate("#);
+        push_number(&mut document.body, x, self.options.precision)?;
+        document.body.push(' ');
+        push_number(&mut document.body, y, self.options.precision)?;
+        document.body.push_str(r#")"/>"#);
+        document.body.push('\n');
         Ok(())
     }
 
@@ -1710,6 +1954,47 @@ mod tests {
         assert!(svg.contains(r#"transform="rotate(45 11 14)""#));
         assert!(svg.contains("&lt;A&amp;B&gt;</text>"));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[cfg(feature = "typst-math")]
+    #[test]
+    fn renders_typst_math_as_paths_and_plain_runs_as_native_text() {
+        let scene_graph = SceneGraph {
+            width: 120.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("speed $v^2$ now".to_string()),
+                x: ScalarOrArray::new_scalar(6.0),
+                y: ScalarOrArray::new_scalar(18.0),
+                color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.25, 1.0, 0.75])),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let math_config = avenger_text::math::TextMathConfig {
+            mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
+            ..Default::default()
+        };
+
+        let plain_svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let math_svg = SvgRenderer::new()
+            .with_options(SvgRenderOptions {
+                text_math: math_config,
+                ..Default::default()
+            })
+            .render_scene_graph(&scene_graph)
+            .unwrap();
+
+        assert!(plain_svg.contains("speed $v^2$ now</text>"));
+        assert!(math_svg.contains(">speed </text>"));
+        assert!(math_svg.contains("> now</text>"));
+        assert!(math_svg.contains("<path "));
+        assert!(!math_svg.contains("$v^2$"));
+        assert!(math_svg.contains(r##"fill="#0040ff" fill-opacity="0.75""##));
+        assert!(usvg::Tree::from_str(&math_svg, &usvg::Options::default()).is_ok());
     }
 
     #[test]
