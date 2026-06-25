@@ -414,8 +414,15 @@ fn generate_vendor_tree(
     }
 
     let mut applied_patches = Vec::new();
-    rewrite_copied_crate_manifests(&args.out, &recipe.copy.crates, &mut applied_patches)?;
+    rewrite_copied_crate_manifests(
+        &args.out,
+        &recipe.copy.crates,
+        &recipe.deny_dependencies.crates,
+        &mut applied_patches,
+    )?;
     rewrite_typst_syntax_without_toml(&args.out, &recipe.copy.crates, &mut applied_patches)?;
+    rewrite_typst_library_math_subset(&args.out, &recipe.copy.crates, &mut applied_patches)?;
+    rewrite_typst_layout_math_subset(&args.out, &recipe.copy.crates, &mut applied_patches)?;
 
     let mut generated_files = Vec::new();
     write_generated(
@@ -774,6 +781,7 @@ fn copied_crate_manifests(out: &Path) -> Result<Vec<PathBuf>> {
 fn rewrite_copied_crate_manifests(
     out: &Path,
     crates: &[String],
+    denied_dependencies: &[String],
     applied_patches: &mut Vec<String>,
 ) -> Result<()> {
     for crate_name in crates {
@@ -788,8 +796,12 @@ fn rewrite_copied_crate_manifests(
             1,
         );
         source = ensure_lib_crate_name(&source, &rust_crate_name(crate_name));
+        source = remove_dev_dependency_sections(&source);
         if crate_name == "typst-syntax" {
             source = remove_workspace_dependency_line(&source, "toml");
+        }
+        for dependency in denied_dependencies {
+            source = remove_workspace_dependency_line(&source, dependency);
         }
 
         if source != original_source {
@@ -800,6 +812,30 @@ fn rewrite_copied_crate_manifests(
     }
 
     Ok(())
+}
+
+fn remove_dev_dependency_sections(source: &str) -> String {
+    let mut out = Vec::new();
+    let mut skip = false;
+
+    for line in source.lines() {
+        let trimmed = strip_comment(line).trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            skip = is_dev_dependency_section(trimmed);
+        }
+        if !skip {
+            out.push(line);
+        }
+    }
+
+    out.join("\n") + "\n"
+}
+
+fn is_dev_dependency_section(header: &str) -> bool {
+    let Some(section) = header.strip_prefix('[').and_then(|s| s.strip_suffix(']')) else {
+        return false;
+    };
+    section == "dev-dependencies" || section.ends_with(".dev-dependencies")
 }
 
 fn ensure_lib_crate_name(source: &str, crate_name: &str) -> String {
@@ -861,6 +897,852 @@ fn rewrite_typst_syntax_without_toml(
     }
 
     Ok(())
+}
+
+fn rewrite_typst_library_math_subset(
+    out: &Path,
+    crates: &[String],
+    applied_patches: &mut Vec<String>,
+) -> Result<()> {
+    if !crates
+        .iter()
+        .any(|crate_name| crate_name == "typst-library")
+    {
+        return Ok(());
+    }
+
+    patch_typst_library_loading(out, applied_patches)?;
+    write_patch_file(
+        out,
+        "crates/typst-library/src/foundations/plugin.rs",
+        typst_library_plugin_stub(),
+        "mechanical:typst-library-stub-plugin",
+        applied_patches,
+    )?;
+    patch_typst_library_text_mod(out, applied_patches)?;
+    patch_typst_library_value_display(out, applied_patches)?;
+    write_patch_file(
+        out,
+        "crates/typst-library/src/model/bibliography.rs",
+        typst_library_bibliography_stub(),
+        "mechanical:typst-library-stub-bibliography",
+        applied_patches,
+    )?;
+    write_patch_file(
+        out,
+        "crates/typst-library/src/model/cite.rs",
+        typst_library_cite_stub(),
+        "mechanical:typst-library-stub-cite",
+        applied_patches,
+    )?;
+    write_patch_file(
+        out,
+        "crates/typst-library/src/visualize/image/mod.rs",
+        typst_library_image_stub(),
+        "mechanical:typst-library-stub-image",
+        applied_patches,
+    )?;
+    write_patch_file(
+        out,
+        "crates/typst-library/src/text/font/color.rs",
+        typst_library_color_font_stub(),
+        "mechanical:typst-library-stub-color-fonts",
+        applied_patches,
+    )?;
+    patch_typst_library_font_variant_without_usvg(out, applied_patches)?;
+    patch_typst_library_color_without_assets(out, applied_patches)?;
+
+    Ok(())
+}
+
+fn rewrite_typst_layout_math_subset(
+    out: &Path,
+    crates: &[String],
+    applied_patches: &mut Vec<String>,
+) -> Result<()> {
+    if !crates.iter().any(|crate_name| crate_name == "typst-layout") {
+        return Ok(());
+    }
+
+    patch_typst_layout_linebreak_without_assets(out, applied_patches)?;
+    patch_typst_layout_rules_without_unsupported(out, applied_patches)?;
+
+    Ok(())
+}
+
+fn patch_typst_library_loading(out: &Path, applied_patches: &mut Vec<String>) -> Result<()> {
+    let path = out.join("crates/typst-library/src/loading/mod.rs");
+    let mut source = read_patch_source(&path)?;
+    let original = source.clone();
+
+    for needle in [
+        "#[path = \"cbor.rs\"]\nmod cbor_;\n",
+        "#[path = \"csv.rs\"]\nmod csv_;\n",
+        "#[path = \"toml.rs\"]\nmod toml_;\n",
+        "#[path = \"yaml.rs\"]\nmod yaml_;\n",
+        "pub use self::cbor_::*;\n",
+        "pub use self::csv_::*;\n",
+        "pub use self::toml_::*;\n",
+        "pub use self::yaml_::*;\n",
+        "    global.define_func::<csv>();\n",
+        "    global.define_func::<toml>();\n",
+        "    global.define_func::<yaml>();\n",
+        "    global.define_func::<cbor>();\n",
+    ] {
+        source = source.replace(needle, "");
+    }
+
+    write_if_changed(
+        &path,
+        original,
+        source,
+        "mechanical:typst-library-prune-data-loaders",
+        applied_patches,
+    )
+}
+
+fn patch_typst_library_text_mod(out: &Path, applied_patches: &mut Vec<String>) -> Result<()> {
+    let path = out.join("crates/typst-library/src/text/mod.rs");
+    let mut source = read_patch_source(&path)?;
+    let original = source.clone();
+
+    for needle in [
+        "mod raw;\n",
+        "pub use self::raw::*;\n",
+        "    global.define_elem::<RawElem>();\n",
+    ] {
+        source = source.replace(needle, "");
+    }
+
+    write_if_changed(
+        &path,
+        original,
+        source,
+        "mechanical:typst-library-prune-raw-text",
+        applied_patches,
+    )
+}
+
+fn patch_typst_library_value_display(out: &Path, applied_patches: &mut Vec<String>) -> Result<()> {
+    let path = out.join("crates/typst-library/src/foundations/value.rs");
+    let mut source = read_patch_source(&path)?;
+    let original = source.clone();
+
+    source = source.replace(
+        "use crate::text::{RawContent, RawElem, TextElem};",
+        "use crate::text::TextElem;",
+    );
+    source = source.replace(
+        "            _ => RawElem::new(RawContent::Text(self.repr()))\n                .with_lang(Some(\"typc\".into()))\n                .with_block(false)\n                .pack(),",
+        "            _ => TextElem::packed(self.repr()),",
+    );
+
+    write_if_changed(
+        &path,
+        original,
+        source,
+        "mechanical:typst-library-value-display-without-raw",
+        applied_patches,
+    )
+}
+
+fn patch_typst_library_font_variant_without_usvg(
+    out: &Path,
+    applied_patches: &mut Vec<String>,
+) -> Result<()> {
+    let path = out.join("crates/typst-library/src/text/font/variant.rs");
+    let source = read_patch_source(&path)?;
+    let original = source.clone();
+
+    let mut patched = source;
+    for impl_name in [
+        "impl From<usvg::FontStyle> for FontStyle",
+        "impl From<usvg::FontStretch> for FontStretch",
+    ] {
+        patched = remove_impl_block(&patched, impl_name);
+    }
+
+    write_if_changed(
+        &path,
+        original,
+        patched,
+        "mechanical:typst-library-font-variant-without-usvg",
+        applied_patches,
+    )
+}
+
+fn remove_impl_block(source: &str, needle: &str) -> String {
+    let Some(start) = source.find(needle) else {
+        return source.to_string();
+    };
+
+    let Some(end) = find_braced_block_end(source, start) else {
+        return source.to_string();
+    };
+    let mut end = end;
+    while source[end..].starts_with('\n') {
+        end += 1;
+    }
+    format!("{}{}", &source[..start], &source[end..])
+}
+
+fn find_braced_block_end(source: &str, start: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut seen_open = false;
+    for (offset, ch) in source[start..].char_indices() {
+        match ch {
+            '{' => {
+                seen_open = true;
+                depth += 1;
+            }
+            '}' if seen_open => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(start + offset + ch.len_utf8());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn patch_typst_library_color_without_assets(
+    out: &Path,
+    applied_patches: &mut Vec<String>,
+) -> Result<()> {
+    let path = out.join("crates/typst-library/src/visualize/color.rs");
+    let mut source = read_patch_source(&path)?;
+    let original = source.clone();
+
+    source = source.replace("use std::sync::{Arc, LazyLock};", "use std::sync::Arc;");
+    source = source.replace(
+        "use moxcms::{ColorProfile, Layout, RenderingIntent, TransformOptions};\n",
+        "",
+    );
+    let profile_block = r#"/// The ICC profile used to convert from CMYK to RGB.
+///
+/// This is a minimal CMYK profile that only contains the necessary information
+/// to convert from CMYK to RGB. It is based on the CGATS TR 001-1995
+/// specification. See
+/// <https://github.com/saucecontrol/Compact-ICC-Profiles#cmyk>.
+static CMYK_TO_XYZ: LazyLock<ColorProfile> = LazyLock::new(|| {
+    ColorProfile::new_from_slice(typst_assets::icc::CMYK_TO_XYZ).unwrap()
+});
+
+/// The target sRGB profile.
+static SRGB_PROFILE: LazyLock<ColorProfile> = LazyLock::new(ColorProfile::new_srgb);
+
+static TO_SRGB: LazyLock<Arc<moxcms::Transform8BitExecutor>> = LazyLock::new(|| {
+    CMYK_TO_XYZ
+        .create_transform_8bit(
+            Layout::Rgba,
+            &SRGB_PROFILE,
+            Layout::Rgb,
+            TransformOptions {
+                // Our input profile only supports perceptual intent.
+                rendering_intent: RenderingIntent::Perceptual,
+                ..TransformOptions::default()
+            },
+        )
+        .unwrap()
+});
+
+"#;
+    source = source.replace(
+        profile_block,
+        "// The math subset uses only process colors needed for glyph and shape fills.\n",
+    );
+    source = replace_cmyk_to_rgba(&source);
+
+    write_if_changed(
+        &path,
+        original,
+        source,
+        "mechanical:typst-library-color-without-assets",
+        applied_patches,
+    )
+}
+
+fn replace_cmyk_to_rgba(source: &str) -> String {
+    let Some(start) = source.find("    fn to_rgba(self) -> Rgb {\n        let mut dest") else {
+        return source.to_string();
+    };
+    let Some(end) = find_braced_block_end(source, start) else {
+        return source.to_string();
+    };
+    let replacement = r#"    fn to_rgba(self) -> Rgb {
+        let r = (1.0 - self.c) * (1.0 - self.k);
+        let g = (1.0 - self.m) * (1.0 - self.k);
+        let b = (1.0 - self.y) * (1.0 - self.k);
+        Rgb::new(r, g, b, 1.0)
+    }"#;
+
+    format!("{}{}{}", &source[..start], replacement, &source[end..])
+}
+
+fn patch_typst_layout_linebreak_without_assets(
+    out: &Path,
+    applied_patches: &mut Vec<String>,
+) -> Result<()> {
+    let path = out.join("crates/typst-layout/src/inline/linebreak.rs");
+    let mut source = read_patch_source(&path)?;
+    let original = source.clone();
+
+    source = source.replace("use icu_provider_blob::BlobDataProvider;\n", "");
+    source = source.replace(
+        "use icu_segmenter::{LineSegmenter, LineSegmenterBorrowed};",
+        "use icu_segmenter::{LineSegmenter, LineSegmenterBorrowed};",
+    );
+    source = source.replace(
+        r#"static CJ_SEGMENTER: LazyLock<LineSegmenter> = LazyLock::new(|| {
+    let blob = typst_assets::icu::ICU_CJ_SEGMENT;
+    let cj_provider = BlobDataProvider::try_new_from_static_blob(blob).unwrap();
+    LineSegmenter::try_new_for_non_complex_scripts_with_buffer_provider(
+        &cj_provider,
+        LineBreakOptions::default(),
+    )
+    .unwrap()
+});"#,
+        r#"static CJ_SEGMENTER: LazyLock<LineSegmenterBorrowed> =
+    LazyLock::new(|| LineSegmenter::new_auto(LineBreakOptions::default()));"#,
+    );
+    source = source.replace(
+        "        Some(Lang::CHINESE | Lang::JAPANESE) => CJ_SEGMENTER.as_borrowed(),",
+        "        Some(Lang::CHINESE | Lang::JAPANESE) => *CJ_SEGMENTER,",
+    );
+
+    write_if_changed(
+        &path,
+        original,
+        source,
+        "mechanical:typst-layout-linebreak-without-assets",
+        applied_patches,
+    )
+}
+
+fn patch_typst_layout_rules_without_unsupported(
+    out: &Path,
+    applied_patches: &mut Vec<String>,
+) -> Result<()> {
+    let path = out.join("crates/typst-layout/src/rules.rs");
+    let mut source = read_patch_source(&path)?;
+    let original = source.clone();
+
+    for needle in [
+        "    rules.register(Paged, CITE_GROUP_RULE);\n",
+        "    rules.register(Paged, BIBLIOGRAPHY_RULE);\n",
+        "    rules.register(Paged, CSL_LIGHT_RULE);\n",
+        "    rules.register(Paged, CSL_INDENT_RULE);\n",
+        "    rules.register(Paged, RAW_RULE);\n",
+        "    rules.register(Paged, RAW_LINE_RULE);\n",
+        "    rules.register(Paged, IMAGE_RULE);\n",
+    ] {
+        source = source.replace(needle, "");
+    }
+
+    source = source.replace(
+        "    OverlineElem, RawElem, RawLine, ScriptKind, ShiftSettings, Smallcaps, SmallcapsElem,\n",
+        "    OverlineElem, ScriptKind, ShiftSettings, Smallcaps, SmallcapsElem,\n",
+    );
+    source = source.replace(
+        "    Attribution, BibliographyElem, CiteElem, CiteGroup, CslIndentElem, CslLightElem,\n    Destination, DirectLinkElem, DividerElem, EmphElem, EnumElem, FigureCaption,\n",
+        "    Attribution, CiteElem, Destination, DirectLinkElem, DividerElem, EmphElem, EnumElem, FigureCaption,\n",
+    );
+    source = source.replace(
+        "    TableCell, TableElem, TermsElem, TitleElem, Works,\n",
+        "    TableCell, TableElem, TermsElem, TitleElem,\n",
+    );
+    source = source.replace(
+        "    CircleElem, CurveElem, EllipseElem, ImageElem, LineElem, PolygonElem, RectElem,\n",
+        "    CircleElem, CurveElem, EllipseElem, LineElem, PolygonElem, RectElem,\n",
+    );
+
+    source = remove_const_block(&source, "CITE_GROUP_RULE");
+    source = remove_const_block(&source, "BIBLIOGRAPHY_RULE");
+    source = remove_const_block(&source, "CSL_LIGHT_RULE");
+    source = remove_const_block(&source, "CSL_INDENT_RULE");
+    source = remove_const_block(&source, "RAW_RULE");
+    source = remove_const_block(&source, "RAW_LINE_RULE");
+    source = remove_const_block(&source, "IMAGE_RULE");
+
+    write_if_changed(
+        &path,
+        original,
+        source,
+        "mechanical:typst-layout-unregister-unsupported",
+        applied_patches,
+    )
+}
+
+fn remove_const_block(source: &str, name: &str) -> String {
+    let needle = format!("const {name}:");
+    let Some(start) = source.find(&needle) else {
+        return source.to_string();
+    };
+    let Some(relative_end) = source[start..].find("\n\nconst ") else {
+        return source[..start].to_string();
+    };
+    let end = start + relative_end + 2;
+    format!("{}{}", &source[..start], &source[end..])
+}
+
+fn read_patch_source(path: &Path) -> Result<String> {
+    fs::read_to_string(path).map_err(|err| format!("failed to read {}: {err}", path.display()))
+}
+
+fn write_if_changed(
+    path: &Path,
+    original: String,
+    mut patched: String,
+    patch_name: &str,
+    applied_patches: &mut Vec<String>,
+) -> Result<()> {
+    normalize_trailing_newline(&mut patched);
+    if patched != original {
+        fs::write(path, patched)
+            .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+        applied_patches.push(patch_name.to_string());
+    }
+    Ok(())
+}
+
+fn write_patch_file(
+    out: &Path,
+    rel_path: &str,
+    contents: &str,
+    patch_name: &str,
+    applied_patches: &mut Vec<String>,
+) -> Result<()> {
+    let path = out.join(rel_path);
+    let original = fs::read_to_string(&path).unwrap_or_default();
+    write_if_changed(
+        &path,
+        original,
+        contents.to_string(),
+        patch_name,
+        applied_patches,
+    )
+}
+
+fn typst_library_plugin_stub() -> &'static str {
+    r#"use ecow::EcoString;
+use typst_syntax::Spanned;
+
+use crate::diag::{SourceResult, StrResult, bail};
+use crate::engine::Engine;
+use crate::foundations::{Bytes, Func, Module, Value, cast, func, scope};
+use crate::loading::DataSource;
+
+#[func(scope)]
+pub fn plugin(
+    engine: &mut Engine,
+    /// A path to a WebAssembly file or raw WebAssembly bytes.
+    _source: Spanned<DataSource>,
+) -> SourceResult<Module> {
+    let _ = engine;
+    bail!(typst_syntax::Span::detached(), "plugins are not available in avenger-typst math fragments")
+}
+
+#[scope]
+impl plugin {
+    #[func]
+    pub fn transition(
+        /// The plugin function to call.
+        func: PluginFunc,
+        /// The byte buffers to call the function with.
+        #[variadic]
+        arguments: Vec<Bytes>,
+    ) -> StrResult<Module> {
+        func.transition(arguments)
+    }
+}
+
+/// A function loaded from a WebAssembly plugin.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct PluginFunc {
+    name: EcoString,
+}
+
+impl PluginFunc {
+    pub fn name(&self) -> &EcoString {
+        &self.name
+    }
+
+    pub fn call(&self, _: Vec<Bytes>) -> StrResult<Bytes> {
+        bail!("plugins are not available in avenger-typst math fragments")
+    }
+
+    pub fn transition(&self, _: Vec<Bytes>) -> StrResult<Module> {
+        bail!("plugins are not available in avenger-typst math fragments")
+    }
+}
+
+cast! {
+    PluginFunc,
+    self => Value::Func(self.into()),
+    v: Func => v.to_plugin().ok_or("expected plugin function")?.clone(),
+}
+"#
+}
+
+fn typst_library_bibliography_stub() -> &'static str {
+    r#"use crate::diag::{SourceResult, bail};
+use crate::engine::Engine;
+use crate::foundations::{Cast, Content, Derived, elem};
+use crate::introspection::{Locatable, Location};
+use crate::layout::Length;
+use typst_syntax::Span;
+
+#[elem(Locatable)]
+pub struct BibliographyElem {
+    #[required]
+    pub path: Content,
+}
+
+impl BibliographyElem {
+    pub fn has(_: &mut Engine, _: crate::foundations::Label, _: Span) -> bool {
+        false
+    }
+}
+
+impl crate::foundations::Packed<BibliographyElem> {
+    pub fn realize_title(&self, _: crate::foundations::StyleChain) -> Option<Content> {
+        None
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Cast)]
+pub enum CitationForm {
+    #[default]
+    Normal,
+    Prose,
+    Full,
+    Author,
+    Year,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct CslSource;
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct CslStyle;
+
+pub struct Bibliography {
+    pub entries: Vec<BibliographyEntry>,
+    pub hanging_indent: bool,
+}
+
+pub struct BibliographyEntry {
+    pub prefix: Option<Content>,
+    pub body: Content,
+    pub backlink: Location,
+}
+
+pub struct Works;
+
+impl Works {
+    pub fn generate(_: &mut Engine, _: Span) -> SourceResult<std::sync::Arc<Works>> {
+        Ok(std::sync::Arc::new(Works))
+    }
+
+    pub fn bibliography(
+        &self,
+        _location: Location,
+        span: Span,
+    ) -> SourceResult<Bibliography> {
+        bail!(span, "bibliographies are not available in avenger-typst math fragments")
+    }
+
+    pub fn citation(&self, _location: Location, span: Span) -> SourceResult<Content> {
+        bail!(span, "citations are not available in avenger-typst math fragments")
+    }
+}
+
+#[elem]
+pub struct CslLightElem {
+    #[required]
+    pub body: Content,
+}
+
+#[elem]
+pub struct CslIndentElem {
+    #[required]
+    pub body: Content,
+    pub amount: Length,
+}
+
+impl CslStyle {
+    pub fn load(
+        _: &mut Engine,
+        _: typst_syntax::Spanned<CslSource>,
+    ) -> SourceResult<Derived<CslSource, CslStyle>> {
+        bail!(typst_syntax::Span::detached(), "bibliographies are not available in avenger-typst math fragments")
+    }
+}
+"#
+}
+
+fn typst_library_cite_stub() -> &'static str {
+    r#"use crate::diag::{SourceResult, bail};
+use crate::engine::Engine;
+use crate::foundations::{Content, Label, Packed, StyleChain, Synthesize, cast, elem};
+use crate::introspection::Locatable;
+use crate::model::CitationForm;
+use crate::text::{Lang, Region, TextElem};
+
+#[elem(Locatable, Synthesize)]
+pub struct CiteElem {
+    #[required]
+    pub key: Label,
+    pub supplement: Option<Content>,
+    #[default(Some(CitationForm::Normal))]
+    pub form: Option<CitationForm>,
+    #[internal]
+    #[synthesized]
+    pub lang: Lang,
+    #[internal]
+    #[synthesized]
+    pub region: Option<Region>,
+}
+
+impl Synthesize for Packed<CiteElem> {
+    fn synthesize(&mut self, _: &mut Engine, styles: StyleChain) -> SourceResult<()> {
+        let elem = self.as_mut();
+        elem.lang = Some(styles.get(TextElem::lang));
+        elem.region = Some(styles.get(TextElem::region));
+        Ok(())
+    }
+}
+
+cast! {
+    CiteElem,
+    v: Content => v.unpack::<Self>().map_err(|_| "expected citation")?,
+}
+
+#[elem(Locatable)]
+pub struct CiteGroup {
+    #[required]
+    pub children: Vec<Content>,
+}
+
+impl Packed<CiteGroup> {
+    pub fn realize(&self, _: &mut Engine) -> SourceResult<Content> {
+        bail!(self.span(), "citations are not available in avenger-typst math fragments")
+    }
+}
+"#
+}
+
+fn typst_library_image_stub() -> &'static str {
+    r#"//! Image handling is stubbed in the avenger-typst math subset.
+
+use std::fmt::{self, Debug, Formatter};
+
+use crate::diag::{SourceResult, bail};
+use crate::engine::Engine;
+use crate::foundations::{Bytes, Cast, Packed, Smart, StyleChain, Synthesize, elem};
+use crate::introspection::{Locatable, Tagged};
+use crate::layout::{Length, Rel, Sizing};
+use crate::model::Figurable;
+use crate::text::Locale;
+
+#[elem(Locatable, Tagged, Synthesize, Figurable)]
+pub struct ImageElem {
+    pub width: Smart<Rel<Length>>,
+    pub height: Sizing,
+    #[default(ImageFit::Cover)]
+    pub fit: ImageFit,
+    #[internal]
+    #[synthesized]
+    pub locale: Locale,
+}
+
+impl Synthesize for Packed<ImageElem> {
+    fn synthesize(&mut self, _: &mut Engine, styles: StyleChain) -> SourceResult<()> {
+        self.as_mut().locale = Some(Locale::get_in(styles));
+        Ok(())
+    }
+}
+
+impl Packed<ImageElem> {
+    pub fn decode(&self, _: &mut Engine, _: StyleChain) -> SourceResult<Image> {
+        bail!(self.span(), "images are not available in avenger-typst math fragments")
+    }
+}
+
+impl Figurable for Packed<ImageElem> {}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Cast)]
+pub enum ImageFit {
+    Cover,
+    Contain,
+    Stretch,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Cast)]
+pub enum ImageScaling {
+    Smooth,
+    Pixelated,
+}
+
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct Image;
+
+impl Image {
+    pub const DEFAULT_DPI: f64 = 72.0;
+    pub const USVG_DEFAULT_DPI: f64 = 96.0;
+
+    pub fn plain(_: impl Into<ImageKind>) -> Self {
+        Self
+    }
+
+    pub fn width(&self) -> f64 {
+        1.0
+    }
+
+    pub fn height(&self) -> f64 {
+        1.0
+    }
+
+    pub fn dpi(&self) -> Option<f64> {
+        Some(Self::DEFAULT_DPI)
+    }
+}
+
+impl Debug for Image {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.pad("Image(..)")
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub enum ImageKind {
+    Raster(RasterImage),
+    Svg(SvgImage),
+}
+
+impl From<RasterImage> for ImageKind {
+    fn from(image: RasterImage) -> Self {
+        Self::Raster(image)
+    }
+}
+
+impl From<SvgImage> for ImageKind {
+    fn from(image: SvgImage) -> Self {
+        Self::Svg(image)
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Cast)]
+pub enum ExchangeFormat {
+    Png,
+    Jpg,
+    Gif,
+    Webp,
+}
+
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct RasterImage;
+
+impl RasterImage {
+    pub fn plain(_: Bytes, _: ExchangeFormat) -> crate::diag::StrResult<Self> {
+        Ok(Self)
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct SvgImage;
+
+impl SvgImage {
+    pub fn new(_: Bytes) -> crate::diag::StrResult<Self> {
+        Ok(Self)
+    }
+}
+"#
+}
+
+fn typst_library_color_font_stub() -> &'static str {
+    r#"//! Minimal color font handling for the avenger-typst math subset.
+
+use ttf_parser::GlyphId;
+
+use crate::layout::{Abs, Frame, FrameItem, Point, Size};
+use crate::text::FontInstance;
+use crate::visualize::{FixedStroke, Geometry};
+use typst_syntax::Span;
+
+/// Whether this glyph should be rendered via simple outlining instead of via
+/// `glyph_frame`.
+pub fn should_outline(font: &FontInstance, glyph_id: GlyphId) -> bool {
+    let ttf = font.ttf();
+    ttf.tables().glyf.is_some()
+        || ttf.tables().cff.is_some()
+        || ttf.tables().cff2.is_some()
+        || !ttf.is_color_glyph(glyph_id)
+}
+
+/// A frame that can draw a glyph.
+#[derive(Clone)]
+pub struct GlyphFrame {
+    pub upem: Abs,
+    pub item: GlyphFrameItem,
+}
+
+impl GlyphFrame {
+    pub fn size(&self) -> Size {
+        Size::splat(self.upem)
+    }
+}
+
+impl From<GlyphFrame> for Frame {
+    fn from(g: GlyphFrame) -> Self {
+        let mut frame = Frame::soft(Size::splat(g.upem));
+        match g.item {
+            GlyphFrameItem::Tofu(pos, shape) => {
+                frame.push(pos, FrameItem::Shape(shape, Span::detached()))
+            }
+        }
+        frame
+    }
+}
+
+#[derive(Clone)]
+pub enum GlyphFrameItem {
+    Tofu(Point, crate::visualize::Shape),
+}
+
+impl GlyphFrameItem {
+    pub fn pos(&self) -> Point {
+        match *self {
+            GlyphFrameItem::Tofu(pos, _) => pos,
+        }
+    }
+}
+
+#[comemo::memoize]
+pub fn glyph_frame(font: &FontInstance, glyph_id: u16) -> Option<GlyphFrame> {
+    let upem = Abs::pt(font.units_per_em());
+    Some(draw_fallback_tofu(font, upem, GlyphId(glyph_id)))
+}
+
+fn draw_fallback_tofu(font: &FontInstance, upem: Abs, glyph_id: GlyphId) -> GlyphFrame {
+    let advance = font
+        .ttf()
+        .glyph_hor_advance(glyph_id)
+        .map(|advance| Abs::pt(advance as f64))
+        .unwrap_or(upem / 3.0);
+    let inset = 0.15 * advance;
+    let height = 0.7 * upem;
+    let pos = Point::new(inset, upem - height);
+    let size = Size::new(advance - inset * 2.0, height);
+    let thickness = upem / 20.0;
+    let stroke = FixedStroke { thickness, ..Default::default() };
+    let shape = Geometry::Rect(size).stroked(stroke);
+    GlyphFrame { upem, item: GlyphFrameItem::Tofu(pos, shape) }
+}
+"#
 }
 
 fn renamed_typst_package_name(crate_name: &str) -> String {

@@ -1,0 +1,11 @@
+figure = Figur
+table = Tabell
+equation = Ekvation
+bibliography = Referenser
+heading = Avsnitt
+outline = Innehåll
+raw = Kodlistning
+page = sida
+footnote = Fotnot
+email = E-post
+telephone = Telefon

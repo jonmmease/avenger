@@ -1,0 +1,11 @@
+figure = Obrázok
+table = Tabuľka
+equation = Rovnica
+bibliography = Bibliografia
+heading = Kapitola
+outline = Obsah
+raw = Výpis
+page = strana
+footnote = Poznámka
+email = E-mail
+telephone = Telefón

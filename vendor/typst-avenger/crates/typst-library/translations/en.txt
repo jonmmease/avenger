@@ -1,0 +1,11 @@
+figure = Figure
+table = Table
+equation = Equation
+bibliography = Bibliography
+heading = Section
+outline = Contents
+raw = Listing
+page = page
+footnote = Footnote
+email = Email
+telephone = Telephone

@@ -1,0 +1,11 @@
+figure = Фиг.
+table = Таблица
+equation = Уравнение
+bibliography = Библиография
+heading = Раздел
+outline = Съдържание
+raw = Приложение
+page = стр.
+# footnote =
+# email =
+# telephone =

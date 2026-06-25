@@ -1,0 +1,11 @@
+figure = Figura
+table = Táboa
+equation = Ecuación
+bibliography = Bibliografía
+heading = Sección
+outline = Índice
+raw = Listaxe
+page = páxina
+footnote = Nota a pé de páxina
+email = Correo electrónico
+telephone = Teléfono

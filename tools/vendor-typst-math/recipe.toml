@@ -2,9 +2,14 @@
 expected_workspace_version = "0.15.0"
 
 [copy]
-# First compile target: enough of Typst to use the real math parser before
-# bringing in the broader layout/library stack.
+# Math layout target: parser, standard library math/text/layout types, and
+# layout. Avenger lowers the accepted math AST directly into Typst math content,
+# so the general Typst evaluator and realization crates are intentionally not
+# copied.
 crates = [
+  "typst-layout",
+  "typst-library",
+  "typst-macros",
   "typst-syntax",
   "typst-timing",
   "typst-utils",
@@ -20,8 +25,11 @@ crates = [
   "typst-render",
   "typst-kit",
   "typst-assets",
+  "typst-dev-assets",
   "hayagriva",
+  "hayro-syntax",
   "syntect",
+  "two-face",
   "wasmi",
   "image",
   "usvg",

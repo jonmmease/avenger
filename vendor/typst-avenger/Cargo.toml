@@ -1,5 +1,8 @@
 [workspace]
 members = [
+    "crates/typst-layout",
+    "crates/typst-library",
+    "crates/typst-macros",
     "crates/typst-syntax",
     "crates/typst-timing",
     "crates/typst-utils",
@@ -20,28 +23,72 @@ readme = "README.md"
 
 
 [workspace.dependencies]
+typst-layout = { package = "avenger-typst-layout", path = "crates/typst-layout", version = "0.15.0" }
+typst-library = { package = "avenger-typst-library", path = "crates/typst-library", version = "0.15.0" }
+typst-macros = { package = "avenger-typst-macros", path = "crates/typst-macros", version = "0.15.0" }
 typst-syntax = { package = "avenger-typst-syntax", path = "crates/typst-syntax", version = "0.15.0" }
 typst-timing = { package = "avenger-typst-timing", path = "crates/typst-timing", version = "0.15.0" }
 typst-utils = { package = "avenger-typst-utils", path = "crates/typst-utils", version = "0.15.0" }
+arrayvec = "0.7.4"
+az = "1.2"
+bitflags = { version = "2.10", features = ["serde"] }
+bumpalo = { version = "3.15.4", features = ["boxed", "collections"] }
+codex = "0.3.0"
+comemo = "0.5.1"
 ecow = { version = "0.2.6", features = ["serde"] }
+either = "1"
+flate2 = { version = "1", features = ["zlib-rs"] }
+fontdb = { version = "0.23", default-features = false }
+glidesort = "0.1.2"
+heck = "0.5"
+hypher = "0.1.4"
+icu_properties = { version = "2.2.0", features = ["serde"] }
+icu_provider = { version = "2.2.0", features = ["sync"] }
+icu_provider_blob = "2.2.0"
+icu_segmenter = { version = "2.2.0", features = ["serde"] }
+indexmap = { version = "2", features = ["serde", "rayon"] }
+kamadak-exif = "0.6"
+kurbo = "0.13"
 libm = "0.2.11"
+lipsum = "0.9"
+memchr = "2"
+moxcms = "0.8.1"
 once_cell = "1"
+palette = { version = "0.7.3", default-features = false, features = ["approx", "libm"] }
 parking_lot = "0.12.1"
+percent-encoding = "2.3.2"
+phf = { version = "0.13", features = ["macros"] }
+png = "0.18"
 portable-atomic = "1.6"
+proc-macro2 = "1"
+quote = "1"
 rayon = "1.7.0"
+regex = "1"
+regex-syntax = "0.8"
+roxmltree = "0.21"
+rust_decimal = { version = "1.36.0", default-features = false, features = ["maths"] }
 rustc-hash = "2.1"
+rustybuzz = "0.20"
 semver = "1"
 serde = { version = "1.0.184", features = ["derive"] }
 serde_json = "1"
 siphasher = "1"
 smallvec = { version = "1.11.1", features = ["union", "const_generics", "const_new"] }
+syn = { version = "2", features = ["full", "extra-traits"] }
 thin-vec = "0.2.18"
+time = { version = "0.3.20", features = ["formatting", "macros", "parsing"] }
+ttf-parser = "0.25.0"
+typed-arena = "2"
+unicode-bidi = "0.3.18"
 unicode-ident = "1.0"
 unicode-math-class = "0.1"
+unicode-normalization = "0.1.24"
 unicode-script = "0.5"
 unicode-segmentation = "1"
 unscanny = "0.1"
+utf8_iter = "1.0.4"
 web-sys = "0.3"
+xmlwriter = "0.1.0"
 
 [workspace.lints.clippy]
 blocks_in_conditions = "allow"

@@ -1,0 +1,140 @@
+use comemo::Track;
+use typst_library::diag::{At, SourceResult};
+use typst_library::engine::Engine;
+use typst_library::foundations::{Context, Smart, StyleChain};
+use typst_library::layout::{Abs, Angle, Frame, FrameItem, Point, Rel, Size, Transform};
+use typst_library::math::CancelAngle;
+use typst_library::math::ir::{CancelItem, MathProperties};
+use typst_library::visualize::{FixedStroke, Geometry};
+use typst_syntax::Span;
+
+use super::MathContext;
+use super::fragment::FrameFragment;
+
+/// Lays out a [`CancelItem`].
+#[typst_macros::time(name = "math cancel layout", span = props.span)]
+pub fn layout_cancel(
+    item: &CancelItem,
+    ctx: &mut MathContext,
+    styles: StyleChain,
+    props: &MathProperties,
+) -> SourceResult<()> {
+    let body = ctx.layout_into_fragment(&item.base, styles)?;
+
+    // Preserve properties of body.
+    let body_text_like = body.is_text_like();
+    let body_italics = body.italics_correction();
+    let body_attach = body.accent_attach();
+
+    let mut body = body.into_frame();
+    let body_size = body.size();
+
+    let first_line = draw_cancel_line(
+        ctx.engine,
+        item.length,
+        item.stroke.clone(),
+        item.invert_first_line,
+        &item.angle,
+        body_size,
+        styles,
+        props.span,
+    )?;
+
+    // The origin of our line is the very middle of the element.
+    let center = body_size.to_point() / 2.0;
+    body.push_frame(center, first_line);
+
+    if item.cross {
+        // Draw the second line.
+        let second_line = draw_cancel_line(
+            ctx.engine,
+            item.length,
+            item.stroke.clone(),
+            true,
+            &item.angle,
+            body_size,
+            styles,
+            props.span,
+        )?;
+
+        body.push_frame(center, second_line);
+    }
+
+    ctx.push(
+        FrameFragment::new(props, styles, body)
+            .with_italics_correction(body_italics)
+            .with_text_like(body_text_like)
+            .with_accent_attach(body_attach),
+    );
+    Ok(())
+}
+
+/// Draws a cancel line.
+#[allow(clippy::too_many_arguments)]
+fn draw_cancel_line(
+    engine: &mut Engine,
+    length_scale: Rel<Abs>,
+    stroke: FixedStroke,
+    invert: bool,
+    angle: &Smart<CancelAngle>,
+    body_size: Size,
+    styles: StyleChain,
+    span: Span,
+) -> SourceResult<Frame> {
+    let default = default_angle(body_size);
+    let mut angle = match angle {
+        // Non specified angle defaults to the diagonal
+        Smart::Auto => default,
+        Smart::Custom(angle) => match angle {
+            // This specifies the absolute angle w.r.t y-axis clockwise.
+            CancelAngle::Angle(v) => *v,
+            // This specifies a function that takes the default angle as input.
+            CancelAngle::Func(func) => func
+                .call(engine, Context::new(None, Some(styles)).track(), [default])?
+                .cast()
+                .at(span)?,
+        },
+    };
+
+    // invert means flipping along the y-axis
+    if invert {
+        angle *= -1.0;
+    }
+
+    // same as above, the default length is the diagonal of the body box.
+    let default_length = body_size.to_point().hypot();
+    let length = length_scale.relative_to(default_length);
+
+    // Draw a vertical line of length and rotate it by angle
+    let start = Point::new(Abs::zero(), length / 2.0);
+    let delta = Point::new(Abs::zero(), -length);
+
+    let mut frame = Frame::soft(body_size);
+    frame.push(start, FrameItem::Shape(Geometry::Line(delta).stroked(stroke), span));
+
+    // Having the middle of the line at the origin is convenient here.
+    frame.transform(Transform::rotate(angle));
+    Ok(frame)
+}
+
+/// The default line angle for a body of the given size.
+fn default_angle(body: Size) -> Angle {
+    // The default cancel line is the diagonal.
+    // We infer the default angle from
+    // the diagonal w.r.t to the body box.
+    //
+    // The returned angle is in the range of [0, Pi/2]
+    //
+    // Note that the angle is computed w.r.t to the y-axis
+    //
+    //            B
+    //           /|
+    // diagonal / | height
+    //         /  |
+    //        /   |
+    //       O ----
+    //         width
+    let (width, height) = (body.x, body.y);
+    // arctangent (in the range [0, Pi/2])
+    Angle::atan(width / height)
+}

@@ -1,0 +1,11 @@
+figure = Descriptio
+table = Tabula
+equation = Equatio
+bibliography = Conspectus librorum
+heading = Caput
+outline = Index capitum
+raw = Exemplum
+page = charta
+# footnote =
+# email =
+# telephone =

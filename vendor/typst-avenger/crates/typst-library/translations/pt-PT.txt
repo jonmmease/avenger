@@ -1,0 +1,3 @@
+heading = Secção
+outline = Índice
+email = Correio Eletrónico

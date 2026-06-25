@@ -7,6 +7,2022 @@
   "expected_workspace_version": "0.15.0",
   "copied_files": [
     {
+      "upstream_path": "crates/typst-layout/Cargo.toml",
+      "vendor_path": "crates/typst-layout/Cargo.toml",
+      "sha256": "5473f8afff8567fd1040acab67cc8469d6751ad7be5f75252041a60d9760c0e3",
+      "byte_len": 1387
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/document.rs",
+      "vendor_path": "crates/typst-layout/src/document.rs",
+      "sha256": "1b56601603fb230ce1f620e639d00b139b50a4066d36885c27c5df709501e993",
+      "byte_len": 3710
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/flow/block.rs",
+      "vendor_path": "crates/typst-layout/src/flow/block.rs",
+      "sha256": "87fd2ea2a9ac6f960ee6fb6a6ad3861a773008b2b8c001ef7c8602d31efaecce",
+      "byte_len": 14587
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/flow/collect.rs",
+      "vendor_path": "crates/typst-layout/src/flow/collect.rs",
+      "sha256": "211bae9b5c96f7943afd97f46ccc2b4b60e844656e8c79cb61565cad1122eb15",
+      "byte_len": 23390
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/flow/compose.rs",
+      "vendor_path": "crates/typst-layout/src/flow/compose.rs",
+      "sha256": "caa1f70a1d966a66bb71d1ca4f4c9b73cd5cce105aa9fa58557a768902d4d33c",
+      "byte_len": 36915
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/flow/distribute.rs",
+      "vendor_path": "crates/typst-layout/src/flow/distribute.rs",
+      "sha256": "5224127ff91b9ac95e04d4e6753f6bf2cf63905202806140d94e240f9810f6fa",
+      "byte_len": 24788
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/flow/mod.rs",
+      "vendor_path": "crates/typst-layout/src/flow/mod.rs",
+      "sha256": "0bfbbf95bf5754970aa52da8e4742346d161fec4c4e2d02a28d7f07a2504d246",
+      "byte_len": 13697
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/grid/layouter.rs",
+      "vendor_path": "crates/typst-layout/src/grid/layouter.rs",
+      "sha256": "940ecc9e8fe121caed3e6d23fab64428d252d9c6c9e56a54f3d51ee680a07e2c",
+      "byte_len": 80330
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/grid/lines.rs",
+      "vendor_path": "crates/typst-layout/src/grid/lines.rs",
+      "sha256": "702cf99e38e85a7bc9d77ee997d997a22f8c3cc4fe6a82ef44543281d0f74958",
+      "byte_len": 64822
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/grid/mod.rs",
+      "vendor_path": "crates/typst-layout/src/grid/mod.rs",
+      "sha256": "9b13a0603b32f49699a63d7d47fbc89a2c7899e742021ce1ba7ffad7e5055061",
+      "byte_len": 4690
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/grid/repeated.rs",
+      "vendor_path": "crates/typst-layout/src/grid/repeated.rs",
+      "sha256": "8a73fe5e59e7792e012eeb6f7918493b9dc93b0393ff3eb70fee39819b668a03",
+      "byte_len": 23457
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/grid/rowspans.rs",
+      "vendor_path": "crates/typst-layout/src/grid/rowspans.rs",
+      "sha256": "f22ba11a30e8468b29489af386f48e136d233fae9ed3d1658db4625cea642237",
+      "byte_len": 58095
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/image.rs",
+      "vendor_path": "crates/typst-layout/src/image.rs",
+      "sha256": "15caacbca0dc7893bb5882b5437f3fa87f4d5b41fcfa672d1225418ed23164d6",
+      "byte_len": 2990
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/inline/box.rs",
+      "vendor_path": "crates/typst-layout/src/inline/box.rs",
+      "sha256": "f5089e306728b1d2a6914b973b9b4d393e7e31b59eba02ecfd2777408b43bf8f",
+      "byte_len": 3220
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/inline/collect.rs",
+      "vendor_path": "crates/typst-layout/src/inline/collect.rs",
+      "sha256": "29db80952ee7717fb4080bf41f2ffd1360675610eceef12a7fae697aa88197d2",
+      "byte_len": 11597
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/inline/deco.rs",
+      "vendor_path": "crates/typst-layout/src/inline/deco.rs",
+      "sha256": "b71aebb05a758dcf7719bb9b64df47907813cc47bea45ff6f8caba5ac3324f7d",
+      "byte_len": 6442
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/inline/finalize.rs",
+      "vendor_path": "crates/typst-layout/src/inline/finalize.rs",
+      "sha256": "c01f9c618d9117c275040d541ce743c95d3d00b8780334539fd4e674df4d47fe",
+      "byte_len": 1005
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/inline/line.rs",
+      "vendor_path": "crates/typst-layout/src/inline/line.rs",
+      "sha256": "50dc90c03b9b8f97b299393a96b9602f4f362f517e1b7e3288e7e63957665b45",
+      "byte_len": 29573
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/inline/linebreak.rs",
+      "vendor_path": "crates/typst-layout/src/inline/linebreak.rs",
+      "sha256": "8ff2d0a71ce8ed96005571bef7689a9674b1863358929b918b808b72b3dc6107",
+      "byte_len": 36652
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/inline/mod.rs",
+      "vendor_path": "crates/typst-layout/src/inline/mod.rs",
+      "sha256": "29d34c3cf492136b22f8e5508e8c7d831944281ed235ce0fd0f9a2a35c3e0da4",
+      "byte_len": 10426
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/inline/prepare.rs",
+      "vendor_path": "crates/typst-layout/src/inline/prepare.rs",
+      "sha256": "cb4c6ae3da49c0c5e732f75326fabbf96846ae9bc8b412e68ed6a034be0796db",
+      "byte_len": 6032
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/inline/shaping.rs",
+      "vendor_path": "crates/typst-layout/src/inline/shaping.rs",
+      "sha256": "9e1800b0d0346232bd87fec01e32e1e583f123d56429d1ac696cea533fa1ea67",
+      "byte_len": 53801
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/introspect.rs",
+      "vendor_path": "crates/typst-layout/src/introspect.rs",
+      "sha256": "36d88e9db50ad05cec7f751322589b4128d3316e981023658bd665501d11b64a",
+      "byte_len": 6870
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/lib.rs",
+      "vendor_path": "crates/typst-layout/src/lib.rs",
+      "sha256": "9c872f5d66a249922d71f9a34c16f2cdb02f4771a6a7586f91917334279c4ec7",
+      "byte_len": 464
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/lists.rs",
+      "vendor_path": "crates/typst-layout/src/lists.rs",
+      "sha256": "e7721c218189b25cb0737fd2c3b9386170cc970f2e34846d664861caba0b07d4",
+      "byte_len": 22726
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/accent.rs",
+      "vendor_path": "crates/typst-layout/src/math/accent.rs",
+      "sha256": "3c8e7260ce50cae8d24d62acedec307bd5c87464e5031caa98bb96ffde15fc0b",
+      "byte_len": 3756
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/cancel.rs",
+      "vendor_path": "crates/typst-layout/src/math/cancel.rs",
+      "sha256": "360ac0cbc8f5dc7db41a8cfaf25c4249db65d5642c7ea3c2d64abf45f4691626",
+      "byte_len": 4254
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/fenced.rs",
+      "vendor_path": "crates/typst-layout/src/math/fenced.rs",
+      "sha256": "64388f2f6149562e9f3a216ff5802ecffe45dac27e70bf35a994113d5198801c",
+      "byte_len": 3214
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/fraction.rs",
+      "vendor_path": "crates/typst-layout/src/math/fraction.rs",
+      "sha256": "6f1ccbf9553e6df2763ac6628a2d112a8e68cab5b231ec3d100df9b3c6e1e9da",
+      "byte_len": 7731
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/fragment/glyph.rs",
+      "vendor_path": "crates/typst-layout/src/math/fragment/glyph.rs",
+      "sha256": "7b136386139710d739f00b2a253fa7836bd81cac9e086146f5a24636a9cf3962",
+      "byte_len": 24371
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/fragment/mod.rs",
+      "vendor_path": "crates/typst-layout/src/math/fragment/mod.rs",
+      "sha256": "97241dda50e3e55429423c1b89ae9fcb2d7e1d8f34cd2302754c7659a1284dd0",
+      "byte_len": 7815
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/line.rs",
+      "vendor_path": "crates/typst-layout/src/math/line.rs",
+      "sha256": "d71623f47d8d3d9d9b5435820e5ca05399563642a4a48627f76ce0c8ed997b34",
+      "byte_len": 3231
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/mod.rs",
+      "vendor_path": "crates/typst-layout/src/math/mod.rs",
+      "sha256": "3610da804ef99b37bc2eb2910a5be6073ee8e4a4af38031cb8f4ab682552f396",
+      "byte_len": 22340
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/radical.rs",
+      "vendor_path": "crates/typst-layout/src/math/radical.rs",
+      "sha256": "2f16b341bd6927b1bc0b1830c09cbbfd0f91f365879459b1e6ec713a350a1768",
+      "byte_len": 5775
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/run.rs",
+      "vendor_path": "crates/typst-layout/src/math/run.rs",
+      "sha256": "42d299392d9a78c6a76c7b5fc7a5a837658a0a3c338f05a0b476c767b3d85bbd",
+      "byte_len": 12338
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/scripts.rs",
+      "vendor_path": "crates/typst-layout/src/math/scripts.rs",
+      "sha256": "b9758870595471274214f9aee0d6039a801bed550a9efe84e94bd39ee482c2d2",
+      "byte_len": 16603
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/shaping.rs",
+      "vendor_path": "crates/typst-layout/src/math/shaping.rs",
+      "sha256": "c01ca978dc6407bc859ba558db524bf3cb9d701372d924f074ea4518fca44c9b",
+      "byte_len": 6953
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/table.rs",
+      "vendor_path": "crates/typst-layout/src/math/table.rs",
+      "sha256": "e41f63d02a8be3b0827839a43db6f038a30d35a8f771db8b8a1c55e4035cd400",
+      "byte_len": 7752
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/math/text.rs",
+      "vendor_path": "crates/typst-layout/src/math/text.rs",
+      "sha256": "6f532b9981b6a7ac308e79d09812e42d3166694e8d03c47296b7d8ff10138b38",
+      "byte_len": 4363
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/modifiers.rs",
+      "vendor_path": "crates/typst-layout/src/modifiers.rs",
+      "sha256": "5c70cc6ee769bb8c424165a3b08179e96ff26823fe1d3969c277f5043bbc7a55",
+      "byte_len": 4265
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/pad.rs",
+      "vendor_path": "crates/typst-layout/src/pad.rs",
+      "sha256": "983577c6151f1086353785adc342d40d58cc866a9dd5aaa6e2b23fab3e0a5bb9",
+      "byte_len": 2833
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/pages/collect.rs",
+      "vendor_path": "crates/typst-layout/src/pages/collect.rs",
+      "sha256": "49d12e2e633e7822d8ad33f924d7fc1e5f769d7f6041814caa6f1b32be90d4e2",
+      "byte_len": 7088
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/pages/finalize.rs",
+      "vendor_path": "crates/typst-layout/src/pages/finalize.rs",
+      "sha256": "ace071e7b774f9f092a887178911e71e75f5935911de9ba5e4bac2d67052b656",
+      "byte_len": 2705
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/pages/mod.rs",
+      "vendor_path": "crates/typst-layout/src/pages/mod.rs",
+      "sha256": "bc2259b0c4d25e8b24fc2e143d46099f508a88aa7159e4ec6987a08467ec222e",
+      "byte_len": 7168
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/pages/run.rs",
+      "vendor_path": "crates/typst-layout/src/pages/run.rs",
+      "sha256": "c6232d2877463722c1784889638ffeaa0232b5e3aa4d194114fae4fd04515992",
+      "byte_len": 8497
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/repeat.rs",
+      "vendor_path": "crates/typst-layout/src/repeat.rs",
+      "sha256": "5f8defdb6ea22cc4455d42df5aa7f166f295039a9583dcbbfc94a58fcdc21abe",
+      "byte_len": 2101
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/rules.rs",
+      "vendor_path": "crates/typst-layout/src/rules.rs",
+      "sha256": "d420a3cfc4268dea1d67ae8f86f12876bd7e4f98043b76d747a51e1e4960b206",
+      "byte_len": 29049
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/shapes.rs",
+      "vendor_path": "crates/typst-layout/src/shapes.rs",
+      "sha256": "79c7c634cbf11ce0f16e9e4fcdf429c603079747939465e8230caca58bade3a2",
+      "byte_len": 44577
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/stack.rs",
+      "vendor_path": "crates/typst-layout/src/stack.rs",
+      "sha256": "5f99788a7ea7927f4631b3e802599be8628e5d38fd6db903c298ca3f7db2d283",
+      "byte_len": 13704
+    },
+    {
+      "upstream_path": "crates/typst-layout/src/transforms.rs",
+      "vendor_path": "crates/typst-layout/src/transforms.rs",
+      "sha256": "eb31bc02f72c5005294f5c03d56dd0e978c7994e874c322ea00292dd9a0f9b4d",
+      "byte_len": 9459
+    },
+    {
+      "upstream_path": "crates/typst-library/Cargo.toml",
+      "vendor_path": "crates/typst-library/Cargo.toml",
+      "sha256": "36665c3a85228c4ae6de843a4a9b2cbb8a3aac99ff401fb334c8c1207d93c19c",
+      "byte_len": 2410
+    },
+    {
+      "upstream_path": "crates/typst-library/src/diag.rs",
+      "vendor_path": "crates/typst-library/src/diag.rs",
+      "sha256": "b5428df256d8543a7905092c78c9c3652df323203abae90044a487a011bb4caf",
+      "byte_len": 37754
+    },
+    {
+      "upstream_path": "crates/typst-library/src/engine.rs",
+      "vendor_path": "crates/typst-library/src/engine.rs",
+      "sha256": "8c8005bac26017ada330641b60207498bd6bcd8139afdb2a861a682eddf44717",
+      "byte_len": 14831
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/args.rs",
+      "vendor_path": "crates/typst-library/src/foundations/args.rs",
+      "sha256": "08f7177f49bdee9559764812032afeaa682a4cc6f8f763a812c817938e818f9b",
+      "byte_len": 17075
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/array.rs",
+      "vendor_path": "crates/typst-library/src/foundations/array.rs",
+      "sha256": "e93f9883106b99049f29c6351b201044fd4426165ba73c2c83e9d25e5e3e5daa",
+      "byte_len": 43768
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/auto.rs",
+      "vendor_path": "crates/typst-library/src/foundations/auto.rs",
+      "sha256": "f1d23ebf9f8a13a02942f0b02730c825715295a80fbc72637a24ed0684d844b6",
+      "byte_len": 7356
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/bool.rs",
+      "vendor_path": "crates/typst-library/src/foundations/bool.rs",
+      "sha256": "22a46f9bb7d939b8afdd84bf6aa5465c3003466dfe281414722b64405ec0131d",
+      "byte_len": 505
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/bytes.rs",
+      "vendor_path": "crates/typst-library/src/foundations/bytes.rs",
+      "sha256": "d7e0ca667b563de65ac4e2968a3ae6027690c137f6a96f02c4eb16fc41f4204b",
+      "byte_len": 15586
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/calc.rs",
+      "vendor_path": "crates/typst-library/src/foundations/calc.rs",
+      "sha256": "1fe9461fadc1c204a093570e970ab851881ed02bf42ae7a517b9099b5257f445",
+      "byte_len": 38597
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/cast.rs",
+      "vendor_path": "crates/typst-library/src/foundations/cast.rs",
+      "sha256": "9647caeb276245b02382454450ca1d01b54dd657a36f694333b443cd568f7972",
+      "byte_len": 14800
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/content/element.rs",
+      "vendor_path": "crates/typst-library/src/foundations/content/element.rs",
+      "sha256": "0b297c3a6f45f5132217087092f0779a494ad16241662d638bfd70e2b6460c27",
+      "byte_len": 7820
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/content/field.rs",
+      "vendor_path": "crates/typst-library/src/foundations/content/field.rs",
+      "sha256": "bbb505537b5635234f9a7787a448c63551765bf4ad5f3a677caefd9ce20c92b7",
+      "byte_len": 18655
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/content/mod.rs",
+      "vendor_path": "crates/typst-library/src/foundations/content/mod.rs",
+      "sha256": "60ab3fd383884514b3a717629634db33fb7199de701be6599bb09590d82c3fab",
+      "byte_len": 23468
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/content/packed.rs",
+      "vendor_path": "crates/typst-library/src/foundations/content/packed.rs",
+      "sha256": "d146cf82f03e6b0bd3f530cd2cb5dc61c2dd7dc46b515968657418e3cc44851a",
+      "byte_len": 4155
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/content/raw.rs",
+      "vendor_path": "crates/typst-library/src/foundations/content/raw.rs",
+      "sha256": "2a18f73aafed4174dd2169bc6da886565bfdac27f306f7ee85c4d48bde6f602f",
+      "byte_len": 15521
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/content/vtable.rs",
+      "vendor_path": "crates/typst-library/src/foundations/content/vtable.rs",
+      "sha256": "2cfa518d52a6efff94200cd4b06c70630343b7ef78a129aa4ace5f7b7787dc0e",
+      "byte_len": 14976
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/context.rs",
+      "vendor_path": "crates/typst-library/src/foundations/context.rs",
+      "sha256": "75dd6a68edaf9efdd82d5fab2b00a9ee6a5782b3708eb8572ad12a8739679343",
+      "byte_len": 2514
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/datetime.rs",
+      "vendor_path": "crates/typst-library/src/foundations/datetime.rs",
+      "sha256": "07f3b8ebbd4eb04b77b7e54a6082ab7b842ffc8c9b3257527cd7557343df7d5a",
+      "byte_len": 24034
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/decimal.rs",
+      "vendor_path": "crates/typst-library/src/foundations/decimal.rs",
+      "sha256": "aba1118c2c0683b6027a19068d7d74975d1e9196326d74b9804747f1f4bf9749",
+      "byte_len": 18651
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/dict.rs",
+      "vendor_path": "crates/typst-library/src/foundations/dict.rs",
+      "sha256": "44426d406ae9026379ce302e9e778e9d178b6ced67915598e54515657be1887d",
+      "byte_len": 14103
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/duration.rs",
+      "vendor_path": "crates/typst-library/src/foundations/duration.rs",
+      "sha256": "fae9785cd2c647d760c5584e46f0d122d410fb061d460d51e2eca339ded94882",
+      "byte_len": 5584
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/fields.rs",
+      "vendor_path": "crates/typst-library/src/foundations/fields.rs",
+      "sha256": "b428f182a7c1ac268a468be2ddc76a4983afab5d4030f637bf8229b3ad58d9b3",
+      "byte_len": 3059
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/float.rs",
+      "vendor_path": "crates/typst-library/src/foundations/float.rs",
+      "sha256": "f51c2edc03382c7d436fccf3110463bf8bc82cbb0f4ea823798e8b43e90c3588",
+      "byte_len": 7066
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/func.rs",
+      "vendor_path": "crates/typst-library/src/foundations/func.rs",
+      "sha256": "622ef70121a7b5c147d5ad89f66c4c4161453c82ef9363d9fb9d8437b5890427",
+      "byte_len": 26493
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/int.rs",
+      "vendor_path": "crates/typst-library/src/foundations/int.rs",
+      "sha256": "d15d0ede2262070804e4748063bcbc5a120f25a8259b1711391b6a83011afa46",
+      "byte_len": 19081
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/label.rs",
+      "vendor_path": "crates/typst-library/src/foundations/label.rs",
+      "sha256": "80162cfb860043ba49a941357bdc266b076d0cc6dffefd3b657ff081a3297d24",
+      "byte_len": 3312
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/mod.rs",
+      "vendor_path": "crates/typst-library/src/foundations/mod.rs",
+      "sha256": "80cf72215e9bdecf78affd0ae75d26600c4f8df41aa8cc4a6f24f59df7e0d62f",
+      "byte_len": 8540
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/module.rs",
+      "vendor_path": "crates/typst-library/src/foundations/module.rs",
+      "sha256": "d1a1dd640e2005e52bba487ef6d9065522752e296232c6b438c56c7d2d0a9657",
+      "byte_len": 5195
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/none.rs",
+      "vendor_path": "crates/typst-library/src/foundations/none.rs",
+      "sha256": "3fb522a683d571284599286f344abb15e21332b87dcc2d65da3c9a333a61bf04",
+      "byte_len": 2767
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/ops.rs",
+      "vendor_path": "crates/typst-library/src/foundations/ops.rs",
+      "sha256": "b4b90711ebb95891d7c02de23f7496e220a0d4463a54003cb9b3c173338235e5",
+      "byte_len": 21029
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/path.rs",
+      "vendor_path": "crates/typst-library/src/foundations/path.rs",
+      "sha256": "7b60ddeaff048d60c702743714676a6b69a748c7befe6259d68c45d5fcfea3fc",
+      "byte_len": 12215
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/plugin.rs",
+      "vendor_path": "crates/typst-library/src/foundations/plugin.rs",
+      "sha256": "3b09c20f0bac0ce7405fbd0fe890fe4b4fdbf2ed6fe612c164cef62384a5242f",
+      "byte_len": 22907
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/repr.rs",
+      "vendor_path": "crates/typst-library/src/foundations/repr.rs",
+      "sha256": "10c9ee606cfb87cffa36299626f4af73447a484227777ac8e7b040d2c133294a",
+      "byte_len": 7903
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/scope.rs",
+      "vendor_path": "crates/typst-library/src/foundations/scope.rs",
+      "sha256": "a6ab696f77a5ed15dadb2ba199027534fd0e72115f8d70ef3fb24ac6a7d09d11",
+      "byte_len": 14536
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/selector.rs",
+      "vendor_path": "crates/typst-library/src/foundations/selector.rs",
+      "sha256": "90e0944eb379ccb733df106c035729537a33e15218b654a7760f54e290071590",
+      "byte_len": 18198
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/str.rs",
+      "vendor_path": "crates/typst-library/src/foundations/str.rs",
+      "sha256": "6e1c054299c75ae25a2213e827f695bd0b93e755db7a8d503f473a503b9a1317",
+      "byte_len": 33028
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/styles.rs",
+      "vendor_path": "crates/typst-library/src/foundations/styles.rs",
+      "sha256": "979d737525c191c6de10c063f3b8f86d9522394e5a6cc3a129a9d36b67e62d51",
+      "byte_len": 35322
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/symbol.rs",
+      "vendor_path": "crates/typst-library/src/foundations/symbol.rs",
+      "sha256": "0ce6ce5a9c914d9e7ae3330b0d1b93e201d14ae753edf0902baaa9a11e1475b2",
+      "byte_len": 15621
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/sys.rs",
+      "vendor_path": "crates/typst-library/src/foundations/sys.rs",
+      "sha256": "f964a30507b0d532d3be20d1c8ffc9e1aeb8a57e9e6bf9c5df1fe2bc5650a23e",
+      "byte_len": 505
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/target.rs",
+      "vendor_path": "crates/typst-library/src/foundations/target.rs",
+      "sha256": "591d6f2f374b6c78d7754186012a63752792aa8ff9144e07a4a1fe99ad41aaf7",
+      "byte_len": 4039
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/ty.rs",
+      "vendor_path": "crates/typst-library/src/foundations/ty.rs",
+      "sha256": "1f761c884db78cac88911ce2f1ec9c2013e9d7f2ab6ae1e247ade28380f58556",
+      "byte_len": 6354
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/value.rs",
+      "vendor_path": "crates/typst-library/src/foundations/value.rs",
+      "sha256": "b8cb9ad65165028ea700f7e64852c92539ccd977704544633168eba23d090721",
+      "byte_len": 23920
+    },
+    {
+      "upstream_path": "crates/typst-library/src/foundations/version.rs",
+      "vendor_path": "crates/typst-library/src/foundations/version.rs",
+      "sha256": "73d92f3a74cd86a39910d3a5ff10e1f4a3f996265cf61acaac60644a128b5861",
+      "byte_len": 6055
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/convergence.rs",
+      "vendor_path": "crates/typst-library/src/introspection/convergence.rs",
+      "sha256": "338771fbe8a5a6dc1dde6bede50b9756c180c05c9351e0dc77784c690a722a3a",
+      "byte_len": 10498
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/counter.rs",
+      "vendor_path": "crates/typst-library/src/introspection/counter.rs",
+      "sha256": "d586d5856b5344c98f489fadb01a94087d8d2dd039ac08f4abb37657f0d57075",
+      "byte_len": 32948
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/here.rs",
+      "vendor_path": "crates/typst-library/src/introspection/here.rs",
+      "sha256": "2e878ec60ac21e97281634a9c7592497c2781fdaac4f504f8f28f08f01600f23",
+      "byte_len": 1584
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/introspector.rs",
+      "vendor_path": "crates/typst-library/src/introspection/introspector.rs",
+      "sha256": "9a2283097d3a1971fc493fb071e646e7aa21f7b69b2f9dc7d14c4bbe818e4c89",
+      "byte_len": 25473
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/locate.rs",
+      "vendor_path": "crates/typst-library/src/introspection/locate.rs",
+      "sha256": "a355b5c2ba2fd9adc7ca4a87868c4ab7317d19bab5cc6cb198e7f03937dd2a08",
+      "byte_len": 1285
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/location.rs",
+      "vendor_path": "crates/typst-library/src/introspection/location.rs",
+      "sha256": "677259f8fa7777f709e1c49af37b206b35fdf417710dde3d6d5dda69cf57e9e4",
+      "byte_len": 12460
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/locator.rs",
+      "vendor_path": "crates/typst-library/src/introspection/locator.rs",
+      "sha256": "965d607a50b967cd303af69d9d7252dffd9214fba97cb44ad70ebae3a1b74141",
+      "byte_len": 17344
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/metadata.rs",
+      "vendor_path": "crates/typst-library/src/introspection/metadata.rs",
+      "sha256": "9c080b893a96c8456275dfd8a880762508de25a980b85f2c5af40a5c0ae4a16a",
+      "byte_len": 956
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/mod.rs",
+      "vendor_path": "crates/typst-library/src/introspection/mod.rs",
+      "sha256": "45771b7c7973dc33c48ffecb9cc4f8e3b5efdecac1ab13ec2ffc2c18405a5f8a",
+      "byte_len": 1040
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/position.rs",
+      "vendor_path": "crates/typst-library/src/introspection/position.rs",
+      "sha256": "54d4bb0d15849036b2725a888e7abfd43914aaba053dc437cf47ffc7a22e8f6c",
+      "byte_len": 5234
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/query.rs",
+      "vendor_path": "crates/typst-library/src/introspection/query.rs",
+      "sha256": "28302d7eefa69f6789d19e498ca269873d02fa5252e7413737ddb0ef3ee90391",
+      "byte_len": 10098
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/state.rs",
+      "vendor_path": "crates/typst-library/src/introspection/state.rs",
+      "sha256": "5a826b2ee961a70cf821634afbd3638429b29254345772115c7ef47829a9c33c",
+      "byte_len": 18268
+    },
+    {
+      "upstream_path": "crates/typst-library/src/introspection/tag.rs",
+      "vendor_path": "crates/typst-library/src/introspection/tag.rs",
+      "sha256": "43e8c10da3035d92c441c34ff95667d0e236e63ac1d7b10cfb8c39c2b168adfd",
+      "byte_len": 2742
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/abs.rs",
+      "vendor_path": "crates/typst-library/src/layout/abs.rs",
+      "sha256": "13829790d0386138ae6215e0c52448954095bad726817ea2c9962aff88268fd7",
+      "byte_len": 6575
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/align.rs",
+      "vendor_path": "crates/typst-library/src/layout/align.rs",
+      "sha256": "acd6b39ccd9878d6797835d1de152676727a532b6abd1b31f110dc7bb0c3e9ce",
+      "byte_len": 20125
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/angle.rs",
+      "vendor_path": "crates/typst-library/src/layout/angle.rs",
+      "sha256": "082bb4ae6ad09ccc96c3e06af5aeb6385a843c538aa9c820ec2367f5a6251d96",
+      "byte_len": 6650
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/axes.rs",
+      "vendor_path": "crates/typst-library/src/layout/axes.rs",
+      "sha256": "8869a2513c60426c84471073b164f01c59887f4b6e645304356594a0dc82a8f6",
+      "byte_len": 7857
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/columns.rs",
+      "vendor_path": "crates/typst-library/src/layout/columns.rs",
+      "sha256": "1cf61ddb4f8440bb088d90ccf923d0b9024fa49b0ef475c170716f73040410b4",
+      "byte_len": 3167
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/container.rs",
+      "vendor_path": "crates/typst-library/src/layout/container.rs",
+      "sha256": "2d54e80ab0ba82c7c3ab2352a0d03ebfeb38df4cd4136a9de7f692342fb76a4d",
+      "byte_len": 22102
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/corners.rs",
+      "vendor_path": "crates/typst-library/src/layout/corners.rs",
+      "sha256": "86d5c33a0c0de589319022eedf0a7fb908226c33af7fffe0e536bf56207e51fb",
+      "byte_len": 9542
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/dir.rs",
+      "vendor_path": "crates/typst-library/src/layout/dir.rs",
+      "sha256": "a1c30e8fdb31d6e1f19ab779b732bdae30e14dc5d1b9dda12dd093f47f72d905",
+      "byte_len": 4392
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/em.rs",
+      "vendor_path": "crates/typst-library/src/layout/em.rs",
+      "sha256": "4e875e95e96cb4ff6cb999da768ddcfdbf73e7b635636a9b8ff341c96f1b5327",
+      "byte_len": 3618
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/fr.rs",
+      "vendor_path": "crates/typst-library/src/layout/fr.rs",
+      "sha256": "857f64c240cc70ffb3b95973789a5751a377dc4c8dd09d87cf3a11075df5ebe2",
+      "byte_len": 3034
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/fragment.rs",
+      "vendor_path": "crates/typst-library/src/layout/fragment.rs",
+      "sha256": "d6c292850b15b7f19cd20c0932e1927e8d5f4834e5ae5be9d6bdb3c0b562ee44",
+      "byte_len": 2170
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/frame.rs",
+      "vendor_path": "crates/typst-library/src/layout/frame.rs",
+      "sha256": "1c95ed7c49dc2144b0ece409823d2af8dc4bd769e6844bbe2ff49e39abf6980f",
+      "byte_len": 18052
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/grid/mod.rs",
+      "vendor_path": "crates/typst-library/src/layout/grid/mod.rs",
+      "sha256": "1191d3e9ba9692f741502f754f77b220726a36b7f77b93ec3dc1ad28c0f39e9b",
+      "byte_len": 36060
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/grid/resolve.rs",
+      "vendor_path": "crates/typst-library/src/layout/grid/resolve.rs",
+      "sha256": "de4e3e3bb128cc4b3273b1560798c4945daad153886121fb6fdb26ec2fa32883",
+      "byte_len": 98841
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/hide.rs",
+      "vendor_path": "crates/typst-library/src/layout/hide.rs",
+      "sha256": "0488389c0b9577c1368c26debc1dd3f09d318aa9bf2c2c94beaafc72eb77faad",
+      "byte_len": 1164
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/layout.rs",
+      "vendor_path": "crates/typst-library/src/layout/layout.rs",
+      "sha256": "02a28acbecb8dff9815b264468320056c4a4d4a66cf11f0ca654f7c421b3225c",
+      "byte_len": 3037
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/length.rs",
+      "vendor_path": "crates/typst-library/src/layout/length.rs",
+      "sha256": "4a2f391782b83991ab274085ab224fc98396e28e63167663f318507908d19907",
+      "byte_len": 7621
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/measure.rs",
+      "vendor_path": "crates/typst-library/src/layout/measure.rs",
+      "sha256": "c9701be0e76f0bed26ce15f1c0d57cb811ef7419db5e8c065624888ddf641fe3",
+      "byte_len": 3439
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/mod.rs",
+      "vendor_path": "crates/typst-library/src/layout/mod.rs",
+      "sha256": "a8ae6cac42324d78ef10e31aa3519a86287408cf44adc83ca7c04fa807e5e70e",
+      "byte_len": 2421
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/pad.rs",
+      "vendor_path": "crates/typst-library/src/layout/pad.rs",
+      "sha256": "f0c81766ddb66a1363f9936d8c43d09e8225662b1930d4fd3f7deb61ad2a47ba",
+      "byte_len": 1450
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/page.rs",
+      "vendor_path": "crates/typst-library/src/layout/page.rs",
+      "sha256": "803856a477691a0833ae3e2f2eeed63afea918c7c4ba7f63c02c2d2bcd4a4d5d",
+      "byte_len": 35047
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/place.rs",
+      "vendor_path": "crates/typst-library/src/layout/place.rs",
+      "sha256": "5bfbfc316709d8214a782d9fb343bde17bc0c077383ddd1089fb5d9f958a714a",
+      "byte_len": 7215
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/point.rs",
+      "vendor_path": "crates/typst-library/src/layout/point.rs",
+      "sha256": "7904608ca23b2951d02f0f055eaa0cd983fcf693deff0274e124a63b5009e471",
+      "byte_len": 4536
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/ratio.rs",
+      "vendor_path": "crates/typst-library/src/layout/ratio.rs",
+      "sha256": "cdf036b6ca31b41eef3013c947b3f68bf306ccb2f149ae91e94aa557ca968fb6",
+      "byte_len": 4546
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/rect.rs",
+      "vendor_path": "crates/typst-library/src/layout/rect.rs",
+      "sha256": "4ca2f380a565db28fb027a26f9d7acf553fff18a16c63e82a9a38fd1427d6466",
+      "byte_len": 767
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/regions.rs",
+      "vendor_path": "crates/typst-library/src/layout/regions.rs",
+      "sha256": "3a2df9a78e37b94c84676e5cddfecdbef68fc9711c7cb41ebc4bd7cad1209a2f",
+      "byte_len": 5037
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/rel.rs",
+      "vendor_path": "crates/typst-library/src/layout/rel.rs",
+      "sha256": "b6115d93f00e58e990533f61b5276a5223cbab5fd27ee055226bb7bfdf4297ac",
+      "byte_len": 9129
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/repeat.rs",
+      "vendor_path": "crates/typst-library/src/layout/repeat.rs",
+      "sha256": "30bbdc41068f2cdb750067b3822903b77adb1074789170ca5c0c56090f6058dc",
+      "byte_len": 1320
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/sides.rs",
+      "vendor_path": "crates/typst-library/src/layout/sides.rs",
+      "sha256": "977762a4d33b38f3d319e676f5c82d0c00fa7a83dd2a2d1caf46b0af86d30890",
+      "byte_len": 10308
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/size.rs",
+      "vendor_path": "crates/typst-library/src/layout/size.rs",
+      "sha256": "617a6eefd0bec4ffcc3c8d3c463c575c532e43cc3f82cff7276a20286517c022",
+      "byte_len": 1778
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/spacing.rs",
+      "vendor_path": "crates/typst-library/src/layout/spacing.rs",
+      "sha256": "93683334909a21b5df23de1eaa1b27566ad3b27b542eabcb675b48428a14ea65",
+      "byte_len": 5628
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/stack.rs",
+      "vendor_path": "crates/typst-library/src/layout/stack.rs",
+      "sha256": "c768ec2dccb049ad9eed75b9b6dd3e7efdef3b6430892924615369cc5b7e6831",
+      "byte_len": 2349
+    },
+    {
+      "upstream_path": "crates/typst-library/src/layout/transform.rs",
+      "vendor_path": "crates/typst-library/src/layout/transform.rs",
+      "sha256": "d52ac0a7f7bcf32d109705a511910d2d7274f47a7d0922355f70e9b4aca31971",
+      "byte_len": 11587
+    },
+    {
+      "upstream_path": "crates/typst-library/src/lib.rs",
+      "vendor_path": "crates/typst-library/src/lib.rs",
+      "sha256": "97177c649f2c30fd38757926247218ac27e48eb52e7c454aa5bd6984893e88bb",
+      "byte_len": 12641
+    },
+    {
+      "upstream_path": "crates/typst-library/src/loading/cbor.rs",
+      "vendor_path": "crates/typst-library/src/loading/cbor.rs",
+      "sha256": "7e8da70e690efda2400abab979f954e26e31f879076fe186648e6f549280898e",
+      "byte_len": 3260
+    },
+    {
+      "upstream_path": "crates/typst-library/src/loading/csv.rs",
+      "vendor_path": "crates/typst-library/src/loading/csv.rs",
+      "sha256": "519d2ff1e6c61519c2348e1376f65d89f62be933b30d28d5c2c8d7c1658ca54d",
+      "byte_len": 4787
+    },
+    {
+      "upstream_path": "crates/typst-library/src/loading/json.rs",
+      "vendor_path": "crates/typst-library/src/loading/json.rs",
+      "sha256": "0dac54e0fa649595405c61bd21f57c71fef1c2332f62e755b928fc20b9c8c081",
+      "byte_len": 4208
+    },
+    {
+      "upstream_path": "crates/typst-library/src/loading/mod.rs",
+      "vendor_path": "crates/typst-library/src/loading/mod.rs",
+      "sha256": "e5501e41ceb4c47771b4b111563367e69c73691d260da4ba2ec7b26eeb382504",
+      "byte_len": 4828
+    },
+    {
+      "upstream_path": "crates/typst-library/src/loading/read.rs",
+      "vendor_path": "crates/typst-library/src/loading/read.rs",
+      "sha256": "58069640bc7bb94adaa16d4bdfc95c1b64127471e90b81444c03cbc3e72f8514",
+      "byte_len": 1340
+    },
+    {
+      "upstream_path": "crates/typst-library/src/loading/toml.rs",
+      "vendor_path": "crates/typst-library/src/loading/toml.rs",
+      "sha256": "5b58c9477d6bab9883cc7aa9aade5426d12d9c055fe7e2ee355419d8b575a1c6",
+      "byte_len": 3698
+    },
+    {
+      "upstream_path": "crates/typst-library/src/loading/xml.rs",
+      "vendor_path": "crates/typst-library/src/loading/xml.rs",
+      "sha256": "c9952f60e124f46290f0af6e961de31dda275b0a1e935ba53caeb84dd3f0029d",
+      "byte_len": 3061
+    },
+    {
+      "upstream_path": "crates/typst-library/src/loading/yaml.rs",
+      "vendor_path": "crates/typst-library/src/loading/yaml.rs",
+      "sha256": "755c2d838843866ae3030fc69457e1a9d3d013990caa2a18f16c174863a4fbda",
+      "byte_len": 3814
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/accent.rs",
+      "vendor_path": "crates/typst-library/src/math/accent.rs",
+      "sha256": "f05d48f536463cfcf03361cbee1507cec71dcaa8458ab2c8006aae6626ab01f3",
+      "byte_len": 9958
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/attach.rs",
+      "vendor_path": "crates/typst-library/src/math/attach.rs",
+      "sha256": "8dcd309eced36b2dc1ecccc96f4ffca309db6b3c19c4208dd99587bc33ee11ac",
+      "byte_len": 5860
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/cancel.rs",
+      "vendor_path": "crates/typst-library/src/math/cancel.rs",
+      "sha256": "df727d1a27f34fab1ed2f87bac0debab2f126134022846aed75e90f38abc2332",
+      "byte_len": 3435
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/equation.rs",
+      "vendor_path": "crates/typst-library/src/math/equation.rs",
+      "sha256": "ace6ea4483bf604b86d98136dbaf33defb95c3a4abf9784c81d8f3d82ee4a37c",
+      "byte_len": 7861
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/frac.rs",
+      "vendor_path": "crates/typst-library/src/math/frac.rs",
+      "sha256": "bd87ac6fe916e313ec9c3f334c8d168d055f15c6ce3301a313da455257bd6402",
+      "byte_len": 4196
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/ir/item.rs",
+      "vendor_path": "crates/typst-library/src/math/ir/item.rs",
+      "sha256": "d8aa5aed1cff3837e10902b2f05215806dffa7d68dfcaa8fd121f67b201ac655",
+      "byte_len": 39981
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/ir/mod.rs",
+      "vendor_path": "crates/typst-library/src/math/ir/mod.rs",
+      "sha256": "8082d24bc0baed927d5de8e346829d2ce13f129542564004bfbea3faf61b2f6f",
+      "byte_len": 889
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/ir/multiline.rs",
+      "vendor_path": "crates/typst-library/src/math/ir/multiline.rs",
+      "sha256": "557745df0da0dd8af661456b76d7c63032a92976db9505a5ca7648ea7c052a15",
+      "byte_len": 4452
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/ir/process.rs",
+      "vendor_path": "crates/typst-library/src/math/ir/process.rs",
+      "sha256": "f7c57f81465a2153b48b8991593e2b8d729a7b166e9e776003818090d8007954",
+      "byte_len": 11085
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/ir/resolve.rs",
+      "vendor_path": "crates/typst-library/src/math/ir/resolve.rs",
+      "sha256": "962561d00663b9d5a3a51e2679335f17481f3570c495efd162551b51a2b58b3a",
+      "byte_len": 47591
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/lr.rs",
+      "vendor_path": "crates/typst-library/src/math/lr.rs",
+      "sha256": "7aa2aca195eead8776ed5d6d0539c8c2ff62379d61f4dbc0866d272c76d52e1e",
+      "byte_len": 7889
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/matrix.rs",
+      "vendor_path": "crates/typst-library/src/math/matrix.rs",
+      "sha256": "07fa1e5d2d011c57bd6577b91c05072e2b1acc3b62de496bfc74041edace010a",
+      "byte_len": 13532
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/mod.rs",
+      "vendor_path": "crates/typst-library/src/math/mod.rs",
+      "sha256": "d72313453fcf0be32c0921210aeff672de206951e99e7fe7fb5c4f2f4da77c65",
+      "byte_len": 5641
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/op.rs",
+      "vendor_path": "crates/typst-library/src/math/op.rs",
+      "sha256": "c274a0b60611d67c23fee392913bd6fafd84479ab62ae007d8d740c6d9b7140d",
+      "byte_len": 2668
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/root.rs",
+      "vendor_path": "crates/typst-library/src/math/root.rs",
+      "sha256": "bd2f0d52aa86cf791b1d9fa2e090439686405e90fbf73e0cb15f801cd56b7099",
+      "byte_len": 688
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/style.rs",
+      "vendor_path": "crates/typst-library/src/math/style.rs",
+      "sha256": "e25b424c357990700ac2c083f0e740a82a8bb2298221ad8c675ae798d04274be",
+      "byte_len": 9911
+    },
+    {
+      "upstream_path": "crates/typst-library/src/math/underover.rs",
+      "vendor_path": "crates/typst-library/src/math/underover.rs",
+      "sha256": "0739ea2e5468c365f7a79e8b47d117fbc89dccedd543c34abcbedf55b361e44c",
+      "byte_len": 3694
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/asset.rs",
+      "vendor_path": "crates/typst-library/src/model/asset.rs",
+      "sha256": "2b2f51c8965b340c8e66bd3c4a26e25663bfe78ab39ddc81c99e41fa99586225",
+      "byte_len": 2504
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/bibliography.rs",
+      "vendor_path": "crates/typst-library/src/model/bibliography.rs",
+      "sha256": "cc37ae4bad3e8ad09e570e10c68c1fde0b98a9d2ce556cef9b434b6906cc73f5",
+      "byte_len": 61616
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/cite.rs",
+      "vendor_path": "crates/typst-library/src/model/cite.rs",
+      "sha256": "fd371946f050de1b6a9adc71b5e352ebc3d619724a8b2be3f5a30a07e0954106",
+      "byte_len": 6414
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/divider.rs",
+      "vendor_path": "crates/typst-library/src/model/divider.rs",
+      "sha256": "c9b8c8a93a208f745f3b3f082c7ea30b4383b382bada31a58c386b999cb530d4",
+      "byte_len": 1647
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/document.rs",
+      "vendor_path": "crates/typst-library/src/model/document.rs",
+      "sha256": "d61af4f236efd634873c05ff500c49a2ba53ff29e2ac7f95b990f3d30ca14b8e",
+      "byte_len": 13214
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/emph.rs",
+      "vendor_path": "crates/typst-library/src/model/emph.rs",
+      "sha256": "87787f2dd51628c41e0daea80fc46f5ff21b2e054cc86bd9ee01d8097d4b11c8",
+      "byte_len": 950
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/enum.rs",
+      "vendor_path": "crates/typst-library/src/model/enum.rs",
+      "sha256": "cb1950015885eae50cb9f59c45840e829d06495313fe5b3a02eb8ba8af462e8b",
+      "byte_len": 8480
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/figure.rs",
+      "vendor_path": "crates/typst-library/src/model/figure.rs",
+      "sha256": "ddcc0b43a9898a18f1c597d38273a0bfa9c9709e75c0a9d7c2c8ab0cac12dbf4",
+      "byte_len": 21882
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/footnote.rs",
+      "vendor_path": "crates/typst-library/src/model/footnote.rs",
+      "sha256": "89a0cd6bd87f832d6aef1992eea300743fdba9baa56bf48fc4e7673ff22c067d",
+      "byte_len": 11721
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/heading.rs",
+      "vendor_path": "crates/typst-library/src/model/heading.rs",
+      "sha256": "134f89dd946e3886464df45c6138e2f78fca9f2f1dd865d25f98342f8a452896",
+      "byte_len": 12204
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/link.rs",
+      "vendor_path": "crates/typst-library/src/model/link.rs",
+      "sha256": "01e0b59be62dd32dc58d1314e8ed39e1923f1848d58bf54be429200f48abc91c",
+      "byte_len": 28155
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/list.rs",
+      "vendor_path": "crates/typst-library/src/model/list.rs",
+      "sha256": "65eb70f83cab6f955630632b082a2cd8cfa03b9dfb6db3992d8d3778310dd07c",
+      "byte_len": 7800
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/mod.rs",
+      "vendor_path": "crates/typst-library/src/model/mod.rs",
+      "sha256": "3e7ec6b0dd9670e8af0938ea31c3e8d53778400bedff25179783779b66822a4b",
+      "byte_len": 2057
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/numbering.rs",
+      "vendor_path": "crates/typst-library/src/model/numbering.rs",
+      "sha256": "f938b9a9095eb421374f74028cff818a8d193d9664791aa6ae043f56551362b0",
+      "byte_len": 10830
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/outline.rs",
+      "vendor_path": "crates/typst-library/src/model/outline.rs",
+      "sha256": "1699532118dc41b40758f49f795ad6825472b2837d280052d19ddf91525b0b7b",
+      "byte_len": 30250
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/par.rs",
+      "vendor_path": "crates/typst-library/src/model/par.rs",
+      "sha256": "d76bc4963187d2a1888e0bd3d2e42a5bcbce4a4a90018d89f001117103cc553e",
+      "byte_len": 32979
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/quote.rs",
+      "vendor_path": "crates/typst-library/src/model/quote.rs",
+      "sha256": "78ea59a9fae66bbca46611d155296035b938800aadae56ed3b8dff40ee6cd6bd",
+      "byte_len": 6309
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/reference.rs",
+      "vendor_path": "crates/typst-library/src/model/reference.rs",
+      "sha256": "09ec897f8c98b196709ed66f495b11c10ea9662564a745aa6e8e5cc07f29d74b",
+      "byte_len": 13620
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/strong.rs",
+      "vendor_path": "crates/typst-library/src/model/strong.rs",
+      "sha256": "499acfafdbc8986a86bf1d6c61237570517e590024bce035241e9b5bc69cb74f",
+      "byte_len": 1024
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/table.rs",
+      "vendor_path": "crates/typst-library/src/model/table.rs",
+      "sha256": "73bbf4bb52109c941ba33b9addf46707ea06d2b3caddbd665314fbdfe0910533",
+      "byte_len": 26280
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/terms.rs",
+      "vendor_path": "crates/typst-library/src/model/terms.rs",
+      "sha256": "88fb5b68334e4d105ed1c816dcc2a13303748411d9f1faa9012daf7b382f6102",
+      "byte_len": 5353
+    },
+    {
+      "upstream_path": "crates/typst-library/src/model/title.rs",
+      "vendor_path": "crates/typst-library/src/model/title.rs",
+      "sha256": "d52f85524cf4fdfb583ff77f4551568470e2a0615fbd6db31b216e9bf9be19ed",
+      "byte_len": 2493
+    },
+    {
+      "upstream_path": "crates/typst-library/src/pdf/accessibility.rs",
+      "vendor_path": "crates/typst-library/src/pdf/accessibility.rs",
+      "sha256": "4575c5405576e25846e858784fce3520dd769144904e03f1ec34eb9eb5db5934",
+      "byte_len": 13543
+    },
+    {
+      "upstream_path": "crates/typst-library/src/pdf/attach.rs",
+      "vendor_path": "crates/typst-library/src/pdf/attach.rs",
+      "sha256": "11daee9c2a55ed0d5366a68992346bfae6c69528b85766a13caff192979e4ccf",
+      "byte_len": 2923
+    },
+    {
+      "upstream_path": "crates/typst-library/src/pdf/mod.rs",
+      "vendor_path": "crates/typst-library/src/pdf/mod.rs",
+      "sha256": "1feda1bca9cc3a2148e11fd909fd11c5f92e519df7f7f12a2f602dcba4b7823d",
+      "byte_len": 655
+    },
+    {
+      "upstream_path": "crates/typst-library/src/routines.rs",
+      "vendor_path": "crates/typst-library/src/routines.rs",
+      "sha256": "87cbd2262972be033bf9c159bb86e9765733d93f95c0caa726c4b4f95269fb57",
+      "byte_len": 6925
+    },
+    {
+      "upstream_path": "crates/typst-library/src/symbols.rs",
+      "vendor_path": "crates/typst-library/src/symbols.rs",
+      "sha256": "b21cc2ba08b05e4aea0a0c90332757e430a02207678eb7fca8d1ff6baf4df92c",
+      "byte_len": 1479
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/case.rs",
+      "vendor_path": "crates/typst-library/src/text/case.rs",
+      "sha256": "3567465bc54406583fa14c157ad141b2c45dc52bd4150bb797ebb84fd11b8255",
+      "byte_len": 1714
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/deco.rs",
+      "vendor_path": "crates/typst-library/src/text/deco.rs",
+      "sha256": "5c8429d0b2604dda10b599da87672b09f7c2df2a4a66056dcb521bfe1d33b52f",
+      "byte_len": 8610
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/font/book.rs",
+      "vendor_path": "crates/typst-library/src/text/font/book.rs",
+      "sha256": "ec1344aea96551441a70a8aea9f6c3e72f29dd384dd119cbda0478c820c31834",
+      "byte_len": 11731
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/font/color.rs",
+      "vendor_path": "crates/typst-library/src/text/font/color.rs",
+      "sha256": "1774ccb7573630e79aa0a11fbc24e612eaeb4b92f7705fc7db9bd38f5011dae4",
+      "byte_len": 24210
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/font/exceptions.rs",
+      "vendor_path": "crates/typst-library/src/text/font/exceptions.rs",
+      "sha256": "524cc287a3a413761c3a61e285fc3ff911c78a81b5c2fb7e72dcb183eb2b8935",
+      "byte_len": 14436
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/font/info.rs",
+      "vendor_path": "crates/typst-library/src/text/font/info.rs",
+      "sha256": "69daa6a90dd38cb7762b0b18a546c491a56053bcdea0d31f39d43f27608fea81",
+      "byte_len": 14287
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/font/metrics.rs",
+      "vendor_path": "crates/typst-library/src/text/font/metrics.rs",
+      "sha256": "370d96a00cde958ee75e0056013d413015ac3e4c32c70ec787493eb970f02afb",
+      "byte_len": 18663
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/font/mod.rs",
+      "vendor_path": "crates/typst-library/src/text/font/mod.rs",
+      "sha256": "20f929d4c0137c7d05e63f53ec23561306830c48dc8d19a708caeda4ff5a39e2",
+      "byte_len": 9892
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/font/tag.rs",
+      "vendor_path": "crates/typst-library/src/text/font/tag.rs",
+      "sha256": "d578ccc204a97fad18a7561d29fd61b3ce156e1d3a2ec605deb3dc015779f89f",
+      "byte_len": 3502
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/font/variant.rs",
+      "vendor_path": "crates/typst-library/src/text/font/variant.rs",
+      "sha256": "0520f68a050b304aa5caf1e39e4cf27625d7c0a51debef923bb898a92a27cb5e",
+      "byte_len": 10926
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/font/variations.rs",
+      "vendor_path": "crates/typst-library/src/text/font/variations.rs",
+      "sha256": "85fe63b6e24af36ee7ed8cd4d733d981e7908f6a2945eb8820b957e9e2653883",
+      "byte_len": 8285
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/item.rs",
+      "vendor_path": "crates/typst-library/src/text/item.rs",
+      "sha256": "6135d87b7483c0039da46ff8479e89f774743bbabb9aac12e840aae9c1586beb",
+      "byte_len": 5609
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/lang.rs",
+      "vendor_path": "crates/typst-library/src/text/lang.rs",
+      "sha256": "118ce5bfc249664571bc3a7702fb89417cfe71cac2fb9cc89b7d830ecca98347",
+      "byte_len": 28246
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/linebreak.rs",
+      "vendor_path": "crates/typst-library/src/text/linebreak.rs",
+      "sha256": "0b70e201127b975d6c6aa094e5245fda66b755906306485dc33172e5e93410e4",
+      "byte_len": 1318
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/lorem.rs",
+      "vendor_path": "crates/typst-library/src/text/lorem.rs",
+      "sha256": "0d155d48ccb24149a5060aeee4e2ce97c9733c9d9d3d3b68d1a5b31d8cddb79c",
+      "byte_len": 2930
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/mod.rs",
+      "vendor_path": "crates/typst-library/src/text/mod.rs",
+      "sha256": "130c6266d2d013f9cdcdf31f0a414de8d7f0c721d0ece8729dd122524c0d41f4",
+      "byte_len": 52957
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/raw.rs",
+      "vendor_path": "crates/typst-library/src/text/raw.rs",
+      "sha256": "7c78d5bf01105ee16311f747cff04761ca735987d9b577a21047444c1ca73866",
+      "byte_len": 38231
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/shift.rs",
+      "vendor_path": "crates/typst-library/src/text/shift.rs",
+      "sha256": "2d39ef41b55c97b517f7529c8b92d8a34e0e77aab8482a892275dddf37ee29ab",
+      "byte_len": 7756
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/smallcaps.rs",
+      "vendor_path": "crates/typst-library/src/text/smallcaps.rs",
+      "sha256": "164843c354fd80db8133f1c621b00a01ebd9cf0e5f21e5558bc3443cea3f05d2",
+      "byte_len": 2005
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/smartquote.rs",
+      "vendor_path": "crates/typst-library/src/text/smartquote.rs",
+      "sha256": "a4022057e39c81fbe879a7032eb15f8d63d75f52e26443320713b39e5122ff96",
+      "byte_len": 13842
+    },
+    {
+      "upstream_path": "crates/typst-library/src/text/space.rs",
+      "vendor_path": "crates/typst-library/src/text/space.rs",
+      "sha256": "bb2db6574711127290fc3a5a1fdd7b8e361f83004e94e2ea0094e49e27e1fb9a",
+      "byte_len": 657
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/color.rs",
+      "vendor_path": "crates/typst-library/src/visualize/color.rs",
+      "sha256": "525afd66baf0c4fc6d781d3cb58e97785c1b60436172ea20e70846ec9c84a5e2",
+      "byte_len": 122433
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/curve.rs",
+      "vendor_path": "crates/typst-library/src/visualize/curve.rs",
+      "sha256": "d48842c71397031c33ee47409712d3eec563fba2e15c15a6200b61b61fee2317",
+      "byte_len": 17327
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/gradient.rs",
+      "vendor_path": "crates/typst-library/src/visualize/gradient.rs",
+      "sha256": "6cb9a8f9416079ede6b3466916880a1305224add91d983c199a544951b130a0c",
+      "byte_len": 48248
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/image/mod.rs",
+      "vendor_path": "crates/typst-library/src/visualize/image/mod.rs",
+      "sha256": "83cd70371cc36b969d217f86cb862637e630d5cf3e5443759fe9c5be409dfaea",
+      "byte_len": 21426
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/image/pdf.rs",
+      "vendor_path": "crates/typst-library/src/visualize/image/pdf.rs",
+      "sha256": "dbc141570772b313bfed8059582c91e4f0764a6811d921ed65d9f99084bbc76a",
+      "byte_len": 2469
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/image/raster.rs",
+      "vendor_path": "crates/typst-library/src/visualize/image/raster.rs",
+      "sha256": "c99e45f4924b813b5a4915bdbf01dd41615faa37f632f74798932cf1f9131e47",
+      "byte_len": 14836
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/image/svg.rs",
+      "vendor_path": "crates/typst-library/src/visualize/image/svg.rs",
+      "sha256": "5be306c89c1ffebc33e56615969ba58b998b1c267e7f7150842747916dbfd9f0",
+      "byte_len": 15850
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/line.rs",
+      "vendor_path": "crates/typst-library/src/visualize/line.rs",
+      "sha256": "2eb9b9a6f9d4a342eb21031ca8f18a8d81f5ad7aa3e7176e8330b1d5c851734d",
+      "byte_len": 1338
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/mod.rs",
+      "vendor_path": "crates/typst-library/src/visualize/mod.rs",
+      "sha256": "7dc20fd96c13d5acd90fe81a9dcb63f83bd7999f09ba278c5f433e5a1260404f",
+      "byte_len": 1057
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/paint.rs",
+      "vendor_path": "crates/typst-library/src/visualize/paint.rs",
+      "sha256": "4c67ff4e0af1685aa13fa43b4f15153c455c1e20f33ac9bf541f248c1444d1e4",
+      "byte_len": 2764
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/polygon.rs",
+      "vendor_path": "crates/typst-library/src/visualize/polygon.rs",
+      "sha256": "10be444bde8927eba0b9648851a6b4b3ae43783faa7562fafbb0b9e028d0d2ae",
+      "byte_len": 3808
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/shape.rs",
+      "vendor_path": "crates/typst-library/src/visualize/shape.rs",
+      "sha256": "36fbee85d5d50e50fdebd29b2e8d93ce32be5e6b70af732435e5932e53e91671",
+      "byte_len": 14023
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/stroke.rs",
+      "vendor_path": "crates/typst-library/src/visualize/stroke.rs",
+      "sha256": "fa6e55474f0aa26e5d72b87f348bcf06d8ab3c55f5a69ca76ea36550d4ae06e2",
+      "byte_len": 21716
+    },
+    {
+      "upstream_path": "crates/typst-library/src/visualize/tiling.rs",
+      "vendor_path": "crates/typst-library/src/visualize/tiling.rs",
+      "sha256": "5777c22da7bc2e2ce77dcf9e2965b6ebceb98bc8de4143ffa9c25218a4b466da",
+      "byte_len": 12064
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/af.txt",
+      "vendor_path": "crates/typst-library/translations/af.txt",
+      "sha256": "9f7a1015f40e20e0351d93c3be9897c6afd3604740e97c8b34c608a6c31a2d7d",
+      "byte_len": 166
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/alt.txt",
+      "vendor_path": "crates/typst-library/translations/alt.txt",
+      "sha256": "1d9ec4ac55c0117b8ba76cb853e5636c52ebd99f845f899b885fac01bdda0a30",
+      "byte_len": 157
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/am.txt",
+      "vendor_path": "crates/typst-library/translations/am.txt",
+      "sha256": "f7c4e65f7e55f60799d407d0cf145c06635cb0eaf7b5ad7f21a15ac0467a7a8f",
+      "byte_len": 185
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ar.txt",
+      "vendor_path": "crates/typst-library/translations/ar.txt",
+      "sha256": "7a17803500c68344d717c011a4aad23d6faedd3534817ae0f8f46c63c3951e50",
+      "byte_len": 207
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/as.txt",
+      "vendor_path": "crates/typst-library/translations/as.txt",
+      "sha256": "40fc2ba7da569dae968619ef6fef280d7f4fcbc21e7fe774cdb6722fa0aeefbf",
+      "byte_len": 211
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ast.txt",
+      "vendor_path": "crates/typst-library/translations/ast.txt",
+      "sha256": "69870e66c458e3ad8328291e4f94485b0e6ac76779c4a58c15b97f8a5049feeb",
+      "byte_len": 164
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/az.txt",
+      "vendor_path": "crates/typst-library/translations/az.txt",
+      "sha256": "d7cc670cfa9e549b729e8d4a1513daddd298286634a51ccee43ca2e061fb6d84",
+      "byte_len": 167
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/be.txt",
+      "vendor_path": "crates/typst-library/translations/be.txt",
+      "sha256": "0e6dbfcc333ef471c76487c97840367d044d547e3e7d64f1930841695ab025ce",
+      "byte_len": 180
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/bg.txt",
+      "vendor_path": "crates/typst-library/translations/bg.txt",
+      "sha256": "9e5e2f475962d783979b7835950495cf779d252a20918ff33e7dfd96e1eef5d4",
+      "byte_len": 243
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/bn.txt",
+      "vendor_path": "crates/typst-library/translations/bn.txt",
+      "sha256": "47c8d98719e86208ce5f81035181f95632587ecfe346b07372603d7023080896",
+      "byte_len": 230
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/bo.txt",
+      "vendor_path": "crates/typst-library/translations/bo.txt",
+      "sha256": "b066a69be24c02f09dae65080cfb6ac6757c774f854bfdd21c728fb5f2e41736",
+      "byte_len": 256
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/br.txt",
+      "vendor_path": "crates/typst-library/translations/br.txt",
+      "sha256": "c7fc15c98ff5e7eb8f9f8f7eb324e9bcfe0b3f939ce9e221485d084fc84f406a",
+      "byte_len": 163
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/bs.txt",
+      "vendor_path": "crates/typst-library/translations/bs.txt",
+      "sha256": "2bbd641062b4e313ada2acc1e20f7371cf2aa4717a29abe7e70c0dc01e3adfcc",
+      "byte_len": 164
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/bua.txt",
+      "vendor_path": "crates/typst-library/translations/bua.txt",
+      "sha256": "eb808828d0a7b18e3d872793ae946874bc9f4f92d8b55beaef4f30b0dcb9242b",
+      "byte_len": 191
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ca.txt",
+      "vendor_path": "crates/typst-library/translations/ca.txt",
+      "sha256": "78d4811671db009d000f4ece9ec07993f6c22da0d0d5cec32dff3e3a5c753bf9",
+      "byte_len": 182
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ckb.txt",
+      "vendor_path": "crates/typst-library/translations/ckb.txt",
+      "sha256": "451fa194466dcc57e557275bb893c52674883847edcb514957878185ac8b153e",
+      "byte_len": 186
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/cs.txt",
+      "vendor_path": "crates/typst-library/translations/cs.txt",
+      "sha256": "ac66ad28c3e230136cdec1bb12f7801384079929d4f7845c1917a06fd3241083",
+      "byte_len": 199
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/cu.txt",
+      "vendor_path": "crates/typst-library/translations/cu.txt",
+      "sha256": "edfd62653b0a23d74e3a6523d290276d60d312d188dfe02ae7808442cf79031e",
+      "byte_len": 188
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/cy.txt",
+      "vendor_path": "crates/typst-library/translations/cy.txt",
+      "sha256": "a42a238beb552f736c4ceb23f68540485801dcc9878648a1dc32b740f792af9e",
+      "byte_len": 198
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/da.txt",
+      "vendor_path": "crates/typst-library/translations/da.txt",
+      "sha256": "24352bb172640ac0e845fc89a26e2e3bb394723d8aeb38c2b0770f78bd5fe51a",
+      "byte_len": 188
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/de.txt",
+      "vendor_path": "crates/typst-library/translations/de.txt",
+      "sha256": "208e7d2f7031b080f68744a07863010eb197cf2b9c4857809359fa814a47cdb5",
+      "byte_len": 215
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/dsb.txt",
+      "vendor_path": "crates/typst-library/translations/dsb.txt",
+      "sha256": "c9b6b7c1d9e6cfed9bb4af5f1efc75e943370fb94ddade394151ba20bb1246ca",
+      "byte_len": 165
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/el.txt",
+      "vendor_path": "crates/typst-library/translations/el.txt",
+      "sha256": "f902a78ef5572bd0619e778e8cad40abd95559084ef2cd26003c975e25e30093",
+      "byte_len": 249
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/en.txt",
+      "vendor_path": "crates/typst-library/translations/en.txt",
+      "sha256": "21130b2c4de130e03b62ccd5137d77518655db2b5017037a66584b3380f06b40",
+      "byte_len": 197
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/eo.txt",
+      "vendor_path": "crates/typst-library/translations/eo.txt",
+      "sha256": "6f84ef22e85861a2c1c9b74c35c4ec38782c337e703170154577ed9414780d28",
+      "byte_len": 183
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/es.txt",
+      "vendor_path": "crates/typst-library/translations/es.txt",
+      "sha256": "ca0d5e09a5156d3fdb60aa70e261735fc11aa848bde49afaa8846f019fbd9a1b",
+      "byte_len": 219
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/et.txt",
+      "vendor_path": "crates/typst-library/translations/et.txt",
+      "sha256": "f45a61ff9156bf4fa62e587f0c05b2d11f30af184b3569e9654d5519fda10016",
+      "byte_len": 166
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/eu.txt",
+      "vendor_path": "crates/typst-library/translations/eu.txt",
+      "sha256": "e22f8fe9bf94de1bacef90cb4c8d88cf27933d7c8dd8071239aa8443fdc1c0f2",
+      "byte_len": 177
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/fa.txt",
+      "vendor_path": "crates/typst-library/translations/fa.txt",
+      "sha256": "5f6181dcaea05c570918b61d5ed1aaa4f3a43682703915f1212981455eb26c17",
+      "byte_len": 175
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/fi.txt",
+      "vendor_path": "crates/typst-library/translations/fi.txt",
+      "sha256": "4b8e2cf3000343cf6c5cd1b4f9fb42bcd1327979ec54927426a9fc744f2075a0",
+      "byte_len": 197
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/fil.txt",
+      "vendor_path": "crates/typst-library/translations/fil.txt",
+      "sha256": "0cf7b4f4f66a108bdfa3c009c25d7cc7d99086b691da5e9a643beb2cba8c257e",
+      "byte_len": 162
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/fr-CA.txt",
+      "vendor_path": "crates/typst-library/translations/fr-CA.txt",
+      "sha256": "fb07d9195e138eaf75a8d1bbfada3db2e422dd86860c9996ed1f82cad35dd49d",
+      "byte_len": 17
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/fr.txt",
+      "vendor_path": "crates/typst-library/translations/fr.txt",
+      "sha256": "bb1a1f532d06e1b9b630ff264945b06679d10c17b621f384fb887791e60e3831",
+      "byte_len": 208
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/fur.txt",
+      "vendor_path": "crates/typst-library/translations/fur.txt",
+      "sha256": "77e8072deb604226a69241b37a9884cd36a14600a7a91aa4af110a524b7474ea",
+      "byte_len": 171
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ga.txt",
+      "vendor_path": "crates/typst-library/translations/ga.txt",
+      "sha256": "3e71e5afd87e8e1f04a3e9b18f7420ae252354fda805f0ca4af544a935535104",
+      "byte_len": 231
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/gd.txt",
+      "vendor_path": "crates/typst-library/translations/gd.txt",
+      "sha256": "31d718bdc786376a0e07cba8b5bc3d1e59ef8312e943144244de591246169310",
+      "byte_len": 164
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/gl.txt",
+      "vendor_path": "crates/typst-library/translations/gl.txt",
+      "sha256": "08202c1fc9c2c0ab0efe7004235c273332563075434baf018020666bb6681652",
+      "byte_len": 230
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/grc.txt",
+      "vendor_path": "crates/typst-library/translations/grc.txt",
+      "sha256": "01f59f12c18eb6700374060d0673d167e2bf88472f50888698ebbac4dff362f9",
+      "byte_len": 205
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/gu.txt",
+      "vendor_path": "crates/typst-library/translations/gu.txt",
+      "sha256": "308956e32f5e453aa67156f9de8c46280e172300c22922d64e9303337956a8aa",
+      "byte_len": 151
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ha.txt",
+      "vendor_path": "crates/typst-library/translations/ha.txt",
+      "sha256": "23fe2643c942624a2f454f1060b7139a72f16612cc2222e0ae4822e2d51669df",
+      "byte_len": 165
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/he.txt",
+      "vendor_path": "crates/typst-library/translations/he.txt",
+      "sha256": "5d803c1f08cc71035e03cc7b53331c62c62c7e79b7c22d1e42638064526107c3",
+      "byte_len": 224
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/hi.txt",
+      "vendor_path": "crates/typst-library/translations/hi.txt",
+      "sha256": "debe88de77585a7433fead06cd104f6d2ea7c5a236d5e48a9037a79f1369bfdf",
+      "byte_len": 230
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/hr.txt",
+      "vendor_path": "crates/typst-library/translations/hr.txt",
+      "sha256": "9778b38e66addd0453ef26a5b8d0a7d507ac44cd5e2ad0cbdce3cd16a19fc46f",
+      "byte_len": 177
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/hsb.txt",
+      "vendor_path": "crates/typst-library/translations/hsb.txt",
+      "sha256": "f778c350bdafc048720e7525f4c6371c6462f6ace183a65be4a90ce17a254ade",
+      "byte_len": 159
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/hu.txt",
+      "vendor_path": "crates/typst-library/translations/hu.txt",
+      "sha256": "fc82460e999703a60f5d85a42baff55e54a23326474544b4a307fbe9039d63c7",
+      "byte_len": 189
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/hy.txt",
+      "vendor_path": "crates/typst-library/translations/hy.txt",
+      "sha256": "f754f0242f2aaf1e9087366ba03ad29c103091d4f3be38a5f4de9c4ff0831771",
+      "byte_len": 208
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ia.txt",
+      "vendor_path": "crates/typst-library/translations/ia.txt",
+      "sha256": "5da57bdb22c6ba35bda6746878bca6653e1988756def431b82928a4173e7eab9",
+      "byte_len": 164
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/id.txt",
+      "vendor_path": "crates/typst-library/translations/id.txt",
+      "sha256": "01b2987edef2116adfecd92db50545a77fa38735fd54b7a72f9658504baf3320",
+      "byte_len": 182
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/is.txt",
+      "vendor_path": "crates/typst-library/translations/is.txt",
+      "sha256": "56e34e14e7aeb0bd6292de45fc01e984416921ec88e7f56c87ab988e9b66a664",
+      "byte_len": 186
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/isv.txt",
+      "vendor_path": "crates/typst-library/translations/isv.txt",
+      "sha256": "387ae7e18cfc16ae386cc916fc11144ac696ce5997da1d3a8f5ce6f360299825",
+      "byte_len": 172
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/it.txt",
+      "vendor_path": "crates/typst-library/translations/it.txt",
+      "sha256": "30aee81784f89713a35cb5ca455e5b1d3a1c3dc379bf275e8ea0687c716f8c44",
+      "byte_len": 193
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ja.txt",
+      "vendor_path": "crates/typst-library/translations/ja.txt",
+      "sha256": "bfa1a7912cbe9ef897f8e30f4c15788dd1d20b2f2abf754363df7cda062dbe61",
+      "byte_len": 169
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ka.txt",
+      "vendor_path": "crates/typst-library/translations/ka.txt",
+      "sha256": "43148809d5477af45b448631ce5adda4a642e89b7a4dd40f5adef12e81728889",
+      "byte_len": 205
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/km.txt",
+      "vendor_path": "crates/typst-library/translations/km.txt",
+      "sha256": "83980dada3d655690bd603e7100c41c099a6697e98cb0fe29875dfee3d9bdae3",
+      "byte_len": 217
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/kmr.txt",
+      "vendor_path": "crates/typst-library/translations/kmr.txt",
+      "sha256": "0f49e0f7a691ddf42ed7ed345df13830253020d28deead837ab77113117075cd",
+      "byte_len": 173
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/kn.txt",
+      "vendor_path": "crates/typst-library/translations/kn.txt",
+      "sha256": "bb4038521c22c550410b3cfe58ee12949473bf733f300a7b2032602484fa8287",
+      "byte_len": 214
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ko.txt",
+      "vendor_path": "crates/typst-library/translations/ko.txt",
+      "sha256": "c93e8c34cf70047f0fc71687ae02cf789eb4b220b94d00c9701637b2e84c6f2f",
+      "byte_len": 162
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ku.txt",
+      "vendor_path": "crates/typst-library/translations/ku.txt",
+      "sha256": "0f49e0f7a691ddf42ed7ed345df13830253020d28deead837ab77113117075cd",
+      "byte_len": 173
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/la.txt",
+      "vendor_path": "crates/typst-library/translations/la.txt",
+      "sha256": "cbeb21ea64b77c2080fb66b8c1e77dc22f2377284c29c33c76f263d4aa385933",
+      "byte_len": 195
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/lb.txt",
+      "vendor_path": "crates/typst-library/translations/lb.txt",
+      "sha256": "706dffb14dca6d02b226b6f4558ff96b394aafba0ebcb77affc46e846631374a",
+      "byte_len": 160
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/lo.txt",
+      "vendor_path": "crates/typst-library/translations/lo.txt",
+      "sha256": "98129c6a5c012383191b331b4503c7d93690ec774b5082d01c396abca2eab9e6",
+      "byte_len": 238
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/lt.txt",
+      "vendor_path": "crates/typst-library/translations/lt.txt",
+      "sha256": "0d2501d469a4956c47538a18ba33b6565f46750779961f0541d19a9986b433a7",
+      "byte_len": 179
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/lv.txt",
+      "vendor_path": "crates/typst-library/translations/lv.txt",
+      "sha256": "f722dbdcb89a411fe222a6e32d67925479ddd951cb21c5da6f7a6cae2994551e",
+      "byte_len": 200
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/mk.txt",
+      "vendor_path": "crates/typst-library/translations/mk.txt",
+      "sha256": "c9f306920b7ee7f0930cfd4409ae31331c1f8771b825278f35fed9ee4efb3d22",
+      "byte_len": 194
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ml.txt",
+      "vendor_path": "crates/typst-library/translations/ml.txt",
+      "sha256": "826e99cf7fbd8080fe7149a48f0c1db8d6df34a79e0aa691175ca980f0c28383",
+      "byte_len": 189
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/mr.txt",
+      "vendor_path": "crates/typst-library/translations/mr.txt",
+      "sha256": "08ab487ea38dd7a224ec6daeb03f1e794607db653a8340f6e74a396faba0c7ed",
+      "byte_len": 235
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ms.txt",
+      "vendor_path": "crates/typst-library/translations/ms.txt",
+      "sha256": "e858d20a86cd40b0bc9811f3db58e0d6d61b4f1f48dd13e8b077d91506b2aed3",
+      "byte_len": 163
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/nb.txt",
+      "vendor_path": "crates/typst-library/translations/nb.txt",
+      "sha256": "7760a8f132c06613c995734d4f45d99e1b31770a08d9205db7d85e943bb56204",
+      "byte_len": 177
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/nl.txt",
+      "vendor_path": "crates/typst-library/translations/nl.txt",
+      "sha256": "caa2a691bd0ec9074588375e0c288547b5794ea63260960bb8eae550528822b8",
+      "byte_len": 210
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/nn.txt",
+      "vendor_path": "crates/typst-library/translations/nn.txt",
+      "sha256": "a821e972de7270dc0d978c370d49d428a0702e82b78c3fb3e625e325f57ac6a2",
+      "byte_len": 177
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/no.txt",
+      "vendor_path": "crates/typst-library/translations/no.txt",
+      "sha256": "3a38552e1fee887dd334c363a68a8bed3cc3f5265d286e65aa3695facd2e09e8",
+      "byte_len": 184
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/oc.txt",
+      "vendor_path": "crates/typst-library/translations/oc.txt",
+      "sha256": "d908864774c85dd2fa15f54bcbb18ecc9fa10392046c251fdf3e0c83f3ede6f5",
+      "byte_len": 165
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/or.txt",
+      "vendor_path": "crates/typst-library/translations/or.txt",
+      "sha256": "98401152ca1720cfddda1dadde09eb981b4223dec1e2d2b5ca5214dde32ebb97",
+      "byte_len": 224
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/pa.txt",
+      "vendor_path": "crates/typst-library/translations/pa.txt",
+      "sha256": "532b425df85a020c16ce7758d8b95ab27d5885e158dc6b7a563a69401118e9a8",
+      "byte_len": 206
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/pl.txt",
+      "vendor_path": "crates/typst-library/translations/pl.txt",
+      "sha256": "4f5451840c21347f4f57854c5f90ab1c94fb1db2b582dfba6aaa2221518056de",
+      "byte_len": 215
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/pms.txt",
+      "vendor_path": "crates/typst-library/translations/pms.txt",
+      "sha256": "1b8c2560dc7ab2f1dc30a07538ad732cfafcae18ffbf4645416c8225ec66b9be",
+      "byte_len": 162
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/pt-PT.txt",
+      "vendor_path": "crates/typst-library/translations/pt-PT.txt",
+      "sha256": "bf5225608637dbfff8e0f17d64a3812687be79d6858c97663b01e83a3617adfb",
+      "byte_len": 65
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/pt.txt",
+      "vendor_path": "crates/typst-library/translations/pt.txt",
+      "sha256": "e7b1b3b715febdfdc740118bd5eefe0c29f0a894a88a9fe349df9bf9c1eacd07",
+      "byte_len": 223
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/rm.txt",
+      "vendor_path": "crates/typst-library/translations/rm.txt",
+      "sha256": "f45b61a622e14e959d280a52253e034a8d7dddabe3cb8c2eb546919fad72c43d",
+      "byte_len": 178
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ro.txt",
+      "vendor_path": "crates/typst-library/translations/ro.txt",
+      "sha256": "105105b95c77c66b5ad612a676963fa213212f539a7b66e537121c3d03ea8822",
+      "byte_len": 198
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ru.txt",
+      "vendor_path": "crates/typst-library/translations/ru.txt",
+      "sha256": "08348e02448801dfea619ce983e80a8f39a90aedded04e8597decd63a021cfe0",
+      "byte_len": 289
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/se.txt",
+      "vendor_path": "crates/typst-library/translations/se.txt",
+      "sha256": "f0ab209639f2807fb7f5108f427b6e77a03e1e6e1f637c5e5088b8c58d5bc50e",
+      "byte_len": 168
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/si.txt",
+      "vendor_path": "crates/typst-library/translations/si.txt",
+      "sha256": "5a57b64fe62811442841d48d38b58cecb7591347ae9e81250918862a641885d3",
+      "byte_len": 215
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/sk.txt",
+      "vendor_path": "crates/typst-library/translations/sk.txt",
+      "sha256": "239ed877e7096ab3903acbe04f6904cad92139d4c59f427ab7c65f44c3f65197",
+      "byte_len": 201
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/sl.txt",
+      "vendor_path": "crates/typst-library/translations/sl.txt",
+      "sha256": "e6dd4f6aab4cec184dac88e07c6477ee0ecff8a49103a1d29951f62da4369710",
+      "byte_len": 203
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/sq.txt",
+      "vendor_path": "crates/typst-library/translations/sq.txt",
+      "sha256": "f0aae34ff47ed6bccb0f578a60f4770ac89313f78894550ee35304b0ed7d0cc6",
+      "byte_len": 179
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/sr.txt",
+      "vendor_path": "crates/typst-library/translations/sr.txt",
+      "sha256": "33ff0887022c83f5c423f34016b36545eb47fab93e07e2daed6a75fcf01f847c",
+      "byte_len": 237
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/sv.txt",
+      "vendor_path": "crates/typst-library/translations/sv.txt",
+      "sha256": "0caa42d322175c8911e692d8845fadcad9315ff59c5b7091d4ca42ca21f404c6",
+      "byte_len": 197
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ta.txt",
+      "vendor_path": "crates/typst-library/translations/ta.txt",
+      "sha256": "2e223694c9a8e8f8026cfb953281c7b838befe5873cdc2b0cee64dd728564c8c",
+      "byte_len": 174
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/te.txt",
+      "vendor_path": "crates/typst-library/translations/te.txt",
+      "sha256": "676ae1c9916ea199f0b311744a8dd6666618fb8096f47042674348c634fd0c73",
+      "byte_len": 230
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/th.txt",
+      "vendor_path": "crates/typst-library/translations/th.txt",
+      "sha256": "fd0d8ad12e50e7c912a3f1cc17ce377e8210250cc9fe3f48fd8d603660ca885c",
+      "byte_len": 226
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/tk.txt",
+      "vendor_path": "crates/typst-library/translations/tk.txt",
+      "sha256": "b6b4c4a87475b28a5f8dafc836928c7bfb60fc0a9e1a6fd6eb57236151f69c90",
+      "byte_len": 159
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/tl.txt",
+      "vendor_path": "crates/typst-library/translations/tl.txt",
+      "sha256": "f70272d0f595d9c53376f53d96358ce33ec993698824875faf417160ae771837",
+      "byte_len": 193
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/tr.txt",
+      "vendor_path": "crates/typst-library/translations/tr.txt",
+      "sha256": "5a38e513a815d55919cf2335dcd9e88279c2f948eb44b117bd8f38bc2f9fd5a0",
+      "byte_len": 178
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ug.txt",
+      "vendor_path": "crates/typst-library/translations/ug.txt",
+      "sha256": "cbaed5cf39cf5be3b47235254ca4e05c8e75d4979a0c1272b0b9fec683771e64",
+      "byte_len": 190
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/uk.txt",
+      "vendor_path": "crates/typst-library/translations/uk.txt",
+      "sha256": "33b16687edd97c3e04108b37796c4f9437248ade40d2b334bfd833698446e326",
+      "byte_len": 227
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/ur.txt",
+      "vendor_path": "crates/typst-library/translations/ur.txt",
+      "sha256": "4f0568513ea0873e3f73ec9c6060a0f8f8b72f7cfa36a099c1367b64859abba2",
+      "byte_len": 185
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/vi.txt",
+      "vendor_path": "crates/typst-library/translations/vi.txt",
+      "sha256": "b25c4e5500eee0bfc3c88b0f7e95579f499bb1c49848d8efebcb63f39f99d0d3",
+      "byte_len": 250
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/zh-TW.txt",
+      "vendor_path": "crates/typst-library/translations/zh-TW.txt",
+      "sha256": "eeb5096dfee2c8dcca23cbca51fc48b6e6ce8d1b739255a5ef8a7d1e7588c360",
+      "byte_len": 178
+    },
+    {
+      "upstream_path": "crates/typst-library/translations/zh.txt",
+      "vendor_path": "crates/typst-library/translations/zh.txt",
+      "sha256": "61a8f932766c2573ce1c0468a28801d0d9444b84484e8433f9642d7f2d1e439c",
+      "byte_len": 184
+    },
+    {
+      "upstream_path": "crates/typst-macros/Cargo.toml",
+      "vendor_path": "crates/typst-macros/Cargo.toml",
+      "sha256": "874287ff7d4aa4f76099a92faba209af924647e8c58a912ca7d418d17b112528",
+      "byte_len": 579
+    },
+    {
+      "upstream_path": "crates/typst-macros/src/cast.rs",
+      "vendor_path": "crates/typst-macros/src/cast.rs",
+      "sha256": "5fe2e9e3371b516e8c5d61a512fc19631a878c6f7f902a4013d9338323fcefa8",
+      "byte_len": 9254
+    },
+    {
+      "upstream_path": "crates/typst-macros/src/elem.rs",
+      "vendor_path": "crates/typst-macros/src/elem.rs",
+      "sha256": "1c6646f9ba5258bf96b41f5fe69a5b877a68c4a729c86a56c2348d2ef586c7f6",
+      "byte_len": 23211
+    },
+    {
+      "upstream_path": "crates/typst-macros/src/func.rs",
+      "vendor_path": "crates/typst-macros/src/func.rs",
+      "sha256": "981a02a2f60ba43fbc1222758e9893c96b763787bf7e46a973dd383962c0a1a7",
+      "byte_len": 15168
+    },
+    {
+      "upstream_path": "crates/typst-macros/src/lib.rs",
+      "vendor_path": "crates/typst-macros/src/lib.rs",
+      "sha256": "6cd5a77eae654147dff9dd3ede24f985ff6c7cc937c3f8447d247a1511d2eb34",
+      "byte_len": 13576
+    },
+    {
+      "upstream_path": "crates/typst-macros/src/scope.rs",
+      "vendor_path": "crates/typst-macros/src/scope.rs",
+      "sha256": "156414cc14b369fbe9705c723b287ec7b9a57c563c491de8396f394af1008112",
+      "byte_len": 7563
+    },
+    {
+      "upstream_path": "crates/typst-macros/src/time.rs",
+      "vendor_path": "crates/typst-macros/src/time.rs",
+      "sha256": "be42e534009d8c52325d5ed5bc3a2603899fa82416bd14860927c470a398c91b",
+      "byte_len": 1199
+    },
+    {
+      "upstream_path": "crates/typst-macros/src/ty.rs",
+      "vendor_path": "crates/typst-macros/src/ty.rs",
+      "sha256": "2f8b2dd4f9943d382dada9dfb89a3cb5bb0d581f8bf41d759e53834a15e6506d",
+      "byte_len": 4025
+    },
+    {
+      "upstream_path": "crates/typst-macros/src/util.rs",
+      "vendor_path": "crates/typst-macros/src/util.rs",
+      "sha256": "d02e716436480c6974861e30c032e077be5a483b44c9ad021af5debed52a0fef",
+      "byte_len": 8854
+    },
+    {
       "upstream_path": "crates/typst-syntax/Cargo.toml",
       "vendor_path": "crates/typst-syntax/Cargo.toml",
       "sha256": "14da23cb7439059e04564026663e0693c72445e889e1e155a4d20a066a6004b2",
@@ -207,10 +2223,25 @@
   ],
   "applied_overlays": [],
   "applied_patches": [
+    "mechanical:rewrite-manifest:typst-layout",
+    "mechanical:rewrite-manifest:typst-library",
+    "mechanical:rewrite-manifest:typst-macros",
     "mechanical:rewrite-manifest:typst-syntax",
     "mechanical:rewrite-manifest:typst-timing",
     "mechanical:rewrite-manifest:typst-utils",
-    "mechanical:typst-syntax-tool-info-without-toml"
+    "mechanical:typst-syntax-tool-info-without-toml",
+    "mechanical:typst-library-prune-data-loaders",
+    "mechanical:typst-library-stub-plugin",
+    "mechanical:typst-library-prune-raw-text",
+    "mechanical:typst-library-value-display-without-raw",
+    "mechanical:typst-library-stub-bibliography",
+    "mechanical:typst-library-stub-cite",
+    "mechanical:typst-library-stub-image",
+    "mechanical:typst-library-stub-color-fonts",
+    "mechanical:typst-library-font-variant-without-usvg",
+    "mechanical:typst-library-color-without-assets",
+    "mechanical:typst-layout-linebreak-without-assets",
+    "mechanical:typst-layout-unregister-unsupported"
   ],
   "generated_files": [
     {
@@ -225,8 +2256,8 @@
     },
     {
       "path": "Cargo.toml",
-      "sha256": "28de3d88efc9810f25941e31946025a2ba03f58f169250a7a77e32f4fb8e5449",
-      "byte_len": 1701
+      "sha256": "321c92d0011528cf66540e0c320288472ad6c5da0fe4b555981139cd936fdde1",
+      "byte_len": 3439
     }
   ],
   "denied_dependencies": [
@@ -237,8 +2268,11 @@
     "typst-render",
     "typst-kit",
     "typst-assets",
+    "typst-dev-assets",
     "hayagriva",
+    "hayro-syntax",
     "syntect",
+    "two-face",
     "wasmi",
     "image",
     "usvg",
