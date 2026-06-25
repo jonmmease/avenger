@@ -1230,6 +1230,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-typst"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "avenger-vega-scenegraph"
 version = "0.0.8"
 dependencies = [

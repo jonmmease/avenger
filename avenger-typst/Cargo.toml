@@ -1,0 +1,14 @@
+[package]
+name = "avenger-typst"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+vendor-typst = []
+raster = []
+serde = ["dep:serde"]
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
