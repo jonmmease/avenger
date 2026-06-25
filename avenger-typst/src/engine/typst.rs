@@ -2,9 +2,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use comemo::Track;
+use ttf_parser::{GlyphId, OutlineBuilder};
 
 use crate::api::TypstEngineConfig;
 use crate::error::{MathTypesetError, TypstInitError};
+use crate::paths::{
+    MathPathArtifact, MathPathCommand, MathPathData, MathPathItem, MathPathKind, MathStroke,
+    MathTransform,
+};
 use crate::style::{Color, MathDisplayStyle};
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
@@ -15,14 +20,18 @@ use typst_library::foundations::{
     SequenceElem, ShowSet, StyleChain, Styles, SymbolElem, Value,
 };
 use typst_library::introspection::{EmptyIntrospector, Introspector, Locator};
-use typst_library::layout::{Abs, InlineItem, Size};
+use typst_library::layout::{Abs, Frame, FrameItem, InlineItem, Size, Transform};
 use typst_library::math::{
     AlignPointElem, AttachElem, EquationElem, FracElem, LrElem, MatElem, MathSize, PrimesElem,
     RootElem,
 };
 use typst_library::routines::{Arenas, Pair, RealizationKind, Routines, SpanMode};
-use typst_library::text::{Font, FontBook, FontFamily, FontList, SpaceElem, TextElem, TextSize};
-use typst_library::visualize::{Color as TypstColor, Paint};
+use typst_library::text::{
+    Font, FontBook, FontFamily, FontList, SpaceElem, TextElem, TextItem, TextSize,
+};
+use typst_library::visualize::{
+    Color as TypstColor, Curve, CurveItem, FixedStroke, Geometry, Paint, ProcessColorSpace, Shape,
+};
 use typst_library::{Library, LibraryBuilder, World};
 use typst_syntax::ast::{self, Arg, MathTextKind};
 use typst_syntax::{FileId, Source, SyntaxMode};
@@ -60,11 +69,6 @@ impl TypstMathEngine {
         source: &str,
         options: &MathFragmentOptions,
     ) -> Result<MathRunArtifact, MathTypesetError> {
-        if options.outputs.paths {
-            return Err(MathTypesetError::UnsupportedOutput(
-                "vendor-typst path output is not wired yet",
-            ));
-        }
         if options.outputs.pdf_text_layer {
             return Err(MathTypesetError::UnsupportedOutput(
                 "vendor-typst PDF glyph output is not wired yet",
@@ -76,24 +80,22 @@ impl TypstMathEngine {
             ));
         }
 
-        let metrics = self.layout_metrics(source, options)?;
+        let items = self.layout_inline_items(source, options)?;
+        let metrics = metrics_from_inline_items(&items, source.len())?;
+        let paths = if options.outputs.paths {
+            Some(paths_from_inline_items(&items, metrics)?)
+        } else {
+            None
+        };
+
         Ok(MathRunArtifact {
             metrics,
-            paths: None,
+            paths,
             raster: None,
             pdf_text: None,
             font_resources: Vec::new(),
             warnings: Vec::new(),
         })
-    }
-
-    fn layout_metrics(
-        &self,
-        source: &str,
-        options: &MathFragmentOptions,
-    ) -> Result<TypesetMetrics, MathTypesetError> {
-        let items = self.layout_inline_items(source, options)?;
-        metrics_from_inline_items(items, source.len())
     }
 
     fn layout_inline_items(
@@ -446,7 +448,7 @@ fn select_math_font_family(
 }
 
 fn metrics_from_inline_items(
-    items: Vec<InlineItem>,
+    items: &[InlineItem],
     source_len: usize,
 ) -> Result<TypesetMetrics, MathTypesetError> {
     let mut width = Abs::zero();
@@ -457,7 +459,7 @@ fn metrics_from_inline_items(
     for item in items {
         match item {
             InlineItem::Space(amount, _) => {
-                width += amount;
+                width += *amount;
             }
             InlineItem::Frame(frame) => {
                 width += frame.width();
@@ -483,6 +485,298 @@ fn metrics_from_inline_items(
         ascent: abs_to_f32(ascent),
         descent: abs_to_f32(descent),
     })
+}
+
+fn paths_from_inline_items(
+    items: &[InlineItem],
+    metrics: TypesetMetrics,
+) -> Result<MathPathArtifact, MathTypesetError> {
+    let mut lowerer = PathLowerer::default();
+    let mut x = Abs::zero();
+    let baseline = Abs::pt(metrics.baseline as f64);
+
+    for item in items {
+        match item {
+            InlineItem::Space(amount, _) => {
+                x += *amount;
+            }
+            InlineItem::Frame(frame) => {
+                let y = baseline - frame.ascent();
+                lowerer.lower_frame(frame, Transform::translate(x, y))?;
+                x += frame.width();
+            }
+        }
+    }
+
+    Ok(MathPathArtifact {
+        logical_width: metrics.width,
+        logical_height: metrics.height,
+        items: lowerer.items,
+    })
+}
+
+#[derive(Default)]
+struct PathLowerer {
+    items: Vec<MathPathItem>,
+    next_glyph_run: usize,
+}
+
+impl PathLowerer {
+    fn lower_frame(&mut self, frame: &Frame, transform: Transform) -> Result<(), MathTypesetError> {
+        for (pos, item) in frame.items() {
+            let item_transform = transform.pre_concat(Transform::translate(pos.x, pos.y));
+            match item {
+                FrameItem::Group(group) => {
+                    if group.clip.is_some() {
+                        return Err(MathTypesetError::UnsupportedOutput(
+                            "clipped Typst math groups are not supported in path output yet",
+                        ));
+                    }
+                    let group_transform = item_transform.pre_concat(group.transform);
+                    self.lower_frame(&group.frame, group_transform)?;
+                }
+                FrameItem::Text(text) => self.lower_text(text, item_transform)?,
+                FrameItem::Shape(shape, _) => self.lower_shape(shape, item_transform)?,
+                FrameItem::Image(..) => {
+                    return Err(MathTypesetError::UnsupportedOutput(
+                        "Typst image frame items are not supported in math path output",
+                    ));
+                }
+                FrameItem::Link(..) | FrameItem::Tag(_) => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    fn lower_text(
+        &mut self,
+        text: &TextItem,
+        transform: Transform,
+    ) -> Result<(), MathTypesetError> {
+        let glyph_run = self.next_glyph_run;
+        self.next_glyph_run += 1;
+
+        let fill = Some(color_from_paint(&text.fill)?);
+        let stroke = text
+            .stroke
+            .as_ref()
+            .map(math_stroke_from_typst)
+            .transpose()?;
+        let mut cursor_x = Abs::zero();
+        let mut cursor_y = Abs::zero();
+
+        for (glyph_index, glyph) in text.glyphs.iter().enumerate() {
+            let x_offset = abs_to_f32(cursor_x + glyph.x_offset.at(text.size));
+            let y_offset = -abs_to_f32(cursor_y + glyph.y_offset.at(text.size));
+            let mut builder = GlyphPathBuilder::new(&text.font, text.size, x_offset, y_offset);
+            text.font
+                .ttf()
+                .outline_glyph(GlyphId(glyph.id), &mut builder);
+            let path = builder.finish();
+
+            if !path.commands.is_empty() {
+                self.items.push(MathPathItem {
+                    path,
+                    kind: MathPathKind::GlyphOutline {
+                        glyph_run,
+                        glyph_index,
+                    },
+                    fill,
+                    stroke: stroke.clone(),
+                    transform: math_transform_from_typst(transform),
+                    clip: None,
+                });
+            }
+
+            cursor_x += glyph.x_advance.at(text.size);
+            cursor_y += glyph.y_advance.at(text.size);
+        }
+
+        Ok(())
+    }
+
+    fn lower_shape(&mut self, shape: &Shape, transform: Transform) -> Result<(), MathTypesetError> {
+        let path = path_from_geometry(&shape.geometry);
+        if path.commands.is_empty() {
+            return Ok(());
+        }
+
+        self.items.push(MathPathItem {
+            path,
+            kind: MathPathKind::MathShape,
+            fill: shape.fill.as_ref().map(color_from_paint).transpose()?,
+            stroke: shape
+                .stroke
+                .as_ref()
+                .map(math_stroke_from_typst)
+                .transpose()?,
+            transform: math_transform_from_typst(transform),
+            clip: None,
+        });
+
+        Ok(())
+    }
+}
+
+struct GlyphPathBuilder<'a> {
+    font: &'a typst_library::text::FontInstance,
+    font_size: Abs,
+    x_offset: f32,
+    y_offset: f32,
+    path: MathPathData,
+}
+
+impl<'a> GlyphPathBuilder<'a> {
+    fn new(
+        font: &'a typst_library::text::FontInstance,
+        font_size: Abs,
+        x_offset: f32,
+        y_offset: f32,
+    ) -> Self {
+        Self {
+            font,
+            font_size,
+            x_offset,
+            y_offset,
+            path: MathPathData::default(),
+        }
+    }
+
+    fn finish(self) -> MathPathData {
+        self.path
+    }
+
+    fn point(&self, x: f32, y: f32) -> (f32, f32) {
+        (
+            self.x_offset + self.scale_font_units(x),
+            self.y_offset - self.scale_font_units(y),
+        )
+    }
+
+    fn scale_font_units(&self, value: f32) -> f32 {
+        abs_to_f32(self.font.to_em(value).at(self.font_size))
+    }
+}
+
+impl OutlineBuilder for GlyphPathBuilder<'_> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.point(x, y);
+        self.path.commands.push(MathPathCommand::MoveTo { x, y });
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.point(x, y);
+        self.path.commands.push(MathPathCommand::LineTo { x, y });
+    }
+
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        let (x1, y1) = self.point(x1, y1);
+        let (x, y) = self.point(x, y);
+        self.path
+            .commands
+            .push(MathPathCommand::QuadTo { x1, y1, x, y });
+    }
+
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        let (x1, y1) = self.point(x1, y1);
+        let (x2, y2) = self.point(x2, y2);
+        let (x, y) = self.point(x, y);
+        self.path.commands.push(MathPathCommand::CubicTo {
+            x1,
+            y1,
+            x2,
+            y2,
+            x,
+            y,
+        });
+    }
+
+    fn close(&mut self) {
+        self.path.commands.push(MathPathCommand::Close);
+    }
+}
+
+fn path_from_geometry(geometry: &Geometry) -> MathPathData {
+    match geometry {
+        Geometry::Line(to) => MathPathData {
+            commands: vec![
+                MathPathCommand::MoveTo { x: 0.0, y: 0.0 },
+                MathPathCommand::LineTo {
+                    x: abs_to_f32(to.x),
+                    y: abs_to_f32(to.y),
+                },
+            ],
+        },
+        Geometry::Rect(size) => MathPathData::rect(abs_to_f32(size.x), abs_to_f32(size.y)),
+        Geometry::Curve(curve) => path_from_curve(curve),
+    }
+}
+
+fn path_from_curve(curve: &Curve) -> MathPathData {
+    let commands = curve
+        .0
+        .iter()
+        .map(|item| match item {
+            CurveItem::Move(point) => MathPathCommand::MoveTo {
+                x: abs_to_f32(point.x),
+                y: abs_to_f32(point.y),
+            },
+            CurveItem::Line(point) => MathPathCommand::LineTo {
+                x: abs_to_f32(point.x),
+                y: abs_to_f32(point.y),
+            },
+            CurveItem::Cubic(a, b, c) => MathPathCommand::CubicTo {
+                x1: abs_to_f32(a.x),
+                y1: abs_to_f32(a.y),
+                x2: abs_to_f32(b.x),
+                y2: abs_to_f32(b.y),
+                x: abs_to_f32(c.x),
+                y: abs_to_f32(c.y),
+            },
+            CurveItem::Close => MathPathCommand::Close,
+        })
+        .collect();
+
+    MathPathData { commands }
+}
+
+fn math_stroke_from_typst(stroke: &FixedStroke) -> Result<MathStroke, MathTypesetError> {
+    if stroke.dash.is_some() {
+        return Err(MathTypesetError::UnsupportedOutput(
+            "dashed Typst math strokes are not supported in path output",
+        ));
+    }
+
+    Ok(MathStroke {
+        color: color_from_paint(&stroke.paint)?,
+        width: abs_to_f32(stroke.thickness),
+    })
+}
+
+fn color_from_paint(paint: &Paint) -> Result<Color, MathTypesetError> {
+    match paint {
+        Paint::Solid(color) => Ok(color_from_typst(color)),
+        Paint::Gradient(_) | Paint::Tiling(_) => Err(MathTypesetError::UnsupportedOutput(
+            "non-solid Typst paints are not supported in math path output",
+        )),
+    }
+}
+
+fn color_from_typst(color: &TypstColor) -> Color {
+    let [r, g, b, a] = color.to_process_space(ProcessColorSpace::Srgb).to_vec4();
+    Color::rgba(r, g, b, a)
+}
+
+fn math_transform_from_typst(transform: Transform) -> MathTransform {
+    MathTransform {
+        xx: transform.sx.get() as f32,
+        yx: transform.ky.get() as f32,
+        xy: transform.kx.get() as f32,
+        yy: transform.sy.get() as f32,
+        dx: abs_to_f32(transform.tx),
+        dy: abs_to_f32(transform.ty),
+    }
 }
 
 fn abs_to_f32(abs: Abs) -> f32 {

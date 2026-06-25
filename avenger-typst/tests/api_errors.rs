@@ -99,19 +99,19 @@ fn explicit_vendor_typst_backend_reports_unavailable_until_wired() {
 
 #[cfg(feature = "vendor-typst")]
 #[test]
-fn explicit_vendor_typst_backend_reaches_layout_boundary() {
+fn explicit_vendor_typst_backend_produces_paths_by_default() {
     let engine = AvengerTypst::new(TypstEngineConfig {
         backend: TypstEngineBackend::VendorTypst,
         ..Default::default()
     })
     .unwrap();
 
-    let err = engine
+    let artifact = engine
         .typeset_math_fragment("x^2 + y^2", &Default::default())
-        .unwrap_err();
+        .unwrap();
 
-    assert_eq!(
-        err,
-        MathTypesetError::UnsupportedOutput("vendor-typst path output is not wired yet")
-    );
+    assert!(artifact
+        .paths
+        .as_ref()
+        .is_some_and(|paths| !paths.items.is_empty()));
 }

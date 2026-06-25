@@ -57,3 +57,31 @@ fn metrics_only_options() -> MathFragmentOptions {
     options.outputs.paths = false;
     options
 }
+
+#[test]
+fn vendor_backend_lowers_common_fragments_to_paths() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+
+    for source in [
+        "x^2 + y^2",
+        "sqrt(x^2 + y^2)",
+        "sum_(i=1)^n x_i",
+        "mat(1, 2; 3, 4)",
+    ] {
+        let artifact = engine
+            .typeset_math_fragment(source, &Default::default())
+            .unwrap();
+        let paths = artifact
+            .paths
+            .as_ref()
+            .unwrap_or_else(|| panic!("{source} did not produce paths"));
+
+        assert_eq!(paths.logical_width, artifact.metrics.width);
+        assert_eq!(paths.logical_height, artifact.metrics.height);
+        assert!(!paths.items.is_empty(), "{source} produced no path items");
+    }
+}
