@@ -6,7 +6,8 @@ description = "SVG string renderer for Avenger scene graphs"
 license = "BSD-3-Clause"
 
 [features]
-typst-math = ["avenger-text/typst-math"]
+typst-text = ["typst-math"]
+typst-math = ["avenger-text/typst-text"]
 
 [dependencies]
 thiserror = { workspace = true }

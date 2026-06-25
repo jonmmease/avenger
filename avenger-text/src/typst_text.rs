@@ -242,12 +242,12 @@ fn measure_text_width_with_typst(
     .unwrap_or_else(|_| fallback_text_bounds(text, font_size).width)
 }
 
-struct TypesetLineResult {
-    artifact: avenger_typst::TextLineArtifact,
-    has_math_spans: bool,
+pub(crate) struct TypesetLineResult {
+    pub(crate) artifact: avenger_typst::TextLineArtifact,
+    pub(crate) has_math_spans: bool,
 }
 
-fn typeset_line(
+pub(crate) fn typeset_line(
     typst: &avenger_typst::AvengerTypst,
     math: &TextMathConfig,
     text: &str,
@@ -333,7 +333,7 @@ where
     }
 }
 
-fn text_line_options(
+pub(crate) fn text_line_options(
     math: &TextMathConfig,
     text: &str,
     font: &str,
@@ -406,7 +406,7 @@ fn limits_for_text(text: &str, mut limits: avenger_typst::MathLimits) -> avenger
     limits
 }
 
-fn bounds_from_metrics(
+pub(crate) fn bounds_from_metrics(
     metrics: avenger_typst::TypesetMetrics,
     font_size: f32,
     has_math_spans: bool,
@@ -419,7 +419,7 @@ fn bounds_from_metrics(
     }
 }
 
-fn tight_bounds_from_metrics(metrics: avenger_typst::TypesetMetrics) -> TextBounds {
+pub(crate) fn tight_bounds_from_metrics(metrics: avenger_typst::TypesetMetrics) -> TextBounds {
     TextBounds {
         width: metrics.width,
         height: metrics.height,

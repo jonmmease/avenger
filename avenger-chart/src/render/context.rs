@@ -13,12 +13,10 @@ use std::{
 };
 
 use avenger_scenegraph::marks::group::Clip;
-#[cfg(all(feature = "typst-math-layout", not(feature = "typst-text-layout")))]
-use avenger_text::math::MathAwareTextMeasurer;
 #[cfg(feature = "typst-math-layout")]
 use avenger_text::math::TextMarkupMode;
 use avenger_text::measurement::{TextMeasurer, default_text_measurer};
-#[cfg(feature = "typst-text-layout")]
+#[cfg(feature = "typst-math-layout")]
 use avenger_text::typst_text::TypstTextMeasurer;
 use datafusion::{
     arrow::datatypes::DataType, common::ScalarValue, dataframe::DataFrame, prelude::SessionContext,
@@ -324,28 +322,12 @@ impl TextMeasurementRuntime {
             return Ok(Self::plain());
         }
 
-        #[cfg(feature = "typst-text-layout")]
-        {
-            let measurer = TypstTextMeasurer::with_vendor_typst(text_math.clone())
-                .map_err(|err| crate::error::AvengerChartError::InternalError(err.to_string()))?;
-            return Ok(Self {
-                measurer: Arc::new(measurer),
-                cache_tag: Arc::from(format!("typst-text:{text_math:?}")),
-            });
-        }
-
-        #[cfg(not(feature = "typst-text-layout"))]
-        {
-            let measurer = MathAwareTextMeasurer::with_vendor_typst(
-                default_text_measurer(),
-                text_math.clone(),
-            )
+        let measurer = TypstTextMeasurer::with_vendor_typst(text_math.clone())
             .map_err(|err| crate::error::AvengerChartError::InternalError(err.to_string()))?;
-            Ok(Self {
-                measurer: Arc::new(measurer),
-                cache_tag: Arc::from(format!("{text_math:?}")),
-            })
-        }
+        Ok(Self {
+            measurer: Arc::new(measurer),
+            cache_tag: Arc::from(format!("typst-text:{text_math:?}")),
+        })
     }
 }
 

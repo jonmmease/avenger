@@ -584,7 +584,7 @@ mod tests {
 
     #[cfg(feature = "typst-math")]
     #[test]
-    fn typst_math_pdf_keeps_plain_runs_as_text_and_math_as_paths() {
+    fn typst_math_pdf_uses_whole_line_paths_for_first_stage() {
         let scene_graph = SceneGraph {
             width: 120.0,
             height: 30.0,
@@ -609,7 +609,6 @@ mod tests {
         });
 
         let svg = renderer.render_svg_for_pdf(&scene_graph).unwrap();
-        let tree = svg2pdf::usvg::Tree::from_str(&svg, &renderer.usvg_options()).unwrap();
         let pdf = renderer.render_scene_graph(&scene_graph).unwrap();
         let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
         let compact_extracted = extracted
@@ -617,21 +616,57 @@ mod tests {
             .filter(|c| !c.is_whitespace())
             .collect::<String>();
 
-        assert!(svg.contains(">speed </text>"));
-        assert!(svg.contains("> now</text>"));
         assert!(svg.contains("<path "));
+        assert!(!svg.contains("<text"));
         assert!(!svg.contains("$v^2$"));
-        assert!(tree.has_text_nodes());
         assert!(pdf.starts_with(b"%PDF-"));
-        assert!(pdf_contains(&pdf, b"/ToUnicode"));
         assert!(
-            compact_extracted.contains("speednow"),
-            "extracted text was: {extracted:?}"
+            compact_extracted.is_empty(),
+            "Typst text is path-only in this first PDF phase, extracted text was: {extracted:?}"
         );
-        assert!(
-            !compact_extracted.contains("v2") && !compact_extracted.contains("$v^2$"),
-            "math should be visible paths in this phase, extracted text was: {extracted:?}"
-        );
+    }
+
+    #[cfg(feature = "typst-math")]
+    #[test]
+    fn typst_text_extractor_returns_pdf_embedding_artifact() {
+        use avenger_text::path::{
+            TextPathExtractionConfig, TextPathExtractor, TextPathOutputMode, TypstTextPathExtractor,
+        };
+        use avenger_text::types::{FontStyle, FontWeight};
+
+        let text_math = avenger_text::math::TextMathConfig {
+            mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
+            ..Default::default()
+        };
+        let extractor = TypstTextPathExtractor::with_vendor_typst(text_math).unwrap();
+        let text = "speed $v^2$ now".to_string();
+        let color = [0.0, 0.0, 0.0, 1.0];
+        let font = "Atkinson Hyperlegible Next".to_string();
+        let font_weight = FontWeight::default();
+        let font_style = FontStyle::default();
+        let buffer = extractor
+            .extract_text_paths(&TextPathExtractionConfig {
+                text: &text,
+                color: &color,
+                font: &font,
+                font_size: 12.0,
+                font_weight: &font_weight,
+                font_style: &font_style,
+                limit: f32::INFINITY,
+                output_mode: TextPathOutputMode::AllText,
+                include_pdf_text_layer: true,
+            })
+            .unwrap();
+
+        assert!(!buffer.items.is_empty());
+        assert_eq!(buffer.pdf_layers.len(), 1);
+        let pdf_layer = &buffer.pdf_layers[0];
+        assert_eq!(pdf_layer.byte_range, 0..text.len());
+        assert_eq!(pdf_layer.layer.semantic_text, text);
+        assert!(!pdf_layer.layer.glyph_runs.is_empty());
+        assert!(!pdf_layer.font_resources.is_empty());
+        assert!(pdf_layer.bounds.width > 0.0);
+        assert!(pdf_layer.bounds.height > 0.0);
     }
 
     #[test]

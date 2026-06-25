@@ -726,7 +726,7 @@ fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
     let svg = SvgRenderer::new()
         .with_options(SvgRenderOptions {
             font_resolution: svg_visual_font_resolution(),
-            #[cfg(feature = "typst-math-svg-pdf")]
+            #[cfg(any(feature = "typst-text", feature = "typst-math-svg-pdf"))]
             text_math: sidecar_text_math_config(category),
             ..Default::default()
         })
@@ -801,7 +801,7 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
     let pdf = SceneGraphPdfRenderer::new()
         .with_options(avenger_pdf::PdfRenderOptions {
             font_resolution: pdf_visual_font_resolution(),
-            #[cfg(feature = "typst-math-svg-pdf")]
+            #[cfg(any(feature = "typst-text", feature = "typst-math-svg-pdf"))]
             text_math: sidecar_text_math_config(category),
             ..Default::default()
         })
@@ -916,7 +916,7 @@ fn visual_text_math_config(category: &str) -> avenger_text::math::TextMathConfig
     }
 }
 
-#[cfg(feature = "typst-math-svg-pdf")]
+#[cfg(any(feature = "typst-text", feature = "typst-math-svg-pdf"))]
 fn sidecar_text_math_config(category: &str) -> avenger_text::math::TextMathConfig {
     visual_text_math_config(category)
 }

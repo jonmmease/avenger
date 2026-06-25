@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[cfg(feature = "typst-math")]
-use lyon_path::{geom::point, Event};
+use lyon_path::geom::point;
 
 #[cfg(any(feature = "cosmic-text", feature = "typst-math"))]
 use crate::measurement::TextMeasurer;
@@ -29,10 +29,12 @@ use crate::measurement::cosmic::{make_cosmic_text_buffer, measure_text_buffer, F
 #[cfg(feature = "cosmic-text")]
 use crate::rasterization::cosmic::import_path_commands_with_offset;
 
-#[cfg(feature = "typst-math")]
-use crate::math::{
-    layout_math_string_artifact, math_string_options_with_outputs, MathAwareLaidOutRun,
-    MathMarkupErrorPolicy, TextMarkupMode, TextMathConfig,
+#[cfg(feature = "typst-text")]
+use crate::math::TextMathConfig;
+
+#[cfg(feature = "typst-text")]
+use crate::typst_text::{
+    bounds_from_metrics, tight_bounds_from_metrics, typeset_line, TypstTextMeasurer,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,13 +107,18 @@ pub struct PlainTextPathRun {
 
 #[cfg(feature = "typst-math")]
 #[derive(Debug, Clone, PartialEq)]
-pub struct TextMathPdfLayer {
+pub struct TextPdfLayer {
     pub byte_range: Range<usize>,
     pub x: f32,
     pub y_offset: f32,
+    pub bounds: TextBounds,
     pub layer: avenger_typst::MathPdfTextLayer,
     pub font_resources: Vec<avenger_typst::MathFontResource>,
 }
+
+#[cfg(feature = "typst-math")]
+#[deprecated(note = "use TextPdfLayer")]
+pub type TextMathPdfLayer = TextPdfLayer;
 
 #[derive(Debug, Clone)]
 pub struct TextPathBuffer {
@@ -119,7 +126,7 @@ pub struct TextPathBuffer {
     pub items: Vec<TextPathItem>,
     pub plain_runs: Vec<PlainTextPathRun>,
     #[cfg(feature = "typst-math")]
-    pub math_pdf_layers: Vec<TextMathPdfLayer>,
+    pub pdf_layers: Vec<TextPdfLayer>,
 }
 
 impl TextPathBuffer {
@@ -129,7 +136,7 @@ impl TextPathBuffer {
             items: Vec::new(),
             plain_runs: Vec::new(),
             #[cfg(feature = "typst-math")]
-            math_pdf_layers: Vec::new(),
+            pdf_layers: Vec::new(),
         }
     }
 }
@@ -301,26 +308,21 @@ fn extract_cosmic_paths_with_resources(
     Ok(output)
 }
 
-#[cfg(feature = "typst-math")]
+#[cfg(feature = "typst-text")]
 #[derive(Debug, Clone)]
-pub struct MathAwareTextPathExtractor<P> {
-    plain: P,
+pub struct TypstTextPathExtractor {
     typst: avenger_typst::AvengerTypst,
     math: TextMathConfig,
 }
 
-#[cfg(feature = "typst-math")]
-impl<P> MathAwareTextPathExtractor<P> {
-    pub fn new(plain: P, typst: avenger_typst::AvengerTypst, math: TextMathConfig) -> Self {
-        Self { plain, typst, math }
+#[cfg(feature = "typst-text")]
+impl TypstTextPathExtractor {
+    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMathConfig) -> Self {
+        Self { typst, math }
     }
 
-    pub fn with_vendor_typst(
-        plain: P,
-        math: TextMathConfig,
-    ) -> Result<Self, avenger_typst::TypstInitError> {
+    pub fn with_vendor_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Ok(Self::new(
-            plain,
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
                 backend: avenger_typst::TypstEngineBackend::VendorTypst,
                 ..avenger_typst::TypstEngineConfig::default()
@@ -330,146 +332,94 @@ impl<P> MathAwareTextPathExtractor<P> {
     }
 }
 
-#[cfg(feature = "typst-math")]
-impl<P> TextPathExtractor for MathAwareTextPathExtractor<P>
-where
-    P: TextMeasurer + TextPathExtractor,
-{
+#[cfg(feature = "typst-text")]
+impl TextMeasurer for TypstTextPathExtractor {
+    fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
+        TypstTextMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
+    }
+
+    fn measure_font_metrics(
+        &self,
+        config: &crate::measurement::FontMetricsConfig,
+    ) -> crate::measurement::FontMetrics {
+        TypstTextMeasurer::new(self.typst.clone(), self.math.clone()).measure_font_metrics(config)
+    }
+}
+
+#[cfg(feature = "typst-text")]
+impl TextPathExtractor for TypstTextPathExtractor {
     fn extract_text_paths(
         &self,
         config: &TextPathExtractionConfig,
     ) -> Result<TextPathBuffer, AvengerTextError> {
-        if matches!(self.math.mode, TextMarkupMode::Plain) || config.text.is_empty() {
-            return self.plain.extract_text_paths(config);
-        }
-
-        let mut math = self.math.clone();
-        math.math_style.fill = avenger_typst::Color::rgba(
-            config.color[0],
-            config.color[1],
-            config.color[2],
-            config.color[3],
-        );
-        let options = math_string_options_with_outputs(
-            &math,
+        let text = crate::measurement::try_truncate_text_to_limit_with(
+            config.text,
+            config.limit,
+            |candidate| {
+                let measurement = TextMeasurementConfig {
+                    text: candidate,
+                    font: config.font,
+                    font_size: config.font_size,
+                    font_weight: config.font_weight,
+                    font_style: config.font_style,
+                };
+                Ok::<f32, AvengerTextError>(self.measure_text_bounds(&measurement).width)
+            },
+        )?;
+        let result = typeset_line(
+            &self.typst,
+            &self.math,
+            &text,
+            config.font,
             config.font_size,
-            avenger_typst::MathOutputRequest {
+            config.font_weight,
+            config.font_style,
+            *config.color,
+            avenger_typst::TextLineOutputRequest {
                 paths: true,
                 raster: None,
                 pdf_text_layer: config.include_pdf_text_layer,
             },
+        )
+        .map_err(|err| {
+            AvengerTextError::InternalError(format!("Typst text path extraction failed: {err}"))
+        })?;
+        let tight_bounds = tight_bounds_from_metrics(result.artifact.metrics);
+        let bounds = bounds_from_metrics(
+            result.artifact.metrics,
+            config.font_size,
+            result.has_math_spans,
         );
+        let y_offset = bounds.ascent - tight_bounds.ascent;
+        let mut output = TextPathBuffer::new(bounds.clone());
 
-        let artifact = match self.typst.typeset_math_string(config.text, &options) {
-            Ok(artifact) => artifact,
-            Err(err) => {
-                return match math.error_policy {
-                    MathMarkupErrorPolicy::TreatInvalidMathAsLiteral
-                    | MathMarkupErrorPolicy::UseFallbackBounds => {
-                        self.plain.extract_text_paths(config)
-                    }
-                    MathMarkupErrorPolicy::ErrorOnPathExtraction => {
-                        Err(AvengerTextError::InternalError(format!(
-                            "Typst math path extraction failed: {err}"
-                        )))
-                    }
-                };
-            }
-        };
-
-        if !artifact
-            .runs
-            .iter()
-            .any(|run| matches!(run, avenger_typst::MathStringRun::Math(_)))
-        {
-            return self.plain.extract_text_paths(config);
+        let paths = result.artifact.paths.ok_or_else(|| {
+            AvengerTextError::InternalError(
+                "Typst text path output was requested but missing".to_string(),
+            )
+        })?;
+        let byte_range = 0..text.len();
+        for item in paths.items {
+            output.items.push(typst_path_item_to_text_path_item(
+                item,
+                byte_range.clone(),
+                0.0,
+                y_offset,
+            ));
         }
 
-        let Some(layout) =
-            layout_math_string_artifact(&self.plain, artifact, &config.to_measurement_config())
-        else {
-            return self.plain.extract_text_paths(config);
-        };
-
-        let mut output = TextPathBuffer::new(layout.bounds.clone());
-        for run in layout.runs {
-            match run {
-                MathAwareLaidOutRun::Plain {
-                    text,
-                    byte_range,
-                    x,
-                    y_offset,
-                    bounds,
-                } => {
-                    output.plain_runs.push(PlainTextPathRun {
-                        text: text.clone(),
-                        byte_range,
-                        x,
-                        y_offset,
-                        bounds,
-                    });
-                    if config.output_mode == TextPathOutputMode::AllText {
-                        let run_config = plain_run_config(config, &text);
-                        let mut plain_paths = self.plain.extract_text_paths(&run_config)?;
-                        for item in &mut plain_paths.items {
-                            translate_path_item(item, x, y_offset);
-                        }
-                        output.items.extend(plain_paths.items);
-                    }
-                }
-                MathAwareLaidOutRun::Math {
-                    byte_range,
-                    x,
-                    y_offset,
-                    artifact,
-                    ..
-                } => {
-                    let Some(paths) = artifact.paths else {
-                        return Err(AvengerTextError::InternalError(
-                            "Typst math path output was requested but missing".to_string(),
-                        ));
-                    };
-                    for item in paths.items {
-                        output.items.push(typst_path_item_to_text_path_item(
-                            item,
-                            byte_range.clone(),
-                            x,
-                            y_offset,
-                        ));
-                    }
-                    #[cfg(feature = "typst-math")]
-                    if let Some(layer) = artifact.pdf_text {
-                        output.math_pdf_layers.push(TextMathPdfLayer {
-                            byte_range,
-                            x,
-                            y_offset,
-                            layer,
-                            font_resources: artifact.font_resources,
-                        });
-                    }
-                }
-            }
+        if let Some(layer) = result.artifact.pdf_text {
+            output.pdf_layers.push(TextPdfLayer {
+                byte_range,
+                x: 0.0,
+                y_offset,
+                bounds,
+                layer,
+                font_resources: result.artifact.font_resources,
+            });
         }
 
         Ok(output)
-    }
-}
-
-#[cfg(feature = "typst-math")]
-fn plain_run_config<'a>(
-    config: &'a TextPathExtractionConfig<'a>,
-    text: &'a String,
-) -> TextPathExtractionConfig<'a> {
-    TextPathExtractionConfig {
-        text,
-        color: config.color,
-        font: config.font,
-        font_size: config.font_size,
-        font_weight: config.font_weight,
-        font_style: config.font_style,
-        limit: f32::INFINITY,
-        output_mode: TextPathOutputMode::AllText,
-        include_pdf_text_layer: false,
     }
 }
 
@@ -557,51 +507,9 @@ fn rgba_from_typst_color(color: avenger_typst::Color) -> [f32; 4] {
     [color.r, color.g, color.b, color.a]
 }
 
-#[cfg(feature = "typst-math")]
-fn translate_path_item(item: &mut TextPathItem, x: f32, y: f32) {
-    item.path = translate_path(&item.path, x, y);
-}
-
-#[cfg(feature = "typst-math")]
-fn translate_path(path: &Path, x: f32, y: f32) -> Path {
-    let mut builder = Path::builder();
-    for event in path.iter() {
-        match event {
-            Event::Begin { at } => {
-                builder.begin(point(at.x + x, at.y + y));
-            }
-            Event::Line { to, .. } => {
-                builder.line_to(point(to.x + x, to.y + y));
-            }
-            Event::Quadratic { ctrl, to, .. } => {
-                builder
-                    .quadratic_bezier_to(point(ctrl.x + x, ctrl.y + y), point(to.x + x, to.y + y));
-            }
-            Event::Cubic {
-                ctrl1, ctrl2, to, ..
-            } => {
-                builder.cubic_bezier_to(
-                    point(ctrl1.x + x, ctrl1.y + y),
-                    point(ctrl2.x + x, ctrl2.y + y),
-                    point(to.x + x, to.y + y),
-                );
-            }
-            Event::End { close, .. } => {
-                if close {
-                    builder.close();
-                } else {
-                    builder.end(false);
-                }
-            }
-        }
-    }
-    builder.build()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::measurement::{FontMetrics, FontMetricsConfig};
     use crate::types::{FontStyle, FontWeight, FontWeightNameSpec};
 
     fn config(text: &String, output_mode: TextPathOutputMode) -> TextPathExtractionConfig<'_> {
@@ -641,99 +549,28 @@ mod tests {
             .all(|item| item.kind == TextPathKind::PlainGlyph));
     }
 
-    #[cfg(feature = "typst-math")]
-    #[derive(Debug, Clone)]
-    struct FixedPlainExtractor;
-
-    #[cfg(feature = "typst-math")]
-    impl TextMeasurer for FixedPlainExtractor {
-        fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
-            TextBounds {
-                width: config.text.chars().count() as f32 * 10.0,
-                height: 10.0,
-                ascent: 7.0,
-                descent: 3.0,
-                line_height: 12.0,
-            }
-        }
-
-        fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
-            FontMetrics::fallback(config.font_size)
-        }
-    }
-
-    #[cfg(feature = "typst-math")]
-    impl TextPathExtractor for FixedPlainExtractor {
-        fn extract_text_paths(
-            &self,
-            config: &TextPathExtractionConfig,
-        ) -> Result<TextPathBuffer, AvengerTextError> {
-            let bounds = self.measure_text_bounds(&config.to_measurement_config());
-            let mut buffer = TextPathBuffer::new(bounds.clone());
-            buffer.plain_runs.push(PlainTextPathRun {
-                text: config.text.to_string(),
-                byte_range: 0..config.text.len(),
-                x: 0.0,
-                y_offset: 0.0,
-                bounds,
-            });
-            let mut builder = Path::builder();
-            builder.begin(point(0.0, 0.0));
-            builder.line_to(point(1.0, 0.0));
-            builder.line_to(point(1.0, 1.0));
-            builder.close();
-            buffer.items.push(TextPathItem {
-                path: builder.build(),
-                fill: Some(*config.color),
-                stroke: None,
-                byte_range: 0..config.text.len(),
-                kind: TextPathKind::PlainGlyph,
-            });
-            Ok(buffer)
-        }
-    }
-
-    #[cfg(feature = "typst-math")]
-    fn math_config() -> TextMathConfig {
-        TextMathConfig {
-            mode: TextMarkupMode::TypstMathDelimited(Default::default()),
+    #[cfg(feature = "typst-text")]
+    fn math_config() -> crate::math::TextMathConfig {
+        crate::math::TextMathConfig {
+            mode: crate::math::TextMarkupMode::TypstMathDelimited(Default::default()),
             ..Default::default()
         }
     }
 
-    #[cfg(feature = "typst-math")]
+    #[cfg(feature = "typst-text")]
     #[test]
-    fn math_aware_extractor_returns_math_paths_and_plain_runs() {
+    fn typst_text_extractor_returns_whole_line_paths_and_pdf_layer() {
         let typst = avenger_typst::AvengerTypst::new(Default::default()).unwrap();
-        let extractor = MathAwareTextPathExtractor::new(FixedPlainExtractor, typst, math_config());
-        let text = "speed $v^2$".to_string();
-        let buffer = extractor
-            .extract_text_paths(&config(&text, TextPathOutputMode::MathOnly))
-            .unwrap();
-
-        assert_eq!(buffer.plain_runs.len(), 1);
-        assert_eq!(buffer.items.len(), 1);
-        assert_eq!(buffer.items[0].kind, TextPathKind::MathGlyph);
-        assert_eq!(buffer.math_pdf_layers.len(), 1);
-    }
-
-    #[cfg(feature = "typst-math")]
-    #[test]
-    fn math_aware_extractor_can_include_plain_paths() {
-        let typst = avenger_typst::AvengerTypst::new(Default::default()).unwrap();
-        let extractor = MathAwareTextPathExtractor::new(FixedPlainExtractor, typst, math_config());
+        let extractor = TypstTextPathExtractor::new(typst, math_config());
         let text = "speed $v^2$".to_string();
         let buffer = extractor
             .extract_text_paths(&config(&text, TextPathOutputMode::AllText))
             .unwrap();
 
-        assert!(buffer
-            .items
-            .iter()
-            .any(|item| item.kind == TextPathKind::PlainGlyph));
-        assert!(buffer
-            .items
-            .iter()
-            .any(|item| item.kind == TextPathKind::MathGlyph));
+        assert!(buffer.plain_runs.is_empty());
+        assert_eq!(buffer.items.len(), 1);
+        assert_eq!(buffer.items[0].kind, TextPathKind::MathGlyph);
+        assert_eq!(buffer.pdf_layers.len(), 1);
+        assert_eq!(buffer.pdf_layers[0].layer.semantic_text, text);
     }
 }
