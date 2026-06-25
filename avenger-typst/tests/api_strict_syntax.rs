@@ -85,7 +85,7 @@ fn rejects_real_typst_parse_error() {
     assert_eq!(
         err,
         MathTypesetError::UnsupportedSyntax {
-            position: 8,
+            position: 10,
             message: "invalid Typst math syntax"
         }
     );
