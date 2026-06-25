@@ -325,7 +325,7 @@ where
                     // We need to rasterize glyph and write it to next_atlas
                     let path = cache
                         .get_outline_commands(font_system, physical_glyph.cache_key)
-                        .map(import_path_commands);
+                        .map(|commands| import_path_commands(&commands));
 
                     // Create new glyph image
                     let glyph_data = GlyphData {
@@ -351,26 +351,37 @@ where
 }
 
 /// Import cosmic text path commands into a lyon path
-fn import_path_commands(commands: &[Command]) -> lyon_path::Path {
+pub(crate) fn import_path_commands(commands: &[Command]) -> lyon_path::Path {
+    import_path_commands_with_offset(commands, 0.0, 0.0)
+}
+
+pub(crate) fn import_path_commands_with_offset(
+    commands: &[Command],
+    x_offset: f32,
+    y_offset: f32,
+) -> lyon_path::Path {
     let mut builder = lyon_path::Builder::new().with_svg();
 
     for command in commands {
         match command {
             Command::MoveTo(p) => {
-                builder.move_to(Point::new(p.x, -p.y));
+                builder.move_to(Point::new(x_offset + p.x, y_offset - p.y));
             }
             Command::LineTo(p) => {
-                builder.line_to(Point::new(p.x, -p.y));
+                builder.line_to(Point::new(x_offset + p.x, y_offset - p.y));
             }
             Command::CurveTo(p1, p2, p3) => {
                 builder.cubic_bezier_to(
-                    Point::new(p1.x, -p1.y),
-                    Point::new(p2.x, -p2.y),
-                    Point::new(p3.x, -p3.y),
+                    Point::new(x_offset + p1.x, y_offset - p1.y),
+                    Point::new(x_offset + p2.x, y_offset - p2.y),
+                    Point::new(x_offset + p3.x, y_offset - p3.y),
                 );
             }
             Command::QuadTo(p1, p2) => {
-                builder.quadratic_bezier_to(Point::new(p1.x, -p1.y), Point::new(p2.x, -p2.y));
+                builder.quadratic_bezier_to(
+                    Point::new(x_offset + p1.x, y_offset - p1.y),
+                    Point::new(x_offset + p2.x, y_offset - p2.y),
+                );
             }
             Command::Close => builder.close(),
         };

@@ -4,6 +4,7 @@ pub mod fonts;
 #[cfg(feature = "typst-math")]
 pub mod math;
 pub mod measurement;
+pub mod path;
 pub mod rasterization;
 pub mod types;
 
