@@ -11,6 +11,8 @@ use crate::{
     types::{FontStyle, FontWeight},
 };
 
+const DEFAULT_MATH_LINE_LEADING_FACTOR: f32 = 0.2;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TextMarkupMode {
     Plain,
@@ -238,9 +240,12 @@ where
 {
     let mut measured_runs = Vec::new();
     let mut width = 0.0f32;
-    let mut ascent = 0.0f32;
-    let mut descent = 0.0f32;
+    let mut tight_ascent = 0.0f32;
+    let mut tight_descent = 0.0f32;
+    let mut math_ascent = 0.0f32;
+    let mut math_descent = 0.0f32;
     let mut line_height = 0.0f32;
+    let line_box = font_line_box(plain, config);
 
     for run in artifact.runs {
         match run {
@@ -253,8 +258,8 @@ where
                     config.font_weight,
                     config.font_style,
                 );
-                ascent = ascent.max(run_bounds.ascent);
-                descent = descent.max(run_bounds.descent);
+                tight_ascent = tight_ascent.max(run_bounds.ascent);
+                tight_descent = tight_descent.max(run_bounds.descent);
                 line_height = line_height.max(run_bounds.line_height);
                 let run_width = run_bounds.width;
                 measured_runs.push(PendingRun::Plain {
@@ -268,8 +273,10 @@ where
             }
             MathStringRun::Math(run) => {
                 let metrics = run.artifact.metrics;
-                ascent = ascent.max(metrics.ascent);
-                descent = descent.max(metrics.descent);
+                tight_ascent = tight_ascent.max(metrics.ascent);
+                tight_descent = tight_descent.max(metrics.descent);
+                math_ascent = math_ascent.max(metrics.ascent);
+                math_descent = math_descent.max(metrics.descent);
                 line_height = line_height.max(metrics.height);
                 measured_runs.push(PendingRun::Math {
                     source: run.source,
@@ -285,13 +292,20 @@ where
         }
     }
 
+    let mut ascent = tight_ascent.max(line_box.ascent);
+    let mut descent = tight_descent.max(line_box.descent);
+    if math_ascent > line_box.ascent || math_descent > line_box.descent {
+        let leading = math_line_leading(config.font_size, line_box.leading);
+        ascent += leading * 0.5;
+        descent += leading * 0.5;
+    }
     let height = ascent + descent;
     let bounds = TextBounds {
         width,
         height,
         ascent,
         descent,
-        line_height: line_height.max(height),
+        line_height: line_height.max(line_box.line_height).max(height),
     };
 
     let mut x = 0.0;
@@ -305,6 +319,43 @@ where
         .collect();
 
     Some(MathAwareTextLayout { bounds, runs })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LineBox {
+    ascent: f32,
+    descent: f32,
+    line_height: f32,
+    leading: f32,
+}
+
+fn font_line_box<P>(plain: &P, config: &TextMeasurementConfig) -> LineBox
+where
+    P: TextMeasurer,
+{
+    let metrics = plain.measure_font_metrics(&FontMetricsConfig {
+        font: config.font,
+        font_size: config.font_size,
+        font_weight: config.font_weight,
+        font_style: config.font_style,
+    });
+    let font_height = metrics.height.max(0.0);
+    let line_height = metrics
+        .line_height
+        .max(font_height)
+        .max(config.font_size.max(0.0));
+    let leading = (line_height - font_height).max(0.0);
+
+    LineBox {
+        ascent: metrics.ascent.max(0.0) + leading * 0.5,
+        descent: metrics.descent.max(0.0) + leading * 0.5,
+        line_height,
+        leading,
+    }
+}
+
+fn math_line_leading(font_size: f32, font_leading: f32) -> f32 {
+    font_leading.max(font_size.max(0.0) * DEFAULT_MATH_LINE_LEADING_FACTOR)
 }
 
 fn math_string_options(math: &TextMathConfig, font_size: f32) -> MathStringOptions {
@@ -434,6 +485,7 @@ impl PendingRun {
 mod tests {
     use super::*;
     use crate::types::FontWeightNameSpec;
+    use avenger_typst::{MathDisplayHint, MathRun};
 
     #[derive(Debug, Clone)]
     struct FixedMeasurer;
@@ -475,6 +527,39 @@ mod tests {
             font_weight: &WEIGHT,
             font_style: &STYLE,
         }
+    }
+
+    fn synthetic_math_string_artifact(metrics: TypesetMetrics) -> MathStringArtifact {
+        MathStringArtifact {
+            source: "$x$".to_string(),
+            runs: vec![MathStringRun::Math(MathRun {
+                source: "x".to_string(),
+                byte_range: 1..2,
+                delimiter: MathDelimiterInfo {
+                    full_range: 0..3,
+                    opening_range: 0..1,
+                    closing_range: 2..3,
+                    display_hint: MathDisplayHint::Inline,
+                },
+                artifact: MathRunArtifact {
+                    metrics,
+                    paths: None,
+                    raster: None,
+                    pdf_text: None,
+                    font_resources: Vec::new(),
+                    warnings: Vec::new(),
+                },
+            })],
+            font_resources: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    fn assert_close(left: f32, right: f32) {
+        assert!(
+            (left - right).abs() <= 1e-4,
+            "expected {left} to be close to {right}"
+        );
     }
 
     #[test]
@@ -541,6 +626,54 @@ mod tests {
         assert!(matches!(
             &layout.runs[1],
             MathAwareLaidOutRun::Math { source, x, .. } if source == "v^2" && *x == 60.0
+        ));
+    }
+
+    #[test]
+    fn math_layout_uses_plain_line_box_for_short_math() {
+        let layout = layout_math_string_artifact(
+            &FixedMeasurer,
+            synthetic_math_string_artifact(TypesetMetrics {
+                width: 8.0,
+                height: 6.0,
+                baseline: 4.0,
+                ascent: 4.0,
+                descent: 2.0,
+            }),
+            &measurement_config("$x$"),
+        )
+        .unwrap();
+
+        assert_close(layout.bounds.height, 12.0);
+        assert_close(layout.bounds.ascent, 9.0);
+        assert_close(layout.bounds.descent, 3.0);
+        assert!(matches!(
+            &layout.runs[0],
+            MathAwareLaidOutRun::Math { y_offset, .. } if *y_offset > 0.0
+        ));
+    }
+
+    #[test]
+    fn tall_math_layout_adds_normal_leading() {
+        let layout = layout_math_string_artifact(
+            &FixedMeasurer,
+            synthetic_math_string_artifact(TypesetMetrics {
+                width: 12.0,
+                height: 20.0,
+                baseline: 12.0,
+                ascent: 12.0,
+                descent: 8.0,
+            }),
+            &measurement_config("$x$"),
+        )
+        .unwrap();
+
+        assert_close(layout.bounds.height, 22.0);
+        assert_close(layout.bounds.ascent, 13.0);
+        assert_close(layout.bounds.descent, 9.0);
+        assert!(matches!(
+            &layout.runs[0],
+            MathAwareLaidOutRun::Math { y_offset, .. } if *y_offset == 1.0
         ));
     }
 
