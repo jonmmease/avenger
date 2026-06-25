@@ -67,7 +67,7 @@ impl TextMeasurer for TypstTextMeasurer {
     }
 
     fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
-        FontMetrics::fallback(config.font_size)
+        typst_font_metrics(config)
     }
 }
 
@@ -329,7 +329,7 @@ where
     }
 
     fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
-        FontMetrics::fallback(config.font_size)
+        typst_font_metrics(config)
     }
 }
 
@@ -415,7 +415,7 @@ pub(crate) fn bounds_from_metrics(
     if has_math_spans {
         padded_math_line_bounds(tight, font_size)
     } else {
-        tight
+        plain_line_bounds(tight, font_size)
     }
 }
 
@@ -441,6 +441,98 @@ fn padded_math_line_bounds(tight: TextBounds, font_size: f32) -> TextBounds {
         ascent: tight.ascent + top,
         descent: tight.descent + bottom,
         line_height: height.max(tight.line_height),
+    }
+}
+
+fn plain_line_bounds(tight: TextBounds, font_size: f32) -> TextBounds {
+    let height = tight.height.max(font_size.max(1.0));
+    let extra = (height - tight.height).max(0.0);
+    let top = extra * 0.5;
+    let bottom = extra - top;
+
+    TextBounds {
+        width: tight.width,
+        height,
+        ascent: tight.ascent + top,
+        descent: tight.descent + bottom,
+        line_height: height,
+    }
+}
+
+fn typst_font_metrics(config: &FontMetricsConfig) -> FontMetrics {
+    embedded_atkinson_font_metrics(config)
+        .unwrap_or_else(|| FontMetrics::fallback(config.font_size))
+}
+
+fn embedded_atkinson_font_metrics(config: &FontMetricsConfig) -> Option<FontMetrics> {
+    let data = embedded_atkinson_face_data(config.font_weight, *config.font_style)?;
+    let face = ttf_parser::Face::parse(data, 0).ok()?;
+    Some(metrics_from_ttf_face(&face, config.font_size))
+}
+
+fn embedded_atkinson_face_data(
+    font_weight: &FontWeight,
+    font_style: FontStyle,
+) -> Option<&'static [u8]> {
+    let target_weight = font_weight_number(font_weight);
+    crate::fonts::embedded_fonts()
+        .iter()
+        .filter_map(|font| {
+            let (weight, style) = atkinson_face_info(font.name)?;
+            (style == font_style).then_some((font.data, weight.abs_diff(target_weight)))
+        })
+        .min_by_key(|(_, distance)| *distance)
+        .map(|(data, _)| data)
+}
+
+fn atkinson_face_info(name: &str) -> Option<(u16, FontStyle)> {
+    let style = if name.ends_with("Italic") {
+        FontStyle::Italic
+    } else {
+        FontStyle::Normal
+    };
+    let weight = if name.contains("ExtraBold") {
+        800
+    } else if name.contains("ExtraLight") {
+        250
+    } else if name.contains("SemiBold") {
+        600
+    } else if name.contains("Light") {
+        300
+    } else if name.contains("Medium") {
+        500
+    } else if name.contains("Bold") {
+        700
+    } else if name.contains("Regular") || name.ends_with("-Italic") {
+        400
+    } else {
+        return None;
+    };
+    Some((weight, style))
+}
+
+fn font_weight_number(weight: &FontWeight) -> u16 {
+    match weight {
+        FontWeight::Name(FontWeightNameSpec::Normal) => 400,
+        FontWeight::Name(FontWeightNameSpec::Bold) => 700,
+        FontWeight::Number(value) => value.round().clamp(1.0, 1000.0) as u16,
+    }
+}
+
+fn metrics_from_ttf_face(face: &ttf_parser::Face<'_>, font_size: f32) -> FontMetrics {
+    let scale = font_size / face.units_per_em() as f32;
+    let ascent = face.ascender().max(0) as f32 * scale;
+    let descent = (-face.descender()).max(0) as f32 * scale;
+    let height = ascent + descent;
+    let line_gap = face.line_gap().max(0) as f32 * scale;
+    let line_height = (height + line_gap).max(height).max(font_size);
+
+    FontMetrics {
+        ascent,
+        descent,
+        height,
+        line_gap,
+        line_height,
     }
 }
 
@@ -584,7 +676,7 @@ mod tests {
     }
 
     #[test]
-    fn math_bounds_include_typst_par_leading() {
+    fn typst_bounds_report_plain_line_box_and_math_leading() {
         let metrics = avenger_typst::TypesetMetrics {
             width: 20.0,
             height: 10.0,
@@ -593,13 +685,33 @@ mod tests {
             descent: 3.0,
         };
 
-        let plain = bounds_from_metrics(metrics, 10.0, false);
+        let plain = bounds_from_metrics(metrics, 16.0, false);
         let math = bounds_from_metrics(metrics, 10.0, true);
 
-        assert_eq!(plain.height, 10.0);
+        assert_eq!(plain.width, 20.0);
+        assert_eq!(plain.height, 16.0);
+        assert_eq!(plain.line_height, 16.0);
+        assert_eq!(plain.ascent, 10.0);
+        assert_eq!(plain.descent, 6.0);
         assert!((math.height - 16.5).abs() <= 1e-4);
         assert!((math.ascent - 10.25).abs() <= 1e-4);
         assert!((math.descent - 6.25).abs() <= 1e-4);
+        assert_eq!(math.line_height, 16.5);
+    }
+
+    #[test]
+    fn typst_font_metrics_use_embedded_face_metrics() {
+        let metrics = typst_font_metrics(&FontMetricsConfig {
+            font: "sans-serif",
+            font_size: 16.0,
+            font_weight: &WEIGHT,
+            font_style: &STYLE,
+        });
+
+        assert!(metrics.ascent > 0.0);
+        assert!(metrics.descent > 0.0);
+        assert!(metrics.height > 16.0);
+        assert!(metrics.line_height >= metrics.height);
     }
 
     #[test]

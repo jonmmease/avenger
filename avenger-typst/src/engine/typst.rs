@@ -585,6 +585,36 @@ const ATKINSON_BOLD: &[u8] = include_bytes!(
 const ATKINSON_BOLD_ITALIC: &[u8] = include_bytes!(
     "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-BoldItalic.ttf"
 );
+const ATKINSON_EXTRA_BOLD: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-ExtraBold.ttf"
+);
+const ATKINSON_EXTRA_BOLD_ITALIC: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-ExtraBoldItalic.ttf"
+);
+const ATKINSON_EXTRA_LIGHT: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-ExtraLight.ttf"
+);
+const ATKINSON_EXTRA_LIGHT_ITALIC: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-ExtraLightItalic.ttf"
+);
+const ATKINSON_LIGHT: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Light.ttf"
+);
+const ATKINSON_LIGHT_ITALIC: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-LightItalic.ttf"
+);
+const ATKINSON_MEDIUM: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Medium.ttf"
+);
+const ATKINSON_MEDIUM_ITALIC: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-MediumItalic.ttf"
+);
+const ATKINSON_SEMI_BOLD: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-SemiBold.ttf"
+);
+const ATKINSON_SEMI_BOLD_ITALIC: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-SemiBoldItalic.ttf"
+);
 
 fn load_typst_fonts(config: &TypstEngineConfig) -> Result<Vec<Font>, TypstInitError> {
     let mut fonts = Vec::new();
@@ -593,6 +623,16 @@ fn load_typst_fonts(config: &TypstEngineConfig) -> Result<Vec<Font>, TypstInitEr
         ATKINSON_ITALIC,
         ATKINSON_BOLD,
         ATKINSON_BOLD_ITALIC,
+        ATKINSON_EXTRA_BOLD,
+        ATKINSON_EXTRA_BOLD_ITALIC,
+        ATKINSON_EXTRA_LIGHT,
+        ATKINSON_EXTRA_LIGHT_ITALIC,
+        ATKINSON_LIGHT,
+        ATKINSON_LIGHT_ITALIC,
+        ATKINSON_MEDIUM,
+        ATKINSON_MEDIUM_ITALIC,
+        ATKINSON_SEMI_BOLD,
+        ATKINSON_SEMI_BOLD_ITALIC,
     ] {
         fonts.extend(Font::iter(typst_library::foundations::Bytes::new(
             data.to_vec(),
@@ -1582,7 +1622,31 @@ fn unsupported(position: usize, message: &'static str) -> MathTypesetError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
     use typst_library::math::{AttachElem, FracElem, MatElem, RootElem};
+
+    #[test]
+    fn typst_font_loader_embeds_atkinson_weight_style_faces() {
+        let fonts = load_typst_fonts(&TypstEngineConfig::default()).unwrap();
+        let book = FontBook::from_fonts(&fonts);
+        let Some((_, ids)) = book
+            .families()
+            .find(|(family, _)| family == &"Atkinson Hyperlegible Next")
+        else {
+            panic!("Atkinson Hyperlegible Next should be embedded");
+        };
+
+        let faces = ids
+            .into_iter()
+            .filter_map(|id| book.info(id))
+            .map(|info| (info.variant.weight.to_number(), info.variant.style))
+            .collect::<HashSet<_>>();
+
+        for weight in [250, 300, 400, 500, 600, 700, 800] {
+            assert!(faces.contains(&(weight, FontStyle::Normal)));
+            assert!(faces.contains(&(weight, FontStyle::Italic)));
+        }
+    }
 
     #[test]
     fn lowers_basic_symbol_text() {

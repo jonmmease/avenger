@@ -103,28 +103,33 @@ fn save_actual_failure_image(actual: &RgbaImage, baseline_path: &str) -> Result<
     Ok(actual_path)
 }
 
+fn serialized_compiled_plot_copy(compiled: &CompiledPlot) -> CompiledPlot {
+    let serialized =
+        bincode::serialize(compiled).expect("Failed to serialize CompiledPlot with bincode");
+    bincode::deserialize(&serialized).expect("Failed to deserialize CompiledPlot from bincode")
+}
+
 /// Evaluate a CompiledPlot directly and after a bincode round-trip.
 async fn evaluate_compiled_plot_with_serialization(
     compiled: &CompiledPlot,
     ctx: &datafusion::prelude::SessionContext,
     params: Option<IndexMap<String, ScalarValue>>,
 ) -> (EvaluatedPlot, EvaluatedPlot) {
-    // Evaluate directly first
-    let direct_result = compiled
-        .evaluate(ctx, params.clone())
+    let direct_program = serialized_compiled_plot_copy(compiled);
+    let mut direct_session = Arc::new(direct_program)
+        .instantiate(Arc::new(ctx.clone()))
+        .with_options(visual_session_options());
+    let direct_result = direct_session
+        .evaluate(evaluation_request(params.clone()))
         .await
         .expect("Failed to evaluate plot directly");
 
-    // Perform serialization round-trip through bincode
-    let serialized =
-        bincode::serialize(&compiled).expect("Failed to serialize CompiledPlot with bincode");
-
-    let deserialized: CompiledPlot =
-        bincode::deserialize(&serialized).expect("Failed to deserialize CompiledPlot from bincode");
-
-    // Evaluate from the deserialized plot
-    let bincode_result = deserialized
-        .evaluate(ctx, params)
+    let deserialized = serialized_compiled_plot_copy(compiled);
+    let mut serialized_session = Arc::new(deserialized)
+        .instantiate(Arc::new(ctx.clone()))
+        .with_options(visual_session_options());
+    let bincode_result = serialized_session
+        .evaluate(evaluation_request(params))
         .await
         .expect("Failed to evaluate plot after bincode deserialization");
 
@@ -151,19 +156,21 @@ async fn evaluate_compiled_plot_with_serialization_and_options(
     params: Option<IndexMap<String, ScalarValue>>,
     options: EvaluationOptions,
 ) -> (EvaluatedPlot, EvaluatedPlot) {
-    let direct_result = compiled
-        .evaluate_with_options(ctx, params.clone(), options.clone())
+    let direct_program = serialized_compiled_plot_copy(compiled);
+    let mut direct_session = Arc::new(direct_program)
+        .instantiate(Arc::new(ctx.clone()))
+        .with_options(visual_session_options());
+    let direct_result = direct_session
+        .evaluate(evaluation_request(params.clone()).options(options.clone()))
         .await
         .expect("Failed to evaluate plot directly with options");
 
-    let serialized =
-        bincode::serialize(&compiled).expect("Failed to serialize CompiledPlot with bincode");
-
-    let deserialized: CompiledPlot =
-        bincode::deserialize(&serialized).expect("Failed to deserialize CompiledPlot from bincode");
-
-    let bincode_result = deserialized
-        .evaluate_with_options(ctx, params, options)
+    let deserialized = serialized_compiled_plot_copy(compiled);
+    let mut serialized_session = Arc::new(deserialized)
+        .instantiate(Arc::new(ctx.clone()))
+        .with_options(visual_session_options());
+    let bincode_result = serialized_session
+        .evaluate(evaluation_request(params).options(options))
         .await
         .expect("Failed to evaluate plot after bincode deserialization with options");
 
@@ -187,8 +194,12 @@ async fn evaluate_compiled_plot(
     ctx: &datafusion::prelude::SessionContext,
     params: Option<IndexMap<String, ScalarValue>>,
 ) -> EvaluatedPlot {
-    compiled
-        .evaluate(ctx, params)
+    let program = serialized_compiled_plot_copy(compiled);
+    let mut session = Arc::new(program)
+        .instantiate(Arc::new(ctx.clone()))
+        .with_options(visual_session_options());
+    session
+        .evaluate(evaluation_request(params))
         .await
         .expect("Failed to evaluate plot")
 }
@@ -280,14 +291,18 @@ async fn evaluate_compiled_plot_with_options(
     params: Option<IndexMap<String, ScalarValue>>,
     options: EvaluationOptions,
 ) -> EvaluatedPlot {
-    compiled
-        .evaluate_with_options(ctx, params, options)
+    let program = serialized_compiled_plot_copy(compiled);
+    let mut session = Arc::new(program)
+        .instantiate(Arc::new(ctx.clone()))
+        .with_options(visual_session_options());
+    session
+        .evaluate(evaluation_request(params).options(options))
         .await
         .expect("Failed to evaluate plot with options")
 }
 
 pub async fn render_scene_graph_to_wgpu_image(scene_graph: &SceneGraph) -> RgbaImage {
-    render_scene_graph_to_wgpu_image_with_config(scene_graph, CanvasConfig::default())
+    render_scene_graph_to_wgpu_image_with_config(scene_graph, visual_canvas_config())
         .await
         .0
 }
@@ -905,20 +920,39 @@ fn pdf_visual_font_resolution() -> FontResolutionOptions {
 }
 
 #[cfg(feature = "typst-math-layout")]
-fn visual_text_math_config(category: &str) -> avenger_text::math::TextMathConfig {
-    if category == "typst_math" {
-        avenger_text::math::TextMathConfig {
-            mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
-            ..Default::default()
-        }
-    } else {
-        avenger_text::math::TextMathConfig::default()
+fn visual_text_math_config(_category: &str) -> avenger_text::math::TextMathConfig {
+    avenger_text::math::TextMathConfig {
+        mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
+        ..Default::default()
     }
 }
 
 #[cfg(any(feature = "typst-text", feature = "typst-math-svg-pdf"))]
 fn sidecar_text_math_config(category: &str) -> avenger_text::math::TextMathConfig {
     visual_text_math_config(category)
+}
+
+fn visual_session_options() -> PlotSessionOptions {
+    #[cfg(feature = "typst-math-layout")]
+    {
+        return PlotSessionOptions::default().text_math(visual_text_math_config(""));
+    }
+
+    #[allow(unreachable_code)]
+    PlotSessionOptions::default()
+}
+
+fn visual_canvas_config() -> CanvasConfig {
+    visual_canvas_config_from(CanvasConfig::default())
+}
+
+fn visual_canvas_config_from(mut config: CanvasConfig) -> CanvasConfig {
+    #[cfg(feature = "typst-math-layout")]
+    {
+        config.text_math = visual_text_math_config("");
+    }
+
+    config
 }
 
 fn sidecar_session_options(category: &str) -> PlotSessionOptions {
@@ -1147,12 +1181,14 @@ pub async fn assert_visual_match_wgpu_only_with_canvas_config(
         evaluate_compiled_plot_with_serialization(compiled, ctx, params).await;
     let (direct_image, direct_status) = render_scene_graph_to_wgpu_image_with_config(
         &direct_result.scene_graph,
-        canvas_config.clone(),
+        visual_canvas_config_from(canvas_config.clone()),
     )
     .await;
-    let (serialized_image, serialized_status) =
-        render_scene_graph_to_wgpu_image_with_config(&serialized_result.scene_graph, canvas_config)
-            .await;
+    let (serialized_image, serialized_status) = render_scene_graph_to_wgpu_image_with_config(
+        &serialized_result.scene_graph,
+        visual_canvas_config_from(canvas_config),
+    )
+    .await;
 
     let config = VisualTestConfig {
         threshold: tolerance,
@@ -1228,14 +1264,16 @@ pub async fn assert_visual_match_with_canvas_config_and_sidecars(
         .await;
     let direct_image = render_scene_graph_to_wgpu_image_with_config(
         &direct_result.scene_graph,
-        canvas_config.clone(),
+        visual_canvas_config_from(canvas_config.clone()),
     )
     .await
     .0;
-    let serialized_image =
-        render_scene_graph_to_wgpu_image_with_config(&serialized_result.scene_graph, canvas_config)
-            .await
-            .0;
+    let serialized_image = render_scene_graph_to_wgpu_image_with_config(
+        &serialized_result.scene_graph,
+        visual_canvas_config_from(canvas_config),
+    )
+    .await
+    .0;
 
     let config = VisualTestConfig {
         threshold: tolerance,
