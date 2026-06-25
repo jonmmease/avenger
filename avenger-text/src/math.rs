@@ -1,7 +1,7 @@
 use avenger_typst::{
     AvengerTypst, MathDelimiterInfo, MathDelimiterOptions, MathLimits, MathOutputRequest,
-    MathRunArtifact, MathStringOptions, MathStringRun, MathStyle, MathSyntaxMode, TypesetMetrics,
-    TypstEngineConfig,
+    MathRunArtifact, MathStringArtifact, MathStringOptions, MathStringRun, MathStyle,
+    MathSyntaxMode, TypesetMetrics, TypstEngineConfig,
 };
 
 use crate::{
@@ -211,6 +211,17 @@ where
         return None;
     }
 
+    layout_math_string_artifact(plain, artifact, config)
+}
+
+pub(crate) fn layout_math_string_artifact<P>(
+    plain: &P,
+    artifact: MathStringArtifact,
+    config: &TextMeasurementConfig,
+) -> Option<MathAwareTextLayout>
+where
+    P: TextMeasurer,
+{
     let mut measured_runs = Vec::new();
     let mut width = 0.0f32;
     let mut ascent = 0.0f32;
@@ -283,6 +294,22 @@ where
 }
 
 fn math_string_options(math: &TextMathConfig, font_size: f32) -> MathStringOptions {
+    math_string_options_with_outputs(
+        math,
+        font_size,
+        MathOutputRequest {
+            paths: false,
+            raster: None,
+            pdf_text_layer: false,
+        },
+    )
+}
+
+pub(crate) fn math_string_options_with_outputs(
+    math: &TextMathConfig,
+    font_size: f32,
+    outputs: MathOutputRequest,
+) -> MathStringOptions {
     let delimiters = match &math.mode {
         TextMarkupMode::Plain => MathDelimiterOptions::default(),
         TextMarkupMode::TypstMathDelimited(delimiters) => delimiters.clone(),
@@ -293,11 +320,7 @@ fn math_string_options(math: &TextMathConfig, font_size: f32) -> MathStringOptio
     MathStringOptions {
         text_style: Default::default(),
         math_style,
-        outputs: MathOutputRequest {
-            paths: false,
-            raster: None,
-            pdf_text_layer: false,
-        },
+        outputs,
         delimiters,
         syntax: math.syntax,
         limits: math.limits,

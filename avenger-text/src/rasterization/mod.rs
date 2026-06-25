@@ -6,6 +6,9 @@ pub mod cosmic;
 #[cfg(target_arch = "wasm32")]
 pub mod html_canvas;
 
+#[cfg(feature = "typst-math-raster")]
+pub mod math;
+
 use crate::{
     error::AvengerTextError,
     measurement::{TextBounds, TextMeasurementConfig},
