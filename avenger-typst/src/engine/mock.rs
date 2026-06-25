@@ -7,7 +7,9 @@ use crate::pdf::{
 };
 use crate::raster::{MathRasterArtifact, RgbaImageData};
 use crate::style::{Color, MathFontSpec};
-use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
+use crate::types::{
+    MathFragmentOptions, MathRunArtifact, TextLineArtifact, TextLineOptions, TypesetMetrics,
+};
 use crate::warnings::MathTypesetWarning;
 
 #[derive(Debug, Clone, Default)]
@@ -78,6 +80,72 @@ impl MockMathEngine {
             warnings: vec![MathTypesetWarning::MockBackend],
         })
     }
+
+    pub(crate) fn typeset_text_line(
+        &self,
+        source: &str,
+        options: &TextLineOptions,
+    ) -> Result<TextLineArtifact, MathTypesetError> {
+        let char_count = source.chars().count().max(1) as f32;
+        let font_size = options.text_style.font_size.max(1.0);
+        let width = char_count * font_size * 0.6;
+        let height = font_size * 1.2;
+        let metrics = TypesetMetrics {
+            width,
+            height,
+            baseline: font_size * 0.8,
+            ascent: font_size * 0.8,
+            descent: font_size * 0.4,
+        };
+
+        let font_resource = mock_font_resource_for_family(&options.text_style.font_family);
+        let font_resources = if options.outputs.pdf_text_layer {
+            vec![font_resource.clone()]
+        } else {
+            Vec::new()
+        };
+
+        let pdf_text = if options.outputs.pdf_text_layer {
+            Some(mock_pdf_text_layer(
+                source,
+                metrics,
+                options.text_style.font_size,
+                options.text_style.fill,
+                font_resource.id,
+            ))
+        } else {
+            None
+        };
+
+        let paths = if options.outputs.paths {
+            Some(mock_path_artifact(metrics, options.text_style.fill))
+        } else {
+            None
+        };
+
+        let raster = options.outputs.raster.map(|request| MathRasterArtifact {
+            image: RgbaImageData {
+                width: 1,
+                height: 1,
+                data: vec![0, 0, 0, 0],
+            },
+            scale: request.scale,
+            logical_width: width,
+            logical_height: height,
+            origin_x: 0.0,
+            origin_y: 0.0,
+        });
+
+        Ok(TextLineArtifact {
+            source: source.to_string(),
+            metrics,
+            paths,
+            raster,
+            pdf_text,
+            font_resources,
+            warnings: vec![MathTypesetWarning::MockBackend],
+        })
+    }
 }
 
 fn mock_path_artifact(metrics: TypesetMetrics, fill: Color) -> MathPathArtifact {
@@ -140,9 +208,13 @@ fn mock_font_resource(font: &MathFontSpec) -> MathFontResource {
         MathFontSpec::FontBytes(id) => format!("font-bytes-{}", id.0),
     };
 
+    mock_font_resource_for_family(&family)
+}
+
+fn mock_font_resource_for_family(family: &str) -> MathFontResource {
     MathFontResource {
         id: MathFontResourceId(0),
-        family,
+        family: family.to_string(),
         postscript_name: Some("AvengerTypstMock".to_string()),
         face_index: 0,
         units_per_em: 1000.0,

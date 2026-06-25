@@ -17,6 +17,9 @@ crates = [
 root_files = []
 
 [deny_dependencies]
+# Rasterization is implemented outside the vendored Typst tree in
+# `avenger-typst` behind its `raster` feature using Avenger's workspace
+# `tiny-skia` dependency. Keep Typst's renderer stack out of the vendor tree.
 crates = [
   "typst",
   "typst-html",
@@ -28,6 +31,7 @@ crates = [
   "typst-dev-assets",
   "hayagriva",
   "hayro-syntax",
+  "tiny-skia",
   "syntect",
   "two-face",
   "wasmi",

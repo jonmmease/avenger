@@ -6,7 +6,7 @@ use crate::pdf::{MathFontResource, MathFontResourceId};
 use crate::style::{MathFontConfig, MathStrictness};
 use crate::types::{
     MathFragmentOptions, MathRun, MathRunArtifact, MathStringArtifact, MathStringOptions,
-    MathStringRun, PlainTextRun,
+    MathStringRun, PlainTextRun, TextLineArtifact, TextLineOptions,
 };
 
 #[cfg(feature = "serde")]
@@ -154,6 +154,22 @@ impl AvengerTypst {
             warnings,
         })
     }
+
+    pub fn typeset_text_line(
+        &self,
+        source: &str,
+        options: &TextLineOptions,
+    ) -> Result<TextLineArtifact, MathTypesetError> {
+        validate_source_limits(source, options.limits)?;
+        let segments = parse_segments(source, &options.delimiters)?;
+        validate_math_segments(&segments, options.limits)?;
+
+        match &self.engine {
+            EngineInner::Mock(engine) => engine.typeset_text_line(source, options),
+            #[cfg(feature = "vendor-typst")]
+            EngineInner::Typst(engine) => engine.typeset_text_line(source, options),
+        }
+    }
 }
 
 #[cfg(feature = "vendor-typst")]
@@ -177,6 +193,35 @@ fn validate_source_limits(source: &str, limits: MathLimits) -> Result<(), MathTy
             limit: limits.max_source_bytes,
         });
     }
+    Ok(())
+}
+
+fn validate_math_segments(
+    segments: &[ParsedSegment],
+    limits: MathLimits,
+) -> Result<(), MathTypesetError> {
+    let math_span_count = segments
+        .iter()
+        .filter(|segment| matches!(segment, ParsedSegment::Math { .. }))
+        .count();
+    if math_span_count > limits.max_math_spans {
+        return Err(MathTypesetError::TooManyMathSpans {
+            actual: math_span_count,
+            limit: limits.max_math_spans,
+        });
+    }
+
+    for segment in segments {
+        if let ParsedSegment::Math {
+            source,
+            source_range,
+            ..
+        } = segment
+        {
+            validate_math_fragment(source, limits, source_range.clone())?;
+        }
+    }
+
     Ok(())
 }
 

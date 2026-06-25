@@ -13,6 +13,7 @@ crate-type = [ "cdylib", "rlib",]
 default = [ "cosmic-text", "rayon",]
 cosmic-text = [ "dep:cosmic-text", "lazy_static", "avenger-text/cosmic-text",]
 typst-math-raster = [ "cosmic-text", "avenger-text/typst-math-raster",]
+typst-text-raster = [ "rayon", "avenger-text/typst-text-raster",]
 deno = []
 
 [dependencies]

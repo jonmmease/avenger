@@ -1,5 +1,6 @@
 use avenger_typst::{
-    AvengerTypst, MathOutputRequest, MathStringRun, RasterRequest, TypstEngineConfig,
+    AvengerTypst, MathOutputRequest, MathStringRun, RasterRequest, TextLineOutputRequest,
+    TypstEngineConfig,
 };
 
 fn engine() -> AvengerTypst {
@@ -82,4 +83,37 @@ fn string_artifact_deduplicates_mock_font_resources() {
             artifact.font_resources[0].id
         );
     }
+}
+
+#[test]
+fn text_line_outputs_can_be_requested_from_mock_engine() {
+    let mut options = avenger_typst::TextLineOptions::default();
+    options.outputs = TextLineOutputRequest {
+        paths: true,
+        raster: Some(RasterRequest { scale: 2.0 }),
+        pdf_text_layer: true,
+    };
+
+    let artifact = engine()
+        .typeset_text_line("Price \\$7, score $R^2$ = 0.94", &options)
+        .unwrap();
+
+    assert_eq!(artifact.source, "Price \\$7, score $R^2$ = 0.94");
+    assert!(artifact.paths.is_some());
+    assert!(artifact.raster.is_some());
+    assert!(artifact.pdf_text.is_some());
+    assert_eq!(artifact.font_resources.len(), 1);
+}
+
+#[test]
+fn text_line_metrics_only_disables_heavy_outputs() {
+    let mut options = avenger_typst::TextLineOptions::default();
+    options.outputs.paths = false;
+
+    let artifact = engine().typeset_text_line("plain $x$", &options).unwrap();
+
+    assert!(artifact.metrics.width > 0.0);
+    assert!(artifact.paths.is_none());
+    assert!(artifact.raster.is_none());
+    assert!(artifact.pdf_text.is_none());
 }

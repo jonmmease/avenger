@@ -83,6 +83,48 @@ impl Default for MathStringOptions {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct TextLineOutputRequest {
+    pub paths: bool,
+    pub raster: Option<RasterRequest>,
+    pub pdf_text_layer: bool,
+}
+
+impl Default for TextLineOutputRequest {
+    fn default() -> Self {
+        Self {
+            paths: true,
+            raster: None,
+            pdf_text_layer: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct TextLineOptions {
+    pub text_style: PlainTextStyle,
+    pub math_style: MathStyle,
+    pub outputs: TextLineOutputRequest,
+    pub delimiters: MathDelimiterOptions,
+    pub syntax: MathSyntaxMode,
+    pub limits: MathLimits,
+}
+
+impl Default for TextLineOptions {
+    fn default() -> Self {
+        Self {
+            text_style: PlainTextStyle::default(),
+            math_style: MathStyle::default(),
+            outputs: TextLineOutputRequest::default(),
+            delimiters: MathDelimiterOptions::default(),
+            syntax: MathSyntaxMode::TypstFragmentStrict,
+            limits: MathLimits::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TypesetMetrics {
@@ -133,6 +175,18 @@ pub struct MathRunArtifact {
 pub struct MathStringArtifact {
     pub source: String,
     pub runs: Vec<MathStringRun>,
+    pub font_resources: Vec<MathFontResource>,
+    pub warnings: Vec<MathTypesetWarning>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct TextLineArtifact {
+    pub source: String,
+    pub metrics: TypesetMetrics,
+    pub paths: Option<MathPathArtifact>,
+    pub raster: Option<MathRasterArtifact>,
+    pub pdf_text: Option<MathPdfTextLayer>,
     pub font_resources: Vec<MathFontResource>,
     pub warnings: Vec<MathTypesetWarning>,
 }

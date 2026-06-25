@@ -2,7 +2,7 @@
 
 use avenger_typst::{
     AvengerTypst, MathFragmentOptions, MathOutputRequest, MathStringRun, RasterRequest,
-    TypstEngineBackend, TypstEngineConfig,
+    TextLineOutputRequest, TypstEngineBackend, TypstEngineConfig,
 };
 use typst_syntax::{parse_math, SyntaxKind};
 
@@ -150,6 +150,118 @@ fn vendor_string_artifact_deduplicates_pdf_font_resources() {
             artifact.font_resources[0].id
         );
     }
+}
+
+#[test]
+fn vendor_backend_layouts_mixed_text_line_with_one_baseline() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut options = avenger_typst::TextLineOptions::default();
+    options.outputs.paths = false;
+
+    let artifact = engine
+        .typeset_text_line("Price \\$7, score $R^2$ = 0.94", &options)
+        .unwrap();
+
+    assert!(artifact.metrics.width > 0.0);
+    assert!(artifact.metrics.height > 0.0);
+    assert!(artifact.metrics.ascent > 0.0);
+    assert!(artifact.metrics.descent >= 0.0);
+    assert!(artifact.paths.is_none());
+    assert!(artifact.raster.is_none());
+    assert!(artifact.pdf_text.is_none());
+}
+
+#[test]
+fn vendor_backend_lowers_mixed_text_line_to_paths() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+
+    let artifact = engine
+        .typeset_text_line("Order $J_0(x)$", &Default::default())
+        .unwrap();
+    let paths = artifact.paths.as_ref().unwrap();
+
+    assert_eq!(paths.logical_width, artifact.metrics.width);
+    assert_eq!(paths.logical_height, artifact.metrics.height);
+    assert!(!paths.items.is_empty());
+}
+
+#[test]
+fn vendor_backend_returns_pdf_glyph_layer_for_text_line() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut options = avenger_typst::TextLineOptions::default();
+    options.outputs = TextLineOutputRequest {
+        paths: false,
+        raster: None,
+        pdf_text_layer: true,
+    };
+
+    let artifact = engine.typeset_text_line("score $R^2$", &options).unwrap();
+    let pdf_text = artifact.pdf_text.as_ref().unwrap();
+
+    assert_eq!(pdf_text.semantic_text, "score $R^2$");
+    assert_eq!(pdf_text.logical_width, artifact.metrics.width);
+    assert_eq!(pdf_text.logical_height, artifact.metrics.height);
+    assert!(!pdf_text.glyph_runs.is_empty());
+    assert!(!artifact.font_resources.is_empty());
+}
+
+#[test]
+fn vendor_backend_keeps_text_line_math_digits_out_of_text_font() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut options = avenger_typst::TextLineOptions::default();
+    options.outputs = TextLineOutputRequest {
+        paths: false,
+        raster: None,
+        pdf_text_layer: true,
+    };
+
+    let artifact = engine
+        .typeset_text_line("Bessel equation $x^2 y + x y + (x^2 - n^2)y = 0$", &options)
+        .unwrap();
+    let atkinson = artifact
+        .font_resources
+        .iter()
+        .find(|resource| resource.family == "Atkinson Hyperlegible Next")
+        .expect("bundled text font should be used for the plain prefix")
+        .id;
+    let pdf_text = artifact.pdf_text.as_ref().unwrap();
+    let mut saw_math_zero = false;
+
+    for run in &pdf_text.glyph_runs {
+        let text = run
+            .glyphs
+            .iter()
+            .map(|glyph| glyph.unicode.as_str())
+            .collect::<String>();
+
+        if text == "Bessel equation " {
+            assert_eq!(run.font, atkinson);
+        } else {
+            assert_ne!(run.font, atkinson, "math run {text:?} used text font");
+            saw_math_zero |= text == "0";
+        }
+    }
+
+    assert!(
+        saw_math_zero,
+        "test expression did not expose the math zero"
+    );
 }
 
 #[test]

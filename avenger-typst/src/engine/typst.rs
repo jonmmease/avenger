@@ -5,6 +5,7 @@ use comemo::Track;
 use ttf_parser::{GlyphId, OutlineBuilder};
 
 use crate::api::TypstEngineConfig;
+use crate::delimiter::{parse_segments, ParsedSegment};
 use crate::error::{MathTypesetError, TypstInitError};
 use crate::paths::{
     MathPathArtifact, MathPathCommand, MathPathData, MathPathItem, MathPathKind, MathStroke,
@@ -15,8 +16,14 @@ use crate::pdf::{
 };
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
-use crate::style::{Color, MathDisplayStyle};
-use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
+use crate::raster::RasterRequest;
+use crate::style::{
+    Color, FontStyle as AvengerFontStyle, FontWeight as AvengerFontWeight, MathDisplayStyle,
+    MathStyle, PlainTextStyle,
+};
+use crate::types::{
+    MathFragmentOptions, MathRunArtifact, TextLineArtifact, TextLineOptions, TypesetMetrics,
+};
 
 use typst_library::diag::{FileError, FileResult, SourceResult};
 use typst_library::engine::{Engine, Route, Sink, Traced};
@@ -25,15 +32,15 @@ use typst_library::foundations::{
     SequenceElem, ShowSet, StyleChain, Styles, SymbolElem, Value,
 };
 use typst_library::introspection::{EmptyIntrospector, Introspector, Locator};
-use typst_library::layout::{Abs, Frame, FrameItem, InlineItem, Size, Transform};
+use typst_library::layout::{Abs, Frame, FrameItem, InlineElem, InlineItem, Size, Transform};
 use typst_library::math::{
     AlignPointElem, AttachElem, EquationElem, FracElem, LrElem, MatElem, MathSize, PrimesElem,
     RootElem,
 };
 use typst_library::routines::{Arenas, Pair, RealizationKind, Routines, SpanMode};
 use typst_library::text::{
-    is_default_ignorable, Font, FontBook, FontFamily, FontInstance, FontList, SpaceElem, TextElem,
-    TextItem, TextSize,
+    is_default_ignorable, Font, FontBook, FontFamily, FontFlags, FontInstance, FontList, FontStyle,
+    FontWeight, SpaceElem, TextElem, TextItem, TextSize,
 };
 use typst_library::visualize::{
     Color as TypstColor, Curve, CurveItem, FixedStroke, Geometry, Paint, ProcessColorSpace, Shape,
@@ -47,26 +54,30 @@ use typst_utils::{LazyHash, Protected};
 pub(crate) struct TypstMathEngine {
     world: Arc<TypstMathWorld>,
     math_font_family: String,
+    text_font_family: String,
 }
 
 impl std::fmt::Debug for TypstMathEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TypstMathEngine")
             .field("math_font_family", &self.math_font_family)
+            .field("text_font_family", &self.text_font_family)
             .finish_non_exhaustive()
     }
 }
 
 impl TypstMathEngine {
     pub(crate) fn new(config: &TypstEngineConfig) -> Result<Self, TypstInitError> {
-        let fonts = load_math_fonts(config)?;
+        let fonts = load_typst_fonts(config)?;
         let book = FontBook::from_fonts(&fonts);
         let math_font_family = select_math_font_family(&book, config)?;
+        let text_font_family = select_default_text_font_family(&book)?;
         let world = Arc::new(TypstMathWorld::new(fonts));
 
         Ok(Self {
             world,
             math_font_family,
+            text_font_family,
         })
     }
 
@@ -99,6 +110,46 @@ impl TypstMathEngine {
         };
 
         Ok(MathRunArtifact {
+            metrics,
+            paths,
+            raster,
+            pdf_text,
+            font_resources,
+            warnings: Vec::new(),
+        })
+    }
+
+    pub(crate) fn typeset_text_line(
+        &self,
+        source: &str,
+        options: &TextLineOptions,
+    ) -> Result<TextLineArtifact, MathTypesetError> {
+        let frame = self.layout_text_line_frame(source, options)?;
+        let metrics = metrics_from_frame(&frame);
+        let path_artifact = if options.outputs.paths || options.outputs.raster.is_some() {
+            Some(paths_from_frame(&frame, metrics)?)
+        } else {
+            None
+        };
+        let raster =
+            raster_from_path_artifact_request(path_artifact.as_ref(), options.outputs.raster)?;
+        let paths = if options.outputs.paths {
+            path_artifact
+        } else {
+            None
+        };
+        let pdf_artifact = if options.outputs.pdf_text_layer {
+            Some(pdf_text_from_frame(&frame, metrics, source)?)
+        } else {
+            None
+        };
+        let (pdf_text, font_resources) = match pdf_artifact {
+            Some(artifact) => (Some(artifact.text_layer), artifact.font_resources),
+            None => (None, Vec::new()),
+        };
+
+        Ok(TextLineArtifact {
+            source: source.to_string(),
             metrics,
             paths,
             raster,
@@ -157,6 +208,97 @@ impl TypstMathEngine {
         Ok(items)
     }
 
+    fn layout_text_line_frame(
+        &self,
+        source: &str,
+        options: &TextLineOptions,
+    ) -> Result<Frame, MathTypesetError> {
+        let segments = parse_segments(source, &options.delimiters)?;
+        let library = self.world.library();
+        let root_styles = StyleChain::new(&library.styles);
+
+        let mut contents = Vec::new();
+        let mut segment_styles = Vec::new();
+
+        for segment in segments {
+            match segment {
+                ParsedSegment::Plain { text, .. } => {
+                    if text.is_empty() {
+                        continue;
+                    }
+                    contents.push(TextElem::packed(text));
+                    segment_styles.push(self.plain_text_styles(&options.text_style));
+                }
+                ParsedSegment::Math { source, .. } => {
+                    let body = lower_math_source(&source)?;
+                    let equation = Packed::new(EquationElem::new(body).with_block(false));
+                    contents.push(
+                        InlineElem::layouter(equation, typst_layout::layout_equation_inline).pack(),
+                    );
+                    segment_styles.push(self.math_text_styles(&options.math_style));
+                }
+            }
+        }
+
+        if contents.is_empty() {
+            let mut frame = Frame::soft(Size::zero());
+            frame.set_baseline(Abs::zero());
+            return Ok(frame);
+        }
+
+        let chains = segment_styles
+            .iter()
+            .map(|styles| root_styles.chain(styles))
+            .collect::<Vec<_>>();
+        let pairs = contents
+            .iter()
+            .zip(chains.iter())
+            .map(|(content, styles)| (content, *styles))
+            .collect::<Vec<_>>();
+
+        let world: &dyn World = self.world.as_ref();
+        let empty_introspector = EmptyIntrospector;
+        let traced = Traced::default();
+        let mut sink = Sink::new();
+        let mut engine = Engine {
+            world: world.track(),
+            library,
+            introspector: Protected::new(empty_introspector.track()),
+            traced: traced.track(),
+            sink: sink.track_mut(),
+            route: Route::default(),
+        };
+
+        let region = Size::new(Abs::inf(), Abs::inf());
+        let mut locator = Locator::root().split();
+        let fragment = typst_layout::layout_inline(
+            &mut engine,
+            &pairs,
+            &mut locator,
+            root_styles,
+            region,
+            false,
+        )
+        .map_err(|errors| MathTypesetError::Engine {
+            start: 0,
+            end: source.len(),
+            message: errors
+                .into_iter()
+                .next()
+                .map(|error| error.message.to_string())
+                .unwrap_or_else(|| "Typst text line layout failed".to_string()),
+        })?;
+
+        let mut frames = fragment.into_frames();
+        if frames.len() == 1 {
+            Ok(frames.remove(0))
+        } else {
+            Err(MathTypesetError::UnsupportedOutput(
+                "Typst text line layout produced multiple frames",
+            ))
+        }
+    }
+
     fn override_styles(&self, options: &MathFragmentOptions) -> Styles {
         let mut styles = Styles::new();
         styles.set(
@@ -176,6 +318,63 @@ impl TypstMathEngine {
         }
         styles
     }
+
+    fn plain_text_styles(&self, style: &PlainTextStyle) -> Styles {
+        let mut styles = Styles::new();
+        styles.set(
+            TextElem::font,
+            FontList(vec![FontFamily::new(
+                &self.resolve_text_font_family(&style.font_family),
+            )]),
+        );
+        styles.set(
+            TextElem::size,
+            TextSize(Abs::pt(style.font_size.max(1.0) as f64).into()),
+        );
+        styles.set(TextElem::fill, Paint::Solid(typst_color(style.fill)));
+        styles.set(TextElem::weight, typst_font_weight(&style.font_weight));
+        styles.set(TextElem::style, typst_font_style(style.font_style));
+        styles
+    }
+
+    fn math_text_styles(&self, style: &MathStyle) -> Styles {
+        let mut styles = Styles::new();
+        styles.set(
+            TextElem::font,
+            FontList(vec![FontFamily::new(&self.math_font_family)]),
+        );
+        styles.set(
+            TextElem::size,
+            TextSize(Abs::pt(style.font_size.max(1.0) as f64).into()),
+        );
+        styles.set(TextElem::fill, Paint::Solid(typst_color(style.fill)));
+        styles.set(TextElem::weight, FontWeight::from_number(450));
+        styles.set(
+            EquationElem::size,
+            if matches!(style.display_style, MathDisplayStyle::Display) {
+                MathSize::Display
+            } else {
+                MathSize::Text
+            },
+        );
+        styles
+    }
+
+    fn resolve_text_font_family(&self, requested: &str) -> String {
+        let book = self.world.book();
+        for family in requested.split(',').map(normalize_font_family) {
+            if family.eq_ignore_ascii_case("sans-serif") {
+                return self.text_font_family.clone();
+            }
+            if family.eq_ignore_ascii_case("serif") || family.eq_ignore_ascii_case("monospace") {
+                continue;
+            }
+            if let Some(family) = find_font_family(book, &family) {
+                return family;
+            }
+        }
+        self.text_font_family.clone()
+    }
 }
 
 #[cfg(feature = "raster")]
@@ -183,16 +382,7 @@ fn raster_from_path_artifact(
     path_artifact: Option<&MathPathArtifact>,
     options: &MathFragmentOptions,
 ) -> Result<Option<crate::raster::MathRasterArtifact>, MathTypesetError> {
-    options
-        .outputs
-        .raster
-        .map(|request| {
-            let path_artifact = path_artifact.ok_or(MathTypesetError::UnsupportedOutput(
-                "math path output is required for raster output",
-            ))?;
-            rasterize_path_artifact(path_artifact, request)
-        })
-        .transpose()
+    raster_from_path_artifact_request(path_artifact, options.outputs.raster)
 }
 
 #[cfg(not(feature = "raster"))]
@@ -201,6 +391,35 @@ fn raster_from_path_artifact(
     options: &MathFragmentOptions,
 ) -> Result<Option<crate::raster::MathRasterArtifact>, MathTypesetError> {
     if options.outputs.raster.is_some() {
+        Err(MathTypesetError::UnsupportedOutput(
+            "avenger-typst raster output requires the raster feature",
+        ))
+    } else {
+        Ok(None)
+    }
+}
+
+#[cfg(feature = "raster")]
+fn raster_from_path_artifact_request(
+    path_artifact: Option<&MathPathArtifact>,
+    request: Option<RasterRequest>,
+) -> Result<Option<crate::raster::MathRasterArtifact>, MathTypesetError> {
+    request
+        .map(|request| {
+            let path_artifact = path_artifact.ok_or(MathTypesetError::UnsupportedOutput(
+                "path output is required for raster output",
+            ))?;
+            rasterize_path_artifact(path_artifact, request)
+        })
+        .transpose()
+}
+
+#[cfg(not(feature = "raster"))]
+fn raster_from_path_artifact_request(
+    _path_artifact: Option<&MathPathArtifact>,
+    request: Option<RasterRequest>,
+) -> Result<Option<crate::raster::MathRasterArtifact>, MathTypesetError> {
+    if request.is_some() {
         Err(MathTypesetError::UnsupportedOutput(
             "avenger-typst raster output requires the raster feature",
         ))
@@ -354,16 +573,46 @@ fn pass_through_html_span(content: Content, _color: TypstColor) -> Content {
     content
 }
 
-fn load_math_fonts(config: &TypstEngineConfig) -> Result<Vec<Font>, TypstInitError> {
+const ATKINSON_REGULAR: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Regular.ttf"
+);
+const ATKINSON_ITALIC: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Italic.ttf"
+);
+const ATKINSON_BOLD: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Bold.ttf"
+);
+const ATKINSON_BOLD_ITALIC: &[u8] = include_bytes!(
+    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-BoldItalic.ttf"
+);
+
+fn load_typst_fonts(config: &TypstEngineConfig) -> Result<Vec<Font>, TypstInitError> {
     let mut fonts = Vec::new();
+    for data in [
+        ATKINSON_REGULAR,
+        ATKINSON_ITALIC,
+        ATKINSON_BOLD,
+        ATKINSON_BOLD_ITALIC,
+    ] {
+        fonts.extend(Font::iter(typst_library::foundations::Bytes::new(
+            data.to_vec(),
+        )));
+    }
+
     for path in candidate_font_paths(config) {
         let Ok(data) = std::fs::read(&path) else {
             continue;
         };
-        fonts.extend(Font::iter(typst_library::foundations::Bytes::new(data)));
+        fonts.extend(
+            Font::iter(typst_library::foundations::Bytes::new(data))
+                .filter(|font| font.info().flags.contains(FontFlags::MATH)),
+        );
     }
 
-    if fonts.is_empty() {
+    if !fonts
+        .iter()
+        .any(|font| font.info().flags.contains(FontFlags::MATH))
+    {
         return Err(TypstInitError::BackendUnavailable(
             "no supported math font found",
         ));
@@ -475,8 +724,20 @@ fn select_math_font_family(
         ]);
 
     for family in preferred {
-        if book.contains_family(family) {
-            return Ok(family.to_string());
+        if let Some(family) = find_math_font_family(book, family) {
+            return Ok(family);
+        }
+    }
+
+    Err(TypstInitError::BackendUnavailable(
+        "no supported math font found",
+    ))
+}
+
+fn select_default_text_font_family(book: &FontBook) -> Result<String, TypstInitError> {
+    for family in ["Atkinson Hyperlegible Next", "Arial", "Helvetica"] {
+        if let Some(family) = find_font_family(book, family) {
+            return Ok(family);
         }
     }
 
@@ -484,8 +745,55 @@ fn select_math_font_family(
         .next()
         .map(|(family, _)| family.to_string())
         .ok_or(TypstInitError::BackendUnavailable(
-            "no supported math font found",
+            "no supported text font found",
         ))
+}
+
+fn find_font_family(book: &FontBook, family: &str) -> Option<String> {
+    book.families().find_map(|(candidate, _)| {
+        candidate
+            .eq_ignore_ascii_case(family)
+            .then(|| candidate.to_string())
+    })
+}
+
+fn find_math_font_family(book: &FontBook, family: &str) -> Option<String> {
+    book.families().find_map(|(candidate, ids)| {
+        if !candidate.eq_ignore_ascii_case(family) {
+            return None;
+        }
+
+        ids.into_iter()
+            .any(|id| {
+                book.info(id)
+                    .is_some_and(|info| info.flags.contains(FontFlags::MATH))
+            })
+            .then(|| candidate.to_string())
+    })
+}
+
+fn normalize_font_family(family: &str) -> String {
+    family
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string()
+}
+
+fn typst_font_weight(weight: &AvengerFontWeight) -> FontWeight {
+    match weight {
+        AvengerFontWeight::Normal => FontWeight::REGULAR,
+        AvengerFontWeight::Bold => FontWeight::BOLD,
+        AvengerFontWeight::Number(value) => FontWeight::from_number(*value),
+    }
+}
+
+fn typst_font_style(style: AvengerFontStyle) -> FontStyle {
+    match style {
+        AvengerFontStyle::Normal => FontStyle::Normal,
+        AvengerFontStyle::Italic => FontStyle::Italic,
+        AvengerFontStyle::Oblique => FontStyle::Oblique,
+    }
 }
 
 fn metrics_from_inline_items(
@@ -528,6 +836,16 @@ fn metrics_from_inline_items(
     })
 }
 
+fn metrics_from_frame(frame: &Frame) -> TypesetMetrics {
+    TypesetMetrics {
+        width: abs_to_f32(frame.width()),
+        height: abs_to_f32(frame.height()),
+        baseline: abs_to_f32(frame.baseline()),
+        ascent: abs_to_f32(frame.ascent()),
+        descent: abs_to_f32(frame.descent()),
+    }
+}
+
 fn paths_from_inline_items(
     items: &[InlineItem],
     metrics: TypesetMetrics,
@@ -548,6 +866,20 @@ fn paths_from_inline_items(
             }
         }
     }
+
+    Ok(MathPathArtifact {
+        logical_width: metrics.width,
+        logical_height: metrics.height,
+        items: lowerer.items,
+    })
+}
+
+fn paths_from_frame(
+    frame: &Frame,
+    metrics: TypesetMetrics,
+) -> Result<MathPathArtifact, MathTypesetError> {
+    let mut lowerer = PathLowerer::default();
+    lowerer.lower_frame(frame, Transform::identity())?;
 
     Ok(MathPathArtifact {
         logical_width: metrics.width,
@@ -686,6 +1018,25 @@ fn pdf_text_from_inline_items(
             }
         }
     }
+
+    Ok(PdfArtifact {
+        text_layer: MathPdfTextLayer {
+            logical_width: metrics.width,
+            logical_height: metrics.height,
+            semantic_text: source.to_string(),
+            glyph_runs: lowerer.glyph_runs,
+        },
+        font_resources: lowerer.font_resources,
+    })
+}
+
+fn pdf_text_from_frame(
+    frame: &Frame,
+    metrics: TypesetMetrics,
+    source: &str,
+) -> Result<PdfArtifact, MathTypesetError> {
+    let mut lowerer = PdfLowerer::default();
+    lowerer.lower_frame(frame, Transform::identity())?;
 
     Ok(PdfArtifact {
         text_layer: MathPdfTextLayer {
