@@ -6,7 +6,7 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo run -p avenger-chart-app --example box_plot_compound_interaction --features winit-wgpu
+//! cargo run --release -p avenger-chart-app --example box_plot_compound_interaction --features winit-wgpu
 //! ```
 
 use std::sync::Arc;

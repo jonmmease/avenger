@@ -4,7 +4,7 @@ use avenger_common::{
     types::{ImageAlign, ImageBaseline},
     value::ScalarOrArray,
 };
-use avenger_image::{RgbaImage, make_image_fetcher};
+use avenger_image::{make_image_fetcher, RgbaImage};
 use avenger_scenegraph::marks::{
     image::{SceneImageMark, SceneImageSource},
     mark::SceneMark,

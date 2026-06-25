@@ -6,6 +6,27 @@ edition = "2024"
 [features]
 default = ["parallel"]
 parallel = ["dep:avenger-chart-parallel"]
+image-resources = ["dep:avenger-image"]
+svg = [
+    "dep:avenger-svg",
+    "dep:usvg",
+    "image-resources",
+    "avenger-image/reqwest",
+    "avenger-image/svg",
+]
+pdf = ["dep:avenger-pdf", "svg"]
+wgpu = ["dep:avenger-wgpu"]
+doc-render = ["wgpu", "image-resources", "avenger-image/reqwest", "avenger-image/svg"]
+renderers = ["svg", "pdf", "wgpu", "doc-render"]
+visual-tests = [
+    "renderers",
+    "dep:image-compare",
+    "dep:pdfium-render",
+    "dep:resvg",
+    "dep:tiny-skia",
+    "dep:usvg",
+    "dep:avenger-chart-webmercator",
+]
 
 [dependencies]
 avenger-color = { path = "../avenger-color" }
@@ -20,19 +41,18 @@ avenger-chart-transforms = { path = "../avenger-chart-transforms" }
 avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
 avenger-chart-polar = { path = "../avenger-chart-polar" }
 avenger-chart-parallel = { path = "../avenger-chart-parallel", optional = true }
+avenger-chart-webmercator = { path = "../avenger-chart-webmercator", optional = true }
 avenger-layout = { path = "../avenger-layout" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
-avenger-app = { path = "../avenger-app"}
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-text = { path = "../avenger-text" }
 avenger-guides = { path = "../avenger-guides" }
-avenger-eventstream = { path = "../avenger-eventstream" }
-avenger-image = { path = "../avenger-image" }
+avenger-image = { path = "../avenger-image", default-features = false, optional = true }
 avenger-resource = { path = "../avenger-resource" }
-avenger-wgpu = { path = "../avenger-wgpu" }
-avenger-svg = { path = "../avenger-svg" }
-avenger-pdf = { path = "../avenger-pdf" }
+avenger-wgpu = { path = "../avenger-wgpu", optional = true }
+avenger-svg = { path = "../avenger-svg", optional = true }
+avenger-pdf = { path = "../avenger-pdf", optional = true }
 
 lazy_static = { workspace = true }
 async-trait = { workspace = true }
@@ -48,6 +68,7 @@ tokio = { workspace = true, default-features = false }
 palette = { workspace = true }
 thiserror = { workspace = true }
 image = { workspace = true }
+image-compare = { version = "0.4", optional = true }
 indexmap = { workspace = true }
 ordered-float = { workspace = true }
 serde = { workspace = true }
@@ -59,31 +80,41 @@ erased-serde = "0.4.8"
 tracing = { workspace = true }
 lyon_path = { workspace = true }
 paste = "1.0"
+usvg = { workspace = true, optional = true }
+resvg = { workspace = true, optional = true }
+tiny-skia = { workspace = true, optional = true }
+pdfium-render = { workspace = true, optional = true }
 
 [dev-dependencies]
-avenger-chart-webmercator = { path = "../avenger-chart-webmercator" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-image-compare = "0.4"
 bincode = "1.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3.14"
-usvg = { workspace = true }
-resvg = { workspace = true }
-tiny-skia = { workspace = true }
-pdfium-render = { workspace = true }
 
 [[example]]
 name = "simple_bar_chart"
-required-features = []
+required-features = ["wgpu"]
 
 [[example]]
 name = "responsive_wrap_png_replay"
-required-features = []
+required-features = ["wgpu"]
 
 [[example]]
 name = "nested_facet_pan_png_replay"
-required-features = []
+required-features = ["wgpu"]
 
 [[example]]
 name = "facet_instanced_pan_png_replay"
-required-features = []
+required-features = ["wgpu"]
+
+[[example]]
+name = "simple_instanced_pan_png_replay"
+required-features = ["wgpu"]
+
+[[example]]
+name = "test_legend_height"
+required-features = ["doc-render"]
+
+[[example]]
+name = "test_polar_basic"
+required-features = ["wgpu"]

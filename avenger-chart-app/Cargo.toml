@@ -20,7 +20,7 @@ avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-treemap = { path = "../avenger-chart-treemap" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-geometry = { path = "../avenger-geometry" }
-avenger-image = { path = "../avenger-image" }
+avenger-image = { path = "../avenger-image", default-features = false, features = ["reqwest"] }
 avenger-resource = { path = "../avenger-resource" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-winit-wgpu = { path = "../avenger-winit-wgpu", optional = true }

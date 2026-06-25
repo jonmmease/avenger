@@ -53,10 +53,25 @@ debug = "line-tables-only"
 debug = 0
 
 [profile.test]
-debug = "line-tables-only"
+debug = 0
+strip = "symbols"
 
 [profile.test.build-override]
 debug = 0
+
+[profile.release]
+opt-level = 1
+codegen-units = 256
+debug = 0
+strip = "symbols"
+incremental = true
+
+[profile.release-perf]
+inherits = "release"
+opt-level = 3
+codegen-units = 16
+strip = "symbols"
+incremental = false
 
 [workspace.dependencies]
 serde = { version = "^1.0", features = ["derive"] }
@@ -98,7 +113,7 @@ css-color-parser = "0.1.2"
 paste = "1.0.15"
 strum = { version="0.27", features = ["derive"] }
 futures = { version = "0.3.31" }
-reqwest = { version = "0.12.20" }
+reqwest = { version = "0.12.20", default-features = false }
 cfg-if = { version = "1.0.1" }
 resvg = { version = "0.45.1" }
 usvg = { version = "0.45.1" }

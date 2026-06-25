@@ -278,13 +278,13 @@ Phase 0 findings, 2026-06-19:
   - `egui-wgpu 0.33.3` uses `wgpu 27.0.1` and requires Rust `1.88`.
   - Local toolchain: `rustc 1.91.1`, `cargo 1.91.1`.
 - First target: `wgpu 27.0.1` with `egui`/`egui-wgpu`/`eframe 0.33.3`.
-- Baseline `cargo test -p avenger-wgpu` result before code changes:
+- Baseline `cargo test --release -p avenger-wgpu` result before code changes:
   - unit tests passed,
   - image baseline suite failed existing cases:
     - `case_090` / `residuals_colorscale`, diff `0.026578`,
     - `case_119` / `geoScale`, diff `0.016531`,
     - `case_120` / `maptile_background`, diff `0.012998`.
-- Baseline `cargo test -p avenger-chart visual_regression -- --nocapture` completed successfully but selected zero tests under that filter (`618 filtered out` in `tests/visual_regression.rs`), so it is recorded as a command check rather than meaningful visual coverage.
+- Baseline `cargo test --release -p avenger-chart visual_regression -- --nocapture` completed successfully but selected zero tests under that filter (`618 filtered out` in `tests/visual_regression.rs`), so it is recorded as a command check rather than meaningful visual coverage.
 - Baseline timing logs were not captured; the current baseline has known visual failures and no representative timing harness was selected in this phase.
 - Disposable `/tmp/avenger-wgpu27-check` compile audit against `wgpu 27.0.1` found these first-order migration items:
   - `wgpu::DeviceDescriptor` now requires `experimental_features`,
@@ -294,8 +294,8 @@ Phase 0 findings, 2026-06-19:
 Suggested validation:
 
 ```bash
-cargo test -p avenger-wgpu
-cargo test -p avenger-chart visual_regression -- --nocapture
+cargo test --release -p avenger-wgpu
+cargo test --release -p avenger-chart visual_regression -- --nocapture
 ```
 
 Commit:
@@ -346,21 +346,21 @@ Validation:
 
 ```bash
 cargo fmt --all
-cargo test -p avenger-wgpu
-cargo test -p avenger-chart-app --features winit-wgpu
+cargo test --release -p avenger-wgpu
+cargo test --release -p avenger-chart-app --features winit-wgpu
 ```
 
 Phase 1 validation results, 2026-06-19:
 
 - `cargo fmt --all`: passed.
-- `cargo check -p avenger-wgpu`: passed.
-- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
-- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+- `cargo check --release -p avenger-wgpu`: passed.
+- `cargo test --release -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test --release -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
   - `case_090` / `residuals_colorscale`, diff `0.026578`,
   - `case_119` / `geoScale`, diff `0.016531`,
   - `case_120` / `maptile_background`, diff `0.012998`.
-- `cargo test -p avenger-chart-app --features winit-wgpu`: failed before test execution because example `parallel_coordinates_header_drag_reorder.rs` references missing `ev::parallel_dimension_id()` and `ev::parallel_display_x()` helpers. This file was not touched in Phase 1.
-- `cargo test -p avenger-chart-app --features winit-wgpu --lib`: failed 3 existing event-binding tests around retained nested event datum rows. No chart-app files were touched in Phase 1.
+- `cargo test --release -p avenger-chart-app --features winit-wgpu`: failed before test execution because example `parallel_coordinates_header_drag_reorder.rs` references missing `ev::parallel_dimension_id()` and `ev::parallel_display_x()` helpers. This file was not touched in Phase 1.
+- `cargo test --release -p avenger-chart-app --features winit-wgpu --lib`: failed 3 existing event-binding tests around retained nested event datum rows. No chart-app files were touched in Phase 1.
 
 Commit:
 
@@ -404,9 +404,9 @@ cargo test -p avenger-wgpu --lib --release
 Phase 2 validation results, 2026-06-19:
 
 - `cargo fmt --all`: passed.
-- `cargo check -p avenger-wgpu`: passed.
-- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
-- Full `cargo test -p avenger-wgpu` was not rerun in Phase 2; Phase 1 showed the only failures match the Phase 0 image baseline failures.
+- `cargo check --release -p avenger-wgpu`: passed.
+- `cargo test --release -p avenger-wgpu --lib`: passed, 27 tests.
+- Full `cargo test --release -p avenger-wgpu` was not rerun in Phase 2; Phase 1 showed the only failures match the Phase 0 image baseline failures.
 
 Commit:
 
@@ -452,20 +452,20 @@ Validation:
 
 ```bash
 cargo fmt --all
-cargo test -p avenger-wgpu
-cargo test -p avenger-chart visual_regression -- --nocapture
+cargo test --release -p avenger-wgpu
+cargo test --release -p avenger-chart visual_regression -- --nocapture
 ```
 
 Phase 3 validation results, 2026-06-19:
 
 - `cargo fmt --all`: passed.
-- `cargo check -p avenger-wgpu`: passed.
-- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
-- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+- `cargo check --release -p avenger-wgpu`: passed.
+- `cargo test --release -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test --release -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
   - `case_090` / `residuals_colorscale`, diff `0.026578`,
   - `case_119` / `geoScale`, diff `0.016531`,
   - `case_120` / `maptile_background`, diff `0.012998`.
-- `cargo test -p avenger-chart visual_regression -- --nocapture`: passed but selected zero tests under this filter (`618 filtered out` in `tests/visual_regression.rs`).
+- `cargo test --release -p avenger-chart visual_regression -- --nocapture`: passed but selected zero tests under this filter (`618 filtered out` in `tests/visual_regression.rs`).
 
 Commit:
 
@@ -532,17 +532,17 @@ Validation:
 
 ```bash
 cargo fmt --all
-cargo check -p avenger-wgpu
-cargo test -p avenger-wgpu --lib
-cargo test -p avenger-wgpu
+cargo check --release -p avenger-wgpu
+cargo test --release -p avenger-wgpu --lib
+cargo test --release -p avenger-wgpu
 ```
 
 Phase 4 validation results, 2026-06-19:
 
 - `cargo fmt --all`: passed.
-- `cargo check -p avenger-wgpu`: passed.
-- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
-- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+- `cargo check --release -p avenger-wgpu`: passed.
+- `cargo test --release -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test --release -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
   - `case_090` / `residuals_colorscale`, diff `0.026578`,
   - `case_119` / `geoScale`, diff `0.016531`,
   - `case_120` / `maptile_background`, diff `0.012998`.
@@ -583,22 +583,22 @@ Validation:
 
 ```bash
 cargo fmt --all
-cargo check -p avenger-wgpu
-cargo test -p avenger-wgpu --lib
-cargo test -p avenger-wgpu
-cargo test -p avenger-chart visual_regression -- --nocapture
+cargo check --release -p avenger-wgpu
+cargo test --release -p avenger-wgpu --lib
+cargo test --release -p avenger-wgpu
+cargo test --release -p avenger-chart visual_regression -- --nocapture
 ```
 
 Phase 5 validation results, 2026-06-19:
 
 - `cargo fmt --all`: passed.
-- `cargo check -p avenger-wgpu`: passed.
-- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
-- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+- `cargo check --release -p avenger-wgpu`: passed.
+- `cargo test --release -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test --release -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
   - `case_090` / `residuals_colorscale`, diff `0.026578`,
   - `case_119` / `geoScale`, diff `0.016531`,
   - `case_120` / `maptile_background`, diff `0.012998`.
-- `cargo test -p avenger-chart visual_regression -- --nocapture`: passed but selected zero tests under this filter (`618 filtered out` in `tests/visual_regression.rs`).
+- `cargo test --release -p avenger-chart visual_regression -- --nocapture`: passed but selected zero tests under this filter (`618 filtered out` in `tests/visual_regression.rs`).
 
 Commit:
 
@@ -639,32 +639,32 @@ Phase 6 notes, 2026-06-19:
 - Surface resize behavior is preserved through `sync_to_acquired_surface_texture` and `update_physical_size`.
 - Frame overlay rendering now flows through `build_frame_commands`, using the same text bind groups as the rest of the frame.
 - Removed renderer-core accessors that were only needed by the old duplicated host render loops.
-- A manual winit example run was skipped in this environment; `cargo test -p avenger-winit-wgpu` passed and covers the non-windowing frame/resize helper logic.
+- A manual winit example run was skipped in this environment; `cargo test --release -p avenger-winit-wgpu` passed and covers the non-windowing frame/resize helper logic.
 
 Validation:
 
 ```bash
 cargo fmt --all
-cargo check -p avenger-wgpu
-cargo test -p avenger-wgpu --lib
-cargo test -p avenger-wgpu
-cargo test -p avenger-winit-wgpu
-cargo test -p avenger-chart-app --features winit-wgpu
-cargo test -p avenger-chart-app --features winit-wgpu --lib
+cargo check --release -p avenger-wgpu
+cargo test --release -p avenger-wgpu --lib
+cargo test --release -p avenger-wgpu
+cargo test --release -p avenger-winit-wgpu
+cargo test --release -p avenger-chart-app --features winit-wgpu
+cargo test --release -p avenger-chart-app --features winit-wgpu --lib
 ```
 
 Phase 6 validation results, 2026-06-19:
 
 - `cargo fmt --all`: passed.
-- `cargo check -p avenger-wgpu`: passed.
-- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
-- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+- `cargo check --release -p avenger-wgpu`: passed.
+- `cargo test --release -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test --release -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
   - `case_090` / `residuals_colorscale`, diff `0.026578`,
   - `case_119` / `geoScale`, diff `0.016531`,
   - `case_120` / `maptile_background`, diff `0.012998`.
-- `cargo test -p avenger-winit-wgpu`: passed, 3 tests.
-- `cargo test -p avenger-chart-app --features winit-wgpu`: failed before test execution because example `parallel_coordinates_header_drag_reorder.rs` references missing `ev::parallel_dimension_id()` and `ev::parallel_display_x()` helpers. This is the same pre-existing failure recorded in Phase 1.
-- `cargo test -p avenger-chart-app --features winit-wgpu --lib`: failed 3 existing event-binding tests around retained nested event datum rows. This is the same pre-existing failure recorded in Phase 1.
+- `cargo test --release -p avenger-winit-wgpu`: passed, 3 tests.
+- `cargo test --release -p avenger-chart-app --features winit-wgpu`: failed before test execution because example `parallel_coordinates_header_drag_reorder.rs` references missing `ev::parallel_dimension_id()` and `ev::parallel_display_x()` helpers. This is the same pre-existing failure recorded in Phase 1.
+- `cargo test --release -p avenger-chart-app --features winit-wgpu --lib`: failed 3 existing event-binding tests around retained nested event datum rows. This is the same pre-existing failure recorded in Phase 1.
 
 Commit:
 
@@ -705,7 +705,7 @@ Phase 7 notes, 2026-06-19:
 - Command encoder, copy, and texture descriptor APIs did not require code changes beyond the readback poll migration.
 - Stencil/depth attachment validation did not require code changes beyond adding `depth_slice: None` to color attachments.
 - Direct WGPU example crates were checked with:
-  `cargo check -p avenger-winit-wgpu -p wgpu-scales -p wgpu-winit -p iris`.
+  `cargo check --release -p avenger-winit-wgpu -p wgpu-scales -p wgpu-winit -p iris`.
 - `examples/iris-pan-zoom` also needed `UpdateStatus { ..Default::default() }` updates for the existing `cursor` field; this was not a WGPU API change but was required to keep the direct WGPU example building.
 - Optional WASM build validation was not run in this phase. Native egui integration is the first target, and the optional wasm command can be revisited after the egui MVP works.
 
@@ -713,28 +713,28 @@ Validation:
 
 ```bash
 cargo fmt --all
-cargo check -p avenger-wgpu
-cargo check -p avenger-winit-wgpu -p wgpu-scales -p wgpu-winit -p iris
+cargo check --release -p avenger-wgpu
+cargo check --release -p avenger-winit-wgpu -p wgpu-scales -p wgpu-winit -p iris
 cargo tree -i wgpu --workspace
-cargo test -p avenger-wgpu --lib
-cargo test -p avenger-wgpu
-cargo test -p avenger-winit-wgpu
-cargo test -p avenger-chart visual_regression -- --nocapture
+cargo test --release -p avenger-wgpu --lib
+cargo test --release -p avenger-wgpu
+cargo test --release -p avenger-winit-wgpu
+cargo test --release -p avenger-chart visual_regression -- --nocapture
 ```
 
 Phase 7 validation results, 2026-06-19:
 
 - `cargo fmt --all`: passed.
-- `cargo check -p avenger-wgpu`: passed.
-- `cargo check -p avenger-winit-wgpu -p wgpu-scales -p wgpu-winit -p iris`: passed.
+- `cargo check --release -p avenger-wgpu`: passed.
+- `cargo check --release -p avenger-winit-wgpu -p wgpu-scales -p wgpu-winit -p iris`: passed.
 - `cargo tree -i wgpu --workspace`: reports only `wgpu v27.0.1`.
-- `cargo test -p avenger-wgpu --lib`: passed, 27 tests.
-- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+- `cargo test --release -p avenger-wgpu --lib`: passed, 27 tests.
+- `cargo test --release -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
   - `case_090` / `residuals_colorscale`, diff `0.026578`,
   - `case_119` / `geoScale`, diff `0.016531`,
   - `case_120` / `maptile_background`, diff `0.012998`.
-- `cargo test -p avenger-winit-wgpu`: passed, 3 tests.
-- `cargo test -p avenger-chart visual_regression -- --nocapture`: passed but selected zero tests under this filter (`618 filtered out` in `tests/visual_regression.rs`).
+- `cargo test --release -p avenger-winit-wgpu`: passed, 3 tests.
+- `cargo test --release -p avenger-chart visual_regression -- --nocapture`: passed but selected zero tests under this filter (`618 filtered out` in `tests/visual_regression.rs`).
 - Optional wasm validation was not run.
 
 Optional WASM validation:
@@ -807,17 +807,17 @@ Validation:
 
 ```bash
 cargo fmt --all
-cargo check -p avenger-wgpu
-cargo test -p avenger-wgpu --lib
-cargo test -p avenger-wgpu
+cargo check --release -p avenger-wgpu
+cargo test --release -p avenger-wgpu --lib
+cargo test --release -p avenger-wgpu
 ```
 
 Phase 8 validation results, 2026-06-19:
 
 - `cargo fmt --all`: passed.
-- `cargo check -p avenger-wgpu`: passed.
-- `cargo test -p avenger-wgpu --lib`: passed, 33 tests.
-- `cargo test -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
+- `cargo check --release -p avenger-wgpu`: passed.
+- `cargo test --release -p avenger-wgpu --lib`: passed, 33 tests.
+- `cargo test --release -p avenger-wgpu`: failed only on the same three Phase 0 image baseline cases with the same diff values:
   - `case_090` / `residuals_colorscale`, diff `0.026578`,
   - `case_119` / `geoScale`, diff `0.016531`,
   - `case_120` / `maptile_background`, diff `0.012998`.
@@ -889,21 +889,21 @@ Validation:
 
 ```bash
 cargo fmt --all
-cargo test -p avenger-chart-app
+cargo test --release -p avenger-chart-app
 ```
 
 Phase 9 validation results, 2026-06-19:
 
-- `cargo check -p avenger-chart-app`: passed.
+- `cargo check --release -p avenger-chart-app`: passed.
 - `cargo fmt --all`: passed.
-- `cargo test -p avenger-chart-app set_param --lib`: passed, 4 tests.
-- `cargo test -p avenger-chart-app param_ --lib`: passed, 8 tests.
-- `cargo test -p avenger-chart-app event_binding_can_reset_raw_domain_to_default --lib`: passed after preserving async `params().await` compatibility with direct session mutations.
-- `cargo test -p avenger-chart-app --lib`: failed only on the three pre-existing retained-event-datum tests recorded in earlier phases:
+- `cargo test --release -p avenger-chart-app set_param --lib`: passed, 4 tests.
+- `cargo test --release -p avenger-chart-app param_ --lib`: passed, 8 tests.
+- `cargo test --release -p avenger-chart-app event_binding_can_reset_raw_domain_to_default --lib`: passed after preserving async `params().await` compatibility with direct session mutations.
+- `cargo test --release -p avenger-chart-app --lib`: failed only on the three pre-existing retained-event-datum tests recorded in earlier phases:
   - `bar_click_exposes_nested_struct_event_coord_readback`,
   - `bar_click_writes_nested_source_column_selection_clause`,
   - `facet_bar_click_writes_nested_source_column_selection_clause_in_cell_scope`.
-- `cargo test -p avenger-chart-app`: failed before running the lib suite because default examples require the `winit-wgpu` feature and because `parallel_coordinates_header_drag_reorder.rs` still references missing `ev::parallel_dimension_id()` / `ev::parallel_display_x()` helpers. These are pre-existing validation blockers unrelated to Phase 9.
+- `cargo test --release -p avenger-chart-app`: failed before running the lib suite because default examples require the `winit-wgpu` feature and because `parallel_coordinates_header_drag_reorder.rs` still references missing `ev::parallel_dimension_id()` / `ev::parallel_display_x()` helpers. These are pre-existing validation blockers unrelated to Phase 9.
 
 Commit:
 
@@ -1084,24 +1084,24 @@ Phase 10 progress notes, 2026-06-19:
 Phase 10 partial validation, 2026-06-19:
 
 - `cargo fmt --all`: passed.
-- `cargo check -p avenger-wgpu`: passed after adding the public renderer facade.
-- `cargo test -p avenger-wgpu --lib`: passed, 33 tests.
-- `cargo check -p avenger-egui`: passed.
-- `cargo test -p avenger-egui --lib`: passed, 6 tests.
-- `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests.
-- `cargo check -p avenger-egui`: passed after adding offscreen texture registration.
-- `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests, after adding offscreen texture registration.
-- `cargo check -p avenger-egui --features eframe --example basic_chart`: passed.
-- `cargo test -p avenger-egui`: passed, 6 tests plus doc-tests, after adding the app rebuild hook and example.
-- `cargo test -p avenger-egui`: passed, 8 tests plus doc-tests, after expanding wheel/key/pointer event translation.
-- `cargo check -p avenger-egui --features eframe --example basic_chart`: passed after expanding event translation.
-- `cargo check -p avenger-egui --features eframe --example basic_chart`: passed after adding the checkbox-driven `show_points` param.
-- `cargo test -p avenger-egui`: passed, 8 tests plus doc-tests, after adding the checkbox-driven `show_points` param.
+- `cargo check --release -p avenger-wgpu`: passed after adding the public renderer facade.
+- `cargo test --release -p avenger-wgpu --lib`: passed, 33 tests.
+- `cargo check --release -p avenger-egui`: passed.
+- `cargo test --release -p avenger-egui --lib`: passed, 6 tests.
+- `cargo test --release -p avenger-egui`: passed, 6 tests plus doc-tests.
+- `cargo check --release -p avenger-egui`: passed after adding offscreen texture registration.
+- `cargo test --release -p avenger-egui`: passed, 6 tests plus doc-tests, after adding offscreen texture registration.
+- `cargo check --release -p avenger-egui --features eframe --example basic_chart`: passed.
+- `cargo test --release -p avenger-egui`: passed, 6 tests plus doc-tests, after adding the app rebuild hook and example.
+- `cargo test --release -p avenger-egui`: passed, 8 tests plus doc-tests, after expanding wheel/key/pointer event translation.
+- `cargo check --release -p avenger-egui --features eframe --example basic_chart`: passed after expanding event translation.
+- `cargo check --release -p avenger-egui --features eframe --example basic_chart`: passed after adding the checkbox-driven `show_points` param.
+- `cargo test --release -p avenger-egui`: passed, 8 tests plus doc-tests, after adding the checkbox-driven `show_points` param.
 - `cargo tree -i wgpu --workspace`: reports a single `wgpu v27.0.1`, including `egui-wgpu v0.33.3`.
-- `cargo test -p avenger-egui --lib`: passed, 14 tests, after adding async scene publishing and stronger event-translation coverage.
-- `cargo check -p avenger-egui --features eframe --example basic_chart`: passed after converting the example to async scene publication/latest-frame painting.
+- `cargo test --release -p avenger-egui --lib`: passed, 14 tests, after adding async scene publishing and stronger event-translation coverage.
+- `cargo check --release -p avenger-egui --features eframe --example basic_chart`: passed after converting the example to async scene publication/latest-frame painting.
 - `cargo fmt --all`: passed after async scene publication changes.
-- `cargo test -p avenger-egui`: passed, 14 tests plus doc-tests, after async scene publication changes.
+- `cargo test --release -p avenger-egui`: passed, 14 tests plus doc-tests, after async scene publication changes.
 
 Implementation note:
 
@@ -1439,7 +1439,7 @@ Phase 12 validation results, 2026-06-19:
 - `cargo test -p avenger-egui --release`: passed, 15 tests plus doc-tests.
 - `cargo check --release -p avenger-egui --features eframe --example basic_chart`: passed.
 - `cargo test -p avenger-wgpu --lib --release`: passed, 33 tests.
-- Earlier non-release `cargo test -p avenger-wgpu --lib` was interrupted by the local target directory filling the filesystem; `cargo clean` removed 94.2 GiB, and subsequent validation used release profile only.
+- Earlier non-release `cargo test --release -p avenger-wgpu --lib` was interrupted by the local target directory filling the filesystem; `cargo clean` removed 94.2 GiB, and subsequent validation used release profile only.
 - Recommended tracing env var usage is now documented in `avenger-chart/docs/architecture/wgpu-gui-offscreen.md`.
 
 Validation:

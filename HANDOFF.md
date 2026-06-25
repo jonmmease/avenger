@@ -231,8 +231,8 @@ Located in `avenger-chart/src/plot/compiled/mod.rs`:
 
 Run these tests with debug layout enabled:
 ```bash
-AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart --test visual_regression test_facet_col_free_scales -- --nocapture
-AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart --test visual_regression test_facet_col_iris_scatter -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release -p avenger-chart --test visual_regression test_facet_col_free_scales -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release -p avenger-chart --test visual_regression test_facet_col_iris_scatter -- --nocapture
 ```
 
 Look for:

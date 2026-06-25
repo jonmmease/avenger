@@ -93,7 +93,7 @@ feat(polar): add polar line mark rendering
 - Updates the polar line implementation checklist
 
 Checks:
-- cargo test -p avenger-chart test_polar_line -- --nocapture
+- cargo test --release -p avenger-chart test_polar_line -- --nocapture
 ```
 
 ## Phase 0: Preflight
@@ -160,8 +160,8 @@ Recommended checks:
 
 ```text
 cargo fmt --all
-cargo test -p avenger-chart-core
-cargo test -p avenger-chart test_prelude -- --nocapture
+cargo test --release -p avenger-chart-core
+cargo test --release -p avenger-chart test_prelude -- --nocapture
 ```
 
 Commit: `feat(chart): add geometry space mark option`
@@ -217,9 +217,9 @@ Recommended checks:
 
 ```text
 cargo fmt --all
-cargo test -p avenger-chart test_stroke_dash -- --nocapture
-cargo test -p avenger-chart visual_tests::test_line -- --nocapture
-cargo test -p avenger-chart visual_tests::test_line_multi_series -- --nocapture
+cargo test --release -p avenger-chart test_stroke_dash -- --nocapture
+cargo test --release -p avenger-chart visual_tests::test_line -- --nocapture
+cargo test --release -p avenger-chart visual_tests::test_line_multi_series -- --nocapture
 ```
 
 Commit: `refactor(chart): share line scene rendering`
@@ -280,7 +280,7 @@ Recommended checks:
 
 ```text
 cargo fmt --all
-cargo test -p avenger-chart-polar polar_line -- --nocapture
+cargo test --release -p avenger-chart-polar polar_line -- --nocapture
 ```
 
 Commit: `feat(polar): add polar line geometry sampling`
@@ -340,9 +340,9 @@ Recommended checks:
 
 ```text
 cargo fmt --all
-cargo test -p avenger-chart-polar
-cargo test -p avenger-chart test_prelude -- --nocapture
-cargo test -p avenger-chart test_mark_channel_alignment -- --nocapture
+cargo test --release -p avenger-chart-polar
+cargo test --release -p avenger-chart test_prelude -- --nocapture
+cargo test --release -p avenger-chart test_mark_channel_alignment -- --nocapture
 ```
 
 Commit: `feat(polar): add line mark support`
@@ -390,8 +390,8 @@ Recommended checks:
 
 ```text
 cargo fmt --all
-cargo test -p avenger-chart polar_line -- --nocapture
-cargo test -p avenger-chart visual_regression -- --nocapture
+cargo test --release -p avenger-chart polar_line -- --nocapture
+cargo test --release -p avenger-chart visual_regression -- --nocapture
 ```
 
 Commit: `test(chart): cover polar line geometry space`
@@ -423,11 +423,11 @@ Recommended checks:
 
 ```text
 cargo fmt --all
-cargo clippy -p avenger-chart-core --all-targets
-cargo clippy -p avenger-chart-marks --all-targets
-cargo clippy -p avenger-chart-polar --all-targets
-cargo clippy -p avenger-chart-cartesian --all-targets
-cargo test -p avenger-chart -- --nocapture
+cargo clippy --release -p avenger-chart-core --all-targets
+cargo clippy --release -p avenger-chart-marks --all-targets
+cargo clippy --release -p avenger-chart-polar --all-targets
+cargo clippy --release -p avenger-chart-cartesian --all-targets
+cargo test --release -p avenger-chart -- --nocapture
 ```
 
 Commit: `docs(chart): document polar line geometry space`

@@ -150,13 +150,19 @@ pub use avenger_chart_core::AxisPosition;
 pub use avenger_chart_polar::PolarAxis;
 
 // Re-export rendering types
+#[cfg(feature = "wgpu")]
 pub use crate::render::CanvasExt;
+#[cfg(feature = "pdf")]
+pub use crate::render::PdfRenderer;
+#[cfg(feature = "svg")]
+pub use crate::render::SvgRenderer;
 pub use crate::render::{
     CoordinationCheckpoint, EvaluationMode, EvaluationOptions, FacetLayoutRefinement,
-    FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, ImageResourceCache,
-    ImageResourceLoadOptions, ImageResourceResolver, LayoutDebugOverlayMode, LayoutSnapshot,
-    PdfRenderer, RefinementCheckpoint, SvgRenderer, WholeChartSnapshot,
+    FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, LayoutDebugOverlayMode,
+    LayoutSnapshot, RefinementCheckpoint, WholeChartSnapshot,
 };
+#[cfg(feature = "image-resources")]
+pub use crate::render::{ImageResourceCache, ImageResourceLoadOptions, ImageResourceResolver};
 
 // Re-export error type
 pub use avenger_chart_core::AvengerChartError;

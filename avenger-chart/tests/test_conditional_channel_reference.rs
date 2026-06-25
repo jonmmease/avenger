@@ -1,3 +1,5 @@
+#![cfg(feature = "wgpu")]
+
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 

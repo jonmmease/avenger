@@ -17,8 +17,8 @@ Following standard Rust style guide:
 
 ### Linting
 - **Tool**: `clippy` (Rust linter)
-- **Standard check**: `cargo clippy --all-targets`
-- **CI standard**: `RUSTFLAGS="-D warnings" cargo clippy`
+- **Standard check**: `cargo clippy --release --all-targets`
+- **CI standard**: `RUSTFLAGS="-D warnings" cargo clippy --release`
 - All clippy warnings must be resolved before merging
 - No custom .clippy.toml configuration
 
@@ -38,7 +38,7 @@ Following standard Rust style guide:
 ### Code Documentation
 - Document public APIs with `///` doc comments
 - Include examples in doc comments where helpful
-- Run doc tests: `cargo test --doc`
+- Run doc tests: `cargo test --release --doc`
 
 ### Module Documentation
 - Use `//!` for module-level documentation
@@ -117,10 +117,10 @@ Following standard Rust style guide:
 ### Before Merging
 All CI checks must pass:
 1. `cargo fmt --all -- --check` (formatting)
-2. `cargo check --tests` (no compiler warnings)
-3. `cargo clippy` (no linter warnings)
-4. `cargo build --workspace` (successful build)
-5. `cargo test --workspace --exclude avenger-wgpu` (tests pass)
-6. `cargo test --doc` (doc tests pass)
+2. `cargo check --release --tests` (no compiler warnings)
+3. `cargo clippy --release` (no linter warnings)
+4. `cargo build --release --workspace` (successful build)
+5. `cargo test --release --workspace --exclude avenger-wgpu` (tests pass)
+6. `cargo test --release --doc` (doc tests pass)
 
 Note: GPU tests (avenger-wgpu) are excluded from CI due to MakeWgpuAdapterError on Linux

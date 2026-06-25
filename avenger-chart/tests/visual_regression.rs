@@ -1,5 +1,6 @@
 //! Visual regression tests for avenger-chart
 
+#![cfg(feature = "visual-tests")]
 #![allow(
     clippy::approx_constant,
     clippy::clone_on_copy,

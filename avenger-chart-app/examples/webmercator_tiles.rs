@@ -7,7 +7,7 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo run -p avenger-chart-app --example webmercator_tiles --features winit-wgpu --release
+//! cargo run --release -p avenger-chart-app --example webmercator_tiles --features winit-wgpu
 //! ```
 
 use std::sync::Arc;

@@ -24,11 +24,10 @@ Avenger is a Rust-based visualization engine and renderer designed for informati
 
 ```bash
 # Build entire workspace
-cargo build
 cargo build --release
 
 # Build specific crate
-cd avenger-scenegraph && cargo build
+cd avenger-scenegraph && cargo build --release
 
 # Build WASM example
 cd examples/iris-pan-zoom
@@ -42,14 +41,14 @@ wasm-pack build --target web --release
 cargo fmt --all
 
 # Lint with clippy
-cargo clippy --all-targets
+cargo clippy --release --all-targets
 
 # Check code (strict mode)
-RUSTFLAGS="-D warnings" cargo check --tests
+RUSTFLAGS="-D warnings" cargo check --release --tests
 
 # Run tests
-cargo test
-cargo test -- --nocapture  # with output
+cargo test --release
+cargo test --release -- --nocapture  # with output
 
 # Run native example
 cd examples/iris-pan-zoom && cargo run --release
@@ -68,25 +67,25 @@ Tests include unit tests and image baseline comparisons. Note: CI tests are curr
 
 ```bash
 # Run all tests
-cargo test
+cargo test --release
 
 # Run specific crate tests
-cd avenger-wgpu && cargo test
+cd avenger-wgpu && cargo test --release
 
 # Run tests with layout overlay debugging (shows layout boxes in magenta)
-AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release -p avenger-chart
 
 # Run specific visual regression test with layout debugging
-AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart --test visual_regression test_name -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release -p avenger-chart --test visual_regression test_name -- --nocapture
 
 # Run tests with debug logging (textual output via tracing)
-RUST_LOG=avenger_chart=debug cargo test -p avenger-chart -- --nocapture
+RUST_LOG=avenger_chart=debug cargo test --release -p avenger-chart -- --nocapture
 
 # Run with trace-level logging for specific modules
-RUST_LOG=avenger_chart::layout=trace,avenger_chart::legend=debug cargo test -p avenger-chart -- --nocapture
+RUST_LOG=avenger_chart::layout=trace,avenger_chart::legend=debug cargo test --release -p avenger-chart -- --nocapture
 
 # Combine visual overlays and tracing logs
-AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart=debug cargo test -p avenger-chart -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart=debug cargo test --release -p avenger-chart -- --nocapture
 
 # Check logging migration guardrails
 avenger-chart/scripts/check_logging_guardrails.sh

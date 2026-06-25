@@ -8,7 +8,7 @@ avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
-avenger-image = { path = "../avenger-image" }
+avenger-image = { path = "../avenger-image", default-features = false }
 avenger-resource = { path = "../avenger-resource" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
@@ -21,7 +21,7 @@ typetag = "0.2"
 
 [dev-dependencies]
 avenger-app = { path = "../avenger-app" }
-avenger-chart = { path = "../avenger-chart" }
+avenger-chart = { path = "../avenger-chart", features = ["renderers"] }
 avenger-chart-app = { path = "../avenger-chart-app" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 bincode = "1.3"

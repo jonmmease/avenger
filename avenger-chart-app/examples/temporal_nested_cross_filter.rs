@@ -8,7 +8,7 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo run -p avenger-chart-app --example temporal_nested_cross_filter --features winit-wgpu
+//! cargo run --release -p avenger-chart-app --example temporal_nested_cross_filter --features winit-wgpu
 //! ```
 
 use std::sync::Arc;

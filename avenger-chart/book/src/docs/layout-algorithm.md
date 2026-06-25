@@ -316,7 +316,7 @@ The convergence approach would add complexity and computation cost, so it's rese
 
 ### Enable Debug Layout
 ```bash
-AVENGER_CHART_DEBUG_LAYOUT=1 cargo test my_test
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release my_test
 ```
 
 ### Inspect Layout Bounds

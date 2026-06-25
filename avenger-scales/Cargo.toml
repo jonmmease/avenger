@@ -7,7 +7,7 @@ edition = "2021"
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-text = { path = "../avenger-text" }
-avenger-image = { path = "../avenger-image" }
+avenger-image = { path = "../avenger-image", default-features = false }
 thiserror = { workspace = true }
 palette = { workspace = true }
 chrono = { workspace = true }

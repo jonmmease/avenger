@@ -68,7 +68,7 @@ Each module has corresponding integration tests in the `tests/` directory:
 
 Run all tests with:
 ```bash
-cargo test
+cargo test --release
 ```
 
 ## Usage Examples

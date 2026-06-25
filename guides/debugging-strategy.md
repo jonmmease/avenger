@@ -120,7 +120,7 @@ trace!(x = point.x, y = point.y, "coordinate");
 
 Run with:
 ```bash
-RUST_LOG=my_crate::module=debug cargo test -- --nocapture
+RUST_LOG=my_crate::module=debug cargo test --release -- --nocapture
 ```
 
 #### 3. Visual Debug (avenger-chart specific)
@@ -128,7 +128,7 @@ RUST_LOG=my_crate::module=debug cargo test -- --nocapture
 For layout issues, enable visual debug rectangles:
 
 ```bash
-AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release -p avenger-chart
 ```
 
 See `avenger-chart/docs/DEBUGGING.md` for details.
@@ -171,4 +171,4 @@ For performance-sensitive debugging:
 ## Related Documentation
 
 - `avenger-chart/docs/DEBUGGING.md` - Tracing and visual debug setup for avenger-chart
-- `guides/suggested-commands.md` - Common cargo test commands with debug flags
+- `guides/suggested-commands.md` - Common cargo test --release commands with debug flags

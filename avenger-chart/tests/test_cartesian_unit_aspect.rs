@@ -1,6 +1,8 @@
 use avenger_chart::prelude::*;
+#[cfg(feature = "svg")]
+use avenger_chart::render::SvgRenderer;
 use avenger_chart::render::{
-    EvaluatedPlot, EvaluationOptions, FacetLayoutRefinement, InteractionScopeKind, SvgRenderer,
+    EvaluatedPlot, EvaluationOptions, FacetLayoutRefinement, InteractionScopeKind,
 };
 use datafusion::common::ScalarValue;
 use datafusion::prelude::{SessionContext, col};
@@ -257,6 +259,7 @@ async fn cartesian_unit_aspect_rejects_same_scale_for_x_and_y() {
 }
 
 #[tokio::test]
+#[cfg(feature = "svg")]
 async fn authored_concat_rejects_unit_aspect_shared_child_domain() {
     let ctx = SessionContext::new();
     let df = xy_data(&ctx).await;
@@ -287,6 +290,7 @@ async fn authored_concat_rejects_unit_aspect_shared_child_domain() {
 }
 
 #[tokio::test]
+#[cfg(feature = "svg")]
 async fn generated_repeat_allows_unit_aspect_shared_child_domain() {
     let ctx = SessionContext::new();
     let df = ctx
@@ -318,6 +322,7 @@ async fn generated_repeat_allows_unit_aspect_shared_child_domain() {
 }
 
 #[tokio::test]
+#[cfg(feature = "svg")]
 async fn facet_column_allows_unit_aspect_shared_child_domain() {
     let ctx = SessionContext::new();
     let df = ctx
@@ -347,6 +352,7 @@ async fn facet_column_allows_unit_aspect_shared_child_domain() {
 }
 
 #[tokio::test]
+#[cfg(feature = "svg")]
 async fn generated_repeat_unit_aspect_shared_domain_handles_symbol_radius_padding() {
     let ctx = SessionContext::new();
     let df = ctx
@@ -378,6 +384,7 @@ async fn generated_repeat_unit_aspect_shared_domain_handles_symbol_radius_paddin
 }
 
 #[tokio::test]
+#[cfg(feature = "svg")]
 async fn facet_column_unit_aspect_shared_domain_handles_symbol_radius_padding() {
     let ctx = SessionContext::new();
     let df = ctx

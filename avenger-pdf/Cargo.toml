@@ -30,6 +30,7 @@ path = "../avenger-common"
 
 [dev-dependencies.avenger-image]
 path = "../avenger-image"
+default-features = false
 
 [dev-dependencies.pdf-extract]
 version = "0.10.0"

@@ -26,18 +26,18 @@ jobs:
       - name: Check cargo fmt compliance
         run: cargo fmt --all -- --check
       - name: Check no rustc warnings
-        run: cargo check --tests
+        run: cargo check --release --tests
       - name: Check for clippy warnings
-        run: cargo clippy
+        run: cargo clippy --release
       - name: Build
         run: |
-          cargo build --workspace
+          cargo build --release --workspace
       - name: Run tests (excluding GPU tests)
         run: |
-          cargo test --workspace --verbose \
+          cargo test --release --workspace --verbose \
             --exclude avenger-wgpu
       - name: Run doc tests
-        run: cargo test --workspace --doc --verbose
+        run: cargo test --release --workspace --doc --verbose
 
 # # Cleanup fails with: [__NSCFString bytes]: unrecognized selector sent to instance 0x600002fc62c0
 #  test-rs-macos:
@@ -61,7 +61,7 @@ jobs:
 #      - name: version
 #        run: rustc --version
 #      - name: test
-#        run:  cd avenger-wgpu/ && cargo test -- --nocapture
+#        run:  cd avenger-wgpu/ && cargo test --release -- --nocapture
 #      - name: Update images
 #        uses: actions/upload-artifact@v4
 #        with:

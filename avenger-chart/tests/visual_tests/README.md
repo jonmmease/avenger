@@ -6,30 +6,30 @@ This directory contains visual regression tests for avenger-chart, using image c
 
 ```bash
 # Run all visual tests
-cargo test -p avenger-chart --test visual_regression
+cargo test --release -p avenger-chart --test visual_regression
 
 # Run a specific test
-cargo test -p avenger-chart --test visual_regression test_simple_bar_chart
+cargo test --release -p avenger-chart --test visual_regression test_simple_bar_chart
 
 # Run the SVG/resvg parity layer in addition to WGPU visual tests
 AVENGER_CHART_SVG_BASELINES=1 \
-  cargo test -p avenger-chart --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 
 # Run only the SVG/resvg parity layer, reusing committed WGPU PNG baselines
 AVENGER_CHART_SVG_BASELINES=only \
-  cargo test -p avenger-chart --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 
 # Run the PDF/PDFium parity layer in addition to WGPU visual tests
 AVENGER_CHART_PDF_BASELINES=1 \
-  cargo test -p avenger-chart --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 
 # Run only the PDF/PDFium parity layer, reusing committed WGPU PNG baselines
 AVENGER_CHART_PDF_BASELINES=only \
-  cargo test -p avenger-chart --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 
 # Rewrite all committed WGPU PNG baselines from the current renderer output
 AVENGER_CHART_BLESS_WGPU_BASELINES=1 \
-  cargo test -p avenger-chart --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 ## Writing New Tests
@@ -70,7 +70,7 @@ To rewrite every committed WGPU PNG baseline from the current renderer output:
 
 ```bash
 AVENGER_CHART_BLESS_WGPU_BASELINES=1 \
-  cargo test -p avenger-chart --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 This replaces each `tests/baselines/{category}/{name}.png` as the visual test
@@ -106,14 +106,14 @@ To generate or refresh all SVG artifacts:
 
 ```bash
 AVENGER_CHART_SVG_BASELINES=only AVENGER_CHART_BLESS_SVG_BASELINES=1 \
-  cargo test -p avenger-chart --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 To validate both WGPU and SVG outputs:
 
 ```bash
 AVENGER_CHART_SVG_BASELINES=1 \
-  cargo test -p avenger-chart --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 Failures are written to `tests/failures_svg/{category}/` with the generated
@@ -149,14 +149,14 @@ To generate or refresh all PDF artifacts:
 
 ```bash
 AVENGER_CHART_PDF_BASELINES=only AVENGER_CHART_BLESS_PDF_BASELINES=1 \
-  cargo test -p avenger-chart --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 To validate both WGPU and PDF outputs:
 
 ```bash
 AVENGER_CHART_PDF_BASELINES=1 \
-  cargo test -p avenger-chart --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 To measure PDFium-vs-WGPU scores before changing the global threshold:
@@ -164,7 +164,7 @@ To measure PDFium-vs-WGPU scores before changing the global threshold:
 ```bash
 AVENGER_CHART_PDF_BASELINES=only \
 AVENGER_CHART_PDF_SCORE_REPORT=target/tests/pdf-wgpu-scores.csv \
-  cargo test -p avenger-chart --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 Failures are written to `tests/failures_pdf/{category}/` with the generated

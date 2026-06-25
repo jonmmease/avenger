@@ -28,26 +28,26 @@ use itertools::izip;
 use lyon::{
     algorithms::aabb::bounding_box,
     geom::{
-        Angle, Box2D,
         euclid::{Point2D, Vector2D},
+        Angle, Box2D,
     },
     lyon_tessellation::{
         BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, LineCap,
         LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex, StrokeVertexConstructor,
         VertexBuffers,
     },
-    path::{Path, Winding, builder::BorderRadii, geom::point},
+    path::{builder::BorderRadii, geom::point, Path, Winding},
 };
 use wgpu::{
-    BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue, RenderPipeline,
-    ShaderModule, TextureFormat, TextureView, VertexBufferLayout, util::DeviceExt,
+    util::DeviceExt, BindGroup, BindGroupLayout, CommandBuffer, Device, Extent3d, Queue,
+    RenderPipeline, ShaderModule, TextureFormat, TextureView, VertexBufferLayout,
 };
 
 use crate::{
     error::AvengerWgpuError,
     image_resources::{WgpuImageResourceConfig, WgpuImageResourceStatus},
     marks::{
-        gradient::{GradientAtlasBuilder, to_color_or_gradient_coord},
+        gradient::{to_color_or_gradient_coord, GradientAtlasBuilder},
         image::ImageAtlasBuilder,
     },
 };

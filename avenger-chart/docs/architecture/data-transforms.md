@@ -197,12 +197,12 @@ than by individual transform implementations.
 
 Use these focused commands while working on transforms:
 
-- `cargo test -p avenger-chart-core transform -- --nocapture`
-- `cargo test -p avenger-chart-transforms -- --nocapture`
-- `cargo test -p avenger-chart --test test_data_transform -- --nocapture`
-- `cargo test -p avenger-chart --test visual_regression transform_expression -- --nocapture`
-- `cargo test -p avenger-chart --test visual_regression transform_fold -- --nocapture`
-- `cargo test -p avenger-chart --test visual_regression transform_join_aggregate -- --nocapture`
-- `cargo test -p avenger-chart --test visual_regression transform_time_unit -- --nocapture`
-- `cargo test -p avenger-chart --test visual_regression transform_window -- --nocapture`
-- `cargo test -p avenger-chart --test visual_regression transform_impute -- --nocapture`
+- `cargo test --release -p avenger-chart-core transform -- --nocapture`
+- `cargo test --release -p avenger-chart-transforms -- --nocapture`
+- `cargo test --release -p avenger-chart --test test_data_transform -- --nocapture`
+- `cargo test --release -p avenger-chart --test visual_regression transform_expression -- --nocapture`
+- `cargo test --release -p avenger-chart --test visual_regression transform_fold -- --nocapture`
+- `cargo test --release -p avenger-chart --test visual_regression transform_join_aggregate -- --nocapture`
+- `cargo test --release -p avenger-chart --test visual_regression transform_time_unit -- --nocapture`
+- `cargo test --release -p avenger-chart --test visual_regression transform_window -- --nocapture`
+- `cargo test --release -p avenger-chart --test visual_regression transform_impute -- --nocapture`

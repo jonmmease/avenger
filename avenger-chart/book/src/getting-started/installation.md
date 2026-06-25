@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Then run:
 
 ```bash
-cargo run
+cargo run --release
 ```
 
 You should see `avenger-chart-smoke-test.png` appear in your project directory with no runtime errors, confirming that the toolchain is configured correctly.

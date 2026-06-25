@@ -9,7 +9,7 @@
 //! To regenerate baselines after an intentional change:
 //!
 //! ```sh
-//! AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines
+//! AVENGER_LAYOUT_BLESS=1 cargo test --release -p avenger-layout --test svg_baselines
 //! ```
 //!
 //! On mismatch the actual SVG is written to `tests/failures/<name>.svg`.
@@ -66,7 +66,7 @@ fn assert_svg_baseline(name: &str, svg: &str) {
     let expected = fs::read_to_string(&path).unwrap_or_else(|_| {
         panic!(
             "missing baseline {path:?}; regenerate with \
-             AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines"
+             AVENGER_LAYOUT_BLESS=1 cargo test --release -p avenger-layout --test svg_baselines"
         )
     });
     if expected != svg {

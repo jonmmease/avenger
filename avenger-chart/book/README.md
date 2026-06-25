@@ -43,7 +43,7 @@ This script:
 The Markdown snippets are mirrored into the `avenger-chart-mdbook` harness crate so they can be compiled against the workspace sources. Run the doctests with:
 
 ```bash
-cargo test -p avenger-chart-mdbook --doc
+cargo test --release -p avenger-chart-mdbook --doc
 ```
 
 This command surfaces any examples that no longer compile with the current APIs.

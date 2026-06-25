@@ -1,3 +1,5 @@
+#![cfg(feature = "svg")]
+
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use avenger_chart::{

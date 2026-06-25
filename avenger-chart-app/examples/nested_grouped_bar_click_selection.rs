@@ -6,7 +6,7 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo run -p avenger-chart-app --example nested_grouped_bar_click_selection --features winit-wgpu
+//! cargo run --release -p avenger-chart-app --example nested_grouped_bar_click_selection --features winit-wgpu
 //! ```
 
 use std::sync::Arc;

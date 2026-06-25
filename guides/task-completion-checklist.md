@@ -13,14 +13,14 @@ cargo fmt --all
 
 ### Check for Compiler Warnings
 ```bash
-RUSTFLAGS="-D warnings" cargo check --tests
+RUSTFLAGS="-D warnings" cargo check --release --tests
 ```
 - Treats warnings as errors (CI standard)
 - Must have zero warnings
 
 ### Run Clippy Lints
 ```bash
-RUSTFLAGS="-D warnings" cargo clippy --all-targets
+RUSTFLAGS="-D warnings" cargo clippy --release --all-targets
 ```
 - Catches common mistakes and non-idiomatic code
 - Must pass with zero warnings
@@ -31,10 +31,10 @@ RUSTFLAGS="-D warnings" cargo clippy --all-targets
 cargo fmt --all
 
 # 2. Check compilation
-cargo check --tests
+cargo check --release --tests
 
 # 3. Run clippy
-cargo clippy --all-targets
+cargo clippy --release --all-targets
 ```
 
 ## 2. Testing (Required)
@@ -42,37 +42,37 @@ cargo clippy --all-targets
 ### Run Relevant Tests
 ```bash
 # For most changes
-cargo test
+cargo test --release
 
 # For specific crate
-cargo test -p avenger-scenegraph
+cargo test --release -p avenger-scenegraph
 
 # For workspace (excluding GPU tests)
-cargo test --workspace --exclude avenger-wgpu
+cargo test --release --workspace --exclude avenger-wgpu
 
 # With output for debugging
-cargo test -- --nocapture
+cargo test --release -- --nocapture
 ```
 
 ### Run Doc Tests
 ```bash
-cargo test --doc
+cargo test --release --doc
 ```
 
 ### Visual Regression Tests (if applicable)
 ```bash
 # For avenger-chart changes
-cargo test -p avenger-chart --test visual_regression
+cargo test --release -p avenger-chart --test visual_regression
 
 # With debugging if needed
-AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart=debug cargo test -p avenger-chart -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart=debug cargo test --release -p avenger-chart -- --nocapture
 ```
 
 ## 3. Build Verification
 
 ```bash
 # Verify workspace builds
-cargo build --workspace
+cargo build --release --workspace
 
 # Verify release build works
 cargo build --release
@@ -133,10 +133,10 @@ git commit -m "Descriptive message about changes"
 
 Before marking a task complete, ensure:
 - [ ] `cargo fmt --all` - Code is formatted
-- [ ] `RUSTFLAGS="-D warnings" cargo check --tests` - No warnings
-- [ ] `RUSTFLAGS="-D warnings" cargo clippy --all-targets` - Clippy passes
-- [ ] `cargo test` - Tests pass (or specific tests for your changes)
-- [ ] `cargo build --workspace` - Workspace builds successfully
+- [ ] `RUSTFLAGS="-D warnings" cargo check --release --tests` - No warnings
+- [ ] `RUSTFLAGS="-D warnings" cargo clippy --release --all-targets` - Clippy passes
+- [ ] `cargo test --release` - Tests pass (or specific tests for your changes)
+- [ ] `cargo build --release --workspace` - Workspace builds successfully
 - [ ] Documentation updated (if needed)
 - [ ] Manual testing performed (if applicable)
 - [ ] Changes committed with clear message
@@ -147,7 +147,7 @@ Before marking a task complete, ensure:
 GPU tests in avenger-wgpu are excluded from CI but should be run locally on macOS:
 ```bash
 cd avenger-wgpu
-cargo test -- --nocapture
+cargo test --release -- --nocapture
 ```
 
 ### Performance Testing

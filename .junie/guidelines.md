@@ -16,11 +16,11 @@ Workspace overview
 
 Build and configuration
 - Standard native builds
-  - Build whole workspace (debug): cargo build
+  - Build whole workspace (debug): cargo build --release
   - Release: cargo build --release
   - Build a single crate:
-    - Example: cargo build -p avenger-scenegraph
-    - Or: cd avenger-scenegraph && cargo build
+    - Example: cargo build --release -p avenger-scenegraph
+    - Or: cd avenger-scenegraph && cargo build --release
 - WebAssembly example
   - Examples contain a WASM target (e.g., examples/iris-pan-zoom).
   - Build with wasm-pack: cd examples/iris-pan-zoom && wasm-pack build --target web --release
@@ -33,20 +33,20 @@ Build and configuration
   - See pixi.toml for full task definitions.
 - Linting/formatting/strict checks
   - Format: cargo fmt --all
-  - Lint: cargo clippy --all-targets
-  - Strict check (deny warnings): RUSTFLAGS="-D warnings" cargo check --tests
+  - Lint: cargo clippy --release --all-targets
+  - Strict check (deny warnings): RUSTFLAGS="-D warnings" cargo check --release --tests
 
 Testing
 The project uses both standard Rust unit/integration tests and image-based visual regression tests (primarily under avenger-chart). Some tests require GPU context creation and may be platform/driver sensitive.
 
 Core commands
-- Run all workspace tests: cargo test
-- Run tests for a specific crate: cargo test -p avenger-wgpu
-- Show test stdout: cargo test -- --nocapture
+- Run all workspace tests: cargo test --release
+- Run tests for a specific crate: cargo test --release -p avenger-wgpu
+- Show test stdout: cargo test --release -- --nocapture
 - avenger-chart specific debug mode for layout tests:
-  - AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart
+  - AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release -p avenger-chart
   - To run a specific visual regression test with layout overlays and captured output:
-    - AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart --test visual_regression <test_name> -- --nocapture
+    - AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release -p avenger-chart --test visual_regression <test_name> -- --nocapture
 
 Notes about CI and GPU
 - Some CI environments (notably Linux without proper GPU/driver support) can hit MakeWgpuAdapterError during adapter/device creation. Expect to skip GPU-dependent tests or use headless backends where possible on CI.
@@ -63,7 +63,7 @@ How to add and run new tests
           assert_eq!(2 + 2, 4);
       }
       
-    - Run just that crate’s tests: cargo test -p avenger-common --tests
+    - Run just that crate’s tests: cargo test --release -p avenger-common --tests
     - We confirmed this compiles and runs successfully locally.
   - Remove temporary test files after experimentation to keep the tree clean, especially when tests are only instructional.
 - Visual regression tests (avenger-chart):
@@ -73,7 +73,7 @@ How to add and run new tests
     - Create a new test in avenger-chart/tests/visual_tests/ that renders your scene/mark configuration.
     - Generate a baseline image and place it in the matching baselines subfolder. Ensure the test references the correct path.
     - Use AVENGER_CHART_DEBUG_LAYOUT=1 during development to debug layout boxes.
-  - Run: cargo test -p avenger-chart --test visual_regression -- --nocapture
+  - Run: cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 
 Project conventions and tips
 - Architectural patterns (from CLAUDE.md):
@@ -92,7 +92,7 @@ Example end-to-end test development flow (validated during preparation of this g
 1) Add a minimal integration test in a small crate to avoid heavy dependencies:
    - File: avenger-common/tests/smoke_temp.rs
    - Content: trivial assert as shown above.
-2) Run: cargo test -p avenger-common --tests
+2) Run: cargo test --release -p avenger-common --tests
 3) Confirm output shows the test executed and passed.
 4) Remove the temporary test file to keep the repo clean.
 
@@ -110,9 +110,9 @@ Provenance of this guidance
 - Consolidated from CLAUDE.md (build/dev commands, architecture summaries, testing notes) and verified against the current workspace configuration.
 
 Appendix: quick commands
-- Build all: cargo build
-- Test all: cargo test
-- Single crate: cargo test -p avenger-chart
-- Layout debug: AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart
-- Format/lint: cargo fmt --all && cargo clippy --all-targets
-- Strict check: RUSTFLAGS="-D warnings" cargo check --tests
+- Build all: cargo build --release
+- Test all: cargo test --release
+- Single crate: cargo test --release -p avenger-chart
+- Layout debug: AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release -p avenger-chart
+- Format/lint: cargo fmt --all && cargo clippy --release --all-targets
+- Strict check: RUSTFLAGS="-D warnings" cargo check --release --tests

@@ -8,7 +8,7 @@ convenience (regenerated at bless time, never compared).
 Regenerate after an intentional change:
 
 ```sh
-AVENGER_LAYOUT_BLESS=1 cargo test -p avenger-layout --test svg_baselines
+AVENGER_LAYOUT_BLESS=1 cargo test --release -p avenger-layout --test svg_baselines
 ```
 
 ## Visual language

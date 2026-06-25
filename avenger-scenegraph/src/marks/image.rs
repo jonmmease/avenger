@@ -13,7 +13,7 @@ use itertools::izip;
 use lyon_path::Path;
 use serde::{Deserialize, Serialize};
 
-use super::mark::{SceneMark, default_interactive};
+use super::mark::{default_interactive, SceneMark};
 
 #[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]

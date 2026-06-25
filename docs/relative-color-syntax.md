@@ -53,7 +53,7 @@ channel keywords. In code, these are represented by `avenger_color::ColorChannel
 Useful focused checks:
 
 ```sh
-cargo test -p avenger-color
-cargo test -p avenger-chart-core theme
-cargo test -p avenger-chart-core --doc
+cargo test --release -p avenger-color
+cargo test --release -p avenger-chart-core theme
+cargo test --release -p avenger-chart-core --doc
 ```

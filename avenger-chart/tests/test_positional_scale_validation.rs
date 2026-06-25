@@ -1,3 +1,5 @@
+#![cfg(feature = "wgpu")]
+
 use avenger_chart::prelude::*;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};

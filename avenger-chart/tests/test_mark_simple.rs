@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[cfg(feature = "wgpu")]
 mod tests {
     use avenger_chart::prelude::*;
     use datafusion::arrow::array::Float64Array;

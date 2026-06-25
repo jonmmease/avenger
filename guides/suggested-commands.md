@@ -5,11 +5,10 @@
 ### Basic Building
 ```bash
 # Build entire workspace
-cargo build
 cargo build --release
 
 # Build specific crate
-cd avenger-scenegraph && cargo build
+cd avenger-scenegraph && cargo build --release
 
 # Build for WASM
 cd examples/iris-pan-zoom
@@ -33,25 +32,25 @@ pixi run fmt-rs
 ### Linting
 ```bash
 # Run clippy on all targets
-cargo clippy --all-targets
+cargo clippy --release --all-targets
 
 # Via pixi
 pixi run clippy
 
 # Strict mode (used in CI)
-RUSTFLAGS="-D warnings" cargo clippy
-RUSTFLAGS="-D warnings" cargo clippy --all-targets
+RUSTFLAGS="-D warnings" cargo clippy --release
+RUSTFLAGS="-D warnings" cargo clippy --release --all-targets
 ```
 
 ### Type Checking
 ```bash
 # Check code compilation without building
-cargo check
-cargo check --tests
+cargo check --release
+cargo check --release --tests
 
 # Strict mode (warnings as errors, used in CI)
-RUSTFLAGS="-D warnings" cargo check
-RUSTFLAGS="-D warnings" cargo check --tests
+RUSTFLAGS="-D warnings" cargo check --release
+RUSTFLAGS="-D warnings" cargo check --release --tests
 ```
 
 ## Testing Commands
@@ -59,54 +58,54 @@ RUSTFLAGS="-D warnings" cargo check --tests
 ### Basic Testing
 ```bash
 # Run all tests
-cargo test
-cargo test --workspace
+cargo test --release
+cargo test --release --workspace
 
 # Run tests with output
-cargo test -- --nocapture
+cargo test --release -- --nocapture
 
 # Run specific crate tests
-cd avenger-wgpu && cargo test
+cd avenger-wgpu && cargo test --release
 
 # Run specific test
-cargo test test_name -- --nocapture
+cargo test --release test_name -- --nocapture
 
 # Run doc tests
-cargo test --doc
+cargo test --release --doc
 ```
 
 ### Visual Regression Tests
 ```bash
 # Run visual regression tests (avenger-chart)
-cargo test -p avenger-chart --test visual_regression
+cargo test --release -p avenger-chart --test visual_regression
 
 # Run specific visual test
-cargo test -p avenger-chart --test visual_regression test_name -- --nocapture
+cargo test --release -p avenger-chart --test visual_regression test_name -- --nocapture
 
 # With visual debug layout
-AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart --test visual_regression test_name -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release -p avenger-chart --test visual_regression test_name -- --nocapture
 
 # With logging
-RUST_LOG=avenger_chart=debug cargo test -- --nocapture
+RUST_LOG=avenger_chart=debug cargo test --release -- --nocapture
 
 # Combined debugging (recommended)
-AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart::layout=debug cargo test -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart::layout=debug cargo test --release -- --nocapture
 ```
 
 ### Debugging Tests
 ```bash
 # Enable layout debug visualization (magenta rectangles)
-AVENGER_CHART_DEBUG_LAYOUT=1 cargo test
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release
 
 # Enable debug logging
-RUST_LOG=avenger_chart=debug cargo test -- --nocapture
+RUST_LOG=avenger_chart=debug cargo test --release -- --nocapture
 
 # Module-specific logging
-RUST_LOG=avenger_chart::layout=trace,avenger_chart::legend=debug cargo test -- --nocapture
+RUST_LOG=avenger_chart::layout=trace,avenger_chart::legend=debug cargo test --release -- --nocapture
 
 # With backtrace
-RUST_BACKTRACE=1 cargo test
-RUST_BACKTRACE=full cargo test
+RUST_BACKTRACE=1 cargo test --release
+RUST_BACKTRACE=full cargo test --release
 ```
 
 ## Running Examples

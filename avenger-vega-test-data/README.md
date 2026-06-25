@@ -4,7 +4,7 @@ This is a binary crate responsible for generating image scenegraph and image tes
 From the project root
 ```
 cd avenger-vega-test-data
-cargo run
+cargo run --release
 ```
 
 ## How it works

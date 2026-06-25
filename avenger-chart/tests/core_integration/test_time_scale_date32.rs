@@ -1,3 +1,4 @@
+#[cfg(feature = "doc-render")]
 use avenger_chart::doc::render::render_evaluated_plot_to_png;
 use avenger_chart::param::Param;
 use avenger_chart::prelude::*;
@@ -5,6 +6,7 @@ use datafusion::arrow::array::{Date32Array, Float64Array, StringArray};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use datafusion::scalar::ScalarValue;
+#[cfg(feature = "doc-render")]
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -106,6 +108,7 @@ async fn test_time_scale_with_date32_and_expression() -> Result<(), Box<dyn std:
 }
 
 #[tokio::test]
+#[cfg(feature = "doc-render")]
 async fn test_time_scale_with_stocks_parquet() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = SessionContext::new();
 

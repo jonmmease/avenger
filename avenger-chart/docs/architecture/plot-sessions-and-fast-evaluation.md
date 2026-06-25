@@ -359,8 +359,8 @@ measurement, and phase timing counters.
 Useful diagnostic commands:
 
 ```bash
-cargo test -p avenger-chart --lib plot_session_preview -- --nocapture
-cargo test -p avenger-chart --lib pan -- --nocapture
+cargo test --release -p avenger-chart --lib plot_session_preview -- --nocapture
+cargo test --release -p avenger-chart --lib pan -- --nocapture
 cargo run -p avenger-chart --example facet_instanced_pan_png_replay --release
 cargo run -p avenger-chart --example responsive_wrap_png_replay --release
 ```

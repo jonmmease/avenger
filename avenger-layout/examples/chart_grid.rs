@@ -21,7 +21,7 @@
 //!    the final rectangle, and render the assembled scene graph to a
 //!    PNG.
 //!
-//! Run with: `cargo run -p avenger-layout --example chart_grid`
+//! Run with: `cargo run --release -p avenger-layout --example chart_grid`
 
 use avenger_color::ColorOrGradient;
 use avenger_common::canvas::CanvasDimensions;

@@ -9,13 +9,13 @@ The avenger-chart crate provides two complementary debugging approaches:
 
 ```bash
 # Enable debug logs only
-RUST_LOG=avenger_chart=debug cargo test -- --nocapture
+RUST_LOG=avenger_chart=debug cargo test --release -- --nocapture
 
 # Enable visual debug rectangles only
-AVENGER_CHART_DEBUG_LAYOUT=1 cargo test
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release
 
 # Enable both (recommended for layout debugging)
-AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart::layout=debug cargo test -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart::layout=debug cargo test --release -- --nocapture
 ```
 
 ## Tracing for Debug Logging
@@ -49,22 +49,22 @@ Control log level via the `RUST_LOG` environment variable:
 
 ```bash
 # Show debug output from all avenger-chart modules
-RUST_LOG=avenger_chart=debug cargo run
+RUST_LOG=avenger_chart=debug cargo run --release
 
 # Show trace-level output (more verbose)
-RUST_LOG=avenger_chart=trace cargo run
+RUST_LOG=avenger_chart=trace cargo run --release
 
 # Show only warnings and errors
-RUST_LOG=avenger_chart=warn cargo run
+RUST_LOG=avenger_chart=warn cargo run --release
 
 # Show debug for specific crates/modules
-RUST_LOG=avenger_chart::layout=debug,avenger_chart_legend=trace cargo run
+RUST_LOG=avenger_chart::layout=debug,avenger_chart_legend=trace cargo run --release
 ```
 
 **Important**: When running tests, use `-- --nocapture` to see log output:
 
 ```bash
-RUST_LOG=avenger_chart=debug cargo test -- --nocapture
+RUST_LOG=avenger_chart=debug cargo test --release -- --nocapture
 ```
 
 ### Available Log Categories
@@ -124,13 +124,13 @@ Set the `AVENGER_CHART_DEBUG_LAYOUT` environment variable (to any value):
 
 ```bash
 # Enable visual debug rectangles
-AVENGER_CHART_DEBUG_LAYOUT=1 cargo test
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release
 
 # Works in both debug and release builds
 AVENGER_CHART_DEBUG_LAYOUT=1 cargo run --release
 
 # Combine with specific test
-AVENGER_CHART_DEBUG_LAYOUT=1 cargo test -p avenger-chart --test visual_regression test_name -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 cargo test --release -p avenger-chart --test visual_regression test_name -- --nocapture
 ```
 
 ### What Gets Visualized
@@ -185,13 +185,13 @@ For comprehensive debugging, combine tracing logs with visual rectangles:
 
 ```bash
 # Layout debugging (comprehensive)
-AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart::layout=debug cargo test -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart::layout=debug cargo test --release -- --nocapture
 
 # Legend debugging
-AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart_legend=trace cargo test -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart_legend=trace cargo test --release -- --nocapture
 
 # Everything (very verbose)
-AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart=trace cargo test -- --nocapture
+AVENGER_CHART_DEBUG_LAYOUT=1 RUST_LOG=avenger_chart=trace cargo test --release -- --nocapture
 ```
 
 This provides:
@@ -232,7 +232,7 @@ fn main() {
 ## Troubleshooting
 
 **Q: I set `RUST_LOG` but see no output**
-- Make sure you're using `-- --nocapture` with cargo test
+- Make sure you're using `-- --nocapture` with cargo test --release
 - Verify you've initialized a tracing subscriber in your application/test
 - Check that the module or crate path is correct (for example,
   `avenger_chart::layout` for top-level layout code or `avenger_chart_legend`

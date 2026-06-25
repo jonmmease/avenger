@@ -697,7 +697,7 @@ fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
             save_svg_failures(category, baseline_name, &svg, &svg_image)
                 .expect("Failed to save missing SVG baseline failure");
             panic!(
-                "No SVG baseline found at '{}'. Generated SVG saved to '{}'. Generate baselines with {SVG_BASELINES_ENV}=only {BLESS_SVG_BASELINES_ENV}=1 cargo test -p avenger-chart --test visual_regression -- --nocapture",
+                "No SVG baseline found at '{}'. Generated SVG saved to '{}'. Generate baselines with {SVG_BASELINES_ENV}=only {BLESS_SVG_BASELINES_ENV}=1 cargo test --release -p avenger-chart --test visual_regression -- --nocapture",
                 svg_path.display(),
                 svg_failure.display()
             );
@@ -772,7 +772,7 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
             save_pdf_failures(category, baseline_name, &pdf, &pdf_image)
                 .expect("Failed to save missing PDF baseline failure");
             panic!(
-                "No PDF baseline found at '{}'. Generated PDF saved to '{}'. Generate baselines with {PDF_BASELINES_ENV}=only {BLESS_PDF_BASELINES_ENV}=1 cargo test -p avenger-chart --test visual_regression -- --nocapture",
+                "No PDF baseline found at '{}'. Generated PDF saved to '{}'. Generate baselines with {PDF_BASELINES_ENV}=only {BLESS_PDF_BASELINES_ENV}=1 cargo test --release -p avenger-chart --test visual_regression -- --nocapture",
                 pdf_path.display(),
                 pdf_failure.display()
             );

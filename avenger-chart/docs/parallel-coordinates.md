@@ -106,6 +106,6 @@ baselines under `avenger-chart/tests/baselines/parallel/`.
 ## Interactive Examples
 
 ```bash
-cargo run -p avenger-chart-app --example parallel_coordinates_header_drag_reorder --features winit-wgpu
-cargo run -p avenger-chart-app --example parallel_axis_brush_selection --features winit-wgpu
+cargo run --release -p avenger-chart-app --example parallel_coordinates_header_drag_reorder --features winit-wgpu
+cargo run --release -p avenger-chart-app --example parallel_axis_brush_selection --features winit-wgpu
 ```

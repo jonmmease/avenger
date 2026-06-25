@@ -73,13 +73,13 @@ See the `docs/` directory for detailed design documents:
 
 ```bash
 # Build the library
-cargo build
+cargo build --release
 
 # Run examples
-cargo run --example transform_demo
-cargo run --example adjust_api
-cargo run --example derive_marks
+cargo run --release --example transform_demo
+cargo run --release --example adjust_api
+cargo run --release --example derive_marks
 
 # Run tests
-cargo test
+cargo test --release
 ```

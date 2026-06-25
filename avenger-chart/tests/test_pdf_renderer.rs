@@ -1,3 +1,5 @@
+#![cfg(feature = "pdf")]
+
 use std::path::PathBuf;
 
 use avenger_chart::{

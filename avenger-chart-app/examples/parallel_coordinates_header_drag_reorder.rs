@@ -6,7 +6,7 @@
 //
 // Run with:
 // ```bash
-// cargo run -p avenger-chart-app --example parallel_coordinates_header_drag_reorder --features winit-wgpu
+// cargo run --release -p avenger-chart-app --example parallel_coordinates_header_drag_reorder --features winit-wgpu
 // ```
 
 use std::sync::Arc;
