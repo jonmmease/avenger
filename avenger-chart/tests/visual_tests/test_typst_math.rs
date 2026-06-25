@@ -117,6 +117,56 @@ fn root_fraction_data(ctx: &SessionContext) -> DataFrame {
     dataframe(ctx, x_values, y_values, series, order_values)
 }
 
+fn label_dataframe(ctx: &SessionContext, rows: Vec<(f64, f64, &str)>) -> DataFrame {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("label", DataType::Utf8, false),
+    ]));
+    let mut x = Vec::new();
+    let mut y = Vec::new();
+    let mut label = Vec::new();
+    for (x_value, y_value, label_value) in rows {
+        x.push(x_value);
+        y.push(y_value);
+        label.push(label_value);
+    }
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Float64Array::from(x)) as ArrayRef,
+            Arc::new(Float64Array::from(y)) as ArrayRef,
+            Arc::new(StringArray::from(label)) as ArrayRef,
+        ],
+    )
+    .expect("typst math label batch");
+
+    ctx.read_batch(batch).expect("typst math label dataframe")
+}
+
+fn occlusion_rect_dataframe(ctx: &SessionContext) -> DataFrame {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x0", DataType::Float64, false),
+        Field::new("x1", DataType::Float64, false),
+        Field::new("y0", DataType::Float64, false),
+        Field::new("y1", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Float64Array::from(vec![0.43])) as ArrayRef,
+            Arc::new(Float64Array::from(vec![0.64])) as ArrayRef,
+            Arc::new(Float64Array::from(vec![0.43])) as ArrayRef,
+            Arc::new(Float64Array::from(vec![0.60])) as ArrayRef,
+        ],
+    )
+    .expect("typst math occlusion rect batch");
+
+    ctx.read_batch(batch)
+        .expect("typst math occlusion rect dataframe")
+}
+
 async fn assert_typst_math_wgpu(
     compiled: &CompiledPlot,
     ctx: &SessionContext,
@@ -222,4 +272,127 @@ async fn root_fraction_title() {
         .await
         .expect("compile root fraction plot");
     assert_typst_math_wgpu(&compiled, &ctx, "root_fraction_title").await;
+}
+
+#[tokio::test]
+async fn bessel_equation_annotation() {
+    let ctx = SessionContext::new();
+    let line_df = bessel_family_data(&ctx);
+    let annotation_df = label_dataframe(
+        &ctx,
+        vec![(
+            5.45,
+            0.78,
+            "Bessel equation $x^2 y + x y + (x^2 - n^2)y = 0$",
+        )],
+    );
+
+    let plot = Plot::<Cartesian>::new()
+        .title("Annotated Bessel-like curve $J_n(x)$")
+        .data(line_df)
+        .mark(
+            Line::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 12.0)))
+                        .axis(|axis| axis.title("$x$").grid(true))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((-1.05, 1.05)))
+                        .axis(|axis| axis.title("$J_n(x)$").grid(true))
+                })
+                .stroke_with(col("series"), |c| c.legend(|legend| legend.visible(false)))
+                .stroke_width(2.0)
+                .order(col("order")),
+        )
+        .mark(
+            Text::new()
+                .data(annotation_df)
+                .x(col("x"))
+                .y(col("y"))
+                .text(col("label"))
+                .align("center")
+                .baseline("middle")
+                .font_size(13.0)
+                .color("#111827"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile Bessel annotation plot");
+    assert_typst_math_wgpu(&compiled, &ctx, "bessel_equation_annotation").await;
+}
+
+#[tokio::test]
+async fn escaped_dollar_plain_text() {
+    let ctx = SessionContext::new();
+    let df = label_dataframe(&ctx, vec![(0.52, 0.52, "Price \\$7, score $R^2 = 0.94$")]);
+
+    let plot = Plot::<Cartesian>::new()
+        .title("Cost is \\$5, score is $R^2$")
+        .mark(
+            Text::new()
+                .data(df)
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 1.0)))
+                        .axis(|axis| axis.title("$x$"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 1.0)))
+                        .axis(|axis| axis.title("$y$"))
+                })
+                .text(col("label"))
+                .align("center")
+                .baseline("middle")
+                .font_size(17.0)
+                .color("#111827"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile escaped dollar plot");
+    assert_typst_math_wgpu(&compiled, &ctx, "escaped_dollar_plain_text").await;
+}
+
+#[tokio::test]
+async fn mark_occlusion_math_label() {
+    let ctx = SessionContext::new();
+    let label_df = label_dataframe(&ctx, vec![(0.50, 0.52, "peak $x_i^2$")]);
+    let rect_df = occlusion_rect_dataframe(&ctx);
+
+    let plot = Plot::<Cartesian>::new()
+        .title("Math z-order $x_i^2$")
+        .mark(
+            Text::new()
+                .data(label_df)
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 1.0)))
+                        .axis(|axis| axis.title("$x$"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 1.0)))
+                        .axis(|axis| axis.title("$y$"))
+                })
+                .text(col("label"))
+                .align("center")
+                .baseline("middle")
+                .font_size(28.0)
+                .color("#111827"),
+        )
+        .mark(
+            Rect::new()
+                .data(rect_df)
+                .x(col("x0"))
+                .x2(col("x1"))
+                .y(col("y0"))
+                .y2(col("y1"))
+                .fill("#d62728")
+                .opacity(0.72)
+                .stroke("#7f1d1d")
+                .stroke_width(1.0),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile math z-order plot");
+    assert_typst_math_wgpu(&compiled, &ctx, "mark_occlusion_math_label").await;
 }
