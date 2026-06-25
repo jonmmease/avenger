@@ -10,6 +10,9 @@ use crate::paths::{
     MathPathArtifact, MathPathCommand, MathPathData, MathPathItem, MathPathKind, MathStroke,
     MathTransform,
 };
+use crate::pdf::{
+    MathFontResource, MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer,
+};
 use crate::style::{Color, MathDisplayStyle};
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
@@ -27,7 +30,8 @@ use typst_library::math::{
 };
 use typst_library::routines::{Arenas, Pair, RealizationKind, Routines, SpanMode};
 use typst_library::text::{
-    Font, FontBook, FontFamily, FontList, SpaceElem, TextElem, TextItem, TextSize,
+    is_default_ignorable, Font, FontBook, FontFamily, FontInstance, FontList, SpaceElem, TextElem,
+    TextItem, TextSize,
 };
 use typst_library::visualize::{
     Color as TypstColor, Curve, CurveItem, FixedStroke, Geometry, Paint, ProcessColorSpace, Shape,
@@ -69,11 +73,6 @@ impl TypstMathEngine {
         source: &str,
         options: &MathFragmentOptions,
     ) -> Result<MathRunArtifact, MathTypesetError> {
-        if options.outputs.pdf_text_layer {
-            return Err(MathTypesetError::UnsupportedOutput(
-                "vendor-typst PDF glyph output is not wired yet",
-            ));
-        }
         if options.outputs.raster.is_some() {
             return Err(MathTypesetError::UnsupportedOutput(
                 "vendor-typst raster output is not wired yet",
@@ -87,13 +86,22 @@ impl TypstMathEngine {
         } else {
             None
         };
+        let pdf_artifact = if options.outputs.pdf_text_layer {
+            Some(pdf_text_from_inline_items(&items, metrics, source)?)
+        } else {
+            None
+        };
+        let (pdf_text, font_resources) = match pdf_artifact {
+            Some(artifact) => (Some(artifact.text_layer), artifact.font_resources),
+            None => (None, Vec::new()),
+        };
 
         Ok(MathRunArtifact {
             metrics,
             paths,
             raster: None,
-            pdf_text: None,
-            font_resources: Vec::new(),
+            pdf_text,
+            font_resources,
             warnings: Vec::new(),
         })
     }
@@ -617,6 +625,168 @@ impl PathLowerer {
 
         Ok(())
     }
+}
+
+struct PdfArtifact {
+    text_layer: MathPdfTextLayer,
+    font_resources: Vec<MathFontResource>,
+}
+
+fn pdf_text_from_inline_items(
+    items: &[InlineItem],
+    metrics: TypesetMetrics,
+    source: &str,
+) -> Result<PdfArtifact, MathTypesetError> {
+    let mut lowerer = PdfLowerer::default();
+    let mut x = Abs::zero();
+    let baseline = Abs::pt(metrics.baseline as f64);
+
+    for item in items {
+        match item {
+            InlineItem::Space(amount, _) => {
+                x += *amount;
+            }
+            InlineItem::Frame(frame) => {
+                let y = baseline - frame.ascent();
+                lowerer.lower_frame(frame, Transform::translate(x, y))?;
+                x += frame.width();
+            }
+        }
+    }
+
+    Ok(PdfArtifact {
+        text_layer: MathPdfTextLayer {
+            logical_width: metrics.width,
+            logical_height: metrics.height,
+            semantic_text: source.to_string(),
+            glyph_runs: lowerer.glyph_runs,
+        },
+        font_resources: lowerer.font_resources,
+    })
+}
+
+#[derive(Default)]
+struct PdfLowerer {
+    glyph_runs: Vec<MathPdfGlyphRun>,
+    font_resources: Vec<MathFontResource>,
+}
+
+impl PdfLowerer {
+    fn lower_frame(&mut self, frame: &Frame, transform: Transform) -> Result<(), MathTypesetError> {
+        for (pos, item) in frame.items() {
+            let item_transform = transform.pre_concat(Transform::translate(pos.x, pos.y));
+            match item {
+                FrameItem::Group(group) => {
+                    if group.clip.is_some() {
+                        return Err(MathTypesetError::UnsupportedOutput(
+                            "clipped Typst math groups are not supported in PDF glyph output yet",
+                        ));
+                    }
+                    let group_transform = item_transform.pre_concat(group.transform);
+                    self.lower_frame(&group.frame, group_transform)?;
+                }
+                FrameItem::Text(text) => self.lower_text(text, item_transform)?,
+                FrameItem::Shape(..) | FrameItem::Link(..) | FrameItem::Tag(_) => {}
+                FrameItem::Image(..) => {
+                    return Err(MathTypesetError::UnsupportedOutput(
+                        "Typst image frame items are not supported in PDF glyph output",
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn lower_text(
+        &mut self,
+        text: &TextItem,
+        transform: Transform,
+    ) -> Result<(), MathTypesetError> {
+        if text.glyphs.is_empty() {
+            return Ok(());
+        }
+
+        let font = self.font_resource_id(&text.font);
+        let fill = color_from_paint(&text.fill)?;
+        let stroke = text
+            .stroke
+            .as_ref()
+            .map(math_stroke_from_typst)
+            .transpose()?;
+        let transform = math_transform_from_typst(transform);
+        let mut cursor_x = Abs::zero();
+        let mut cursor_y = Abs::zero();
+
+        let glyphs = text
+            .glyphs
+            .iter()
+            .map(|glyph| {
+                let x = cursor_x + glyph.x_offset.at(text.size);
+                let y = -(cursor_y + glyph.y_offset.at(text.size));
+                let x_advance = glyph.x_advance.at(text.size);
+                let y_advance = -glyph.y_advance.at(text.size);
+                cursor_x += glyph.x_advance.at(text.size);
+                cursor_y += glyph.y_advance.at(text.size);
+
+                MathPdfGlyph {
+                    glyph_id: glyph.id,
+                    unicode: glyph_unicode(text, glyph),
+                    x: abs_to_f32(x),
+                    y: abs_to_f32(y),
+                    x_advance: abs_to_f32(x_advance),
+                    y_advance: abs_to_f32(y_advance),
+                    transform,
+                }
+            })
+            .collect();
+
+        self.glyph_runs.push(MathPdfGlyphRun {
+            font,
+            font_size: abs_to_f32(text.size),
+            fill,
+            stroke,
+            glyphs,
+        });
+
+        Ok(())
+    }
+
+    fn font_resource_id(&mut self, instance: &FontInstance) -> MathFontResourceId {
+        let font = instance.font();
+        let family = font.info().family.clone();
+        let postscript_name = font.post_script_name();
+        let face_index = font.index();
+        let units_per_em = instance.units_per_em() as f32;
+        let data = font.data().as_slice();
+
+        if let Some(resource) = self.font_resources.iter().find(|resource| {
+            resource.family == family
+                && resource.postscript_name == postscript_name
+                && resource.face_index == face_index
+                && (resource.units_per_em - units_per_em).abs() < f32::EPSILON
+                && resource.data.as_ref() == data
+        }) {
+            return resource.id;
+        }
+
+        let id = MathFontResourceId(self.font_resources.len() as u32);
+        self.font_resources.push(MathFontResource {
+            id,
+            family,
+            postscript_name,
+            face_index,
+            units_per_em,
+            data: Arc::<[u8]>::from(data),
+        });
+        id
+    }
+}
+
+fn glyph_unicode(text: &TextItem, glyph: &typst_library::text::Glyph) -> String {
+    text.text[glyph.range()]
+        .trim_matches(is_default_ignorable)
+        .to_string()
 }
 
 struct GlyphPathBuilder<'a> {

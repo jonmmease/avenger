@@ -1,6 +1,9 @@
 #![cfg(feature = "vendor-typst")]
 
-use avenger_typst::{AvengerTypst, MathFragmentOptions, TypstEngineBackend, TypstEngineConfig};
+use avenger_typst::{
+    AvengerTypst, MathFragmentOptions, MathOutputRequest, MathStringRun, TypstEngineBackend,
+    TypstEngineConfig,
+};
 use typst_syntax::{parse_math, SyntaxKind};
 
 #[test]
@@ -83,5 +86,68 @@ fn vendor_backend_lowers_common_fragments_to_paths() {
         assert_eq!(paths.logical_width, artifact.metrics.width);
         assert_eq!(paths.logical_height, artifact.metrics.height);
         assert!(!paths.items.is_empty(), "{source} produced no path items");
+    }
+}
+
+#[test]
+fn vendor_backend_returns_pdf_glyph_layer_and_font_bytes() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut options = MathFragmentOptions::default();
+    options.outputs.paths = false;
+    options.outputs.pdf_text_layer = true;
+
+    let artifact = engine.typeset_math_fragment("x^2 + y^2", &options).unwrap();
+    let pdf_text = artifact.pdf_text.as_ref().unwrap();
+
+    assert_eq!(pdf_text.semantic_text, "x^2 + y^2");
+    assert_eq!(pdf_text.logical_width, artifact.metrics.width);
+    assert_eq!(pdf_text.logical_height, artifact.metrics.height);
+    assert!(!pdf_text.glyph_runs.is_empty());
+    assert!(pdf_text.glyph_runs.iter().any(|run| !run.glyphs.is_empty()));
+    assert!(!artifact.font_resources.is_empty());
+    assert!(artifact
+        .font_resources
+        .iter()
+        .all(|resource| !resource.data.is_empty()));
+}
+
+#[test]
+fn vendor_string_artifact_deduplicates_pdf_font_resources() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut options = avenger_typst::MathStringOptions::default();
+    options.outputs = MathOutputRequest {
+        paths: false,
+        raster: None,
+        pdf_text_layer: true,
+    };
+
+    let artifact = engine.typeset_math_string("$x$ + $y$", &options).unwrap();
+    assert_eq!(artifact.font_resources.len(), 1);
+
+    let math_runs = artifact
+        .runs
+        .iter()
+        .filter_map(|run| match run {
+            MathStringRun::Math(math_run) => Some(math_run),
+            MathStringRun::Plain(_) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(math_runs.len(), 2);
+
+    for math_run in math_runs {
+        let run_font = math_run.artifact.pdf_text.as_ref().unwrap().glyph_runs[0].font;
+        assert_eq!(run_font, artifact.font_resources[0].id);
+        assert_eq!(
+            math_run.artifact.font_resources[0].id,
+            artifact.font_resources[0].id
+        );
     }
 }
