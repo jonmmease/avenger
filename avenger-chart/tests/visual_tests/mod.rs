@@ -108,6 +108,8 @@ pub mod test_transform_lump;
 pub mod test_transform_stack;
 pub mod test_transform_time_unit;
 pub mod test_transform_window;
+#[cfg(feature = "typst-math-raster")]
+pub mod test_typst_math;
 pub mod test_violin;
 pub mod test_webmercator;
 pub mod test_wrapped_facet_sugar;

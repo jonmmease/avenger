@@ -16,6 +16,11 @@ svg = [
 ]
 pdf = ["dep:avenger-pdf", "svg"]
 wgpu = ["dep:avenger-wgpu"]
+typst-math-raster = [
+    "wgpu",
+    "avenger-text/typst-math-raster",
+    "avenger-wgpu/typst-math-raster",
+]
 doc-render = ["wgpu", "image-resources", "avenger-image/reqwest", "avenger-image/svg"]
 renderers = ["svg", "pdf", "wgpu", "doc-render"]
 visual-tests = [
