@@ -270,8 +270,20 @@ impl AvengerRendererCore {
     ) -> Self {
         let multi_render_resources =
             MultiMarkRenderResources::new(device, texture_format, sample_count);
-        let text_atlas_builder =
-            make_text_atlas_builder(&config.text_builder_ctor, &config.font_resolution);
+        let text_atlas_builder = {
+            #[cfg(feature = "typst-math-raster")]
+            {
+                make_text_atlas_builder(
+                    &config.text_builder_ctor,
+                    &config.font_resolution,
+                    &config.text_math,
+                )
+            }
+            #[cfg(not(feature = "typst-math-raster"))]
+            {
+                make_text_atlas_builder(&config.text_builder_ctor, &config.font_resolution)
+            }
+        };
 
         Self {
             dimensions,
@@ -568,8 +580,23 @@ impl AvengerRendererCore {
         // Reset the shared text atlas so each frame starts clean (matches the old
         // per-renderer reset-per-frame semantics). `TextAtlasBuilder` has no reset
         // method, so replace it with a fresh builder via the same ctor.
-        self.text_atlas_builder =
-            make_text_atlas_builder(&self.config.text_builder_ctor, &self.config.font_resolution);
+        self.text_atlas_builder = {
+            #[cfg(feature = "typst-math-raster")]
+            {
+                make_text_atlas_builder(
+                    &self.config.text_builder_ctor,
+                    &self.config.font_resolution,
+                    &self.config.text_math,
+                )
+            }
+            #[cfg(not(feature = "typst-math-raster"))]
+            {
+                make_text_atlas_builder(
+                    &self.config.text_builder_ctor,
+                    &self.config.font_resolution,
+                )
+            }
+        };
     }
 
     pub(crate) fn make_frame_overlay_command(
@@ -669,6 +696,7 @@ impl AvengerRendererCore {
 pub(crate) fn make_text_atlas_builder(
     text_builder_ctor: &Option<TextBuildCtor>,
     _font_resolution: &avenger_text::FontResolutionOptions,
+    #[cfg(feature = "typst-math-raster")] text_math: &avenger_text::math::TextMathConfig,
 ) -> Box<dyn TextAtlasBuilderTrait> {
     if let Some(text_builder_ctor) = text_builder_ctor {
         text_builder_ctor()
@@ -677,9 +705,28 @@ pub(crate) fn make_text_atlas_builder(
             if #[cfg(feature = "cosmic-text")] {
                 use crate::marks::text::TextAtlasBuilder;
                 use std::sync::Arc;
-                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                    avenger_text::rasterization::cosmic::CosmicTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::with_font_resolution(_font_resolution.clone()))
-                ));
+                let plain_rasterizer = avenger_text::rasterization::cosmic::CosmicTextRasterizer::<
+                    crate::marks::text::GlyphBBoxAndAtlasCoords,
+                >::with_font_resolution(_font_resolution.clone());
+                #[cfg(feature = "typst-math-raster")]
+                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> =
+                    if matches!(
+                        &text_math.mode,
+                        avenger_text::math::TextMarkupMode::Plain
+                    ) {
+                        Box::new(TextAtlasBuilder::new(Arc::new(plain_rasterizer)))
+                    } else {
+                        let math_rasterizer =
+                            avenger_text::rasterization::math::MathAwareTextRasterizer::<
+                                _,
+                                crate::marks::text::GlyphBBoxAndAtlasCoords,
+                            >::with_vendor_typst(plain_rasterizer, text_math.clone())
+                            .expect("failed to initialize Typst math rasterizer");
+                        Box::new(TextAtlasBuilder::new(Arc::new(math_rasterizer)))
+                    };
+                #[cfg(not(feature = "typst-math-raster"))]
+                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> =
+                    Box::new(TextAtlasBuilder::new(Arc::new(plain_rasterizer)));
             } else if #[cfg(target_arch = "wasm32")] {
                 use crate::marks::text::TextAtlasBuilder;
                 use std::sync::Arc;
@@ -692,5 +739,74 @@ pub(crate) fn make_text_atlas_builder(
             }
         };
         inner_text_atlas_builder
+    }
+}
+
+#[cfg(all(test, feature = "typst-math-raster"))]
+mod typst_math_raster_tests {
+    use avenger_common::canvas::CanvasDimensions;
+    use avenger_text::{
+        math::{TextMarkupMode, TextMathConfig},
+        types::{FontStyle, FontWeight, TextAlign, TextBaseline},
+    };
+
+    use crate::{marks::text::TextInstance, renderer::make_text_atlas_builder};
+
+    #[test]
+    fn math_enabled_atlas_builder_registers_mixed_label() {
+        let math_config = TextMathConfig {
+            mode: TextMarkupMode::TypstMathDelimited(Default::default()),
+            ..Default::default()
+        };
+        let mut builder = make_text_atlas_builder(&None, &Default::default(), &math_config);
+
+        let text = "speed $v^2$".to_string();
+        let color = [0.1, 0.2, 0.3, 1.0];
+        let align = TextAlign::Left;
+        let baseline = TextBaseline::Alphabetic;
+        let font = "sans-serif".to_string();
+        let font_weight = FontWeight::default();
+        let font_style = FontStyle::default();
+
+        let registrations = builder
+            .register_text(
+                TextInstance {
+                    position: [10.0, 20.0],
+                    text: &text,
+                    color: &color,
+                    align: &align,
+                    angle: 0.0,
+                    baseline: &baseline,
+                    font: &font,
+                    font_size: 16.0,
+                    font_weight: &font_weight,
+                    font_style: &font_style,
+                    limit: f32::INFINITY,
+                    use_nearest_filter: false,
+                },
+                CanvasDimensions {
+                    size: [200.0, 80.0],
+                    scale: 1.0,
+                },
+            )
+            .expect("mixed Typst math label should register");
+
+        let vertex_count: usize = registrations
+            .iter()
+            .map(|registration| registration.verts.len())
+            .sum();
+        assert!(
+            vertex_count >= 8,
+            "expected at least two atlas quads for mixed text/math"
+        );
+
+        let (extent, atlases) = builder.build();
+        assert!(extent.width > 1);
+        assert!(!atlases.is_empty());
+        assert!(atlases.iter().any(|atlas| {
+            atlas
+                .as_rgba8()
+                .is_some_and(|image| image.pixels().any(|pixel| pixel[3] > 0))
+        }));
     }
 }

@@ -200,7 +200,7 @@ impl TextMeasurer for CosmicTextMeasurer {
     }
 }
 
-fn measure_font_metrics_with_cosmic(
+pub(crate) fn measure_font_metrics_with_cosmic(
     config: &FontMetricsConfig,
     font_system: &FontSystem,
 ) -> Option<FontMetrics> {

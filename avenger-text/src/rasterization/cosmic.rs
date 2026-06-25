@@ -10,8 +10,12 @@ use lyon_path::geom::Point;
 use crate::{
     error::AvengerTextError,
     measurement::{
-        cosmic::{make_cosmic_text_buffer, measure_text_buffer, FONT_SYSTEM, SWASH_CACHE},
-        truncate_text_to_limit_with, TextMeasurementConfig,
+        cosmic::{
+            make_cosmic_text_buffer, measure_font_metrics_with_cosmic, measure_text_buffer,
+            FONT_SYSTEM, SWASH_CACHE,
+        },
+        truncate_text_to_limit_with, FontMetrics, FontMetricsConfig, TextBounds,
+        TextMeasurementConfig, TextMeasurer,
     },
     rasterization::GlyphPosition,
     FontResolutionOptions,
@@ -72,6 +76,55 @@ impl<CacheValue> CosmicTextRasterizer<CacheValue> {
             _phantom: PhantomData,
         }
     }
+}
+
+impl<CacheValue> TextMeasurer for CosmicTextRasterizer<CacheValue>
+where
+    CacheValue: Send + Sync,
+{
+    fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
+        match self.resources.as_ref() {
+            CosmicTextResources::Global => {
+                let mut font_system = FONT_SYSTEM
+                    .lock()
+                    .expect("Failed to acquire lock on FONT_SYSTEM");
+                measure_text_bounds_with_resources(config, &mut font_system)
+            }
+            CosmicTextResources::Local { font_system, .. } => {
+                let mut font_system = font_system
+                    .lock()
+                    .expect("Failed to acquire local FontSystem lock");
+                measure_text_bounds_with_resources(config, &mut font_system)
+            }
+        }
+    }
+
+    fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
+        match self.resources.as_ref() {
+            CosmicTextResources::Global => {
+                let font_system = FONT_SYSTEM
+                    .lock()
+                    .expect("Failed to acquire lock on FONT_SYSTEM");
+                measure_font_metrics_with_cosmic(config, &font_system)
+                    .unwrap_or_else(|| FontMetrics::fallback(config.font_size))
+            }
+            CosmicTextResources::Local { font_system, .. } => {
+                let font_system = font_system
+                    .lock()
+                    .expect("Failed to acquire local FontSystem lock");
+                measure_font_metrics_with_cosmic(config, &font_system)
+                    .unwrap_or_else(|| FontMetrics::fallback(config.font_size))
+            }
+        }
+    }
+}
+
+fn measure_text_bounds_with_resources(
+    config: &TextMeasurementConfig,
+    font_system: &mut FontSystem,
+) -> TextBounds {
+    let buffer = make_cosmic_text_buffer(config, font_system);
+    measure_text_buffer(&buffer)
 }
 
 impl<CacheValue> TextRasterizer for CosmicTextRasterizer<CacheValue>

@@ -119,6 +119,20 @@ impl<P> MathAwareTextMeasurer<P> {
         ))
     }
 
+    pub fn with_vendor_typst(
+        plain: P,
+        math: TextMathConfig,
+    ) -> Result<Self, avenger_typst::TypstInitError> {
+        Ok(Self::new(
+            plain,
+            AvengerTypst::new(TypstEngineConfig {
+                backend: avenger_typst::TypstEngineBackend::VendorTypst,
+                ..TypstEngineConfig::default()
+            })?,
+            math,
+        ))
+    }
+
     pub fn plain(&self) -> &P {
         &self.plain
     }

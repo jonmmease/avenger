@@ -102,6 +102,8 @@ fn truncate_text_to_limit(
 pub struct CanvasConfig {
     pub text_builder_ctor: Option<TextBuildCtor>,
     pub font_resolution: FontResolutionOptions,
+    #[cfg(feature = "typst-math-raster")]
+    pub text_math: avenger_text::math::TextMathConfig,
     pub image_resource_config: WgpuImageResourceConfig,
 }
 

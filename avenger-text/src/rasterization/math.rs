@@ -48,6 +48,20 @@ impl<P, CacheValue> MathAwareTextRasterizer<P, CacheValue> {
         }
     }
 
+    pub fn with_vendor_typst(
+        plain: P,
+        math: TextMathConfig,
+    ) -> Result<Self, avenger_typst::TypstInitError> {
+        Ok(Self::new(
+            plain,
+            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
+                backend: avenger_typst::TypstEngineBackend::VendorTypst,
+                ..avenger_typst::TypstEngineConfig::default()
+            })?,
+            math,
+        ))
+    }
+
     pub fn plain(&self) -> &P {
         &self.plain
     }
