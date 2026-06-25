@@ -1238,6 +1238,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-typst-vendor"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "avenger-vega-scenegraph"
 version = "0.0.8"
 dependencies = [

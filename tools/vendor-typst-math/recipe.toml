@@ -1,0 +1,29 @@
+[upstream]
+expected_workspace_version = "0.15.0"
+
+[copy]
+# Phase 2 intentionally starts with an empty vendor tree so the generator,
+# manifest, revision pinning, and deny-list checks can be reviewed separately
+# from the large generated Typst source copy.
+crates = []
+root_files = []
+
+[deny_dependencies]
+crates = [
+  "typst",
+  "typst-html",
+  "typst-pdf",
+  "typst-svg",
+  "typst-render",
+  "typst-kit",
+  "typst-assets",
+  "hayagriva",
+  "syntect",
+  "wasmi",
+  "image",
+  "usvg",
+  "csv",
+  "toml",
+  "serde_yaml",
+  "ciborium",
+]

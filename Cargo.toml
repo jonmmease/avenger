@@ -39,6 +39,7 @@ members = [
     "examples/wgpu-winit",
     "examples/iris-pan-zoom",
     "avenger-chart-external-test",
+    "tools/avenger-typst-vendor",
 ]
 exclude = [
     "avenger-vega-test-data",

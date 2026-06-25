@@ -1,0 +1,9 @@
+[package]
+name = "avenger-typst-vendor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"

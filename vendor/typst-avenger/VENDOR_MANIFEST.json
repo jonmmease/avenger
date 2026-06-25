@@ -1,0 +1,46 @@
+{
+  "upstream_rev": "c98e910391a8544b28bd5c99a6f3b1ac1ada9a84",
+  "upstream_path": "/Users/jmease/repos/typst",
+  "generation_epoch_seconds": 0,
+  "generator_version": "0.1.0",
+  "recipe_path": "/Users/jmease/repos/avenger/tools/vendor-typst-math/recipe.toml",
+  "expected_workspace_version": "0.15.0",
+  "copied_files": [],
+  "applied_overlays": [],
+  "applied_patches": [],
+  "generated_files": [
+    {
+      "path": "README.md",
+      "sha256": "11f4b4286e196624209fb9821af7b26d12376949dc6fa34b1c28c18fcf4c3596",
+      "byte_len": 436
+    },
+    {
+      "path": "UPSTREAM_REV",
+      "sha256": "911513d6bef6cd7555541dfb25a2fd834414361c47517454b8b3fdd692f3cb59",
+      "byte_len": 41
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "b80afec4cc2ef11770499ed77037860e6ca3d4e4fd72b15ef334644634f5e63a",
+      "byte_len": 40
+    }
+  ],
+  "denied_dependencies": [
+    "typst",
+    "typst-html",
+    "typst-pdf",
+    "typst-svg",
+    "typst-render",
+    "typst-kit",
+    "typst-assets",
+    "hayagriva",
+    "syntect",
+    "wasmi",
+    "image",
+    "usvg",
+    "csv",
+    "toml",
+    "serde_yaml",
+    "ciborium"
+  ]
+}
