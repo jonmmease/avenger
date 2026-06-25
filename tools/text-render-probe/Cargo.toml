@@ -1,0 +1,18 @@
+[package]
+name = "text-render-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+default = []
+cosmic = ["avenger-wgpu/cosmic-text", "avenger-wgpu/rayon"]
+typst = ["avenger-text/typst-text", "avenger-wgpu/typst-text-raster", "avenger-wgpu/rayon"]
+
+[dependencies]
+avenger-color = { path = "../../avenger-color" }
+avenger-common = { path = "../../avenger-common" }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-text = { path = "../../avenger-text", default-features = false, features = ["serde"] }
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
+pollster = "0.4.0"

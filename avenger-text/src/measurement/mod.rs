@@ -188,6 +188,16 @@ pub fn default_text_measurer() -> impl TextMeasurer {
     crate::measurement::cosmic::CosmicTextMeasurer::new()
 }
 
+#[cfg(all(
+    feature = "typst-text",
+    not(feature = "cosmic-text"),
+    not(target_arch = "wasm32")
+))]
+pub fn default_text_measurer() -> impl TextMeasurer {
+    crate::typst_text::TypstTextMeasurer::with_vendor_typst(crate::math::TextMathConfig::default())
+        .expect("failed to initialize Typst text measurer")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
