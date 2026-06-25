@@ -184,6 +184,7 @@ fn validate_math_fragment(
             limit: limits.max_math_depth,
         });
     }
+    validate_vendor_typst_parse(source, range.start)?;
 
     Ok(())
 }
@@ -206,6 +207,25 @@ fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), MathTypesetEr
             });
         }
     }
+    Ok(())
+}
+
+#[cfg(feature = "vendor-typst")]
+fn validate_vendor_typst_parse(source: &str, offset: usize) -> Result<(), MathTypesetError> {
+    let root = typst_syntax::parse_math(source);
+    let (errors, _) = root.errors_and_warnings();
+    if errors.is_empty() {
+        return Ok(());
+    }
+
+    Err(MathTypesetError::UnsupportedSyntax {
+        position: offset,
+        message: "invalid Typst math syntax",
+    })
+}
+
+#[cfg(not(feature = "vendor-typst"))]
+fn validate_vendor_typst_parse(_source: &str, _offset: usize) -> Result<(), MathTypesetError> {
     Ok(())
 }
 
@@ -300,7 +320,10 @@ fn map_fragment_error(err: MathTypesetError, range: std::ops::Range<usize>) -> M
             end: range.end,
         },
         MathTypesetError::UnsupportedSyntax { position, message } => {
-            MathTypesetError::UnsupportedSyntax { position, message }
+            MathTypesetError::UnsupportedSyntax {
+                position: range.start + position,
+                message,
+            }
         }
         other => other,
     }

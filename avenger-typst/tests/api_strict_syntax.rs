@@ -74,3 +74,19 @@ fn allows_common_typst_math_fragments() {
             .unwrap_or_else(|err| panic!("{sample} should be accepted, got {err:?}"));
     }
 }
+
+#[cfg(feature = "vendor-typst")]
+#[test]
+fn rejects_real_typst_parse_error() {
+    let err = engine()
+        .typeset_math_string("before $x^$ after", &Default::default())
+        .unwrap_err();
+
+    assert_eq!(
+        err,
+        MathTypesetError::UnsupportedSyntax {
+            position: 8,
+            message: "invalid Typst math syntax"
+        }
+    );
+}
