@@ -1,8 +1,8 @@
 #![cfg(feature = "vendor-typst")]
 
 use avenger_typst::{
-    AvengerTypst, MathFragmentOptions, MathOutputRequest, MathStringRun, MathTypesetError,
-    RasterRequest, TypstEngineBackend, TypstEngineConfig,
+    AvengerTypst, MathFragmentOptions, MathOutputRequest, MathStringRun, RasterRequest,
+    TypstEngineBackend, TypstEngineConfig,
 };
 use typst_syntax::{parse_math, SyntaxKind};
 
@@ -153,7 +153,8 @@ fn vendor_string_artifact_deduplicates_pdf_font_resources() {
 }
 
 #[test]
-fn vendor_backend_reports_raster_unavailable_until_path_rasterization_exists() {
+#[cfg(not(feature = "raster"))]
+fn vendor_backend_reports_raster_requires_feature_without_raster_feature() {
     let engine = AvengerTypst::new(TypstEngineConfig {
         backend: TypstEngineBackend::VendorTypst,
         ..Default::default()
@@ -165,6 +166,80 @@ fn vendor_backend_reports_raster_unavailable_until_path_rasterization_exists() {
     let err = engine.typeset_math_fragment("x", &options).unwrap_err();
     assert_eq!(
         err,
-        MathTypesetError::UnsupportedOutput("vendor-typst raster output is not wired yet")
+        avenger_typst::MathTypesetError::UnsupportedOutput(
+            "avenger-typst raster output requires the raster feature"
+        )
     );
+}
+
+#[test]
+#[cfg(feature = "raster")]
+fn vendor_backend_rasterizes_common_fragment_from_paths() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut options = MathFragmentOptions::default();
+    options.outputs.paths = false;
+    options.outputs.raster = Some(RasterRequest { scale: 2.0 });
+
+    let artifact = engine
+        .typeset_math_fragment("sqrt(x^2 + y^2)", &options)
+        .unwrap();
+    let raster = artifact.raster.as_ref().unwrap();
+
+    assert!(artifact.paths.is_none());
+    assert_eq!(raster.scale, 2.0);
+    assert_eq!(raster.logical_width, artifact.metrics.width);
+    assert_eq!(raster.logical_height, artifact.metrics.height);
+    assert!(raster.image.width > 1);
+    assert!(raster.image.height > 1);
+    assert_eq!(
+        raster.image.data.len(),
+        raster.image.width as usize * raster.image.height as usize * 4
+    );
+    assert!(raster.origin_x.is_finite());
+    assert!(raster.origin_y.is_finite());
+    assert!(raster.origin_x < raster.logical_width);
+    assert!(raster.origin_y < raster.logical_height);
+    assert!(
+        raster.image.data.chunks_exact(4).any(|pixel| pixel[3] > 0),
+        "raster should contain non-transparent pixels"
+    );
+    assert_eq!(
+        &raster.image.data[0..4],
+        &[0, 0, 0, 0],
+        "antialias padding should leave the first pixel transparent"
+    );
+}
+
+#[test]
+#[cfg(feature = "raster")]
+fn vendor_backend_rasterizes_math_string_runs() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut options = avenger_typst::MathStringOptions::default();
+    options.outputs.paths = false;
+    options.outputs.raster = Some(RasterRequest { scale: 1.5 });
+
+    let artifact = engine
+        .typeset_math_string("$x^2$ + $y^2$", &options)
+        .unwrap();
+    let rasters = artifact
+        .runs
+        .iter()
+        .filter_map(|run| match run {
+            MathStringRun::Math(math_run) => math_run.artifact.raster.as_ref(),
+            MathStringRun::Plain(_) => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(rasters.len(), 2);
+    assert!(rasters.iter().all(|raster| raster.scale == 1.5));
+    assert!(rasters.iter().all(|raster| raster.image.width > 1));
+    assert!(rasters.iter().all(|raster| raster.image.height > 1));
 }

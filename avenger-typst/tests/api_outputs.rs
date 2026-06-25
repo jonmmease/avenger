@@ -33,6 +33,8 @@ fn raster_payload_can_be_requested_from_mock_engine() {
     assert_eq!(raster.scale, 2.0);
     assert_eq!(raster.image.width, 1);
     assert_eq!(raster.image.height, 1);
+    assert_eq!(raster.origin_x, 0.0);
+    assert_eq!(raster.origin_y, 0.0);
 }
 
 #[test]

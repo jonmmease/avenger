@@ -13,6 +13,8 @@ use crate::paths::{
 use crate::pdf::{
     MathFontResource, MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer,
 };
+#[cfg(feature = "raster")]
+use crate::raster::rasterize_path_artifact;
 use crate::style::{Color, MathDisplayStyle};
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
@@ -73,16 +75,16 @@ impl TypstMathEngine {
         source: &str,
         options: &MathFragmentOptions,
     ) -> Result<MathRunArtifact, MathTypesetError> {
-        if options.outputs.raster.is_some() {
-            return Err(MathTypesetError::UnsupportedOutput(
-                "vendor-typst raster output is not wired yet",
-            ));
-        }
-
         let items = self.layout_inline_items(source, options)?;
         let metrics = metrics_from_inline_items(&items, source.len())?;
-        let paths = if options.outputs.paths {
+        let path_artifact = if options.outputs.paths || options.outputs.raster.is_some() {
             Some(paths_from_inline_items(&items, metrics)?)
+        } else {
+            None
+        };
+        let raster = raster_from_path_artifact(path_artifact.as_ref(), options)?;
+        let paths = if options.outputs.paths {
+            path_artifact
         } else {
             None
         };
@@ -99,7 +101,7 @@ impl TypstMathEngine {
         Ok(MathRunArtifact {
             metrics,
             paths,
-            raster: None,
+            raster,
             pdf_text,
             font_resources,
             warnings: Vec::new(),
@@ -173,6 +175,37 @@ impl TypstMathEngine {
             styles.set(EquationElem::size, MathSize::Display);
         }
         styles
+    }
+}
+
+#[cfg(feature = "raster")]
+fn raster_from_path_artifact(
+    path_artifact: Option<&MathPathArtifact>,
+    options: &MathFragmentOptions,
+) -> Result<Option<crate::raster::MathRasterArtifact>, MathTypesetError> {
+    options
+        .outputs
+        .raster
+        .map(|request| {
+            let path_artifact = path_artifact.ok_or(MathTypesetError::UnsupportedOutput(
+                "math path output is required for raster output",
+            ))?;
+            rasterize_path_artifact(path_artifact, request)
+        })
+        .transpose()
+}
+
+#[cfg(not(feature = "raster"))]
+fn raster_from_path_artifact(
+    _path_artifact: Option<&MathPathArtifact>,
+    options: &MathFragmentOptions,
+) -> Result<Option<crate::raster::MathRasterArtifact>, MathTypesetError> {
+    if options.outputs.raster.is_some() {
+        Err(MathTypesetError::UnsupportedOutput(
+            "avenger-typst raster output requires the raster feature",
+        ))
+    } else {
+        Ok(None)
     }
 }
 

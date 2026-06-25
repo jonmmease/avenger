@@ -65,6 +65,8 @@ impl MockMathEngine {
             scale: request.scale,
             logical_width: width,
             logical_height: height,
+            origin_x: 0.0,
+            origin_y: 0.0,
         });
 
         Ok(MathRunArtifact {

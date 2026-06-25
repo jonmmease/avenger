@@ -13,7 +13,7 @@ vendor-typst = [
     "dep:typst-syntax",
     "dep:typst-utils",
 ]
-raster = []
+raster = ["dep:tiny-skia"]
 serde = ["dep:serde"]
 
 [dependencies]
@@ -21,6 +21,7 @@ thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
 comemo = { version = "0.5.1", optional = true }
 ttf-parser = { workspace = true, optional = true }
+tiny-skia = { workspace = true, optional = true }
 typst-layout = { package = "avenger-typst-layout", path = "../vendor/typst-avenger/crates/typst-layout", optional = true }
 typst-library = { package = "avenger-typst-library", path = "../vendor/typst-avenger/crates/typst-library", optional = true }
 typst-syntax = { package = "avenger-typst-syntax", path = "../vendor/typst-avenger/crates/typst-syntax", optional = true }
