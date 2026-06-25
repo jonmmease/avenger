@@ -675,6 +675,8 @@ fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
     let svg = SvgRenderer::new()
         .with_options(SvgRenderOptions {
             font_resolution: svg_visual_font_resolution(),
+            #[cfg(feature = "typst-math-svg-pdf")]
+            text_math: sidecar_text_math_config(category),
             ..Default::default()
         })
         .render_scene_graph(scene_graph)
@@ -748,6 +750,8 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
     let pdf = SceneGraphPdfRenderer::new()
         .with_options(avenger_pdf::PdfRenderOptions {
             font_resolution: pdf_visual_font_resolution(),
+            #[cfg(feature = "typst-math-svg-pdf")]
+            text_math: sidecar_text_math_config(category),
             ..Default::default()
         })
         .render_scene_graph(scene_graph)
@@ -846,6 +850,18 @@ fn pdf_visual_font_resolution() -> FontResolutionOptions {
     FontResolutionOptions {
         missing_font: MissingFontPolicy::Fallback,
         ..Default::default()
+    }
+}
+
+#[cfg(feature = "typst-math-svg-pdf")]
+fn sidecar_text_math_config(category: &str) -> avenger_text::math::TextMathConfig {
+    if category == "typst_math" {
+        avenger_text::math::TextMathConfig {
+            mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
+            ..Default::default()
+        }
+    } else {
+        avenger_text::math::TextMathConfig::default()
     }
 }
 
@@ -1106,6 +1122,76 @@ pub async fn assert_visual_match_wgpu_only_with_canvas_config(
     }
 
     (direct_status, serialized_status)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn assert_visual_match_with_canvas_config_and_sidecars(
+    compiled: &CompiledPlot,
+    ctx: &datafusion::prelude::SessionContext,
+    params: Option<IndexMap<String, ScalarValue>>,
+    category: &str,
+    baseline_name: &str,
+    tolerance: f64,
+    canvas_config: CanvasConfig,
+) {
+    try_init_tracing();
+
+    if sidecar_baselines_only_enabled() {
+        let direct_result = evaluate_compiled_plot(compiled, ctx, params).await;
+        assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
+        assert_pdf_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
+        return;
+    }
+
+    let baseline_path = get_baseline_path(category, baseline_name);
+    let (direct_result, serialized_result) =
+        evaluate_compiled_plot_with_serialization(compiled, ctx, params).await;
+    let direct_image = render_scene_graph_to_wgpu_image_with_config(
+        &direct_result.scene_graph,
+        canvas_config.clone(),
+    )
+    .await
+    .0;
+    let serialized_image =
+        render_scene_graph_to_wgpu_image_with_config(&serialized_result.scene_graph, canvas_config)
+            .await
+            .0;
+
+    let config = VisualTestConfig {
+        threshold: tolerance,
+        save_diff_on_failure: true,
+    };
+
+    if bless_wgpu_baselines_enabled() {
+        write_wgpu_baseline(&baseline_path, &direct_image);
+    }
+
+    if let Err(msg) = compare_images(&baseline_path, direct_image.clone(), &config) {
+        panic!(
+            "Visual test '{}' failed (direct configured WGPU rendering): {}",
+            baseline_name, msg
+        );
+    }
+
+    if let Err(msg) = compare_images(&baseline_path, serialized_image.clone(), &config) {
+        panic!(
+            "Visual test '{}' failed (serialized configured WGPU rendering): {}",
+            baseline_name, msg
+        );
+    }
+
+    let comparison = image_compare::rgba_hybrid_compare(&direct_image, &serialized_image)
+        .expect("Failed to compare direct and serialized configured WGPU renders");
+    if comparison.score < 0.99999 {
+        tracing::warn!(
+            baseline_name = baseline_name,
+            similarity = comparison.score,
+            "Serialization round-trip changed configured WGPU rendering"
+        );
+    }
+
+    assert_svg_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
+    assert_pdf_scene_graph_match(&direct_result.scene_graph, category, baseline_name);
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -21,6 +21,13 @@ typst-math-raster = [
     "avenger-text/typst-math-raster",
     "avenger-wgpu/typst-math-raster",
 ]
+typst-math-svg-pdf = [
+    "svg",
+    "pdf",
+    "avenger-text/typst-math",
+    "avenger-svg/typst-math",
+    "avenger-pdf/typst-math",
+]
 doc-render = ["wgpu", "image-resources", "avenger-image/reqwest", "avenger-image/svg"]
 renderers = ["svg", "pdf", "wgpu", "doc-render"]
 visual-tests = [

@@ -1,4 +1,4 @@
-use crate::visual_tests::helpers::assert_visual_match_wgpu_only_with_canvas_config;
+use crate::visual_tests::helpers::assert_visual_match_with_canvas_config_and_sidecars;
 use avenger_chart::plot::CompiledPlot;
 use avenger_chart::prelude::*;
 use avenger_text::math::{TextMarkupMode, TextMathConfig};
@@ -122,7 +122,7 @@ async fn assert_typst_math_wgpu(
     ctx: &SessionContext,
     baseline_name: &str,
 ) {
-    let _ = assert_visual_match_wgpu_only_with_canvas_config(
+    assert_visual_match_with_canvas_config_and_sidecars(
         compiled,
         ctx,
         None,
