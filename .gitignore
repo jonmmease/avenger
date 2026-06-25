@@ -1,4 +1,6 @@
 /target
+/vendor/typst-avenger/Cargo.lock
+/vendor/typst-avenger/target/
 /.idea
 /avenger-wgpu/tests/output/
 .DS_Store

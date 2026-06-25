@@ -5,10 +5,11 @@ edition = "2021"
 
 [features]
 default = []
-vendor-typst = []
+vendor-typst = ["dep:typst-syntax"]
 raster = []
 serde = ["dep:serde"]
 
 [dependencies]
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
+typst-syntax = { package = "avenger-typst-syntax", path = "../vendor/typst-avenger/crates/typst-syntax", optional = true }

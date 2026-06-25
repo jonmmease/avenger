@@ -43,6 +43,7 @@ members = [
 ]
 exclude = [
     "avenger-vega-test-data",
+    "vendor/typst-avenger",
 ]
 
 resolver = "2"

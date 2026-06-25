@@ -5,9 +5,213 @@
   "generator_version": "0.1.0",
   "recipe_path": "/Users/jmease/repos/avenger/tools/vendor-typst-math/recipe.toml",
   "expected_workspace_version": "0.15.0",
-  "copied_files": [],
+  "copied_files": [
+    {
+      "upstream_path": "crates/typst-syntax/Cargo.toml",
+      "vendor_path": "crates/typst-syntax/Cargo.toml",
+      "sha256": "14da23cb7439059e04564026663e0693c72445e889e1e155a4d20a066a6004b2",
+      "byte_len": 829
+    },
+    {
+      "upstream_path": "crates/typst-syntax/README.md",
+      "vendor_path": "crates/typst-syntax/README.md",
+      "sha256": "2c615cd4a0a16adc2bcd76aa71aca22fe5934cfef8d754343e8dd966107ec576",
+      "byte_len": 2070
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/ast.rs",
+      "vendor_path": "crates/typst-syntax/src/ast.rs",
+      "sha256": "5e6364f3a9cf0c64c79e05dd626022e8570fde0af910e137e863e84dc4379ce7",
+      "byte_len": 77248
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/highlight.rs",
+      "vendor_path": "crates/typst-syntax/src/highlight.rs",
+      "sha256": "c77091af4c897f99203d93081a4313aee5878014c60148d1969094c1df4f98e1",
+      "byte_len": 16770
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/kind.rs",
+      "vendor_path": "crates/typst-syntax/src/kind.rs",
+      "sha256": "58451abf740cf4f394a5eb1bfc0a830e25f057caeb9f0458c4e2963602b54ca3",
+      "byte_len": 32154
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/lexer.rs",
+      "vendor_path": "crates/typst-syntax/src/lexer.rs",
+      "sha256": "a56516c255e726d7184210f9865c1279941ee84a50461ea8064dc1bb60e4d60b",
+      "byte_len": 47189
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/lib.rs",
+      "vendor_path": "crates/typst-syntax/src/lib.rs",
+      "sha256": "d3daef054a0596c71019167f6461d02c7e97892480b1a452d9521d7cb8f2ac48",
+      "byte_len": 1269
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/lines.rs",
+      "vendor_path": "crates/typst-syntax/src/lines.rs",
+      "sha256": "89f1ca914e7ea5acedba1855e96ff526ae562b2d69d0e9292bcb195e964ecf17",
+      "byte_len": 12762
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/node.rs",
+      "vendor_path": "crates/typst-syntax/src/node.rs",
+      "sha256": "2d14a84f03b0ffdb64b22caf877cb732391b392738dc35471fa4e3b8f3231221",
+      "byte_len": 56507
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/package.rs",
+      "vendor_path": "crates/typst-syntax/src/package.rs",
+      "sha256": "4553e9021b82cd4900e0c9919e12969e71a925688e986f51dd59be93fcb0523d",
+      "byte_len": 20499
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/parser.rs",
+      "vendor_path": "crates/typst-syntax/src/parser.rs",
+      "sha256": "c159fdee999c16fd34d1500a2a459268d05f2ad07f8896a1ac50e8548ed3fb4d",
+      "byte_len": 72166
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/path.rs",
+      "vendor_path": "crates/typst-syntax/src/path.rs",
+      "sha256": "3ec06a3a2b142935d7b12b4d0248502e474b8b42d5e268cad450693049a28f6b",
+      "byte_len": 30317
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/reparser.rs",
+      "vendor_path": "crates/typst-syntax/src/reparser.rs",
+      "sha256": "f9c6f323d5577d170d71f9f5508523bc1c182814df26fc2c6e4fdb4000c06420",
+      "byte_len": 18047
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/set.rs",
+      "vendor_path": "crates/typst-syntax/src/set.rs",
+      "sha256": "ce0d687ee919849891906cc26ab254e37a2949da7d791313154c3fc8fb13b623",
+      "byte_len": 4353
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/source.rs",
+      "vendor_path": "crates/typst-syntax/src/source.rs",
+      "sha256": "ff14b82083c78515032b799dd41e72e68cbf98977b3372d7f9aac4976bd6e8c7",
+      "byte_len": 5946
+    },
+    {
+      "upstream_path": "crates/typst-syntax/src/span.rs",
+      "vendor_path": "crates/typst-syntax/src/span.rs",
+      "sha256": "92e5ac4c22578ca09f20890e665f9a09844417c6cbacc7b22e6738c6ae3759ea",
+      "byte_len": 27381
+    },
+    {
+      "upstream_path": "crates/typst-timing/Cargo.toml",
+      "vendor_path": "crates/typst-timing/Cargo.toml",
+      "sha256": "137e7ea03b8d29d529d3c9535f06b6c9ce60f318e13c6fe9b80ef5e27199ae3d",
+      "byte_len": 735
+    },
+    {
+      "upstream_path": "crates/typst-timing/src/lib.rs",
+      "vendor_path": "crates/typst-timing/src/lib.rs",
+      "sha256": "65a01c508cfd47dede1fa55a32212faf2ff2c7de7c8ae65d199350f10350aca9",
+      "byte_len": 9036
+    },
+    {
+      "upstream_path": "crates/typst-utils/Cargo.toml",
+      "vendor_path": "crates/typst-utils/Cargo.toml",
+      "sha256": "76697fb5c1ac3158b3dc98194b7ff4f4c2cb6bd0c3271336a1f97d5b4bf63ee9",
+      "byte_len": 764
+    },
+    {
+      "upstream_path": "crates/typst-utils/build.rs",
+      "vendor_path": "crates/typst-utils/build.rs",
+      "sha256": "6718b5615b3acf0e599c60ac0d092cbcc1ff675bab6d4810451efd571cea1748",
+      "byte_len": 671
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/bitset.rs",
+      "vendor_path": "crates/typst-utils/src/bitset.rs",
+      "sha256": "cea1d11d24f05b583c3e62a99713e1abf8fd3242e42f1faf8c91ae786159d8fe",
+      "byte_len": 3853
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/deferred.rs",
+      "vendor_path": "crates/typst-utils/src/deferred.rs",
+      "sha256": "900312aa5ff4a993ab4ed36482653ecd018e1f570d5ab32e766ea05dcf93eda3",
+      "byte_len": 1673
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/duration.rs",
+      "vendor_path": "crates/typst-utils/src/duration.rs",
+      "sha256": "32a51a641c27e0aebec18f1ab32082ade2b45f17ffc648ca033f614667309303",
+      "byte_len": 2861
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/fat.rs",
+      "vendor_path": "crates/typst-utils/src/fat.rs",
+      "sha256": "0aa594680feb464b2b7887027c7d5d9bce1ee254c7dc187bf496dadcafa40bd9",
+      "byte_len": 2220
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/hash.rs",
+      "vendor_path": "crates/typst-utils/src/hash.rs",
+      "sha256": "ad71ae1fa3c30a56e76db752917f1fac6af1ac32fdda63a3734e7186454424f6",
+      "byte_len": 7768
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/lib.rs",
+      "vendor_path": "crates/typst-utils/src/lib.rs",
+      "sha256": "32de0df6426cca5f3db4217b86364ce7cfdbc850ba2a928ebfb9c73ea5c305ec",
+      "byte_len": 14073
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/listset.rs",
+      "vendor_path": "crates/typst-utils/src/listset.rs",
+      "sha256": "8669e32c17cb73c89227cc21de062db2ee7ff7a476ed697409bdbb794e6b2cf1",
+      "byte_len": 1361
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/macros.rs",
+      "vendor_path": "crates/typst-utils/src/macros.rs",
+      "sha256": "20e73a21dcbddaf286906b03b84b2d14a5527454aa0f9e79b3054b63c0df024f",
+      "byte_len": 1960
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/pico.rs",
+      "vendor_path": "crates/typst-utils/src/pico.rs",
+      "sha256": "d0fca35c1bb4897db6a80c94487c46bef909b9a0ea91861b5097de7b4a6bf70c",
+      "byte_len": 15088
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/protected.rs",
+      "vendor_path": "crates/typst-utils/src/protected.rs",
+      "sha256": "d529c990b6d35c8952fc80a03b913d81399b7b50a7724746467df20b8e96e922",
+      "byte_len": 987
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/round.rs",
+      "vendor_path": "crates/typst-utils/src/round.rs",
+      "sha256": "9081e1bbfc05b67e202b1d09658fd3b444c920d02efaf64d4186cca1a0404e44",
+      "byte_len": 11600
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/scalar.rs",
+      "vendor_path": "crates/typst-utils/src/scalar.rs",
+      "sha256": "e3b7bcf23af0ae7fedd312c74fa21b0a65cc14f1cfd62bec556155f75c902891",
+      "byte_len": 6009
+    },
+    {
+      "upstream_path": "crates/typst-utils/src/version.rs",
+      "vendor_path": "crates/typst-utils/src/version.rs",
+      "sha256": "09fbde686740184f836d89f67f7c90411a0f6d02d1c8acf080e353d446a5962c",
+      "byte_len": 3105
+    }
+  ],
   "applied_overlays": [],
-  "applied_patches": [],
+  "applied_patches": [
+    "mechanical:rewrite-manifest:typst-syntax",
+    "mechanical:rewrite-manifest:typst-timing",
+    "mechanical:rewrite-manifest:typst-utils",
+    "mechanical:typst-syntax-tool-info-without-toml"
+  ],
   "generated_files": [
     {
       "path": "README.md",
@@ -21,8 +225,8 @@
     },
     {
       "path": "Cargo.toml",
-      "sha256": "b80afec4cc2ef11770499ed77037860e6ca3d4e4fd72b15ef334644634f5e63a",
-      "byte_len": 40
+      "sha256": "28de3d88efc9810f25941e31946025a2ba03f58f169250a7a77e32f4fb8e5449",
+      "byte_len": 1701
     }
   ],
   "denied_dependencies": [

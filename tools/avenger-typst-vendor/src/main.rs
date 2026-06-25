@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -392,6 +393,9 @@ fn generate_vendor_tree(
     upstream: &Path,
     requested_rev: &str,
 ) -> Result<()> {
+    let upstream_workspace_toml = fs::read_to_string(upstream.join("Cargo.toml"))
+        .map_err(|err| format!("failed to read upstream Cargo.toml: {err}"))?;
+
     if args.out.exists() {
         fs::remove_dir_all(&args.out)
             .map_err(|err| format!("failed to remove {}: {err}", args.out.display()))?;
@@ -409,6 +413,10 @@ fn generate_vendor_tree(
         copy_dir_recursive(upstream, &args.out, &rel_dir, &mut copied_files)?;
     }
 
+    let mut applied_patches = Vec::new();
+    rewrite_copied_crate_manifests(&args.out, &recipe.copy.crates, &mut applied_patches)?;
+    rewrite_typst_syntax_without_toml(&args.out, &recipe.copy.crates, &mut applied_patches)?;
+
     let mut generated_files = Vec::new();
     write_generated(
         &args.out,
@@ -425,7 +433,7 @@ fn generate_vendor_tree(
     write_generated(
         &args.out,
         Path::new("Cargo.toml"),
-        vendor_workspace_toml(&recipe.copy.crates),
+        vendor_workspace_toml(&recipe.copy.crates, &args.out, &upstream_workspace_toml)?,
         &mut generated_files,
     )?;
 
@@ -440,7 +448,7 @@ fn generate_vendor_tree(
         expected_workspace_version: recipe.upstream.expected_workspace_version.clone(),
         copied_files,
         applied_overlays: Vec::new(),
-        applied_patches: Vec::new(),
+        applied_patches,
         generated_files,
         denied_dependencies: recipe.deny_dependencies.crates.clone(),
     };
@@ -538,9 +546,11 @@ fn copy_one_file(
 fn write_generated(
     out: &Path,
     rel_path: &Path,
-    contents: String,
+    mut contents: String,
     generated_files: &mut Vec<GeneratedFile>,
 ) -> Result<()> {
+    normalize_trailing_newline(&mut contents);
+
     let path = out.join(rel_path);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -561,6 +571,15 @@ fn write_generated(
     Ok(())
 }
 
+fn normalize_trailing_newline(contents: &mut String) {
+    while contents.ends_with("\n\n") {
+        contents.pop();
+    }
+    if !contents.ends_with('\n') {
+        contents.push('\n');
+    }
+}
+
 fn vendor_readme(upstream_rev: &str) -> String {
     format!(
         "# Vendored Typst For Avenger\n\n\
@@ -572,19 +591,284 @@ cargo run --release -p avenger-typst-vendor -- --upstream ../typst --rev {upstre
     )
 }
 
-fn vendor_workspace_toml(crates: &[String]) -> String {
-    let mut out = String::from("[workspace]\n");
+fn vendor_workspace_toml(
+    crates: &[String],
+    vendor_out: &Path,
+    upstream_workspace_toml: &str,
+) -> Result<String> {
+    let mut contents = String::from("[workspace]\n");
     if crates.is_empty() {
-        out.push_str("members = []\n");
+        contents.push_str("members = []\n");
     } else {
-        out.push_str("members = [\n");
+        contents.push_str("members = [\n");
         for crate_name in crates {
-            out.push_str(&format!("    \"crates/{crate_name}\",\n"));
+            contents.push_str(&format!("    \"crates/{crate_name}\",\n"));
         }
-        out.push_str("]\n");
+        contents.push_str("]\n");
     }
-    out.push_str("resolver = \"2\"\n");
-    out
+    contents.push_str("resolver = \"2\"\n\n");
+
+    let workspace_package = extract_toml_section(upstream_workspace_toml, "workspace.package")
+        .ok_or_else(|| "upstream Cargo.toml is missing [workspace.package]".to_string())?;
+    contents.push_str(&rewrite_workspace_package_section(&workspace_package));
+    contents.push('\n');
+
+    contents.push_str("[workspace.dependencies]\n");
+    for crate_name in crates {
+        contents.push_str(&format!(
+            "{crate_name} = {{ package = \"{}\", path = \"crates/{crate_name}\", version = \"0.15.0\" }}\n",
+            renamed_typst_package_name(crate_name)
+        ));
+    }
+
+    let upstream_dependency_lines = workspace_dependency_lines(upstream_workspace_toml)?;
+    let required_dependencies =
+        required_workspace_dependencies(out_path_from_workspace(vendor_out)?)?;
+    for dependency in required_dependencies {
+        if crates.iter().any(|crate_name| crate_name == &dependency) {
+            continue;
+        }
+        let line = upstream_dependency_lines.get(&dependency).ok_or_else(|| {
+            format!("upstream Cargo.toml is missing [workspace.dependencies].{dependency}")
+        })?;
+        contents.push_str(line);
+        contents.push('\n');
+    }
+
+    if let Some(lints) = extract_toml_section(upstream_workspace_toml, "workspace.lints.clippy") {
+        contents.push('\n');
+        contents.push_str(&lints);
+        contents.push('\n');
+    }
+
+    Ok(contents)
+}
+
+fn out_path_from_workspace(out: &Path) -> Result<&Path> {
+    if out.is_dir() {
+        Ok(out)
+    } else {
+        Err(format!("vendor output does not exist: {}", out.display()))
+    }
+}
+
+fn rewrite_workspace_package_section(section: &str) -> String {
+    section
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with("rust-version = ") {
+                "rust-version = \"1.91\" # Avenger vendor override for current toolchain"
+                    .to_string()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
+}
+
+fn workspace_dependency_lines(source: &str) -> Result<BTreeMap<String, String>> {
+    let section = extract_toml_section(source, "workspace.dependencies")
+        .ok_or_else(|| "upstream Cargo.toml is missing [workspace.dependencies]".to_string())?;
+    let mut lines = BTreeMap::new();
+
+    for raw_line in section.lines().skip(1) {
+        let line = strip_comment(raw_line).trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((key, _)) = line.split_once('=') {
+            lines.insert(key.trim().to_string(), raw_line.trim().to_string());
+        }
+    }
+
+    Ok(lines)
+}
+
+fn required_workspace_dependencies(out: &Path) -> Result<BTreeSet<String>> {
+    let mut required = BTreeSet::new();
+
+    for manifest in copied_crate_manifests(out)? {
+        let source = fs::read_to_string(&manifest)
+            .map_err(|err| format!("failed to read {}: {err}", manifest.display()))?;
+        let mut in_dependency_section = false;
+        for raw_line in source.lines() {
+            let line = strip_comment(raw_line).trim();
+            if line.starts_with('[') && line.ends_with(']') {
+                in_dependency_section = is_dependency_section(line);
+                continue;
+            }
+            if !in_dependency_section {
+                continue;
+            }
+            if !line.contains("workspace = true") {
+                continue;
+            }
+            let Some((key, _)) = line.split_once('=') else {
+                continue;
+            };
+            required.insert(key.trim().to_string());
+        }
+    }
+
+    Ok(required)
+}
+
+fn is_dependency_section(header: &str) -> bool {
+    let Some(section) = header.strip_prefix('[').and_then(|s| s.strip_suffix(']')) else {
+        return false;
+    };
+    matches!(
+        section,
+        "dependencies" | "dev-dependencies" | "build-dependencies"
+    ) || section.ends_with(".dependencies")
+        || section.ends_with(".dev-dependencies")
+        || section.ends_with(".build-dependencies")
+}
+
+fn extract_toml_section(source: &str, section_name: &str) -> Option<String> {
+    let header = format!("[{section_name}]");
+    let mut section = Vec::new();
+    let mut in_section = false;
+
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            if in_section {
+                break;
+            }
+            in_section = trimmed == header;
+        }
+        if in_section {
+            section.push(line);
+        }
+    }
+
+    (!section.is_empty()).then(|| section.join("\n") + "\n")
+}
+
+fn copied_crate_manifests(out: &Path) -> Result<Vec<PathBuf>> {
+    let crates_dir = out.join("crates");
+    if !crates_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut manifests = Vec::new();
+    let mut entries = fs::read_dir(&crates_dir)
+        .map_err(|err| format!("failed to read {}: {err}", crates_dir.display()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|err| format!("failed to read entry in {}: {err}", crates_dir.display()))?;
+    entries.sort_by_key(|entry| entry.file_name());
+
+    for entry in entries {
+        let manifest = entry.path().join("Cargo.toml");
+        if manifest.exists() {
+            manifests.push(manifest);
+        }
+    }
+
+    Ok(manifests)
+}
+
+fn rewrite_copied_crate_manifests(
+    out: &Path,
+    crates: &[String],
+    applied_patches: &mut Vec<String>,
+) -> Result<()> {
+    for crate_name in crates {
+        let manifest = out.join("crates").join(crate_name).join("Cargo.toml");
+        let mut source = fs::read_to_string(&manifest)
+            .map_err(|err| format!("failed to read {}: {err}", manifest.display()))?;
+        let original_source = source.clone();
+
+        source = source.replacen(
+            &format!("name = \"{crate_name}\""),
+            &format!("name = \"{}\"", renamed_typst_package_name(crate_name)),
+            1,
+        );
+        source = ensure_lib_crate_name(&source, &rust_crate_name(crate_name));
+        if crate_name == "typst-syntax" {
+            source = remove_workspace_dependency_line(&source, "toml");
+        }
+
+        if source != original_source {
+            fs::write(&manifest, source)
+                .map_err(|err| format!("failed to write {}: {err}", manifest.display()))?;
+            applied_patches.push(format!("mechanical:rewrite-manifest:{crate_name}"));
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_lib_crate_name(source: &str, crate_name: &str) -> String {
+    if source.lines().any(|line| line.trim() == "[lib]") {
+        if source
+            .lines()
+            .any(|line| line.trim_start().starts_with("name = "))
+        {
+            return source.to_string();
+        }
+
+        return source.replacen("[lib]\n", &format!("[lib]\nname = \"{crate_name}\"\n"), 1);
+    }
+
+    if let Some(index) = source.find("\n[dependencies]") {
+        let mut out = String::with_capacity(source.len() + crate_name.len() + 20);
+        out.push_str(&source[..index + 1]);
+        out.push_str(&format!("[lib]\nname = \"{crate_name}\"\n"));
+        out.push_str(&source[index + 1..]);
+        out
+    } else {
+        format!("{source}\n[lib]\nname = \"{crate_name}\"\n")
+    }
+}
+
+fn remove_workspace_dependency_line(source: &str, dependency: &str) -> String {
+    source
+        .lines()
+        .filter(|line| {
+            let stripped = strip_comment(line).trim();
+            !stripped.starts_with(&format!("{dependency} = "))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
+}
+
+fn rewrite_typst_syntax_without_toml(
+    out: &Path,
+    crates: &[String],
+    applied_patches: &mut Vec<String>,
+) -> Result<()> {
+    if !crates.iter().any(|crate_name| crate_name == "typst-syntax") {
+        return Ok(());
+    }
+
+    let package_rs = out.join("crates/typst-syntax/src/package.rs");
+    let source = fs::read_to_string(&package_rs)
+        .map_err(|err| format!("failed to read {}: {err}", package_rs.display()))?;
+    let patched = source.replace(
+        "#[serde(flatten)]\n    pub sections: BTreeMap<EcoString, toml::Table>,",
+        "#[serde(flatten, skip_serializing)]\n    pub sections: BTreeMap<EcoString, IgnoredAny>,",
+    );
+
+    if patched != source {
+        fs::write(&package_rs, patched)
+            .map_err(|err| format!("failed to write {}: {err}", package_rs.display()))?;
+        applied_patches.push("mechanical:typst-syntax-tool-info-without-toml".to_string());
+    }
+
+    Ok(())
+}
+
+fn renamed_typst_package_name(crate_name: &str) -> String {
+    format!("avenger-{crate_name}")
+}
+
+fn rust_crate_name(crate_name: &str) -> String {
+    crate_name.replace('-', "_")
 }
 
 fn check_denied_dependencies(out: &Path, denied: &[String]) -> Result<()> {

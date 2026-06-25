@@ -1233,8 +1233,50 @@ dependencies = [
 name = "avenger-typst"
 version = "0.1.0"
 dependencies = [
+ "avenger-typst-syntax",
  "serde",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "avenger-typst-syntax"
+version = "0.15.0"
+dependencies = [
+ "avenger-typst-timing",
+ "avenger-typst-utils",
+ "ecow",
+ "rustc-hash 2.1.2",
+ "serde",
+ "unicode-ident",
+ "unicode-math-class",
+ "unicode-script",
+ "unicode-segmentation",
+ "unscanny",
+]
+
+[[package]]
+name = "avenger-typst-timing"
+version = "0.15.0"
+dependencies = [
+ "parking_lot",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "avenger-typst-utils"
+version = "0.15.0"
+dependencies = [
+ "libm",
+ "once_cell",
+ "portable-atomic",
+ "rayon",
+ "rustc-hash 2.1.2",
+ "semver",
+ "siphasher 1.0.1",
+ "smallvec",
+ "thin-vec",
+ "unicode-math-class",
 ]
 
 [[package]]
@@ -3072,6 +3114,15 @@ checksum = "71ddb8ac7643d1dba1bb02110e804406dd459a838efcb14011ced10556711a8e"
 dependencies = [
  "bytemuck",
  "emath",
+]
+
+[[package]]
+name = "ecow"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78e4f79b296fbaab6ce2e22d52cb4c7f010fe0ebe7a32e34fa25885fd797bd02"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -6453,7 +6504,7 @@ dependencies = [
  "pin-project-lite",
  "quinn-proto",
  "quinn-udp",
- "rustc-hash 2.0.0",
+ "rustc-hash 2.1.2",
  "rustls",
  "socket2",
  "thiserror 2.0.18",
@@ -6471,7 +6522,7 @@ dependencies = [
  "getrandom 0.2.15",
  "rand 0.8.5",
  "ring",
- "rustc-hash 2.0.0",
+ "rustc-hash 2.1.2",
  "rustls",
  "rustls-pki-types",
  "slab",
@@ -6904,9 +6955,9 @@ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc-hash"
-version = "2.0.0"
+version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "583034fd73374156e66797ed8e5b0d5690409c9226b22d87cb7f19821c05d152"
+checksum = "94300abf3f1ae2e2b8ffb7b58043de3d399c73fa6f4b73826402a5c457614dbe"
 
 [[package]]
 name = "rustc_version"
@@ -7719,6 +7770,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "thin-vec"
+version = "0.2.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0f7e269b48f0a7dd0146680fa24b50cc67fc0373f086a5b2f99bd084639b482"
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8139,7 +8196,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb30dbbd9036155e74adad6812e9898d03ec374946234fbcebd5dfc7b9187b90"
 dependencies = [
- "rustc-hash 2.0.0",
+ "rustc-hash 2.1.2",
 ]
 
 [[package]]
@@ -8230,6 +8287,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b09c83c3c29d37506a3e260c08c03743a6bb66a9cd432c6934ab501a190571f"
 
 [[package]]
+name = "unicode-math-class"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d246cf599d5fae3c8d56e04b20eb519adb89a8af8d0b0fbcded369aa3647d65"
+
+[[package]]
 name = "unicode-normalization"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8279,6 +8342,12 @@ name = "unindent"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7de7d73e1754487cb58364ee906a499937a0dfabd86bcb980fa99ec8c8fa2ce"
+
+[[package]]
+name = "unscanny"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9df2af067a7953e9c3831320f35c1cc0600c30d44d9f7a12b01db1cd88d6b47"
 
 [[package]]
 name = "untrusted"

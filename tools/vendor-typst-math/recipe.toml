@@ -2,10 +2,13 @@
 expected_workspace_version = "0.15.0"
 
 [copy]
-# Phase 2 intentionally starts with an empty vendor tree so the generator,
-# manifest, revision pinning, and deny-list checks can be reviewed separately
-# from the large generated Typst source copy.
-crates = []
+# First compile target: enough of Typst to use the real math parser before
+# bringing in the broader layout/library stack.
+crates = [
+  "typst-syntax",
+  "typst-timing",
+  "typst-utils",
+]
 root_files = []
 
 [deny_dependencies]
