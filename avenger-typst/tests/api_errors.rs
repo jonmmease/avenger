@@ -1,6 +1,7 @@
-use avenger_typst::{
-    AvengerTypst, MathTypesetError, TypstEngineBackend, TypstEngineConfig, TypstInitError,
-};
+use avenger_typst::{AvengerTypst, MathTypesetError, TypstEngineBackend, TypstEngineConfig};
+
+#[cfg(not(feature = "vendor-typst"))]
+use avenger_typst::TypstInitError;
 
 fn engine() -> AvengerTypst {
     AvengerTypst::new(TypstEngineConfig::default()).unwrap()
@@ -81,6 +82,7 @@ fn math_depth_limit_is_enforced() {
     );
 }
 
+#[cfg(not(feature = "vendor-typst"))]
 #[test]
 fn explicit_vendor_typst_backend_reports_unavailable_until_wired() {
     let err = AvengerTypst::new(TypstEngineConfig {
@@ -91,6 +93,25 @@ fn explicit_vendor_typst_backend_reports_unavailable_until_wired() {
 
     assert_eq!(
         err,
-        TypstInitError::BackendUnavailable("vendor-typst backend has not been wired yet")
+        TypstInitError::BackendUnavailable("vendor-typst feature is not enabled")
+    );
+}
+
+#[cfg(feature = "vendor-typst")]
+#[test]
+fn explicit_vendor_typst_backend_reaches_layout_boundary() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+
+    let err = engine
+        .typeset_math_fragment("x^2 + y^2", &Default::default())
+        .unwrap_err();
+
+    assert_eq!(
+        err,
+        MathTypesetError::UnsupportedOutput("vendor-typst layout is not wired yet")
     );
 }
