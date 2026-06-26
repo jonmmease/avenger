@@ -703,14 +703,26 @@ fn append_pdf_glyph_run_snapshot(output: &mut String, index: usize, run: &MathPd
         .iter()
         .map(|glyph| glyph.unicode.as_str())
         .collect::<String>();
+    let positions = run
+        .glyphs
+        .iter()
+        .map(|glyph| {
+            format!(
+                "({:.4},{:.4};adv={:.4})",
+                glyph.transform.dx, glyph.transform.dy, glyph.x_advance
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     writeln!(
         output,
-        "  glyph_run {index}: font={:?} font_size={:.4} glyphs={} glyph_ids=[{}] unicode={:?}",
+        "  glyph_run {index}: font={:?} font_size={:.4} glyphs={} glyph_ids=[{}] unicode={:?} pos=[{}]",
         run.font,
         run.font_size,
         run.glyphs.len(),
         glyph_ids,
-        unicode
+        unicode,
+        positions
     )
     .unwrap();
 }

@@ -168,16 +168,49 @@ fn layout_simple_nodes_as_atom(
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
     let mut atoms = Vec::new();
-    for node in nodes {
+    let mut index = 0usize;
+    while index < nodes.len() {
+        let node = &nodes[index];
         match node {
             OwnedMathNode::Space(_) => {}
             _ => {
-                let Some(atom) = layout_simple_node(font, node, font_size, script_level)? else {
-                    return Ok(None);
-                };
+                let (atom, consumed) =
+                    if let (OwnedMathNode::Attach(attach), Some(OwnedMathNode::Group(group))) =
+                        (node, nodes.get(index + 1))
+                    {
+                        if is_identifier_subscript_group_continuation(attach, group) {
+                            let Some(atom) = layout_simple_attach_with_bottom_continuation(
+                                font,
+                                attach,
+                                group,
+                                font_size,
+                                script_level,
+                            )?
+                            else {
+                                return Ok(None);
+                            };
+                            (atom, 2)
+                        } else {
+                            let Some(atom) =
+                                layout_simple_node(font, node, font_size, script_level)?
+                            else {
+                                return Ok(None);
+                            };
+                            (atom, 1)
+                        }
+                    } else {
+                        let Some(atom) = layout_simple_node(font, node, font_size, script_level)?
+                        else {
+                            return Ok(None);
+                        };
+                        (atom, 1)
+                    };
                 atoms.push(atom);
+                index += consumed;
+                continue;
             }
         }
+        index += 1;
     }
 
     if atoms.is_empty() {
@@ -289,6 +322,10 @@ fn layout_simple_node(
         return layout_simple_fraction(font, fraction, font_size, script_level);
     }
 
+    if let OwnedMathNode::Group(group) = node {
+        return layout_simple_group(font, group, font_size, script_level);
+    }
+
     if let OwnedMathNode::Call(call) = node {
         if call.name == "sqrt" {
             return layout_simple_sqrt(font, call, font_size, script_level);
@@ -299,6 +336,86 @@ fn layout_simple_node(
     }
 
     Ok(None)
+}
+
+fn layout_simple_group(
+    font: &OwnedMathFont,
+    group: &super::ast::OwnedMathGroup,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let mut left = layout_styled_atom_with_class(
+        font,
+        &group.left.to_string(),
+        font_size,
+        script_style_feature(script_level),
+        SimpleMathClass::Opening,
+    )?;
+    let Some(mut body) = layout_simple_nodes_as_atom(font, &group.body, font_size, script_level)?
+    else {
+        return Ok(None);
+    };
+    let mut right = layout_styled_atom_with_class(
+        font,
+        &group.right.to_string(),
+        font_size,
+        script_style_feature(script_level),
+        SimpleMathClass::Closing,
+    )?;
+
+    let width = left.metrics.width + body.metrics.width + right.metrics.width;
+    let ascent = left
+        .metrics
+        .ascent
+        .max(body.metrics.ascent)
+        .max(right.metrics.ascent);
+    let descent = left
+        .metrics
+        .descent
+        .max(body.metrics.descent)
+        .max(right.metrics.descent);
+    let baseline = ascent;
+
+    let left_dy = baseline - left.metrics.baseline;
+    let body_dx = left.metrics.width;
+    let body_dy = baseline - body.metrics.baseline;
+    let right_dx = left.metrics.width + body.metrics.width;
+    let right_dy = baseline - right.metrics.baseline;
+
+    offset_atom(&mut left, 0.0, left_dy);
+    offset_atom(&mut body, body_dx, body_dy);
+    offset_atom(&mut right, right_dx, right_dy);
+
+    let ink_ascent = (left.ink_ascent + left_dy)
+        .max(body.ink_ascent + body_dy)
+        .max(right.ink_ascent + right_dy);
+    let ink_descent = (left.ink_descent - left_dy)
+        .max(body.ink_descent - body_dy)
+        .max(right.ink_descent - right_dy);
+
+    let mut glyphs = Vec::new();
+    let mut shapes = Vec::new();
+    let mut draw_order = Vec::new();
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, left);
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, body);
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, right);
+
+    Ok(Some(LaidOutMathAtom {
+        metrics: TypesetMetrics {
+            width,
+            height: ascent + descent,
+            baseline,
+            ascent,
+            descent,
+        },
+        ink_ascent,
+        ink_descent,
+        class: SimpleMathClass::Closing,
+        italic_correction: 0.0,
+        glyphs,
+        shapes,
+        draw_order,
+    }))
 }
 
 fn layout_simple_sqrt(
@@ -604,19 +721,72 @@ fn layout_simple_attach(
     let top = attach
         .top
         .as_deref()
-        .map(|node| layout_simple_node(font, node, script_font_size, script_level + 1))
+        .map(|node| layout_script_child(font, node, script_font_size, script_level + 1))
         .transpose()?
         .flatten();
     let bottom = attach
         .bottom
         .as_deref()
-        .map(|node| layout_simple_node(font, node, script_font_size, script_level + 1))
+        .map(|node| layout_script_child(font, node, script_font_size, script_level + 1))
         .transpose()?
         .flatten();
     if (attach.top.is_some() && top.is_none()) || (attach.bottom.is_some() && bottom.is_none()) {
         return Ok(None);
     }
 
+    layout_simple_attach_parts(font, font_size, base, top, bottom)
+}
+
+fn layout_simple_attach_with_bottom_continuation(
+    font: &OwnedMathFont,
+    attach: &super::ast::OwnedMathAttach,
+    group: &super::ast::OwnedMathGroup,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    if attach.primes > 0 {
+        return Ok(None);
+    }
+    let Some(bottom_node) = attach.bottom.as_deref() else {
+        return Ok(None);
+    };
+    let Some(base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
+        return Ok(None);
+    };
+    let script_font_size = script_font_size(font, font_size, script_level)?;
+    let top = attach
+        .top
+        .as_deref()
+        .map(|node| layout_script_child(font, node, script_font_size, script_level + 1))
+        .transpose()?
+        .flatten();
+    let bottom_nodes = [bottom_node.clone(), OwnedMathNode::Group(group.clone())];
+    let bottom =
+        layout_simple_nodes_as_atom(font, &bottom_nodes, script_font_size, script_level + 1)?;
+    if (attach.top.is_some() && top.is_none()) || bottom.is_none() {
+        return Ok(None);
+    }
+
+    layout_simple_attach_parts(font, font_size, base, top, bottom)
+}
+
+fn is_identifier_subscript_group_continuation(
+    attach: &super::ast::OwnedMathAttach,
+    group: &super::ast::OwnedMathGroup,
+) -> bool {
+    // Typst parses `_n(x)` like an identifier subscript expression with an
+    // adjacent call-style group, while `_0(x)` leaves `(x)` at the outer level.
+    attach.byte_range.end == group.byte_range.start
+        && matches!(attach.bottom.as_deref(), Some(OwnedMathNode::Identifier(_)))
+}
+
+fn layout_simple_attach_parts(
+    font: &OwnedMathFont,
+    font_size: f32,
+    base: LaidOutMathAtom,
+    top: Option<LaidOutMathAtom>,
+    bottom: Option<LaidOutMathAtom>,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
     let (shift_up, shift_down) =
         compute_script_shifts(font, font_size, &base, top.as_ref(), bottom.as_ref())?;
     let space_after_script = math_constant(font, font_size, |constants| {
@@ -697,6 +867,18 @@ fn layout_simple_attach(
         shapes,
         draw_order,
     }))
+}
+
+fn layout_script_child(
+    font: &OwnedMathFont,
+    node: &OwnedMathNode,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    if let OwnedMathNode::Group(group) = node {
+        return layout_simple_nodes_as_atom(font, &group.body, font_size, script_level);
+    }
+    layout_simple_node(font, node, font_size, script_level)
 }
 
 fn script_font_size(
@@ -1619,6 +1801,100 @@ mod tests {
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 3);
         assert!(pdf.glyph_runs[0].font_size < pdf.glyph_runs[1].font_size);
+    }
+
+    #[test]
+    fn simple_row_can_emit_visible_group_paths() {
+        let math = parse_owned_math("x(t)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("simple visible group should be handled by owned row path");
+        let paths = artifact.paths.expect("group paths should exist");
+        assert_eq!(paths.items.len(), 4);
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let text: String = pdf
+            .glyph_runs
+            .iter()
+            .flat_map(|run| &run.glyphs)
+            .map(|glyph| glyph.unicode.as_str())
+            .collect();
+        assert_eq!(text, "𝑥(𝑡)");
+    }
+
+    #[cfg(feature = "raster")]
+    #[test]
+    fn simple_row_can_rasterize_visible_group() {
+        let math = parse_owned_math("x(t)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: false,
+            raster: Some(crate::raster::RasterRequest { scale: 2.0 }),
+            pdf_text_layer: false,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("simple visible group should rasterize through owned paths");
+        assert!(artifact
+            .raster
+            .as_ref()
+            .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0));
+    }
+
+    #[test]
+    fn simple_row_extends_identifier_subscript_with_adjacent_group() {
+        let math = parse_owned_math("J_n(x)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("identifier subscript group should be handled by owned row path");
+        let paths = artifact.paths.expect("group paths should exist");
+        assert_eq!(paths.items.len(), 5);
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        assert_eq!(pdf.glyph_runs.len(), 5);
+        assert!(pdf.glyph_runs[1..]
+            .iter()
+            .all(|run| run.font_size < pdf.glyph_runs[0].font_size));
+    }
+
+    #[test]
+    fn simple_row_omits_script_group_delimiters() {
+        let math = parse_owned_math("sum_(i=0)^n i", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: false,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("simple grouped script should be handled by owned row path");
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let text: String = pdf
+            .glyph_runs
+            .iter()
+            .flat_map(|run| &run.glyphs)
+            .map(|glyph| glyph.unicode.as_str())
+            .collect();
+        assert_eq!(text, "∑𝑛𝑖=0𝑖");
     }
 
     #[test]
