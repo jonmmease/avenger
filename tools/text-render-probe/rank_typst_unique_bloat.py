@@ -7,12 +7,6 @@ from pathlib import Path
 
 CRATE_NAME_OVERRIDES = {
     "avenger-typst": "avenger_typst",
-    "avenger-typst-layout": "typst_layout",
-    "avenger-typst-library": "typst_library",
-    "avenger-typst-macros": "avenger_typst_macros",
-    "avenger-typst-syntax": "typst_syntax",
-    "avenger-typst-timing": "typst_timing",
-    "avenger-typst-utils": "typst_utils",
 }
 
 

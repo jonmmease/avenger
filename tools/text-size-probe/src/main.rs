@@ -35,10 +35,10 @@ fn run_typst_math() {
     };
 
     let engine = AvengerTypst::new(TypstEngineConfig {
-        backend: TypstEngineBackend::VendorTypst,
+        backend: TypstEngineBackend::OwnedTypst,
         ..TypstEngineConfig::default()
     })
-    .expect("initialize vendored Typst math engine");
+    .expect("initialize owned Typst math engine");
 
     let mut options = MathStringOptions::default();
     options.outputs = MathOutputRequest {
@@ -62,25 +62,20 @@ fn run_typst_math() {
     );
 }
 
-#[cfg(all(feature = "cosmic", feature = "typst-math-raster"))]
-fn run_mixed_text_rasterization() {
+#[cfg(feature = "typst-math-raster")]
+fn run_typst_text_rasterization() {
     use std::collections::HashMap;
 
     use avenger_text::math::{TextMarkupMode, TextMathConfig};
-    use avenger_text::rasterization::cosmic::CosmicTextRasterizer;
-    use avenger_text::rasterization::math::MathAwareTextRasterizer;
     use avenger_text::rasterization::{TextRasterizationConfig, TextRasterizer};
     use avenger_text::types::{FontStyle, FontWeight};
+    use avenger_text::typst_text::TypstTextRasterizer;
 
-    let plain = CosmicTextRasterizer::<()>::new();
-    let rasterizer = MathAwareTextRasterizer::<_, ()>::with_vendor_typst(
-        plain,
-        TextMathConfig {
-            mode: TextMarkupMode::TypstMathDelimited(Default::default()),
-            ..Default::default()
-        },
-    )
-    .expect("initialize math-aware text rasterizer");
+    let rasterizer = TypstTextRasterizer::<()>::with_config(TextMathConfig {
+        mode: TextMarkupMode::TypstMathDelimited(Default::default()),
+        ..Default::default()
+    })
+    .expect("initialize Typst text rasterizer");
 
     let text = "energy $E = mc^2$".to_string();
     let color = [0.1, 0.2, 0.3, 1.0];
@@ -111,8 +106,8 @@ fn main() {
     #[cfg(feature = "typst-math")]
     run_typst_math();
 
-    #[cfg(all(feature = "cosmic", feature = "typst-math-raster"))]
-    run_mixed_text_rasterization();
+    #[cfg(feature = "typst-math-raster")]
+    run_typst_text_rasterization();
 
     #[cfg(not(any(feature = "cosmic", feature = "typst-math")))]
     black_box("plain-none");

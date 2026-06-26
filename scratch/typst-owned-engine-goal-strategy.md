@@ -328,13 +328,13 @@ The vendored code uses Typst macros for elements, style access, native element m
 
 Strategy:
 
-- [ ] Replace `#[elem]`-generated element types with explicit structs/enums for only the elements Avenger lowers.
-- [ ] Replace generic `NativeElement` dispatch with a closed `OwnedContent` enum.
-- [ ] Replace `Packed<T>` with either:
+- [x] Replace `#[elem]`-generated element types with explicit structs/enums for only the elements Avenger lowers.
+- [x] Replace generic `NativeElement` dispatch with closed owned AST/content enums.
+- [x] Replace `Packed<T>` with either:
   - direct enum variants carrying span/style data, or
   - small typed structs where static dispatch is simpler.
-- [ ] Replace `ShowSet` with explicit style application in the Avenger lowering code.
-- [ ] Remove `typst-macros` and `typst-timing`.
+- [x] Replace `ShowSet` with explicit style application in the Avenger lowering code.
+- [x] Remove `typst-macros` and `typst-timing`.
 
 Preferred model:
 
@@ -380,7 +380,7 @@ Progress:
 - [x] Route API-level strict math validation through the owned parser when the owned feature is available, so public validation no longer depends on `typst-syntax` and matrix syntax is rejected before backend dispatch.
 - [x] Tighten the owned math parser to reject unsupported multi-line math, alignment markers, top-level semicolon/grid separators, and Typst-style named call arguments with explicit subset errors.
 - [x] Treat Typst's matrix-like `vec(...)` and `cases(...)` calls as explicit unsupported table/math-stack syntax until the stage-2 vertical stack path exists, instead of accepting them and failing later in layout.
-- [ ] Add the owned math parser for the strict supported subset.
+- [x] Add the owned math parser for the strict supported subset.
 
 Keep:
 
@@ -440,8 +440,8 @@ Success criteria:
 
 With the parser and content model owned, remove the remaining compiler-world abstractions:
 
-- [ ] Delete `World`, `Library`, `Engine`, `Routines`, `Route`, `Sink`, `Traced` equivalents unless one is still doing real work.
-- [ ] Replace style chains with a compact resolved style struct:
+- [x] Delete `World`, `Library`, `Engine`, `Routines`, `Route`, `Sink`, `Traced` equivalents unless one is still doing real work.
+- [x] Replace style chains with compact owned style data:
 
 ```rust
 struct ResolvedTextStyle {
@@ -461,8 +461,8 @@ struct ResolvedMathStyle {
 }
 ```
 
-- [ ] Make line layout receive resolved styles directly.
-- [ ] Make math layout receive a small `MathLayoutContext` directly.
+- [x] Make line layout receive resolved owned options/styles directly.
+- [x] Make math layout receive owned options/config directly.
 
 Success criteria:
 
@@ -541,9 +541,9 @@ Only after the owned backend is complete:
 - [x] Remove stale vendor-specific constructor usage from `avenger-text` and chart text measurement so `typst-text` uses `TextMathConfig`'s configured owned backend instead of requiring `vendor-typst`.
 - [x] Remove `vendor-typst` feature from `avenger-typst`.
 - [x] Remove vendored Typst crate dependencies from `avenger-typst/Cargo.toml`.
-- [ ] Remove workspace references if no other crate needs them.
-- [ ] Delete or archive `vendor/typst-avenger` as appropriate.
-- [ ] Update docs and feature names so users see `typst-text`/owned Typst behavior, not a vendor implementation detail.
+- [x] Remove workspace references if no other crate needs them.
+- [x] Delete or archive `vendor/typst-avenger` as appropriate.
+- [x] Update docs and feature names so users see `typst-text`/owned Typst behavior, not a vendor implementation detail.
 
 Success criteria:
 

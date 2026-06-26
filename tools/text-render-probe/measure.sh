@@ -45,8 +45,6 @@ assert_no_cosmic_text() {
 
 printf 'backend,binary_bytes,png_bytes\n'
 build_one cosmic cosmic
-build_one typst-vendor typst
-build_one typst-owned typst-owned
+build_one typst typst
 
 assert_no_cosmic_text typst
-assert_no_cosmic_text typst-owned

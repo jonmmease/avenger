@@ -1,9 +1,15 @@
 # Typst Math Typesetting
 
 Date: 2026-06-24
-Last updated: 2026-06-25
+Last updated: 2026-06-26
 
-Status: partially implemented / staged follow-up plan
+Status: partially implemented; vendor-route research superseded by the owned
+`avenger-typst` text engine.
+
+Current direction: `avenger-typst` owns the strict Typst-style text/math subset
+directly. The active `typst-text` path should not depend on `vendor-typst`,
+`typst-library`, `typst-layout`, or `typst-syntax`. Sections below that discuss
+vendoring are retained as historical research, not as the implementation plan.
 
 Source notes: this document condenses the scratch research in
 `scratch/typst-math-typesetting-analysis.md` and
@@ -40,21 +46,19 @@ transforms, and other shapes.
 
 The recommended long-term plan is:
 
-1. Keep `avenger-typst` as the low-level optional Typst math-fragment crate.
+1. Keep `avenger-typst` as the low-level optional Typst-style text/math crate.
 2. Parse label strings into normal text runs and `$...$` math runs.
-3. Route math runs through a vendored and patched Typst math-fragment engine.
+3. Route text and math through the owned `avenger-typst` subset engine.
 4. Return measured artifacts with width, height, baseline, ascent, descent,
    vector paths, optional rasters, and optional PDF glyph placement data.
-5. Integrate through optional `avenger-text` wrappers that keep surrounding
-   non-math text on the existing cosmic/native text path.
+5. Integrate through optional `avenger-text` wrappers and renderer feature flags
+   under the user-facing `typst-text` path.
 
-The main reason to prefer a vendored math-fragment path over a full Typst
-dependency is size and control. A full Typst compile/layout path added roughly
-40-42 MB to an earlier stripped native macOS arm64 probe binary. The current
-vendored math-string API probe is smaller, but still adds about 12 MB stripped
-without cosmic, about 14 MB stripped with cosmic, and about 15 MB stripped for
-the current mixed cosmic-plus-Typst-raster path. The feature should remain
-optional while the vendored subset is pruned.
+The main reason to prefer the owned subset over a full Typst dependency is size,
+control, and predictable syntax errors for unsupported document/evaluator
+features. Earlier vendored/full-Typst size measurements in this document are
+historical and should be regenerated with the owned engine before making release
+decisions.
 
 ## Typst Math Syntax
 
@@ -519,113 +523,12 @@ Reject:
 A simple validation rule is: reject syntax that enters Typst code mode before
 evaluation, except for escaped characters that should render literally.
 
-## Vendor Plan
+## Superseded Vendor Plan
 
-The recommended implementation is a reproducible vendored subset under a path
-like:
-
-```text
-vendor/typst-avenger/
-  README.md
-  UPSTREAM_REV
-  Cargo.toml
-  crates/
-    typst-syntax/
-    typst-library/
-    typst-layout/
-    typst-utils/
-    typst-macros/
-    typst-timing/
-
-tools/vendor-typst-math/
-  recipe.toml
-  overlays/
-  patches/
-  prompts/
-    resolve-sync.md
-```
-
-Prefer preserving upstream Rust crate names internally. If Cargo package names
-must avoid registry collisions, rename packages but keep crate names:
-
-```toml
-typst_library = { package = "avenger-typst-library", path = "vendor/typst-avenger/crates/typst-library" }
-typst_layout = { package = "avenger-typst-layout", path = "vendor/typst-avenger/crates/typst-layout" }
-```
-
-Do not expose vendored Typst types from Avenger's public API.
-
-### Vendor Inventory
-
-Keep whole at first:
-
-- `typst-syntax`
-- `typst-utils`
-- `typst-macros`
-- `typst-timing`
-
-Keep with a `math-fragment` or `avenger-minimal` feature profile:
-
-- `typst-library` diagnostics, engine, foundations, introspection, routines,
-  symbols, math modules, text/font modules, layout primitives, frame types,
-  and visualize paint/shape/stroke types.
-- `typst-layout/src/math/*`
-- `typst-layout/src/modifiers.rs`
-- `typst-layout/src/shapes.rs`
-- `typst-layout/src/inline/shaping.rs`
-- only enough inline layout support for math text runs
-- minimal model stubs if needed to satisfy equation imports
-
-Do not vendor:
-
-- `typst-realize`: `avenger-typst` supplies a narrow realization routine for
-  accepted math content.
-- `typst-eval`: `avenger-typst` lowers the accepted math AST directly into
-  Typst math content and disables general string/closure evaluation.
-
-Do not include in the default fragment path:
-
-- top-level `typst`
-- `typst-html`
-- `typst-pdf`, unless Avenger explicitly chooses to depend on Typst's full PDF
-  exporter. The current plan may use `krilla` directly, but does not require
-  `typst-pdf` as a dependency.
-- `typst-svg`, unless used only as an early spike backend
-- `typst-render`; rasterization should stay outside the vendored Typst tree and
-  use `tiny-skia` behind `avenger-typst/raster`
-- `typst-kit` and `typst-assets`, except temporary development use
-- bibliography, raw highlighting, plugins, data loading, image loading, full
-  document/page export features
-
-### Patch Shape
-
-Expected patches:
-
-1. Add a math-fragment feature profile for `typst-library`.
-2. Add a public or private `layout_math_fragment_frame` facade in
-   `typst-layout` that wraps the existing private inline equation layout path.
-3. Add Avenger-owned strict AST validation and math-content lowering.
-4. Add Avenger-owned minimal routines for realization while keeping string and
-   closure evaluation disabled.
-5. Add an Avenger frame-to-artifact lowering layer.
-
-The private driver can be much narrower than the public Avenger API:
-
-```rust
-pub fn layout_math_fragment(
-    source: &str,
-    style: &MathStyle,
-) -> Result<TypstMathFrameArtifact, TypstMathError>;
-```
-
-Internally it should:
-
-1. Parse the fragment.
-2. Reject unsupported syntax.
-3. Lower allowed math AST nodes directly into Typst math content.
-4. Wrap content in an equation element.
-5. Call the patched math layout facade.
-6. Lower the resulting frame into Avenger artifacts.
+Historical note: the implementation no longer follows the vendor route. The
+old plan was to copy and patch a small Typst subset, then periodically sync it
+from upstream. That path was replaced by the owned `avenger-typst` parser, text
+layout, math layout, artifact lowering, and strict unsupported-syntax errors.
 
 ## Frame-To-Artifact Lowering
 
@@ -649,53 +552,12 @@ After Typst produces a frame:
 SVG/PDF vector output consumes paths. WGPU can consume rasters derived from
 those same paths. PDF post-processing can consume the glyph layer.
 
-## Vendor Sync Strategy
+## Superseded Vendor Sync Strategy
 
-The vendored tree should be reproducible from:
-
-1. an upstream Typst git revision,
-2. a declarative file/patch recipe,
-3. Avenger overlay files,
-4. a mechanical sync command.
-
-Example command:
-
-```text
-cargo xtask vendor-typst-math --upstream ../typst --rev c98e910391a8544b28bd5c99a6f3b1ac1ada9a84
-```
-
-The command should:
-
-1. Verify or check out the requested upstream revision.
-2. Regenerate `vendor/typst-avenger`.
-3. Copy only recipe-listed crates and files.
-4. Generate local `Cargo.toml` files from templates.
-5. Preserve upstream relative paths where possible.
-6. Record upstream source path and revision.
-7. Apply overlays.
-8. Apply topic-oriented patches.
-9. Run `cargo fmt`.
-10. Run `cargo check --release -p avenger-typst --features vendor-typst`.
-11. Run a dependency deny-list check.
-
-Expected mechanical fixes:
-
-- Rename Cargo packages while preserving Rust crate names.
-- Generate minimal manifests.
-- Stub HTML hooks.
-- Build a math-only routines table.
-- Add `math-fragment` gates.
-- Generate unsupported-feature diagnostics.
-
-Patch failures or `cargo check` failures are a good bounded agent task. The
-agent prompt should require preserving the fragment contract, keeping embedded
-code/content rejected, and avoiding reintroducing full Typst dependencies such
-as `typst`, `typst-eval`, `typst-realize`, `typst-html`, `typst-pdf`,
-`typst-svg`, `typst-render`, `typst-kit`, `typst-assets`, `hayagriva`,
-`syntect`, `wasmi`, image loaders, or data format loaders unless explicitly
-approved. In particular, embedded PDF math glyphs via `MathPdfTextLayer` should
-not by itself justify adding `typst-pdf`; that crate only belongs in the plan if
-Avenger adopts Typst's full PDF exporter rather than using `krilla` directly.
+Historical note: the vendored tree has been removed from the active dependency
+path. Future sync work should happen as targeted owned-engine improvements:
+copy the relevant upstream algorithm or metric rule into `avenger-typst`, add
+unit tests and visual baselines, and keep the public strict-subset contract.
 
 ## Size Findings
 
@@ -709,48 +571,28 @@ Earlier full-Typst probe:
 - Full Typst compile/layout/render path with `typst-render`: about 42 MB
   stripped.
 
-Current `avenger-text` feature probe in `tools/text-size-probe`:
+Current WGPU text-render probe in `tools/text-render-probe` after removing the
+vendored Typst crates:
 
-| Variant | Raw | Stripped | Notes |
+| Backend | Binary bytes | PNG bytes | Notes |
 | --- | ---: | ---: | --- |
-| `plain-none` | 404,928 B | 336,128 B | Minimal probe baseline. |
-| `cosmic` | 2,554,048 B | 2,237,952 B | Existing regular native text measurement stack. |
-| `typst-math` | 15,292,224 B | 12,312,464 B | Current `avenger-typst/vendor-typst` math-string API with paths and PDF text metadata. |
-| `typst-math-raster` | 15,549,760 B | 12,533,288 B | Low-level Typst math plus `tiny-skia` path rasterization. |
-| `cosmic+typst-math` | 17,293,920 B | 14,077,928 B | Native plain measurement plus Typst math paths. |
-| `cosmic+typst-math-raster` | 18,795,216 B | 15,365,936 B | Expected WGPU mixed-label path: cosmic rasterization plus Typst math rasterization. |
+| `cosmic` | 8,998,848 | 56,378 | Existing WGPU text path. |
+| `typst` | 8,333,472 | 42,692 | Owned Typst-style text/math path, no `cosmic-text`. |
 
-Approximate stripped deltas over `plain-none`:
-
-- `cosmic`: +1.90 MB
-- `typst-math`: +11.98 MB
-- `typst-math-raster`: +12.20 MB
-- `cosmic+typst-math`: +13.74 MB
-- `cosmic+typst-math-raster`: +15.03 MB
-
-The direct `typst-math-raster` increment over `typst-math` is only about
-0.22 MB stripped. The larger `cosmic+typst-math-raster` increment also reflects
-exercising cosmic glyph rasterization, not just adding `tiny-skia`.
-
-Duplicate-dependency checks from `cargo tree -d` show useful future alignment
-targets:
-
-- `png` 0.17 through `tiny-skia` and `png` 0.18 through `image`/Typst;
-- `bitflags` 1.x through `tiny-skia` and 2.x through Typst/cosmic/image;
-- `kurbo` 0.11 through `svgtypes` and 0.13 through vendored Typst;
-- in the combined cosmic path, `read-fonts`/`skrifa` stacks from cosmic/swash
-  and Typst are still split.
+In this low-level probe the owned Typst path is about 665 KB smaller than the
+cosmic path while also supporting math syntax. Re-run the probe before making
+release decisions because the exact number depends on platform, feature set,
+and link profile.
 
 This supports the current decision:
 
-- Keep cosmic as the regular text path.
-- Keep Typst math optional for now.
-- Study vendored Typst size reduction before considering math support as a
-  default feature.
+- Keep both cosmic and owned Typst paths available until visual parity and
+  integration risk are better understood.
+- Consider owned Typst as a plausible default if broader chart baselines stay
+  stable and unsupported syntax errors are acceptable.
 - Do not add `typst-render` or `typst-pdf` for first-stage math rendering.
 - Align shared dependencies such as `rustybuzz`, `ttf-parser`, and `fontdb`
-  where possible, but expect the Typst math layout subset itself to dominate
-  binary size until deeper pruning lands.
+  where possible.
 
 ## Upstream Discussion
 
@@ -804,20 +646,21 @@ Possible upstream contributions:
 Phase 1: low-level math fragment crate.
 
 - Keep `avenger-typst` optional and independent from `avenger-text`.
-- Vendor/pin the first Typst subset.
-- Implement strict math fragment parsing and validation.
-- Add math-frame layout facade.
-- Lower frames to metrics, path artifacts, optional raster artifacts, and
+- Own the Typst-style text/math parser and strict subset validation.
+- Add owned math and text layout facades.
+- Lower owned layout artifacts to metrics, path artifacts, optional raster artifacts, and
   `MathPdfTextLayer`.
-- Add unit tests for scripts, fractions, roots, matrices, cases, accents, large
-  delimiters, color, baseline alignment, and unsupported syntax rejection.
+- Add unit tests for scripts, fractions, roots, accents, delimiters, color,
+  baseline alignment, emoji, bidi/complex scripts, and unsupported syntax
+  rejection. Matrices and cases remain out of the first supported subset.
 
 Phase 2: optional `avenger-text` integration.
 
-- Add `typst-math` and `typst-math-raster` feature flags.
-- Keep cosmic as the regular native text backend.
-- Add math-aware `TextMeasurer` and `TextRasterizer` wrappers that split
-  opt-in `$...$` math spans from surrounding plain text.
+- Add `typst-text` and `typst-text-raster` feature flags.
+- Keep cosmic available as the regular native text backend while the owned
+  Typst path matures.
+- Add Typst `TextMeasurer` and `TextRasterizer` implementations that parse
+  opt-in `$...$` math spans and static text markup in one line.
 - Add a `TextPathExtractor` trait.
 - Implement `TextPathExtractor` for cosmic and for math-aware mixed labels.
 - Cache artifacts by source/style/font/output scale/fork revision.
@@ -851,7 +694,6 @@ Phase 5: prune and sync.
 - Replace broad eval/realize paths with math-only variants if size is still too
   large.
 - Add dependency deny-list and API/visual/metric guardrails.
-- Implement the reproducible vendor sync command.
 
 ## Open Questions
 
@@ -864,12 +706,12 @@ Phase 5: prune and sync.
 - Which z-order-preserving embedded PDF route should follow the overlay
   prototype: direct krilla PDF emission, `svg2pdf`/`krilla-svg` callback API, or
   content-stream replacement?
-- How small does the vendored fragment path need to become before it is
-  acceptable as an optional Avenger feature?
+- How small does the owned Typst-style text path need to become before it is
+  acceptable as a default Avenger feature?
 
 ## Recommendation
 
-Use a vendored, patchable Typst math-fragment engine rather than the full Typst
+Use an owned, patchable Typst-style text/math subset rather than the full Typst
 crate for the production path. The helper should return metrics plus backend
 payloads, not rendered text strings. SVG and normal PDF can use paths for only
 the math spans. WGPU can rasterize those paths. Embedded PDF text can later use

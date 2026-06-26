@@ -13,12 +13,12 @@ cosmic = ["dep:avenger-text", "avenger-text/cosmic-text"]
 typst-math = [
     "dep:avenger-text",
     "dep:avenger-typst",
-    "avenger-text/typst-math",
-    "avenger-typst/vendor-typst",
+    "avenger-text/typst-text",
+    "avenger-typst/owned",
 ]
 typst-math-raster = [
     "typst-math",
-    "avenger-text/typst-math-raster",
+    "avenger-text/typst-text-raster",
     "avenger-typst/raster",
 ]
 
