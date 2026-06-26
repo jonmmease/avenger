@@ -267,7 +267,7 @@ fn validate_math_fragment(
             limit: limits.max_math_depth,
         });
     }
-    validate_vendor_typst_parse(source, range.start)?;
+    validate_owned_math_parse(source, range.start)?;
 
     Ok(())
 }
@@ -293,139 +293,14 @@ fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), MathTypesetEr
     Ok(())
 }
 
-#[cfg(feature = "vendor-typst")]
-fn validate_vendor_typst_parse(source: &str, offset: usize) -> Result<(), MathTypesetError> {
-    use typst_syntax::{LinkedNode, SyntaxKind};
+#[cfg(feature = "owned")]
+fn validate_owned_math_parse(source: &str, offset: usize) -> Result<(), MathTypesetError> {
+    crate::owned::math::syntax::parse_owned_math(source, offset).map(|_| ())
+}
 
-    let root = typst_syntax::parse_math(source);
-    let linked_root = LinkedNode::new(&root);
-    if let Some(position) = first_node_position(&linked_root, |kind| kind == SyntaxKind::Error) {
-        return Err(MathTypesetError::UnsupportedSyntax {
-            position: offset + position,
-            message: "invalid Typst math syntax",
-        });
-    }
-
-    if let Some((position, message)) = first_unsupported_typst_node(&linked_root) {
-        return Err(MathTypesetError::UnsupportedSyntax {
-            position: offset + position,
-            message,
-        });
-    }
-
+#[cfg(not(feature = "owned"))]
+fn validate_owned_math_parse(_source: &str, _offset: usize) -> Result<(), MathTypesetError> {
     Ok(())
-}
-
-#[cfg(not(feature = "vendor-typst"))]
-fn validate_vendor_typst_parse(_source: &str, _offset: usize) -> Result<(), MathTypesetError> {
-    Ok(())
-}
-
-#[cfg(feature = "vendor-typst")]
-fn first_node_position(
-    node: &typst_syntax::LinkedNode<'_>,
-    predicate: impl Copy + Fn(typst_syntax::SyntaxKind) -> bool,
-) -> Option<usize> {
-    if predicate(node.get().kind()) {
-        return Some(node.range().start);
-    }
-
-    node.children()
-        .find_map(|child| first_node_position(&child, predicate))
-}
-
-#[cfg(feature = "vendor-typst")]
-fn first_unsupported_typst_node(
-    node: &typst_syntax::LinkedNode<'_>,
-) -> Option<(usize, &'static str)> {
-    if let Some(message) = unsupported_typst_math_kind(node.get().kind()) {
-        return Some((node.range().start, message));
-    }
-
-    node.children()
-        .find_map(|child| first_unsupported_typst_node(&child))
-}
-
-#[cfg(feature = "vendor-typst")]
-fn unsupported_typst_math_kind(kind: typst_syntax::SyntaxKind) -> Option<&'static str> {
-    use typst_syntax::SyntaxKind;
-
-    match kind {
-        SyntaxKind::Hash
-        | SyntaxKind::Code
-        | SyntaxKind::CodeBlock
-        | SyntaxKind::Parenthesized
-        | SyntaxKind::Array
-        | SyntaxKind::Dict
-        | SyntaxKind::Keyed
-        | SyntaxKind::Unary
-        | SyntaxKind::Binary
-        | SyntaxKind::FuncCall
-        | SyntaxKind::Args
-        | SyntaxKind::Closure
-        | SyntaxKind::Params
-        | SyntaxKind::LetBinding
-        | SyntaxKind::SetRule
-        | SyntaxKind::ShowRule
-        | SyntaxKind::Contextual
-        | SyntaxKind::Conditional
-        | SyntaxKind::WhileLoop
-        | SyntaxKind::ForLoop
-        | SyntaxKind::ModuleImport
-        | SyntaxKind::ImportItems
-        | SyntaxKind::ImportItemPath
-        | SyntaxKind::RenamedImportItem
-        | SyntaxKind::ModuleInclude
-        | SyntaxKind::LoopBreak
-        | SyntaxKind::LoopContinue
-        | SyntaxKind::FuncReturn
-        | SyntaxKind::Destructuring
-        | SyntaxKind::DestructAssignment
-        | SyntaxKind::Let
-        | SyntaxKind::Set
-        | SyntaxKind::Show
-        | SyntaxKind::Context
-        | SyntaxKind::If
-        | SyntaxKind::Else
-        | SyntaxKind::For
-        | SyntaxKind::In
-        | SyntaxKind::While
-        | SyntaxKind::Break
-        | SyntaxKind::Continue
-        | SyntaxKind::Return
-        | SyntaxKind::Import
-        | SyntaxKind::Include
-        | SyntaxKind::As => Some("embedded Typst code is not allowed in math fragments"),
-
-        SyntaxKind::Markup
-        | SyntaxKind::Text
-        | SyntaxKind::Linebreak
-        | SyntaxKind::Parbreak
-        | SyntaxKind::SmartQuote
-        | SyntaxKind::Strong
-        | SyntaxKind::Emph
-        | SyntaxKind::Raw
-        | SyntaxKind::RawLang
-        | SyntaxKind::RawDelim
-        | SyntaxKind::RawTrimmed
-        | SyntaxKind::Link
-        | SyntaxKind::Label
-        | SyntaxKind::Ref
-        | SyntaxKind::RefMarker
-        | SyntaxKind::Heading
-        | SyntaxKind::HeadingMarker
-        | SyntaxKind::ListItem
-        | SyntaxKind::ListMarker
-        | SyntaxKind::EnumItem
-        | SyntaxKind::EnumMarker
-        | SyntaxKind::TermItem
-        | SyntaxKind::TermMarker
-        | SyntaxKind::ContentBlock
-        | SyntaxKind::Equation
-        | SyntaxKind::Dollar => Some("non-math Typst content is not allowed in math fragments"),
-
-        _ => None,
-    }
 }
 
 fn max_grouping_depth(source: &str) -> usize {

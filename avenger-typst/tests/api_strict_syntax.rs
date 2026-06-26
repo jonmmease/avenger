@@ -67,7 +67,6 @@ fn allows_common_typst_math_fragments() {
         "$sum_(i=1)^n x_i$",
         "$binom(n, k)$",
         "$cancel(x)$",
-        "$mat(1, 2; 3, 4)$",
     ];
 
     for sample in samples {
@@ -77,7 +76,23 @@ fn allows_common_typst_math_fragments() {
     }
 }
 
-#[cfg(feature = "vendor-typst")]
+#[cfg(feature = "owned")]
+#[test]
+fn rejects_matrix_math() {
+    let err = engine()
+        .typeset_math_string("$mat(1, 2; 3, 4)$", &Default::default())
+        .unwrap_err();
+
+    assert_eq!(
+        err,
+        MathTypesetError::UnsupportedSyntax {
+            position: 1,
+            message: "matrix/table math is not supported in owned Typst subset"
+        }
+    );
+}
+
+#[cfg(feature = "owned")]
 #[test]
 fn rejects_real_typst_parse_error() {
     let err = engine()
@@ -88,7 +103,7 @@ fn rejects_real_typst_parse_error() {
         err,
         MathTypesetError::UnsupportedSyntax {
             position: 10,
-            message: "invalid Typst math syntax"
+            message: "math script expects an expression"
         }
     );
 }

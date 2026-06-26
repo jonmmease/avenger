@@ -33,12 +33,7 @@ fn vendor_backend_returns_nonzero_metrics_for_common_fragments() {
     })
     .unwrap();
 
-    for source in [
-        "x^2 + y^2",
-        "sqrt(x^2 + y^2)",
-        "sum_(i=1)^n x_i",
-        "mat(1, 2; 3, 4)",
-    ] {
+    for source in ["x^2 + y^2", "sqrt(x^2 + y^2)", "sum_(i=1)^n x_i"] {
         let artifact = engine
             .typeset_math_fragment(source, &metrics_only_options())
             .unwrap();
@@ -69,12 +64,7 @@ fn vendor_backend_lowers_common_fragments_to_paths() {
     })
     .unwrap();
 
-    for source in [
-        "x^2 + y^2",
-        "sqrt(x^2 + y^2)",
-        "sum_(i=1)^n x_i",
-        "mat(1, 2; 3, 4)",
-    ] {
+    for source in ["x^2 + y^2", "sqrt(x^2 + y^2)", "sum_(i=1)^n x_i"] {
         let artifact = engine
             .typeset_math_fragment(source, &Default::default())
             .unwrap();

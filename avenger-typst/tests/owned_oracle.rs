@@ -386,18 +386,19 @@ fn owned_backend_matches_vendor_for_errors() {
 }
 
 #[test]
-fn owned_backend_rejects_matrix_math_as_unsupported_subset() {
+fn public_backends_reject_matrix_math_as_unsupported_subset() {
     let vendor = vendor();
     let owned = owned();
     let source = "mat(1, 2; 3, 4)";
 
-    assert!(vendor
+    let vendor_err = vendor
         .typeset_math_fragment(source, &MathFragmentOptions::default())
-        .is_ok());
+        .unwrap_err();
 
     let owned_err = owned
         .typeset_math_fragment(source, &MathFragmentOptions::default())
         .unwrap_err();
+    assert_eq!(owned_err, vendor_err);
     assert_eq!(
         owned_err,
         avenger_typst::MathTypesetError::UnsupportedSyntax {
