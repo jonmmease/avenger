@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use comemo::Track;
@@ -650,7 +649,7 @@ fn load_typst_fonts(config: &TypstEngineConfig) -> Result<Vec<Font>, TypstInitEr
         )));
     }
 
-    for path in candidate_font_paths(config) {
+    for path in crate::fonts::candidate_math_font_paths(config) {
         let Ok(data) = std::fs::read(&path) else {
             continue;
         };
@@ -670,91 +669,6 @@ fn load_typst_fonts(config: &TypstEngineConfig) -> Result<Vec<Font>, TypstInitEr
     }
 
     Ok(fonts)
-}
-
-fn candidate_font_paths(config: &TypstEngineConfig) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    let mut push = |path: PathBuf| {
-        if !paths.iter().any(|existing| existing == &path) {
-            paths.push(path);
-        }
-    };
-
-    for path in hardcoded_math_font_paths() {
-        push(path.into());
-    }
-
-    for dir in system_font_dirs() {
-        collect_font_paths(
-            dir,
-            &mut push,
-            !config.font_config.extra_font_families.is_empty(),
-        );
-    }
-
-    paths
-}
-
-fn hardcoded_math_font_paths() -> &'static [&'static str] {
-    &[
-        "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
-        "/Library/Fonts/STIXTwoMath.otf",
-        "/usr/share/fonts/opentype/stix/STIXTwoMath-Regular.otf",
-        "/usr/share/fonts/opentype/stix/STIXTwoMath.otf",
-        "/usr/share/fonts/truetype/noto/NotoSansMath-Regular.ttf",
-        "C:\\Windows\\Fonts\\cambria.ttc",
-    ]
-}
-
-fn system_font_dirs() -> Vec<PathBuf> {
-    let mut dirs = vec![
-        PathBuf::from("/System/Library/Fonts"),
-        PathBuf::from("/Library/Fonts"),
-        PathBuf::from("/usr/share/fonts"),
-        PathBuf::from("/usr/local/share/fonts"),
-        PathBuf::from("C:\\Windows\\Fonts"),
-    ];
-    if let Some(home) = std::env::var_os("HOME") {
-        dirs.push(PathBuf::from(home).join("Library/Fonts"));
-    }
-    dirs
-}
-
-fn collect_font_paths(dir: PathBuf, push: &mut impl FnMut(PathBuf), include_all_fonts: bool) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_font_paths(path, push, include_all_fonts);
-            continue;
-        }
-
-        if !is_font_file(&path) {
-            continue;
-        }
-
-        let file_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        if include_all_fonts || file_name.contains("math") || file_name.contains("stix") {
-            push(path);
-        }
-    }
-}
-
-fn is_font_file(path: &Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|extension| extension.to_str())
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("otf" | "ttf" | "ttc")
-    )
 }
 
 fn select_math_font_family(

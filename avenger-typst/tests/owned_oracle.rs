@@ -38,6 +38,7 @@ fn owned_backend_matches_vendor_for_fragment_metrics_and_artifacts() {
     };
 
     for source in [
+        "1",
         "x",
         "y",
         "t",
@@ -71,6 +72,27 @@ fn owned_backend_matches_vendor_for_fragment_metrics_and_artifacts() {
         maybe_write_math_snapshot(source, &vendor_artifact, &owned_artifact);
         assert_math_artifact_matches(source, &vendor_artifact, &owned_artifact);
     }
+}
+
+#[test]
+fn owned_backend_matches_vendor_for_number_fragment_metrics_only_fast_path() {
+    let vendor = vendor();
+    let owned = owned();
+    let mut options = MathFragmentOptions::default();
+    options.outputs = MathOutputRequest {
+        paths: false,
+        raster: None,
+        pdf_text_layer: false,
+    };
+
+    let vendor_artifact = vendor
+        .typeset_math_fragment("1", &options)
+        .unwrap_or_else(|err| panic!("vendor failed for number fragment: {err:?}"));
+    let owned_artifact = owned
+        .typeset_math_fragment("1", &options)
+        .unwrap_or_else(|err| panic!("owned failed for number fragment: {err:?}"));
+
+    assert_math_artifact_matches("1", &vendor_artifact, &owned_artifact);
 }
 
 #[test]
