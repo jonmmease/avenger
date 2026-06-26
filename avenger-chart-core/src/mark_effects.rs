@@ -1091,6 +1091,12 @@ impl<'a> AdjustmentTransformContext<'a> {
         self.text_measurement = Some(text_measurement);
         self
     }
+
+    pub fn measure_text_bounds(&self, config: &TextMeasurementConfig<'_>) -> TextBounds {
+        self.text_measurement
+            .map(|text_measurement| text_measurement.measure_text_bounds(config))
+            .unwrap_or_else(|| avenger_text::default_text_engine().measure_bounds(config))
+    }
 }
 
 impl Default for AdjustmentTransformContext<'_> {

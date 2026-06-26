@@ -87,6 +87,9 @@ measurement propagation that existed only to choose between text engines.
   still needs an explicit tag.
 - [x] Replace calls to `eval_ctx.text_measurer().measure_text_bounds(...)` with
   one concrete Typst measurement path.
+- [x] Keep `TextMeasurementService` only as the chart adjustment cache hook, not
+  as a backend-selection trait; adjustment transforms should call
+  `AdjustmentTransformContext::measure_text_bounds(...)`.
 - [x] Collapse chart helper methods that only pass a measurer through call
   layers.
 - [x] Remove `*_with_text_measurer` APIs from `avenger-guides`.
@@ -162,8 +165,9 @@ measurement propagation that existed only to choose between text engines.
   - [ ] If no, hard-code default Typst-style delimiters.
   - [x] If yes, expose a small `TextMarkupConfig` but do not allow disabling the
     Typst engine.
-- [ ] Update `avenger-chart/src/prelude.rs` if public types are removed or
-  renamed.
+- [x] Update `avenger-chart/src/prelude.rs` if public types are removed or
+  renamed; no text-engine public type removal remains after retaining the
+  adjustment cache hook.
 - [ ] Update docs/future-work notes to say Typst text is the default path.
 - [x] Update probes:
   - [x] Keep `tools/text-render-probe` Typst path as the default current probe.

@@ -111,12 +111,6 @@ impl CompiledMarkAdjustmentTransform for CompiledFixedLabelPlacement {
                 "test FixedLabelPlacement requires a base plot-area scene".to_string(),
             )
         })?;
-        let text_measurement = context.text_measurement.ok_or_else(|| {
-            AvengerChartError::InvalidArgument(
-                "test FixedLabelPlacement requires text measurement".to_string(),
-            )
-        })?;
-
         let symbol_bounds = symbol_bounds(base_scene);
         let x = frame.f32_values(&item_channel_column_name("x"))?;
         let y = frame.f32_values(&item_channel_column_name("y"))?;
@@ -146,7 +140,7 @@ impl CompiledMarkAdjustmentTransform for CompiledFixedLabelPlacement {
                 font_weight: &weight,
                 font_style: &style,
             };
-            let text_bounds = text_measurement.measure_text_bounds(&config);
+            let text_bounds = context.measure_text_bounds(&config);
             let [left, top] =
                 text_bounds.calculate_origin([candidate_x, candidate_y], &align, &baseline);
             let bounds = GeometryBounds {
