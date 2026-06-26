@@ -3528,7 +3528,6 @@ impl<'a> FacetBandMeasurePipeline<'a> {
                         self.eval_ctx.session_context.as_ref(),
                         sharing_context,
                         Some(&probe_measurement),
-                        self.eval_ctx.text_measurer(),
                     )
                     .await?
             } else {

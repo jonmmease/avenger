@@ -9,7 +9,8 @@ use std::sync::Arc as StdArc;
 use avenger_color::ColorOrGradient;
 use avenger_scenegraph::marks::{mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::{
-    measurement::{TextMeasurementConfig, TextMeasurer},
+    TextEngine, default_text_engine,
+    measurement::TextMeasurementConfig,
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
 };
 use datafusion::common::ScalarValue;
@@ -70,16 +71,16 @@ pub(crate) struct ContainerBandGuideRenderConfig {
     pub title_x_override: Option<f32>,
 }
 
-pub(crate) fn measure_container_band_guide_slab_with_text_measurer(
+pub(crate) fn measure_container_band_guide_slab(
     config: &ContainerBandGuideMeasurementConfig,
-    text_measurer: &dyn TextMeasurer,
 ) -> f32 {
-    measure_container_band_guide_slab_uncached(config, text_measurer)
+    let text_engine = default_text_engine();
+    measure_container_band_guide_slab_uncached(config, &text_engine)
 }
 
 fn measure_container_band_guide_slab_uncached(
     config: &ContainerBandGuideMeasurementConfig,
-    text_measurer: &dyn TextMeasurer,
+    text_engine: &TextEngine,
 ) -> f32 {
     let mut max_label_dimension = 0.0_f32;
     for label in &config.labels {
@@ -87,7 +88,7 @@ fn measure_container_band_guide_slab_uncached(
             label,
             &config.font_family,
             config.font_size_px,
-            text_measurer,
+            text_engine,
         ));
     }
 
@@ -107,7 +108,7 @@ fn measure_container_band_guide_slab_uncached(
             title_text,
             &config.title_font_family,
             config.title_font_size_px,
-            text_measurer,
+            text_engine,
         );
 
         let gap = 10.0_f32;
@@ -117,18 +118,18 @@ fn measure_container_band_guide_slab_uncached(
     total_space + 1.0
 }
 
-pub(crate) fn render_container_band_guide_slab_with_text_measurer(
+pub(crate) fn render_container_band_guide_slab(
     config: &ContainerBandGuideRenderConfig,
     theme: &Theme,
     theme_params: &IndexMap<String, ScalarValue>,
-    text_measurer: &dyn TextMeasurer,
 ) -> Vec<SceneMark> {
+    let text_engine = default_text_engine();
     let mut marks = Vec::new();
     let label_dimensions = measure_label_dimensions(
         &config.labels,
         &config.font_family,
         config.font_size_px,
-        text_measurer,
+        &text_engine,
     );
     let max_label_dimension = label_dimensions.iter().copied().fold(0.0_f32, f32::max);
 
@@ -174,7 +175,7 @@ pub(crate) fn render_container_band_guide_slab_with_text_measurer(
             theme,
             theme_params,
             max_label_dimension,
-            text_measurer,
+            &text_engine,
         );
         marks.push(SceneMark::Text(StdArc::new(title_mark)));
     }
@@ -186,11 +187,11 @@ fn measure_label_dimensions(
     labels: &[String],
     font_family: &str,
     font_size_px: f32,
-    text_measurer: &dyn TextMeasurer,
+    text_engine: &TextEngine,
 ) -> Vec<f32> {
     labels
         .iter()
-        .map(|label| measure_text_height(label, font_family, font_size_px, text_measurer))
+        .map(|label| measure_text_height(label, font_family, font_size_px, text_engine))
         .collect()
 }
 
@@ -435,7 +436,7 @@ fn render_container_band_title(
     theme: &Theme,
     theme_params: &IndexMap<String, ScalarValue>,
     max_label_dimension: f32,
-    text_measurer: &dyn TextMeasurer,
+    text_engine: &TextEngine,
 ) -> SceneTextMark {
     let title_ctx = ThemeContext::new("guide", theme_params.clone())
         .child(config.theme_component.as_str())
@@ -445,7 +446,7 @@ fn render_container_band_title(
         title_text,
         &config.title_font_family,
         config.title_font_size_px,
-        text_measurer,
+        text_engine,
     );
 
     let gap = 10.0_f32;
@@ -513,7 +514,7 @@ fn measure_text_height(
     text: &str,
     font_family: &str,
     font_size_px: f32,
-    text_measurer: &dyn TextMeasurer,
+    text_engine: &TextEngine,
 ) -> f32 {
     let text_config = TextMeasurementConfig {
         text,
@@ -522,13 +523,12 @@ fn measure_text_height(
         font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
         font_style: &FontStyle::Normal,
     };
-    text_measurer.measure_text_bounds(&text_config).height
+    text_engine.measure_bounds(&text_config).height
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::context::TextMeasurementRuntime;
     use avenger_scenegraph::marks::mark::SceneMark;
     use datafusion::common::ScalarValue;
     use indexmap::IndexMap;
@@ -576,13 +576,7 @@ mod tests {
     }
 
     fn render_with_plain_text(config: &ContainerBandGuideRenderConfig) -> Vec<SceneMark> {
-        let text_measurement = TextMeasurementRuntime::default();
-        render_container_band_guide_slab_with_text_measurer(
-            config,
-            &Theme::light(),
-            &IndexMap::new(),
-            text_measurement.measurer.as_ref(),
-        )
+        render_container_band_guide_slab(config, &Theme::light(), &IndexMap::new())
     }
 
     #[test]

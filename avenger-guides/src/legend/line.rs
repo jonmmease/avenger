@@ -10,10 +10,7 @@ use avenger_scenegraph::marks::{
     group::SceneGroup, line::SceneLineMark, mark::SceneMark, rect::SceneRectMark,
     text::SceneTextMark,
 };
-use avenger_text::{
-    measurement::{default_text_measurer, TextMeasurer},
-    types::{FontWeight, TextAlign, TextBaseline},
-};
+use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
 
 use crate::{
     error::AvengerGuidesError,
@@ -146,23 +143,8 @@ pub fn make_line_legend(config: &LineLegendConfig) -> Result<SceneGroup, Avenger
     Ok(make_line_legend_itemized(config)?.group)
 }
 
-pub fn make_line_legend_with_text_measurer(
-    config: &LineLegendConfig,
-    text_measurer: &dyn TextMeasurer,
-) -> Result<SceneGroup, AvengerGuidesError> {
-    Ok(make_line_legend_itemized_with_text_measurer(config, text_measurer)?.group)
-}
-
 pub fn make_line_legend_itemized(
     config: &LineLegendConfig,
-) -> Result<GuideLegendOutput, AvengerGuidesError> {
-    let text_measurer = default_text_measurer();
-    make_line_legend_itemized_with_text_measurer(config, &text_measurer)
-}
-
-pub fn make_line_legend_itemized_with_text_measurer(
-    config: &LineLegendConfig,
-    text_measurer: &dyn TextMeasurer,
 ) -> Result<GuideLegendOutput, AvengerGuidesError> {
     // Compute the common encoding length
     let len = compute_encoding_length(&[
@@ -207,7 +189,7 @@ pub fn make_line_legend_itemized_with_text_measurer(
         y: 0.0.into(),
         ..Default::default()
     };
-    let all_text_bbox = all_text_mark.bounding_box_with_text_measurer(text_measurer);
+    let all_text_bbox = all_text_mark.bounding_box();
     let _max_text_width = all_text_bbox.width();
     let max_text_height = all_text_bbox.height();
     let legend_group_height = max_text_height;
@@ -283,7 +265,6 @@ pub fn make_line_legend_itemized_with_text_measurer(
             config.label_font_family.as_deref(),
             config.label_font_size,
             config.label_font_weight.as_ref(),
-            text_measurer,
         );
         groups.push(SceneMark::Group(group));
         items.push(GuideLegendItem {
@@ -301,7 +282,7 @@ pub fn make_line_legend_itemized_with_text_measurer(
         marks: groups.clone(),
         ..Default::default()
     };
-    let content_bbox = temp_group.bounding_box_with_text_measurer(text_measurer);
+    let content_bbox = temp_group.bounding_box();
 
     // Calculate total dimensions including padding
     // The background rect always exists and defines our coordinate system
@@ -370,7 +351,6 @@ fn make_line_group(
     label_font_family: Option<&str>,
     label_font_size: Option<f32>,
     label_font_weight: Option<&FontWeight>,
-    text_measurer: &dyn TextMeasurer,
 ) -> SceneGroup {
     // Line and text should be positioned relative to the group's local origin
     let x0 = 0.0;
@@ -432,7 +412,7 @@ fn make_line_group(
         marks: content_marks.clone(),
         ..Default::default()
     }
-    .bounding_box_with_text_measurer(text_measurer);
+    .bounding_box();
 
     SceneGroup {
         origin: [x_offset, y],

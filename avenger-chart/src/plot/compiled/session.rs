@@ -48,7 +48,7 @@ use crate::{
     plot::compiled::ChildFrameSharingPath,
     render::{
         EvaluatedPlot, EvaluationMetrics, EvaluationMode, EvaluationOptions,
-        PreviewProfileFallbackReason, context::TextMeasurementRuntime, types::LegendMeasurement,
+        PreviewProfileFallbackReason, types::LegendMeasurement,
     },
     scales::ConfiguredScaleWithSpec,
 };
@@ -1284,14 +1284,6 @@ pub struct EvaluationRequest {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PlotSessionOptions {}
 
-impl PlotSessionOptions {
-    pub(crate) fn text_measurement_runtime(
-        &self,
-    ) -> Result<TextMeasurementRuntime, AvengerChartError> {
-        Ok(TextMeasurementRuntime::default())
-    }
-}
-
 impl Default for EvaluationRequest {
     fn default() -> Self {
         Self::new()
@@ -1593,7 +1585,6 @@ impl PlotSession {
         let mode = request.mode;
         let next_params = self.params_for_request(&request);
         let options = options_for_evaluation_mode(mode, request.options);
-        let text_measurement = self.options.text_measurement_runtime()?;
         let use_measurement_profile_caches = mode != EvaluationMode::ForceRemeasure;
         let scoped_store = self.scoped_param_store_handle();
         let selection_store = self.scoped_selection_store_handle();
@@ -1618,7 +1609,6 @@ impl PlotSession {
                         use_measurement_profile_caches
                             .then(|| self.legend_measurement_cache.clone()),
                         use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
-                        text_measurement.clone(),
                         scoped_store.clone(),
                         selection_store.clone(),
                         store_state.clone(),
@@ -1656,7 +1646,6 @@ impl PlotSession {
                     use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                     use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                     use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
-                    text_measurement.clone(),
                     scoped_store.clone(),
                     selection_store.clone(),
                     store_state.clone(),
@@ -1699,7 +1688,6 @@ impl PlotSession {
                 use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                 use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                 use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
-                text_measurement,
                 scoped_store,
                 selection_store,
                 store_state,

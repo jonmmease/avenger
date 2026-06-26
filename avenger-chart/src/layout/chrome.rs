@@ -30,7 +30,6 @@ use super::declared_frame::{
 use crate::{
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
-    plot::compiled::TextMeasurementCacheKey,
     plot::{PlotSubtitle, PlotTitle},
     render::EvaluationContext,
     serialization::LogicalExprNodeExt,
@@ -149,38 +148,7 @@ async fn measure_text_bounds(
         font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
         font_style: &FontStyle::Normal,
     };
-    let measurer = eval_ctx.text_measurer();
-    let cache_tag = eval_ctx.text_measurement_cache_tag();
-    let bounds = if let Some(cache) = eval_ctx.text_measurement_cache() {
-        let key = TextMeasurementCacheKey::new(
-            config.text,
-            config.font,
-            config.font_size,
-            config.font_weight,
-            config.font_style,
-            cache_tag,
-        );
-        let cached = {
-            cache
-                .lock()
-                .expect("text measurement cache lock poisoned")
-                .get(&key)
-        };
-        if let Some(bounds) = cached {
-            eval_ctx.record_text_measurement_cache_hit();
-            bounds
-        } else {
-            eval_ctx.record_text_measurement_cache_miss();
-            let bounds = measurer.measure_text_bounds(&config);
-            cache
-                .lock()
-                .expect("text measurement cache lock poisoned")
-                .insert(key, bounds.clone());
-            bounds
-        }
-    } else {
-        measurer.measure_text_bounds(&config)
-    };
+    let bounds = eval_ctx.measure_text_bounds(&config);
 
     Ok(bounds)
 }

@@ -12,11 +12,8 @@ use avenger_common::{
     types::{StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
-use avenger_guides::legend::line::{
-    LineLegendConfig, make_line_legend_itemized_with_text_measurer,
-};
+use avenger_guides::legend::line::{LineLegendConfig, make_line_legend_itemized};
 use avenger_scales::scales::coerce::Coercer;
-use avenger_text::measurement::TextMeasurer;
 use avenger_text::types::FontWeight;
 use datafusion::{
     arrow::array::{ArrayRef, StringArray},
@@ -162,7 +159,6 @@ impl LegendRenderer for CompiledLineLegend {
         theme: &Theme,
         params: &IndexMap<String, ScalarValue>,
         ctx: &SessionContext,
-        text_measurer: &dyn TextMeasurer,
     ) -> Result<Option<LegendRenderOutput>, AvengerChartError> {
         if channels.is_empty() {
             return Ok(None);
@@ -524,8 +520,7 @@ impl LegendRenderer for CompiledLineLegend {
             "Line legend config"
         );
 
-        let mut output =
-            make_line_legend_itemized_with_text_measurer(&legend_config, text_measurer)?;
+        let mut output = make_line_legend_itemized(&legend_config)?;
 
         // Update position and add debug stroke
         output.group.origin = [x, y];

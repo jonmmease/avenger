@@ -39,8 +39,6 @@ async fn custom_legend_renderer_uses_core_contracts() {
     };
 
     assert!(renderer.can_evaluate(std::slice::from_ref(&channel)));
-
-    let text_measurer = avenger_text::measurement::default_text_measurer();
     let size = renderer
         .measure(
             &[channel],
@@ -52,7 +50,6 @@ async fn custom_legend_renderer_uses_core_contracts() {
             &Theme::light(),
             &IndexMap::new(),
             &SessionContext::new(),
-            &text_measurer,
         )
         .await
         .expect("custom renderer measures");

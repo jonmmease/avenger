@@ -49,7 +49,7 @@ use crate::{
     render::{
         EvaluatedEventDatumRows, EvaluatedInteractionScope, EvaluationContext, InteractionScopeId,
         InteractionScopeKind, LegendMeasurements, RenderContext, RenderState,
-        types::LegendMeasurement,
+        context::TEXT_MEASUREMENT_CACHE_TAG, types::LegendMeasurement,
     },
     scales::{ConfiguredScaleWithSpec, Linear, Time},
     serialization::LogicalExprNodeExt,
@@ -1489,14 +1489,7 @@ impl CompiledPlot {
     ) -> Result<LegendMeasurement, AvengerChartError> {
         let Some(cache) = eval_ctx.legend_measurement_cache() else {
             let measurement = self
-                .measure_legend_group_uncached(
-                    eval_ctx,
-                    group,
-                    position,
-                    available_space,
-                    ctx,
-                    params,
-                )
+                .measure_legend_group_uncached(group, position, available_space, ctx, params)
                 .await?;
             eval_ctx.record_legend_measurements(1);
             return Ok(measurement);
@@ -1507,7 +1500,7 @@ impl CompiledPlot {
             available_space,
             position,
             params,
-            eval_ctx.text_measurement_cache_tag(),
+            TEXT_MEASUREMENT_CACHE_TAG,
         );
         let cached = {
             cache
@@ -1522,7 +1515,7 @@ impl CompiledPlot {
 
         eval_ctx.record_legend_measurement_cache_miss();
         let measurement = self
-            .measure_legend_group_uncached(eval_ctx, group, position, available_space, ctx, params)
+            .measure_legend_group_uncached(group, position, available_space, ctx, params)
             .await?;
         eval_ctx.record_legend_measurements(1);
         cache
@@ -1534,7 +1527,6 @@ impl CompiledPlot {
 
     async fn measure_legend_group_uncached(
         &self,
-        eval_ctx: &EvaluationContext,
         group: &PreparedLegendGroup,
         position: LegendPosition,
         available_space: Size2D,
@@ -1550,7 +1542,6 @@ impl CompiledPlot {
             theme.as_ref(),
             params,
             ctx,
-            eval_ctx.text_measurer(),
         )
         .await?;
         Ok(LegendMeasurement {
@@ -1589,7 +1580,6 @@ impl CompiledPlot {
                     theme.as_ref(),
                     params,
                     ctx,
-                    eval_ctx.text_measurer(),
                 )
                 .await?;
             if let Some(mut rendered) = group_opt {

@@ -11,17 +11,18 @@ use avenger_color::{ColorOrGradient, parse_color_string_strict};
 use avenger_common::value::ScalarOrArray;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_guides::axis::{
-    band::make_band_axis_marks_with_text_measurer,
-    numeric::make_numeric_axis_marks_with_text_measurer,
+    band::make_band_axis_marks,
+    numeric::make_numeric_axis_marks,
     opts::{AxisConfig, AxisOrientation, AxisTickSpacing},
-    point::make_point_axis_marks_with_text_measurer,
+    point::make_point_axis_marks,
 };
 use avenger_scales::scales::{ConfiguredScale, DomainKind, band::BandScale};
 use avenger_scenegraph::marks::{
     group::Clip, mark::SceneMark, rect::SceneRectMark, text::SceneTextMark,
 };
 use avenger_text::{
-    measurement::{TextMeasurementConfig, TextMeasurer},
+    TextEngine, default_text_engine,
+    measurement::TextMeasurementConfig,
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
 };
 use datafusion::{
@@ -258,19 +259,9 @@ impl CompiledGuide for CompiledParallelGuide {
         ctx: &SessionContext,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: Option<&dyn CoordMeasurement>,
-        text_measurer: &dyn TextMeasurer,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
-        measure_parallel_guide_overflow(
-            self,
-            scales,
-            plot_width,
-            plot_height,
-            theme,
-            params,
-            ctx,
-            text_measurer,
-        )
-        .await
+        measure_parallel_guide_overflow(self, scales, plot_width, plot_height, theme, params, ctx)
+            .await
     }
 
     async fn evaluate(
@@ -287,7 +278,6 @@ impl CompiledGuide for CompiledParallelGuide {
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
         _render_context: GuideRenderContext<'_>,
-        text_measurer: &dyn TextMeasurer,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let datums = self
             .evaluated_axis_guide_datums(plot_width, plot_height, theme, params, ctx)
@@ -343,7 +333,6 @@ impl CompiledGuide for CompiledParallelGuide {
                 plot_bounds.x + datum.datum.display_x,
                 plot_bounds.y,
                 &datum.axis_config,
-                text_measurer,
             )?);
         }
 
@@ -581,8 +570,8 @@ async fn measure_parallel_guide_overflow(
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
     ctx: &SessionContext,
-    text_measurer: &dyn TextMeasurer,
 ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
+    let text_engine = default_text_engine();
     let datums = guide
         .evaluated_axis_guide_datums(plot_width, plot_height, theme, params, ctx)
         .await?;
@@ -605,14 +594,8 @@ async fn measure_parallel_guide_overflow(
                 datum.datum.scale_name
             ))
         })?;
-        let axis_mark = make_axis_mark(
-            scale,
-            datum.datum.display_x,
-            0.0,
-            &datum.axis_config,
-            text_measurer,
-        )?;
-        let bbox = axis_mark.bounding_box_with_text_measurer(text_measurer);
+        let axis_mark = make_axis_mark(scale, datum.datum.display_x, 0.0, &datum.axis_config)?;
+        let bbox = axis_mark.bounding_box();
         let lower = bbox.lower();
         let upper = bbox.upper();
         min_x = min_x.min(lower[0]);
@@ -626,7 +609,7 @@ async fn measure_parallel_guide_overflow(
             &mut max_x,
             &mut min_y,
             &mut max_y,
-            text_measurer,
+            &text_engine,
         )?;
     }
 
@@ -636,7 +619,7 @@ async fn measure_parallel_guide_overflow(
         &mut max_x,
         &mut min_y,
         &mut max_y,
-        text_measurer,
+        &text_engine,
     );
 
     Ok(OverflowSpaceRequirement {
@@ -654,7 +637,7 @@ fn measure_parallel_categorical_tick_labels(
     max_x: &mut f32,
     min_y: &mut f32,
     max_y: &mut f32,
-    text_measurer: &dyn TextMeasurer,
+    text_engine: &TextEngine,
 ) -> Result<(), AvengerChartError> {
     if !datum.axis_config.labels_visible.unwrap_or(true)
         || !matches!(scale.scale_impl.domain_kind(), DomainKind::Categorical)
@@ -679,7 +662,7 @@ fn measure_parallel_categorical_tick_labels(
         if label.trim().is_empty() {
             continue;
         }
-        let bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
+        let bounds = text_engine.measure_bounds(&TextMeasurementConfig {
             text: &label,
             font: font_family,
             font_size,
@@ -702,13 +685,13 @@ fn measure_parallel_axis_titles(
     max_x: &mut f32,
     min_y: &mut f32,
     max_y: &mut f32,
-    text_measurer: &dyn TextMeasurer,
+    text_engine: &TextEngine,
 ) {
     for datum in datums {
         if !datum.visible || !datum.title_visible || datum.title.trim().is_empty() {
             continue;
         }
-        let bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
+        let bounds = text_engine.measure_bounds(&TextMeasurementConfig {
             text: &datum.title,
             font: &datum.title_font_family,
             font_size: datum.title_font_size,
@@ -732,33 +715,16 @@ fn make_axis_mark(
     display_x: f32,
     display_y: f32,
     axis_config: &AxisConfig,
-    text_measurer: &dyn TextMeasurer,
 ) -> Result<SceneMark, AvengerChartError> {
     let mut group = match scale.scale_impl.domain_kind() {
         DomainKind::Categorical => match scale.scale_impl.scale_type() {
-            "band" => make_band_axis_marks_with_text_measurer(
-                scale,
-                "",
-                [display_x, display_y],
-                axis_config,
-                text_measurer,
-            )?,
-            "point" => make_point_axis_marks_with_text_measurer(
-                scale.clone(),
-                "",
-                [display_x, display_y],
-                axis_config,
-                text_measurer,
-            )?,
+            "band" => make_band_axis_marks(scale, "", [display_x, display_y], axis_config)?,
+            "point" => {
+                make_point_axis_marks(scale.clone(), "", [display_x, display_y], axis_config)?
+            }
             "ordinal" => {
                 let band_scale = BandScale::from_point_scale(scale);
-                make_band_axis_marks_with_text_measurer(
-                    &band_scale,
-                    "",
-                    [display_x, display_y],
-                    axis_config,
-                    text_measurer,
-                )?
+                make_band_axis_marks(&band_scale, "", [display_x, display_y], axis_config)?
             }
             scale_type => {
                 return Err(AvengerChartError::InternalError(format!(
@@ -771,13 +737,9 @@ fn make_axis_mark(
                 "Nested categorical scales are not supported on parallel axes".to_string(),
             ));
         }
-        DomainKind::Numeric | DomainKind::Temporal => make_numeric_axis_marks_with_text_measurer(
-            scale,
-            "",
-            [display_x, display_y],
-            axis_config,
-            text_measurer,
-        )?,
+        DomainKind::Numeric | DomainKind::Temporal => {
+            make_numeric_axis_marks(scale, "", [display_x, display_y], axis_config)?
+        }
     };
     group.name = "parallel_axis".to_string();
     Ok(SceneMark::Group(group))
@@ -1073,7 +1035,6 @@ mod tests {
     };
     use avenger_common::value::ScalarOrArrayValue;
     use avenger_scales::scales::{linear::LinearScale, point::PointScale};
-    use avenger_text::measurement::default_text_measurer;
     use datafusion::arrow::array::{Float64Array, Int64Array, StringArray};
 
     #[test]
@@ -1236,7 +1197,6 @@ mod tests {
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
             GuideRenderContext::without_resource_sink(300.0, 200.0),
-            &default_text_measurer(),
         ))
         .expect("evaluate guide");
 
@@ -1296,7 +1256,6 @@ mod tests {
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
             GuideRenderContext::without_resource_sink(300.0, 200.0),
-            &default_text_measurer(),
         ))
         .expect("evaluate guide");
 
@@ -1416,7 +1375,6 @@ mod tests {
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
             GuideRenderContext::without_resource_sink(300.0, 200.0),
-            &default_text_measurer(),
         ))
         .expect("evaluate guide");
 
@@ -1488,7 +1446,6 @@ mod tests {
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
             GuideRenderContext::without_resource_sink(300.0, 200.0),
-            &default_text_measurer(),
         ))
         .expect("evaluate guide");
 
@@ -1614,7 +1571,6 @@ mod tests {
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
             GuideRenderContext::without_resource_sink(300.0, 200.0),
-            &default_text_measurer(),
         ))
         .expect("evaluate guide");
 
@@ -1693,7 +1649,6 @@ mod tests {
             GuideSharingContext::new(&facet, &[], &child),
             &EmptyCoordMeasurement,
             GuideRenderContext::without_resource_sink(300.0, 200.0),
-            &default_text_measurer(),
         ))
         .expect("evaluate guide");
 
@@ -1744,7 +1699,6 @@ mod tests {
             &ctx,
             GuideSharingContext::new(&facet, &[], &child),
             None,
-            &default_text_measurer(),
         ))
         .expect("measure short labels");
         let long = futures::executor::block_on(guide.measure_overflow(
@@ -1757,7 +1711,6 @@ mod tests {
             &ctx,
             GuideSharingContext::new(&facet, &[], &child),
             None,
-            &default_text_measurer(),
         ))
         .expect("measure long labels");
 

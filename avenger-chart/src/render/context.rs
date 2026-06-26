@@ -13,7 +13,10 @@ use std::{
 };
 
 use avenger_scenegraph::marks::group::Clip;
-use avenger_text::measurement::{TextMeasurer, default_text_measurer};
+use avenger_text::{
+    default_text_engine,
+    measurement::{TextBounds, TextMeasurementConfig},
+};
 use datafusion::{
     arrow::datatypes::DataType, common::ScalarValue, dataframe::DataFrame, prelude::SessionContext,
 };
@@ -38,6 +41,7 @@ use crate::{
         FacetCellRenderedComponentsProfileCapture, GuideOverflowCacheHandle, LayoutProfileSnapshot,
         LegendMeasurementCacheHandle, MarkGroupDataCacheHandle, ScaleDomainCacheHandle,
         ScopedParamStore, ScopedSelectionStore, ScopedStoreState, TextMeasurementCacheHandle,
+        TextMeasurementCacheKey,
     },
     render::types::{
         EvaluatedEventDatumRows, EvaluatedInteractionScope, EvaluatedPlot, EvaluationMetrics,
@@ -50,6 +54,8 @@ use crate::{
 pub use avenger_chart_core::{
     AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
 };
+
+pub(crate) const TEXT_MEASUREMENT_CACHE_TAG: &str = "typst-text";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PhysicalDimension {
@@ -265,10 +271,6 @@ pub struct EvaluationContext {
     pub(crate) legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
     /// Optional durable text layout measurement cache owned by a reusable `PlotSession`.
     pub(crate) text_measurement_cache: Option<TextMeasurementCacheHandle>,
-    /// Text measurer active for this evaluation, including optional math markup handling.
-    pub(crate) text_measurer: Arc<dyn TextMeasurer>,
-    /// Stable discriminator included in text-measurement caches.
-    pub(crate) text_measurement_cache_tag: Arc<str>,
     /// Optional layout profile used by Preview to reuse measured child frames.
     pub(crate) layout_profile: Option<Arc<LayoutProfileSnapshot>>,
     /// Optional exact-evaluation capture for terminal facet cell rendered components.
@@ -296,43 +298,12 @@ pub struct EvaluationContext {
     pub(crate) scoped_store_state: Option<Arc<ScopedStoreState>>,
 }
 
-#[derive(Clone)]
-pub(crate) struct TextMeasurementRuntime {
-    pub(crate) measurer: Arc<dyn TextMeasurer>,
-    pub(crate) cache_tag: Arc<str>,
-}
-
-impl TextMeasurementRuntime {
-    pub(crate) fn default() -> Self {
-        Self {
-            measurer: Arc::new(default_text_measurer()),
-            cache_tag: Arc::from("typst-text"),
-        }
-    }
-}
-
 impl EvaluationContext {
     pub fn new(
         theme: Arc<Theme>,
         session_context: Arc<SessionContext>,
         params: IndexMap<String, ScalarValue>,
         facet_tree: Arc<EvaluatedFacetTree>,
-    ) -> Self {
-        Self::new_with_text_measurement(
-            theme,
-            session_context,
-            params,
-            facet_tree,
-            TextMeasurementRuntime::default(),
-        )
-    }
-
-    pub(crate) fn new_with_text_measurement(
-        theme: Arc<Theme>,
-        session_context: Arc<SessionContext>,
-        params: IndexMap<String, ScalarValue>,
-        facet_tree: Arc<EvaluatedFacetTree>,
-        text_measurement: TextMeasurementRuntime,
     ) -> Self {
         Self {
             core: CoreEvaluationContext::new(theme, session_context, params)
@@ -357,8 +328,6 @@ impl EvaluationContext {
             guide_overflow_cache: None,
             legend_measurement_cache: None,
             text_measurement_cache: None,
-            text_measurer: text_measurement.measurer,
-            text_measurement_cache_tag: text_measurement.cache_tag,
             layout_profile: None,
             facet_cell_rendered_components_capture: None,
             facet_subtree_snapshot_capture: None,
@@ -506,8 +475,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -544,8 +511,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -587,8 +552,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -637,8 +600,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -674,8 +635,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -715,8 +674,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -756,8 +713,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -793,8 +748,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -837,8 +790,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -886,8 +837,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -945,8 +894,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -984,8 +931,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1021,8 +966,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1062,8 +1005,6 @@ impl EvaluationContext {
             guide_overflow_cache: Some(cache),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1106,8 +1047,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: Some(cache),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1147,8 +1086,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: Some(cache),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1167,12 +1104,37 @@ impl EvaluationContext {
         self.text_measurement_cache.as_ref()
     }
 
-    pub(crate) fn text_measurer(&self) -> &dyn TextMeasurer {
-        self.text_measurer.as_ref()
-    }
-
-    pub(crate) fn text_measurement_cache_tag(&self) -> &str {
-        &self.text_measurement_cache_tag
+    pub(crate) fn measure_text_bounds(&self, config: &TextMeasurementConfig<'_>) -> TextBounds {
+        if let Some(cache) = self.text_measurement_cache() {
+            let key = TextMeasurementCacheKey::new(
+                config.text,
+                config.font,
+                config.font_size,
+                config.font_weight,
+                config.font_style,
+                TEXT_MEASUREMENT_CACHE_TAG,
+            );
+            let cached = {
+                cache
+                    .lock()
+                    .expect("text measurement cache lock poisoned")
+                    .get(&key)
+            };
+            if let Some(bounds) = cached {
+                self.record_text_measurement_cache_hit();
+                bounds
+            } else {
+                self.record_text_measurement_cache_miss();
+                let bounds = default_text_engine().measure_bounds(config);
+                cache
+                    .lock()
+                    .expect("text measurement cache lock poisoned")
+                    .insert(key, bounds.clone());
+                bounds
+            }
+        } else {
+            default_text_engine().measure_bounds(config)
+        }
     }
 
     pub(crate) fn with_layout_profile(&self, layout_profile: Arc<LayoutProfileSnapshot>) -> Self {
@@ -1196,8 +1158,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: Some(layout_profile),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1237,8 +1197,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: None,
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1277,8 +1235,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: Some(capture),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
@@ -1321,8 +1277,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1360,8 +1314,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1414,8 +1366,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1458,8 +1408,6 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
-            text_measurer: self.text_measurer.clone(),
-            text_measurement_cache_tag: self.text_measurement_cache_tag.clone(),
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -2013,22 +1961,24 @@ mod tests {
     }
 
     #[test]
-    fn text_measurement_runtime_uses_owned_typst_backend() {
-        let runtime = TextMeasurementRuntime::default();
-        let bounds = runtime.measurer.measure_text_bounds(
-            &avenger_text::measurement::TextMeasurementConfig {
-                text: "value $x^2$",
-                font: "sans-serif",
-                font_size: 12.0,
-                font_weight: &avenger_text::types::FontWeight::Name(
-                    avenger_text::types::FontWeightNameSpec::Normal,
-                ),
-                font_style: &avenger_text::types::FontStyle::Normal,
-            },
+    fn evaluation_context_uses_owned_typst_text_engine() {
+        let ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(SessionContext::new()),
+            IndexMap::new(),
+            Arc::new(EvaluatedFacetTree::empty()),
         );
+        let bounds = ctx.measure_text_bounds(&avenger_text::measurement::TextMeasurementConfig {
+            text: "value $x^2$",
+            font: "sans-serif",
+            font_size: 12.0,
+            font_weight: &avenger_text::types::FontWeight::Name(
+                avenger_text::types::FontWeightNameSpec::Normal,
+            ),
+            font_style: &avenger_text::types::FontStyle::Normal,
+        });
 
         assert!(bounds.width > 0.0);
         assert!(bounds.height > 0.0);
-        assert_eq!(runtime.cache_tag.as_ref(), "typst-text");
     }
 }

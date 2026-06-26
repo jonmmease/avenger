@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::OnceLock};
 
 use crate::{
     error::AvengerTextError,
@@ -80,5 +80,10 @@ impl TextMeasurer for TextEngine {
 }
 
 pub fn default_text_engine() -> TextEngine {
-    TextEngine::with_default_config().expect("failed to initialize Typst text engine")
+    static DEFAULT_TEXT_ENGINE: OnceLock<TextEngine> = OnceLock::new();
+    DEFAULT_TEXT_ENGINE
+        .get_or_init(|| {
+            TextEngine::with_default_config().expect("failed to initialize Typst text engine")
+        })
+        .clone()
 }

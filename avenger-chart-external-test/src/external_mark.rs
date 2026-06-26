@@ -185,7 +185,6 @@ impl LegendRenderer for HexBinLegendRenderer {
         _theme: &Theme,
         _params: &IndexMap<String, ScalarValue>,
         _ctx: &SessionContext,
-        _text_measurer: &dyn avenger_text::measurement::TextMeasurer,
     ) -> Result<Option<LegendRenderOutput>, AvengerChartError> {
         Ok(None)
     }
@@ -198,7 +197,6 @@ impl LegendRenderer for HexBinLegendRenderer {
         _theme: &Theme,
         _params: &IndexMap<String, ScalarValue>,
         _ctx: &SessionContext,
-        _text_measurer: &dyn avenger_text::measurement::TextMeasurer,
     ) -> Result<Size2D, AvengerChartError> {
         Ok(Size2D {
             width: 24.0,

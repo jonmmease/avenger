@@ -128,7 +128,6 @@ impl CompiledGuide for ResourceGuide {
         _ctx: &SessionContext,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: Option<&dyn CoordMeasurement>,
-        _text_measurer: &dyn avenger_text::measurement::TextMeasurer,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement::default())
     }
@@ -147,7 +146,6 @@ impl CompiledGuide for ResourceGuide {
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
         render_context: GuideRenderContext<'_>,
-        _text_measurer: &dyn avenger_text::measurement::TextMeasurer,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         render_context.request_resource(guide_resource_request());
         Ok(Vec::new())

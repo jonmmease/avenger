@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use avenger_scenegraph::{marks::mark::MarkInstance, scene_graph::SceneGraph};
-use avenger_text::measurement::{default_text_measurer, TextMeasurer};
 use geo::{BoundingRect, Contains, Distance, Euclidean, Intersects};
 use geo_svg::{Color, CombineToSVG};
 use geo_types::Geometry;
@@ -118,14 +117,6 @@ impl SceneGraphRTree {
     }
 
     pub fn from_scene_graph(scene_graph: &SceneGraph) -> SceneGraphRTree {
-        let text_measurer = default_text_measurer();
-        Self::from_scene_graph_with_text_measurer(scene_graph, &text_measurer)
-    }
-
-    pub fn from_scene_graph_with_text_measurer(
-        scene_graph: &SceneGraph,
-        text_measurer: &dyn TextMeasurer,
-    ) -> SceneGraphRTree {
         let mut geometry_instances: Vec<GeometryInstance> = vec![];
 
         for (group_index, group) in scene_graph.marks.iter().enumerate() {
@@ -133,7 +124,7 @@ impl SceneGraphRTree {
             let origin = [scene_graph.origin[0], scene_graph.origin[1]];
             geometry_instances.extend(
                 group
-                    .geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
+                    .geometry_iter(mark_path, origin)
                     .filter(|instance| instance.interactive),
             );
         }

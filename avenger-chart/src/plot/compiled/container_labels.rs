@@ -5,7 +5,8 @@ use std::sync::Arc;
 use avenger_color::ColorOrGradient;
 use avenger_scenegraph::marks::{mark::SceneMark, text::SceneTextMark};
 use avenger_text::{
-    measurement::{TextBounds, TextMeasurementConfig, TextMeasurer},
+    TextEngine, default_text_engine,
+    measurement::{TextBounds, TextMeasurementConfig},
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
 };
 use datafusion::common::ScalarValue;
@@ -122,10 +123,10 @@ pub(crate) fn measure_container_label_slab(
     items: &[ContainerLabelItem],
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
-    text_measurer: &dyn TextMeasurer,
 ) -> f32 {
+    let text_engine = default_text_engine();
     let Some(max_label_extent) =
-        measured_container_labels(items, &label_style(theme, params), text_measurer)
+        measured_container_labels(items, &label_style(theme, params), &text_engine)
             .into_iter()
             .map(|label| match placement {
                 ContainerLabelPlacement::Top => label.bounds.height,
@@ -147,10 +148,10 @@ pub(crate) fn render_container_labels(
     plot_bounds: &LayoutBounds,
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
-    text_measurer: &dyn TextMeasurer,
 ) -> Vec<SceneMark> {
+    let text_engine = default_text_engine();
     let style = label_style(theme, params);
-    let measured = measured_container_labels(items, &style, text_measurer);
+    let measured = measured_container_labels(items, &style, &text_engine);
     if measured.is_empty() {
         return Vec::new();
     }
@@ -220,7 +221,7 @@ fn render_left_labels(
 fn measured_container_labels<'a>(
     items: &'a [ContainerLabelItem],
     style: &ContainerLabelStyle,
-    text_measurer: &dyn TextMeasurer,
+    text_engine: &TextEngine,
 ) -> Vec<MeasuredContainerLabel<'a>> {
     items
         .iter()
@@ -235,7 +236,7 @@ fn measured_container_labels<'a>(
             };
             MeasuredContainerLabel {
                 item,
-                bounds: text_measurer.measure_text_bounds(&config),
+                bounds: text_engine.measure_bounds(&config),
             }
         })
         .collect()

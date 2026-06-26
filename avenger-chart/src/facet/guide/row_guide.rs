@@ -15,7 +15,6 @@ use avenger_chart_core::{
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::group::Clip;
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_text::measurement::TextMeasurer;
 use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
@@ -190,7 +189,6 @@ impl CompiledGuide for FacetRowGuide {
         ctx: &SessionContext,
         sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
-        text_measurer: &dyn TextMeasurer,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         self.measure_overflow_for_phase(
             scales,
@@ -202,7 +200,6 @@ impl CompiledGuide for FacetRowGuide {
             ctx,
             sharing_context,
             coord_measurement,
-            text_measurer,
             GuideOverflowPhase::Measurement,
         )
         .await
@@ -219,7 +216,6 @@ impl CompiledGuide for FacetRowGuide {
         ctx: &SessionContext,
         sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
-        text_measurer: &dyn TextMeasurer,
         phase: GuideOverflowPhase,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         let phase = match phase {
@@ -237,7 +233,6 @@ impl CompiledGuide for FacetRowGuide {
                 ctx,
                 sharing_context,
                 coord_measurement,
-                text_measurer,
                 phase,
             ),
         )
@@ -255,7 +250,6 @@ impl CompiledGuide for FacetRowGuide {
         _ctx: &SessionContext,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: Option<&dyn CoordMeasurement>,
-        _text_measurer: &dyn TextMeasurer,
     ) -> Result<MeasurementResult, AvengerChartError> {
         Ok(MeasurementResult::default())
     }
@@ -274,7 +268,6 @@ impl CompiledGuide for FacetRowGuide {
         sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn CoordMeasurement,
         _render_context: GuideRenderContext<'_>,
-        text_measurer: &dyn TextMeasurer,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Box::pin(band_guide_engine::evaluate_common::<RowGuideAxisOps>(
             &self.as_engine_state(),
@@ -288,7 +281,6 @@ impl CompiledGuide for FacetRowGuide {
             ctx,
             sharing_context,
             coord_measurement,
-            text_measurer,
         ))
         .await
     }

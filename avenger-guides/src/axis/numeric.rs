@@ -11,8 +11,9 @@ use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::{
-    measurement::{default_text_measurer, FontMetricsConfig, TextMeasurer},
+    measurement::FontMetricsConfig,
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
+    TextEngine,
 };
 use rstar::AABB;
 
@@ -37,16 +38,16 @@ pub fn make_numeric_axis_marks(
     origin: [f32; 2],
     config: &AxisConfig,
 ) -> Result<SceneGroup, AvengerGuidesError> {
-    let text_measurer = default_text_measurer();
-    make_numeric_axis_marks_with_text_measurer(scale, title, origin, config, &text_measurer)
+    let text_engine = avenger_text::default_text_engine();
+    make_numeric_axis_marks_with_text_engine(scale, title, origin, config, &text_engine)
 }
 
-pub fn make_numeric_axis_marks_with_text_measurer(
+fn make_numeric_axis_marks_with_text_engine(
     scale: &ConfiguredScale,
     title: &str,
     origin: [f32; 2],
     config: &AxisConfig,
-    text_measurer: &dyn TextMeasurer,
+    text_engine: &TextEngine,
 ) -> Result<SceneGroup, AvengerGuidesError> {
     // For scales with a band option, make sure ticks end up centered in the band
     let scale = if scale.option("band").is_some() {
@@ -76,7 +77,7 @@ pub fn make_numeric_axis_marks_with_text_measurer(
         // Compute tick count: use explicit value, or adapt to available pixel space.
         let tick_count = config
             .tick_count
-            .or_else(|| adaptive_tick_count(config, text_measurer));
+            .or_else(|| adaptive_tick_count(config, text_engine));
         scale.ticks(tick_count)?
     };
 
@@ -157,22 +158,16 @@ pub fn make_numeric_axis_marks_with_text_measurer(
 
     // Add title if visible and non-empty
     if config.title_visible.unwrap_or(true) && !title.is_empty() {
-        axis_elements_group.marks.push(
-            make_title(
-                title,
-                &scale,
-                &axis_elements_group.bounding_box_with_text_measurer(text_measurer),
-                config,
-            )?
-            .into(),
-        );
+        axis_elements_group
+            .marks
+            .push(make_title(title, &scale, &axis_elements_group.bounding_box(), config)?.into());
     }
 
     // Add the axis elements group to the main group
     main_group.marks.push(axis_elements_group.into());
 
     // Measure the overall bounds to create a clip rect
-    let bbox = main_group.bounding_box_with_text_measurer(text_measurer);
+    let bbox = main_group.bounding_box();
 
     // Add clip rect to define bounds
     // Use the actual bounding box coordinates, not assuming 0,0
@@ -251,7 +246,7 @@ fn start_step_ticks(
     Ok(Arc::new(Float32Array::from(ticks)) as ArrayRef)
 }
 
-fn adaptive_tick_count(config: &AxisConfig, text_measurer: &dyn TextMeasurer) -> Option<f32> {
+fn adaptive_tick_count(config: &AxisConfig, text_engine: &TextEngine) -> Option<f32> {
     // Estimate reasonable tick count from available axis length.
     // For vertical axes (Left/Right), use height; for horizontal (Top/Bottom), use width.
     let axis_length_px = match config.orientation {
@@ -261,7 +256,7 @@ fn adaptive_tick_count(config: &AxisConfig, text_measurer: &dyn TextMeasurer) ->
 
     let min_tick_spacing = match config.orientation {
         AxisOrientation::Left | AxisOrientation::Right => {
-            vertical_min_tick_spacing_px(config, text_measurer)
+            vertical_min_tick_spacing_px(config, text_engine)
         }
         AxisOrientation::Top | AxisOrientation::Bottom => HORIZONTAL_MIN_TICK_SPACING_PX,
     };
@@ -276,11 +271,11 @@ fn adaptive_tick_count(config: &AxisConfig, text_measurer: &dyn TextMeasurer) ->
     }
 }
 
-fn vertical_min_tick_spacing_px(config: &AxisConfig, text_measurer: &dyn TextMeasurer) -> f32 {
+fn vertical_min_tick_spacing_px(config: &AxisConfig, text_engine: &TextEngine) -> f32 {
     let font_size = config.label_font_size.unwrap_or(DEFAULT_TICK_FONT_SIZE);
     let font_weight = FontWeight::Number(config.label_font_weight.unwrap_or(400.0));
     let font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
-    let font_metrics = text_measurer.measure_font_metrics(&FontMetricsConfig {
+    let font_metrics = text_engine.font_metrics(&FontMetricsConfig {
         font: font_family,
         font_size,
         font_weight: &font_weight,

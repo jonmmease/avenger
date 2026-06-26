@@ -20,7 +20,6 @@ use avenger_common::value::ScalarOrArray;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{arc::SceneArcMark, group::Clip, mark::SceneMark};
-use avenger_text::measurement::TextMeasurer;
 
 use crate::axis::{PolarAxis, PolarAxisEvaluateExt, PolarAxisType};
 
@@ -167,7 +166,6 @@ impl CompiledGuide for PolarGuide {
         ctx: &SessionContext,
         sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
-        text_measurer: &dyn TextMeasurer,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         // Use provided coord_measurement or default empty one (PolarGuide doesn't use it)
         let empty_coord = EmptyCoordMeasurement;
@@ -198,7 +196,6 @@ impl CompiledGuide for PolarGuide {
                 sharing_context,
                 coord_measurement,
                 GuideRenderContext::without_resource_sink(plot_width, plot_height),
-                text_measurer,
             )
             .await?;
 
@@ -209,7 +206,7 @@ impl CompiledGuide for PolarGuide {
         let mut max_y = f32::NEG_INFINITY;
 
         for mark in &axis_marks {
-            let bbox = mark.bounding_box_with_text_measurer(text_measurer);
+            let bbox = mark.bounding_box();
             let lower = bbox.lower();
             let upper = bbox.upper();
             min_x = min_x.min(lower[0]);
@@ -256,7 +253,6 @@ impl CompiledGuide for PolarGuide {
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
         _render_context: GuideRenderContext<'_>,
-        _text_measurer: &dyn TextMeasurer,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 

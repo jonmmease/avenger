@@ -16,7 +16,6 @@ use avenger_common::value::ScalarOrArray;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark, rect::SceneRectMark};
-use avenger_text::measurement::TextMeasurer;
 use datafusion::{
     common::ScalarValue, dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext,
 };
@@ -256,7 +255,6 @@ impl CompiledGuide for CartesianGuide {
         ctx: &SessionContext,
         sharing_context: GuideSharingContext<'_>,
         coord_measurement: Option<&dyn CoordMeasurement>,
-        text_measurer: &dyn TextMeasurer,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         // Use provided coord_measurement or default empty one (CartesianGuide doesn't use it)
         let empty_coord = EmptyCoordMeasurement;
@@ -287,7 +285,6 @@ impl CompiledGuide for CartesianGuide {
                 sharing_context,
                 coord_measurement,
                 GuideRenderContext::without_resource_sink(plot_width, plot_height),
-                text_measurer,
             )
             .await?;
 
@@ -298,7 +295,7 @@ impl CompiledGuide for CartesianGuide {
         let mut max_y = f32::NEG_INFINITY;
 
         for mark in &axis_marks {
-            let bbox = mark.bounding_box_with_text_measurer(text_measurer);
+            let bbox = mark.bounding_box();
             let lower = bbox.lower();
             let upper = bbox.upper();
             min_x = min_x.min(lower[0]);
@@ -372,7 +369,6 @@ impl CompiledGuide for CartesianGuide {
         sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
         _render_context: GuideRenderContext<'_>,
-        text_measurer: &dyn TextMeasurer,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
 
@@ -475,7 +471,6 @@ impl CompiledGuide for CartesianGuide {
                     facet_sharing_level,
                     child_frame_sharing_level,
                     self.nested_axis_levels.get(channel),
-                    text_measurer,
                 )
                 .await?;
                 marks.push(axis_mark);

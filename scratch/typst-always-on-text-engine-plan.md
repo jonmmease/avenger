@@ -18,7 +18,7 @@ measurement propagation that existed only to choose between text engines.
   - native SVG `<text>` for plain text runs;
   - paths for math and decoration shapes.
 - [x] WGPU uses Typst rasterization/text-line atlas entries by default.
-- [ ] Geometry, guides, chart layout, and hit testing use Typst measurement by
+- [x] Geometry, guides, chart layout, and hit testing use Typst measurement by
   default without accepting a `&dyn TextMeasurer`.
 - [x] Cosmic-text and HTML canvas measurement/rasterization code are removed
   from the core workspace.
@@ -81,37 +81,37 @@ measurement propagation that existed only to choose between text engines.
 
 ## Phase 3: Remove Measurer Propagation From Chart/Layout/Guides
 
-- [ ] Remove `TextMeasurementRuntime` from `avenger-chart/src/render/context.rs`.
-- [ ] Remove `text_measurer` from evaluation/render contexts.
-- [ ] Remove `text_measurement_cache_tag` unless a concrete Typst engine cache
+- [x] Remove `TextMeasurementRuntime` from `avenger-chart/src/render/context.rs`.
+- [x] Remove `text_measurer` from evaluation/render contexts.
+- [x] Remove `text_measurement_cache_tag` unless a concrete Typst engine cache
   still needs an explicit tag.
-- [ ] Replace calls to `eval_ctx.text_measurer().measure_text_bounds(...)` with
+- [x] Replace calls to `eval_ctx.text_measurer().measure_text_bounds(...)` with
   one concrete Typst measurement path.
-- [ ] Collapse chart helper methods that only pass a measurer through call
+- [x] Collapse chart helper methods that only pass a measurer through call
   layers.
-- [ ] Remove `*_with_text_measurer` APIs from `avenger-guides`.
-  - [ ] Axis builders.
-  - [ ] Numeric/band/nested-band guide sizing.
-  - [ ] Colorbar guide sizing.
-  - [ ] Line/symbol legend builders.
-- [ ] Remove `*_with_text_measurer` APIs from chart legend/render construction.
-- [ ] Remove `text_measurer` arguments in facet and container guide code.
-- [ ] Remove pointer-based text-measurer cache keys from container band guide
+- [x] Remove `*_with_text_measurer` APIs from `avenger-guides`.
+  - [x] Axis builders.
+  - [x] Numeric/band/nested-band guide sizing.
+  - [x] Colorbar guide sizing.
+  - [x] Line/symbol legend builders.
+- [x] Remove `*_with_text_measurer` APIs from chart legend/render construction.
+- [x] Remove `text_measurer` arguments in facet and container guide code.
+- [x] Remove pointer-based text-measurer cache keys from container band guide
   height caches.
 - [ ] Replace those cache keys with either:
-  - [ ] no text-engine identity because there is only one engine; or
+  - [x] no text-engine identity because there is only one engine; or
   - [ ] an explicit markup/config version if delimiter/error policy remains
     configurable.
 
 ## Phase 4: Simplify Geometry And Hit Testing
 
-- [ ] Remove `geometry_iter_with_text_measurer`.
-- [ ] Remove `bounding_box_with_text_measurer`.
-- [ ] Make `geometry_iter` and `bounding_box` use Typst measurement internally.
-- [ ] Remove `SceneGraphRTree::from_scene_graph_with_text_measurer`.
-- [ ] Make `SceneGraphRTree::from_scene_graph` Typst-aware by default.
-- [ ] Update chart evaluation to call the default geometry/R-tree constructors.
-- [ ] Update direct scenegraph tests that expected plain/cosmic geometry.
+- [x] Remove `geometry_iter_with_text_measurer`.
+- [x] Remove `bounding_box_with_text_measurer`.
+- [x] Make `geometry_iter` and `bounding_box` use Typst measurement internally.
+- [x] Remove `SceneGraphRTree::from_scene_graph_with_text_measurer`.
+- [x] Make `SceneGraphRTree::from_scene_graph` Typst-aware by default.
+- [x] Update chart evaluation to call the default geometry/R-tree constructors.
+- [x] Update direct scenegraph tests that expected plain/cosmic geometry.
 
 ## Phase 5: Simplify Renderers
 
@@ -202,13 +202,16 @@ measurement propagation that existed only to choose between text engines.
 Run release mode throughout.
 
 - [x] `cargo fmt --all`
-- [ ] `cargo test --release -p avenger-typst --all-features`
+- [x] `cargo test --release -p avenger-typst --all-features`
 - [x] `cargo test --release -p avenger-text`
-- [ ] `cargo test --release -p avenger-geometry`
-- [ ] `cargo test --release -p avenger-guides`
+- [x] `cargo test --release -p avenger-geometry`
+- [x] `cargo test --release -p avenger-guides`
 - [x] `cargo test --release -p avenger-svg`
 - [x] `cargo test --release -p avenger-pdf`
-- [x] `cargo test --release -p avenger-wgpu`
+- [ ] `cargo test --release -p avenger-wgpu`
+  - [x] `cargo test --release -p avenger-wgpu --lib`
+  - [ ] Full WGPU package run currently fails image baseline tests, including
+    broad non-text baseline drift and one SVG-resource feature case.
 - [x] `cargo test --release -p avenger-chart -- --nocapture`
 - [ ] `cargo test --release -p avenger-chart --features visual-tests --test visual_regression -- --nocapture`
 - [ ] Run SVG/PDF sidecar validation used by chart visual tests.
@@ -221,7 +224,7 @@ Run release mode throughout.
 - [ ] Commit in small slices:
   - [x] avenger-text backend removal.
   - [ ] trait removal and concrete API.
-  - [ ] geometry/guides/chart propagation removal.
+  - [x] geometry/guides/chart propagation removal.
   - [x] renderer feature cleanup.
   - [ ] baseline updates.
 - [ ] Keep each slice compiling in release mode before moving on.
@@ -250,9 +253,9 @@ Run release mode throughout.
 - [x] Workspace builds without `cosmic-text`.
 - [x] Workspace builds without HTML canvas text measurement/raster modules.
 - [x] `avenger-text` has one concrete text engine.
-- [ ] Chart layout, guides, geometry, WGPU, SVG, and PDF all use the Typst path
+- [x] Chart layout, guides, geometry, WGPU, SVG, and PDF all use the Typst path
   by default.
-- [ ] No `&dyn TextMeasurer` propagation remains in chart/guides/geometry.
+- [x] No `&dyn TextMeasurer` propagation remains in chart/guides/geometry.
 - [x] No `typst-*` text feature flag is required to get math-capable text.
 - [ ] All release tests pass.
 - [ ] Visual baselines are reviewed and updated intentionally.

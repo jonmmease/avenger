@@ -78,8 +78,7 @@ pub(crate) use self::child_frame_scope::{
 };
 pub(crate) use self::container_band_guide::{
     ContainerBandGuideMeasurementConfig, ContainerBandGuideRenderConfig,
-    measure_container_band_guide_slab_with_text_measurer,
-    render_container_band_guide_slab_with_text_measurer,
+    measure_container_band_guide_slab, render_container_band_guide_slab,
 };
 pub(crate) use self::container_domain_sharing::{
     ChildFrameChannelDomainExtent, ChildFrameCoordinateDomainCell,

@@ -18,8 +18,9 @@ use avenger_scenegraph::marks::{
     },
     trail::SceneTrailMark,
 };
-use avenger_text::measurement::{
-    default_text_measurer, truncate_text_to_limit_with, TextMeasurementConfig, TextMeasurer,
+use avenger_text::{
+    measurement::{truncate_text_to_limit_with, TextMeasurementConfig},
+    TextEngine,
 };
 use geo::{Rotate, Scale, Translate};
 use geo_types::{coord, Geometry, GeometryCollection, LineString, Polygon, Rect};
@@ -36,24 +37,8 @@ pub trait MarkGeometryUtils {
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_>;
 
-    fn geometry_iter_with_text_measurer<'a>(
-        &'a self,
-        mark_path: Vec<usize>,
-        origin: [f32; 2],
-        _text_measurer: &'a dyn TextMeasurer,
-    ) -> Box<dyn Iterator<Item = GeometryInstance> + 'a> {
-        self.geometry_iter(mark_path, origin)
-    }
-
     fn bounding_box(&self) -> AABB<[f32; 2]> {
         self.geometry_iter(Vec::new(), [0.0, 0.0])
-            .map(|g| g.envelope())
-            .reduce(|a, b| a.merged(&b))
-            .unwrap_or(AABB::from_corners([0.0, 0.0], [0.0, 0.0]))
-    }
-
-    fn bounding_box_with_text_measurer(&self, text_measurer: &dyn TextMeasurer) -> AABB<[f32; 2]> {
-        self.geometry_iter_with_text_measurer(Vec::new(), [0.0, 0.0], text_measurer)
             .map(|g| g.envelope())
             .reduce(|a, b| a.merged(&b))
             .unwrap_or(AABB::from_corners([0.0, 0.0], [0.0, 0.0]))
@@ -384,21 +369,8 @@ impl MarkGeometryUtils for SceneTextMark {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        let measurer = default_text_measurer();
-        Box::new(
-            self.geometry_iter_with_text_measurer(mark_path, origin, &measurer)
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
-    }
-
-    fn geometry_iter_with_text_measurer<'a>(
-        &'a self,
-        mark_path: Vec<usize>,
-        origin: [f32; 2],
-        text_measurer: &'a dyn TextMeasurer,
-    ) -> Box<dyn Iterator<Item = GeometryInstance> + 'a> {
         let name = self.name.clone();
+        let text_engine = avenger_text::default_text_engine();
         Box::new(
             izip!(
                 self.indices_iter(),
@@ -464,7 +436,7 @@ impl MarkGeometryUtils for SceneTextMark {
                         *font_size,
                         font_weight,
                         font_style,
-                        text_measurer,
+                        &text_engine,
                     );
                     let config = TextMeasurementConfig {
                         text: &text,
@@ -476,7 +448,7 @@ impl MarkGeometryUtils for SceneTextMark {
 
                     let target = [target[0] + origin[0], target[1] + origin[1]];
                     let label = [label[0] + origin[0], label[1] + origin[1]];
-                    let text_bounds = text_measurer.measure_text_bounds(&config);
+                    let text_bounds = text_engine.measure_bounds(&config);
                     let local_origin = text_bounds.calculate_origin(label, align, baseline);
 
                     let bounds = Rect::new(
@@ -543,7 +515,7 @@ fn truncate_text_to_limit(
     font_size: f32,
     font_weight: &avenger_text::types::FontWeight,
     font_style: &avenger_text::types::FontStyle,
-    measurer: &(impl TextMeasurer + ?Sized),
+    text_engine: &TextEngine,
 ) -> String {
     truncate_text_to_limit_with(text, limit, |candidate| {
         let config = TextMeasurementConfig {
@@ -553,7 +525,7 @@ fn truncate_text_to_limit(
             font_weight,
             font_style,
         };
-        measurer.measure_text_bounds(&config).width
+        text_engine.measure_bounds(&config).width
     })
 }
 
@@ -654,26 +626,6 @@ impl MarkGeometryUtils for SceneGroup {
         )
     }
 
-    fn geometry_iter_with_text_measurer<'a>(
-        &'a self,
-        mark_path: Vec<usize>,
-        origin: [f32; 2],
-        text_measurer: &'a dyn TextMeasurer,
-    ) -> Box<dyn Iterator<Item = GeometryInstance> + 'a> {
-        Box::new(
-            self.marks
-                .iter()
-                .enumerate()
-                .flat_map(move |(mark_index, mark)| {
-                    let mut mark_path = mark_path.clone();
-                    mark_path.push(mark_index);
-
-                    let origin = [origin[0] + self.origin[0], origin[1] + self.origin[1]];
-                    mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-                }),
-        )
-    }
-
     fn bounding_box(&self) -> AABB<[f32; 2]> {
         use avenger_scenegraph::marks::group::Clip;
 
@@ -702,30 +654,6 @@ impl MarkGeometryUtils for SceneGroup {
             }
         }
     }
-
-    fn bounding_box_with_text_measurer(&self, text_measurer: &dyn TextMeasurer) -> AABB<[f32; 2]> {
-        use avenger_scenegraph::marks::group::Clip;
-
-        match &self.clip {
-            Clip::Rect {
-                x,
-                y,
-                width,
-                height,
-            } => {
-                let min_x = self.origin[0] + x;
-                let min_y = self.origin[1] + y;
-                let max_x = min_x + width;
-                let max_y = min_y + height;
-                AABB::from_corners([min_x, min_y], [max_x, max_y])
-            }
-            _ => self
-                .geometry_iter_with_text_measurer(Vec::new(), [0.0, 0.0], text_measurer)
-                .map(|g| g.envelope())
-                .reduce(|a, b| a.merged(&b))
-                .unwrap_or(AABB::from_corners([0.0, 0.0], [0.0, 0.0])),
-        }
-    }
 }
 
 impl MarkGeometryUtils for SceneMark {
@@ -746,49 +674,6 @@ impl MarkGeometryUtils for SceneMark {
             SceneMark::Text(mark) => mark.geometry_iter(mark_path, origin),
             SceneMark::Image(mark) => mark.geometry_iter(mark_path, origin),
             SceneMark::Group(mark) => mark.geometry_iter(mark_path, origin),
-        }
-    }
-
-    fn geometry_iter_with_text_measurer<'a>(
-        &'a self,
-        mark_path: Vec<usize>,
-        origin: [f32; 2],
-        text_measurer: &'a dyn TextMeasurer,
-    ) -> Box<dyn Iterator<Item = GeometryInstance> + 'a> {
-        match self {
-            SceneMark::Arc(mark) => {
-                mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-            }
-            SceneMark::Area(mark) => {
-                mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-            }
-            SceneMark::Path(mark) => {
-                mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-            }
-            SceneMark::Symbol(mark) => {
-                mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-            }
-            SceneMark::Line(mark) => {
-                mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-            }
-            SceneMark::Trail(mark) => {
-                mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-            }
-            SceneMark::Rect(mark) => {
-                mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-            }
-            SceneMark::Rule(mark) => {
-                mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-            }
-            SceneMark::Text(mark) => {
-                mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-            }
-            SceneMark::Image(mark) => {
-                mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-            }
-            SceneMark::Group(mark) => {
-                mark.geometry_iter_with_text_measurer(mark_path, origin, text_measurer)
-            }
         }
     }
 }
