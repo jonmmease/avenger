@@ -3,7 +3,8 @@ use std::sync::Arc;
 use crate::api::TypstEngineConfig;
 use crate::error::MathTypesetError;
 use crate::paths::{
-    MathPathArtifact, MathPathCommand, MathPathData, MathPathItem, MathPathKind, MathTransform,
+    MathPathArtifact, MathPathCommand, MathPathData, MathPathItem, MathPathKind, MathStroke,
+    MathTransform,
 };
 use crate::pdf::{
     MathFontResource, MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer,
@@ -99,6 +100,7 @@ struct LaidOutMathAtom {
     class: SimpleMathClass,
     italic_correction: f32,
     glyphs: Vec<LaidOutGlyph>,
+    shapes: Vec<LaidOutShape>,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +111,14 @@ struct LaidOutGlyph {
     y: f32,
     x_advance: f32,
     font_size: f32,
+}
+
+#[derive(Debug, Clone)]
+struct LaidOutShape {
+    path: MathPathData,
+    x: f32,
+    y: f32,
+    stroke_width: f32,
 }
 
 struct OwnedPdfArtifact {
@@ -135,12 +145,27 @@ fn layout_simple_row(
     math: &OwnedMath,
     font_size: f32,
 ) -> Result<Option<SimpleRowLayout>, MathTypesetError> {
+    let Some(atom) = layout_simple_nodes_as_atom(font, &math.nodes, font_size, 0)? else {
+        return Ok(None);
+    };
+    Ok(Some(SimpleRowLayout {
+        metrics: atom.metrics,
+        atoms: vec![atom],
+    }))
+}
+
+fn layout_simple_nodes_as_atom(
+    font: &OwnedMathFont,
+    nodes: &[OwnedMathNode],
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
     let mut atoms = Vec::new();
-    for node in &math.nodes {
+    for node in nodes {
         match node {
             OwnedMathNode::Space(_) => {}
             _ => {
-                let Some(atom) = layout_simple_node(font, node, font_size, 0)? else {
+                let Some(atom) = layout_simple_node(font, node, font_size, script_level)? else {
                     return Ok(None);
                 };
                 atoms.push(atom);
@@ -165,7 +190,7 @@ fn layout_simple_row(
     for mut atom in atoms {
         let class = resolved_left_class(previous, atom.class);
         if let Some(previous) = previous {
-            metrics.width += math_spacing(previous, class, font_size);
+            metrics.width += math_spacing_for_level(previous, class, font_size, script_level);
         }
         atom.class = class;
         offset_atom(&mut atom, metrics.width, 0.0);
@@ -178,9 +203,29 @@ fn layout_simple_row(
         previous = Some(class);
     }
 
-    Ok(Some(SimpleRowLayout {
+    let ink_ascent = laid_out_atoms
+        .iter()
+        .map(|atom| atom.ink_ascent)
+        .fold(0.0, f32::max);
+    let ink_descent = laid_out_atoms
+        .iter()
+        .map(|atom| atom.ink_descent)
+        .fold(0.0, f32::max);
+    let mut glyphs = Vec::new();
+    let mut shapes = Vec::new();
+    for mut atom in laid_out_atoms {
+        glyphs.append(&mut atom.glyphs);
+        shapes.append(&mut atom.shapes);
+    }
+
+    Ok(Some(LaidOutMathAtom {
         metrics,
-        atoms: laid_out_atoms,
+        ink_ascent,
+        ink_descent,
+        class: SimpleMathClass::Normal,
+        italic_correction: 0.0,
+        glyphs,
+        shapes,
     }))
 }
 
@@ -188,6 +233,10 @@ fn offset_atom(atom: &mut LaidOutMathAtom, dx: f32, dy: f32) {
     for glyph in &mut atom.glyphs {
         glyph.x += dx;
         glyph.y += dy;
+    }
+    for shape in &mut atom.shapes {
+        shape.x += dx;
+        shape.y += dy;
     }
 }
 
@@ -212,8 +261,140 @@ fn layout_simple_node(
         return layout_simple_attach(font, attach, font_size, script_level);
     }
 
+    if let OwnedMathNode::Fraction(fraction) = node {
+        return layout_simple_fraction(font, fraction, font_size, script_level);
+    }
+
     Ok(None)
 }
+
+fn layout_simple_fraction(
+    font: &OwnedMathFont,
+    fraction: &super::ast::OwnedMathFraction,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let child_font_size = script_font_size(font, font_size, script_level)?;
+    let Some(mut numerator) =
+        layout_fraction_child(font, &fraction.numerator, child_font_size, script_level + 1)?
+    else {
+        return Ok(None);
+    };
+    let Some(mut denominator) = layout_fraction_child(
+        font,
+        &fraction.denominator,
+        child_font_size,
+        script_level + 1,
+    )?
+    else {
+        return Ok(None);
+    };
+
+    let axis = math_constant(font, font_size, |constants| constants.axis_height().value)?;
+    let thickness = math_constant(font, font_size, |constants| {
+        constants.fraction_rule_thickness().value
+    })?;
+    let shift_up = math_constant(font, font_size, |constants| {
+        constants.fraction_numerator_shift_up().value
+    })?;
+    let shift_down = math_constant(font, font_size, |constants| {
+        constants.fraction_denominator_shift_down().value
+    })?;
+    let numerator_gap_min = math_constant(font, font_size, |constants| {
+        constants.fraction_numerator_gap_min().value
+    })?;
+    let denominator_gap_min = math_constant(font, font_size, |constants| {
+        constants.fraction_denominator_gap_min().value
+    })?;
+    let padding = FRACTION_PADDING_EM * font_size;
+
+    let numerator_height = numerator.ink_ascent + numerator.ink_descent;
+    let denominator_height = denominator.ink_ascent + denominator.ink_descent;
+    let numerator_gap =
+        (shift_up - (axis + thickness / 2.0) - numerator.ink_descent).max(numerator_gap_min);
+    let denominator_gap =
+        (shift_down + (axis - thickness / 2.0) - denominator.ink_ascent).max(denominator_gap_min);
+    let line_width = numerator.metrics.width.max(denominator.metrics.width);
+    let width = line_width + 2.0 * padding;
+    let height =
+        numerator_height + numerator_gap + thickness + denominator_gap + denominator_height;
+    let line_x = (width - line_width) / 2.0;
+    let line_y = numerator_height + numerator_gap + thickness / 2.0;
+    let baseline = line_y + axis;
+    let numerator_x = (width - numerator.metrics.width) / 2.0;
+    let numerator_baseline = numerator.ink_ascent;
+    let denominator_x = (width - denominator.metrics.width) / 2.0;
+    let denominator_y = height - denominator_height;
+    let denominator_baseline = denominator_y + denominator.ink_ascent;
+    let numerator_dy = numerator_baseline - numerator.metrics.baseline;
+    let denominator_dy = denominator_baseline - denominator.metrics.baseline;
+
+    offset_atom(&mut numerator, numerator_x, numerator_dy);
+    offset_atom(&mut denominator, denominator_x, denominator_dy);
+
+    let mut glyphs = Vec::new();
+    glyphs.append(&mut numerator.glyphs);
+    glyphs.append(&mut denominator.glyphs);
+    let mut shapes = Vec::new();
+    shapes.append(&mut numerator.shapes);
+    shapes.append(&mut denominator.shapes);
+    shapes.push(LaidOutShape {
+        path: MathPathData {
+            commands: vec![
+                MathPathCommand::MoveTo { x: 0.0, y: 0.0 },
+                MathPathCommand::LineTo {
+                    x: line_width,
+                    y: 0.0,
+                },
+            ],
+        },
+        x: line_x,
+        y: line_y,
+        stroke_width: thickness,
+    });
+
+    let final_ascent =
+        font_cap_height(font, font_size)?.max(baseline - INLINE_MATH_LEADING_SLACK_EM * font_size);
+    let final_descent = (height - baseline - INLINE_MATH_LEADING_SLACK_EM * font_size).max(0.0);
+    let final_dy = final_ascent - baseline;
+    for glyph in &mut glyphs {
+        glyph.y += final_dy;
+    }
+    for shape in &mut shapes {
+        shape.y += final_dy;
+    }
+
+    Ok(Some(LaidOutMathAtom {
+        metrics: TypesetMetrics {
+            width,
+            height: final_ascent + final_descent,
+            baseline: final_ascent,
+            ascent: final_ascent,
+            descent: final_descent,
+        },
+        ink_ascent: baseline,
+        ink_descent: height - baseline,
+        class: SimpleMathClass::Normal,
+        italic_correction: 0.0,
+        glyphs,
+        shapes,
+    }))
+}
+
+fn layout_fraction_child(
+    font: &OwnedMathFont,
+    node: &OwnedMathNode,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    if let OwnedMathNode::Group(group) = node {
+        return layout_simple_nodes_as_atom(font, &group.body, font_size, script_level);
+    }
+    layout_simple_node(font, node, font_size, script_level)
+}
+
+const FRACTION_PADDING_EM: f32 = 0.1;
+const INLINE_MATH_LEADING_SLACK_EM: f32 = 0.65 * 0.7;
 
 fn layout_simple_attach(
     font: &OwnedMathFont,
@@ -274,20 +455,40 @@ fn layout_simple_attach(
         .unwrap_or_default();
     let width = base.metrics.width + top_post_width.max(bottom_post_width);
     let baseline = base.metrics.baseline;
+    let ink_ascent = base
+        .ink_ascent
+        .max(top.as_ref().map_or(0.0, |top| shift_up + top.ink_ascent))
+        .max(
+            bottom
+                .as_ref()
+                .map_or(0.0, |bottom| bottom.ink_ascent - shift_down),
+        );
+    let ink_descent = base
+        .ink_descent
+        .max(top.as_ref().map_or(0.0, |top| top.ink_descent - shift_up))
+        .max(
+            bottom
+                .as_ref()
+                .map_or(0.0, |bottom| shift_down + bottom.ink_descent),
+        );
     let mut glyphs = Vec::new();
+    let mut shapes = Vec::new();
     glyphs.append(&mut base.glyphs);
+    shapes.append(&mut base.shapes);
 
     if let Some(mut top) = top {
         let dx = base.metrics.width + top_kern;
         let dy = baseline - shift_up - top.metrics.baseline;
         offset_atom(&mut top, dx, dy);
         glyphs.append(&mut top.glyphs);
+        shapes.append(&mut top.shapes);
     }
     if let Some(mut bottom) = bottom {
         let dx = base.metrics.width + bottom_kern;
         let dy = baseline + shift_down - bottom.metrics.baseline;
         offset_atom(&mut bottom, dx, dy);
         glyphs.append(&mut bottom.glyphs);
+        shapes.append(&mut bottom.shapes);
     }
 
     Ok(Some(LaidOutMathAtom {
@@ -295,11 +496,12 @@ fn layout_simple_attach(
             width,
             ..base.metrics
         },
-        ink_ascent: base.ink_ascent,
-        ink_descent: base.ink_descent,
+        ink_ascent,
+        ink_descent,
         class: base.class,
         italic_correction: base.italic_correction,
         glyphs,
+        shapes,
     }))
 }
 
@@ -501,6 +703,16 @@ fn math_constant(
     Ok(value as f32 * font_size / face.units_per_em() as f32)
 }
 
+fn font_cap_height(font: &OwnedMathFont, font_size: f32) -> Result<f32, MathTypesetError> {
+    let face = parse_math_face(font, "font cap height")?;
+    Ok(face
+        .capital_height()
+        .unwrap_or_else(|| face.ascender())
+        .max(0) as f32
+        * font_size
+        / face.units_per_em() as f32)
+}
+
 #[cfg(test)]
 fn single_atom_text(math: &OwnedMath) -> Option<String> {
     let [node] = &math.nodes[..] else {
@@ -609,7 +821,21 @@ fn resolved_left_class(
     }
 }
 
+#[cfg(test)]
 fn math_spacing(left: SimpleMathClass, right: SimpleMathClass, font_size: f32) -> f32 {
+    math_spacing_for_level(left, right, font_size, 0)
+}
+
+fn math_spacing_for_level(
+    left: SimpleMathClass,
+    right: SimpleMathClass,
+    font_size: f32,
+    script_level: u8,
+) -> f32 {
+    if script_level > 0 {
+        return 0.0;
+    }
+
     use SimpleMathClass::*;
 
     match (left, right) {
@@ -799,6 +1025,7 @@ fn layout_styled_atom_with_class(
         class,
         italic_correction: atom_italic_correction,
         glyphs,
+        shapes: Vec::new(),
     };
     for glyph in &mut atom.glyphs {
         glyph.y = atom.metrics.baseline;
@@ -930,6 +1157,23 @@ fn path_artifact_from_simple_row(
                 });
             }
             glyph_run += 1;
+        }
+        for shape in &atom.shapes {
+            items.push(MathPathItem {
+                path: shape.path.clone(),
+                kind: MathPathKind::MathShape,
+                fill: None,
+                stroke: Some(MathStroke {
+                    color: fill,
+                    width: shape.stroke_width,
+                }),
+                transform: MathTransform {
+                    dx: shape.x,
+                    dy: shape.y,
+                    ..MathTransform::IDENTITY
+                },
+                clip: None,
+            });
         }
     }
 
@@ -1080,6 +1324,29 @@ mod tests {
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 2);
         assert!(pdf.glyph_runs[1].font_size < pdf.glyph_runs[0].font_size);
+    }
+
+    #[test]
+    fn simple_row_can_emit_fraction_rule_paths() {
+        let math = parse_owned_math("a / (b + c)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("simple fraction should be handled by owned row path");
+        let paths = artifact.paths.expect("fraction paths should exist");
+        assert!(paths
+            .items
+            .iter()
+            .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some()));
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        assert_eq!(pdf.glyph_runs.len(), 4);
     }
 
     #[test]
