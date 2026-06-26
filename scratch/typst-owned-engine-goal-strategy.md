@@ -214,7 +214,7 @@ The destination should not mirror `typst-library`, `typst-layout`, or `typst-syn
 ## Phase 0: Freeze And Instrument
 
 - [x] Add a vendor-vs-owned comparison harness; initially the owned backend delegates to the vendor backend.
-- [ ] Add fixtures for all supported math constructs and current visual baseline labels.
+- [x] Add fixtures for all supported math constructs and current visual baseline labels.
 - [x] Add snapshot/debug output for:
   - metrics
   - positioned runs
