@@ -126,6 +126,36 @@ fn owned_backend_matches_vendor_for_simple_row_fragment_metrics_only_fast_path()
 }
 
 #[test]
+fn owned_backend_matches_vendor_for_simple_row_fragment_paths_fast_path() {
+    let vendor = vendor();
+    let owned = owned();
+    let mut options = MathFragmentOptions::default();
+    options.outputs = MathOutputRequest {
+        paths: true,
+        raster: None,
+        pdf_text_layer: false,
+    };
+
+    for source in [
+        "1",
+        "x",
+        "0.94",
+        "alpha + beta -> gamma",
+        "alpha + pi + sum",
+        "x <= y => y >= x",
+    ] {
+        let vendor_artifact = vendor
+            .typeset_math_fragment(source, &options)
+            .unwrap_or_else(|err| panic!("vendor failed for {source:?}: {err:?}"));
+        let owned_artifact = owned
+            .typeset_math_fragment(source, &options)
+            .unwrap_or_else(|err| panic!("owned failed for {source:?}: {err:?}"));
+
+        assert_math_artifact_matches(source, &vendor_artifact, &owned_artifact);
+    }
+}
+
+#[test]
 fn owned_backend_matches_vendor_for_text_line_metrics_and_runs() {
     let vendor = vendor();
     let owned = owned();

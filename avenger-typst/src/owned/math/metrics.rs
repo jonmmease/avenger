@@ -1,5 +1,8 @@
 use crate::api::TypstEngineConfig;
 use crate::error::MathTypesetError;
+use crate::paths::{
+    MathPathArtifact, MathPathCommand, MathPathData, MathPathItem, MathPathKind, MathTransform,
+};
 use crate::style::MathFontSpec;
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
@@ -13,7 +16,7 @@ pub(crate) fn try_typeset_simple_row_fragment(
     options: &MathFragmentOptions,
     config: &TypstEngineConfig,
 ) -> Result<Option<MathRunArtifact>, MathTypesetError> {
-    if options.outputs.paths || options.outputs.raster.is_some() || options.outputs.pdf_text_layer {
+    if options.outputs.raster.is_some() || options.outputs.pdf_text_layer {
         return Ok(None);
     }
     if !matches!(options.style.font, MathFontSpec::NewComputerModernMath) {
@@ -26,13 +29,17 @@ pub(crate) fn try_typeset_simple_row_fragment(
     let Some(font) = load_default_math_font(config) else {
         return Ok(None);
     };
-    let Some(metrics) = measure_simple_row(&font, math, options.style.font_size.max(1.0))? else {
+    let Some(layout) = layout_simple_row(&font, math, options.style.font_size.max(1.0))? else {
         return Ok(None);
     };
+    let paths = options
+        .outputs
+        .paths
+        .then(|| path_artifact_from_simple_row(&font, &layout, options.style.fill));
 
     Ok(Some(MathRunArtifact {
-        metrics,
-        paths: None,
+        metrics: layout.metrics,
+        paths,
         raster: None,
         pdf_text: None,
         font_resources: Vec::new(),
@@ -44,6 +51,24 @@ pub(crate) fn try_typeset_simple_row_fragment(
 struct SimpleMathAtom {
     styled_text: String,
     class: SimpleMathClass,
+}
+
+#[derive(Debug, Clone)]
+struct SimpleRowLayout {
+    metrics: TypesetMetrics,
+    atoms: Vec<LaidOutSimpleAtom>,
+}
+
+#[derive(Debug, Clone)]
+struct LaidOutSimpleAtom {
+    x: f32,
+    glyphs: Vec<LaidOutGlyph>,
+}
+
+#[derive(Debug, Clone)]
+struct LaidOutGlyph {
+    glyph_id: ttf_parser::GlyphId,
+    x: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,11 +85,11 @@ enum SimpleMathClass {
     Large,
 }
 
-fn measure_simple_row(
+fn layout_simple_row(
     font: &OwnedMathFont,
     math: &OwnedMath,
     font_size: f32,
-) -> Result<Option<TypesetMetrics>, MathTypesetError> {
+) -> Result<Option<SimpleRowLayout>, MathTypesetError> {
     let mut atoms = Vec::new();
     for node in &math.nodes {
         match node {
@@ -82,23 +107,35 @@ fn measure_simple_row(
         return Ok(None);
     };
 
-    let first_metrics = measure_styled_atom(font, &first.styled_text, font_size)?;
-    let mut metrics = first_metrics;
+    let first_layout = layout_styled_atom(font, &first.styled_text, font_size)?;
+    let mut metrics = first_layout.metrics;
+    let mut laid_out_atoms = vec![LaidOutSimpleAtom {
+        x: 0.0,
+        glyphs: first_layout.glyphs,
+    }];
     let mut previous = resolved_left_class(None, first.class);
 
     for atom in atoms.iter().skip(1) {
         let class = resolved_left_class(Some(previous), atom.class);
-        let atom_metrics = measure_styled_atom(font, &atom.styled_text, font_size)?;
+        let atom_layout = layout_styled_atom(font, &atom.styled_text, font_size)?;
         metrics.width += math_spacing(previous, class, font_size);
-        metrics.width += atom_metrics.width;
-        metrics.ascent = metrics.ascent.max(atom_metrics.ascent);
-        metrics.descent = metrics.descent.max(atom_metrics.descent);
+        let x = metrics.width;
+        metrics.width += atom_layout.metrics.width;
+        metrics.ascent = metrics.ascent.max(atom_layout.metrics.ascent);
+        metrics.descent = metrics.descent.max(atom_layout.metrics.descent);
         metrics.height = metrics.ascent + metrics.descent;
         metrics.baseline = metrics.ascent;
+        laid_out_atoms.push(LaidOutSimpleAtom {
+            x,
+            glyphs: atom_layout.glyphs,
+        });
         previous = class;
     }
 
-    Ok(Some(metrics))
+    Ok(Some(SimpleRowLayout {
+        metrics,
+        atoms: laid_out_atoms,
+    }))
 }
 
 #[cfg(test)]
@@ -290,11 +327,17 @@ fn load_default_math_font(config: &TypstEngineConfig) -> Option<OwnedMathFont> {
     None
 }
 
-fn measure_styled_atom(
+#[derive(Debug, Clone)]
+struct StyledAtomLayout {
+    metrics: TypesetMetrics,
+    glyphs: Vec<LaidOutGlyph>,
+}
+
+fn layout_styled_atom(
     font: &OwnedMathFont,
     text: &str,
     font_size: f32,
-) -> Result<TypesetMetrics, MathTypesetError> {
+) -> Result<StyledAtomLayout, MathTypesetError> {
     let face = ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| {
         MathTypesetError::Engine {
             start: 0,
@@ -313,8 +356,10 @@ fn measure_styled_atom(
     let scale = font_size / face.units_per_em() as f32;
     let mut width = 0i32;
     let mut glyph_ascent = 0i16;
+    let mut glyphs = Vec::new();
 
     for ch in text.chars() {
+        let glyph_x = width as f32 * scale;
         let mut buffer = rustybuzz::UnicodeBuffer::new();
         buffer.push_str(ch.encode_utf8(&mut [0; 4]));
         if let Some(script) =
@@ -324,11 +369,11 @@ fn measure_styled_atom(
         }
         buffer.set_direction(rustybuzz::Direction::LeftToRight);
         buffer.set_flags(rustybuzz::BufferFlags::REMOVE_DEFAULT_IGNORABLES);
-        let glyphs = rustybuzz::shape(&rusty, &[], buffer);
-        let Some((info, position)) = glyphs
+        let shaped = rustybuzz::shape(&rusty, &[], buffer);
+        let Some((info, position)) = shaped
             .glyph_infos()
             .first()
-            .zip(glyphs.glyph_positions().first())
+            .zip(shaped.glyph_positions().first())
         else {
             continue;
         };
@@ -337,6 +382,10 @@ fn measure_styled_atom(
         if !is_extended_shape(&face, glyph_id) {
             width += italic_correction(&face, glyph_id).unwrap_or_default() as i32;
         }
+        glyphs.push(LaidOutGlyph {
+            glyph_id,
+            x: glyph_x,
+        });
         if let Some(bounds) = face.glyph_bounding_box(glyph_id) {
             glyph_ascent = glyph_ascent.max(bounds.y_max);
         }
@@ -347,12 +396,15 @@ fn measure_styled_atom(
     let ascent = face.capital_height().unwrap_or(glyph_ascent);
     let ascent = ascent.max(0) as f32 * scale;
     let descent = 0.0;
-    Ok(TypesetMetrics {
-        width: width as f32 * scale,
-        height: ascent + descent,
-        baseline: ascent,
-        ascent,
-        descent,
+    Ok(StyledAtomLayout {
+        metrics: TypesetMetrics {
+            width: width as f32 * scale,
+            height: ascent + descent,
+            baseline: ascent,
+            ascent,
+            descent,
+        },
+        glyphs,
     })
 }
 
@@ -374,6 +426,109 @@ fn is_extended_shape(face: &ttf_parser::Face<'_>, glyph_id: ttf_parser::GlyphId)
         .is_some()
 }
 
+fn path_artifact_from_simple_row(
+    font: &OwnedMathFont,
+    layout: &SimpleRowLayout,
+    fill: crate::style::Color,
+) -> MathPathArtifact {
+    let Ok(face) = ttf_parser::Face::parse(&font.data, font.face_index) else {
+        return MathPathArtifact {
+            logical_width: layout.metrics.width,
+            logical_height: layout.metrics.height,
+            items: Vec::new(),
+        };
+    };
+    let scale = layout.metrics.ascent / face.capital_height().unwrap_or(1).max(1) as f32;
+    let mut items = Vec::new();
+    let mut glyph_run = 0usize;
+
+    for atom in &layout.atoms {
+        for glyph in &atom.glyphs {
+            let mut builder = OwnedGlyphPathBuilder {
+                path: MathPathData::default(),
+                scale,
+                x_offset: atom.x + glyph.x,
+                y_offset: layout.metrics.baseline,
+            };
+            face.outline_glyph(glyph.glyph_id, &mut builder);
+            if !builder.path.commands.is_empty() {
+                items.push(MathPathItem {
+                    path: builder.path,
+                    kind: MathPathKind::GlyphOutline {
+                        glyph_run,
+                        glyph_index: 0,
+                    },
+                    fill: Some(fill),
+                    stroke: None,
+                    transform: MathTransform::IDENTITY,
+                    clip: None,
+                });
+            }
+            glyph_run += 1;
+        }
+    }
+
+    MathPathArtifact {
+        logical_width: layout.metrics.width,
+        logical_height: layout.metrics.height,
+        items,
+    }
+}
+
+struct OwnedGlyphPathBuilder {
+    path: MathPathData,
+    scale: f32,
+    x_offset: f32,
+    y_offset: f32,
+}
+
+impl OwnedGlyphPathBuilder {
+    fn point(&self, x: f32, y: f32) -> (f32, f32) {
+        (
+            self.x_offset + x * self.scale,
+            self.y_offset - y * self.scale,
+        )
+    }
+}
+
+impl ttf_parser::OutlineBuilder for OwnedGlyphPathBuilder {
+    fn move_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.point(x, y);
+        self.path.commands.push(MathPathCommand::MoveTo { x, y });
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.point(x, y);
+        self.path.commands.push(MathPathCommand::LineTo { x, y });
+    }
+
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        let (x1, y1) = self.point(x1, y1);
+        let (x, y) = self.point(x, y);
+        self.path
+            .commands
+            .push(MathPathCommand::QuadTo { x1, y1, x, y });
+    }
+
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        let (x1, y1) = self.point(x1, y1);
+        let (x2, y2) = self.point(x2, y2);
+        let (x, y) = self.point(x, y);
+        self.path.commands.push(MathPathCommand::CubicTo {
+            x1,
+            y1,
+            x2,
+            y2,
+            x,
+            y,
+        });
+    }
+
+    fn close(&mut self) {
+        self.path.commands.push(MathPathCommand::Close);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,13 +536,25 @@ mod tests {
     use crate::types::MathOutputRequest;
 
     #[test]
-    fn atom_fragment_declines_heavy_outputs() {
+    fn atom_fragment_declines_raster_and_pdf_outputs() {
         let math = parse_owned_math("1", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
-            paths: true,
-            raster: None,
+            paths: false,
+            raster: Some(crate::raster::RasterRequest::default()),
             pdf_text_layer: false,
+        };
+
+        assert!(
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .is_none()
+        );
+
+        options.outputs = MathOutputRequest {
+            paths: false,
+            raster: None,
+            pdf_text_layer: true,
         };
 
         assert!(

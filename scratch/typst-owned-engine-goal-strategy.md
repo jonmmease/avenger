@@ -258,8 +258,9 @@ Progress:
 - [x] Copy enough runtime/layout code for a non-empty plain text line with metrics-only/positioned-run output, using embedded Atkinson face selection, `rustybuzz` shaping advances, and Typst-compatible cap-height/baseline vertical metrics.
 - [x] Copy a first math runtime slice: metrics-only standalone math atoms using the owned math parser, default math font discovery, default math italic styling, math-script shaping advances, MATH italic correction, and Typst-compatible text-like cap-height vertical metrics.
 - [x] Extend the owned math metrics slice to simple rows of standalone atoms, with ignored source spaces, variable-operator resolution, and Typst/TeX thin-medium-thick math class spacing for binary operators, relations, punctuation, and large operators.
+- [x] Add owned path extraction for simple math rows by outlining shaped math glyphs with `ttf-parser`, preserving vendor-compatible path item topology for paths-only requests.
 - [ ] Extend the owned plain text line path to path extraction, raster output, PDF text metadata, fallback fonts, bidi, emoji, and complex-script segmentation.
-- [ ] Extend the owned math fragment path from simple-row metrics to paths, raster output, PDF glyph metadata, scripts, fractions, roots, delimiters, and grouped expressions.
+- [ ] Extend the owned math fragment path from simple-row metrics/paths to raster output, PDF glyph metadata, scripts, fractions, roots, delimiters, and grouped expressions.
 
 Needed families:
 

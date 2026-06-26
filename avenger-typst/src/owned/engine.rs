@@ -299,6 +299,27 @@ mod tests {
     }
 
     #[test]
+    fn simple_row_math_fragment_paths_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: false,
+        };
+
+        let artifact = engine
+            .typeset_fragment("alpha + beta -> gamma", &options)
+            .unwrap();
+
+        assert!(artifact
+            .paths
+            .as_ref()
+            .is_some_and(|paths| !paths.items.is_empty()));
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
     fn matrix_text_line_span_reports_source_offset_before_delegate_initialization() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
