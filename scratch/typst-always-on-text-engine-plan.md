@@ -168,7 +168,7 @@ measurement propagation that existed only to choose between text engines.
 - [x] Update `avenger-chart/src/prelude.rs` if public types are removed or
   renamed; no text-engine public type removal remains after retaining the
   adjustment cache hook.
-- [ ] Update docs/future-work notes to say Typst text is the default path.
+- [x] Update docs/future-work notes to say Typst text is the default path.
 - [x] Update probes:
   - [x] Keep `tools/text-render-probe` Typst path as the default current probe.
   - [x] Remove cosmic comparison or mark it historical.
@@ -184,13 +184,13 @@ measurement propagation that existed only to choose between text engines.
   - [x] emoji fallback and named `#emoji.face` syntax.
   - [x] bidi and complex-script shaping.
   - [x] escaped dollars and unmatched delimiter policy.
-  - [ ] unsupported syntax errors for evaluator/document features.
+  - [x] unsupported syntax errors for evaluator/document features.
   - [ ] geometry/R-tree text bounds use Typst by default.
-- [ ] Renderer tests:
-  - [ ] WGPU text renders without cosmic.
-  - [ ] SVG contains native `<text>` for regular runs and paths for math.
-  - [ ] PDF regular text remains extractable/selectable through `svg2pdf`.
-  - [ ] math remains path-only in PDF for this stage.
+- [x] Renderer tests:
+  - [x] WGPU text renders without cosmic.
+  - [x] SVG contains native `<text>` for regular runs and paths for math.
+  - [x] PDF regular text remains extractable/selectable through `svg2pdf`.
+  - [x] math remains path-only in PDF for this stage.
 - [ ] Visual tests:
   - [ ] Run all chart baselines, not just `typst_math`, because all labels now
     use Typst.
