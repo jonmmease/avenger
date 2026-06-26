@@ -56,25 +56,25 @@ measurement propagation that existed only to choose between text engines.
 
 - [ ] Delete the `TextMeasurer` trait.
 - [ ] Delete the `TextRasterizer` trait.
-- [ ] Introduce a concrete `TextEngine` type, or module-level functions if no
+- [x] Introduce a concrete `TextEngine` type, or module-level functions if no
   cache/state ownership is needed.
-- [ ] Provide concrete measurement APIs:
-  - [ ] `TextEngine::measure_bounds(&TextMeasurementConfig) -> TextBounds`
-  - [ ] `TextEngine::font_metrics(&FontMetricsConfig) -> FontMetrics`
-- [ ] Provide concrete raster APIs:
-  - [ ] `TextEngine::rasterize(&TextRasterizationConfig, scale, cached_entries)`
-  - [ ] decide the final cache key/value types for whole-line Typst atlas
+- [x] Provide concrete measurement APIs:
+  - [x] `TextEngine::measure_bounds(&TextMeasurementConfig) -> TextBounds`
+  - [x] `TextEngine::font_metrics(&FontMetricsConfig) -> FontMetrics`
+- [x] Provide concrete raster APIs:
+  - [x] `TextEngine::rasterize(&TextRasterizationConfig, scale, cached_entries)`
+  - [x] decide the final cache key/value types for whole-line Typst atlas
     entries.
-- [ ] Provide concrete path extraction APIs:
-  - [ ] `TextEngine::extract_paths(&TextPathConfig) -> TextPathBuffer`
-  - [ ] keep plain-run metadata needed for native SVG/PDF text embedding.
-- [ ] Keep the existing config/result structs where they remain useful:
-  - [ ] `TextMeasurementConfig`
-  - [ ] `FontMetricsConfig`
-  - [ ] `TextRasterizationConfig`
-  - [ ] `TextPathConfig`
-  - [ ] `TextBounds`
-  - [ ] `TextPathBuffer`
+- [x] Provide concrete path extraction APIs:
+  - [x] `TextEngine::extract_paths(&TextPathConfig) -> TextPathBuffer`
+  - [x] keep plain-run metadata needed for native SVG/PDF text embedding.
+- [x] Keep the existing config/result structs where they remain useful:
+  - [x] `TextMeasurementConfig`
+  - [x] `FontMetricsConfig`
+  - [x] `TextRasterizationConfig`
+  - [x] `TextPathConfig`
+  - [x] `TextBounds`
+  - [x] `TextPathBuffer`
 - [ ] Remove `default_text_measurer()` and `default_rasterizer()`.
 - [ ] Add compatibility wrappers only if required for downstream crates, and
   mark them as temporary.
@@ -133,7 +133,7 @@ measurement propagation that existed only to choose between text engines.
 - [x] Emit native `<text>` for plain runs.
 - [x] Emit paths for math/decorations.
 - [x] Keep font subset collection for native text runs.
-- [ ] Remove non-Typst native text fallback code paths if they only exist for
+- [x] Remove non-Typst native text fallback code paths if they only exist for
   cosmic/plain text.
 - [ ] Keep existing unsupported gradient behavior for labels that contain math
   paths, or implement a deliberate replacement.

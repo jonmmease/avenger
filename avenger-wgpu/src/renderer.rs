@@ -674,15 +674,12 @@ pub(crate) fn make_text_atlas_builder(
 }
 
 fn make_typst_text_atlas_builder() -> Box<dyn TextAtlasBuilderTrait> {
-    use crate::marks::text::{GlyphBBoxAndAtlasCoords, TextAtlasBuilder};
+    use crate::marks::text::TextAtlasBuilder;
     use std::sync::Arc;
 
-    let typst_rasterizer =
-        avenger_text::typst_text::TypstTextRasterizer::<GlyphBBoxAndAtlasCoords>::with_config(
-            avenger_text::math::TextMathConfig::default(),
-        )
-        .expect("failed to initialize Typst text rasterizer");
-    Box::new(TextAtlasBuilder::new(Arc::new(typst_rasterizer)))
+    let text_engine = avenger_text::TextEngine::with_default_config()
+        .expect("failed to initialize Typst text engine");
+    Box::new(TextAtlasBuilder::new(Arc::new(text_engine)))
 }
 
 #[cfg(test)]

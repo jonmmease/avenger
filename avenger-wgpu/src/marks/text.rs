@@ -1,9 +1,11 @@
-use std::{collections::HashMap, hash::Hash, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use avenger_common::{canvas::CanvasDimensions, types::PathTransform};
 use avenger_text::{
-    rasterization::{GlyphBBox, TextRasterizationConfig, TextRasterizer},
+    engine::TextEngine,
+    rasterization::{GlyphBBox, TextRasterizationConfig},
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
+    typst_text::TypstTextRasterCacheKey,
 };
 use etagere::euclid::{Angle, Point2D, Vector2D};
 use image::DynamicImage;
@@ -68,30 +70,20 @@ impl TextAtlasBuilderTrait for NullTextAtlasBuilder {
 }
 
 #[derive(Clone)]
-pub struct TextAtlasBuilder<CacheKey>
-where
-    CacheKey: Hash + Eq + Clone,
-{
-    rasterizer: Arc<dyn TextRasterizer<CacheKey = CacheKey, CacheValue = GlyphBBoxAndAtlasCoords>>,
+pub struct TextAtlasBuilder {
+    text_engine: Arc<TextEngine>,
     extent: Extent3d,
     next_atlas: image::RgbaImage,
-    next_cache: HashMap<CacheKey, GlyphBBoxAndAtlasCoords>,
+    next_cache: HashMap<TypstTextRasterCacheKey, GlyphBBoxAndAtlasCoords>,
     atlases: Vec<DynamicImage>,
     initialized: bool,
     allocator: etagere::AtlasAllocator,
 }
 
-impl<CacheKey> TextAtlasBuilder<CacheKey>
-where
-    CacheKey: Hash + Eq + Clone,
-{
-    pub fn new(
-        rasterizer: Arc<
-            dyn TextRasterizer<CacheKey = CacheKey, CacheValue = GlyphBBoxAndAtlasCoords>,
-        >,
-    ) -> Self {
+impl TextAtlasBuilder {
+    pub fn new(text_engine: Arc<TextEngine>) -> Self {
         Self {
-            rasterizer,
+            text_engine,
             extent: Extent3d {
                 width: 1,
                 height: 1,
@@ -105,10 +97,8 @@ where
         }
     }
 }
-impl<CacheKey> TextAtlasBuilderTrait for TextAtlasBuilder<CacheKey>
-where
-    CacheKey: Hash + Eq + Clone + 'static,
-{
+
+impl TextAtlasBuilderTrait for TextAtlasBuilder {
     fn register_text(
         &mut self,
         text: TextInstance,
@@ -144,7 +134,7 @@ where
         let angle = text.angle;
         let use_nearest_filter = text.use_nearest_filter;
 
-        let buffer = self.rasterizer.rasterize(
+        let buffer = self.text_engine.rasterize(
             &TextRasterizationConfig {
                 text: text.text,
                 color: text.color,

@@ -25,15 +25,11 @@ use avenger_scenegraph::{
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
-use avenger_text::path::{
-    TextPathBuffer, TextPathDrawItem, TextPathExtractionConfig, TextPathExtractor, TextPathItem,
-    TypstTextPathExtractor,
-};
 use avenger_text::{
-    measurement::{
-        default_text_measurer, truncate_text_to_limit_with, TextMeasurementConfig, TextMeasurer,
-    },
+    measurement::{truncate_text_to_limit_with, TextMeasurementConfig},
+    path::{TextPathBuffer, TextPathDrawItem, TextPathExtractionConfig, TextPathItem},
     types::{FontStyle, FontWeight, FontWeightNameSpec},
+    TextEngine,
 };
 use base64::{prelude::BASE64_STANDARD, Engine};
 use itertools::izip;
@@ -283,8 +279,7 @@ impl SvgRenderer {
         origin: [f32; 2],
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
-        let text_measurer = default_text_measurer();
-        let typst_text_path_extractor = self.typst_text_path_extractor()?;
+        let text_engine = self.text_engine()?;
         let leader_stroke_dash_values = mark
             .leader_stroke_dash
             .as_ref()
@@ -357,10 +352,6 @@ impl SvgRenderer {
                 font_style,
                 &self.options.font_resolution,
             )?;
-            let active_text_measurer: &dyn TextMeasurer = typst_text_path_extractor
-                .as_ref()
-                .map(|extractor| extractor as &dyn TextMeasurer)
-                .unwrap_or(&text_measurer);
             let text = truncate_text_to_limit(
                 text,
                 *limit,
@@ -368,56 +359,29 @@ impl SvgRenderer {
                 *font_size,
                 font_weight,
                 font_style,
-                active_text_measurer,
+                &text_engine,
             );
-            let use_typst_paths = typst_text_path_extractor.is_some();
-            if !use_typst_paths
-                && self.options.font_embedding == crate::options::SvgFontEmbedding::EmbedSubsetWoff2
-            {
-                document.fonts.collect_text(
-                    &output_font,
-                    font_weight,
-                    font_style,
-                    &text,
-                    &self.options.font_resolution,
-                )?;
-            }
             let target = [target[0] + origin[0], target[1] + origin[1]];
             let label = [label[0] + origin[0], label[1] + origin[1]];
-            let measured_text_bounds =
-                active_text_measurer.measure_text_bounds(&TextMeasurementConfig {
-                    text: &text,
-                    font: &output_font,
-                    font_size: *font_size,
-                    font_weight,
-                    font_style,
-                });
-            let (text_bounds, typst_text_path_buffer) = if let Some(buffer) = self
-                .extract_typst_text_paths(
-                    typst_text_path_extractor.as_ref(),
-                    &text,
-                    color,
-                    &output_font,
-                    *font_size,
-                    font_weight,
-                    font_style,
-                )? {
-                (buffer.bounds.clone(), Some(buffer))
-            } else {
-                (measured_text_bounds, None)
-            };
-            if let Some(buffer) = &typst_text_path_buffer {
-                if self.options.font_embedding == crate::options::SvgFontEmbedding::EmbedSubsetWoff2
-                {
-                    for run in &buffer.plain_runs {
-                        document.fonts.collect_text(
-                            &run.font,
-                            &run.font_weight,
-                            &run.font_style,
-                            &run.text,
-                            &self.options.font_resolution,
-                        )?;
-                    }
+            let typst_text_path_buffer = self.extract_typst_text_paths(
+                &text_engine,
+                &text,
+                color,
+                &output_font,
+                *font_size,
+                font_weight,
+                font_style,
+            )?;
+            let text_bounds = typst_text_path_buffer.bounds.clone();
+            if self.options.font_embedding == crate::options::SvgFontEmbedding::EmbedSubsetWoff2 {
+                for run in &typst_text_path_buffer.plain_runs {
+                    document.fonts.collect_text(
+                        &run.font,
+                        &run.font_weight,
+                        &run.font_style,
+                        &run.text,
+                        &self.options.font_resolution,
+                    )?;
                 }
             }
             if *leader {
@@ -451,90 +415,40 @@ impl SvgRenderer {
                 }
             }
 
-            if let Some(buffer) = typst_text_path_buffer {
-                self.write_typst_text_paths(
-                    document,
-                    &buffer,
-                    label,
-                    align,
-                    baseline,
-                    *angle,
-                    color,
-                    &output_font,
-                    *font_size,
-                    font_weight,
-                    font_style,
-                    clip_id,
-                )?;
-                continue;
-            }
-
-            let [x, text_top] = text_bounds.calculate_origin(label, align, baseline);
-            let y = text_top + text_bounds.ascent;
-            document.body.push_str(r#"<text x=""#);
-            push_number(&mut document.body, x, self.options.precision)?;
-            document.body.push_str(r#"" y=""#);
-            push_number(&mut document.body, y, self.options.precision)?;
-            document.body.push('"');
-            push_color_or_text_paint(&mut document.body, color, self.options.precision)?;
-            document
-                .body
-                .push_str(r#" text-anchor="start" dominant-baseline="alphabetic""#);
-            document.body.push_str(r#" font-family=""#);
-            document
-                .body
-                .push_str(&crate::style::escape_attr(&output_font));
-            document.body.push('"');
-            document.body.push_str(r#" font-size=""#);
-            push_number(&mut document.body, *font_size, self.options.precision)?;
-            document.body.push('"');
-            document.body.push_str(r#" font-weight=""#);
-            document
-                .body
-                .push_str(&font_weight_value(font_weight, self.options.precision)?);
-            document.body.push('"');
-            document.body.push_str(r#" font-style=""#);
-            document.body.push_str(font_style_value(font_style));
-            document.body.push('"');
-            if *angle != 0.0 {
-                document.body.push_str(r#" transform="rotate("#);
-                push_number(&mut document.body, *angle, self.options.precision)?;
-                document.body.push(' ');
-                push_number(&mut document.body, label[0], self.options.precision)?;
-                document.body.push(' ');
-                push_number(&mut document.body, label[1], self.options.precision)?;
-                document.body.push(')');
-                document.body.push('"');
-            }
-            push_clip_attr(&mut document.body, clip_id);
-            document.body.push('>');
-            document.body.push_str(&crate::style::escape_text(&text));
-            document.body.push_str("</text>\n");
+            self.write_typst_text_paths(
+                document,
+                &typst_text_path_buffer,
+                label,
+                align,
+                baseline,
+                *angle,
+                color,
+                &output_font,
+                *font_size,
+                font_weight,
+                font_style,
+                clip_id,
+            )?;
         }
 
         Ok(())
     }
 
-    fn typst_text_path_extractor(&self) -> Result<Option<TypstTextPathExtractor>, AvengerSvgError> {
-        TypstTextPathExtractor::with_config(avenger_text::math::TextMathConfig::default())
-            .map(Some)
-            .map_err(|err| AvengerSvgError::Text(err.to_string()))
+    fn text_engine(&self) -> Result<TextEngine, AvengerSvgError> {
+        TextEngine::with_default_config().map_err(|err| AvengerSvgError::Text(err.to_string()))
     }
 
     #[allow(clippy::too_many_arguments)]
     fn extract_typst_text_paths(
         &self,
-        extractor: Option<&TypstTextPathExtractor>,
+        text_engine: &TextEngine,
         text: &String,
         color: &ColorOrGradient,
         font: &String,
         font_size: f32,
         font_weight: &FontWeight,
         font_style: &FontStyle,
-    ) -> Result<Option<TextPathBuffer>, AvengerSvgError> {
-        let Some(extractor) = extractor else {
-            return Ok(None);
-        };
+    ) -> Result<TextPathBuffer, AvengerSvgError> {
         let path_color = match color {
             ColorOrGradient::Color(color) => *color,
             ColorOrGradient::GradientIndex(_) => [0.0, 0.0, 0.0, 1.0],
@@ -549,8 +463,8 @@ impl SvgRenderer {
             font_style,
             limit: f32::INFINITY,
         };
-        let buffer = extractor
-            .extract_text_paths(&config)
+        let buffer = text_engine
+            .extract_paths(&config)
             .map_err(|err| AvengerSvgError::Text(err.to_string()))?;
         if matches!(color, ColorOrGradient::GradientIndex(_)) && !buffer.items.is_empty() {
             return Err(AvengerSvgError::UnsupportedPaint(
@@ -558,7 +472,7 @@ impl SvgRenderer {
             ));
         }
 
-        Ok(Some(buffer))
+        Ok(buffer)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1291,7 +1205,7 @@ fn truncate_text_to_limit(
     font_size: f32,
     font_weight: &FontWeight,
     font_style: &FontStyle,
-    measurer: &dyn TextMeasurer,
+    text_engine: &TextEngine,
 ) -> String {
     truncate_text_to_limit_with(text, limit, |candidate| {
         let config = TextMeasurementConfig {
@@ -1301,7 +1215,7 @@ fn truncate_text_to_limit(
             font_weight,
             font_style,
         };
-        measurer.measure_text_bounds(&config).width
+        text_engine.measure_bounds(&config).width
     })
 }
 

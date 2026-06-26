@@ -175,8 +175,7 @@ impl TextBounds {
 }
 
 pub fn default_text_measurer() -> impl TextMeasurer {
-    crate::typst_text::TypstTextMeasurer::with_config(crate::math::TextMathConfig::default())
-        .expect("failed to initialize Typst text measurer")
+    crate::engine::default_text_engine()
 }
 
 #[cfg(test)]
