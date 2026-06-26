@@ -14,6 +14,7 @@ vendor-typst = [
     "dep:typst-library",
     "dep:typst-syntax",
     "dep:typst-utils",
+    "dep:unicode-segmentation",
 ]
 raster = ["dep:tiny-skia"]
 serde = ["dep:serde"]
@@ -26,6 +27,7 @@ fontdb = { workspace = true, optional = true }
 rustybuzz = { workspace = true, optional = true }
 ttf-parser = { workspace = true, optional = true }
 tiny-skia = { workspace = true, optional = true }
+unicode-segmentation = { version = "1.12.0", optional = true }
 typst-layout = { package = "avenger-typst-layout", path = "../vendor/typst-avenger/crates/typst-layout", optional = true }
 typst-library = { package = "avenger-typst-library", path = "../vendor/typst-avenger/crates/typst-library", optional = true }
 typst-syntax = { package = "avenger-typst-syntax", path = "../vendor/typst-avenger/crates/typst-syntax", optional = true }

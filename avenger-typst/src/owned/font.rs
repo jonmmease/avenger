@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::sync::{Arc, LazyLock};
 
 use crate::error::MathTypesetError;
@@ -5,6 +6,7 @@ use crate::fonts::{EmbeddedFontFace, ATKINSON_FACES};
 use crate::paths::MathPathData;
 use crate::pdf::{MathFontResource, MathFontResourceId};
 use crate::style::{FontStyle, FontWeight, PlainTextStyle};
+use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Clone)]
 pub(crate) struct OwnedTextFace {
@@ -59,6 +61,52 @@ pub(crate) struct OwnedShapedText {
     pub(crate) has_missing_glyph: bool,
 }
 
+#[derive(Clone)]
+pub(crate) struct OwnedShapedTextRun {
+    pub(crate) face: OwnedTextFace,
+    #[allow(dead_code)]
+    pub(crate) text: String,
+    #[allow(dead_code)]
+    pub(crate) byte_range: Range<usize>,
+    pub(crate) x: f32,
+    pub(crate) shaped: OwnedShapedText,
+}
+
+#[derive(Clone)]
+pub(crate) struct OwnedSegmentedText {
+    pub(crate) metrics: OwnedShapedMetrics,
+    pub(crate) runs: Vec<OwnedShapedTextRun>,
+    pub(crate) has_missing_glyph: bool,
+}
+
+impl OwnedSegmentedText {
+    pub(crate) fn single(
+        face: OwnedTextFace,
+        text: &str,
+        font_size: f32,
+        features: &[rustybuzz::Feature],
+    ) -> Self {
+        let shaped = face.shaped_text_with_features(text, font_size, features);
+        Self {
+            metrics: shaped.metrics,
+            runs: vec![OwnedShapedTextRun {
+                face,
+                text: text.to_string(),
+                byte_range: 0..text.len(),
+                x: 0.0,
+                shaped,
+            }],
+            has_missing_glyph: false,
+        }
+        .with_derived_missing_glyph()
+    }
+
+    fn with_derived_missing_glyph(mut self) -> Self {
+        self.has_missing_glyph = self.runs.iter().any(|run| run.shaped.has_missing_glyph);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct OwnedFontMetrics {
     pub(crate) ascent: f32,
@@ -89,6 +137,14 @@ impl OwnedTextFace {
         }
 
         Ok(fontdb_face_for_style_and_text(style, text))
+    }
+
+    pub(crate) fn plain_style_uses_embedded_atkinson(style: &PlainTextStyle) -> bool {
+        resolves_to_embedded_atkinson(&style.font_family)
+    }
+
+    pub(crate) fn same_font(&self, other: &Self) -> bool {
+        self.face_index == other.face_index && self.data.as_slice() == other.data.as_slice()
     }
 
     pub(crate) fn default_text_edge_metrics(&self, font_size: f32) -> OwnedFontMetrics {
@@ -132,6 +188,7 @@ impl OwnedTextFace {
         };
         let mut buffer = rustybuzz::UnicodeBuffer::new();
         buffer.push_str(text);
+        buffer.guess_segment_properties();
         let glyphs = rustybuzz::shape(&rusty, features, buffer);
         let scale = font_scale(&face, font_size);
         let mut cursor_x = 0i32;
@@ -262,6 +319,93 @@ impl OwnedTextFace {
     fn parsed_face(&self) -> Option<ttf_parser::Face<'_>> {
         ttf_parser::Face::parse(self.data.as_slice(), self.face_index).ok()
     }
+}
+
+pub(crate) fn shape_plain_text_with_fallback(
+    style: &PlainTextStyle,
+    text: &str,
+    font_size: f32,
+    features: &[rustybuzz::Feature],
+) -> Result<Option<OwnedSegmentedText>, MathTypesetError> {
+    let Some(primary) = OwnedTextFace::for_plain_style(style)?
+        .or_else(|| fontdb_face_for_style_and_text(style, text))
+    else {
+        return Ok(None);
+    };
+
+    if text.is_empty() {
+        return Ok(Some(OwnedSegmentedText::single(
+            primary, text, font_size, features,
+        )));
+    }
+
+    let mut spans = Vec::<OwnedTextSpan>::new();
+    for (start, grapheme) in text.grapheme_indices(true) {
+        let end = start + grapheme.len();
+        let face = if !primary
+            .shaped_text_with_features(grapheme, font_size, features)
+            .has_missing_glyph
+        {
+            primary.clone()
+        } else {
+            fontdb_face_for_style_and_text(style, grapheme).unwrap_or_else(|| primary.clone())
+        };
+
+        if let Some(span) = spans.last_mut() {
+            if span.face.same_font(&face) && span.byte_range.end == start {
+                span.byte_range.end = end;
+                span.text.push_str(grapheme);
+                continue;
+            }
+        }
+
+        spans.push(OwnedTextSpan {
+            face,
+            text: grapheme.to_string(),
+            byte_range: start..end,
+        });
+    }
+
+    let mut x = 0.0f32;
+    let mut ascent = 0.0f32;
+    let mut descent = 0.0f32;
+    let mut runs = Vec::new();
+    for span in spans {
+        let shaped = span
+            .face
+            .shaped_text_with_features(&span.text, font_size, features);
+        ascent = ascent.max(shaped.metrics.ascent);
+        descent = descent.max(shaped.metrics.descent);
+        let width = shaped.metrics.width;
+        runs.push(OwnedShapedTextRun {
+            face: span.face,
+            text: span.text,
+            byte_range: span.byte_range,
+            x,
+            shaped,
+        });
+        x += width;
+    }
+
+    Ok(Some(
+        OwnedSegmentedText {
+            metrics: OwnedShapedMetrics {
+                width: x,
+                ascent,
+                descent,
+                height: ascent + descent,
+            },
+            runs,
+            has_missing_glyph: false,
+        }
+        .with_derived_missing_glyph(),
+    ))
+}
+
+struct OwnedTextSpan {
+    face: OwnedTextFace,
+    text: String,
+    byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -488,6 +632,38 @@ mod tests {
         };
 
         assert!(face.shaped_text("Hello", 12.0).metrics.width > 0.0);
+    }
+
+    #[test]
+    fn segmented_fallback_preserves_grapheme_runs_when_fonts_are_available() {
+        let style = PlainTextStyle {
+            font_family: "Atkinson Hyperlegible Next".to_string(),
+            ..PlainTextStyle::default()
+        };
+
+        let Some(segmented) =
+            shape_plain_text_with_fallback(&style, "Hello 温度", style.font_size, &[]).unwrap()
+        else {
+            return;
+        };
+
+        if segmented.has_missing_glyph {
+            return;
+        }
+
+        assert!(segmented.metrics.width > 0.0);
+        assert!(segmented.runs.len() >= 2);
+        assert_eq!(
+            segmented
+                .runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Hello ", "温度"]
+        );
+        assert_eq!(segmented.runs[0].byte_range, 0..6);
+        assert_eq!(segmented.runs[1].byte_range, 6.."Hello 温度".len());
+        assert!(segmented.runs[1].x > segmented.runs[0].x);
     }
 
     #[test]

@@ -243,6 +243,37 @@ mod tests {
     }
 
     #[test]
+    fn non_atkinson_mixed_script_text_can_segment_fallback_fonts_without_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.text_style.font_family = "serif".to_string();
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let Ok(artifact) = engine.typeset_text_line("Hello 温度", &options) else {
+            return;
+        };
+
+        if artifact
+            .pdf_text
+            .as_ref()
+            .is_none_or(|pdf_text| pdf_text.glyph_runs.len() < 2)
+        {
+            return;
+        }
+
+        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert_eq!(artifact.positioned_runs[0].text, "Hello 温度");
+        assert!(artifact.paths.is_some());
+        assert!(artifact.font_resources.len() >= 2);
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
     fn plain_text_line_with_rtl_text_uses_owned_fallback_or_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();

@@ -16,7 +16,10 @@ use crate::types::{
 use crate::warnings::MathTypesetWarning;
 
 use super::ast::{OwnedLine, OwnedLineNode, OwnedMathSpan, OwnedPlainText, OwnedTextSpanKind};
-use super::font::{OwnedShapedText, OwnedTextFace, OwnedTextScript};
+use super::font::{
+    shape_plain_text_with_fallback, OwnedSegmentedText, OwnedShapedText, OwnedTextFace,
+    OwnedTextScript,
+};
 use super::math::metrics::try_typeset_simple_row_fragment;
 use super::math::syntax::parse_owned_math;
 
@@ -184,6 +187,18 @@ fn try_typeset_plain_text_line(
 
     match node {
         RenderNode::Plain(plain) => {
+            if !OwnedTextFace::plain_style_uses_embedded_atkinson(&options.text_style) {
+                let Some(segmented) = shape_plain_text_with_fallback(
+                    &options.text_style,
+                    &plain.text,
+                    options.text_style.font_size.max(1.0),
+                    &[],
+                )?
+                else {
+                    return Ok(None);
+                };
+                return typeset_segmented_plain_text_line(source, plain, None, options, segmented);
+            }
             let Some(face) =
                 OwnedTextFace::for_plain_style_and_text(&options.text_style, &plain.text)?
             else {
@@ -245,6 +260,63 @@ fn try_typeset_mixed_metrics_text_line(
         match node {
             RenderNode::Plain(plain) => {
                 if plain.text.is_empty() {
+                    continue;
+                }
+                if !OwnedTextFace::plain_style_uses_embedded_atkinson(&options.text_style) {
+                    let Some(segmented) = shape_plain_text_with_fallback(
+                        &options.text_style,
+                        &plain.text,
+                        text_font_size,
+                        &[],
+                    )?
+                    else {
+                        return Ok(None);
+                    };
+                    if segmented.has_missing_glyph
+                        && requires_delegate_for_missing_glyph_text(&plain.text)
+                    {
+                        return Ok(None);
+                    }
+                    let metrics = metrics_from_segmented_text(&segmented, 0.0);
+                    let paths =
+                        (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
+                            plain_path_artifact_from_segmented(
+                                &segmented,
+                                metrics,
+                                metrics.baseline,
+                                text_font_size,
+                                options.text_style.fill,
+                                None,
+                            )
+                        });
+                    let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
+                        let (pdf_text, font_resources) = plain_pdf_text_from_segmented(
+                            &plain.text,
+                            &segmented,
+                            metrics,
+                            metrics.baseline,
+                            text_font_size,
+                            options.text_style.fill,
+                        );
+                        (Some(pdf_text), font_resources)
+                    } else {
+                        (None, Vec::new())
+                    };
+                    width += metrics.width;
+                    ascent = ascent.max(metrics.ascent);
+                    descent = descent.max(metrics.descent);
+                    run_parts.push(MixedRunPart {
+                        kind: PositionedTextLineRunKind::Plain,
+                        text: plain.text.clone(),
+                        byte_range: plain.byte_range.clone(),
+                        text_style: Some(options.text_style.clone()),
+                        baseline_shift: 0.0,
+                        metrics,
+                        paths,
+                        positioned_paths: None,
+                        pdf_text,
+                        font_resources,
+                    });
                     continue;
                 }
                 let Some(text_face) =
@@ -589,6 +661,21 @@ fn shifted_text_metrics(shaped: &OwnedShapedText, baseline_shift: f32) -> Typese
     }
 }
 
+fn metrics_from_segmented_text(
+    segmented: &OwnedSegmentedText,
+    baseline_shift: f32,
+) -> TypesetMetrics {
+    let ascent = (segmented.metrics.ascent - baseline_shift).max(0.0);
+    let descent = (segmented.metrics.descent + baseline_shift).max(0.0);
+    TypesetMetrics {
+        width: segmented.metrics.width,
+        height: ascent + descent,
+        baseline: ascent,
+        ascent,
+        descent,
+    }
+}
+
 fn plain_path_artifact_from_shaped(
     face: &OwnedTextFace,
     shaped: &OwnedShapedText,
@@ -632,6 +719,69 @@ fn plain_path_artifact_from_shaped(
                 })
             }),
     );
+
+    if let Some(
+        kind @ (OwnedTextSpanKind::Underline
+        | OwnedTextSpanKind::Strike
+        | OwnedTextSpanKind::Overline),
+    ) = decoration
+    {
+        if let Some(item) = decoration_path_item(kind, metrics, font_size, fill) {
+            items.push(item);
+        }
+    }
+
+    MathPathArtifact {
+        logical_width: metrics.width,
+        logical_height: metrics.height,
+        items,
+    }
+}
+
+fn plain_path_artifact_from_segmented(
+    segmented: &OwnedSegmentedText,
+    metrics: TypesetMetrics,
+    glyph_baseline_y: f32,
+    font_size: f32,
+    fill: Color,
+    decoration: Option<OwnedTextSpanKind>,
+) -> MathPathArtifact {
+    let mut items = Vec::new();
+    if matches!(decoration, Some(OwnedTextSpanKind::Highlight)) {
+        if let Some(highlight) =
+            decoration_path_item(OwnedTextSpanKind::Highlight, metrics, font_size, fill)
+        {
+            items.push(highlight);
+        }
+    }
+
+    for (run_index, run) in segmented.runs.iter().enumerate() {
+        items.extend(
+            run.shaped
+                .glyphs
+                .iter()
+                .enumerate()
+                .filter_map(|(glyph_index, glyph)| {
+                    let path = run.face.outline_glyph_path(
+                        glyph.glyph_id,
+                        font_size,
+                        run.x + glyph.x,
+                        glyph_baseline_y + glyph.y,
+                    );
+                    (!path.commands.is_empty()).then(|| MathPathItem {
+                        path,
+                        kind: MathPathKind::GlyphOutline {
+                            glyph_run: run_index,
+                            glyph_index,
+                        },
+                        fill: Some(fill),
+                        stroke: None,
+                        transform: MathTransform::IDENTITY,
+                        clip: None,
+                    })
+                }),
+        );
+    }
 
     if let Some(
         kind @ (OwnedTextSpanKind::Underline
@@ -761,6 +911,62 @@ fn plain_pdf_text_from_shaped(
     }
 }
 
+fn plain_pdf_text_from_segmented(
+    semantic_text: &str,
+    segmented: &OwnedSegmentedText,
+    metrics: TypesetMetrics,
+    glyph_baseline_y: f32,
+    font_size: f32,
+    fill: Color,
+) -> (MathPdfTextLayer, Vec<MathFontResource>) {
+    let mut font_resources = Vec::new();
+    let mut glyph_runs = Vec::new();
+
+    for run in &segmented.runs {
+        if run.shaped.glyphs.is_empty() {
+            continue;
+        }
+        let font = intern_font_resource(
+            &mut font_resources,
+            run.face.font_resource(MathFontResourceId(0)),
+        );
+        glyph_runs.push(MathPdfGlyphRun {
+            font,
+            font_size,
+            fill,
+            stroke: None,
+            glyphs: run
+                .shaped
+                .glyphs
+                .iter()
+                .map(|glyph| MathPdfGlyph {
+                    glyph_id: glyph.glyph_id.0,
+                    unicode: glyph.unicode.clone(),
+                    x: 0.0,
+                    y: 0.0,
+                    x_advance: glyph.x_advance,
+                    y_advance: glyph.y_advance,
+                    transform: MathTransform {
+                        dx: run.x + glyph.x,
+                        dy: glyph_baseline_y + glyph.y,
+                        ..MathTransform::IDENTITY
+                    },
+                })
+                .collect(),
+        });
+    }
+
+    (
+        MathPdfTextLayer {
+            logical_width: metrics.width,
+            logical_height: metrics.height,
+            semantic_text: semantic_text.to_string(),
+            glyph_runs,
+        },
+        font_resources,
+    )
+}
+
 fn full_line_path_artifact(parts: &[MixedRunPart], metrics: TypesetMetrics) -> MathPathArtifact {
     let mut items = Vec::new();
     let mut x = 0.0;
@@ -885,6 +1091,22 @@ fn same_font_resource(a: &MathFontResource, b: &MathFontResource) -> bool {
     a.face_index == b.face_index && a.data == b.data
 }
 
+fn intern_font_resource(
+    font_resources: &mut Vec<MathFontResource>,
+    mut resource: MathFontResource,
+) -> MathFontResourceId {
+    if let Some(existing) = font_resources
+        .iter()
+        .find(|existing| same_font_resource(existing, &resource))
+    {
+        return existing.id;
+    }
+    resource.id = MathFontResourceId(font_resources.len() as u32);
+    let id = resource.id;
+    font_resources.push(resource);
+    id
+}
+
 fn typeset_plain_text_line(
     source: &str,
     plain: &OwnedPlainText,
@@ -936,6 +1158,86 @@ fn typeset_plain_text_line(
         path_artifact
             .clone()
             .expect("plain text paths should be built when paths are requested")
+    });
+    #[cfg(feature = "raster")]
+    let raster = match (options.outputs.raster, path_artifact.as_ref()) {
+        (Some(request), Some(paths)) => Some(rasterize_path_artifact(paths, request)?),
+        _ => None,
+    };
+    #[cfg(not(feature = "raster"))]
+    let raster = None;
+    let positioned_paths = options
+        .outputs
+        .positioned_runs
+        .then(|| decoration_path_artifact(decoration?, metrics, font_size, options.text_style.fill))
+        .flatten();
+    let positioned_runs = options.outputs.positioned_runs.then(|| {
+        vec![PositionedTextLineRun {
+            kind: PositionedTextLineRunKind::Plain,
+            text: plain.text.clone(),
+            byte_range: plain.byte_range.clone(),
+            text_style: Some(options.text_style.clone()),
+            x: 0.0,
+            y: metrics.baseline,
+            metrics,
+            paths: positioned_paths,
+            pdf_text: None,
+            font_resources: Vec::new(),
+        }]
+    });
+
+    Ok(Some(TextLineArtifact {
+        source: source.to_string(),
+        metrics,
+        paths,
+        raster,
+        pdf_text,
+        positioned_runs: positioned_runs.unwrap_or_default(),
+        font_resources,
+        warnings: Vec::<MathTypesetWarning>::new(),
+    }))
+}
+
+fn typeset_segmented_plain_text_line(
+    source: &str,
+    plain: &OwnedPlainText,
+    decoration: Option<OwnedTextSpanKind>,
+    options: &TextLineOptions,
+    segmented: OwnedSegmentedText,
+) -> Result<Option<TextLineArtifact>, MathTypesetError> {
+    if segmented.has_missing_glyph && requires_delegate_for_missing_glyph_text(&plain.text) {
+        return Ok(None);
+    }
+
+    let font_size = options.text_style.font_size.max(1.0);
+    let metrics = metrics_from_segmented_text(&segmented, 0.0);
+    let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
+        let (pdf_text, font_resources) = plain_pdf_text_from_segmented(
+            source,
+            &segmented,
+            metrics,
+            metrics.baseline,
+            font_size,
+            options.text_style.fill,
+        );
+        (Some(pdf_text), font_resources)
+    } else {
+        (None, Vec::new())
+    };
+    let path_artifact = (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
+        plain_path_artifact_from_segmented(
+            &segmented,
+            metrics,
+            metrics.baseline,
+            font_size,
+            options.text_style.fill,
+            decoration,
+        )
+    });
+    let paths = options.outputs.paths.then(|| {
+        path_artifact
+            .clone()
+            .expect("segmented plain text paths should be built when paths are requested")
     });
     #[cfg(feature = "raster")]
     let raster = match (options.outputs.raster, path_artifact.as_ref()) {
