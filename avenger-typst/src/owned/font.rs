@@ -32,6 +32,7 @@ pub(crate) struct OwnedShapedGlyph {
 pub(crate) struct OwnedShapedText {
     pub(crate) metrics: OwnedShapedMetrics,
     pub(crate) glyphs: Vec<OwnedShapedGlyph>,
+    pub(crate) has_missing_glyph: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -100,6 +101,7 @@ impl<'a> OwnedTextFace<'a> {
                     height: edge_metrics.height,
                 },
                 glyphs: Vec::new(),
+                has_missing_glyph: true,
             };
         };
         let mut buffer = rustybuzz::UnicodeBuffer::new();
@@ -110,8 +112,10 @@ impl<'a> OwnedTextFace<'a> {
         let mut cursor_y = 0i32;
         let mut advance_width = 0i32;
         let mut shaped_glyphs = Vec::new();
+        let mut has_missing_glyph = false;
 
         for (info, position) in glyphs.glyph_infos().iter().zip(glyphs.glyph_positions()) {
+            has_missing_glyph |= info.glyph_id == 0;
             let x = cursor_x + position.x_offset;
             let y = cursor_y + position.y_offset;
             cursor_x += position.x_advance;
@@ -135,6 +139,7 @@ impl<'a> OwnedTextFace<'a> {
                 height: edge_metrics.height,
             },
             glyphs: shaped_glyphs,
+            has_missing_glyph,
         }
     }
 

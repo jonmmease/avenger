@@ -191,12 +191,28 @@ mod tests {
     }
 
     #[test]
-    fn non_empty_text_line_with_paths_initializes_delegate() {
+    fn plain_text_line_paths_use_owned_fast_path_without_initializing_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
-        let artifact = engine.typeset_text_line("x", &options).unwrap();
+        let artifact = engine.typeset_text_line("Hello", &options).unwrap();
+
+        assert!(artifact.metrics.width > 0.0);
+        assert!(artifact
+            .paths
+            .as_ref()
+            .is_some_and(|paths| paths.items.len() == 5));
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn plain_text_line_with_missing_glyph_paths_initializes_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        let artifact = engine.typeset_text_line("Revenue 🚀", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());

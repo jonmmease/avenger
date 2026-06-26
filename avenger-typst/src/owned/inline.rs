@@ -1,5 +1,5 @@
 use crate::error::MathTypesetError;
-use crate::paths::MathTransform;
+use crate::paths::{MathPathArtifact, MathPathItem, MathPathKind, MathTransform};
 use crate::pdf::{MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer};
 use crate::types::{
     PositionedTextLineRun, PositionedTextLineRunKind, TextLineArtifact, TextLineOptions,
@@ -9,13 +9,14 @@ use crate::warnings::MathTypesetWarning;
 
 use super::ast::{OwnedLine, OwnedLineNode, OwnedPlainText};
 use super::font::OwnedTextFace;
+use super::glyph_path::outline_glyph_path;
 
 pub(crate) fn try_typeset_plain_text_line(
     source: &str,
     line: &OwnedLine,
     options: &TextLineOptions,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
-    if options.outputs.paths || options.outputs.raster.is_some() {
+    if options.outputs.raster.is_some() {
         return Ok(None);
     }
 
@@ -27,7 +28,7 @@ pub(crate) fn try_typeset_plain_text_line(
         return Ok(None);
     };
 
-    Ok(Some(typeset_plain_text_line(source, plain, options, face)))
+    Ok(typeset_plain_text_line(source, plain, options, face))
 }
 
 fn typeset_plain_text_line(
@@ -35,9 +36,12 @@ fn typeset_plain_text_line(
     plain: &OwnedPlainText,
     options: &TextLineOptions,
     face: OwnedTextFace<'_>,
-) -> TextLineArtifact {
+) -> Option<TextLineArtifact> {
     let font_size = options.text_style.font_size.max(1.0);
     let shaped = face.shaped_text(&plain.text, font_size);
+    if shaped.has_missing_glyph {
+        return None;
+    }
     let metrics = TypesetMetrics {
         width: shaped.metrics.width,
         height: shaped.metrics.height,
@@ -82,6 +86,38 @@ fn typeset_plain_text_line(
             .into_iter()
             .collect(),
     });
+    let paths = options.outputs.paths.then(|| {
+        let items = shaped
+            .glyphs
+            .iter()
+            .enumerate()
+            .filter_map(|(glyph_index, glyph)| {
+                let path = outline_glyph_path(
+                    &face.face,
+                    glyph.glyph_id,
+                    font_size,
+                    glyph.x,
+                    metrics.baseline + glyph.y,
+                );
+                (!path.commands.is_empty()).then(|| MathPathItem {
+                    path,
+                    kind: MathPathKind::GlyphOutline {
+                        glyph_run: 0,
+                        glyph_index,
+                    },
+                    fill: Some(options.text_style.fill),
+                    stroke: None,
+                    transform: MathTransform::IDENTITY,
+                    clip: None,
+                })
+            })
+            .collect();
+        MathPathArtifact {
+            logical_width: metrics.width,
+            logical_height: metrics.height,
+            items,
+        }
+    });
     let positioned_runs = options.outputs.positioned_runs.then(|| {
         vec![PositionedTextLineRun {
             kind: PositionedTextLineRunKind::Plain,
@@ -96,16 +132,16 @@ fn typeset_plain_text_line(
         }]
     });
 
-    TextLineArtifact {
+    Some(TextLineArtifact {
         source: source.to_string(),
         metrics,
-        paths: None,
+        paths,
         raster: None,
         pdf_text,
         positioned_runs: positioned_runs.unwrap_or_default(),
         font_resources,
         warnings: Vec::<MathTypesetWarning>::new(),
-    }
+    })
 }
 
 #[cfg(test)]
@@ -141,12 +177,37 @@ mod tests {
     }
 
     #[test]
-    fn plain_line_fast_path_declines_heavy_outputs() {
+    fn plain_line_fast_path_can_emit_paths() {
         let line = parse_owned_line("Hello", &MathDelimiterOptions::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
+        let artifact = try_typeset_plain_text_line("Hello", &line, &options)
+            .unwrap()
+            .expect("plain Atkinson text should use fast path");
+
+        let paths = artifact.paths.expect("plain paths should exist");
+        assert_eq!(paths.items.len(), 5);
+    }
+
+    #[test]
+    fn plain_line_fast_path_declines_raster_until_owned_raster_slice() {
+        let line = parse_owned_line("Hello", &MathDelimiterOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.raster = Some(crate::raster::RasterRequest::default());
+
         assert!(try_typeset_plain_text_line("Hello", &line, &options)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn plain_line_fast_path_declines_missing_glyphs() {
+        let line = parse_owned_line("Revenue 🚀", &MathDelimiterOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        assert!(try_typeset_plain_text_line("Revenue 🚀", &line, &options)
             .unwrap()
             .is_none());
     }
