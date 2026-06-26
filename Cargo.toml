@@ -14,6 +14,7 @@ members = [
     "avenger-resource",
     "avenger-svg",
     "avenger-pdf",
+    "avenger-pdf-krilla",
     "avenger-eventstream",
     "avenger-layout",
     "avenger-app",
