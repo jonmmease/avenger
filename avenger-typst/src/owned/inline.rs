@@ -24,23 +24,81 @@ pub(crate) fn try_typeset_owned_text_line(
     options: &TextLineOptions,
     config: &TypstEngineConfig,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
-    if line
-        .nodes
-        .iter()
-        .any(|node| !matches!(node, OwnedLineNode::Plain(_) | OwnedLineNode::Math(_)))
-    {
+    let Some(line) = line_with_rendered_emoji_aliases(line) else {
         return Ok(None);
-    }
+    };
 
     if line
         .nodes
         .iter()
         .any(|node| matches!(node, OwnedLineNode::Math(_)))
     {
-        return try_typeset_mixed_metrics_text_line(source, line, options, config);
+        return try_typeset_mixed_metrics_text_line(source, &line, options, config);
     }
 
-    try_typeset_plain_text_line(source, line, options)
+    try_typeset_plain_text_line(source, &line, options)
+}
+
+fn line_with_rendered_emoji_aliases(line: &OwnedLine) -> Option<OwnedLine> {
+    let mut nodes = Vec::new();
+    let mut pending_plain = String::new();
+    let mut pending_start = None;
+    let mut pending_end = 0usize;
+
+    let flush_plain = |nodes: &mut Vec<OwnedLineNode>,
+                       pending_plain: &mut String,
+                       pending_start: &mut Option<usize>,
+                       pending_end: usize| {
+        if let Some(start) = pending_start.take() {
+            if !pending_plain.is_empty() {
+                nodes.push(OwnedLineNode::Plain(OwnedPlainText {
+                    text: std::mem::take(pending_plain),
+                    byte_range: start..pending_end,
+                }));
+            }
+        }
+    };
+
+    for node in &line.nodes {
+        match node {
+            OwnedLineNode::Plain(plain) => {
+                if pending_start.is_none() {
+                    pending_start = Some(plain.byte_range.start);
+                }
+                pending_end = plain.byte_range.end;
+                pending_plain.push_str(&plain.text);
+            }
+            OwnedLineNode::Emoji(alias) => {
+                if pending_start.is_none() {
+                    pending_start = Some(alias.byte_range.start);
+                }
+                pending_end = alias.byte_range.end;
+                pending_plain.push_str(alias.emoji);
+            }
+            OwnedLineNode::Math(math) => {
+                flush_plain(
+                    &mut nodes,
+                    &mut pending_plain,
+                    &mut pending_start,
+                    pending_end,
+                );
+                nodes.push(OwnedLineNode::Math(math.clone()));
+            }
+            OwnedLineNode::TextSpan(_) => return None,
+        }
+    }
+
+    flush_plain(
+        &mut nodes,
+        &mut pending_plain,
+        &mut pending_start,
+        pending_end,
+    );
+
+    Some(OwnedLine {
+        source: line.source.clone(),
+        nodes,
+    })
 }
 
 pub(crate) fn try_typeset_plain_text_line(
@@ -103,7 +161,8 @@ fn try_typeset_mixed_metrics_text_line(
                     continue;
                 }
                 let shaped = text_face.shaped_text(&plain.text, text_font_size);
-                if shaped.has_missing_glyph {
+                if shaped.has_missing_glyph && requires_delegate_for_missing_glyph_text(&plain.text)
+                {
                     return Ok(None);
                 }
                 let metrics = TypesetMetrics {
@@ -491,7 +550,7 @@ fn typeset_plain_text_line(
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
     let font_size = options.text_style.font_size.max(1.0);
     let shaped = face.shaped_text(&plain.text, font_size);
-    if shaped.has_missing_glyph {
+    if shaped.has_missing_glyph && requires_delegate_for_missing_glyph_text(&plain.text) {
         return Ok(None);
     }
     let metrics = TypesetMetrics {
@@ -608,6 +667,26 @@ fn typeset_plain_text_line(
     }))
 }
 
+fn requires_delegate_for_missing_glyph_text(text: &str) -> bool {
+    text.chars()
+        .any(|ch| is_rtl_char(ch) || is_zero_width_joiner(ch))
+}
+
+fn is_rtl_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{0590}'..='\u{08FF}'
+            | '\u{FB1D}'..='\u{FDFF}'
+            | '\u{FE70}'..='\u{FEFF}'
+            | '\u{10800}'..='\u{10FFF}'
+            | '\u{1E800}'..='\u{1EFFF}'
+    )
+}
+
+fn is_zero_width_joiner(ch: char) -> bool {
+    ch == '\u{200D}'
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -686,12 +765,37 @@ mod tests {
     }
 
     #[test]
-    fn plain_line_fast_path_declines_missing_glyphs() {
+    fn plain_line_fast_path_can_emit_non_rtl_missing_glyphs() {
         let line = parse_owned_line("Revenue 🚀", &MathDelimiterOptions::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
-        assert!(try_typeset_plain_text_line("Revenue 🚀", &line, &options)
+        let artifact = try_typeset_plain_text_line("Revenue 🚀", &line, &options)
+            .unwrap()
+            .expect("non-RTL missing glyphs should stay on the owned path");
+
+        assert!(artifact.metrics.width > 0.0);
+        assert!(artifact.paths.is_some());
+    }
+
+    #[test]
+    fn plain_line_fast_path_declines_rtl_missing_glyphs() {
+        let line = parse_owned_line("שלום", &MathDelimiterOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        assert!(try_typeset_plain_text_line("שלום", &line, &options)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn plain_line_fast_path_declines_zwj_missing_glyphs() {
+        let line = parse_owned_line("Family 👨‍👩‍👧‍👦", &MathDelimiterOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        assert!(try_typeset_plain_text_line("Family 👨‍👩‍👧‍👦", &line, &options)
             .unwrap()
             .is_none());
     }

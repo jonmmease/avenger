@@ -120,8 +120,7 @@ fn validate_owned_line_math(line: &OwnedLine) -> Result<(), MathTypesetError> {
 
 fn nodes_contain_static_markup(nodes: &[OwnedLineNode]) -> bool {
     nodes.iter().any(|node| match node {
-        OwnedLineNode::Plain(_) | OwnedLineNode::Math(_) => false,
-        OwnedLineNode::Emoji(_) => true,
+        OwnedLineNode::Plain(_) | OwnedLineNode::Math(_) | OwnedLineNode::Emoji(_) => false,
         OwnedLineNode::TextSpan(_) => true,
     })
 }
@@ -207,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn plain_text_line_with_missing_glyph_paths_initializes_delegate() {
+    fn plain_text_line_with_non_rtl_missing_glyph_paths_uses_owned_fast_path() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
@@ -216,7 +215,56 @@ mod tests {
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn plain_text_line_with_rtl_missing_glyph_paths_initializes_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        let artifact = engine.typeset_text_line("שלום", &options).unwrap();
+
+        assert!(artifact.metrics.width > 0.0);
+        assert!(artifact.paths.is_some());
         assert!(engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn plain_text_line_with_zwj_missing_glyph_paths_initializes_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        let artifact = engine.typeset_text_line("Family 👨‍👩‍👧‍👦", &options).unwrap();
+
+        assert!(artifact.metrics.width > 0.0);
+        assert!(artifact.paths.is_some());
+        assert!(engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn named_emoji_alias_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let artifact = engine
+            .typeset_text_line("Revenue #emoji.rocket", &options)
+            .unwrap();
+
+        assert_eq!(artifact.source, "Revenue #emoji.rocket");
+        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert_eq!(artifact.positioned_runs[0].text, "Revenue 🚀");
+        assert!(artifact.paths.is_some());
+        assert!(artifact.pdf_text.is_some());
+        assert!(!engine.delegate.lock().unwrap().is_some());
     }
 
     #[test]

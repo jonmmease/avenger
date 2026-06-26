@@ -276,6 +276,7 @@ Progress:
 - [x] Add owned mixed plain-text/math line metrics and positioned-run output for supported Atkinson + simple-math labels, including escaped-dollar source ranges and math positioned-run path artifacts, while delegating full-line paths/raster/PDF for now.
 - [x] Extend owned mixed plain-text/math lines from metrics/positioned-run output to full-line paths, raster output, PDF text metadata, and font-resource merging.
 - [ ] Extend the owned plain text line path from Atkinson-only shaping to fallback fonts, bidi, emoji, and complex-script segmentation.
+- [x] Keep simple non-RTL, non-ZWJ missing-glyph plain text and static named emoji aliases on the owned path as Atkinson glyph-0/tofu output, matching the current vendored behavior until real fallback fonts, bidi, and color/ZWJ emoji are implemented.
 
 Needed families:
 
@@ -359,7 +360,8 @@ Progress:
 
 - [x] Add an initial owned line AST and static Typst-shaped parser for plain text, `$...$` math spans, exact text commands, nested static text spans, and named emoji aliases.
 - [x] Route the owned parser into the owned backend for non-empty text lines.
-- [ ] Render static text commands and named emoji aliases from the owned AST instead of rejecting them after parse.
+- [x] Render named emoji aliases from the owned AST by lowering them to plain text before owned line layout.
+- [ ] Render static text commands from the owned AST instead of rejecting them after parse.
 - [x] Add an initial owned math AST/parser for the current core label corpus: identifiers, numbers, symbols, shorthands, groups, scripts, primes, slash fractions, whitelisted calls, string arguments, and explicit matrix rejection.
 - [ ] Add the owned math parser for the strict supported subset.
 
