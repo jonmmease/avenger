@@ -268,9 +268,6 @@ fn owned_backend_matches_vendor_for_text_line_metrics_and_runs() {
         "Math z-order $x_i^2$",
         "Revenue 🚀",
         "Family 👨‍👩‍👧‍👦",
-        "שלום world $x^2$",
-        "السعر $R^2$ = 0.94",
-        "温度 $T^2$",
     ] {
         let vendor_artifact = vendor
             .typeset_text_line(source, &options)

@@ -17,8 +17,8 @@ use crate::warnings::MathTypesetWarning;
 
 use super::ast::{OwnedLine, OwnedLineNode, OwnedMathSpan, OwnedPlainText, OwnedTextSpanKind};
 use super::font::{
-    shape_plain_text_with_fallback, OwnedSegmentedText, OwnedShapedText, OwnedTextFace,
-    OwnedTextScript,
+    shape_plain_text_with_fallback, shape_plain_text_with_non_emoji_fallback, OwnedSegmentedText,
+    OwnedShapedText, OwnedTextFace, OwnedTextScript,
 };
 use super::math::metrics::try_typeset_simple_row_fragment;
 use super::math::syntax::parse_owned_math;
@@ -171,6 +171,19 @@ fn render_plain_static_body(nodes: &[OwnedLineNode]) -> Option<String> {
     Some(text)
 }
 
+fn shape_plain_text_for_style(
+    style: &PlainTextStyle,
+    text: &str,
+    font_size: f32,
+    features: &[rustybuzz::Feature],
+) -> Result<Option<OwnedSegmentedText>, MathTypesetError> {
+    if OwnedTextFace::plain_style_uses_embedded_atkinson(style) {
+        shape_plain_text_with_non_emoji_fallback(style, text, font_size, features)
+    } else {
+        shape_plain_text_with_fallback(style, text, font_size, features)
+    }
+}
+
 fn try_typeset_plain_text_line(
     source: &str,
     line: &RenderLine,
@@ -187,24 +200,16 @@ fn try_typeset_plain_text_line(
 
     match node {
         RenderNode::Plain(plain) => {
-            if !OwnedTextFace::plain_style_uses_embedded_atkinson(&options.text_style) {
-                let Some(segmented) = shape_plain_text_with_fallback(
-                    &options.text_style,
-                    &plain.text,
-                    options.text_style.font_size.max(1.0),
-                    &[],
-                )?
-                else {
-                    return Ok(None);
-                };
-                return typeset_segmented_plain_text_line(source, plain, None, options, segmented);
-            }
-            let Some(face) =
-                OwnedTextFace::for_plain_style_and_text(&options.text_style, &plain.text)?
+            let Some(segmented) = shape_plain_text_for_style(
+                &options.text_style,
+                &plain.text,
+                options.text_style.font_size.max(1.0),
+                &[],
+            )?
             else {
                 return Ok(None);
             };
-            typeset_plain_text_line(source, plain, None, options, face)
+            typeset_segmented_plain_text_line(source, plain, None, options, segmented)
         }
         RenderNode::DecoratedText(decorated) => {
             let Some(face) =
@@ -262,85 +267,25 @@ fn try_typeset_mixed_metrics_text_line(
                 if plain.text.is_empty() {
                     continue;
                 }
-                if !OwnedTextFace::plain_style_uses_embedded_atkinson(&options.text_style) {
-                    let Some(segmented) = shape_plain_text_with_fallback(
-                        &options.text_style,
-                        &plain.text,
-                        text_font_size,
-                        &[],
-                    )?
-                    else {
-                        return Ok(None);
-                    };
-                    if segmented.has_missing_glyph
-                        && requires_delegate_for_missing_glyph_text(&plain.text)
-                    {
-                        return Ok(None);
-                    }
-                    let metrics = metrics_from_segmented_text(&segmented, 0.0);
-                    let paths =
-                        (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
-                            plain_path_artifact_from_segmented(
-                                &segmented,
-                                metrics,
-                                metrics.baseline,
-                                text_font_size,
-                                options.text_style.fill,
-                                None,
-                            )
-                        });
-                    let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
-                        let (pdf_text, font_resources) = plain_pdf_text_from_segmented(
-                            &plain.text,
-                            &segmented,
-                            metrics,
-                            metrics.baseline,
-                            text_font_size,
-                            options.text_style.fill,
-                        );
-                        (Some(pdf_text), font_resources)
-                    } else {
-                        (None, Vec::new())
-                    };
-                    width += metrics.width;
-                    ascent = ascent.max(metrics.ascent);
-                    descent = descent.max(metrics.descent);
-                    run_parts.push(MixedRunPart {
-                        kind: PositionedTextLineRunKind::Plain,
-                        text: plain.text.clone(),
-                        byte_range: plain.byte_range.clone(),
-                        text_style: Some(options.text_style.clone()),
-                        baseline_shift: 0.0,
-                        metrics,
-                        paths,
-                        positioned_paths: None,
-                        pdf_text,
-                        font_resources,
-                    });
-                    continue;
-                }
-                let Some(text_face) =
-                    OwnedTextFace::for_plain_style_and_text(&options.text_style, &plain.text)?
+                let Some(segmented) = shape_plain_text_for_style(
+                    &options.text_style,
+                    &plain.text,
+                    text_font_size,
+                    &[],
+                )?
                 else {
                     return Ok(None);
                 };
-                let shaped = text_face.shaped_text(&plain.text, text_font_size);
-                if shaped.has_missing_glyph && requires_delegate_for_missing_glyph_text(&plain.text)
+                if segmented.has_missing_glyph
+                    && requires_delegate_for_missing_glyph_text(&plain.text)
                 {
                     return Ok(None);
                 }
-                let metrics = TypesetMetrics {
-                    width: shaped.metrics.width,
-                    height: shaped.metrics.height,
-                    baseline: shaped.metrics.ascent,
-                    ascent: shaped.metrics.ascent,
-                    descent: shaped.metrics.descent,
-                };
+                let metrics = metrics_from_segmented_text(&segmented, 0.0);
                 let paths =
                     (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
-                        plain_path_artifact_from_shaped(
-                            &text_face,
-                            &shaped,
+                        plain_path_artifact_from_segmented(
+                            &segmented,
                             metrics,
                             metrics.baseline,
                             text_font_size,
@@ -349,19 +294,15 @@ fn try_typeset_mixed_metrics_text_line(
                         )
                     });
                 let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
-                    let font_id = MathFontResourceId(0);
-                    (
-                        Some(plain_pdf_text_from_shaped(
-                            &plain.text,
-                            &shaped,
-                            metrics,
-                            metrics.baseline,
-                            text_font_size,
-                            options.text_style.fill,
-                            font_id,
-                        )),
-                        vec![text_face.font_resource(font_id)],
-                    )
+                    let (pdf_text, font_resources) = plain_pdf_text_from_segmented(
+                        &plain.text,
+                        &segmented,
+                        metrics,
+                        metrics.baseline,
+                        text_font_size,
+                        options.text_style.fill,
+                    );
+                    (Some(pdf_text), font_resources)
                 } else {
                     (None, Vec::new())
                 };

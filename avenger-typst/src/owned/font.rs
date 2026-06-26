@@ -327,6 +327,37 @@ pub(crate) fn shape_plain_text_with_fallback(
     font_size: f32,
     features: &[rustybuzz::Feature],
 ) -> Result<Option<OwnedSegmentedText>, MathTypesetError> {
+    shape_plain_text_with_fallback_mode(style, text, font_size, features, OwnedFallbackMode::Full)
+}
+
+pub(crate) fn shape_plain_text_with_non_emoji_fallback(
+    style: &PlainTextStyle,
+    text: &str,
+    font_size: f32,
+    features: &[rustybuzz::Feature],
+) -> Result<Option<OwnedSegmentedText>, MathTypesetError> {
+    shape_plain_text_with_fallback_mode(
+        style,
+        text,
+        font_size,
+        features,
+        OwnedFallbackMode::PreserveColorEmojiTofu,
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnedFallbackMode {
+    Full,
+    PreserveColorEmojiTofu,
+}
+
+fn shape_plain_text_with_fallback_mode(
+    style: &PlainTextStyle,
+    text: &str,
+    font_size: f32,
+    features: &[rustybuzz::Feature],
+    mode: OwnedFallbackMode,
+) -> Result<Option<OwnedSegmentedText>, MathTypesetError> {
     let Some(primary) = OwnedTextFace::for_plain_style(style)?
         .or_else(|| fontdb_face_for_style_and_text(style, text))
     else {
@@ -345,6 +376,10 @@ pub(crate) fn shape_plain_text_with_fallback(
         let face = if !primary
             .shaped_text_with_features(grapheme, font_size, features)
             .has_missing_glyph
+        {
+            primary.clone()
+        } else if mode == OwnedFallbackMode::PreserveColorEmojiTofu
+            && grapheme_contains_color_emoji(grapheme)
         {
             primary.clone()
         } else {
@@ -406,6 +441,21 @@ struct OwnedTextSpan {
     face: OwnedTextFace,
     text: String,
     byte_range: Range<usize>,
+}
+
+fn grapheme_contains_color_emoji(grapheme: &str) -> bool {
+    grapheme.chars().any(is_color_emoji_char)
+}
+
+fn is_color_emoji_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{1F000}'..='\u{1FAFF}'
+            | '\u{1FC00}'..='\u{1FFFD}'
+            | '\u{2600}'..='\u{27BF}'
+            | '\u{FE0F}'
+            | '\u{200D}'
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
