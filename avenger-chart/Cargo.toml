@@ -16,34 +16,6 @@ svg = [
 ]
 pdf = ["dep:avenger-pdf", "svg"]
 wgpu = ["dep:avenger-wgpu"]
-typst-text = [
-    "wgpu",
-    "svg",
-    "pdf",
-    "typst-math-layout",
-    "avenger-text/typst-text-raster",
-    "avenger-wgpu/typst-text-raster",
-    "avenger-svg/typst-text",
-    "avenger-pdf/typst-text",
-]
-typst-math-layout = ["typst-text-layout"]
-typst-text-layout = ["avenger-text/typst-text"]
-typst-math-raster = [
-    "typst-text-raster",
-]
-typst-text-raster = [
-    "wgpu",
-    "typst-math-layout",
-    "avenger-text/typst-text-raster",
-    "avenger-wgpu/typst-text-raster",
-]
-typst-math-svg-pdf = [
-    "svg",
-    "pdf",
-    "typst-math-layout",
-    "avenger-svg/typst-text",
-    "avenger-pdf/typst-text",
-]
 doc-render = ["wgpu", "image-resources", "avenger-image/reqwest", "avenger-image/svg"]
 renderers = ["svg", "pdf", "wgpu", "doc-render"]
 visual-tests = [

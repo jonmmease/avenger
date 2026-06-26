@@ -13,11 +13,7 @@ use std::{
 };
 
 use avenger_scenegraph::marks::group::Clip;
-#[cfg(feature = "typst-math-layout")]
-use avenger_text::math::TextMarkupMode;
 use avenger_text::measurement::{TextMeasurer, default_text_measurer};
-#[cfg(feature = "typst-math-layout")]
-use avenger_text::typst_text::TypstTextMeasurer;
 use datafusion::{
     arrow::datatypes::DataType, common::ScalarValue, dataframe::DataFrame, prelude::SessionContext,
 };
@@ -307,27 +303,11 @@ pub(crate) struct TextMeasurementRuntime {
 }
 
 impl TextMeasurementRuntime {
-    pub(crate) fn plain() -> Self {
+    pub(crate) fn default() -> Self {
         Self {
             measurer: Arc::new(default_text_measurer()),
-            cache_tag: Arc::from("plain"),
+            cache_tag: Arc::from("typst-text"),
         }
-    }
-
-    #[cfg(feature = "typst-math-layout")]
-    pub(crate) fn from_math_config(
-        text_math: &avenger_text::math::TextMathConfig,
-    ) -> Result<Self, crate::error::AvengerChartError> {
-        if matches!(text_math.mode, TextMarkupMode::Plain) {
-            return Ok(Self::plain());
-        }
-
-        let measurer = TypstTextMeasurer::with_config(text_math.clone())
-            .map_err(|err| crate::error::AvengerChartError::InternalError(err.to_string()))?;
-        Ok(Self {
-            measurer: Arc::new(measurer),
-            cache_tag: Arc::from(format!("typst-text:{text_math:?}")),
-        })
     }
 }
 
@@ -343,7 +323,7 @@ impl EvaluationContext {
             session_context,
             params,
             facet_tree,
-            TextMeasurementRuntime::plain(),
+            TextMeasurementRuntime::default(),
         )
     }
 
@@ -2032,15 +2012,9 @@ mod tests {
         assert_eq!(requests[0].key, ResourceKey::new("tile/0/0/0"));
     }
 
-    #[cfg(feature = "typst-math-layout")]
     #[test]
-    fn typst_text_measurement_runtime_uses_configured_owned_backend() {
-        let text_math = avenger_text::math::TextMathConfig {
-            mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
-            ..Default::default()
-        };
-
-        let runtime = TextMeasurementRuntime::from_math_config(&text_math).unwrap();
+    fn text_measurement_runtime_uses_owned_typst_backend() {
+        let runtime = TextMeasurementRuntime::default();
         let bounds = runtime.measurer.measure_text_bounds(
             &avenger_text::measurement::TextMeasurementConfig {
                 text: "value $x^2$",
@@ -2055,7 +2029,6 @@ mod tests {
 
         assert!(bounds.width > 0.0);
         assert!(bounds.height > 0.0);
-        assert!(runtime.cache_tag.starts_with("typst-text:"));
-        assert!(runtime.cache_tag.contains("TypstMathDelimited"));
+        assert_eq!(runtime.cache_tag.as_ref(), "typst-text");
     }
 }

@@ -1,0 +1,258 @@
+# Always-On Typst Text Engine Plan
+
+## Goal
+
+Make the owned `avenger-typst` text engine the only Avenger text backend. Text
+should always support Typst-style `$...$` math fragments and the owned static
+text markup subset. Remove the old optional math wiring, cosmic-text backend,
+HTML canvas text path, dynamic measurer/rasterizer traits, and explicit
+measurement propagation that existed only to choose between text engines.
+
+## Target Architecture
+
+- [x] `avenger-text` exposes one concrete text engine built on owned
+  `avenger-typst`.
+- [x] Typst text/math behavior is always available; no runtime
+  `TextMathConfig.mode = Plain` switch is needed for normal chart rendering.
+- [x] SVG/PDF use the hybrid Typst extraction path by default:
+  - native SVG `<text>` for plain text runs;
+  - paths for math and decoration shapes.
+- [x] WGPU uses Typst rasterization/text-line atlas entries by default.
+- [ ] Geometry, guides, chart layout, and hit testing use Typst measurement by
+  default without accepting a `&dyn TextMeasurer`.
+- [x] Cosmic-text and HTML canvas measurement/rasterization code are removed
+  from the core workspace.
+
+## Phase 1: Make Typst The Only `avenger-text` Backend
+
+- [x] Update `avenger-text/Cargo.toml`.
+  - [x] Remove `cosmic-text` feature.
+  - [x] Remove `fontdb` feature if it only exists for the old cosmic resolver.
+  - [x] Remove `typst-math`, `typst-math-raster`, `typst-text`, and
+    `typst-text-raster` feature gates.
+  - [x] Make `avenger-typst` a normal dependency with owned text support.
+  - [x] Make raster support a normal dependency if WGPU always needs it, or keep
+    a single `raster` feature only if non-rendering builds genuinely benefit.
+- [x] Remove cosmic-only modules.
+  - [x] Delete `avenger-text/src/measurement/cosmic.rs`.
+  - [x] Delete `avenger-text/src/rasterization/cosmic.rs`.
+  - [x] Delete `avenger-text/src/font_resolver/cosmic.rs`.
+  - [x] Remove cosmic-only helpers/tests from `avenger-text/src/fonts.rs`.
+- [x] Remove HTML canvas text modules if no longer part of the selected text
+  backend.
+  - [x] Delete `avenger-text/src/measurement/html_canvas.rs`.
+  - [x] Delete `avenger-text/src/rasterization/html_canvas.rs`.
+  - [x] Delete `avenger-text/src/font_resolver/wasm.rs` if it only supports the
+    browser text path.
+- [ ] Rename `avenger-text/src/typst_text.rs` to a backend-neutral name such as
+  `engine.rs` or `text_engine.rs`.
+- [ ] Make `avenger-text/src/math.rs` either:
+  - [ ] disappear into the concrete engine config; or
+  - [ ] become a smaller `TextMarkupConfig` with delimiter and error-policy
+    settings only.
+- [x] Ensure default behavior treats `$...$` as active math.
+
+## Phase 2: Replace Text Traits With Concrete APIs
+
+- [ ] Delete the `TextMeasurer` trait.
+- [ ] Delete the `TextRasterizer` trait.
+- [ ] Introduce a concrete `TextEngine` type, or module-level functions if no
+  cache/state ownership is needed.
+- [ ] Provide concrete measurement APIs:
+  - [ ] `TextEngine::measure_bounds(&TextMeasurementConfig) -> TextBounds`
+  - [ ] `TextEngine::font_metrics(&FontMetricsConfig) -> FontMetrics`
+- [ ] Provide concrete raster APIs:
+  - [ ] `TextEngine::rasterize(&TextRasterizationConfig, scale, cached_entries)`
+  - [ ] decide the final cache key/value types for whole-line Typst atlas
+    entries.
+- [ ] Provide concrete path extraction APIs:
+  - [ ] `TextEngine::extract_paths(&TextPathConfig) -> TextPathBuffer`
+  - [ ] keep plain-run metadata needed for native SVG/PDF text embedding.
+- [ ] Keep the existing config/result structs where they remain useful:
+  - [ ] `TextMeasurementConfig`
+  - [ ] `FontMetricsConfig`
+  - [ ] `TextRasterizationConfig`
+  - [ ] `TextPathConfig`
+  - [ ] `TextBounds`
+  - [ ] `TextPathBuffer`
+- [ ] Remove `default_text_measurer()` and `default_rasterizer()`.
+- [ ] Add compatibility wrappers only if required for downstream crates, and
+  mark them as temporary.
+
+## Phase 3: Remove Measurer Propagation From Chart/Layout/Guides
+
+- [ ] Remove `TextMeasurementRuntime` from `avenger-chart/src/render/context.rs`.
+- [ ] Remove `text_measurer` from evaluation/render contexts.
+- [ ] Remove `text_measurement_cache_tag` unless a concrete Typst engine cache
+  still needs an explicit tag.
+- [ ] Replace calls to `eval_ctx.text_measurer().measure_text_bounds(...)` with
+  one concrete Typst measurement path.
+- [ ] Collapse chart helper methods that only pass a measurer through call
+  layers.
+- [ ] Remove `*_with_text_measurer` APIs from `avenger-guides`.
+  - [ ] Axis builders.
+  - [ ] Numeric/band/nested-band guide sizing.
+  - [ ] Colorbar guide sizing.
+  - [ ] Line/symbol legend builders.
+- [ ] Remove `*_with_text_measurer` APIs from chart legend/render construction.
+- [ ] Remove `text_measurer` arguments in facet and container guide code.
+- [ ] Remove pointer-based text-measurer cache keys from container band guide
+  height caches.
+- [ ] Replace those cache keys with either:
+  - [ ] no text-engine identity because there is only one engine; or
+  - [ ] an explicit markup/config version if delimiter/error policy remains
+    configurable.
+
+## Phase 4: Simplify Geometry And Hit Testing
+
+- [ ] Remove `geometry_iter_with_text_measurer`.
+- [ ] Remove `bounding_box_with_text_measurer`.
+- [ ] Make `geometry_iter` and `bounding_box` use Typst measurement internally.
+- [ ] Remove `SceneGraphRTree::from_scene_graph_with_text_measurer`.
+- [ ] Make `SceneGraphRTree::from_scene_graph` Typst-aware by default.
+- [ ] Update chart evaluation to call the default geometry/R-tree constructors.
+- [ ] Update direct scenegraph tests that expected plain/cosmic geometry.
+
+## Phase 5: Simplify Renderers
+
+### WGPU
+
+- [x] Remove cosmic glyph atlas paths from `avenger-wgpu`.
+- [x] Remove `CanvasConfig.text_math`.
+- [x] Make text atlas entries line-based Typst entries by default.
+- [x] Confirm cache keys include source, font family, font size, weight, style,
+  fill, scale, and remaining markup settings.
+- [x] Remove `typst-text-raster` / `typst-math-raster` feature gates from WGPU.
+- [ ] Verify emoji, bidi, complex scripts, and math render through the Typst
+  path.
+
+### SVG
+
+- [x] Remove `SvgRenderOptions.text_math`.
+- [x] Always use Typst path extraction for text marks.
+- [x] Emit native `<text>` for plain runs.
+- [x] Emit paths for math/decorations.
+- [x] Keep font subset collection for native text runs.
+- [ ] Remove non-Typst native text fallback code paths if they only exist for
+  cosmic/plain text.
+- [ ] Keep existing unsupported gradient behavior for labels that contain math
+  paths, or implement a deliberate replacement.
+
+### PDF
+
+- [x] Remove `PdfRenderOptions.text_math`.
+- [x] Continue feeding hybrid SVG into `svg2pdf` with text embedding.
+- [x] Keep math as paths for this stage.
+- [x] Preserve future PDF glyph metadata in Typst path outputs for later direct
+  math font embedding.
+
+## Phase 6: Cargo Features And Public API Cleanup
+
+- [x] Remove chart features:
+  - [x] `typst-text`
+  - [x] `typst-text-layout`
+  - [x] `typst-text-raster`
+  - [x] `typst-math-layout`
+  - [x] `typst-math-raster`
+  - [x] `typst-math-svg-pdf`
+- [x] Remove renderer crate feature flags that only selected the text backend.
+- [x] Remove public `TextMathConfig` from renderer options and chart evaluation
+  options.
+- [ ] Decide whether any public delimiter configuration remains.
+  - [ ] If no, hard-code default Typst-style delimiters.
+  - [ ] If yes, expose a small `TextMarkupConfig` but do not allow disabling the
+    Typst engine.
+- [ ] Update `avenger-chart/src/prelude.rs` if public types are removed or
+  renamed.
+- [ ] Update docs/future-work notes to say Typst text is the default path.
+- [x] Update probes:
+  - [x] Keep `tools/text-render-probe` Typst path as the default current probe.
+  - [x] Remove cosmic comparison or mark it historical.
+  - [x] Keep `tools/text-size-probe` only if it still answers a useful question.
+
+## Phase 7: Tests And Baselines
+
+- [ ] Unit tests:
+  - [ ] `avenger-text` measurement for plain text.
+  - [ ] `avenger-text` measurement for mixed plain/math text.
+  - [ ] `avenger-text` rasterization for whole-line Typst atlas entries.
+  - [ ] `avenger-text` path extraction for native plain runs plus math paths.
+  - [ ] emoji fallback and named `#emoji.face` syntax.
+  - [ ] bidi and complex-script shaping.
+  - [ ] escaped dollars and unmatched delimiter policy.
+  - [ ] unsupported syntax errors for evaluator/document features.
+  - [ ] geometry/R-tree text bounds use Typst by default.
+- [ ] Renderer tests:
+  - [ ] WGPU text renders without cosmic.
+  - [ ] SVG contains native `<text>` for regular runs and paths for math.
+  - [ ] PDF regular text remains extractable/selectable through `svg2pdf`.
+  - [ ] math remains path-only in PDF for this stage.
+- [ ] Visual tests:
+  - [ ] Run all chart baselines, not just `typst_math`, because all labels now
+    use Typst.
+  - [ ] Review title/subtitle spacing.
+  - [ ] Review legends.
+  - [ ] Review axis labels and rotated labels.
+  - [ ] Review Vega-derived baselines for font/line-height changes.
+  - [ ] Read every generated failure/baseline image before accepting.
+  - [ ] Accept baselines only after judging that changes are correct.
+
+## Phase 8: Validation Commands
+
+Run release mode throughout.
+
+- [x] `cargo fmt --all`
+- [ ] `cargo test --release -p avenger-typst --all-features`
+- [x] `cargo test --release -p avenger-text`
+- [ ] `cargo test --release -p avenger-geometry`
+- [ ] `cargo test --release -p avenger-guides`
+- [x] `cargo test --release -p avenger-svg`
+- [x] `cargo test --release -p avenger-pdf`
+- [x] `cargo test --release -p avenger-wgpu`
+- [x] `cargo test --release -p avenger-chart -- --nocapture`
+- [ ] `cargo test --release -p avenger-chart --features visual-tests --test visual_regression -- --nocapture`
+- [ ] Run SVG/PDF sidecar validation used by chart visual tests.
+- [ ] Run wasm build checks for browser targets that previously relied on HTML
+  canvas text measurement.
+- [ ] Run text-size and text-render probes and record current numbers.
+
+## Migration Notes
+
+- [ ] Commit in small slices:
+  - [x] avenger-text backend removal.
+  - [ ] trait removal and concrete API.
+  - [ ] geometry/guides/chart propagation removal.
+  - [x] renderer feature cleanup.
+  - [ ] baseline updates.
+- [ ] Keep each slice compiling in release mode before moving on.
+- [ ] Prefer deleting compatibility layers quickly once all workspace call sites
+  are updated.
+- [ ] Do not preserve cosmic behavior as a hidden fallback.
+- [ ] Do not preserve HTML canvas behavior as a hidden fallback.
+- [ ] If a platform issue appears, fix the owned Typst path for that platform
+  instead of reintroducing backend selection.
+
+## Main Risks
+
+- [ ] Wasm/browser builds may need owned Typst font fallback adjustments after
+  removing HTML canvas text measurement.
+- [ ] All chart baselines can shift because regular text now always goes through
+  Typst shaping/rasterization.
+- [ ] Whole-line atlas entries may affect cache pressure compared with
+  glyph-level cosmic entries.
+- [ ] Removing `TextMeasurer` propagation simplifies correctness but may expose
+  places that relied on custom measurers in tests.
+- [ ] Some downstream code may depend on old `TextMeasurer`/`TextRasterizer`
+  public traits.
+
+## Success Criteria
+
+- [x] Workspace builds without `cosmic-text`.
+- [x] Workspace builds without HTML canvas text measurement/raster modules.
+- [x] `avenger-text` has one concrete text engine.
+- [ ] Chart layout, guides, geometry, WGPU, SVG, and PDF all use the Typst path
+  by default.
+- [ ] No `&dyn TextMeasurer` propagation remains in chart/guides/geometry.
+- [x] No `typst-*` text feature flag is required to get math-capable text.
+- [ ] All release tests pass.
+- [ ] Visual baselines are reviewed and updated intentionally.

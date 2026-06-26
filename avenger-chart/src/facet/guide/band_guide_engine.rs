@@ -1463,7 +1463,7 @@ mod tests {
 
     #[test]
     fn measure_facet_guide_slab_reserves_title_without_measurement_labels() {
-        let text_measurement = TextMeasurementRuntime::plain();
+        let text_measurement = TextMeasurementRuntime::default();
         let empty = measure_facet_guide_slab(
             &[],
             None,

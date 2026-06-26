@@ -11,9 +11,6 @@ crate-type = [ "cdylib", "rlib",]
 
 [features]
 default = [ "rayon",]
-cosmic-text = []
-typst-math-raster = [ "typst-text-raster",]
-typst-text-raster = [ "rayon",]
 deno = []
 
 [dependencies]

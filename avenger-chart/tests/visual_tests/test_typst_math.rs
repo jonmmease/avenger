@@ -1,7 +1,6 @@
 use crate::visual_tests::helpers::assert_visual_match_with_canvas_config_and_sidecars;
 use avenger_chart::plot::CompiledPlot;
 use avenger_chart::prelude::*;
-use avenger_text::math::{TextMarkupMode, TextMathConfig};
 use avenger_wgpu::canvas::CanvasConfig;
 use datafusion::arrow::array::{ArrayRef, Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -10,16 +9,6 @@ use datafusion::prelude::*;
 use std::sync::Arc;
 
 const CATEGORY: &str = "typst_math";
-
-fn typst_math_canvas_config() -> CanvasConfig {
-    CanvasConfig {
-        text_math: TextMathConfig {
-            mode: TextMarkupMode::TypstMathDelimited(Default::default()),
-            ..Default::default()
-        },
-        ..Default::default()
-    }
-}
 
 fn dataframe(
     ctx: &SessionContext,
@@ -175,7 +164,7 @@ async fn assert_typst_math_wgpu(compiled: CompiledPlot, ctx: &SessionContext, ba
         CATEGORY,
         baseline_name,
         0.9999,
-        typst_math_canvas_config(),
+        CanvasConfig::default(),
     )
     .await;
 }

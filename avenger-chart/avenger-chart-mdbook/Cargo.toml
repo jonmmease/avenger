@@ -14,7 +14,7 @@ name = "mdbook-avenger-render"
 path = "src/bin/mdbook-avenger-render.rs"
 
 [dependencies]
-avenger-chart = { path = ".." }
+avenger-chart = { path = "..", features = ["doc-render"] }
 avenger-wgpu = { path = "../../avenger-wgpu" }
 avenger-sample-data = { path = "../../avenger-sample-data" }
 datafusion = { workspace = true }

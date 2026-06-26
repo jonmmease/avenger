@@ -33,15 +33,14 @@ def main() -> int:
         return 2
 
     results_dir = Path(sys.argv[1])
-    cosmic = parse_tree(results_dir / "cosmic-tree.txt")
     typst = parse_tree(results_dir / "typst-tree.txt")
-    unique_typst = sorted(typst - cosmic)
+    typst_packages = sorted(typst)
 
     bloat = json.loads((results_dir / "bloat-typst-crates.json").read_text())
     crate_sizes = {entry["name"]: int(entry["size"]) for entry in bloat["crates"]}
 
     rows = []
-    for package, version in unique_typst:
+    for package, version in typst_packages:
         crate_name = package_to_crate_name(package)
         text_bytes = crate_sizes.get(crate_name, 0)
         note = "" if crate_name in crate_sizes else "not attributed by cargo-bloat"
@@ -49,7 +48,7 @@ def main() -> int:
 
     rows.sort(key=lambda row: (-row[0], row[1], row[2]))
 
-    output = results_dir / "typst-unique-bloat.tsv"
+    output = results_dir / "typst-bloat.tsv"
     with output.open("w") as f:
         f.write("rank\tpackage\tversion\tcrate\ttext_bytes\ttext_kib\tnote\n")
         for rank, (text_bytes, package, version, crate_name, note) in enumerate(rows, 1):
@@ -58,12 +57,12 @@ def main() -> int:
                 f"{text_bytes}\t{text_bytes / 1024:.1f}\t{note}\n"
             )
 
-    total_unique_text = sum(row[0] for row in rows)
+    total_text = sum(row[0] for row in rows)
     attributed_count = sum(1 for row in rows if row[0] > 0)
-    print(f"typst_unique_packages={len(rows)}")
-    print(f"typst_unique_attributed_packages={attributed_count}")
-    print(f"typst_unique_text_bytes={total_unique_text}")
-    print(f"typst_unique_text_kib={total_unique_text / 1024:.1f}")
+    print(f"typst_packages={len(rows)}")
+    print(f"typst_attributed_packages={attributed_count}")
+    print(f"typst_text_bytes={total_text}")
+    print(f"typst_text_kib={total_text / 1024:.1f}")
     print(f"wrote={output}")
     return 0
 

@@ -5,10 +5,6 @@ edition = "2021"
 description = "PDF renderer for Avenger scene graphs"
 license = "BSD-3-Clause"
 
-[features]
-typst-text = ["typst-math"]
-typst-math = ["avenger-svg/typst-text", "avenger-text/typst-text"]
-
 [dependencies]
 thiserror = { workspace = true }
 svg2pdf = { workspace = true }

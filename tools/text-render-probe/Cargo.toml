@@ -6,8 +6,7 @@ publish = false
 
 [features]
 default = []
-cosmic = ["avenger-wgpu/cosmic-text", "avenger-wgpu/rayon"]
-typst = ["avenger-text/typst-text", "avenger-wgpu/typst-text-raster", "avenger-wgpu/rayon"]
+typst = ["avenger-wgpu/rayon"]
 
 [dependencies]
 avenger-color = { path = "../../avenger-color" }

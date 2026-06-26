@@ -6226,7 +6226,7 @@ impl CompiledPlot {
                 Some(guide_overflow_cache),
                 Some(legend_measurement_cache),
                 Some(text_measurement_cache),
-                TextMeasurementRuntime::plain(),
+                TextMeasurementRuntime::default(),
                 None,
                 None,
                 Some(Arc::new(ScopedStoreState::new(self.store_specs.clone()))),

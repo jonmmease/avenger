@@ -741,8 +741,6 @@ fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
     let svg = SvgRenderer::new()
         .with_options(SvgRenderOptions {
             font_resolution: svg_visual_font_resolution(),
-            #[cfg(any(feature = "typst-text", feature = "typst-math-svg-pdf"))]
-            text_math: sidecar_text_math_config(category),
             ..Default::default()
         })
         .render_scene_graph(scene_graph)
@@ -816,8 +814,6 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
     let pdf = SceneGraphPdfRenderer::new()
         .with_options(avenger_pdf::PdfRenderOptions {
             font_resolution: pdf_visual_font_resolution(),
-            #[cfg(any(feature = "typst-text", feature = "typst-math-svg-pdf"))]
-            text_math: sidecar_text_math_config(category),
             ..Default::default()
         })
         .render_scene_graph(scene_graph)
@@ -919,26 +915,7 @@ fn pdf_visual_font_resolution() -> FontResolutionOptions {
     }
 }
 
-#[cfg(feature = "typst-math-layout")]
-fn visual_text_math_config(_category: &str) -> avenger_text::math::TextMathConfig {
-    avenger_text::math::TextMathConfig {
-        mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
-        ..Default::default()
-    }
-}
-
-#[cfg(any(feature = "typst-text", feature = "typst-math-svg-pdf"))]
-fn sidecar_text_math_config(category: &str) -> avenger_text::math::TextMathConfig {
-    visual_text_math_config(category)
-}
-
 fn visual_session_options() -> PlotSessionOptions {
-    #[cfg(feature = "typst-math-layout")]
-    {
-        return PlotSessionOptions::default().text_math(visual_text_math_config(""));
-    }
-
-    #[allow(unreachable_code)]
     PlotSessionOptions::default()
 }
 
@@ -946,22 +923,11 @@ fn visual_canvas_config() -> CanvasConfig {
     visual_canvas_config_from(CanvasConfig::default())
 }
 
-fn visual_canvas_config_from(mut config: CanvasConfig) -> CanvasConfig {
-    #[cfg(feature = "typst-math-layout")]
-    {
-        config.text_math = visual_text_math_config("");
-    }
-
+fn visual_canvas_config_from(config: CanvasConfig) -> CanvasConfig {
     config
 }
 
-fn sidecar_session_options(category: &str) -> PlotSessionOptions {
-    #[cfg(feature = "typst-math-layout")]
-    {
-        return PlotSessionOptions::default().text_math(visual_text_math_config(category));
-    }
-
-    #[allow(unreachable_code)]
+fn sidecar_session_options(_category: &str) -> PlotSessionOptions {
     PlotSessionOptions::default()
 }
 

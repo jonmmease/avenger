@@ -226,6 +226,7 @@ impl CompiledGuide for CompiledIsometricGuide {
         _ctx: &datafusion::prelude::SessionContext,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: Option<&dyn CoordMeasurement>,
+        _text_measurer: &dyn avenger_text::measurement::TextMeasurer,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement {
             top: 0.0,
@@ -249,6 +250,7 @@ impl CompiledGuide for CompiledIsometricGuide {
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
         _render_context: GuideRenderContext<'_>,
+        _text_measurer: &dyn avenger_text::measurement::TextMeasurer,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         Ok(vec![])
     }

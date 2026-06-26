@@ -18,15 +18,8 @@ EOF
     exit 1
 fi
 
-cargo tree -p "$binary_name" --no-default-features --features cosmic \
-    --prefix none --charset ascii >"$results_dir/cosmic-tree.txt"
 cargo tree -p "$binary_name" --no-default-features --features typst \
     --prefix none --charset ascii >"$results_dir/typst-tree.txt"
-
-cargo bloat --release -p "$binary_name" --bin "$binary_name" \
-    --no-default-features --features cosmic \
-    --target-dir "$bloat_target_dir" \
-    --crates -n 0 --message-format json >"$results_dir/bloat-cosmic-crates.json"
 
 cargo bloat --release -p "$binary_name" --bin "$binary_name" \
     --no-default-features --features typst \
@@ -36,6 +29,5 @@ cargo bloat --release -p "$binary_name" --bin "$binary_name" \
 python3 tools/text-render-probe/rank_typst_unique_bloat.py "$results_dir"
 
 echo "Wrote:"
-echo "  $results_dir/bloat-cosmic-crates.json"
 echo "  $results_dir/bloat-typst-crates.json"
-echo "  $results_dir/typst-unique-bloat.tsv"
+echo "  $results_dir/typst-bloat.tsv"

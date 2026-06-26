@@ -7,14 +7,6 @@ edition = "2021"
 serde = ["dep:serde"]
 default = ["serde"]
 
-# Compatibility aliases while higher crates are simplified. These no longer
-# select a backend; the owned Typst engine is the only text backend.
-fontdb = []
-typst-math = []
-typst-math-raster = []
-typst-text = []
-typst-text-raster = []
-
 [dependencies]
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }

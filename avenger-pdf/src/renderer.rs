@@ -93,7 +93,6 @@ impl PdfRenderer {
             font_resolution: self.options.font_resolution.clone(),
             font_embedding: SvgFontEmbedding::None,
             include_metadata: false,
-            text_math: self.options.text_math.clone(),
         }
     }
 
@@ -599,7 +598,6 @@ mod tests {
         };
         let renderer = PdfRenderer::new().with_options(PdfRenderOptions {
             compress: false,
-            text_math: avenger_text::math::TextMathConfig::default(),
             ..Default::default()
         });
 

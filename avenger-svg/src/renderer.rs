@@ -516,7 +516,7 @@ impl SvgRenderer {
     }
 
     fn typst_text_path_extractor(&self) -> Result<Option<TypstTextPathExtractor>, AvengerSvgError> {
-        TypstTextPathExtractor::with_config(self.options.text_math.clone())
+        TypstTextPathExtractor::with_config(avenger_text::math::TextMathConfig::default())
             .map(Some)
             .map_err(|err| AvengerSvgError::Text(err.to_string()))
     }

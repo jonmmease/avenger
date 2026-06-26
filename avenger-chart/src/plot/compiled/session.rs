@@ -1281,39 +1281,14 @@ pub struct EvaluationRequest {
 }
 
 /// Runtime options owned by a reusable `PlotSession`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PlotSessionOptions {
-    /// Optional Typst math markup behavior used by chart layout and measurement.
-    #[cfg(feature = "typst-math-layout")]
-    pub text_math: avenger_text::math::TextMathConfig,
-}
-
-impl Default for PlotSessionOptions {
-    fn default() -> Self {
-        Self {
-            #[cfg(feature = "typst-math-layout")]
-            text_math: avenger_text::math::TextMathConfig::default(),
-        }
-    }
-}
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PlotSessionOptions {}
 
 impl PlotSessionOptions {
-    #[cfg(feature = "typst-math-layout")]
-    pub fn text_math(mut self, text_math: avenger_text::math::TextMathConfig) -> Self {
-        self.text_math = text_math;
-        self
-    }
-
     pub(crate) fn text_measurement_runtime(
         &self,
     ) -> Result<TextMeasurementRuntime, AvengerChartError> {
-        #[cfg(feature = "typst-math-layout")]
-        {
-            return TextMeasurementRuntime::from_math_config(&self.text_math);
-        }
-
-        #[allow(unreachable_code)]
-        Ok(TextMeasurementRuntime::plain())
+        Ok(TextMeasurementRuntime::default())
     }
 }
 
@@ -1582,19 +1557,6 @@ impl PlotSession {
 
     pub fn with_options(mut self, options: PlotSessionOptions) -> Self {
         self.set_options(options);
-        self
-    }
-
-    #[cfg(feature = "typst-math-layout")]
-    pub fn set_text_math(&mut self, text_math: avenger_text::math::TextMathConfig) {
-        let mut options = self.options.clone();
-        options.text_math = text_math;
-        self.set_options(options);
-    }
-
-    #[cfg(feature = "typst-math-layout")]
-    pub fn with_text_math(mut self, text_math: avenger_text::math::TextMathConfig) -> Self {
-        self.set_text_math(text_math);
         self
     }
 

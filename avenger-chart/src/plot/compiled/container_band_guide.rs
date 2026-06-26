@@ -576,7 +576,7 @@ mod tests {
     }
 
     fn render_with_plain_text(config: &ContainerBandGuideRenderConfig) -> Vec<SceneMark> {
-        let text_measurement = TextMeasurementRuntime::plain();
+        let text_measurement = TextMeasurementRuntime::default();
         render_container_band_guide_slab_with_text_measurer(
             config,
             &Theme::light(),
