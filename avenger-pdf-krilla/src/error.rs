@@ -8,6 +8,10 @@ pub enum AvengerPdfError {
     Render(#[from] krilla::error::KrillaError),
     #[error("font embedding error: {0}")]
     Font(String),
+    #[error("unsupported PDF feature: {0}")]
+    UnsupportedFeature(String),
+    #[error("image embedding error: {0}")]
+    Image(String),
     #[error("PDF conversion error: {0}")]
     Conversion(String),
     #[error("I/O error: {0}")]

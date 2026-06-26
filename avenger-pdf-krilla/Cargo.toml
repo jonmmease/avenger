@@ -9,6 +9,9 @@ license = "BSD-3-Clause"
 thiserror = { workspace = true }
 krilla = { version = "0.8.2", default-features = false, features = ["raster-images"] }
 krilla-svg = "0.8.1"
+itertools = { workspace = true }
+lyon_algorithms = { workspace = true }
+lyon_path = { workspace = true }
 
 [dependencies.avenger-scenegraph]
 path = "../avenger-scenegraph"
