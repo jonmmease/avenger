@@ -69,6 +69,7 @@ fn owned_backend_matches_vendor_for_fragment_metrics_and_artifacts() {
         "x(t) = A r^t",
         "R^2 = 0.94",
         "y = sqrt(x) / (1 + x^2)",
+        "x^2 y + x y + (x^2 - n^2)y = 0",
     ] {
         let vendor_artifact = vendor
             .typeset_math_fragment(source, &options)

@@ -690,7 +690,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_text_math_paths_initializes_delegate_until_owned_heavy_output_slice() {
+    fn mixed_text_math_paths_use_owned_fast_path_without_initializing_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
@@ -701,6 +701,59 @@ mod tests {
             .unwrap();
 
         assert!(artifact.paths.is_some());
-        assert!(engine.delegate.lock().unwrap().is_some());
+        assert_eq!(artifact.positioned_runs.len(), 3);
+        assert!(artifact.positioned_runs[1].paths.is_some());
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn mixed_text_math_pdf_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: false,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let artifact = engine
+            .typeset_text_line("Price \\$7, score $R^2$ = 0.94", &options)
+            .unwrap();
+
+        assert_eq!(artifact.font_resources.len(), 2);
+        assert!(artifact
+            .pdf_text
+            .as_ref()
+            .is_some_and(|pdf| !pdf.glyph_runs.is_empty()));
+        assert_eq!(artifact.positioned_runs.len(), 3);
+        assert!(artifact.positioned_runs[0].pdf_text.is_none());
+        assert!(artifact.positioned_runs[1].pdf_text.is_some());
+        assert!(artifact.positioned_runs[2].pdf_text.is_none());
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[cfg(feature = "raster")]
+    #[test]
+    fn mixed_text_math_raster_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: false,
+            raster: Some(crate::raster::RasterRequest { scale: 1.5 }),
+            pdf_text_layer: false,
+            positioned_runs: false,
+        };
+
+        let artifact = engine
+            .typeset_text_line("Price \\$7, score $R^2$ = 0.94", &options)
+            .unwrap();
+
+        assert!(artifact.paths.is_none());
+        assert!(artifact
+            .raster
+            .as_ref()
+            .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0));
+        assert!(!engine.delegate.lock().unwrap().is_some());
     }
 }

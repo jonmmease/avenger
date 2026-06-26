@@ -99,7 +99,8 @@ struct LaidOutMathAtom {
     metrics: TypesetMetrics,
     ink_ascent: f32,
     ink_descent: f32,
-    class: SimpleMathClass,
+    left_class: SimpleMathClass,
+    right_class: SimpleMathClass,
     italic_correction: f32,
     script_kernable: bool,
     glyphs: Vec<LaidOutGlyph>,
@@ -232,19 +233,22 @@ fn layout_simple_nodes_as_atom(
     let mut previous = None;
 
     for mut atom in atoms {
-        let class = resolved_left_class(previous, atom.class);
+        let left_class = resolved_left_class(previous, atom.left_class);
         if let Some(previous) = previous {
-            metrics.width += math_spacing_for_level(previous, class, font_size, script_level);
+            metrics.width += math_spacing_for_level(previous, left_class, font_size, script_level);
         }
-        atom.class = class;
+        if atom.left_class == atom.right_class {
+            atom.right_class = left_class;
+        }
+        atom.left_class = left_class;
         offset_atom(&mut atom, metrics.width, 0.0);
         metrics.width += atom.metrics.width;
         metrics.ascent = metrics.ascent.max(atom.metrics.ascent);
         metrics.descent = metrics.descent.max(atom.metrics.descent);
         metrics.height = metrics.ascent + metrics.descent;
         metrics.baseline = metrics.ascent;
+        previous = Some(atom.right_class);
         laid_out_atoms.push(atom);
-        previous = Some(class);
     }
 
     let ink_ascent = laid_out_atoms
@@ -266,7 +270,8 @@ fn layout_simple_nodes_as_atom(
         metrics,
         ink_ascent,
         ink_descent,
-        class: SimpleMathClass::Normal,
+        left_class: SimpleMathClass::Normal,
+        right_class: SimpleMathClass::Normal,
         italic_correction: 0.0,
         script_kernable: true,
         glyphs,
@@ -442,22 +447,25 @@ fn layout_simple_delimited_nodes(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
-    let mut left = layout_styled_atom_with_class(
-        font,
-        &left.to_string(),
-        font_size,
-        script_style_feature(script_level),
-        SimpleMathClass::Opening,
-    )?;
     let Some(mut body) = layout_simple_nodes_as_atom(font, body_nodes, font_size, script_level)?
     else {
         return Ok(None);
     };
-    let mut right = layout_styled_atom_with_class(
+    let delimiter_target_height = body.ink_ascent + body.ink_descent;
+    let mut left = layout_delimiter_atom_with_target(
         font,
-        &right.to_string(),
+        left,
         font_size,
-        script_style_feature(script_level),
+        script_level,
+        delimiter_target_height,
+        SimpleMathClass::Opening,
+    )?;
+    let mut right = layout_delimiter_atom_with_target(
+        font,
+        right,
+        font_size,
+        script_level,
+        delimiter_target_height,
         SimpleMathClass::Closing,
     )?;
 
@@ -508,13 +516,73 @@ fn layout_simple_delimited_nodes(
         },
         ink_ascent,
         ink_descent,
-        class: SimpleMathClass::Closing,
+        left_class: SimpleMathClass::Opening,
+        right_class: SimpleMathClass::Closing,
         italic_correction: 0.0,
         script_kernable: true,
         glyphs,
         shapes,
         draw_order,
     }))
+}
+
+fn layout_delimiter_atom_with_target(
+    font: &OwnedMathFont,
+    delimiter: char,
+    font_size: f32,
+    script_level: u8,
+    target_height: f32,
+    class: SimpleMathClass,
+) -> Result<LaidOutMathAtom, MathTypesetError> {
+    let mut atom = layout_styled_atom_with_class(
+        font,
+        &delimiter.to_string(),
+        font_size,
+        script_style_feature(script_level),
+        class,
+    )?;
+
+    if target_height <= atom.metrics.height {
+        return Ok(atom);
+    }
+
+    let face = parse_math_face(font, "delimiter variants")?;
+    let Some(glyph) = atom.glyphs.first_mut() else {
+        return Ok(atom);
+    };
+    let Some(construction) = face
+        .tables()
+        .math
+        .and_then(|math| math.variants)
+        .and_then(|variants| variants.vertical_constructions.get(glyph.glyph_id))
+    else {
+        return Ok(atom);
+    };
+
+    let scale = font_size / face.units_per_em() as f32;
+    let target_units = target_height / scale;
+    let base_glyph = glyph.glyph_id;
+    let mut variant_glyph = glyph.glyph_id;
+    let mut variant_advance = None;
+    for variant in construction.variants {
+        if variant.variant_glyph == base_glyph {
+            continue;
+        }
+        variant_glyph = variant.variant_glyph;
+        variant_advance = Some(variant.advance_measurement);
+        if variant.advance_measurement as f32 >= target_units {
+            break;
+        }
+    }
+
+    glyph.glyph_id = variant_glyph;
+    glyph.x_advance = face
+        .glyph_hor_advance(variant_glyph)
+        .map(|advance| advance as f32 * scale)
+        .or_else(|| variant_advance.map(|advance| advance as f32 * scale))
+        .unwrap_or(glyph.x_advance);
+    atom.metrics.width = glyph.x_advance;
+    Ok(atom)
 }
 
 fn delimiter_call_chars(name: &str) -> Option<(char, char)> {
@@ -821,7 +889,8 @@ fn finalize_inline_frame_atom(
         },
         ink_ascent: baseline,
         ink_descent: height - baseline,
-        class: SimpleMathClass::Normal,
+        left_class: SimpleMathClass::Normal,
+        right_class: SimpleMathClass::Normal,
         italic_correction: 0.0,
         script_kernable: true,
         glyphs,
@@ -969,7 +1038,8 @@ fn layout_simple_attach_parts(
         .unwrap_or_default();
     let base_width = base.metrics.width;
     let base_metrics = base.metrics;
-    let base_class = base.class;
+    let base_left_class = base.left_class;
+    let base_right_class = base.right_class;
     let base_italic_correction = base.italic_correction;
     let base_script_kernable = base.script_kernable;
     let width = base_width + top_post_width.max(bottom_post_width);
@@ -1015,7 +1085,8 @@ fn layout_simple_attach_parts(
         },
         ink_ascent,
         ink_descent,
-        class: base_class,
+        left_class: base_left_class,
+        right_class: base_right_class,
         italic_correction: base_italic_correction,
         script_kernable: base_script_kernable,
         glyphs,
@@ -1394,7 +1465,8 @@ fn layout_operator_atom(
         },
         ink_ascent: glyph_ascent.max(0) as f32 * scale,
         ink_descent: glyph_descent.max(0) as f32 * scale,
-        class: SimpleMathClass::Large,
+        left_class: SimpleMathClass::Large,
+        right_class: SimpleMathClass::Large,
         italic_correction: 0.0,
         script_kernable: false,
         glyphs,
@@ -1447,7 +1519,10 @@ fn style_default_math_text(text: &str) -> String {
 }
 
 fn operator_text(operator: &OwnedMathOperator) -> String {
-    operator.operator.clone()
+    match operator.operator.as_str() {
+        "-" => "−".to_string(),
+        _ => operator.operator.clone(),
+    }
 }
 
 fn shorthand_text(shorthand: &OwnedMathShorthand) -> String {
@@ -1705,7 +1780,8 @@ fn layout_styled_atom_with_class(
         },
         ink_ascent: glyph_ascent.max(0) as f32 * scale,
         ink_descent: glyph_descent.max(0) as f32 * scale,
-        class,
+        left_class: class,
+        right_class: class,
         italic_correction: atom_italic_correction,
         script_kernable: true,
         glyphs,

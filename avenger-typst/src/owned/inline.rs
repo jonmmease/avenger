@@ -1,7 +1,9 @@
 use crate::api::TypstEngineConfig;
 use crate::error::MathTypesetError;
 use crate::paths::{MathPathArtifact, MathPathItem, MathPathKind, MathTransform};
-use crate::pdf::{MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer};
+use crate::pdf::{
+    MathFontResource, MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer,
+};
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
 use crate::types::{
@@ -11,7 +13,7 @@ use crate::types::{
 use crate::warnings::MathTypesetWarning;
 
 use super::ast::{OwnedLine, OwnedLineNode, OwnedPlainText};
-use super::font::OwnedTextFace;
+use super::font::{OwnedShapedText, OwnedTextFace};
 use super::glyph_path::outline_glyph_path;
 use super::math::metrics::try_typeset_simple_row_fragment;
 use super::math::syntax::parse_owned_math;
@@ -68,7 +70,8 @@ fn try_typeset_mixed_metrics_text_line(
     options: &TextLineOptions,
     config: &TypstEngineConfig,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
-    if options.outputs.paths || options.outputs.raster.is_some() || options.outputs.pdf_text_layer {
+    #[cfg(not(feature = "raster"))]
+    if options.outputs.raster.is_some() {
         return Ok(None);
     }
 
@@ -79,9 +82,11 @@ fn try_typeset_mixed_metrics_text_line(
     let math_options = MathFragmentOptions {
         style: options.math_style.clone(),
         outputs: MathOutputRequest {
-            paths: options.outputs.positioned_runs,
+            paths: options.outputs.paths
+                || options.outputs.raster.is_some()
+                || options.outputs.positioned_runs,
             raster: None,
-            pdf_text_layer: false,
+            pdf_text_layer: options.outputs.pdf_text_layer,
         },
         syntax: options.syntax,
         limits: options.limits,
@@ -108,6 +113,32 @@ fn try_typeset_mixed_metrics_text_line(
                     ascent: shaped.metrics.ascent,
                     descent: shaped.metrics.descent,
                 };
+                let paths =
+                    (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
+                        plain_path_artifact_from_shaped(
+                            &text_face,
+                            &shaped,
+                            metrics,
+                            text_font_size,
+                            options.text_style.fill,
+                        )
+                    });
+                let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
+                    let font_id = MathFontResourceId(0);
+                    (
+                        Some(plain_pdf_text_from_shaped(
+                            &plain.text,
+                            &shaped,
+                            metrics,
+                            text_font_size,
+                            options.text_style.fill,
+                            font_id,
+                        )),
+                        vec![text_face.font_resource(font_id)],
+                    )
+                } else {
+                    (None, Vec::new())
+                };
                 width += metrics.width;
                 ascent = ascent.max(metrics.ascent);
                 descent = descent.max(metrics.descent);
@@ -115,8 +146,10 @@ fn try_typeset_mixed_metrics_text_line(
                     kind: PositionedTextLineRunKind::Plain,
                     text: plain.text.clone(),
                     byte_range: plain.byte_range.clone(),
-                    width: metrics.width,
-                    paths: None,
+                    metrics,
+                    paths,
+                    pdf_text,
+                    font_resources,
                 });
             }
             OwnedLineNode::Math(span) => {
@@ -132,8 +165,10 @@ fn try_typeset_mixed_metrics_text_line(
                     kind: PositionedTextLineRunKind::Math,
                     text: span.source.clone(),
                     byte_range: span.source_range.clone(),
-                    width: artifact.metrics.width,
+                    metrics: artifact.metrics,
                     paths: artifact.paths,
+                    pdf_text: artifact.pdf_text,
+                    font_resources: artifact.font_resources,
                 });
             }
             OwnedLineNode::TextSpan(_) | OwnedLineNode::Emoji(_) => return Ok(None),
@@ -147,30 +182,74 @@ fn try_typeset_mixed_metrics_text_line(
         ascent,
         descent,
     };
+    let path_artifact = if options.outputs.paths || options.outputs.raster.is_some() {
+        Some(full_line_path_artifact(&run_parts, metrics))
+    } else {
+        None
+    };
+    #[cfg(feature = "raster")]
+    let raster = match (options.outputs.raster, path_artifact.as_ref()) {
+        (Some(request), Some(paths)) => Some(rasterize_path_artifact(paths, request)?),
+        _ => None,
+    };
+    #[cfg(not(feature = "raster"))]
+    let raster = None;
+    let paths = options.outputs.paths.then(|| {
+        path_artifact
+            .clone()
+            .expect("mixed text paths should be built when paths are requested")
+    });
+    let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
+        full_line_pdf_text(source, &run_parts, metrics)
+    } else {
+        (None, Vec::new())
+    };
     let positioned_runs = if options.outputs.positioned_runs {
         let mut x = 0.0;
         run_parts
-            .into_iter()
+            .iter()
             .map(|part| {
-                let mut paths = part.paths;
-                if let Some(paths) = &mut paths {
-                    paths.logical_height = metrics.height;
-                }
+                let dy = metrics.baseline - part.metrics.baseline;
+                let paths = matches!(part.kind, PositionedTextLineRunKind::Math)
+                    .then(|| {
+                        part.paths.clone().map(|paths| {
+                            offset_path_artifact(paths, x, dy, part.metrics.width, metrics.height)
+                        })
+                    })
+                    .flatten();
+                let (pdf_text, font_resources) =
+                    if matches!(part.kind, PositionedTextLineRunKind::Math) {
+                        (
+                            part.pdf_text.clone().map(|pdf_text| {
+                                offset_pdf_text_layer(
+                                    pdf_text,
+                                    x,
+                                    dy,
+                                    metrics.width,
+                                    metrics.height,
+                                    &part.text,
+                                )
+                            }),
+                            part.font_resources.clone(),
+                        )
+                    } else {
+                        (None, Vec::new())
+                    };
                 let run = PositionedTextLineRun {
                     kind: part.kind,
-                    text: part.text,
-                    byte_range: part.byte_range,
+                    text: part.text.clone(),
+                    byte_range: part.byte_range.clone(),
                     x,
                     y: metrics.baseline,
                     metrics: TypesetMetrics {
-                        width: part.width,
+                        width: part.metrics.width,
                         ..metrics
                     },
                     paths,
-                    pdf_text: None,
-                    font_resources: Vec::new(),
+                    pdf_text,
+                    font_resources,
                 };
-                x += part.width;
+                x += part.metrics.width;
                 run
             })
             .collect()
@@ -181,11 +260,11 @@ fn try_typeset_mixed_metrics_text_line(
     Ok(Some(TextLineArtifact {
         source: source.to_string(),
         metrics,
-        paths: None,
-        raster: None,
-        pdf_text: None,
+        paths,
+        raster,
+        pdf_text,
         positioned_runs,
-        font_resources: Vec::new(),
+        font_resources,
         warnings: Vec::<MathTypesetWarning>::new(),
     }))
 }
@@ -194,8 +273,214 @@ struct MixedRunPart {
     kind: PositionedTextLineRunKind,
     text: String,
     byte_range: std::ops::Range<usize>,
-    width: f32,
+    metrics: TypesetMetrics,
     paths: Option<MathPathArtifact>,
+    pdf_text: Option<MathPdfTextLayer>,
+    font_resources: Vec<MathFontResource>,
+}
+
+fn plain_path_artifact_from_shaped(
+    face: &OwnedTextFace<'_>,
+    shaped: &OwnedShapedText,
+    metrics: TypesetMetrics,
+    font_size: f32,
+    fill: crate::style::Color,
+) -> MathPathArtifact {
+    let items = shaped
+        .glyphs
+        .iter()
+        .enumerate()
+        .filter_map(|(glyph_index, glyph)| {
+            let path = outline_glyph_path(
+                &face.face,
+                glyph.glyph_id,
+                font_size,
+                glyph.x,
+                metrics.baseline + glyph.y,
+            );
+            (!path.commands.is_empty()).then(|| MathPathItem {
+                path,
+                kind: MathPathKind::GlyphOutline {
+                    glyph_run: 0,
+                    glyph_index,
+                },
+                fill: Some(fill),
+                stroke: None,
+                transform: MathTransform::IDENTITY,
+                clip: None,
+            })
+        })
+        .collect();
+    MathPathArtifact {
+        logical_width: metrics.width,
+        logical_height: metrics.height,
+        items,
+    }
+}
+
+fn plain_pdf_text_from_shaped(
+    semantic_text: &str,
+    shaped: &OwnedShapedText,
+    metrics: TypesetMetrics,
+    font_size: f32,
+    fill: crate::style::Color,
+    font_id: MathFontResourceId,
+) -> MathPdfTextLayer {
+    MathPdfTextLayer {
+        logical_width: metrics.width,
+        logical_height: metrics.height,
+        semantic_text: semantic_text.to_string(),
+        glyph_runs: (!shaped.glyphs.is_empty())
+            .then(|| MathPdfGlyphRun {
+                font: font_id,
+                font_size,
+                fill,
+                stroke: None,
+                glyphs: shaped
+                    .glyphs
+                    .iter()
+                    .map(|glyph| MathPdfGlyph {
+                        glyph_id: glyph.glyph_id.0,
+                        unicode: glyph.unicode.clone(),
+                        x: 0.0,
+                        y: 0.0,
+                        x_advance: glyph.x_advance,
+                        y_advance: glyph.y_advance,
+                        transform: MathTransform {
+                            dx: glyph.x,
+                            dy: metrics.baseline + glyph.y,
+                            ..MathTransform::IDENTITY
+                        },
+                    })
+                    .collect(),
+            })
+            .into_iter()
+            .collect(),
+    }
+}
+
+fn full_line_path_artifact(parts: &[MixedRunPart], metrics: TypesetMetrics) -> MathPathArtifact {
+    let mut items = Vec::new();
+    let mut x = 0.0;
+    for part in parts {
+        let dy = metrics.baseline - part.metrics.baseline;
+        if let Some(paths) = &part.paths {
+            let paths = offset_path_artifact(paths.clone(), x, dy, metrics.width, metrics.height);
+            items.extend(paths.items);
+        }
+        x += part.metrics.width;
+    }
+
+    MathPathArtifact {
+        logical_width: metrics.width,
+        logical_height: metrics.height,
+        items,
+    }
+}
+
+fn offset_path_artifact(
+    mut paths: MathPathArtifact,
+    dx: f32,
+    dy: f32,
+    logical_width: f32,
+    logical_height: f32,
+) -> MathPathArtifact {
+    paths.logical_width = logical_width;
+    paths.logical_height = logical_height;
+    for item in &mut paths.items {
+        item.transform.dx += dx;
+        item.transform.dy += dy;
+    }
+    paths
+}
+
+fn full_line_pdf_text(
+    source: &str,
+    parts: &[MixedRunPart],
+    metrics: TypesetMetrics,
+) -> (Option<MathPdfTextLayer>, Vec<MathFontResource>) {
+    let mut glyph_runs = Vec::new();
+    let mut font_resources = Vec::new();
+    let mut x = 0.0;
+
+    for part in parts {
+        let dy = metrics.baseline - part.metrics.baseline;
+        if let Some(pdf_text) = &part.pdf_text {
+            let mut pdf_text = offset_pdf_text_layer(
+                pdf_text.clone(),
+                x,
+                dy,
+                metrics.width,
+                metrics.height,
+                source,
+            );
+            remap_pdf_fonts(&mut pdf_text, &part.font_resources, &mut font_resources);
+            glyph_runs.extend(pdf_text.glyph_runs);
+        }
+        x += part.metrics.width;
+    }
+
+    (
+        Some(MathPdfTextLayer {
+            logical_width: metrics.width,
+            logical_height: metrics.height,
+            semantic_text: source.to_string(),
+            glyph_runs,
+        }),
+        font_resources,
+    )
+}
+
+fn offset_pdf_text_layer(
+    mut pdf_text: MathPdfTextLayer,
+    dx: f32,
+    dy: f32,
+    logical_width: f32,
+    logical_height: f32,
+    semantic_text: &str,
+) -> MathPdfTextLayer {
+    pdf_text.logical_width = logical_width;
+    pdf_text.logical_height = logical_height;
+    pdf_text.semantic_text = semantic_text.to_string();
+    for run in &mut pdf_text.glyph_runs {
+        for glyph in &mut run.glyphs {
+            glyph.transform.dx += dx;
+            glyph.transform.dy += dy;
+        }
+    }
+    pdf_text
+}
+
+fn remap_pdf_fonts(
+    pdf_text: &mut MathPdfTextLayer,
+    source_resources: &[MathFontResource],
+    target_resources: &mut Vec<MathFontResource>,
+) {
+    let mut id_map = Vec::new();
+    for resource in source_resources {
+        let target_id = target_resources
+            .iter()
+            .find(|existing| same_font_resource(existing, resource))
+            .map(|existing| existing.id)
+            .unwrap_or_else(|| {
+                let mut resource = resource.clone();
+                resource.id = MathFontResourceId(target_resources.len() as u32);
+                let id = resource.id;
+                target_resources.push(resource);
+                id
+            });
+        id_map.push((resource.id, target_id));
+    }
+
+    for run in &mut pdf_text.glyph_runs {
+        if let Some((_, target_id)) = id_map.iter().find(|(source_id, _)| *source_id == run.font) {
+            run.font = *target_id;
+        }
+    }
+}
+
+fn same_font_resource(a: &MathFontResource, b: &MathFontResource) -> bool {
+    a.face_index == b.face_index && a.data == b.data
 }
 
 fn typeset_plain_text_line(
