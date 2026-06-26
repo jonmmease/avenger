@@ -426,9 +426,9 @@ impl SvgRenderer {
                 {
                     for run in &buffer.plain_runs {
                         document.fonts.collect_text(
-                            &output_font,
-                            font_weight,
-                            font_style,
+                            &run.font,
+                            &run.font_weight,
+                            &run.font_style,
                             &run.text,
                             &self.options.font_resolution,
                         )?;
@@ -594,10 +594,10 @@ impl SvgRenderer {
         baseline: &avenger_text::types::TextBaseline,
         angle: f32,
         color: &ColorOrGradient,
-        font: &str,
-        font_size: f32,
-        font_weight: &FontWeight,
-        font_style: &FontStyle,
+        _font: &str,
+        _font_size: f32,
+        _font_weight: &FontWeight,
+        _font_style: &FontStyle,
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
         let [x, text_top] = buffer.bounds.calculate_origin(label, align, baseline);
@@ -629,10 +629,10 @@ impl SvgRenderer {
                         x + run.x,
                         text_top + run.y_offset + run.bounds.ascent,
                         color,
-                        font,
-                        font_size,
-                        font_weight,
-                        font_style,
+                        &run.font,
+                        run.font_size,
+                        &run.font_weight,
+                        &run.font_style,
                     )?;
                 }
                 TextPathDrawItem::PathItem(index) => {
@@ -2029,6 +2029,51 @@ mod tests {
         assert!(!math_svg.contains("$v^2$"));
         assert!(math_svg.contains(r##"fill="#0040ff""##));
         assert!(usvg::Tree::from_str(&math_svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[cfg(feature = "typst-math")]
+    #[test]
+    fn renders_typst_static_sub_super_as_smaller_native_svg_text() {
+        let scene_graph = SceneGraph {
+            width: 120.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("H#sub[2]O #super[*]".to_string()),
+                x: ScalarOrArray::new_scalar(6.0),
+                y: ScalarOrArray::new_scalar(18.0),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let math_config = avenger_text::math::TextMathConfig {
+            mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
+            typst_backend: avenger_text::math::TypstEngineBackend::OwnedTypst,
+            ..Default::default()
+        };
+
+        let svg = SvgRenderer::new()
+            .with_options(SvgRenderOptions {
+                text_math: math_config,
+                ..Default::default()
+            })
+            .render_scene_graph(&scene_graph)
+            .unwrap();
+
+        assert!(svg.contains(">H</text>"));
+        assert!(svg.contains(">2</text>"));
+        assert!(svg.contains(">O </text>"));
+        assert!(svg.contains(">*</text>"));
+        assert!(svg.contains(r#"font-size="12""#));
+        assert!(svg
+            .lines()
+            .any(|line| line.contains(">2</text>") && !line.contains(r#"font-size="12""#)));
+        assert!(svg
+            .lines()
+            .any(|line| line.contains(">*</text>") && !line.contains(r#"font-size="12""#)));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 
     #[test]

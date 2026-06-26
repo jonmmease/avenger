@@ -128,6 +128,7 @@ impl MockMathEngine {
                 kind: PositionedTextLineRunKind::Plain,
                 text: source.to_string(),
                 byte_range: 0..source.len(),
+                text_style: Some(options.text_style.clone()),
                 x: 0.0,
                 y: metrics.baseline,
                 metrics,

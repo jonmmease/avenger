@@ -207,6 +207,9 @@ pub struct PositionedTextLineRun {
     pub kind: PositionedTextLineRunKind,
     pub text: String,
     pub byte_range: std::ops::Range<usize>,
+    /// Style for native plain-text output. Math runs leave this empty because
+    /// their SVG/PDF representation is carried by paths/PDF glyph metadata.
+    pub text_style: Option<PlainTextStyle>,
     /// X coordinate of the run start in the tight Typst line frame.
     pub x: f32,
     /// Baseline coordinate for plain text in the tight Typst line frame.

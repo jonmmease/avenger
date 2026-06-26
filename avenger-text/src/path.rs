@@ -86,6 +86,10 @@ pub struct TextPathItem {
 pub struct PlainTextPathRun {
     pub text: String,
     pub byte_range: Range<usize>,
+    pub font: String,
+    pub font_size: f32,
+    pub font_weight: FontWeight,
+    pub font_style: FontStyle,
     pub x: f32,
     pub y_offset: f32,
     pub bounds: TextBounds,
@@ -255,6 +259,10 @@ fn extract_cosmic_paths_with_resources(
     output.plain_runs.push(PlainTextPathRun {
         text: text.clone(),
         byte_range: 0..config.text.len(),
+        font: config.font.clone(),
+        font_size: config.font_size,
+        font_weight: *config.font_weight,
+        font_style: *config.font_style,
         x: 0.0,
         y_offset: 0.0,
         bounds: bounds.clone(),
@@ -422,6 +430,26 @@ impl TextPathExtractor for TypstTextPathExtractor {
                     output.plain_runs.push(PlainTextPathRun {
                         text: run.text,
                         byte_range: run.byte_range,
+                        font: run
+                            .text_style
+                            .as_ref()
+                            .map(|style| style.font_family.clone())
+                            .unwrap_or_else(|| config.font.clone()),
+                        font_size: run
+                            .text_style
+                            .as_ref()
+                            .map(|style| style.font_size)
+                            .unwrap_or(config.font_size),
+                        font_weight: run
+                            .text_style
+                            .as_ref()
+                            .map(|style| typst_font_weight(&style.font_weight))
+                            .unwrap_or(*config.font_weight),
+                        font_style: run
+                            .text_style
+                            .as_ref()
+                            .map(|style| typst_font_style(style.font_style))
+                            .unwrap_or(*config.font_style),
                         x: run.x,
                         y_offset: y_offset + run.y - run_bounds.ascent,
                         bounds: run_bounds,
@@ -548,6 +576,25 @@ fn rgba_from_typst_color(color: avenger_typst::Color) -> [f32; 4] {
     [color.r, color.g, color.b, color.a]
 }
 
+#[cfg(feature = "typst-text")]
+fn typst_font_weight(weight: &avenger_typst::FontWeight) -> FontWeight {
+    match weight {
+        avenger_typst::FontWeight::Normal => {
+            FontWeight::Name(crate::types::FontWeightNameSpec::Normal)
+        }
+        avenger_typst::FontWeight::Bold => FontWeight::Name(crate::types::FontWeightNameSpec::Bold),
+        avenger_typst::FontWeight::Number(value) => FontWeight::Number(*value as f32),
+    }
+}
+
+#[cfg(feature = "typst-text")]
+fn typst_font_style(style: avenger_typst::FontStyle) -> FontStyle {
+    match style {
+        avenger_typst::FontStyle::Normal => FontStyle::Normal,
+        avenger_typst::FontStyle::Italic | avenger_typst::FontStyle::Oblique => FontStyle::Italic,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -643,5 +690,28 @@ mod tests {
             buffer.draw_items.as_slice(),
             [TextPathDrawItem::PlainRun(0), TextPathDrawItem::PathItem(0)]
         ));
+    }
+
+    #[cfg(feature = "typst-text")]
+    #[test]
+    fn typst_text_extractor_returns_script_runs_with_smaller_style() {
+        let typst = avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
+            backend: avenger_typst::TypstEngineBackend::OwnedTypst,
+            ..Default::default()
+        })
+        .unwrap();
+        let extractor = TypstTextPathExtractor::new(typst, math_config());
+        let text = "H#sub[2]O #super[*]".to_string();
+        let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
+
+        assert_eq!(buffer.plain_runs.len(), 4);
+        assert_eq!(buffer.plain_runs[0].text, "H");
+        assert_eq!(buffer.plain_runs[1].text, "2");
+        assert_eq!(buffer.plain_runs[2].text, "O ");
+        assert_eq!(buffer.plain_runs[3].text, "*");
+        assert!(buffer.plain_runs[1].font_size < buffer.plain_runs[0].font_size);
+        assert!(buffer.plain_runs[3].font_size < buffer.plain_runs[0].font_size);
+        assert!(buffer.plain_runs[1].y_offset > buffer.plain_runs[0].y_offset);
+        assert!(buffer.plain_runs[3].y_offset < buffer.plain_runs[0].y_offset);
     }
 }

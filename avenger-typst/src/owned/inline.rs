@@ -8,6 +8,7 @@ use crate::pdf::{
 };
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
+use crate::style::{Color, PlainTextStyle};
 use crate::types::{
     MathFragmentOptions, MathOutputRequest, PositionedTextLineRun, PositionedTextLineRunKind,
     TextLineArtifact, TextLineOptions, TypesetMetrics,
@@ -15,7 +16,7 @@ use crate::types::{
 use crate::warnings::MathTypesetWarning;
 
 use super::ast::{OwnedLine, OwnedLineNode, OwnedMathSpan, OwnedPlainText, OwnedTextSpanKind};
-use super::font::{OwnedShapedText, OwnedTextFace};
+use super::font::{OwnedShapedText, OwnedTextFace, OwnedTextScript};
 use super::glyph_path::outline_glyph_path;
 use super::math::metrics::try_typeset_simple_row_fragment;
 use super::math::syntax::parse_owned_math;
@@ -30,10 +31,16 @@ pub(crate) fn try_typeset_owned_text_line(
         return Ok(None);
     };
 
-    if line
-        .nodes
-        .iter()
-        .any(|node| matches!(node, RenderNode::Math(_)))
+    if line.nodes.iter().any(|node| {
+        matches!(node, RenderNode::Math(_))
+            || matches!(
+                node,
+                RenderNode::DecoratedText(OwnedDecoratedText {
+                    kind: OwnedTextSpanKind::Subscript | OwnedTextSpanKind::Superscript,
+                    ..
+                })
+            )
+    }) || line.nodes.len() > 1
     {
         return try_typeset_mixed_metrics_text_line(source, &line, options, config);
     }
@@ -144,8 +151,9 @@ fn supported_decoration_kind(kind: OwnedTextSpanKind) -> Option<OwnedTextSpanKin
         OwnedTextSpanKind::Underline
         | OwnedTextSpanKind::Strike
         | OwnedTextSpanKind::Overline
+        | OwnedTextSpanKind::Subscript
+        | OwnedTextSpanKind::Superscript
         | OwnedTextSpanKind::Highlight => Some(kind),
-        OwnedTextSpanKind::Subscript | OwnedTextSpanKind::Superscript => None,
     }
 }
 
@@ -251,6 +259,7 @@ fn try_typeset_mixed_metrics_text_line(
                             &text_face,
                             &shaped,
                             metrics,
+                            metrics.baseline,
                             text_font_size,
                             options.text_style.fill,
                             None,
@@ -263,6 +272,7 @@ fn try_typeset_mixed_metrics_text_line(
                             &plain.text,
                             &shaped,
                             metrics,
+                            metrics.baseline,
                             text_font_size,
                             options.text_style.fill,
                             font_id,
@@ -279,6 +289,8 @@ fn try_typeset_mixed_metrics_text_line(
                     kind: PositionedTextLineRunKind::Plain,
                     text: plain.text.clone(),
                     byte_range: plain.byte_range.clone(),
+                    text_style: Some(options.text_style.clone()),
+                    baseline_shift: 0.0,
                     metrics,
                     paths,
                     positioned_paths: None,
@@ -290,26 +302,30 @@ fn try_typeset_mixed_metrics_text_line(
                 if decorated.text.is_empty() {
                     continue;
                 }
-                let shaped = text_face.shaped_text(&decorated.text, text_font_size);
+                let script = text_script_for_kind(decorated.kind);
+                let run_style =
+                    text_style_for_decorated_run(&text_face, &options.text_style, decorated.kind);
+                let run_font_size = run_style.font_size.max(1.0);
+                let baseline_shift = script
+                    .map(|script| text_face.script_baseline_shift(text_font_size, script))
+                    .unwrap_or(0.0);
+                let shaped =
+                    shape_text_for_static_run(&text_face, &decorated.text, run_font_size, script);
                 if shaped.has_missing_glyph
                     && requires_delegate_for_missing_glyph_text(&decorated.text)
                 {
                     return Ok(None);
                 }
-                let metrics = TypesetMetrics {
-                    width: shaped.metrics.width,
-                    height: shaped.metrics.height,
-                    baseline: shaped.metrics.ascent,
-                    ascent: shaped.metrics.ascent,
-                    descent: shaped.metrics.descent,
-                };
+                let metrics = shifted_text_metrics(&shaped, baseline_shift);
+                let glyph_baseline_y = metrics.baseline + baseline_shift;
                 let paths =
                     (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
                         plain_path_artifact_from_shaped(
                             &text_face,
                             &shaped,
                             metrics,
-                            text_font_size,
+                            glyph_baseline_y,
+                            run_font_size,
                             options.text_style.fill,
                             Some(decorated.kind),
                         )
@@ -321,7 +337,7 @@ fn try_typeset_mixed_metrics_text_line(
                         decoration_path_artifact(
                             decorated.kind,
                             metrics,
-                            text_font_size,
+                            run_font_size,
                             options.text_style.fill,
                         )
                     })
@@ -333,7 +349,8 @@ fn try_typeset_mixed_metrics_text_line(
                             &decorated.text,
                             &shaped,
                             metrics,
-                            text_font_size,
+                            glyph_baseline_y,
+                            run_font_size,
                             options.text_style.fill,
                             font_id,
                         )),
@@ -349,6 +366,8 @@ fn try_typeset_mixed_metrics_text_line(
                     kind: PositionedTextLineRunKind::Plain,
                     text: decorated.text.clone(),
                     byte_range: decorated.byte_range.clone(),
+                    text_style: Some(run_style),
+                    baseline_shift,
                     metrics,
                     paths,
                     positioned_paths,
@@ -369,6 +388,8 @@ fn try_typeset_mixed_metrics_text_line(
                     kind: PositionedTextLineRunKind::Math,
                     text: span.source.clone(),
                     byte_range: span.source_range.clone(),
+                    text_style: None,
+                    baseline_shift: 0.0,
                     metrics: artifact.metrics,
                     positioned_paths: artifact.paths.clone(),
                     paths: artifact.paths,
@@ -439,8 +460,9 @@ fn try_typeset_mixed_metrics_text_line(
                     kind: part.kind,
                     text: part.text.clone(),
                     byte_range: part.byte_range.clone(),
+                    text_style: part.text_style.clone(),
                     x,
-                    y: metrics.baseline,
+                    y: metrics.baseline + part.baseline_shift,
                     metrics: TypesetMetrics {
                         width: part.metrics.width,
                         ..metrics
@@ -473,6 +495,8 @@ struct MixedRunPart {
     kind: PositionedTextLineRunKind,
     text: String,
     byte_range: std::ops::Range<usize>,
+    text_style: Option<PlainTextStyle>,
+    baseline_shift: f32,
     metrics: TypesetMetrics,
     paths: Option<MathPathArtifact>,
     positioned_paths: Option<MathPathArtifact>,
@@ -480,12 +504,82 @@ struct MixedRunPart {
     font_resources: Vec<MathFontResource>,
 }
 
+fn text_script_for_kind(kind: OwnedTextSpanKind) -> Option<OwnedTextScript> {
+    match kind {
+        OwnedTextSpanKind::Subscript => Some(OwnedTextScript::Subscript),
+        OwnedTextSpanKind::Superscript => Some(OwnedTextScript::Superscript),
+        OwnedTextSpanKind::Underline
+        | OwnedTextSpanKind::Strike
+        | OwnedTextSpanKind::Overline
+        | OwnedTextSpanKind::Highlight => None,
+    }
+}
+
+fn text_style_for_decorated_run(
+    face: &OwnedTextFace<'_>,
+    style: &PlainTextStyle,
+    kind: OwnedTextSpanKind,
+) -> PlainTextStyle {
+    text_script_for_kind(kind)
+        .map(|script| face.script_style(style, script))
+        .unwrap_or_else(|| style.clone())
+}
+
+fn shape_text_for_static_run(
+    face: &OwnedTextFace<'_>,
+    text: &str,
+    font_size: f32,
+    script: Option<OwnedTextScript>,
+) -> OwnedShapedText {
+    let Some(script) = script else {
+        return face.shaped_text(text, font_size);
+    };
+    let tag = match script {
+        OwnedTextScript::Subscript => b"subs",
+        OwnedTextScript::Superscript => b"sups",
+    };
+    let features = [rustybuzz::Feature::new(
+        rustybuzz::ttf_parser::Tag::from_bytes(tag),
+        1,
+        ..,
+    )];
+    let shaped_with_feature = face.shaped_text_with_features(text, font_size, &features);
+    let shaped_without_feature = face.shaped_text(text, font_size);
+
+    if shaped_feature_changed_glyphs(&shaped_with_feature, &shaped_without_feature) {
+        shaped_with_feature
+    } else {
+        shaped_without_feature
+    }
+}
+
+fn shaped_feature_changed_glyphs(a: &OwnedShapedText, b: &OwnedShapedText) -> bool {
+    a.glyphs.len() == b.glyphs.len()
+        && a.glyphs
+            .iter()
+            .zip(&b.glyphs)
+            .any(|(a, b)| a.glyph_id != b.glyph_id)
+}
+
+fn shifted_text_metrics(shaped: &OwnedShapedText, baseline_shift: f32) -> TypesetMetrics {
+    let ascent = (shaped.metrics.ascent - baseline_shift).max(0.0);
+    let descent = (shaped.metrics.descent + baseline_shift).max(0.0);
+    TypesetMetrics {
+        width: shaped.metrics.width,
+        height: ascent + descent,
+        baseline: ascent,
+        ascent,
+        descent,
+    }
+}
+
 fn plain_path_artifact_from_shaped(
     face: &OwnedTextFace<'_>,
     shaped: &OwnedShapedText,
     metrics: TypesetMetrics,
+    glyph_baseline_y: f32,
     font_size: f32,
-    fill: crate::style::Color,
+    fill: Color,
     decoration: Option<OwnedTextSpanKind>,
 ) -> MathPathArtifact {
     let mut items = Vec::new();
@@ -508,7 +602,7 @@ fn plain_path_artifact_from_shaped(
                     glyph.glyph_id,
                     font_size,
                     glyph.x,
-                    metrics.baseline + glyph.y,
+                    glyph_baseline_y + glyph.y,
                 );
                 (!path.commands.is_empty()).then(|| MathPathItem {
                     path,
@@ -546,7 +640,7 @@ fn decoration_path_artifact(
     kind: OwnedTextSpanKind,
     metrics: TypesetMetrics,
     font_size: f32,
-    fill: crate::style::Color,
+    fill: Color,
 ) -> Option<MathPathArtifact> {
     decoration_path_item(kind, metrics, font_size, fill).map(|item| MathPathArtifact {
         logical_width: metrics.width,
@@ -559,7 +653,7 @@ fn decoration_path_item(
     kind: OwnedTextSpanKind,
     metrics: TypesetMetrics,
     font_size: f32,
-    fill: crate::style::Color,
+    fill: Color,
 ) -> Option<MathPathItem> {
     let thickness = (font_size * 0.06).max(0.5);
     let item = match kind {
@@ -591,12 +685,7 @@ fn decoration_path_item(
     Some(item)
 }
 
-fn line_decoration_item(
-    width: f32,
-    y: f32,
-    thickness: f32,
-    fill: crate::style::Color,
-) -> MathPathItem {
+fn line_decoration_item(width: f32, y: f32, thickness: f32, fill: Color) -> MathPathItem {
     MathPathItem {
         path: MathPathData {
             commands: vec![
@@ -619,8 +708,9 @@ fn plain_pdf_text_from_shaped(
     semantic_text: &str,
     shaped: &OwnedShapedText,
     metrics: TypesetMetrics,
+    glyph_baseline_y: f32,
     font_size: f32,
-    fill: crate::style::Color,
+    fill: Color,
     font_id: MathFontResourceId,
 ) -> MathPdfTextLayer {
     MathPdfTextLayer {
@@ -645,7 +735,7 @@ fn plain_pdf_text_from_shaped(
                         y_advance: glyph.y_advance,
                         transform: MathTransform {
                             dx: glyph.x,
-                            dy: metrics.baseline + glyph.y,
+                            dy: glyph_baseline_y + glyph.y,
                             ..MathTransform::IDENTITY
                         },
                     })
@@ -805,42 +895,23 @@ fn typeset_plain_text_line(
         .pdf_text_layer
         .then(|| vec![face.font_resource(font_id)])
         .unwrap_or_default();
-    let pdf_text = options.outputs.pdf_text_layer.then(|| MathPdfTextLayer {
-        logical_width: metrics.width,
-        logical_height: metrics.height,
-        semantic_text: source.to_string(),
-        glyph_runs: (!shaped.glyphs.is_empty())
-            .then(|| MathPdfGlyphRun {
-                font: font_id,
-                font_size,
-                fill: options.text_style.fill,
-                stroke: None,
-                glyphs: shaped
-                    .glyphs
-                    .iter()
-                    .map(|glyph| MathPdfGlyph {
-                        glyph_id: glyph.glyph_id.0,
-                        unicode: glyph.unicode.clone(),
-                        x: 0.0,
-                        y: 0.0,
-                        x_advance: glyph.x_advance,
-                        y_advance: glyph.y_advance,
-                        transform: MathTransform {
-                            dx: glyph.x,
-                            dy: metrics.baseline + glyph.y,
-                            ..MathTransform::IDENTITY
-                        },
-                    })
-                    .collect(),
-            })
-            .into_iter()
-            .collect(),
+    let pdf_text = options.outputs.pdf_text_layer.then(|| {
+        plain_pdf_text_from_shaped(
+            source,
+            &shaped,
+            metrics,
+            metrics.baseline,
+            font_size,
+            options.text_style.fill,
+            font_id,
+        )
     });
     let path_artifact = (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
         plain_path_artifact_from_shaped(
             &face,
             &shaped,
             metrics,
+            metrics.baseline,
             font_size,
             options.text_style.fill,
             decoration,
@@ -868,6 +939,7 @@ fn typeset_plain_text_line(
             kind: PositionedTextLineRunKind::Plain,
             text: plain.text.clone(),
             byte_range: plain.byte_range.clone(),
+            text_style: Some(options.text_style.clone()),
             x: 0.0,
             y: metrics.baseline,
             metrics,

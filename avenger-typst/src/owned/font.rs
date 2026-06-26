@@ -90,6 +90,15 @@ impl<'a> OwnedTextFace<'a> {
     }
 
     pub(crate) fn shaped_text(&self, text: &str, font_size: f32) -> OwnedShapedText {
+        self.shaped_text_with_features(text, font_size, &[])
+    }
+
+    pub(crate) fn shaped_text_with_features(
+        &self,
+        text: &str,
+        font_size: f32,
+        features: &[rustybuzz::Feature],
+    ) -> OwnedShapedText {
         let edge_metrics = self.default_text_edge_metrics(font_size);
         let Some(face) = rustybuzz::Face::from_slice(self.data, 0) else {
             let fallback = fallback_width(text, font_size);
@@ -106,7 +115,7 @@ impl<'a> OwnedTextFace<'a> {
         };
         let mut buffer = rustybuzz::UnicodeBuffer::new();
         buffer.push_str(text);
-        let glyphs = rustybuzz::shape(&face, &[], buffer);
+        let glyphs = rustybuzz::shape(&face, features, buffer);
         let scale = font_scale(&self.face, font_size);
         let mut cursor_x = 0i32;
         let mut cursor_y = 0i32;
@@ -143,6 +152,51 @@ impl<'a> OwnedTextFace<'a> {
         }
     }
 
+    pub(crate) fn script_style(
+        &self,
+        parent_style: &PlainTextStyle,
+        script: OwnedTextScript,
+    ) -> PlainTextStyle {
+        let scale = font_scale(&self.face, parent_style.font_size.max(1.0));
+        let metrics = match script {
+            OwnedTextScript::Subscript => self.face.subscript_metrics(),
+            OwnedTextScript::Superscript => self.face.superscript_metrics(),
+        };
+        let font_size = metrics
+            .and_then(|metrics| (metrics.y_size > 0).then_some(metrics.y_size as f32 * scale))
+            .unwrap_or_else(|| parent_style.font_size.max(1.0) * 0.7)
+            .max(1.0);
+
+        PlainTextStyle {
+            font_size,
+            ..parent_style.clone()
+        }
+    }
+
+    pub(crate) fn script_baseline_shift(
+        &self,
+        parent_font_size: f32,
+        script: OwnedTextScript,
+    ) -> f32 {
+        let scale = font_scale(&self.face, parent_font_size.max(1.0));
+        let metrics = match script {
+            OwnedTextScript::Subscript => self.face.subscript_metrics(),
+            OwnedTextScript::Superscript => self.face.superscript_metrics(),
+        };
+        metrics
+            .map(|metrics| {
+                let offset = metrics.y_offset as f32 * scale;
+                match script {
+                    OwnedTextScript::Subscript => offset.abs(),
+                    OwnedTextScript::Superscript => -offset.abs(),
+                }
+            })
+            .unwrap_or_else(|| match script {
+                OwnedTextScript::Subscript => parent_font_size.max(1.0) * 0.2,
+                OwnedTextScript::Superscript => -parent_font_size.max(1.0) * 0.35,
+            })
+    }
+
     pub(crate) fn font_resource(&self, id: MathFontResourceId) -> MathFontResource {
         MathFontResource {
             id,
@@ -155,6 +209,12 @@ impl<'a> OwnedTextFace<'a> {
             data: Arc::<[u8]>::from(self.data),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OwnedTextScript {
+    Subscript,
+    Superscript,
 }
 
 fn glyph_unicode_for_cluster(text: &str, cluster: u32) -> String {

@@ -82,6 +82,7 @@ struct TextLineSegment {
     kind: PositionedTextLineRunKind,
     text: String,
     byte_range: std::ops::Range<usize>,
+    text_style: Option<PlainTextStyle>,
     marker: TextLineSegmentMarker,
 }
 
@@ -264,6 +265,7 @@ impl TypstMathEngine {
                         PositionedTextLineRunKind::Plain,
                         text.clone(),
                         range,
+                        Some(options.text_style.clone()),
                     );
                     contents.push(segment_tag_content(line_segment.marker, true));
                     segment_styles.push(Styles::new());
@@ -286,6 +288,7 @@ impl TypstMathEngine {
                         PositionedTextLineRunKind::Math,
                         math_source,
                         source_range,
+                        None,
                     );
                     contents.push(segment_tag_content(line_segment.marker, true));
                     segment_styles.push(Styles::new());
@@ -748,6 +751,7 @@ fn tagged_text_line_segment(
     kind: PositionedTextLineRunKind,
     text: String,
     byte_range: std::ops::Range<usize>,
+    text_style: Option<PlainTextStyle>,
 ) -> TextLineSegment {
     let key = hash128(&(
         "avenger-typst-text-line-segment",
@@ -762,6 +766,7 @@ fn tagged_text_line_segment(
         kind,
         text,
         byte_range,
+        text_style,
         marker: TextLineSegmentMarker {
             location: Location::new(key),
             key,
@@ -1031,6 +1036,7 @@ fn positioned_run_from_segment(
         kind: segment.kind,
         text: segment.text.clone(),
         byte_range: segment.byte_range.clone(),
+        text_style: segment.text_style.clone(),
         x,
         y,
         metrics,

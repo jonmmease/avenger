@@ -330,19 +330,37 @@ mod tests {
     }
 
     #[test]
-    fn parsed_but_unrendered_static_markup_errors_without_delegate() {
+    fn static_subscript_and_superscript_use_owned_fast_path_without_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
-        options.outputs.paths = false;
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
 
-        let err = engine.typeset_text_line("#sub[n]", &options).unwrap_err();
+        let artifact = engine
+            .typeset_text_line("H#sub[2]O #super[*]", &options)
+            .unwrap();
 
-        assert_eq!(
-            err,
-            MathTypesetError::UnsupportedOutput(
-                "owned static text markup is parsed but not rendered yet"
-            )
-        );
+        assert_eq!(artifact.positioned_runs.len(), 4);
+        assert_eq!(artifact.positioned_runs[0].text, "H");
+        assert_eq!(artifact.positioned_runs[1].text, "2");
+        assert_eq!(artifact.positioned_runs[2].text, "O ");
+        assert_eq!(artifact.positioned_runs[3].text, "*");
+        assert!(artifact.positioned_runs[1].y > artifact.positioned_runs[0].y);
+        assert!(artifact.positioned_runs[3].y < artifact.positioned_runs[0].y);
+        assert!(artifact.positioned_runs[1]
+            .text_style
+            .as_ref()
+            .is_some_and(|style| style.font_size < options.text_style.font_size));
+        assert!(artifact.positioned_runs[3]
+            .text_style
+            .as_ref()
+            .is_some_and(|style| style.font_size < options.text_style.font_size));
+        assert!(artifact.paths.is_some());
+        assert!(artifact.pdf_text.is_some());
         assert!(!engine.delegate.lock().unwrap().is_some());
     }
 

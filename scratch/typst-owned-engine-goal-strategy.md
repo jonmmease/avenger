@@ -366,7 +366,7 @@ Progress:
 - [x] Route the owned parser into the owned backend for non-empty text lines.
 - [x] Render named emoji aliases from the owned AST by lowering them to plain text before owned line layout.
 - [x] Render static underline/strike/overline/highlight text commands from the owned AST as native text plus decoration/highlight path shapes.
-- [ ] Render static sub/super text commands from the owned AST once positioned runs can represent per-run font size, baseline shift, and style metadata.
+- [x] Render static sub/super text commands from the owned AST once positioned runs can represent per-run font size, baseline shift, and style metadata.
 - [x] Add an initial owned math AST/parser for the current core label corpus: identifiers, numbers, symbols, shorthands, groups, scripts, primes, slash fractions, whitelisted calls, string arguments, and explicit matrix rejection.
 - [ ] Add the owned math parser for the strict supported subset.
 
