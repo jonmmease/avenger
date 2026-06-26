@@ -27,8 +27,8 @@ use avenger_scenegraph::{
 use avenger_text::{
     path::{TextPathItem, TextPathKind},
     pdf::{TextPdfBuffer, TextPdfDrawItem, TextPdfExtractionConfig},
-    types::{TextAlign, TextBaseline},
-    TextEngine,
+    types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
+    MissingFontPolicy, TextEngine,
 };
 use avenger_typst::{MathFontResource, MathFontResourceId, MathPdfGlyphRun};
 use itertools::izip;
@@ -74,10 +74,16 @@ impl PdfRenderer {
         let height = scene_graph.height.max(3.0);
         let page_settings = PageSettings::from_wh(width, height)
             .ok_or(AvengerPdfError::InvalidPageSize { width, height })?;
+        if matches!(
+            self.options.font_resolution.missing_font,
+            MissingFontPolicy::Error
+        ) {
+            let fontdb = avenger_text::fonts::build_fontdb(&self.options.font_resolution);
+            validate_scene_graph_text_fonts(scene_graph, &fontdb)?;
+        }
 
         let mut settings = SerializeSettings::default();
         settings.compress_content_streams = self.options.compress;
-        settings.render_svg_glyph_fn = krilla_svg::render_svg_glyph;
 
         let mut document = Document::new_with(settings);
         let mut page = document.start_page_with(page_settings);
@@ -1268,6 +1274,86 @@ fn text_leader_arrowhead_path(arrowhead: &TextLeaderArrowhead) -> LyonPath {
     builder.build()
 }
 
+fn validate_scene_graph_text_fonts(
+    scene_graph: &SceneGraph,
+    fontdb: &fontdb::Database,
+) -> Result<(), AvengerPdfError> {
+    let display_list = SceneDisplayList::from_scene_graph(scene_graph);
+    for item in display_list.ordered_items() {
+        let SceneDisplayMark::Borrowed(SceneMark::Text(mark)) = &item.mark else {
+            continue;
+        };
+
+        for (((text, font), font_weight), font_style) in mark
+            .text_iter()
+            .zip(mark.font_iter())
+            .zip(mark.font_weight_iter())
+            .zip(mark.font_style_iter())
+        {
+            if text.chars().all(char::is_whitespace) {
+                continue;
+            }
+
+            let family = font.trim();
+            if family.is_empty() || is_generic_font_family(family) {
+                continue;
+            }
+
+            if !fontdb_has_scene_family(fontdb, family, font_weight, font_style) {
+                return Err(AvengerPdfError::Font(format!(
+                    "missing requested text font family {family}"
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn is_generic_font_family(family: &str) -> bool {
+    matches!(
+        family,
+        "serif" | "sans-serif" | "cursive" | "fantasy" | "monospace"
+    )
+}
+
+fn fontdb_has_scene_family(
+    fontdb: &fontdb::Database,
+    family: &str,
+    font_weight: &FontWeight,
+    font_style: &FontStyle,
+) -> bool {
+    let families = [fontdb::Family::Name(family)];
+    let query = fontdb::Query {
+        families: &families,
+        weight: fontdb::Weight(font_weight_number(font_weight)),
+        stretch: fontdb::Stretch::Normal,
+        style: scene_font_style(font_style),
+    };
+    fontdb.query(&query).is_some()
+}
+
+fn font_weight_number(font_weight: &FontWeight) -> u16 {
+    match font_weight {
+        FontWeight::Name(name) => font_weight_name_number(name),
+        FontWeight::Number(weight) => weight.clamp(1.0, 1000.0).round() as u16,
+    }
+}
+
+fn font_weight_name_number(name: &FontWeightNameSpec) -> u16 {
+    match name {
+        FontWeightNameSpec::Normal => 400,
+        FontWeightNameSpec::Bold => 700,
+    }
+}
+
+fn scene_font_style(font_style: &FontStyle) -> fontdb::Style {
+    match font_style {
+        FontStyle::Normal => fontdb::Style::Normal,
+        FontStyle::Italic => fontdb::Style::Italic,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1324,6 +1410,24 @@ mod tests {
                 align: ScalarOrArray::new_scalar(TextAlign::Left),
                 baseline: ScalarOrArray::new_scalar(TextBaseline::Alphabetic),
                 font_size: ScalarOrArray::new_scalar(18.0),
+                limit: ScalarOrArray::new_scalar(f32::INFINITY),
+                ..Default::default()
+            }
+            .into()],
+        }
+    }
+
+    fn missing_font_scene_graph() -> SceneGraph {
+        SceneGraph {
+            width: 160.0,
+            height: 40.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Missing font".to_string()),
+                x: ScalarOrArray::new_scalar(8.0),
+                y: ScalarOrArray::new_scalar(24.0),
+                font: ScalarOrArray::new_scalar("Definitely Missing Avenger Font".to_string()),
+                font_size: ScalarOrArray::new_scalar(14.0),
                 limit: ScalarOrArray::new_scalar(f32::INFINITY),
                 ..Default::default()
             }
@@ -1518,6 +1622,36 @@ mod tests {
 
         assert!(extracted.contains("שלום"), "{extracted:?}");
         assert!(extracted.contains("नमस्ते"), "{extracted:?}");
+    }
+
+    #[test]
+    fn missing_requested_text_font_errors_when_policy_is_error() {
+        let err = PdfRenderer::new()
+            .render_scene_graph(&missing_font_scene_graph())
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            AvengerPdfError::Font(message)
+                if message.contains("missing requested text font family")
+                    && message.contains("Definitely Missing Avenger Font")
+        ));
+    }
+
+    #[test]
+    fn missing_requested_text_font_can_fallback_when_policy_allows() {
+        let pdf = PdfRenderer::new()
+            .with_options(PdfRenderOptions {
+                font_resolution: FontResolutionOptions {
+                    missing_font: MissingFontPolicy::Fallback,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .render_scene_graph(&missing_font_scene_graph())
+            .unwrap();
+
+        assert!(pdf.starts_with(b"%PDF-"));
     }
 
     #[test]

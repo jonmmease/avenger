@@ -599,18 +599,18 @@ dependencies = [
  "paste",
  "pdfium-render",
  "prost",
- "resvg 0.45.1",
+ "resvg",
  "serde",
  "serde_json",
  "serde_with",
  "tempfile",
  "thiserror 2.0.18",
- "tiny-skia 0.11.4",
+ "tiny-skia",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "typetag",
- "usvg 0.45.1",
+ "usvg",
 ]
 
 [[package]]
@@ -1086,12 +1086,12 @@ dependencies = [
  "lazy_static 1.5.0",
  "lru",
  "reqwest",
- "resvg 0.45.1",
+ "resvg",
  "serde",
  "thiserror 2.0.18",
- "tiny-skia 0.11.4",
+ "tiny-skia",
  "urlencoding",
- "usvg 0.45.1",
+ "usvg",
 ]
 
 [[package]]
@@ -1105,7 +1105,7 @@ dependencies = [
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-wgpu",
- "resvg 0.45.1",
+ "resvg",
  "tokio",
 ]
 
@@ -1135,10 +1135,10 @@ dependencies = [
  "avenger-scenegraph",
  "avenger-text",
  "avenger-typst",
+ "fontdb",
  "image",
  "itertools 0.14.0",
  "krilla",
- "krilla-svg",
  "lyon_algorithms",
  "lyon_path",
  "pdf-extract",
@@ -1227,11 +1227,11 @@ dependencies = [
  "itertools 0.14.0",
  "lyon_algorithms",
  "lyon_path",
- "resvg 0.45.1",
+ "resvg",
  "svgtypes 0.16.1",
  "thiserror 2.0.18",
- "tiny-skia 0.11.4",
- "usvg 0.45.1",
+ "tiny-skia",
+ "usvg",
 ]
 
 [[package]]
@@ -1260,7 +1260,7 @@ dependencies = [
  "rustybuzz",
  "serde",
  "thiserror 2.0.18",
- "tiny-skia 0.11.4",
+ "tiny-skia",
  "ttf-parser",
  "unicode-bidi",
  "unicode-math-class",
@@ -1284,13 +1284,13 @@ dependencies = [
  "lyon_path",
  "pyo3",
  "reqwest",
- "resvg 0.45.1",
+ "resvg",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tiny-skia 0.11.4",
+ "tiny-skia",
  "tracing",
- "usvg 0.45.1",
+ "usvg",
 ]
 
 [[package]]
@@ -3454,7 +3454,7 @@ version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1fcfcd44ca6e90c921fee9fa665d530b21ef1327a4c1a6c5250ea44b776ada7"
 dependencies = [
- "roxmltree 0.20.0",
+ "roxmltree",
 ]
 
 [[package]]
@@ -4733,7 +4733,6 @@ dependencies = [
  "pdf-writer 0.15.0",
  "png 0.18.1",
  "rustc-hash 2.1.2",
- "rustybuzz",
  "siphasher 1.0.1",
  "skrifa",
  "smallvec",
@@ -4742,22 +4741,6 @@ dependencies = [
  "xmp-writer",
  "yoke 0.8.3",
  "zune-jpeg 0.5.15",
-]
-
-[[package]]
-name = "krilla-svg"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1237d7c37b16ca9fbc2e72dde13a10d321f9a44aceee35c062bc0a43bfc7ce16"
-dependencies = [
- "flate2",
- "fontdb",
- "krilla",
- "resvg 0.47.0",
- "skrifa",
- "smallvec",
- "tiny-skia 0.12.0",
- "usvg 0.47.0",
 ]
 
 [[package]]
@@ -6933,26 +6916,9 @@ dependencies = [
  "pico-args",
  "rgb",
  "svgtypes 0.15.3",
- "tiny-skia 0.11.4",
- "usvg 0.45.1",
+ "tiny-skia",
+ "usvg",
  "zune-jpeg 0.4.13",
-]
-
-[[package]]
-name = "resvg"
-version = "0.47.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9be183ad6a216aa96f33e4c8033b0988b8b3ea6fd2359d19af5bac4643fd8e81"
-dependencies = [
- "gif 0.14.2",
- "image-webp",
- "log",
- "pico-args",
- "rgb",
- "svgtypes 0.16.1",
- "tiny-skia 0.12.0",
- "usvg 0.47.0",
- "zune-jpeg 0.5.15",
 ]
 
 [[package]]
@@ -6999,15 +6965,6 @@ name = "roxmltree"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
-
-[[package]]
-name = "roxmltree"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
-dependencies = [
- "memchr",
-]
 
 [[package]]
 name = "rstar"
@@ -7232,7 +7189,7 @@ dependencies = [
  "log",
  "memmap2",
  "smithay-client-toolkit 0.19.2",
- "tiny-skia 0.11.4",
+ "tiny-skia",
 ]
 
 [[package]]
@@ -7751,12 +7708,12 @@ dependencies = [
  "miniz_oxide",
  "once_cell",
  "pdf-writer 0.12.1",
- "resvg 0.45.1",
+ "resvg",
  "siphasher 1.0.1",
  "subsetter",
- "tiny-skia 0.11.4",
+ "tiny-skia",
  "ttf-parser",
- "usvg 0.45.1",
+ "usvg",
 ]
 
 [[package]]
@@ -8004,21 +7961,6 @@ dependencies = [
  "log",
  "png 0.17.14",
  "tiny-skia-path 0.11.4",
-]
-
-[[package]]
-name = "tiny-skia"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea"
-dependencies = [
- "arrayref",
- "arrayvec",
- "bytemuck",
- "cfg-if",
- "log",
- "png 0.18.1",
- "tiny-skia-path 0.12.0",
 ]
 
 [[package]]
@@ -8514,41 +8456,13 @@ dependencies = [
  "kurbo 0.11.1",
  "log",
  "pico-args",
- "roxmltree 0.20.0",
+ "roxmltree",
  "rustybuzz",
  "simplecss",
  "siphasher 1.0.1",
  "strict-num",
  "svgtypes 0.15.3",
  "tiny-skia-path 0.11.4",
- "unicode-bidi",
- "unicode-script",
- "unicode-vo",
- "xmlwriter",
-]
-
-[[package]]
-name = "usvg"
-version = "0.47.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d46cf96c5f498d36b7a9693bc6a7075c0bb9303189d61b2249b0dc3d309c07de"
-dependencies = [
- "base64",
- "data-url",
- "flate2",
- "fontdb",
- "imagesize 0.14.0",
- "kurbo 0.13.1",
- "log",
- "pico-args",
- "roxmltree 0.21.1",
- "rustybuzz",
- "simplecss",
- "siphasher 1.0.1",
- "strict-num",
- "svgtypes 0.16.1",
- "tiny-skia-path 0.12.0",
- "ttf-parser",
  "unicode-bidi",
  "unicode-script",
  "unicode-vo",
