@@ -2,15 +2,6 @@ use std::convert::Infallible;
 
 use crate::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
-#[cfg(feature = "cosmic-text")]
-extern crate lazy_static;
-
-#[cfg(feature = "cosmic-text")]
-pub mod cosmic;
-
-#[cfg(target_arch = "wasm32")]
-pub mod html_canvas;
-
 /// Core trait for text measurement functionality
 pub trait TextMeasurer: Send + Sync {
     /// Measures the bounding dimensions for a text string with given configuration
@@ -183,16 +174,6 @@ impl TextBounds {
     }
 }
 
-#[cfg(all(feature = "cosmic-text", not(target_arch = "wasm32")))]
-pub fn default_text_measurer() -> impl TextMeasurer {
-    crate::measurement::cosmic::CosmicTextMeasurer::new()
-}
-
-#[cfg(all(
-    feature = "typst-text",
-    not(feature = "cosmic-text"),
-    not(target_arch = "wasm32")
-))]
 pub fn default_text_measurer() -> impl TextMeasurer {
     crate::typst_text::TypstTextMeasurer::with_config(crate::math::TextMathConfig::default())
         .expect("failed to initialize Typst text measurer")
@@ -258,9 +239,4 @@ mod tests {
             bounds.calculate_origin([10.0, 10.0], &TextAlign::Left, &TextBaseline::Alphabetic);
         assert_eq!(origin, [10.0, -5.0]);
     }
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn default_text_measurer() -> impl TextMeasurer {
-    return crate::measurement::html_canvas::HtmlCanvasTextMeasurer::new();
 }

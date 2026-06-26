@@ -1,19 +1,6 @@
-use std::{path::Path, sync::Once};
+use std::path::Path;
 
-use avenger_text::measurement::cosmic::register_font_directory;
-
-static INIT: Once = Once::new();
-
-pub fn initialize() {
-    INIT.call_once(|| {
-        let root_path = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let fonts_dir = root_path
-            .join("..")
-            .join("avenger-vega-test-data")
-            .join("fonts");
-        register_font_directory(fonts_dir.to_str().unwrap());
-    });
-}
+pub fn initialize() {}
 
 #[cfg(test)]
 mod test_image_baselines {

@@ -1,8 +1,5 @@
 // Embedded font data for Atkinson Hyperlegible Next
 // This font is designed for improved readability and legibility
-#[cfg(feature = "cosmic-text")]
-use std::collections::HashSet;
-
 // Include the font files at compile time
 const ATKINSON_HYPERLEGIBLE_REGULAR: &[u8] = include_bytes!(
     "../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Regular.ttf"
@@ -116,21 +113,12 @@ pub fn embedded_fonts() -> &'static [EmbeddedFont] {
     EMBEDDED_FONTS
 }
 
-#[cfg(feature = "cosmic-text")]
-pub fn load_embedded_fonts(fontdb: &mut cosmic_text::fontdb::Database) {
-    for font in embedded_fonts() {
-        fontdb.load_font_data(Vec::from(font.data));
-    }
-}
-
-#[cfg(feature = "fontdb")]
 pub fn load_embedded_fonts_into_fontdb(fontdb: &mut fontdb::Database) {
     for font in embedded_fonts() {
         fontdb.load_font_data(Vec::from(font.data));
     }
 }
 
-#[cfg(feature = "fontdb")]
 pub fn build_fontdb(options: &crate::FontResolutionOptions) -> fontdb::Database {
     let mut fontdb = fontdb::Database::new();
     load_embedded_fonts_into_fontdb(&mut fontdb);
@@ -145,64 +133,6 @@ pub fn build_fontdb(options: &crate::FontResolutionOptions) -> fontdb::Database 
     }
 
     fontdb
-}
-
-#[cfg(feature = "cosmic-text")]
-pub fn build_cosmic_font_system(options: &crate::FontResolutionOptions) -> cosmic_text::FontSystem {
-    let mut fontdb = cosmic_text::fontdb::Database::new();
-    load_embedded_fonts(&mut fontdb);
-
-    if options.load_system_fonts {
-        fontdb.load_system_fonts();
-    }
-
-    for font_dir in &options.extra_font_dirs {
-        fontdb.load_fonts_dir(font_dir);
-    }
-
-    setup_cosmic_generic_families(&mut fontdb);
-    cosmic_text::FontSystem::new_with_locale_and_db("en-US".to_string(), fontdb)
-}
-
-#[cfg(feature = "cosmic-text")]
-fn setup_cosmic_generic_families(fontdb: &mut cosmic_text::fontdb::Database) {
-    let families: HashSet<String> = fontdb
-        .faces()
-        .flat_map(|face| {
-            face.families
-                .iter()
-                .map(|(fam, _lang)| fam.clone())
-                .collect::<Vec<_>>()
-        })
-        .collect();
-
-    if families.contains("Atkinson Hyperlegible Next") {
-        fontdb.set_sans_serif_family("Atkinson Hyperlegible Next");
-    }
-
-    for family in [
-        "Courier New",
-        "Courier",
-        "Liberation Mono",
-        "DejaVu Sans Mono",
-    ] {
-        if families.contains(family) {
-            fontdb.set_monospace_family(family);
-            break;
-        }
-    }
-
-    for family in [
-        "Times New Roman",
-        "Times",
-        "Liberation Serif",
-        "DejaVu Serif",
-    ] {
-        if families.contains(family) {
-            fontdb.set_serif_family(family);
-            break;
-        }
-    }
 }
 
 #[cfg(test)]
@@ -234,49 +164,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cosmic-text")]
-    fn test_font_families() {
-        use cosmic_text::fontdb::Database;
-        use std::collections::HashSet;
-
-        let mut fontdb = Database::new();
-        load_embedded_fonts(&mut fontdb);
-
-        let families: HashSet<String> = fontdb
-            .faces()
-            .flat_map(|face| {
-                face.families
-                    .iter()
-                    .map(|(fam, _lang)| fam.clone())
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-
-        println!("Embedded font families:");
-        for family in &families {
-            println!("  {}", family);
-        }
-
-        assert!(families.contains("Atkinson Hyperlegible Next"));
-
-        let faces = fontdb
-            .faces()
-            .filter(|face| {
-                face.families
-                    .iter()
-                    .any(|(family, _)| family == "Atkinson Hyperlegible Next")
-            })
-            .map(|face| (face.weight.0, face.style))
-            .collect::<HashSet<_>>();
-
-        for weight in [250, 300, 400, 500, 600, 700, 800] {
-            assert!(faces.contains(&(weight, cosmic_text::fontdb::Style::Normal)));
-            assert!(faces.contains(&(weight, cosmic_text::fontdb::Style::Italic)));
-        }
-    }
-
-    #[test]
-    #[cfg(feature = "fontdb")]
     fn build_fontdb_loads_atkinson_family_and_weight_style_faces() {
         use std::collections::HashSet;
 
@@ -306,34 +193,6 @@ mod tests {
         };
         let sans_id = fontdb.query(&query).expect("sans-serif should resolve");
         let sans_face = fontdb.face(sans_id).expect("sans-serif face should exist");
-        assert!(sans_face
-            .families
-            .iter()
-            .any(|(family, _)| family == "Atkinson Hyperlegible Next"));
-    }
-
-    #[test]
-    #[cfg(feature = "cosmic-text")]
-    fn build_cosmic_font_system_loads_atkinson_as_default_sans_serif() {
-        let options = crate::FontResolutionOptions::default();
-        let font_system = build_cosmic_font_system(&options);
-
-        let families = [cosmic_text::fontdb::Family::SansSerif];
-        let query = cosmic_text::fontdb::Query {
-            families: &families,
-            weight: cosmic_text::fontdb::Weight::NORMAL,
-            stretch: cosmic_text::fontdb::Stretch::Normal,
-            style: cosmic_text::fontdb::Style::Normal,
-        };
-        let sans_id = font_system
-            .db()
-            .query(&query)
-            .expect("sans-serif should resolve");
-        let sans_face = font_system
-            .db()
-            .face(sans_id)
-            .expect("sans-serif face should exist");
-
         assert!(sans_face
             .families
             .iter()

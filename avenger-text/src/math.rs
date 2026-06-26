@@ -10,7 +10,7 @@ pub enum TextMarkupMode {
 
 impl Default for TextMarkupMode {
     fn default() -> Self {
-        Self::Plain
+        Self::TypstMathDelimited(MathDelimiterOptions::default())
     }
 }
 
@@ -39,7 +39,7 @@ pub struct TextMathConfig {
 impl Default for TextMathConfig {
     fn default() -> Self {
         Self {
-            mode: TextMarkupMode::Plain,
+            mode: TextMarkupMode::default(),
             math_style: MathStyle::default(),
             syntax: MathSyntaxMode::default(),
             limits: MathLimits::default(),

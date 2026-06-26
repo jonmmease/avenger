@@ -25,13 +25,9 @@ use avenger_scenegraph::{
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
-#[cfg(feature = "typst-math")]
-use avenger_text::{
-    math::TextMarkupMode,
-    path::{
-        TextPathBuffer, TextPathDrawItem, TextPathExtractionConfig, TextPathExtractor,
-        TextPathItem, TypstTextPathExtractor,
-    },
+use avenger_text::path::{
+    TextPathBuffer, TextPathDrawItem, TextPathExtractionConfig, TextPathExtractor, TextPathItem,
+    TypstTextPathExtractor,
 };
 use avenger_text::{
     measurement::{
@@ -288,7 +284,6 @@ impl SvgRenderer {
         clip_id: Option<&str>,
     ) -> Result<(), AvengerSvgError> {
         let text_measurer = default_text_measurer();
-        #[cfg(feature = "typst-math")]
         let typst_text_path_extractor = self.typst_text_path_extractor()?;
         let leader_stroke_dash_values = mark
             .leader_stroke_dash
@@ -362,13 +357,10 @@ impl SvgRenderer {
                 font_style,
                 &self.options.font_resolution,
             )?;
-            #[cfg(feature = "typst-math")]
             let active_text_measurer: &dyn TextMeasurer = typst_text_path_extractor
                 .as_ref()
                 .map(|extractor| extractor as &dyn TextMeasurer)
                 .unwrap_or(&text_measurer);
-            #[cfg(not(feature = "typst-math"))]
-            let active_text_measurer: &dyn TextMeasurer = &text_measurer;
             let text = truncate_text_to_limit(
                 text,
                 *limit,
@@ -378,10 +370,7 @@ impl SvgRenderer {
                 font_style,
                 active_text_measurer,
             );
-            #[cfg(feature = "typst-math")]
             let use_typst_paths = typst_text_path_extractor.is_some();
-            #[cfg(not(feature = "typst-math"))]
-            let use_typst_paths = false;
             if !use_typst_paths
                 && self.options.font_embedding == crate::options::SvgFontEmbedding::EmbedSubsetWoff2
             {
@@ -403,7 +392,6 @@ impl SvgRenderer {
                     font_weight,
                     font_style,
                 });
-            #[cfg(feature = "typst-math")]
             let (text_bounds, typst_text_path_buffer) = if let Some(buffer) = self
                 .extract_typst_text_paths(
                     typst_text_path_extractor.as_ref(),
@@ -418,9 +406,6 @@ impl SvgRenderer {
             } else {
                 (measured_text_bounds, None)
             };
-            #[cfg(not(feature = "typst-math"))]
-            let text_bounds = measured_text_bounds;
-            #[cfg(feature = "typst-math")]
             if let Some(buffer) = &typst_text_path_buffer {
                 if self.options.font_embedding == crate::options::SvgFontEmbedding::EmbedSubsetWoff2
                 {
@@ -466,7 +451,6 @@ impl SvgRenderer {
                 }
             }
 
-            #[cfg(feature = "typst-math")]
             if let Some(buffer) = typst_text_path_buffer {
                 self.write_typst_text_paths(
                     document,
@@ -531,18 +515,12 @@ impl SvgRenderer {
         Ok(())
     }
 
-    #[cfg(feature = "typst-math")]
     fn typst_text_path_extractor(&self) -> Result<Option<TypstTextPathExtractor>, AvengerSvgError> {
-        if matches!(&self.options.text_math.mode, TextMarkupMode::Plain) {
-            return Ok(None);
-        }
-
         TypstTextPathExtractor::with_config(self.options.text_math.clone())
             .map(Some)
             .map_err(|err| AvengerSvgError::Text(err.to_string()))
     }
 
-    #[cfg(feature = "typst-math")]
     #[allow(clippy::too_many_arguments)]
     fn extract_typst_text_paths(
         &self,
@@ -583,7 +561,6 @@ impl SvgRenderer {
         Ok(Some(buffer))
     }
 
-    #[cfg(feature = "typst-math")]
     #[allow(clippy::too_many_arguments)]
     fn write_typst_text_paths(
         &self,
@@ -650,7 +627,6 @@ impl SvgRenderer {
         Ok(())
     }
 
-    #[cfg(feature = "typst-math")]
     #[allow(clippy::too_many_arguments)]
     fn write_plain_text_run(
         &self,
@@ -692,7 +668,6 @@ impl SvgRenderer {
         Ok(())
     }
 
-    #[cfg(feature = "typst-math")]
     fn write_math_text_path_item(
         &self,
         document: &mut SvgDocument,
@@ -1989,9 +1964,8 @@ mod tests {
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 
-    #[cfg(feature = "typst-math")]
     #[test]
-    fn renders_typst_text_as_native_text_and_math_paths_when_math_is_active() {
+    fn renders_typst_text_as_native_text_and_math_paths() {
         let scene_graph = SceneGraph {
             width: 120.0,
             height: 30.0,
@@ -2007,21 +1981,8 @@ mod tests {
             }
             .into()],
         };
-        let math_config = avenger_text::math::TextMathConfig {
-            mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
-            ..Default::default()
-        };
+        let math_svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
 
-        let plain_svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
-        let math_svg = SvgRenderer::new()
-            .with_options(SvgRenderOptions {
-                text_math: math_config,
-                ..Default::default()
-            })
-            .render_scene_graph(&scene_graph)
-            .unwrap();
-
-        assert!(plain_svg.contains("speed $v^2$ now</text>"));
         assert!(math_svg.contains("<path "));
         assert!(math_svg.contains("<text "));
         assert!(math_svg.contains("speed "));
@@ -2031,7 +1992,6 @@ mod tests {
         assert!(usvg::Tree::from_str(&math_svg, &usvg::Options::default()).is_ok());
     }
 
-    #[cfg(feature = "typst-math")]
     #[test]
     fn renders_typst_static_sub_super_as_smaller_native_svg_text() {
         let scene_graph = SceneGraph {
@@ -2048,18 +2008,7 @@ mod tests {
             }
             .into()],
         };
-        let math_config = avenger_text::math::TextMathConfig {
-            mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
-            ..Default::default()
-        };
-
-        let svg = SvgRenderer::new()
-            .with_options(SvgRenderOptions {
-                text_math: math_config,
-                ..Default::default()
-            })
-            .render_scene_graph(&scene_graph)
-            .unwrap();
+        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(">H</text>"));
         assert!(svg.contains(">2</text>"));

@@ -36,7 +36,6 @@ path = "../avenger-image"
 [dependencies.avenger-text]
 path = "../avenger-text"
 default-features = false
-features = ["cosmic-text", "fontdb"]
 
 [dev-dependencies]
 resvg = { workspace = true }

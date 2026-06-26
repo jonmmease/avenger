@@ -1,11 +1,5 @@
 use std::{collections::HashMap, hash::Hash};
 
-#[cfg(feature = "cosmic-text")]
-pub mod cosmic;
-
-#[cfg(target_arch = "wasm32")]
-pub mod html_canvas;
-
 use crate::{
     error::AvengerTextError,
     measurement::{TextBounds, TextMeasurementConfig},
@@ -123,12 +117,7 @@ pub trait TextRasterizer: 'static {
     ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerTextError>;
 }
 
-#[cfg(all(feature = "cosmic-text", not(target_arch = "wasm32")))]
 pub fn default_rasterizer() -> impl TextRasterizer<CacheValue = ()> {
-    crate::rasterization::cosmic::CosmicTextRasterizer::new()
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn default_rasterizer() -> impl TextRasterizer<CacheValue = ()> {
-    return crate::rasterization::html_canvas::HtmlCanvasTextRasterizer::new();
+    crate::typst_text::TypstTextRasterizer::<()>::with_config(crate::math::TextMathConfig::default())
+        .expect("failed to initialize Typst text rasterizer")
 }

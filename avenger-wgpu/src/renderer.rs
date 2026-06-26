@@ -270,20 +270,8 @@ impl AvengerRendererCore {
     ) -> Self {
         let multi_render_resources =
             MultiMarkRenderResources::new(device, texture_format, sample_count);
-        let text_atlas_builder = {
-            #[cfg(any(feature = "typst-math-raster", feature = "typst-text-raster"))]
-            {
-                make_text_atlas_builder(
-                    &config.text_builder_ctor,
-                    &config.font_resolution,
-                    &config.text_math,
-                )
-            }
-            #[cfg(not(any(feature = "typst-math-raster", feature = "typst-text-raster")))]
-            {
-                make_text_atlas_builder(&config.text_builder_ctor, &config.font_resolution)
-            }
-        };
+        let text_atlas_builder =
+            make_text_atlas_builder(&config.text_builder_ctor, &config.text_math);
 
         Self {
             dimensions,
@@ -580,23 +568,8 @@ impl AvengerRendererCore {
         // Reset the shared text atlas so each frame starts clean (matches the old
         // per-renderer reset-per-frame semantics). `TextAtlasBuilder` has no reset
         // method, so replace it with a fresh builder via the same ctor.
-        self.text_atlas_builder = {
-            #[cfg(any(feature = "typst-math-raster", feature = "typst-text-raster"))]
-            {
-                make_text_atlas_builder(
-                    &self.config.text_builder_ctor,
-                    &self.config.font_resolution,
-                    &self.config.text_math,
-                )
-            }
-            #[cfg(not(any(feature = "typst-math-raster", feature = "typst-text-raster")))]
-            {
-                make_text_atlas_builder(
-                    &self.config.text_builder_ctor,
-                    &self.config.font_resolution,
-                )
-            }
-        };
+        self.text_atlas_builder =
+            make_text_atlas_builder(&self.config.text_builder_ctor, &self.config.text_math);
     }
 
     pub(crate) fn make_frame_overlay_command(
@@ -690,51 +663,19 @@ impl AvengerRendererCore {
 
 /// Construct a text atlas builder, shared by a single canvas across all of its
 /// multi-renderers. This mirrors the construction logic that previously lived in
-/// `MultiMarkRenderer::new`: honor a caller-supplied `text_builder_ctor`, otherwise
-/// fall back to the cosmic-text rasterizer (native), the html-canvas rasterizer
-/// (wasm), or the null builder (text disabled).
+/// `MultiMarkRenderer::new`: honor a caller-supplied `text_builder_ctor`,
+/// otherwise use the owned Typst text rasterizer.
 pub(crate) fn make_text_atlas_builder(
     text_builder_ctor: &Option<TextBuildCtor>,
-    _font_resolution: &avenger_text::FontResolutionOptions,
-    #[cfg(any(feature = "typst-math-raster", feature = "typst-text-raster"))]
     text_math: &avenger_text::math::TextMathConfig,
 ) -> Box<dyn TextAtlasBuilderTrait> {
     if let Some(text_builder_ctor) = text_builder_ctor {
         text_builder_ctor()
     } else {
-        #[cfg(all(feature = "typst-text-raster", feature = "cosmic-text"))]
-        if !matches!(&text_math.mode, avenger_text::math::TextMarkupMode::Plain) {
-            return make_typst_text_atlas_builder(text_math);
-        }
-
-        cfg_if::cfg_if! {
-            if #[cfg(all(feature = "typst-text-raster", not(feature = "cosmic-text")))] {
-                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> =
-                    make_typst_text_atlas_builder(text_math);
-            } else if #[cfg(feature = "cosmic-text")] {
-                use crate::marks::text::TextAtlasBuilder;
-                use std::sync::Arc;
-                let plain_rasterizer = avenger_text::rasterization::cosmic::CosmicTextRasterizer::<
-                    crate::marks::text::GlyphBBoxAndAtlasCoords,
-                >::with_font_resolution(_font_resolution.clone());
-                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> =
-                    Box::new(TextAtlasBuilder::new(Arc::new(plain_rasterizer)));
-            } else if #[cfg(target_arch = "wasm32")] {
-                use crate::marks::text::TextAtlasBuilder;
-                use std::sync::Arc;
-                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(TextAtlasBuilder::new(Arc::new(
-                    avenger_text::rasterization::html_canvas::HtmlCanvasTextRasterizer::<crate::marks::text::GlyphBBoxAndAtlasCoords>::new())
-                ));
-            } else {
-                use crate::marks::text::NullTextAtlasBuilder;
-                let inner_text_atlas_builder: Box<dyn TextAtlasBuilderTrait> = Box::new(NullTextAtlasBuilder);
-            }
-        };
-        inner_text_atlas_builder
+        make_typst_text_atlas_builder(text_math)
     }
 }
 
-#[cfg(feature = "typst-text-raster")]
 fn make_typst_text_atlas_builder(
     text_math: &avenger_text::math::TextMathConfig,
 ) -> Box<dyn TextAtlasBuilderTrait> {
@@ -749,11 +690,11 @@ fn make_typst_text_atlas_builder(
     Box::new(TextAtlasBuilder::new(Arc::new(typst_rasterizer)))
 }
 
-#[cfg(all(test, feature = "typst-text-raster"))]
+#[cfg(test)]
 mod typst_text_raster_tests {
     use avenger_common::canvas::CanvasDimensions;
     use avenger_text::{
-        math::{TextMarkupMode, TextMathConfig},
+        math::TextMathConfig,
         types::{FontStyle, FontWeight, TextAlign, TextBaseline},
     };
 
@@ -761,11 +702,8 @@ mod typst_text_raster_tests {
 
     #[test]
     fn typst_text_atlas_builder_registers_whole_mixed_label() {
-        let math_config = TextMathConfig {
-            mode: TextMarkupMode::TypstMathDelimited(Default::default()),
-            ..Default::default()
-        };
-        let mut builder = make_text_atlas_builder(&None, &Default::default(), &math_config);
+        let math_config = TextMathConfig::default();
+        let mut builder = make_text_atlas_builder(&None, &math_config);
 
         let text = "speed $v^2$".to_string();
         let color = [0.1, 0.2, 0.3, 1.0];

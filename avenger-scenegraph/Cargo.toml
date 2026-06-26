@@ -62,7 +62,7 @@ serde_json = { workspace = true }
 [dev-dependencies.avenger-text]
 path = "../avenger-text"
 default-features = false
-features = ["cosmic-text"]
+features = ["serde"]
 
 [dev-dependencies.avenger-geometry]
 path = "../avenger-geometry"

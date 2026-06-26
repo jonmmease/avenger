@@ -10,10 +10,10 @@ repository = "https://github.com/jonmmease/avenger"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-default = [ "cosmic-text", "rayon",]
-cosmic-text = [ "dep:cosmic-text", "lazy_static", "avenger-text/cosmic-text",]
+default = [ "rayon",]
+cosmic-text = []
 typst-math-raster = [ "typst-text-raster",]
-typst-text-raster = [ "rayon", "avenger-text/typst-text-raster",]
+typst-text-raster = [ "rayon",]
 deno = []
 
 [dependencies]
@@ -68,15 +68,7 @@ workspace = true
 version = "1.23.1"
 features = [ "derive",]
 
-[dependencies.lazy_static]
-workspace = true
-optional = true
-
 [dependencies.pyo3]
-workspace = true
-optional = true
-
-[dependencies.cosmic-text]
 workspace = true
 optional = true
 

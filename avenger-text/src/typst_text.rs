@@ -683,6 +683,26 @@ mod tests {
 
     #[test]
     fn plain_mode_uses_literal_dollars() {
+        let math = TextMathConfig {
+            mode: TextMarkupMode::Plain,
+            ..Default::default()
+        };
+        let options = text_line_options(
+            &math,
+            "Cost $5",
+            "sans-serif",
+            12.0,
+            &WEIGHT,
+            &STYLE,
+            [0.0, 0.0, 0.0, 1.0],
+            avenger_typst::TextLineOutputRequest::default(),
+        );
+
+        assert_eq!(options.delimiters.delimiter, '\0');
+    }
+
+    #[test]
+    fn default_mode_uses_dollar_math_delimiters() {
         let options = text_line_options(
             &TextMathConfig::default(),
             "Cost $5",
@@ -694,7 +714,7 @@ mod tests {
             avenger_typst::TextLineOutputRequest::default(),
         );
 
-        assert_eq!(options.delimiters.delimiter, '\0');
+        assert_eq!(options.delimiters.delimiter, '$');
     }
 
     #[test]

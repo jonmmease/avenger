@@ -4,35 +4,14 @@ use lyon_path::Path;
 
 use crate::{
     error::AvengerTextError,
-    measurement::{TextBounds, TextMeasurementConfig},
+    measurement::{TextBounds, TextMeasurementConfig, TextMeasurer},
     types::{FontStyle, FontWeight},
 };
 
-#[cfg(feature = "typst-math")]
 use lyon_path::geom::point;
 
-#[cfg(any(feature = "cosmic-text", feature = "typst-math"))]
-use crate::measurement::TextMeasurer;
-
-#[cfg(feature = "cosmic-text")]
-use std::sync::{Arc, Mutex};
-
-#[cfg(feature = "cosmic-text")]
-use crate::FontResolutionOptions;
-
-#[cfg(feature = "cosmic-text")]
-use cosmic_text::{FontSystem, SwashCache};
-
-#[cfg(feature = "cosmic-text")]
-use crate::measurement::cosmic::{make_cosmic_text_buffer, measure_text_buffer, FONT_SYSTEM};
-
-#[cfg(feature = "cosmic-text")]
-use crate::rasterization::cosmic::import_path_commands_with_offset;
-
-#[cfg(feature = "typst-text")]
 use crate::math::TextMathConfig;
 
-#[cfg(feature = "typst-text")]
 use crate::typst_text::{
     bounds_from_metrics, tight_bounds_from_metrics, typeset_line, TypstTextMeasurer,
 };
@@ -127,186 +106,12 @@ pub trait TextPathExtractor: Send + Sync {
     ) -> Result<TextPathBuffer, AvengerTextError>;
 }
 
-#[cfg(feature = "cosmic-text")]
-#[derive(Clone)]
-pub struct CosmicTextPathExtractor {
-    resources: Arc<CosmicPathResources>,
-}
-
-#[cfg(feature = "cosmic-text")]
-enum CosmicPathResources {
-    Global,
-    Local {
-        font_system: Mutex<FontSystem>,
-        swash_cache: Mutex<SwashCache>,
-    },
-}
-
-#[cfg(feature = "cosmic-text")]
-impl Default for CosmicTextPathExtractor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(feature = "cosmic-text")]
-impl CosmicTextPathExtractor {
-    pub fn new() -> Self {
-        Self {
-            resources: Arc::new(CosmicPathResources::Global),
-        }
-    }
-
-    pub fn with_font_resolution(options: FontResolutionOptions) -> Self {
-        Self {
-            resources: Arc::new(CosmicPathResources::Local {
-                font_system: Mutex::new(crate::fonts::build_cosmic_font_system(&options)),
-                swash_cache: Mutex::new(SwashCache::new()),
-            }),
-        }
-    }
-}
-
-#[cfg(feature = "cosmic-text")]
-impl TextPathExtractor for CosmicTextPathExtractor {
-    fn extract_text_paths(
-        &self,
-        config: &TextPathExtractionConfig,
-    ) -> Result<TextPathBuffer, AvengerTextError> {
-        match self.resources.as_ref() {
-            CosmicPathResources::Global => {
-                let mut font_system = FONT_SYSTEM
-                    .lock()
-                    .expect("Failed to acquire lock on FONT_SYSTEM");
-                let mut swash_cache = crate::measurement::cosmic::SWASH_CACHE
-                    .lock()
-                    .expect("Failed to acquire lock on SWASH_CACHE");
-                extract_cosmic_paths_with_resources(config, &mut font_system, &mut swash_cache)
-            }
-            CosmicPathResources::Local {
-                font_system,
-                swash_cache,
-            } => {
-                let mut font_system = font_system
-                    .lock()
-                    .expect("Failed to acquire local FontSystem lock");
-                let mut swash_cache = swash_cache
-                    .lock()
-                    .expect("Failed to acquire local SwashCache lock");
-                extract_cosmic_paths_with_resources(config, &mut font_system, &mut swash_cache)
-            }
-        }
-    }
-}
-
-#[cfg(feature = "cosmic-text")]
-impl TextMeasurer for CosmicTextPathExtractor {
-    fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
-        match self.resources.as_ref() {
-            CosmicPathResources::Global => {
-                let mut font_system = FONT_SYSTEM
-                    .lock()
-                    .expect("Failed to acquire lock on FONT_SYSTEM");
-                let buffer = make_cosmic_text_buffer(config, &mut font_system);
-                measure_text_buffer(&buffer)
-            }
-            CosmicPathResources::Local { font_system, .. } => {
-                let mut font_system = font_system
-                    .lock()
-                    .expect("Failed to acquire local FontSystem lock");
-                let buffer = make_cosmic_text_buffer(config, &mut font_system);
-                measure_text_buffer(&buffer)
-            }
-        }
-    }
-
-    fn measure_font_metrics(
-        &self,
-        config: &crate::measurement::FontMetricsConfig,
-    ) -> crate::measurement::FontMetrics {
-        crate::measurement::FontMetrics::fallback(config.font_size)
-    }
-}
-
-#[cfg(feature = "cosmic-text")]
-fn extract_cosmic_paths_with_resources(
-    config: &TextPathExtractionConfig,
-    font_system: &mut FontSystem,
-    swash_cache: &mut SwashCache,
-) -> Result<TextPathBuffer, AvengerTextError> {
-    let text = crate::measurement::truncate_text_to_limit_with(config.text, config.limit, |text| {
-        let measurement = TextMeasurementConfig {
-            text,
-            font: config.font,
-            font_size: config.font_size,
-            font_weight: config.font_weight,
-            font_style: config.font_style,
-        };
-        let buffer = make_cosmic_text_buffer(&measurement, font_system);
-        measure_text_buffer(&buffer).width
-    });
-    let measurement = TextMeasurementConfig {
-        text: &text,
-        font: config.font,
-        font_size: config.font_size,
-        font_weight: config.font_weight,
-        font_style: config.font_style,
-    };
-    let buffer = make_cosmic_text_buffer(&measurement, font_system);
-    let bounds = measure_text_buffer(&buffer);
-    let mut output = TextPathBuffer::new(bounds.clone());
-    let plain_run_index = output.plain_runs.len();
-    output.plain_runs.push(PlainTextPathRun {
-        text: text.clone(),
-        byte_range: 0..config.text.len(),
-        font: config.font.clone(),
-        font_size: config.font_size,
-        font_weight: *config.font_weight,
-        font_style: *config.font_style,
-        x: 0.0,
-        y_offset: 0.0,
-        bounds: bounds.clone(),
-    });
-    output
-        .draw_items
-        .push(TextPathDrawItem::PlainRun(plain_run_index));
-
-    let fill = Some(*config.color);
-    for run in buffer.layout_runs() {
-        for glyph in run.glyphs.iter() {
-            let physical_glyph = glyph.physical((0.0, 0.0), 1.0);
-            let Some(commands) =
-                swash_cache.get_outline_commands(font_system, physical_glyph.cache_key)
-            else {
-                continue;
-            };
-            let x = glyph.x + glyph.font_size * glyph.x_offset;
-            let y = bounds.ascent + glyph.y - glyph.font_size * glyph.y_offset;
-            let path_index = output.items.len();
-            output.items.push(TextPathItem {
-                path: import_path_commands_with_offset(&commands, x, y),
-                fill,
-                stroke: None,
-                byte_range: 0..config.text.len(),
-                kind: TextPathKind::PlainGlyph,
-            });
-            output
-                .draw_items
-                .push(TextPathDrawItem::PathItem(path_index));
-        }
-    }
-
-    Ok(output)
-}
-
-#[cfg(feature = "typst-text")]
 #[derive(Debug, Clone)]
 pub struct TypstTextPathExtractor {
     typst: avenger_typst::AvengerTypst,
     math: TextMathConfig,
 }
 
-#[cfg(feature = "typst-text")]
 impl TypstTextPathExtractor {
     pub fn new(typst: avenger_typst::AvengerTypst, math: TextMathConfig) -> Self {
         Self { typst, math }
@@ -327,7 +132,6 @@ impl TypstTextPathExtractor {
     }
 }
 
-#[cfg(feature = "typst-text")]
 impl TextMeasurer for TypstTextPathExtractor {
     fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
         TypstTextMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
@@ -341,7 +145,6 @@ impl TextMeasurer for TypstTextPathExtractor {
     }
 }
 
-#[cfg(feature = "typst-text")]
 impl TextPathExtractor for TypstTextPathExtractor {
     fn extract_text_paths(
         &self,
@@ -480,7 +283,6 @@ impl TextPathExtractor for TypstTextPathExtractor {
     }
 }
 
-#[cfg(feature = "typst-math")]
 fn typst_path_item_to_text_path_item(
     item: avenger_typst::MathPathItem,
     byte_range: Range<usize>,
@@ -503,7 +305,6 @@ fn typst_path_item_to_text_path_item(
     }
 }
 
-#[cfg(feature = "typst-math")]
 fn math_path_data_to_lyon_path(
     path: &avenger_typst::MathPathData,
     transform: avenger_typst::MathTransform,
@@ -545,7 +346,6 @@ fn math_path_data_to_lyon_path(
     builder.build()
 }
 
-#[cfg(feature = "typst-math")]
 fn transform_math_point(
     transform: avenger_typst::MathTransform,
     x: f32,
@@ -559,12 +359,10 @@ fn transform_math_point(
     )
 }
 
-#[cfg(feature = "typst-math")]
 fn rgba_from_typst_color(color: avenger_typst::Color) -> [f32; 4] {
     [color.r, color.g, color.b, color.a]
 }
 
-#[cfg(feature = "typst-text")]
 fn typst_font_weight(weight: &avenger_typst::FontWeight) -> FontWeight {
     match weight {
         avenger_typst::FontWeight::Normal => {
@@ -575,7 +373,6 @@ fn typst_font_weight(weight: &avenger_typst::FontWeight) -> FontWeight {
     }
 }
 
-#[cfg(feature = "typst-text")]
 fn typst_font_style(style: avenger_typst::FontStyle) -> FontStyle {
     match style {
         avenger_typst::FontStyle::Normal => FontStyle::Normal,
@@ -605,32 +402,10 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "cosmic-text")]
-    #[test]
-    fn cosmic_extractor_returns_plain_glyph_paths() {
-        let extractor = CosmicTextPathExtractor::with_font_resolution(Default::default());
-        let text = "plain".to_string();
-        let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
-
-        assert!(buffer.bounds.width > 0.0);
-        assert!(!buffer.items.is_empty());
-        assert_eq!(buffer.plain_runs.len(), 1);
-        assert!(!buffer.draw_items.is_empty());
-        assert!(buffer
-            .items
-            .iter()
-            .all(|item| item.kind == TextPathKind::PlainGlyph));
-    }
-
-    #[cfg(feature = "typst-text")]
     fn math_config() -> crate::math::TextMathConfig {
-        crate::math::TextMathConfig {
-            mode: crate::math::TextMarkupMode::TypstMathDelimited(Default::default()),
-            ..Default::default()
-        }
+        crate::math::TextMathConfig::default()
     }
 
-    #[cfg(feature = "typst-text")]
     fn owned_typst() -> avenger_typst::AvengerTypst {
         avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
             backend: avenger_typst::TypstEngineBackend::OwnedTypst,
@@ -639,7 +414,6 @@ mod tests {
         .unwrap()
     }
 
-    #[cfg(feature = "typst-text")]
     #[test]
     fn typst_text_extractor_returns_plain_runs_and_math_paths() {
         let typst = owned_typst();
@@ -662,7 +436,6 @@ mod tests {
             .all(|item| matches!(item, TextPathDrawItem::PathItem(_))));
     }
 
-    #[cfg(feature = "typst-text")]
     #[test]
     fn typst_text_extractor_returns_plain_runs_and_static_decoration_paths() {
         let typst = owned_typst();
@@ -681,7 +454,6 @@ mod tests {
         ));
     }
 
-    #[cfg(feature = "typst-text")]
     #[test]
     fn typst_text_extractor_returns_script_runs_with_smaller_style() {
         let typst = owned_typst();

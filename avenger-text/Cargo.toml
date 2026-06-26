@@ -5,13 +5,15 @@ edition = "2021"
 
 [features]
 serde = ["dep:serde"]
-cosmic-text = ["dep:cosmic-text", "lazy_static"]
-fontdb = ["dep:fontdb"]
-typst-math = ["dep:avenger-typst"]
-typst-math-raster = ["typst-text-raster"]
-typst-text = ["typst-math"]
-typst-text-raster = ["typst-text", "avenger-typst/raster"]
-default = ["serde", "cosmic-text"]
+default = ["serde"]
+
+# Compatibility aliases while higher crates are simplified. These no longer
+# select a backend; the owned Typst engine is the only text backend.
+fontdb = []
+typst-math = []
+typst-math-raster = []
+typst-text = []
+typst-text-raster = []
 
 [dependencies]
 thiserror = { workspace = true }
@@ -23,34 +25,9 @@ strum = { workspace = true }
 ordered-float = { workspace = true }
 svgtypes = { workspace = true }
 ttf-parser = { workspace = true }
-
-[dependencies.cosmic-text]
-workspace = true
-optional = true
-
-[dependencies.fontdb]
-workspace = true
-optional = true
-
-[dependencies.lazy_static]
-workspace = true
-optional = true
+fontdb = { workspace = true }
 
 [dependencies.avenger-typst]
 path = "../avenger-typst"
-optional = true
 default-features = false
-features = ["owned"]
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.92"
-web-sys = { version = "0.3.67", features = [
-    "Document",
-    "Window",
-    "Element",
-    "Performance",
-    "OffscreenCanvas",
-    "OffscreenCanvasRenderingContext2d",
-    "TextMetrics",
-    "ImageData"
-]}
+features = ["owned", "raster"]
