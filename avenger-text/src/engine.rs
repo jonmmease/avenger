@@ -248,6 +248,21 @@ mod tests {
         assert!(buffer.text_bounds.width > 0.0);
         assert_eq!(buffer.entries[0].0.cache_key.text, text);
         assert!(buffer.entries[0].0.image.is_some());
+        #[cfg(target_os = "macos")]
+        assert!(
+            colored_pixel_count(buffer.entries[0].0.image.as_ref().unwrap().as_raw()) > 20,
+            "emoji text raster should contain colored pixels on macOS"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    fn colored_pixel_count(data: &[u8]) -> usize {
+        data.chunks_exact(4)
+            .filter(|pixel| {
+                let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
+                a > 0 && r.abs_diff(g).max(r.abs_diff(b)).max(g.abs_diff(b)) > 16
+            })
+            .count()
     }
 
     #[test]

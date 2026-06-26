@@ -186,6 +186,35 @@ fn static_text_markup_data(ctx: &SessionContext) -> DataFrame {
         .expect("typst static text markup dataframe")
 }
 
+fn emoji_text_data(ctx: &SessionContext) -> DataFrame {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("group", DataType::Utf8, false),
+        Field::new("label", DataType::Utf8, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0])) as ArrayRef,
+            Arc::new(Float64Array::from(vec![2.2, 3.4, 2.8])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "Face #emoji.face",
+                "Rocket 🚀",
+                "Trend #emoji.chart.up",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "Happy #emoji.face",
+                "Launch 🚀",
+                "Growth #emoji.chart.up",
+            ])) as ArrayRef,
+        ],
+    )
+    .expect("typst emoji text batch");
+
+    ctx.read_batch(batch).expect("typst emoji text dataframe")
+}
+
 async fn assert_typst_math_wgpu(compiled: CompiledPlot, ctx: &SessionContext, baseline_name: &str) {
     assert_visual_match_with_canvas_config_and_sidecars(
         Arc::new(compiled),
@@ -243,6 +272,49 @@ async fn static_text_markup_showcase() {
         .await
         .expect("compile static Typst text markup plot");
     assert_typst_math_wgpu(compiled, &ctx, "static_text_markup_showcase").await;
+}
+
+#[tokio::test]
+async fn emoji_text_showcase() {
+    let ctx = SessionContext::new();
+    let df = emoji_text_data(&ctx);
+
+    let plot = Plot::<Cartesian>::new()
+        .title("Emoji text #emoji.face + literal 🚀")
+        .subtitle("Aliases and system color emoji #emoji.chart.up")
+        .data(df.clone())
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.5, 3.5)))
+                        .axis(|axis| axis.title("Step #emoji.rocket").grid(true))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 4.2)))
+                        .axis(|axis| axis.title("Score #emoji.chart.up").grid(true))
+                })
+                .fill_with(col("group"), |c| {
+                    c.scale_with::<Ordinal>(|s| s)
+                        .legend(|legend| legend.title("Legend #emoji.face"))
+                })
+                .stroke("#111827")
+                .stroke_width(1.0)
+                .size(180.0),
+        )
+        .mark(
+            Text::new()
+                .data(df)
+                .x(col("x"))
+                .y(col("y"))
+                .text(col("label"))
+                .align("center")
+                .baseline("bottom")
+                .font_size(13.0)
+                .color("#111827"),
+        );
+
+    let compiled = plot.compile(&ctx).await.expect("compile emoji text plot");
+    assert_typst_math_wgpu(compiled, &ctx, "emoji_text_showcase").await;
 }
 
 #[tokio::test]

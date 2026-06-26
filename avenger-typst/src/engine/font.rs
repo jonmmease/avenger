@@ -3,7 +3,7 @@ use std::sync::{Arc, LazyLock};
 
 use crate::error::MathTypesetError;
 use crate::fonts::{EmbeddedFontFace, ATKINSON_FACES};
-use crate::paths::MathPathData;
+use crate::paths::{MathImageFormat, MathImageItem, MathPathData, MathTransform};
 use crate::pdf::{MathFontResource, MathFontResourceId};
 use crate::style::{FontStyle, FontWeight, PlainTextStyle};
 use unicode_bidi::BidiInfo;
@@ -14,6 +14,8 @@ use unicode_segmentation::UnicodeSegmentation;
 pub(crate) struct TextFace {
     data: TextFontData,
     face_index: u32,
+    family_name: Option<String>,
+    postscript_name: Option<String>,
 }
 
 #[derive(Clone)]
@@ -135,14 +137,10 @@ impl TextFace {
             if !primary.shaped_text(text, style.font_size).has_missing_glyph {
                 return Ok(Some(primary));
             }
-            return Ok(Some(primary));
+            return Ok(fontdb_face_for_style_and_text(style, text).or(Some(primary)));
         }
 
         Ok(fontdb_face_for_style_and_text(style, text))
-    }
-
-    pub(crate) fn plain_style_uses_embedded_atkinson(style: &PlainTextStyle) -> bool {
-        resolves_to_embedded_atkinson(&style.font_family)
     }
 
     pub(crate) fn same_font(&self, other: &Self) -> bool {
@@ -216,14 +214,9 @@ impl TextFace {
             });
         }
 
-        let mut width = advance_width as f32 * scale;
-        if should_preserve_color_emoji_joiner_tofu(text) {
-            width = preserve_color_emoji_joiner_tofu(&face, scale, &mut shaped_glyphs, width);
-        }
-
         ShapedText {
             metrics: ShapedTextMetrics {
-                width,
+                width: advance_width as f32 * scale,
                 ascent: edge_metrics.ascent,
                 descent: edge_metrics.descent,
                 height: edge_metrics.height,
@@ -295,21 +288,66 @@ impl TextFace {
         super::glyph_path::outline_glyph_path(&face, glyph_id, font_size, x, y)
     }
 
+    pub(crate) fn raster_glyph_image(
+        &self,
+        glyph_id: ttf_parser::GlyphId,
+        font_size: f32,
+        x: f32,
+        y: f32,
+    ) -> Option<MathImageItem> {
+        let face = self.parsed_face()?;
+        let raster_image = face
+            .glyph_raster_image(glyph_id, u16::MAX)
+            .filter(|image| image.format == ttf_parser::RasterImageFormat::PNG)?;
+        let scale = font_size.max(1.0) / raster_image.pixels_per_em as f32;
+        let width = raster_image.width as f32 * scale;
+        let height = raster_image.height as f32 * scale;
+        let x_offset = raster_image.x as f32 * scale;
+        let mut y_offset = raster_image.y as f32 * scale;
+
+        if self
+            .family_name
+            .clone()
+            .or_else(|| font_family_name(&face))
+            .as_deref()
+            .is_some_and(|family| family.eq_ignore_ascii_case("Apple Color Emoji"))
+        {
+            y_offset -= 0.128 * font_size.max(1.0);
+        }
+
+        Some(MathImageItem {
+            data: raster_image.data.to_vec(),
+            format: MathImageFormat::Png,
+            width,
+            height,
+            transform: MathTransform {
+                dx: x - x_offset,
+                dy: y - (height + y_offset),
+                ..MathTransform::IDENTITY
+            },
+        })
+    }
+
     pub(crate) fn font_resource(&self, id: MathFontResourceId) -> MathFontResource {
         let face = self.parsed_face();
         MathFontResource {
             id,
-            family: face
-                .as_ref()
-                .and_then(|face| font_name(face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY))
+            family: self
+                .family_name
+                .clone()
+                .or_else(|| {
+                    face.as_ref()
+                        .and_then(|face| font_name(face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY))
+                })
                 .or_else(|| {
                     face.as_ref()
                         .and_then(|face| font_name(face, ttf_parser::name_id::FAMILY))
                 })
                 .unwrap_or_else(|| "Unknown".to_string()),
-            postscript_name: face
-                .as_ref()
-                .and_then(|face| font_name(face, ttf_parser::name_id::POST_SCRIPT_NAME)),
+            postscript_name: self.postscript_name.clone().or_else(|| {
+                face.as_ref()
+                    .and_then(|face| font_name(face, ttf_parser::name_id::POST_SCRIPT_NAME))
+            }),
             face_index: self.face_index,
             units_per_em: face
                 .as_ref()
@@ -329,37 +367,6 @@ pub(crate) fn shape_plain_text_with_fallback(
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
-) -> Result<Option<SegmentedText>, MathTypesetError> {
-    shape_plain_text_with_fallback_mode(style, text, font_size, features, FallbackMode::Full)
-}
-
-pub(crate) fn shape_plain_text_with_non_emoji_fallback(
-    style: &PlainTextStyle,
-    text: &str,
-    font_size: f32,
-    features: &[rustybuzz::Feature],
-) -> Result<Option<SegmentedText>, MathTypesetError> {
-    shape_plain_text_with_fallback_mode(
-        style,
-        text,
-        font_size,
-        features,
-        FallbackMode::PreserveColorEmojiTofu,
-    )
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FallbackMode {
-    Full,
-    PreserveColorEmojiTofu,
-}
-
-fn shape_plain_text_with_fallback_mode(
-    style: &PlainTextStyle,
-    text: &str,
-    font_size: f32,
-    features: &[rustybuzz::Feature],
-    mode: FallbackMode,
 ) -> Result<Option<SegmentedText>, MathTypesetError> {
     let Some(primary) =
         TextFace::for_plain_style(style)?.or_else(|| fontdb_face_for_style_and_text(style, text))
@@ -390,10 +397,6 @@ fn shape_plain_text_with_fallback_mode(
             let face = if !primary
                 .shaped_text_with_features(grapheme, font_size, features)
                 .has_missing_glyph
-            {
-                primary.clone()
-            } else if mode == FallbackMode::PreserveColorEmojiTofu
-                && grapheme_contains_color_emoji(grapheme)
             {
                 primary.clone()
             } else {
@@ -481,57 +484,6 @@ fn bidi_visual_ranges(text: &str) -> Vec<Range<usize>> {
     ranges
 }
 
-fn grapheme_contains_color_emoji(grapheme: &str) -> bool {
-    grapheme.chars().any(is_color_emoji_char)
-}
-
-fn is_color_emoji_char(ch: char) -> bool {
-    matches!(
-        ch,
-        '\u{1F000}'..='\u{1FAFF}'
-            | '\u{1FC00}'..='\u{1FFFD}'
-            | '\u{2600}'..='\u{27BF}'
-            | '\u{FE0F}'
-            | '\u{200D}'
-    )
-}
-
-fn should_preserve_color_emoji_joiner_tofu(text: &str) -> bool {
-    text.contains('\u{200D}') && grapheme_contains_color_emoji(text)
-}
-
-fn preserve_color_emoji_joiner_tofu(
-    face: &ttf_parser::Face<'_>,
-    scale: f32,
-    glyphs: &mut [ShapedGlyph],
-    width: f32,
-) -> f32 {
-    let missing_advance = face
-        .glyph_hor_advance(ttf_parser::GlyphId(0))
-        .filter(|advance| *advance > 0)
-        .map(|advance| advance as f32 * scale)
-        .unwrap_or(0.0);
-    if missing_advance <= 0.0 {
-        return width;
-    }
-
-    let mut extra_advance = 0.0;
-    for glyph in glyphs {
-        glyph.x += extra_advance;
-        if glyph.glyph_id.0 != 0
-            && glyph.x_advance.abs() <= f32::EPSILON
-            && glyph.unicode.contains('\u{200D}')
-        {
-            glyph.glyph_id = ttf_parser::GlyphId(0);
-            glyph.unicode.clear();
-            glyph.x_advance = missing_advance;
-            extra_advance += missing_advance;
-        }
-    }
-
-    width + extra_advance
-}
-
 fn script_for_grapheme(grapheme: &str) -> Script {
     grapheme
         .chars()
@@ -573,11 +525,20 @@ fn embedded_atkinson_face(style: &PlainTextStyle) -> Result<Option<TextFace>, Ma
     Ok(Some(TextFace {
         data: TextFontData::Static(face.data),
         face_index: 0,
+        family_name: Some("Atkinson Hyperlegible Next".to_string()),
+        postscript_name: None,
     }))
 }
 
 fn fontdb_face_for_style_and_text(style: &PlainTextStyle, text: &str) -> Option<TextFace> {
     let db = &*FONTDB;
+
+    if text.chars().any(is_color_emoji_char) {
+        if let Some(face) = emoji_fontdb_face_for_text(db, style, text) {
+            return Some(face);
+        }
+    }
+
     let query = fontdb::Query {
         families: &fontdb_families(&style.font_family),
         weight: fontdb::Weight(font_weight_number(&style.font_weight)),
@@ -605,12 +566,55 @@ fn fontdb_face_for_style_and_text(style: &PlainTextStyle, text: &str) -> Option<
         .find(|face| !face.shaped_text(text, style.font_size).has_missing_glyph)
 }
 
+fn emoji_fontdb_face_for_text(
+    db: &fontdb::Database,
+    style: &PlainTextStyle,
+    text: &str,
+) -> Option<TextFace> {
+    const EMOJI_FAMILIES: &[&str] = &[
+        "Apple Color Emoji",
+        "Noto Color Emoji",
+        "Twitter Color Emoji",
+        "Segoe UI Emoji",
+    ];
+
+    EMOJI_FAMILIES.iter().find_map(|family| {
+        let families = [fontdb::Family::Name(*family)];
+        let query = fontdb::Query {
+            families: &families,
+            weight: fontdb::Weight(font_weight_number(&style.font_weight)),
+            stretch: fontdb::Stretch::Normal,
+            style: fontdb::Style::Normal,
+        };
+        db.query(&query)
+            .and_then(|id| load_fontdb_face(db, id))
+            .filter(|face| !face.shaped_text(text, style.font_size).has_missing_glyph)
+    })
+}
+
+fn is_color_emoji_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{1F000}'..='\u{1FAFF}'
+            | '\u{1FC00}'..='\u{1FFFD}'
+            | '\u{2600}'..='\u{27BF}'
+            | '\u{FE0F}'
+            | '\u{200D}'
+    )
+}
+
 fn load_fontdb_face(db: &fontdb::Database, id: fontdb::ID) -> Option<TextFace> {
+    let family_name = db
+        .face(id)
+        .and_then(|info| info.families.first().map(|(family, _)| family.clone()));
+    let postscript_name = db.face(id).map(|info| info.post_script_name.clone());
     db.with_face_data(id, |data, face_index| {
         ttf_parser::Face::parse(data, face_index).ok()?;
         Some(TextFace {
             data: TextFontData::Shared(Arc::<[u8]>::from(data)),
             face_index,
+            family_name,
+            postscript_name,
         })
     })?
 }
@@ -694,6 +698,11 @@ fn font_name(face: &ttf_parser::Face<'_>, name_id: u16) -> Option<String> {
             .then(|| name.to_string())
             .flatten()
     })
+}
+
+fn font_family_name(face: &ttf_parser::Face<'_>) -> Option<String> {
+    font_name(face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
+        .or_else(|| font_name(face, ttf_parser::name_id::FAMILY))
 }
 
 fn select_atkinson_face(
@@ -812,8 +821,7 @@ mod tests {
         };
 
         let Some(segmented) =
-            shape_plain_text_with_non_emoji_fallback(&style, "abc नमस्ते", style.font_size, &[])
-                .unwrap()
+            shape_plain_text_with_fallback(&style, "abc नमस्ते", style.font_size, &[]).unwrap()
         else {
             return;
         };
@@ -837,8 +845,7 @@ mod tests {
         };
 
         let Some(segmented) =
-            shape_plain_text_with_non_emoji_fallback(&style, "אבג ABC", style.font_size, &[])
-                .unwrap()
+            shape_plain_text_with_fallback(&style, "אבג ABC", style.font_size, &[]).unwrap()
         else {
             return;
         };
@@ -858,6 +865,46 @@ mod tests {
         assert_eq!(glyph_unicode_for_cluster("Tone 👍🏽", 5), "👍🏽");
         assert_eq!(glyph_unicode_for_cluster("Flag 🇯🇵", 5), "🇯🇵");
         assert_eq!(glyph_unicode_for_cluster("Cafe\u{301}", 3), "e\u{301}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn segmented_fallback_uses_apple_color_emoji_png_glyphs_on_macos() {
+        let style = PlainTextStyle {
+            font_family: "Atkinson Hyperlegible Next".to_string(),
+            ..PlainTextStyle::default()
+        };
+
+        let segmented = shape_plain_text_with_fallback(&style, "Revenue 🚀", style.font_size, &[])
+            .unwrap()
+            .expect("text should shape");
+        let emoji_run = segmented
+            .runs
+            .iter()
+            .find(|run| run.text.contains('🚀'))
+            .expect("emoji should be shaped in a fallback run");
+        let resource = emoji_run.face.font_resource(MathFontResourceId(0));
+        assert_eq!(resource.family, "Apple Color Emoji");
+        let emoji_glyph = emoji_run
+            .shaped
+            .glyphs
+            .iter()
+            .find(|glyph| glyph.unicode.contains('🚀'))
+            .expect("emoji run should retain emoji glyph semantic text");
+        let image = emoji_run
+            .face
+            .raster_glyph_image(
+                emoji_glyph.glyph_id,
+                style.font_size,
+                emoji_run.x + emoji_glyph.x,
+                emoji_run.shaped.metrics.ascent + emoji_glyph.y,
+            )
+            .expect("Apple Color Emoji glyph should expose a PNG bitmap");
+
+        assert_eq!(image.format, crate::paths::MathImageFormat::Png);
+        assert!(image.data.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert!(image.width > 0.0);
+        assert!(image.height > 0.0);
     }
 
     #[test]

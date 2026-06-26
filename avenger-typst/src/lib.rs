@@ -24,8 +24,8 @@ pub use delimiter::{
 pub use error::{MathTypesetError, TypstInitError};
 pub use limits::MathLimits;
 pub use paths::{
-    MathPathArtifact, MathPathCommand, MathPathData, MathPathItem, MathPathKind, MathStroke,
-    MathTransform,
+    MathImageFormat, MathImageItem, MathPathArtifact, MathPathCommand, MathPathData, MathPathItem,
+    MathPathKind, MathStroke, MathTransform,
 };
 pub use pdf::{
     MathFontResource, MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer,

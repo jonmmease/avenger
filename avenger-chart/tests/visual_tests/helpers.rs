@@ -903,6 +903,7 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
 
 fn svg_visual_font_resolution() -> FontResolutionOptions {
     FontResolutionOptions {
+        load_system_fonts: true,
         missing_font: MissingFontPolicy::Fallback,
         ..Default::default()
     }

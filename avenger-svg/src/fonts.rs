@@ -50,6 +50,9 @@ impl SvgFontCollector {
         }
 
         let families = parse_named_font_families(font_family, options)?;
+        if families.iter().any(|family| is_color_emoji_family(family)) {
+            return Ok(());
+        }
         if families.is_empty() {
             return Ok(());
         }
@@ -147,6 +150,13 @@ impl SvgFontCollector {
 
         Ok(css)
     }
+}
+
+fn is_color_emoji_family(family: &str) -> bool {
+    matches!(
+        family.to_ascii_lowercase().as_str(),
+        "apple color emoji" | "noto color emoji" | "twitter color emoji" | "segoe ui emoji"
+    )
 }
 
 fn parse_named_font_families(

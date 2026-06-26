@@ -49,6 +49,21 @@ pub struct TextPathItem {
     pub kind: TextPathKind,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextPathImageFormat {
+    Png,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextPathImageItem {
+    pub data: Vec<u8>,
+    pub format: TextPathImageFormat,
+    pub width: f32,
+    pub height: f32,
+    pub transform: [f32; 6],
+    pub byte_range: Range<usize>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlainTextPathRun {
     pub text: String,
@@ -66,12 +81,14 @@ pub struct PlainTextPathRun {
 pub enum TextPathDrawItem {
     PlainRun(usize),
     PathItem(usize),
+    ImageItem(usize),
 }
 
 #[derive(Debug, Clone)]
 pub struct TextPathBuffer {
     pub bounds: TextBounds,
     pub items: Vec<TextPathItem>,
+    pub images: Vec<TextPathImageItem>,
     pub plain_runs: Vec<PlainTextPathRun>,
     pub draw_items: Vec<TextPathDrawItem>,
 }
@@ -81,6 +98,7 @@ impl TextPathBuffer {
         Self {
             bounds,
             items: Vec::new(),
+            images: Vec::new(),
             plain_runs: Vec::new(),
             draw_items: Vec::new(),
         }
@@ -153,6 +171,12 @@ impl TextPathExtractorImpl {
             match run.kind {
                 avenger_typst::PositionedTextLineRunKind::Plain => {
                     let mut after_text_items = Vec::new();
+                    let mut image_items = Vec::new();
+                    let run_font = run
+                        .text_style
+                        .as_ref()
+                        .map(|style| style.font_family.clone())
+                        .unwrap_or_else(|| config.font.to_string());
                     if let Some(paths) = run.paths {
                         for item in paths.items {
                             let text_item = typst_path_item_to_text_path_item(
@@ -171,6 +195,14 @@ impl TextPathExtractorImpl {
                                 after_text_items.push(text_item);
                             }
                         }
+                        for image in paths.images {
+                            image_items.push(typst_image_item_to_text_path_image_item(
+                                image,
+                                run.byte_range.clone(),
+                                0.0,
+                                y_offset,
+                            ));
+                        }
                     }
 
                     let run_bounds = tight_bounds_from_metrics(run.metrics);
@@ -178,11 +210,7 @@ impl TextPathExtractorImpl {
                     output.plain_runs.push(PlainTextPathRun {
                         text: run.text,
                         byte_range: run.byte_range,
-                        font: run
-                            .text_style
-                            .as_ref()
-                            .map(|style| style.font_family.clone())
-                            .unwrap_or_else(|| config.font.to_string()),
+                        font: run_font,
                         font_size: run
                             .text_style
                             .as_ref()
@@ -205,6 +233,13 @@ impl TextPathExtractorImpl {
                     output
                         .draw_items
                         .push(TextPathDrawItem::PlainRun(run_index));
+                    for image in image_items {
+                        let image_index = output.images.len();
+                        output.images.push(image);
+                        output
+                            .draw_items
+                            .push(TextPathDrawItem::ImageItem(image_index));
+                    }
                     for item in after_text_items {
                         let path_index = output.items.len();
                         output.items.push(item);
@@ -231,6 +266,18 @@ impl TextPathExtractorImpl {
                         output
                             .draw_items
                             .push(TextPathDrawItem::PathItem(path_index));
+                    }
+                    for image in paths.images {
+                        let image_index = output.images.len();
+                        output.images.push(typst_image_item_to_text_path_image_item(
+                            image,
+                            run.byte_range.clone(),
+                            0.0,
+                            y_offset,
+                        ));
+                        output
+                            .draw_items
+                            .push(TextPathDrawItem::ImageItem(image_index));
                     }
                 }
             }
@@ -259,6 +306,32 @@ fn typst_path_item_to_text_path_item(
         }),
         byte_range,
         kind,
+    }
+}
+
+fn typst_image_item_to_text_path_image_item(
+    image: avenger_typst::MathImageItem,
+    byte_range: Range<usize>,
+    x_offset: f32,
+    y_offset: f32,
+) -> TextPathImageItem {
+    let format = match image.format {
+        avenger_typst::MathImageFormat::Png => TextPathImageFormat::Png,
+    };
+    TextPathImageItem {
+        data: image.data,
+        format,
+        width: image.width,
+        height: image.height,
+        transform: [
+            image.transform.xx,
+            image.transform.yx,
+            image.transform.xy,
+            image.transform.yy,
+            image.transform.dx + x_offset,
+            image.transform.dy + y_offset,
+        ],
+        byte_range,
     }
 }
 

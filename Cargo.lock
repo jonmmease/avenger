@@ -1232,6 +1232,7 @@ name = "avenger-typst"
 version = "0.1.0"
 dependencies = [
  "fontdb",
+ "image",
  "rustybuzz",
  "serde",
  "thiserror 2.0.18",

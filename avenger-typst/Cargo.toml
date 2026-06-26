@@ -5,13 +5,14 @@ edition = "2021"
 
 [features]
 default = []
-raster = ["dep:tiny-skia"]
+raster = ["dep:image", "dep:tiny-skia"]
 serde = ["dep:serde"]
 
 [dependencies]
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
 fontdb = { workspace = true }
+image = { workspace = true, optional = true }
 rustybuzz = { workspace = true }
 ttf-parser = { workspace = true }
 tiny-skia = { workspace = true, optional = true }

@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "raster")]
 use crate::{
     error::MathTypesetError,
-    paths::{MathPathArtifact, MathPathCommand, MathPathData, MathTransform},
+    paths::{
+        MathImageFormat, MathImageItem, MathPathArtifact, MathPathCommand, MathPathData,
+        MathTransform,
+    },
     style::Color,
 };
 
@@ -53,6 +56,7 @@ pub(crate) fn rasterize_path_artifact(
     };
 
     let mut draw_items = Vec::new();
+    let mut draw_images = Vec::new();
     let mut bounds = RasterBounds::empty();
 
     for item in &artifact.items {
@@ -88,7 +92,21 @@ pub(crate) fn rasterize_path_artifact(
         draw_items.push((path, item));
     }
 
-    if draw_items.is_empty() || bounds.is_empty() {
+    for image in &artifact.images {
+        let Some(rect) = tiny_skia::Rect::from_xywh(0.0, 0.0, image.width, image.height) else {
+            continue;
+        };
+        let transform = tiny_transform_from_math_transform(image.transform);
+        let transformed = rect
+            .transform(transform)
+            .ok_or(MathTypesetError::UnsupportedOutput(
+                "non-finite Typst image glyph transform is not supported in raster output",
+            ))?;
+        bounds.include_rect(transformed);
+        draw_images.push(image);
+    }
+
+    if (draw_items.is_empty() && draw_images.is_empty()) || bounds.is_empty() {
         return Ok(empty_raster_artifact(artifact, scale));
     }
 
@@ -130,6 +148,10 @@ pub(crate) fn rasterize_path_artifact(
         }
     }
 
+    for image in draw_images {
+        draw_image_item(&mut pixmap, image, scale, left_px, top_px)?;
+    }
+
     Ok(MathRasterArtifact {
         image: RgbaImageData {
             width,
@@ -142,6 +164,65 @@ pub(crate) fn rasterize_path_artifact(
         origin_x: left_px as f32 / scale,
         origin_y: top_px as f32 / scale,
     })
+}
+
+#[cfg(feature = "raster")]
+fn draw_image_item(
+    pixmap: &mut tiny_skia::Pixmap,
+    image: &MathImageItem,
+    scale: f32,
+    left_px: i32,
+    top_px: i32,
+) -> Result<(), MathTypesetError> {
+    let MathImageFormat::Png = image.format;
+    let decoded = image::load_from_memory_with_format(&image.data, image::ImageFormat::Png)
+        .map_err(|_| MathTypesetError::UnsupportedOutput("failed to decode Typst PNG glyph"))?
+        .into_rgba8();
+    let (width, height) = decoded.dimensions();
+    let Some(size) = tiny_skia::IntSize::from_wh(width, height) else {
+        return Err(MathTypesetError::UnsupportedOutput(
+            "Typst PNG glyph dimensions are too large",
+        ));
+    };
+    let source = tiny_skia::Pixmap::from_vec(premultiply_rgba(decoded.into_raw()), size).ok_or(
+        MathTypesetError::UnsupportedOutput("Typst PNG glyph data did not match its dimensions"),
+    )?;
+    if image.transform.xx != 1.0
+        || image.transform.yx != 0.0
+        || image.transform.xy != 0.0
+        || image.transform.yy != 1.0
+    {
+        return Err(MathTypesetError::UnsupportedOutput(
+            "transformed Typst PNG glyphs are not supported in raster output yet",
+        ));
+    }
+    let sx = image.width * scale / width as f32;
+    let sy = image.height * scale / height as f32;
+    let transform = tiny_skia::Transform::from_scale(sx, sy).post_translate(
+        image.transform.dx * scale - left_px as f32,
+        image.transform.dy * scale - top_px as f32,
+    );
+
+    pixmap.draw_pixmap(
+        0,
+        0,
+        source.as_ref(),
+        &tiny_skia::PixmapPaint::default(),
+        transform,
+        None,
+    );
+    Ok(())
+}
+
+#[cfg(feature = "raster")]
+fn premultiply_rgba(mut data: Vec<u8>) -> Vec<u8> {
+    for pixel in data.chunks_mut(4) {
+        let alpha = pixel[3] as u16;
+        pixel[0] = ((pixel[0] as u16 * alpha + 127) / 255) as u8;
+        pixel[1] = ((pixel[1] as u16 * alpha + 127) / 255) as u8;
+        pixel[2] = ((pixel[2] as u16 * alpha + 127) / 255) as u8;
+    }
+    data
 }
 
 #[cfg(feature = "raster")]

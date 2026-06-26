@@ -131,6 +131,7 @@ fn empty_text_line_artifact(source: &str, options: &TextLineOptions) -> TextLine
         logical_width: 0.0,
         logical_height: 0.0,
         items: Vec::new(),
+        images: Vec::new(),
     });
     let pdf_text = options.outputs.pdf_text_layer.then(|| MathPdfTextLayer {
         logical_width: 0.0,
@@ -302,7 +303,14 @@ mod tests {
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
-        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert_eq!(
+            artifact
+                .positioned_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["שלום"]
+        );
     }
 
     #[test]
@@ -334,7 +342,14 @@ mod tests {
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
-        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert_eq!(
+            artifact
+                .positioned_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Family ", "👨‍👩‍👧‍👦"]
+        );
     }
 
     #[test]
@@ -353,10 +368,51 @@ mod tests {
             .unwrap();
 
         assert_eq!(artifact.source, "Revenue #emoji.rocket");
-        assert_eq!(artifact.positioned_runs.len(), 1);
-        assert_eq!(artifact.positioned_runs[0].text, "Revenue 🚀");
+        assert_eq!(
+            artifact
+                .positioned_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Revenue ", "🚀"]
+        );
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
+    }
+
+    #[cfg(all(feature = "raster", target_os = "macos"))]
+    #[test]
+    fn named_emoji_alias_rasterizes_color_pixels_on_macos() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: false,
+            raster: Some(crate::RasterRequest { scale: 2.0 }),
+            pdf_text_layer: false,
+            positioned_runs: false,
+        };
+
+        let artifact = engine
+            .typeset_text_line("Revenue #emoji.rocket", &options)
+            .unwrap();
+        let raster = artifact
+            .raster
+            .expect("raster output should be produced for emoji text");
+
+        assert!(
+            colored_pixel_count(&raster.image.data) > 20,
+            "emoji raster should contain colored bitmap pixels rather than monochrome tofu"
+        );
+    }
+
+    #[cfg(all(feature = "raster", target_os = "macos"))]
+    fn colored_pixel_count(data: &[u8]) -> usize {
+        data.chunks_exact(4)
+            .filter(|pixel| {
+                let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
+                a > 0 && r.abs_diff(g).max(r.abs_diff(b)).max(g.abs_diff(b)) > 16
+            })
+            .count()
     }
 
     #[test]

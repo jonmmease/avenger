@@ -110,10 +110,27 @@ pub struct MathPathItem {
     pub clip: Option<MathPathData>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum MathImageFormat {
+    Png,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct MathImageItem {
+    pub data: Vec<u8>,
+    pub format: MathImageFormat,
+    pub width: f32,
+    pub height: f32,
+    pub transform: MathTransform,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MathPathArtifact {
     pub logical_width: f32,
     pub logical_height: f32,
     pub items: Vec<MathPathItem>,
+    pub images: Vec<MathImageItem>,
 }

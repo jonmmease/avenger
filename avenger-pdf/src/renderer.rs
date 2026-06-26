@@ -32,7 +32,7 @@ impl PdfRenderer {
     }
 
     pub fn render_scene_graph(&self, scene_graph: &SceneGraph) -> Result<Vec<u8>, AvengerPdfError> {
-        let usvg_options = self.usvg_options();
+        let usvg_options = self.usvg_options_for_scene_graph(scene_graph);
         if matches!(
             self.options.font_resolution.missing_font,
             MissingFontPolicy::Error
@@ -93,16 +93,56 @@ impl PdfRenderer {
             font_resolution: self.options.font_resolution.clone(),
             font_embedding: SvgFontEmbedding::None,
             include_metadata: false,
+            rasterize_color_emoji: true,
         }
     }
 
+    fn usvg_options_for_scene_graph(
+        &self,
+        scene_graph: &SceneGraph,
+    ) -> svg2pdf::usvg::Options<'static> {
+        let mut font_resolution = self.options.font_resolution.clone();
+        if scene_graph_contains_emoji_text(scene_graph) {
+            font_resolution.load_system_fonts = true;
+        }
+        self.usvg_options_with_font_resolution(&font_resolution)
+    }
+
+    #[cfg(test)]
     fn usvg_options(&self) -> svg2pdf::usvg::Options<'static> {
+        self.usvg_options_with_font_resolution(&self.options.font_resolution)
+    }
+
+    fn usvg_options_with_font_resolution(
+        &self,
+        font_resolution: &avenger_text::FontResolutionOptions,
+    ) -> svg2pdf::usvg::Options<'static> {
         let mut options = svg2pdf::usvg::Options::default();
-        options.fontdb = std::sync::Arc::new(avenger_text::fonts::build_fontdb(
-            &self.options.font_resolution,
-        ));
+        options.fontdb = std::sync::Arc::new(avenger_text::fonts::build_fontdb(font_resolution));
         options
     }
+}
+
+fn scene_graph_contains_emoji_text(scene_graph: &SceneGraph) -> bool {
+    let display_list = SceneDisplayList::from_scene_graph(scene_graph);
+    display_list.ordered_items().iter().any(|item| {
+        let SceneDisplayMark::Borrowed(SceneMark::Text(mark)) = &item.mark else {
+            return false;
+        };
+        mark.text_iter()
+            .any(|text| text.contains("#emoji.") || text.chars().any(is_color_emoji_char))
+    })
+}
+
+fn is_color_emoji_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{1F000}'..='\u{1FAFF}'
+            | '\u{1FC00}'..='\u{1FFFD}'
+            | '\u{2600}'..='\u{27BF}'
+            | '\u{FE0F}'
+            | '\u{200D}'
+    )
 }
 
 fn validate_scene_graph_text_fonts(
@@ -618,6 +658,48 @@ mod tests {
         assert!(
             compact_extracted.contains("speednow"),
             "regular Typst text should be embedded by svg2pdf, extracted text was: {extracted:?}"
+        );
+    }
+
+    #[test]
+    fn typst_named_emoji_pdf_converts_with_image_fallback() {
+        let scene_graph = SceneGraph {
+            width: 120.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Mood #emoji.face".to_string()),
+                x: ScalarOrArray::new_scalar(6.0),
+                y: ScalarOrArray::new_scalar(18.0),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let renderer = PdfRenderer::new().with_options(PdfRenderOptions {
+            compress: false,
+            ..Default::default()
+        });
+
+        let svg = renderer.render_svg_for_pdf(&scene_graph).unwrap();
+        let pdf = renderer.render_scene_graph(&scene_graph).unwrap();
+        let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
+        let compact_extracted = extracted
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>();
+
+        assert!(svg.contains("Mood "));
+        assert!(svg.contains("<image "));
+        assert!(svg.contains("data:image/png;base64,"));
+        assert!(!svg.contains("😀"));
+        assert!(!svg.contains("#emoji.face"));
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(pdf_contains(&pdf, b"/Subtype /Image"));
+        assert!(
+            compact_extracted.contains("Mood"),
+            "regular text should remain extractable, extracted text was: {extracted:?}"
         );
     }
 

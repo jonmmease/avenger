@@ -2851,6 +2851,7 @@ fn path_artifact_from_simple_row(
             logical_width: layout.metrics.width,
             logical_height: layout.metrics.height,
             items: Vec::new(),
+            images: Vec::new(),
         };
     };
     let mut items = Vec::new();
@@ -2913,6 +2914,7 @@ fn path_artifact_from_simple_row(
         logical_width: layout.metrics.width,
         logical_height: layout.metrics.height,
         items,
+        images: Vec::new(),
     }
 }
 

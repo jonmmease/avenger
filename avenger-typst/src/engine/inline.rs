@@ -17,8 +17,7 @@ use crate::warnings::MathTypesetWarning;
 
 use super::ast::{LineNode, MathSpan, ParsedLine, PlainTextNode, TextMarkupKind};
 use super::font::{
-    shape_plain_text_with_fallback, shape_plain_text_with_non_emoji_fallback, SegmentedText,
-    ShapedText, TextFace, TextScript,
+    shape_plain_text_with_fallback, SegmentedText, ShapedText, TextFace, TextScript,
 };
 use super::math::metrics::try_typeset_simple_row_fragment;
 use super::math::syntax::parse_math;
@@ -177,11 +176,7 @@ fn shape_plain_text_for_style(
     font_size: f32,
     features: &[rustybuzz::Feature],
 ) -> Result<Option<SegmentedText>, MathTypesetError> {
-    if TextFace::plain_style_uses_embedded_atkinson(style) {
-        shape_plain_text_with_non_emoji_fallback(style, text, font_size, features)
-    } else {
-        shape_plain_text_with_fallback(style, text, font_size, features)
-    }
+    shape_plain_text_with_fallback(style, text, font_size, features)
 }
 
 fn try_typeset_plain_text_line(
@@ -315,6 +310,13 @@ fn try_typeset_mixed_metrics_text_line(
                     positioned_paths: None,
                     pdf_text,
                     font_resources,
+                    positioned_plain_runs: positioned_plain_runs_from_segmented(
+                        plain,
+                        &segmented,
+                        &options.text_style,
+                        metrics.baseline,
+                        options.outputs.positioned_runs,
+                    ),
                 });
             }
             RenderNode::DecoratedText(decorated) => {
@@ -385,13 +387,25 @@ fn try_typeset_mixed_metrics_text_line(
                     kind: PositionedTextLineRunKind::Plain,
                     text: decorated.text.clone(),
                     byte_range: decorated.byte_range.clone(),
-                    text_style: Some(run_style),
+                    text_style: Some(run_style.clone()),
                     baseline_shift,
                     metrics,
                     paths,
                     positioned_paths,
                     pdf_text,
                     font_resources,
+                    positioned_plain_runs: vec![PositionedTextLineRun {
+                        kind: PositionedTextLineRunKind::Plain,
+                        text: decorated.text.clone(),
+                        byte_range: decorated.byte_range.clone(),
+                        text_style: Some(run_style),
+                        x: 0.0,
+                        y: glyph_baseline_y,
+                        metrics,
+                        paths: None,
+                        pdf_text: None,
+                        font_resources: Vec::new(),
+                    }],
                 });
             }
             RenderNode::Math(span) => {
@@ -414,6 +428,7 @@ fn try_typeset_mixed_metrics_text_line(
                     paths: artifact.paths,
                     pdf_text: artifact.pdf_text,
                     font_resources: artifact.font_resources,
+                    positioned_plain_runs: Vec::new(),
                 });
             }
         }
@@ -452,46 +467,80 @@ fn try_typeset_mixed_metrics_text_line(
         let mut x = 0.0;
         run_parts
             .iter()
-            .map(|part| {
+            .flat_map(|part| {
                 let dy = metrics.baseline - part.metrics.baseline;
-                let paths = part.positioned_paths.clone().map(|paths| {
-                    offset_path_artifact(paths, x, dy, part.metrics.width, metrics.height)
-                });
-                let (pdf_text, font_resources) =
-                    if matches!(part.kind, PositionedTextLineRunKind::Math) {
-                        (
-                            part.pdf_text.clone().map(|pdf_text| {
-                                offset_pdf_text_layer(
-                                    pdf_text,
+                let runs = if matches!(part.kind, PositionedTextLineRunKind::Plain)
+                    && !part.positioned_plain_runs.is_empty()
+                {
+                    part.positioned_plain_runs
+                        .iter()
+                        .enumerate()
+                        .map(|(index, run)| {
+                            let mut run = run.clone();
+                            run.x += x;
+                            run.y += dy;
+                            if let Some(paths) = run.paths.take() {
+                                run.paths = Some(offset_path_artifact(
+                                    paths,
                                     x,
                                     dy,
-                                    metrics.width,
+                                    part.metrics.width,
                                     metrics.height,
-                                    &part.text,
-                                )
-                            }),
-                            part.font_resources.clone(),
-                        )
-                    } else {
-                        (None, Vec::new())
-                    };
-                let run = PositionedTextLineRun {
-                    kind: part.kind,
-                    text: part.text.clone(),
-                    byte_range: part.byte_range.clone(),
-                    text_style: part.text_style.clone(),
-                    x,
-                    y: metrics.baseline + part.baseline_shift,
-                    metrics: TypesetMetrics {
-                        width: part.metrics.width,
-                        ..metrics
-                    },
-                    paths,
-                    pdf_text,
-                    font_resources,
+                                ));
+                            } else if index == 0 {
+                                run.paths = part.positioned_paths.clone().map(|paths| {
+                                    offset_path_artifact(
+                                        paths,
+                                        x,
+                                        dy,
+                                        part.metrics.width,
+                                        metrics.height,
+                                    )
+                                });
+                            }
+                            run
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    let paths = part.positioned_paths.clone().map(|paths| {
+                        offset_path_artifact(paths, x, dy, part.metrics.width, metrics.height)
+                    });
+                    let (pdf_text, font_resources) =
+                        if matches!(part.kind, PositionedTextLineRunKind::Math) {
+                            (
+                                part.pdf_text.clone().map(|pdf_text| {
+                                    offset_pdf_text_layer(
+                                        pdf_text,
+                                        x,
+                                        dy,
+                                        metrics.width,
+                                        metrics.height,
+                                        &part.text,
+                                    )
+                                }),
+                                part.font_resources.clone(),
+                            )
+                        } else {
+                            (None, Vec::new())
+                        };
+                    vec![PositionedTextLineRun {
+                        kind: part.kind,
+                        text: part.text.clone(),
+                        byte_range: part.byte_range.clone(),
+                        text_style: part.text_style.clone(),
+                        x,
+                        y: metrics.baseline + part.baseline_shift,
+                        metrics: TypesetMetrics {
+                            width: part.metrics.width,
+                            ..metrics
+                        },
+                        paths,
+                        pdf_text,
+                        font_resources,
+                    }]
                 };
                 x += part.metrics.width;
-                run
+                runs
             })
             .collect()
     } else {
@@ -521,6 +570,7 @@ struct MixedRunPart {
     positioned_paths: Option<MathPathArtifact>,
     pdf_text: Option<MathPdfTextLayer>,
     font_resources: Vec<MathFontResource>,
+    positioned_plain_runs: Vec<PositionedTextLineRun>,
 }
 
 fn text_script_for_kind(kind: TextMarkupKind) -> Option<TextScript> {
@@ -604,6 +654,109 @@ fn metrics_from_segmented_text(segmented: &SegmentedText, baseline_shift: f32) -
     }
 }
 
+fn positioned_plain_runs_from_segmented(
+    plain: &PlainTextNode,
+    segmented: &SegmentedText,
+    text_style: &PlainTextStyle,
+    baseline: f32,
+    include_color_emoji_images: bool,
+) -> Vec<PositionedTextLineRun> {
+    let runs = segmented
+        .runs
+        .iter()
+        .map(|run| {
+            let run_style = positioned_plain_text_style(text_style, &run.face);
+            let metrics = TypesetMetrics {
+                width: run.shaped.metrics.width,
+                height: run.shaped.metrics.height,
+                baseline: run.shaped.metrics.ascent,
+                ascent: run.shaped.metrics.ascent,
+                descent: run.shaped.metrics.descent,
+            };
+            let paths =
+                if include_color_emoji_images && is_color_emoji_family(&run_style.font_family) {
+                    let paths = plain_path_artifact_from_shaped(
+                        &run.face,
+                        &run.shaped,
+                        metrics,
+                        baseline,
+                        run_style.font_size,
+                        text_style.fill,
+                        None,
+                    );
+                    (!paths.images.is_empty()).then(|| {
+                        offset_path_artifact(
+                            paths,
+                            run.x,
+                            0.0,
+                            run.shaped.metrics.width,
+                            metrics.height,
+                        )
+                    })
+                } else {
+                    None
+                };
+            PositionedTextLineRun {
+                kind: PositionedTextLineRunKind::Plain,
+                text: run.text.clone(),
+                byte_range: plain.byte_range.clone(),
+                text_style: Some(run_style),
+                x: run.x,
+                y: baseline,
+                metrics,
+                paths,
+                pdf_text: None,
+                font_resources: Vec::new(),
+            }
+        })
+        .collect::<Vec<_>>();
+    merge_adjacent_positioned_plain_runs(runs)
+}
+
+fn merge_adjacent_positioned_plain_runs(
+    runs: Vec<PositionedTextLineRun>,
+) -> Vec<PositionedTextLineRun> {
+    let mut merged: Vec<PositionedTextLineRun> = Vec::new();
+    for run in runs {
+        if let Some(previous) = merged.last_mut() {
+            if previous.text_style == run.text_style
+                && previous.paths.is_none()
+                && previous.pdf_text.is_none()
+                && run.paths.is_none()
+                && run.pdf_text.is_none()
+                && (previous.y - run.y).abs() <= f32::EPSILON
+            {
+                previous.text.push_str(&run.text);
+                let right = (run.x + run.metrics.width).max(previous.x + previous.metrics.width);
+                previous.metrics.width = right - previous.x;
+                previous.metrics.ascent = previous.metrics.ascent.max(run.metrics.ascent);
+                previous.metrics.descent = previous.metrics.descent.max(run.metrics.descent);
+                previous.metrics.height = previous.metrics.ascent + previous.metrics.descent;
+                previous.metrics.baseline = previous.metrics.ascent;
+                continue;
+            }
+        }
+        merged.push(run);
+    }
+    merged
+}
+
+fn positioned_plain_text_style(text_style: &PlainTextStyle, face: &TextFace) -> PlainTextStyle {
+    let mut run_style = text_style.clone();
+    let family = face.font_resource(MathFontResourceId(0)).family;
+    if is_color_emoji_family(&family) {
+        run_style.font_family = family;
+    }
+    run_style
+}
+
+fn is_color_emoji_family(family: &str) -> bool {
+    matches!(
+        family.to_ascii_lowercase().as_str(),
+        "apple color emoji" | "noto color emoji" | "twitter color emoji" | "segoe ui emoji"
+    )
+}
+
 fn plain_path_artifact_from_shaped(
     face: &TextFace,
     shaped: &ShapedText,
@@ -614,6 +767,7 @@ fn plain_path_artifact_from_shaped(
     decoration: Option<TextMarkupKind>,
 ) -> MathPathArtifact {
     let mut items = Vec::new();
+    let mut images = Vec::new();
     if matches!(decoration, Some(TextMarkupKind::Highlight)) {
         if let Some(highlight) =
             decoration_path_item(TextMarkupKind::Highlight, metrics, font_size, fill)
@@ -622,19 +776,23 @@ fn plain_path_artifact_from_shaped(
         }
     }
 
-    items.extend(
-        shaped
-            .glyphs
-            .iter()
-            .enumerate()
-            .filter_map(|(glyph_index, glyph)| {
-                let path = face.outline_glyph_path(
-                    glyph.glyph_id,
-                    font_size,
-                    glyph.x,
-                    glyph_baseline_y + glyph.y,
-                );
-                (!path.commands.is_empty()).then(|| MathPathItem {
+    for (glyph_index, glyph) in shaped.glyphs.iter().enumerate() {
+        if let Some(image) = face.raster_glyph_image(
+            glyph.glyph_id,
+            font_size,
+            glyph.x,
+            glyph_baseline_y + glyph.y,
+        ) {
+            images.push(image);
+        } else {
+            let path = face.outline_glyph_path(
+                glyph.glyph_id,
+                font_size,
+                glyph.x,
+                glyph_baseline_y + glyph.y,
+            );
+            if !path.commands.is_empty() {
+                items.push(MathPathItem {
                     path,
                     kind: MathPathKind::GlyphOutline {
                         glyph_run: 0,
@@ -644,9 +802,10 @@ fn plain_path_artifact_from_shaped(
                     stroke: None,
                     transform: MathTransform::IDENTITY,
                     clip: None,
-                })
-            }),
-    );
+                });
+            }
+        }
+    }
 
     if let Some(
         kind @ (TextMarkupKind::Underline | TextMarkupKind::Strike | TextMarkupKind::Overline),
@@ -661,6 +820,7 @@ fn plain_path_artifact_from_shaped(
         logical_width: metrics.width,
         logical_height: metrics.height,
         items,
+        images,
     }
 }
 
@@ -673,6 +833,7 @@ fn plain_path_artifact_from_segmented(
     decoration: Option<TextMarkupKind>,
 ) -> MathPathArtifact {
     let mut items = Vec::new();
+    let mut images = Vec::new();
     if matches!(decoration, Some(TextMarkupKind::Highlight)) {
         if let Some(highlight) =
             decoration_path_item(TextMarkupKind::Highlight, metrics, font_size, fill)
@@ -682,19 +843,23 @@ fn plain_path_artifact_from_segmented(
     }
 
     for (run_index, run) in segmented.runs.iter().enumerate() {
-        items.extend(
-            run.shaped
-                .glyphs
-                .iter()
-                .enumerate()
-                .filter_map(|(glyph_index, glyph)| {
-                    let path = run.face.outline_glyph_path(
-                        glyph.glyph_id,
-                        font_size,
-                        run.x + glyph.x,
-                        glyph_baseline_y + glyph.y,
-                    );
-                    (!path.commands.is_empty()).then(|| MathPathItem {
+        for (glyph_index, glyph) in run.shaped.glyphs.iter().enumerate() {
+            if let Some(image) = run.face.raster_glyph_image(
+                glyph.glyph_id,
+                font_size,
+                run.x + glyph.x,
+                glyph_baseline_y + glyph.y,
+            ) {
+                images.push(image);
+            } else {
+                let path = run.face.outline_glyph_path(
+                    glyph.glyph_id,
+                    font_size,
+                    run.x + glyph.x,
+                    glyph_baseline_y + glyph.y,
+                );
+                if !path.commands.is_empty() {
+                    items.push(MathPathItem {
                         path,
                         kind: MathPathKind::GlyphOutline {
                             glyph_run: run_index,
@@ -704,9 +869,10 @@ fn plain_path_artifact_from_segmented(
                         stroke: None,
                         transform: MathTransform::IDENTITY,
                         clip: None,
-                    })
-                }),
-        );
+                    });
+                }
+            }
+        }
     }
 
     if let Some(
@@ -722,6 +888,7 @@ fn plain_path_artifact_from_segmented(
         logical_width: metrics.width,
         logical_height: metrics.height,
         items,
+        images,
     }
 }
 
@@ -735,6 +902,7 @@ fn decoration_path_artifact(
         logical_width: metrics.width,
         logical_height: metrics.height,
         items: vec![item],
+        images: Vec::new(),
     })
 }
 
@@ -891,12 +1059,14 @@ fn plain_pdf_text_from_segmented(
 
 fn full_line_path_artifact(parts: &[MixedRunPart], metrics: TypesetMetrics) -> MathPathArtifact {
     let mut items = Vec::new();
+    let mut images = Vec::new();
     let mut x = 0.0;
     for part in parts {
         let dy = metrics.baseline - part.metrics.baseline;
         if let Some(paths) = &part.paths {
             let paths = offset_path_artifact(paths.clone(), x, dy, metrics.width, metrics.height);
             items.extend(paths.items);
+            images.extend(paths.images);
         }
         x += part.metrics.width;
     }
@@ -905,6 +1075,7 @@ fn full_line_path_artifact(parts: &[MixedRunPart], metrics: TypesetMetrics) -> M
         logical_width: metrics.width,
         logical_height: metrics.height,
         items,
+        images,
     }
 }
 
@@ -920,6 +1091,10 @@ fn offset_path_artifact(
     for item in &mut paths.items {
         item.transform.dx += dx;
         item.transform.dy += dy;
+    }
+    for image in &mut paths.images {
+        image.transform.dx += dx;
+        image.transform.dy += dy;
     }
     paths
 }
@@ -1161,24 +1336,14 @@ fn typeset_segmented_plain_text_line(
     };
     #[cfg(not(feature = "raster"))]
     let raster = None;
-    let positioned_paths = options
-        .outputs
-        .positioned_runs
-        .then(|| decoration_path_artifact(decoration?, metrics, font_size, options.text_style.fill))
-        .flatten();
     let positioned_runs = options.outputs.positioned_runs.then(|| {
-        vec![PositionedTextLineRun {
-            kind: PositionedTextLineRunKind::Plain,
-            text: plain.text.clone(),
-            byte_range: plain.byte_range.clone(),
-            text_style: Some(options.text_style.clone()),
-            x: 0.0,
-            y: metrics.baseline,
-            metrics,
-            paths: positioned_paths,
-            pdf_text: None,
-            font_resources: Vec::new(),
-        }]
+        positioned_plain_runs_from_segmented(
+            plain,
+            &segmented,
+            &options.text_style,
+            metrics.baseline,
+            true,
+        )
     });
 
     Ok(Some(TextLineArtifact {

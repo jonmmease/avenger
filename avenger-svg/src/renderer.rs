@@ -27,7 +27,10 @@ use avenger_scenegraph::{
 };
 use avenger_text::{
     measurement::{truncate_text_to_limit_with, TextMeasurementConfig},
-    path::{TextPathBuffer, TextPathDrawItem, TextPathExtractionConfig, TextPathItem},
+    path::{
+        TextPathBuffer, TextPathDrawItem, TextPathExtractionConfig, TextPathImageFormat,
+        TextPathImageItem, TextPathItem,
+    },
     types::{FontStyle, FontWeight, FontWeightNameSpec},
     TextEngine,
 };
@@ -514,6 +517,9 @@ impl SvgRenderer {
                             "Typst SVG text buffer referenced a missing plain run".to_string(),
                         ));
                     };
+                    if self.options.rasterize_color_emoji && is_color_emoji_family(&run.font) {
+                        continue;
+                    }
                     self.write_plain_text_run(
                         document,
                         &run.text,
@@ -533,6 +539,17 @@ impl SvgRenderer {
                         ));
                     };
                     self.write_math_text_path_item(document, item, x, text_top)?;
+                }
+                TextPathDrawItem::ImageItem(index) => {
+                    if !self.options.rasterize_color_emoji {
+                        continue;
+                    }
+                    let Some(item) = buffer.images.get(index) else {
+                        return Err(AvengerSvgError::Text(
+                            "Typst SVG text buffer referenced a missing image item".to_string(),
+                        ));
+                    };
+                    self.write_text_path_image_item(document, item, x, text_top)?;
                 }
             }
         }
@@ -617,6 +634,40 @@ impl SvgRenderer {
         push_number(&mut document.body, x, self.options.precision)?;
         document.body.push(' ');
         push_number(&mut document.body, y, self.options.precision)?;
+        document.body.push_str(r#")"/>"#);
+        document.body.push('\n');
+        Ok(())
+    }
+
+    fn write_text_path_image_item(
+        &self,
+        document: &mut SvgDocument,
+        item: &TextPathImageItem,
+        x: f32,
+        y: f32,
+    ) -> Result<(), AvengerSvgError> {
+        let TextPathImageFormat::Png = item.format;
+        let [xx, yx, xy, yy, dx, dy] = item.transform;
+        document.body.push_str(r#"<image x="0" y="0" width=""#);
+        push_number(&mut document.body, item.width, self.options.precision)?;
+        document.body.push_str(r#"" height=""#);
+        push_number(&mut document.body, item.height, self.options.precision)?;
+        document
+            .body
+            .push_str(r#"" preserveAspectRatio="none" href="data:image/png;base64,"#);
+        document.body.push_str(&BASE64_STANDARD.encode(&item.data));
+        document.body.push_str(r#"" transform="matrix("#);
+        push_number(&mut document.body, xx, self.options.precision)?;
+        document.body.push(' ');
+        push_number(&mut document.body, yx, self.options.precision)?;
+        document.body.push(' ');
+        push_number(&mut document.body, xy, self.options.precision)?;
+        document.body.push(' ');
+        push_number(&mut document.body, yy, self.options.precision)?;
+        document.body.push(' ');
+        push_number(&mut document.body, x + dx, self.options.precision)?;
+        document.body.push(' ');
+        push_number(&mut document.body, y + dy, self.options.precision)?;
         document.body.push_str(r#")"/>"#);
         document.body.push('\n');
         Ok(())
@@ -1165,6 +1216,13 @@ fn rgba_image_to_png_data_uri(image: &RgbaImage) -> Result<String, AvengerSvgErr
         "data:image/png;base64,{}",
         BASE64_STANDARD.encode(cursor.into_inner())
     ))
+}
+
+fn is_color_emoji_family(family: &str) -> bool {
+    matches!(
+        family.to_ascii_lowercase().as_str(),
+        "apple color emoji" | "noto color emoji" | "twitter color emoji" | "segoe ui emoji"
+    )
 }
 
 fn push_color_or_text_paint(
@@ -1913,6 +1971,64 @@ mod tests {
         assert!(!math_svg.contains("$v^2$"));
         assert!(math_svg.contains(r##"fill="#0040ff""##));
         assert!(usvg::Tree::from_str(&math_svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn renders_typst_named_emoji_as_native_svg_text() {
+        let scene_graph = SceneGraph {
+            width: 120.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Mood #emoji.face".to_string()),
+                x: ScalarOrArray::new_scalar(6.0),
+                y: ScalarOrArray::new_scalar(18.0),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains("<text "));
+        assert!(svg.contains("Mood "));
+        assert!(svg.contains("😀"));
+        assert!(svg.contains(r#"font-family="Apple Color Emoji""#));
+        assert!(!svg.contains("#emoji.face"));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn rasterizes_typst_named_emoji_when_requested() {
+        let scene_graph = SceneGraph {
+            width: 120.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar("Mood #emoji.face".to_string()),
+                x: ScalarOrArray::new_scalar(6.0),
+                y: ScalarOrArray::new_scalar(18.0),
+                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font_size: ScalarOrArray::new_scalar(12.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let svg = SvgRenderer::new()
+            .with_options(SvgRenderOptions {
+                rasterize_color_emoji: true,
+                ..Default::default()
+            })
+            .render_scene_graph(&scene_graph)
+            .unwrap();
+
+        assert!(svg.contains("Mood "));
+        assert!(svg.contains("<image "));
+        assert!(svg.contains("data:image/png;base64,"));
+        assert!(!svg.contains("😀"));
+        assert!(!svg.contains("#emoji.face"));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 
     #[test]
