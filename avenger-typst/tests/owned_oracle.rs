@@ -75,7 +75,7 @@ fn owned_backend_matches_vendor_for_fragment_metrics_and_artifacts() {
 }
 
 #[test]
-fn owned_backend_matches_vendor_for_number_fragment_metrics_only_fast_path() {
+fn owned_backend_matches_vendor_for_single_atom_fragment_metrics_only_fast_path() {
     let vendor = vendor();
     let owned = owned();
     let mut options = MathFragmentOptions::default();
@@ -85,14 +85,16 @@ fn owned_backend_matches_vendor_for_number_fragment_metrics_only_fast_path() {
         pdf_text_layer: false,
     };
 
-    let vendor_artifact = vendor
-        .typeset_math_fragment("1", &options)
-        .unwrap_or_else(|err| panic!("vendor failed for number fragment: {err:?}"));
-    let owned_artifact = owned
-        .typeset_math_fragment("1", &options)
-        .unwrap_or_else(|err| panic!("owned failed for number fragment: {err:?}"));
+    for source in ["1", "0.94", "x", "R", "alpha", "pi", "sum", "+", "->"] {
+        let vendor_artifact = vendor
+            .typeset_math_fragment(source, &options)
+            .unwrap_or_else(|err| panic!("vendor failed for {source:?}: {err:?}"));
+        let owned_artifact = owned
+            .typeset_math_fragment(source, &options)
+            .unwrap_or_else(|err| panic!("owned failed for {source:?}: {err:?}"));
 
-    assert_math_artifact_matches("1", &vendor_artifact, &owned_artifact);
+        assert_math_artifact_matches(source, &vendor_artifact, &owned_artifact);
+    }
 }
 
 #[test]
