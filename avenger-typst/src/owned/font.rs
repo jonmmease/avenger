@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use crate::error::MathTypesetError;
 use crate::fonts::{EmbeddedFontFace, ATKINSON_FACES};
+use crate::pdf::{MathFontResource, MathFontResourceId};
 use crate::style::{FontStyle, FontWeight, PlainTextStyle};
 
 pub(crate) struct OwnedTextFace<'a> {
@@ -13,6 +16,22 @@ pub(crate) struct OwnedShapedMetrics {
     pub(crate) ascent: f32,
     pub(crate) descent: f32,
     pub(crate) height: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct OwnedShapedGlyph {
+    pub(crate) glyph_id: ttf_parser::GlyphId,
+    pub(crate) unicode: String,
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) x_advance: f32,
+    pub(crate) y_advance: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct OwnedShapedText {
+    pub(crate) metrics: OwnedShapedMetrics,
+    pub(crate) glyphs: Vec<OwnedShapedGlyph>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -69,34 +88,88 @@ impl<'a> OwnedTextFace<'a> {
         }
     }
 
-    pub(crate) fn shaped_metrics(&self, text: &str, font_size: f32) -> OwnedShapedMetrics {
+    pub(crate) fn shaped_text(&self, text: &str, font_size: f32) -> OwnedShapedText {
         let edge_metrics = self.default_text_edge_metrics(font_size);
         let Some(face) = rustybuzz::Face::from_slice(self.data, 0) else {
             let fallback = fallback_width(text, font_size);
-            return OwnedShapedMetrics {
-                width: fallback,
-                ascent: edge_metrics.ascent,
-                descent: edge_metrics.descent,
-                height: edge_metrics.height,
+            return OwnedShapedText {
+                metrics: OwnedShapedMetrics {
+                    width: fallback,
+                    ascent: edge_metrics.ascent,
+                    descent: edge_metrics.descent,
+                    height: edge_metrics.height,
+                },
+                glyphs: Vec::new(),
             };
         };
         let mut buffer = rustybuzz::UnicodeBuffer::new();
         buffer.push_str(text);
         let glyphs = rustybuzz::shape(&face, &[], buffer);
         let scale = font_scale(&self.face, font_size);
-        let mut advance = 0i32;
+        let mut cursor_x = 0i32;
+        let mut cursor_y = 0i32;
+        let mut advance_width = 0i32;
+        let mut shaped_glyphs = Vec::new();
 
-        for position in glyphs.glyph_positions() {
-            advance += position.x_advance;
+        for (info, position) in glyphs.glyph_infos().iter().zip(glyphs.glyph_positions()) {
+            let x = cursor_x + position.x_offset;
+            let y = cursor_y + position.y_offset;
+            cursor_x += position.x_advance;
+            cursor_y += position.y_advance;
+            advance_width += position.x_advance;
+            shaped_glyphs.push(OwnedShapedGlyph {
+                glyph_id: ttf_parser::GlyphId(info.glyph_id as u16),
+                unicode: glyph_unicode_for_cluster(text, info.cluster),
+                x: x as f32 * scale,
+                y: -(y as f32) * scale,
+                x_advance: position.x_advance as f32 * scale,
+                y_advance: -(position.y_advance as f32) * scale,
+            });
         }
 
-        OwnedShapedMetrics {
-            width: advance as f32 * scale,
-            ascent: edge_metrics.ascent,
-            descent: edge_metrics.descent,
-            height: edge_metrics.height,
+        OwnedShapedText {
+            metrics: OwnedShapedMetrics {
+                width: advance_width as f32 * scale,
+                ascent: edge_metrics.ascent,
+                descent: edge_metrics.descent,
+                height: edge_metrics.height,
+            },
+            glyphs: shaped_glyphs,
         }
     }
+
+    pub(crate) fn font_resource(&self, id: MathFontResourceId) -> MathFontResource {
+        MathFontResource {
+            id,
+            family: font_name(&self.face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
+                .or_else(|| font_name(&self.face, ttf_parser::name_id::FAMILY))
+                .unwrap_or_else(|| "Unknown".to_string()),
+            postscript_name: font_name(&self.face, ttf_parser::name_id::POST_SCRIPT_NAME),
+            face_index: 0,
+            units_per_em: self.face.units_per_em() as f32,
+            data: Arc::<[u8]>::from(self.data),
+        }
+    }
+}
+
+fn glyph_unicode_for_cluster(text: &str, cluster: u32) -> String {
+    let cluster = cluster as usize;
+    let Some((start, _)) = text.char_indices().find(|(start, _)| *start == cluster) else {
+        return String::new();
+    };
+    let end = text[start..]
+        .char_indices()
+        .nth(1)
+        .map_or(text.len(), |(next, _)| start + next);
+    text[start..end].to_string()
+}
+
+fn font_name(face: &ttf_parser::Face<'_>, name_id: u16) -> Option<String> {
+    face.names().into_iter().find_map(|name| {
+        (name.name_id == name_id)
+            .then(|| name.to_string())
+            .flatten()
+    })
 }
 
 fn select_atkinson_face(
@@ -149,7 +222,7 @@ mod tests {
             .unwrap()
             .expect("default sans-serif should resolve");
 
-        assert!(face.shaped_metrics("Hello", 12.0).width > 0.0);
+        assert!(face.shaped_text("Hello", 12.0).metrics.width > 0.0);
         assert!(face.default_text_edge_metrics(12.0).height > 0.0);
     }
 

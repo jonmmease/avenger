@@ -291,6 +291,31 @@ fn owned_backend_matches_vendor_for_plain_text_metrics_only_fast_path() {
 }
 
 #[test]
+fn owned_backend_matches_vendor_for_plain_text_pdf_fast_path() {
+    let vendor = vendor();
+    let owned = owned();
+    let mut options = TextLineOptions::default();
+    options.outputs = TextLineOutputRequest {
+        paths: false,
+        raster: None,
+        pdf_text_layer: true,
+        positioned_runs: true,
+    };
+
+    for source in ["Hello", "Axis Tick Spacing", "Using count() aggregation"] {
+        let vendor_artifact = vendor
+            .typeset_text_line(source, &options)
+            .unwrap_or_else(|err| panic!("vendor failed for {source:?}: {err:?}"));
+        let owned_artifact = owned
+            .typeset_text_line(source, &options)
+            .unwrap_or_else(|err| panic!("owned failed for {source:?}: {err:?}"));
+
+        maybe_write_text_line_snapshot(source, &vendor_artifact, &owned_artifact);
+        assert_text_line_matches(source, &vendor_artifact, &owned_artifact);
+    }
+}
+
+#[test]
 fn owned_backend_matches_vendor_for_errors() {
     let vendor = vendor();
     let owned = owned();

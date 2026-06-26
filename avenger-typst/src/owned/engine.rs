@@ -627,4 +627,26 @@ mod tests {
         assert_eq!(artifact.positioned_runs[0].text, "Hello");
         assert!(!engine.delegate.lock().unwrap().is_some());
     }
+
+    #[test]
+    fn plain_text_line_pdf_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: false,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let artifact = engine.typeset_text_line("Hello", &options).unwrap();
+
+        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert_eq!(artifact.font_resources.len(), 1);
+        assert!(artifact
+            .pdf_text
+            .as_ref()
+            .is_some_and(|pdf| pdf.glyph_runs.len() == 1));
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
 }

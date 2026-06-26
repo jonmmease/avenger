@@ -1,4 +1,6 @@
 use crate::error::MathTypesetError;
+use crate::paths::MathTransform;
+use crate::pdf::{MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer};
 use crate::types::{
     PositionedTextLineRun, PositionedTextLineRunKind, TextLineArtifact, TextLineOptions,
     TypesetMetrics,
@@ -13,7 +15,7 @@ pub(crate) fn try_typeset_plain_text_line(
     line: &OwnedLine,
     options: &TextLineOptions,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
-    if options.outputs.paths || options.outputs.raster.is_some() || options.outputs.pdf_text_layer {
+    if options.outputs.paths || options.outputs.raster.is_some() {
         return Ok(None);
     }
 
@@ -35,14 +37,51 @@ fn typeset_plain_text_line(
     face: OwnedTextFace<'_>,
 ) -> TextLineArtifact {
     let font_size = options.text_style.font_size.max(1.0);
-    let shaped = face.shaped_metrics(&plain.text, font_size);
+    let shaped = face.shaped_text(&plain.text, font_size);
     let metrics = TypesetMetrics {
-        width: shaped.width,
-        height: shaped.height,
-        baseline: shaped.ascent,
-        ascent: shaped.ascent,
-        descent: shaped.descent,
+        width: shaped.metrics.width,
+        height: shaped.metrics.height,
+        baseline: shaped.metrics.ascent,
+        ascent: shaped.metrics.ascent,
+        descent: shaped.metrics.descent,
     };
+    let font_id = MathFontResourceId(0);
+    let font_resources = options
+        .outputs
+        .pdf_text_layer
+        .then(|| vec![face.font_resource(font_id)])
+        .unwrap_or_default();
+    let pdf_text = options.outputs.pdf_text_layer.then(|| MathPdfTextLayer {
+        logical_width: metrics.width,
+        logical_height: metrics.height,
+        semantic_text: source.to_string(),
+        glyph_runs: (!shaped.glyphs.is_empty())
+            .then(|| MathPdfGlyphRun {
+                font: font_id,
+                font_size,
+                fill: options.text_style.fill,
+                stroke: None,
+                glyphs: shaped
+                    .glyphs
+                    .iter()
+                    .map(|glyph| MathPdfGlyph {
+                        glyph_id: glyph.glyph_id.0,
+                        unicode: glyph.unicode.clone(),
+                        x: 0.0,
+                        y: 0.0,
+                        x_advance: glyph.x_advance,
+                        y_advance: glyph.y_advance,
+                        transform: MathTransform {
+                            dx: glyph.x,
+                            dy: metrics.baseline + glyph.y,
+                            ..MathTransform::IDENTITY
+                        },
+                    })
+                    .collect(),
+            })
+            .into_iter()
+            .collect(),
+    });
     let positioned_runs = options.outputs.positioned_runs.then(|| {
         vec![PositionedTextLineRun {
             kind: PositionedTextLineRunKind::Plain,
@@ -62,9 +101,9 @@ fn typeset_plain_text_line(
         metrics,
         paths: None,
         raster: None,
-        pdf_text: None,
+        pdf_text,
         positioned_runs: positioned_runs.unwrap_or_default(),
-        font_resources: Vec::new(),
+        font_resources,
         warnings: Vec::<MathTypesetWarning>::new(),
     }
 }
@@ -110,5 +149,29 @@ mod tests {
         assert!(try_typeset_plain_text_line("Hello", &line, &options)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn plain_line_fast_path_can_emit_pdf_glyph_metadata() {
+        let line = parse_owned_line("Hello", &MathDelimiterOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: false,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let artifact = try_typeset_plain_text_line("Hello", &line, &options)
+            .unwrap()
+            .expect("plain Atkinson text should use fast path");
+
+        assert_eq!(artifact.font_resources.len(), 1);
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        assert_eq!(pdf.semantic_text, "Hello");
+        assert_eq!(pdf.glyph_runs.len(), 1);
+        assert_eq!(pdf.glyph_runs[0].glyphs.len(), 5);
+        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert!(artifact.positioned_runs[0].pdf_text.is_none());
     }
 }
