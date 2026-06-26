@@ -87,6 +87,7 @@ fn owned_backend_matches_vendor_for_text_line_metrics_and_runs() {
     };
 
     for source in [
+        "",
         "Hello",
         "Axis Tick Spacing",
         "Price \\$7, score $R^2$ = 0.94",
@@ -403,7 +404,12 @@ fn snapshot_name(source: &str) -> String {
             name.push('_');
         }
     }
-    name.trim_matches('_').chars().take(80).collect()
+    let name = name.trim_matches('_').chars().take(80).collect::<String>();
+    if name.is_empty() {
+        "empty".to_string()
+    } else {
+        name
+    }
 }
 
 fn append_text_line_snapshot(output: &mut String, label: &str, artifact: &TextLineArtifact) {

@@ -250,6 +250,14 @@ Success criteria:
 
 Copy only the code needed by the current `avenger-typst/src/engine/typst.rs` imports. Start with a private compatibility core, even if it still looks Typst-ish:
 
+Progress:
+
+- [x] Move the owned backend shell under `avenger-typst/src/owned/`.
+- [x] Lazily initialize the vendored delegate so owned fast paths can run without constructing a Typst `World`.
+- [x] Add the first owned artifact path: empty text lines with metrics, optional empty paths, optional empty PDF text layer, and positioned-run output.
+- [ ] Copy enough runtime/layout code for a non-empty plain text line.
+- [ ] Copy enough runtime/layout code for a simple math fragment.
+
 Needed families:
 
 - diagnostics/source result types
