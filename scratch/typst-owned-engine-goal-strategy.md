@@ -339,7 +339,8 @@ Once layout is owned and proven, replace `typst-syntax` with a small parser for 
 Progress:
 
 - [x] Add an initial owned line AST and static Typst-shaped parser for plain text, `$...$` math spans, exact text commands, nested static text spans, and named emoji aliases.
-- [ ] Route the owned parser into the owned backend for non-empty text lines.
+- [x] Route the owned parser into the owned backend for non-empty text lines.
+- [ ] Render static text commands and named emoji aliases from the owned AST instead of rejecting them after parse.
 - [ ] Add the owned math parser for the strict supported subset.
 
 Keep:

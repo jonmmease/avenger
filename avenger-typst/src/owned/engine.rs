@@ -9,6 +9,8 @@ use crate::types::{
 };
 
 use crate::engine::typst::TypstMathEngine;
+use crate::owned::ast::{OwnedLine, OwnedLineNode};
+use crate::owned::syntax::parse_owned_line;
 
 #[derive(Clone)]
 pub(crate) struct OwnedTypstEngine {
@@ -56,6 +58,13 @@ impl OwnedTypstEngine {
             return Ok(empty_text_line_artifact(source, options));
         }
 
+        let line = parse_owned_line(source, &options.delimiters)?;
+        if line_contains_static_markup(&line) {
+            return Err(MathTypesetError::UnsupportedOutput(
+                "owned static text markup is parsed but not rendered yet",
+            ));
+        }
+
         self.with_delegate(|delegate| delegate.typeset_text_line(source, options))
     }
 
@@ -83,6 +92,18 @@ impl OwnedTypstEngine {
             .as_ref()
             .expect("owned Typst delegate should be initialized"))
     }
+}
+
+fn line_contains_static_markup(line: &OwnedLine) -> bool {
+    nodes_contain_static_markup(&line.nodes)
+}
+
+fn nodes_contain_static_markup(nodes: &[OwnedLineNode]) -> bool {
+    nodes.iter().any(|node| match node {
+        OwnedLineNode::Plain(_) | OwnedLineNode::Math(_) => false,
+        OwnedLineNode::Emoji(_) => true,
+        OwnedLineNode::TextSpan(_) => true,
+    })
 }
 
 fn empty_text_line_artifact(source: &str, options: &TextLineOptions) -> TextLineArtifact {
@@ -159,5 +180,64 @@ mod tests {
 
         assert!(artifact.metrics.width > 0.0);
         assert!(engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn unknown_static_command_errors_before_delegate_initialization() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = false;
+
+        let err = engine
+            .typeset_text_line("#let x = 1", &options)
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            MathTypesetError::UnsupportedSyntax {
+                position: 0,
+                message: "unsupported static text command"
+            }
+        );
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn static_command_options_error_before_delegate_initialization() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = false;
+
+        let err = engine
+            .typeset_text_line("#underline(stroke: red)[important]", &options)
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            MathTypesetError::UnsupportedSyntax {
+                position: 0,
+                message: "static text commands do not support Typst-style options"
+            }
+        );
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn parsed_but_unrendered_static_markup_errors_without_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = false;
+
+        let err = engine
+            .typeset_text_line("#underline[important]", &options)
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            MathTypesetError::UnsupportedOutput(
+                "owned static text markup is parsed but not rendered yet"
+            )
+        );
+        assert!(!engine.delegate.lock().unwrap().is_some());
     }
 }
