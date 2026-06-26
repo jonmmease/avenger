@@ -1,4 +1,3 @@
-pub use avenger_typst::TypstEngineBackend;
 use avenger_typst::{MathDelimiterOptions, MathLimits, MathStyle, MathSyntaxMode};
 
 pub(crate) const DEFAULT_MATH_LINE_LEADING_FACTOR: f32 = 0.65;
@@ -31,7 +30,6 @@ impl Default for MathMarkupErrorPolicy {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextMathConfig {
     pub mode: TextMarkupMode,
-    pub typst_backend: TypstEngineBackend,
     pub math_style: MathStyle,
     pub syntax: MathSyntaxMode,
     pub limits: MathLimits,
@@ -42,7 +40,6 @@ impl Default for TextMathConfig {
     fn default() -> Self {
         Self {
             mode: TextMarkupMode::Plain,
-            typst_backend: TypstEngineBackend::OwnedTypst,
             math_style: MathStyle::default(),
             syntax: MathSyntaxMode::default(),
             limits: MathLimits::default(),

@@ -2055,6 +2055,7 @@ mod tests {
 
         assert!(bounds.width > 0.0);
         assert!(bounds.height > 0.0);
-        assert!(runtime.cache_tag.contains("OwnedTypst"));
+        assert!(runtime.cache_tag.starts_with("typst-text:"));
+        assert!(runtime.cache_tag.contains("TypstMathDelimited"));
     }
 }

@@ -30,17 +30,9 @@ impl TypstTextMeasurer {
     }
 
     pub fn with_config(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Self::with_typst_backend(math.clone(), math.typst_backend)
-    }
-
-    pub fn with_typst_backend(
-        mut math: TextMathConfig,
-        backend: avenger_typst::TypstEngineBackend,
-    ) -> Result<Self, avenger_typst::TypstInitError> {
-        math.typst_backend = backend;
         Ok(Self::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
-                backend,
+                backend: avenger_typst::TypstEngineBackend::OwnedTypst,
                 ..avenger_typst::TypstEngineConfig::default()
             })?,
             math,
@@ -48,7 +40,7 @@ impl TypstTextMeasurer {
     }
 
     pub fn with_owned_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Self::with_typst_backend(math, avenger_typst::TypstEngineBackend::OwnedTypst)
+        Self::with_config(math)
     }
 }
 
@@ -113,17 +105,9 @@ impl<CacheValue> TypstTextRasterizer<CacheValue> {
     }
 
     pub fn with_config(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Self::with_typst_backend(math.clone(), math.typst_backend)
-    }
-
-    pub fn with_typst_backend(
-        mut math: TextMathConfig,
-        backend: avenger_typst::TypstEngineBackend,
-    ) -> Result<Self, avenger_typst::TypstInitError> {
-        math.typst_backend = backend;
         Ok(Self::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
-                backend,
+                backend: avenger_typst::TypstEngineBackend::OwnedTypst,
                 ..avenger_typst::TypstEngineConfig::default()
             })?,
             math,
@@ -131,7 +115,7 @@ impl<CacheValue> TypstTextRasterizer<CacheValue> {
     }
 
     pub fn with_owned_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Self::with_typst_backend(math, avenger_typst::TypstEngineBackend::OwnedTypst)
+        Self::with_config(math)
     }
 }
 

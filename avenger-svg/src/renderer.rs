@@ -2050,7 +2050,6 @@ mod tests {
         };
         let math_config = avenger_text::math::TextMathConfig {
             mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
-            typst_backend: avenger_text::math::TypstEngineBackend::OwnedTypst,
             ..Default::default()
         };
 

@@ -1,6 +1,6 @@
-use avenger_typst::{AvengerTypst, MathTypesetError, TypstEngineBackend, TypstEngineConfig};
+use avenger_typst::{AvengerTypst, MathTypesetError, TypstEngineConfig};
 
-#[cfg(not(feature = "vendor-typst"))]
+#[cfg(not(feature = "owned"))]
 use avenger_typst::TypstInitError;
 
 fn engine() -> AvengerTypst {
@@ -82,26 +82,11 @@ fn math_depth_limit_is_enforced() {
     );
 }
 
-#[cfg(not(feature = "vendor-typst"))]
-#[test]
-fn explicit_vendor_typst_backend_reports_unavailable_until_wired() {
-    let err = AvengerTypst::new(TypstEngineConfig {
-        backend: TypstEngineBackend::VendorTypst,
-        ..Default::default()
-    })
-    .unwrap_err();
-
-    assert_eq!(
-        err,
-        TypstInitError::BackendUnavailable("vendor-typst feature is not enabled")
-    );
-}
-
-#[cfg(all(not(feature = "vendor-typst"), not(feature = "owned")))]
+#[cfg(not(feature = "owned"))]
 #[test]
 fn explicit_owned_typst_backend_reports_unavailable_without_owned_feature() {
     let err = AvengerTypst::new(TypstEngineConfig {
-        backend: TypstEngineBackend::OwnedTypst,
+        backend: avenger_typst::TypstEngineBackend::OwnedTypst,
         ..Default::default()
     })
     .unwrap_err();
@@ -112,49 +97,11 @@ fn explicit_owned_typst_backend_reports_unavailable_without_owned_feature() {
     );
 }
 
-#[cfg(all(not(feature = "vendor-typst"), feature = "owned"))]
+#[cfg(feature = "owned")]
 #[test]
-fn explicit_owned_typst_backend_produces_paths_without_vendor_feature() {
+fn explicit_owned_typst_backend_produces_paths() {
     let engine = AvengerTypst::new(TypstEngineConfig {
-        backend: TypstEngineBackend::OwnedTypst,
-        ..Default::default()
-    })
-    .unwrap();
-
-    let artifact = engine
-        .typeset_math_fragment("x^2 + y^2", &Default::default())
-        .unwrap();
-
-    assert!(artifact
-        .paths
-        .as_ref()
-        .is_some_and(|paths| !paths.items.is_empty()));
-}
-
-#[cfg(feature = "vendor-typst")]
-#[test]
-fn explicit_vendor_typst_backend_produces_paths_by_default() {
-    let engine = AvengerTypst::new(TypstEngineConfig {
-        backend: TypstEngineBackend::VendorTypst,
-        ..Default::default()
-    })
-    .unwrap();
-
-    let artifact = engine
-        .typeset_math_fragment("x^2 + y^2", &Default::default())
-        .unwrap();
-
-    assert!(artifact
-        .paths
-        .as_ref()
-        .is_some_and(|paths| !paths.items.is_empty()));
-}
-
-#[cfg(feature = "vendor-typst")]
-#[test]
-fn explicit_owned_typst_backend_produces_paths_with_vendor_oracle_available() {
-    let engine = AvengerTypst::new(TypstEngineConfig {
-        backend: TypstEngineBackend::OwnedTypst,
+        backend: avenger_typst::TypstEngineBackend::OwnedTypst,
         ..Default::default()
     })
     .unwrap();

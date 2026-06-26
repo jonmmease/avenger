@@ -1,6 +1,3 @@
-#[cfg(feature = "vendor-typst")]
-use std::sync::{Arc, Mutex};
-
 use crate::api::TypstEngineConfig;
 use crate::error::{MathTypesetError, TypstInitError};
 use crate::paths::MathPathArtifact;
@@ -9,8 +6,6 @@ use crate::types::{
     MathFragmentOptions, MathRunArtifact, TextLineArtifact, TextLineOptions, TypesetMetrics,
 };
 
-#[cfg(feature = "vendor-typst")]
-use crate::engine::typst::TypstMathEngine;
 use crate::owned::ast::{OwnedLine, OwnedLineNode};
 use crate::owned::inline::try_typeset_owned_text_line;
 use crate::owned::math::metrics::try_typeset_simple_row_fragment;
@@ -20,14 +15,12 @@ use crate::owned::syntax::parse_owned_line;
 #[derive(Clone)]
 pub(crate) struct OwnedTypstEngine {
     config: TypstEngineConfig,
-    #[cfg(feature = "vendor-typst")]
-    delegate: Arc<Mutex<Option<TypstMathEngine>>>,
 }
 
 impl std::fmt::Debug for OwnedTypstEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OwnedTypstEngine")
-            .field("phase", &"owned-empty-text-line-delegating-rest")
+            .field("phase", &"owned-subset")
             .field("delegate_initialized", &self.delegate_initialized())
             .finish_non_exhaustive()
     }
@@ -37,8 +30,6 @@ impl OwnedTypstEngine {
     pub(crate) fn new(config: &TypstEngineConfig) -> Result<Self, TypstInitError> {
         Ok(Self {
             config: config.clone(),
-            #[cfg(feature = "vendor-typst")]
-            delegate: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -51,7 +42,7 @@ impl OwnedTypstEngine {
         if let Some(artifact) = try_typeset_simple_row_fragment(&math, options, &self.config)? {
             return Ok(artifact);
         }
-        self.with_delegate_or_unsupported_fragment(source, options)
+        unsupported_fragment()
     }
 
     pub(crate) fn typeset_text_line(
@@ -74,87 +65,24 @@ impl OwnedTypstEngine {
             ));
         }
 
-        self.with_delegate_or_unsupported_text_line(source, options)
-    }
-
-    #[cfg(feature = "vendor-typst")]
-    fn with_delegate_or_unsupported_fragment(
-        &self,
-        source: &str,
-        options: &MathFragmentOptions,
-    ) -> Result<MathRunArtifact, MathTypesetError> {
-        self.with_delegate(|delegate| delegate.typeset_fragment(source, options))
-    }
-
-    #[cfg(not(feature = "vendor-typst"))]
-    fn with_delegate_or_unsupported_fragment(
-        &self,
-        _source: &str,
-        _options: &MathFragmentOptions,
-    ) -> Result<MathRunArtifact, MathTypesetError> {
-        Err(MathTypesetError::UnsupportedOutput(
-            "owned Typst backend does not support this math subset yet",
-        ))
-    }
-
-    #[cfg(feature = "vendor-typst")]
-    fn with_delegate_or_unsupported_text_line(
-        &self,
-        source: &str,
-        options: &TextLineOptions,
-    ) -> Result<TextLineArtifact, MathTypesetError> {
-        self.with_delegate(|delegate| delegate.typeset_text_line(source, options))
-    }
-
-    #[cfg(not(feature = "vendor-typst"))]
-    fn with_delegate_or_unsupported_text_line(
-        &self,
-        _source: &str,
-        _options: &TextLineOptions,
-    ) -> Result<TextLineArtifact, MathTypesetError> {
-        Err(MathTypesetError::UnsupportedOutput(
-            "owned Typst backend does not support this text-line subset yet",
-        ))
-    }
-
-    #[cfg(feature = "vendor-typst")]
-    fn with_delegate<T>(
-        &self,
-        run: impl FnOnce(&TypstMathEngine) -> Result<T, MathTypesetError>,
-    ) -> Result<T, MathTypesetError> {
-        let mut delegate = self.delegate.lock().map_err(|_| MathTypesetError::Engine {
-            start: 0,
-            end: 0,
-            message: "owned Typst delegate lock was poisoned".to_string(),
-        })?;
-
-        if delegate.is_none() {
-            *delegate = Some(TypstMathEngine::new(&self.config).map_err(|err| {
-                MathTypesetError::Engine {
-                    start: 0,
-                    end: 0,
-                    message: err.to_string(),
-                }
-            })?);
-        }
-
-        run(delegate
-            .as_ref()
-            .expect("owned Typst delegate should be initialized"))
+        unsupported_text_line()
     }
 
     fn delegate_initialized(&self) -> bool {
-        #[cfg(feature = "vendor-typst")]
-        {
-            self.delegate
-                .lock()
-                .is_ok_and(|delegate| delegate.is_some())
-        }
-        #[cfg(not(feature = "vendor-typst"))]
-        {
-            false
-        }
+        false
     }
+}
+
+fn unsupported_fragment() -> Result<MathRunArtifact, MathTypesetError> {
+    Err(MathTypesetError::UnsupportedOutput(
+        "owned Typst backend does not support this math subset yet",
+    ))
+}
+
+fn unsupported_text_line() -> Result<TextLineArtifact, MathTypesetError> {
+    Err(MathTypesetError::UnsupportedOutput(
+        "owned Typst backend does not support this text-line subset yet",
+    ))
 }
 
 fn line_contains_static_markup(line: &OwnedLine) -> bool {
