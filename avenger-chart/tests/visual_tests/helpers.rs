@@ -8,7 +8,6 @@ use avenger_image::{
     ImageResourceCache, ImageResourceLoadOptions, ImageResourceResolver,
     load_image_resource_requests_blocking,
 };
-use avenger_pdf::PdfRenderer as SceneGraphPdfRenderer;
 use avenger_scenegraph::image_resources::resolve_ready_image_resources;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_svg::{SvgRenderOptions, SvgRenderer};
@@ -39,6 +38,7 @@ const BLESS_WGPU_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_WGPU_BASELINES";
 const BLESS_SVG_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_SVG_BASELINES";
 const BLESS_PDF_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_PDF_BASELINES";
 const PDF_SCORE_REPORT_ENV: &str = "AVENGER_CHART_PDF_SCORE_REPORT";
+const PDF_RENDERER_ENV: &str = "AVENGER_CHART_PDF_RENDERER";
 const PDFIUM_LIBRARY_PATH_ENV: &str = "AVENGER_CHART_PDFIUM_LIBRARY_PATH";
 const SVG_BASELINE_RESVG_THRESHOLD: f64 = 0.99999;
 const SVG_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
@@ -454,7 +454,7 @@ fn rasterize_svg(svg: &str) -> Result<RgbaImage, String> {
 
 fn bind_pdfium() -> Result<Pdfium, String> {
     if let Some(path) = std::env::var_os(PDFIUM_LIBRARY_PATH_ENV) {
-        let path = PathBuf::from(path);
+        let path = absolute_pdfium_path(PathBuf::from(path));
         return match Pdfium::bind_to_library(&path) {
             Ok(bindings) => Ok(Pdfium::new(bindings)),
             Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Ok(Pdfium::default()),
@@ -476,6 +476,24 @@ fn bind_pdfium() -> Result<Pdfium, String> {
             ))),
         },
     }
+}
+
+fn absolute_pdfium_path(path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        return path;
+    }
+
+    let workspace_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(&path);
+    if workspace_path.exists() {
+        return workspace_path;
+    }
+
+    std::env::current_dir()
+        .map(|cwd| cwd.join(&path))
+        .unwrap_or(path)
 }
 
 fn pdfium_setup_error(detail: String) -> String {
@@ -811,15 +829,13 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
         return;
     }
 
-    let pdf = SceneGraphPdfRenderer::new()
-        .with_options(avenger_pdf::PdfRenderOptions {
-            font_resolution: pdf_visual_font_resolution(),
-            ..Default::default()
-        })
-        .render_scene_graph(scene_graph)
-        .expect("Failed to render PDF visual baseline");
+    let renderer = selected_pdf_renderer();
+    let pdf = render_scene_graph_pdf(scene_graph, renderer)
+        .unwrap_or_else(|err| panic!("Failed to render {renderer} PDF visual baseline: {err}"));
     let pdf_image = rasterize_pdf_with_pdfium(&pdf, scene_graph.width, scene_graph.height)
-        .expect("Failed to rasterize PDF visual baseline with PDFium");
+        .unwrap_or_else(|err| {
+            panic!("Failed to rasterize {renderer} PDF visual baseline with PDFium: {err}")
+        });
 
     let pdf_path = pdf_baseline_path(category, baseline_name, "pdf");
     let pdf_png_path = pdf_baseline_path(category, baseline_name, "png");
@@ -860,7 +876,7 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
             save_pdf_failures(category, baseline_name, &pdf, &pdf_image)
                 .expect("Failed to save invalid generated PDF failure");
             panic!(
-                "Generated PDF for '{}' does not start with a PDF header. Generated PDF saved to '{}'.",
+                "Generated {renderer} PDF for '{}' does not start with a PDF header. Generated PDF saved to '{}'.",
                 baseline_name,
                 pdf_failure.display()
             );
@@ -899,6 +915,79 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
 
     append_pdf_score_report(category, baseline_name, pdf_baseline_score, pdf_wgpu_score)
         .expect("Failed to append PDF score report");
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VisualPdfRenderer {
+    LegacySvg2Pdf,
+    #[cfg(feature = "pdf-krilla-visual-tests")]
+    KrillaDirect,
+}
+
+impl std::fmt::Display for VisualPdfRenderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LegacySvg2Pdf => f.write_str("svg2pdf"),
+            #[cfg(feature = "pdf-krilla-visual-tests")]
+            Self::KrillaDirect => f.write_str("krilla"),
+        }
+    }
+}
+
+fn selected_pdf_renderer() -> VisualPdfRenderer {
+    match std::env::var(PDF_RENDERER_ENV) {
+        Ok(value) if value.eq_ignore_ascii_case("krilla") => {
+            #[cfg(feature = "pdf-krilla-visual-tests")]
+            {
+                VisualPdfRenderer::KrillaDirect
+            }
+            #[cfg(not(feature = "pdf-krilla-visual-tests"))]
+            {
+                panic!(
+                    "{PDF_RENDERER_ENV}=krilla requires cargo feature `pdf-krilla-visual-tests`"
+                );
+            }
+        }
+        Ok(value)
+            if value.eq_ignore_ascii_case("svg2pdf") || value.eq_ignore_ascii_case("legacy") =>
+        {
+            VisualPdfRenderer::LegacySvg2Pdf
+        }
+        Ok(value) if !value.is_empty() => {
+            panic!(
+                "unsupported {PDF_RENDERER_ENV}={value:?}; expected `svg2pdf`, `legacy`, or `krilla`"
+            );
+        }
+        _ => VisualPdfRenderer::LegacySvg2Pdf,
+    }
+}
+
+fn render_scene_graph_pdf(
+    scene_graph: &SceneGraph,
+    renderer: VisualPdfRenderer,
+) -> Result<Vec<u8>, String> {
+    match renderer {
+        VisualPdfRenderer::LegacySvg2Pdf => avenger_pdf::PdfRenderer::new()
+            .with_options(avenger_pdf::PdfRenderOptions {
+                font_resolution: pdf_visual_font_resolution(),
+                ..Default::default()
+            })
+            .render_scene_graph(scene_graph)
+            .map_err(|err| err.to_string()),
+        #[cfg(feature = "pdf-krilla-visual-tests")]
+        VisualPdfRenderer::KrillaDirect => render_scene_graph_pdf_krilla(scene_graph),
+    }
+}
+
+#[cfg(feature = "pdf-krilla-visual-tests")]
+fn render_scene_graph_pdf_krilla(scene_graph: &SceneGraph) -> Result<Vec<u8>, String> {
+    avenger_pdf_krilla::PdfRenderer::new()
+        .with_options(avenger_pdf_krilla::PdfRenderOptions {
+            font_resolution: pdf_visual_font_resolution(),
+            ..Default::default()
+        })
+        .render_scene_graph(scene_graph)
+        .map_err(|err| err.to_string())
 }
 
 fn svg_visual_font_resolution() -> FontResolutionOptions {
@@ -1557,9 +1646,10 @@ mod tests {
             height: 12.0,
             origin: [0.0, 0.0],
         };
-        let pdf = SceneGraphPdfRenderer::new()
-            .render_scene_graph(&scene_graph)
-            .expect("empty scene graph should render to PDF");
+        let renderer = selected_pdf_renderer();
+        let pdf = render_scene_graph_pdf(&scene_graph, renderer).unwrap_or_else(|err| {
+            panic!("empty scene graph should render to {renderer} PDF: {err}")
+        });
 
         let image = rasterize_pdf_with_pdfium(&pdf, scene_graph.width, scene_graph.height)
             .expect("generated PDF should rasterize with PDFium");

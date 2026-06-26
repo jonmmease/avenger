@@ -15,6 +15,7 @@ svg = [
     "avenger-image/svg",
 ]
 pdf = ["dep:avenger-pdf", "svg"]
+pdf-krilla-visual-tests = ["visual-tests", "dep:avenger-pdf-krilla"]
 wgpu = ["dep:avenger-wgpu"]
 doc-render = ["wgpu", "image-resources", "avenger-image/reqwest", "avenger-image/svg"]
 renderers = ["svg", "pdf", "wgpu", "doc-render"]
@@ -53,6 +54,7 @@ avenger-resource = { path = "../avenger-resource" }
 avenger-wgpu = { path = "../avenger-wgpu", optional = true }
 avenger-svg = { path = "../avenger-svg", optional = true }
 avenger-pdf = { path = "../avenger-pdf", optional = true }
+avenger-pdf-krilla = { path = "../avenger-pdf-krilla", optional = true }
 
 lazy_static = { workspace = true }
 async-trait = { workspace = true }

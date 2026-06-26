@@ -574,6 +574,7 @@ dependencies = [
  "avenger-image",
  "avenger-layout",
  "avenger-pdf",
+ "avenger-pdf-krilla",
  "avenger-resource",
  "avenger-scales",
  "avenger-scenegraph",

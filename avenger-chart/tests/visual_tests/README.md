@@ -159,6 +159,18 @@ AVENGER_CHART_PDF_BASELINES=1 \
   cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 ```
 
+To route the PDF visual baseline path through the temporary direct `krilla`
+renderer instead of the default SVG-to-`svg2pdf` renderer:
+
+```bash
+AVENGER_CHART_PDF_RENDERER=krilla \
+AVENGER_CHART_PDF_BASELINES=only \
+AVENGER_CHART_PDFIUM_LIBRARY_PATH="$PWD/target/pdfium/lib/libpdfium.dylib" \
+  cargo test --release -p avenger-chart \
+    --features pdf-krilla-visual-tests \
+    --test visual_regression -- --nocapture
+```
+
 To measure PDFium-vs-WGPU scores before changing the global threshold:
 
 ```bash
