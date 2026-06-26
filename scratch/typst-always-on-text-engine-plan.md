@@ -177,13 +177,13 @@ measurement propagation that existed only to choose between text engines.
 ## Phase 7: Tests And Baselines
 
 - [ ] Unit tests:
-  - [ ] `avenger-text` measurement for plain text.
-  - [ ] `avenger-text` measurement for mixed plain/math text.
-  - [ ] `avenger-text` rasterization for whole-line Typst atlas entries.
-  - [ ] `avenger-text` path extraction for native plain runs plus math paths.
-  - [ ] emoji fallback and named `#emoji.face` syntax.
-  - [ ] bidi and complex-script shaping.
-  - [ ] escaped dollars and unmatched delimiter policy.
+  - [x] `avenger-text` measurement for plain text.
+  - [x] `avenger-text` measurement for mixed plain/math text.
+  - [x] `avenger-text` rasterization for whole-line Typst atlas entries.
+  - [x] `avenger-text` path extraction for native plain runs plus math paths.
+  - [x] emoji fallback and named `#emoji.face` syntax.
+  - [x] bidi and complex-script shaping.
+  - [x] escaped dollars and unmatched delimiter policy.
   - [ ] unsupported syntax errors for evaluator/document features.
   - [ ] geometry/R-tree text bounds use Typst by default.
 - [ ] Renderer tests:
