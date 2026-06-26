@@ -51,6 +51,7 @@ fn owned_backend_matches_vendor_for_fragment_metrics_and_artifacts() {
         "root(3, x)",
         "frac(x + y, z)",
         "binom(n, k)",
+        "cancel(x)",
         "a / b",
         "a / (b + c)",
         "J_0(x)",

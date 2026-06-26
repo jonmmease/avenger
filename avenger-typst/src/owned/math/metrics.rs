@@ -369,6 +369,9 @@ fn layout_simple_node(
         if call.name == "root" {
             return layout_simple_root(font, call, font_size, script_level);
         }
+        if call.name == "cancel" {
+            return layout_simple_cancel_call(font, call, font_size, script_level);
+        }
     }
 
     Ok(None)
@@ -659,6 +662,54 @@ fn layout_simple_root(
         font_size,
         script_level,
     )
+}
+
+fn layout_simple_cancel_call(
+    font: &OwnedMathFont,
+    call: &super::ast::OwnedMathCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let Some(mut body) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    else {
+        return Ok(None);
+    };
+
+    let width = body.metrics.width;
+    let height = body.metrics.height;
+    let diagonal = width.hypot(height);
+    if diagonal > 0.0 {
+        let length = diagonal + CANCEL_LENGTH_EXTRA_EM * font_size;
+        let half_scale = 0.5 * length / diagonal;
+        let center_x = width / 2.0;
+        let center_y = height / 2.0;
+        let delta_x = width * half_scale;
+        let delta_y = height * half_scale;
+        body.shapes.push(LaidOutShape {
+            path: MathPathData {
+                commands: vec![
+                    MathPathCommand::MoveTo {
+                        x: center_x - delta_x,
+                        y: center_y + delta_y,
+                    },
+                    MathPathCommand::LineTo {
+                        x: center_x + delta_x,
+                        y: center_y - delta_y,
+                    },
+                ],
+            },
+            x: 0.0,
+            y: 0.0,
+            stroke_width: CANCEL_STROKE_EM * font_size,
+        });
+        body.draw_order
+            .push(LaidOutDrawItem::Shape(body.shapes.len() - 1));
+    }
+
+    Ok(Some(body))
 }
 
 fn layout_simple_radical(
@@ -1060,6 +1111,8 @@ fn layout_fraction_child_nodes(
 
 const FRACTION_PADDING_EM: f32 = 0.1;
 const INLINE_MATH_LEADING_SLACK_EM: f32 = 0.65 * 0.7;
+const CANCEL_STROKE_EM: f32 = 0.05;
+const CANCEL_LENGTH_EXTRA_EM: f32 = 0.3;
 
 fn layout_simple_attach(
     font: &OwnedMathFont,
@@ -2298,6 +2351,32 @@ mod tests {
             .map(|glyph| glyph.unicode.as_str())
             .collect();
         assert_eq!(text, "(𝑛𝑘)");
+    }
+
+    #[test]
+    fn simple_row_can_emit_cancel_overlay_path() {
+        let math = parse_owned_math("cancel(x)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("simple cancel call should be handled by owned row path");
+        let paths = artifact.paths.expect("cancel paths should exist");
+        assert_eq!(paths.items.len(), 2);
+        assert!(matches!(
+            paths.items[0].kind,
+            MathPathKind::GlyphOutline { .. }
+        ));
+        assert!(matches!(paths.items[1].kind, MathPathKind::MathShape));
+        assert!(paths.items[1].stroke.is_some());
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        assert_eq!(pdf.glyph_runs.len(), 1);
     }
 
     #[test]

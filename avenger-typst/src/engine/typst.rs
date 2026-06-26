@@ -39,8 +39,8 @@ use typst_library::layout::{
     Abs, Frame, FrameItem, InlineElem, InlineItem, Point, Size, Transform,
 };
 use typst_library::math::{
-    AlignPointElem, AttachElem, BinomElem, EquationElem, FracElem, LrElem, MatElem, MathSize,
-    OpElem, PrimesElem, RootElem,
+    AlignPointElem, AttachElem, BinomElem, CancelElem, EquationElem, FracElem, LrElem, MatElem,
+    MathSize, OpElem, PrimesElem, RootElem,
 };
 use typst_library::routines::{Arenas, Pair, RealizationKind, Routines, SpanMode};
 use typst_library::text::{
@@ -1667,6 +1667,7 @@ fn lower_math_call(call: ast::MathCall<'_>) -> Result<Content, MathTypesetError>
         "floor" => lower_delimited_call(call, '⌊', '⌋'),
         "ceil" => lower_delimited_call(call, '⌈', '⌉'),
         "round" => lower_delimited_call(call, '⌊', '⌉'),
+        "cancel" => lower_one_arg_call(call, |body| CancelElem::new(body).pack()),
         "op" => lower_op_call(call),
         "sin" | "cos" | "tan" | "log" | "ln" | "lim" | "max" | "min" => {
             lower_operator_call(call, callee.as_str())
@@ -1865,7 +1866,9 @@ fn unsupported(position: usize, message: &'static str) -> MathTypesetError {
 mod tests {
     use super::*;
     use std::collections::HashSet;
-    use typst_library::math::{AttachElem, BinomElem, FracElem, LrElem, MatElem, OpElem, RootElem};
+    use typst_library::math::{
+        AttachElem, BinomElem, CancelElem, FracElem, LrElem, MatElem, OpElem, RootElem,
+    };
 
     #[test]
     fn typst_font_loader_embeds_atkinson_weight_style_faces() {
@@ -1916,6 +1919,13 @@ mod tests {
         let content = lower_math_source("binom(n, k)").unwrap();
 
         assert!(content.is::<BinomElem>());
+    }
+
+    #[test]
+    fn lowers_cancel_call() {
+        let content = lower_math_source("cancel(x)").unwrap();
+
+        assert!(content.is::<CancelElem>());
     }
 
     #[test]

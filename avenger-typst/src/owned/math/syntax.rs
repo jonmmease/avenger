@@ -580,6 +580,7 @@ mod tests {
             "root(3, x)",
             "frac(x + y, z)",
             "binom(n, k)",
+            "cancel(x)",
             "a / b",
             "a / (b + c)",
             "J_0(x)",

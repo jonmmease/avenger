@@ -513,6 +513,29 @@ mod tests {
     }
 
     #[test]
+    fn simple_cancel_math_fragment_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact = engine.typeset_fragment("cancel(x)", &options).unwrap();
+
+        assert!(artifact
+            .paths
+            .as_ref()
+            .is_some_and(|paths| paths.items.len() == 2));
+        assert!(artifact
+            .pdf_text
+            .as_ref()
+            .is_some_and(|pdf| pdf.glyph_runs.len() == 1));
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
     fn simple_sqrt_fraction_math_fragment_uses_owned_fast_path_without_initializing_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
