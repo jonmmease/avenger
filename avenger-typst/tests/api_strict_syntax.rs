@@ -76,7 +76,6 @@ fn allows_common_typst_math_fragments() {
     }
 }
 
-#[cfg(feature = "owned")]
 #[test]
 fn rejects_matrix_math() {
     let err = engine()
@@ -87,12 +86,11 @@ fn rejects_matrix_math() {
         err,
         MathTypesetError::UnsupportedSyntax {
             position: 1,
-            message: "matrix/table math is not supported in owned Typst subset"
+            message: "matrix/table math is not supported in Avenger Typst subset"
         }
     );
 }
 
-#[cfg(feature = "owned")]
 #[test]
 fn rejects_real_typst_parse_error() {
     let err = engine()

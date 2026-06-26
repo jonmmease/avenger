@@ -10,8 +10,8 @@ tools/text-render-probe/measure.sh
 ```
 
 The script prints current macOS/Linux release-profile sizes for the default
-owned Typst text path, and asserts that the probe dependency graph does not
-contain `cosmic-text`.
+Typst text path, and asserts that the probe dependency graph does not contain
+`cosmic-text`.
 
 The historical vendor-backed Typst path has been removed. Rerun this probe when
 recording size changes; do not compare against the old `typst-vendor` numbers.
@@ -28,10 +28,10 @@ Host-platform dependency counts from `cargo tree -p text-render-probe`:
 | --- | ---: |
 | typst | 163 |
 
-The Typst path should be checked after major text-engine changes. The owned
-path is expected to include shaping, font fallback, bidi/segmentation,
-math-glyph path extraction, and optional `tiny-skia` rasterization, but not the
-old vendored `avenger-typst-*` crates.
+The Typst path should be checked after major text-engine changes. It is
+expected to include shaping, font fallback, bidi/segmentation, math-glyph path
+extraction, and optional `tiny-skia` rasterization, but not the old vendored
+`avenger-typst-*` crates.
 
 ## Cargo Bloat
 

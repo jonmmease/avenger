@@ -2,21 +2,20 @@ use crate::delimiter::{parse_segments, MathDelimiterOptions, ParsedSegment};
 use crate::error::MathTypesetError;
 
 use super::ast::{
-    OwnedEmojiAlias, OwnedLine, OwnedLineNode, OwnedMathSpan, OwnedPlainText, OwnedTextSpan,
-    OwnedTextSpanKind,
+    EmojiAlias, LineNode, MathSpan, ParsedLine, PlainTextNode, TextMarkupKind, TextMarkupSpan,
 };
 
-pub(crate) fn parse_owned_line(
+pub(crate) fn parse_line(
     source: &str,
     delimiters: &MathDelimiterOptions,
-) -> Result<OwnedLine, MathTypesetError> {
+) -> Result<ParsedLine, MathTypesetError> {
     let mut nodes = Vec::new();
 
     for segment in parse_segments(source, delimiters)? {
         match segment {
             ParsedSegment::Plain { text, range } => {
                 if !text.contains(['#', '\\']) {
-                    nodes.push(OwnedLineNode::Plain(OwnedPlainText {
+                    nodes.push(LineNode::Plain(PlainTextNode {
                         text,
                         byte_range: range,
                     }));
@@ -29,7 +28,7 @@ pub(crate) fn parse_owned_line(
                 source_range,
                 delimiter,
             } => {
-                nodes.push(OwnedLineNode::Math(OwnedMathSpan {
+                nodes.push(LineNode::Math(MathSpan {
                     source,
                     source_range,
                     delimiter,
@@ -38,7 +37,7 @@ pub(crate) fn parse_owned_line(
         }
     }
 
-    Ok(OwnedLine {
+    Ok(ParsedLine {
         source: source.to_string(),
         nodes,
     })
@@ -47,7 +46,7 @@ pub(crate) fn parse_owned_line(
 fn parse_plain_markup(
     source: &str,
     offset: usize,
-    nodes: &mut Vec<OwnedLineNode>,
+    nodes: &mut Vec<LineNode>,
 ) -> Result<(), MathTypesetError> {
     let mut plain = String::new();
     let mut plain_start = offset;
@@ -83,7 +82,7 @@ fn parse_plain_markup(
 }
 
 struct ParsedCommand {
-    node: OwnedLineNode,
+    node: LineNode,
     end: usize,
 }
 
@@ -117,7 +116,7 @@ fn read_hash_command(
             let mut body_nodes = Vec::new();
             parse_plain_markup(&body, offset + idx + 1, &mut body_nodes)?;
             Ok(ParsedCommand {
-                node: OwnedLineNode::TextSpan(OwnedTextSpan {
+                node: LineNode::TextSpan(TextMarkupSpan {
                     kind,
                     body: body_nodes,
                     byte_range: offset + hash_idx..offset + close_idx + 1,
@@ -165,7 +164,7 @@ fn read_emoji_alias(
     };
 
     Ok(ParsedCommand {
-        node: OwnedLineNode::Emoji(OwnedEmojiAlias {
+        node: LineNode::Emoji(EmojiAlias {
             name: name.to_string(),
             emoji,
             byte_range: offset + hash_idx..offset + alias_end,
@@ -244,14 +243,14 @@ fn read_bracket_body(source: &str, open_idx: usize) -> Result<(String, usize), M
     ))
 }
 
-fn text_span_kind(name: &str) -> Option<OwnedTextSpanKind> {
+fn text_span_kind(name: &str) -> Option<TextMarkupKind> {
     match name {
-        "underline" => Some(OwnedTextSpanKind::Underline),
-        "strike" => Some(OwnedTextSpanKind::Strike),
-        "overline" => Some(OwnedTextSpanKind::Overline),
-        "sub" => Some(OwnedTextSpanKind::Subscript),
-        "super" => Some(OwnedTextSpanKind::Superscript),
-        "highlight" => Some(OwnedTextSpanKind::Highlight),
+        "underline" => Some(TextMarkupKind::Underline),
+        "strike" => Some(TextMarkupKind::Strike),
+        "overline" => Some(TextMarkupKind::Overline),
+        "sub" => Some(TextMarkupKind::Subscript),
+        "super" => Some(TextMarkupKind::Superscript),
+        "highlight" => Some(TextMarkupKind::Highlight),
         _ => None,
     }
 }
@@ -265,9 +264,9 @@ fn emoji_alias(name: &str) -> Option<&'static str> {
     }
 }
 
-fn push_plain(nodes: &mut Vec<OwnedLineNode>, plain: &mut String, start: usize, end: usize) {
+fn push_plain(nodes: &mut Vec<LineNode>, plain: &mut String, start: usize, end: usize) {
     if !plain.is_empty() {
-        nodes.push(OwnedLineNode::Plain(OwnedPlainText {
+        nodes.push(LineNode::Plain(PlainTextNode {
             text: std::mem::take(plain),
             byte_range: start..end,
         }));
@@ -289,8 +288,8 @@ fn unsupported(position: usize, message: &'static str) -> MathTypesetError {
 mod tests {
     use super::*;
 
-    fn parse(source: &str) -> OwnedLine {
-        parse_owned_line(source, &MathDelimiterOptions::default()).unwrap()
+    fn parse(source: &str) -> ParsedLine {
+        parse_line(source, &MathDelimiterOptions::default()).unwrap()
     }
 
     #[test]
@@ -299,10 +298,10 @@ mod tests {
 
         assert_eq!(line.nodes.len(), 3);
         assert!(
-            matches!(&line.nodes[0], OwnedLineNode::Plain(plain) if plain.text == "Price $7, score ")
+            matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Price $7, score ")
         );
-        assert!(matches!(&line.nodes[1], OwnedLineNode::Math(math) if math.source == "R^2"));
-        assert!(matches!(&line.nodes[2], OwnedLineNode::Plain(plain) if plain.text == " = 0.94"));
+        assert!(matches!(&line.nodes[1], LineNode::Math(math) if math.source == "R^2"));
+        assert!(matches!(&line.nodes[2], LineNode::Plain(plain) if plain.text == " = 0.94"));
     }
 
     #[test]
@@ -312,15 +311,15 @@ mod tests {
         assert_eq!(line.nodes.len(), 4);
         assert!(matches!(
             &line.nodes[1],
-            OwnedLineNode::TextSpan(span)
-                if span.kind == OwnedTextSpanKind::Underline
-                    && matches!(&span.body[..], [OwnedLineNode::Plain(plain)] if plain.text == "important")
+            LineNode::TextSpan(span)
+                if span.kind == TextMarkupKind::Underline
+                    && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "important")
         ));
         assert!(matches!(
             &line.nodes[3],
-            OwnedLineNode::TextSpan(span)
-                if span.kind == OwnedTextSpanKind::Strike
-                    && matches!(&span.body[..], [OwnedLineNode::Plain(plain)] if plain.text == "old")
+            LineNode::TextSpan(span)
+                if span.kind == TextMarkupKind::Strike
+                    && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "old")
         ));
     }
 
@@ -328,13 +327,13 @@ mod tests {
     fn parses_nested_static_text_spans() {
         let line = parse("#underline[important #super[2]]");
 
-        let OwnedLineNode::TextSpan(span) = &line.nodes[0] else {
+        let LineNode::TextSpan(span) = &line.nodes[0] else {
             panic!("expected outer span");
         };
-        assert_eq!(span.kind, OwnedTextSpanKind::Underline);
+        assert_eq!(span.kind, TextMarkupKind::Underline);
         assert_eq!(span.body.len(), 2);
         assert!(
-            matches!(&span.body[1], OwnedLineNode::TextSpan(inner) if inner.kind == OwnedTextSpanKind::Superscript)
+            matches!(&span.body[1], LineNode::TextSpan(inner) if inner.kind == TextMarkupKind::Superscript)
         );
     }
 
@@ -344,16 +343,16 @@ mod tests {
 
         assert_eq!(line.nodes.len(), 4);
         assert!(
-            matches!(&line.nodes[1], OwnedLineNode::Emoji(alias) if alias.name == "rocket" && alias.emoji == "🚀")
+            matches!(&line.nodes[1], LineNode::Emoji(alias) if alias.name == "rocket" && alias.emoji == "🚀")
         );
         assert!(
-            matches!(&line.nodes[3], OwnedLineNode::Emoji(alias) if alias.name == "chart.up" && alias.emoji == "📈")
+            matches!(&line.nodes[3], LineNode::Emoji(alias) if alias.name == "chart.up" && alias.emoji == "📈")
         );
     }
 
     #[test]
     fn rejects_static_command_options() {
-        let err = parse_owned_line(
+        let err = parse_line(
             "#underline(stroke: red)[important]",
             &MathDelimiterOptions::default(),
         )
@@ -370,7 +369,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_hash_commands() {
-        let err = parse_owned_line("#let x = 1", &MathDelimiterOptions::default()).unwrap_err();
+        let err = parse_line("#let x = 1", &MathDelimiterOptions::default()).unwrap_err();
 
         assert_eq!(
             err,
@@ -383,8 +382,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_emoji_aliases() {
-        let err =
-            parse_owned_line("#emoji.not.real", &MathDelimiterOptions::default()).unwrap_err();
+        let err = parse_line("#emoji.not.real", &MathDelimiterOptions::default()).unwrap_err();
 
         assert_eq!(
             err,

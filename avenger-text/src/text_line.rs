@@ -721,7 +721,7 @@ mod tests {
     }
 
     #[test]
-    fn typst_rasterizer_reports_one_line_entry_with_mock_engine() {
+    fn typst_rasterizer_reports_one_line_entry_with_typst_engine() {
         let rasterizer = TextLineRasterizer::<()>::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap(),
             TextMarkupConfig::default(),
@@ -746,8 +746,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(buffer.glyphs.len(), 1);
-        assert_eq!(buffer.glyphs[0].0.bbox.width, 1);
-        assert_eq!(buffer.glyphs[0].0.bbox.height, 1);
+        assert!(buffer.glyphs[0].0.bbox.width > 1);
+        assert!(buffer.glyphs[0].0.bbox.height > 1);
+        assert!(buffer.glyphs[0].0.image.is_some());
     }
 
     #[test]

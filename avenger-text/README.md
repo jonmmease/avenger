@@ -13,7 +13,7 @@ This crate provides:
 
 ## Architecture
 
-The active backend is the owned Typst-style text engine in `avenger-typst`.
+The active backend is the Typst-style text engine in `avenger-typst`.
 It supports regular text and `$...$` math fragments by default.
 
 ## Usage by Other Crates

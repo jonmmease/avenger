@@ -11,18 +11,18 @@ use unicode_script::{Script, UnicodeScript};
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Clone)]
-pub(crate) struct OwnedTextFace {
-    data: OwnedTextFontData,
+pub(crate) struct TextFace {
+    data: TextFontData,
     face_index: u32,
 }
 
 #[derive(Clone)]
-enum OwnedTextFontData {
+enum TextFontData {
     Static(&'static [u8]),
     Shared(Arc<[u8]>),
 }
 
-impl OwnedTextFontData {
+impl TextFontData {
     fn as_slice(&self) -> &[u8] {
         match self {
             Self::Static(data) => data,
@@ -39,7 +39,7 @@ impl OwnedTextFontData {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct OwnedShapedMetrics {
+pub(crate) struct ShapedTextMetrics {
     pub(crate) width: f32,
     pub(crate) ascent: f32,
     pub(crate) descent: f32,
@@ -47,7 +47,7 @@ pub(crate) struct OwnedShapedMetrics {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct OwnedShapedGlyph {
+pub(crate) struct ShapedGlyph {
     pub(crate) glyph_id: ttf_parser::GlyphId,
     pub(crate) unicode: String,
     pub(crate) x: f32,
@@ -57,33 +57,33 @@ pub(crate) struct OwnedShapedGlyph {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct OwnedShapedText {
-    pub(crate) metrics: OwnedShapedMetrics,
-    pub(crate) glyphs: Vec<OwnedShapedGlyph>,
+pub(crate) struct ShapedText {
+    pub(crate) metrics: ShapedTextMetrics,
+    pub(crate) glyphs: Vec<ShapedGlyph>,
     pub(crate) has_missing_glyph: bool,
 }
 
 #[derive(Clone)]
-pub(crate) struct OwnedShapedTextRun {
-    pub(crate) face: OwnedTextFace,
+pub(crate) struct ShapedTextRun {
+    pub(crate) face: TextFace,
     #[allow(dead_code)]
     pub(crate) text: String,
     #[allow(dead_code)]
     pub(crate) byte_range: Range<usize>,
     pub(crate) x: f32,
-    pub(crate) shaped: OwnedShapedText,
+    pub(crate) shaped: ShapedText,
 }
 
 #[derive(Clone)]
-pub(crate) struct OwnedSegmentedText {
-    pub(crate) metrics: OwnedShapedMetrics,
-    pub(crate) runs: Vec<OwnedShapedTextRun>,
+pub(crate) struct SegmentedText {
+    pub(crate) metrics: ShapedTextMetrics,
+    pub(crate) runs: Vec<ShapedTextRun>,
     pub(crate) has_missing_glyph: bool,
 }
 
-impl OwnedSegmentedText {
+impl SegmentedText {
     pub(crate) fn single(
-        face: OwnedTextFace,
+        face: TextFace,
         text: &str,
         font_size: f32,
         features: &[rustybuzz::Feature],
@@ -91,7 +91,7 @@ impl OwnedSegmentedText {
         let shaped = face.shaped_text_with_features(text, font_size, features);
         Self {
             metrics: shaped.metrics,
-            runs: vec![OwnedShapedTextRun {
+            runs: vec![ShapedTextRun {
                 face,
                 text: text.to_string(),
                 byte_range: 0..text.len(),
@@ -110,13 +110,13 @@ impl OwnedSegmentedText {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct OwnedFontMetrics {
+pub(crate) struct TextFontMetrics {
     pub(crate) ascent: f32,
     pub(crate) descent: f32,
     pub(crate) height: f32,
 }
 
-impl OwnedTextFace {
+impl TextFace {
     pub(crate) fn for_plain_style(
         style: &PlainTextStyle,
     ) -> Result<Option<Self>, MathTypesetError> {
@@ -149,7 +149,7 @@ impl OwnedTextFace {
         self.face_index == other.face_index && self.data.as_slice() == other.data.as_slice()
     }
 
-    pub(crate) fn default_text_edge_metrics(&self, font_size: f32) -> OwnedFontMetrics {
+    pub(crate) fn default_text_edge_metrics(&self, font_size: f32) -> TextFontMetrics {
         let Some(face) = self.parsed_face() else {
             return fallback_metrics(font_size);
         };
@@ -164,14 +164,14 @@ impl OwnedTextFace {
             .max(0) as f32
             * scale;
 
-        OwnedFontMetrics {
+        TextFontMetrics {
             ascent: cap_height,
             descent: 0.0,
             height: cap_height,
         }
     }
 
-    pub(crate) fn shaped_text(&self, text: &str, font_size: f32) -> OwnedShapedText {
+    pub(crate) fn shaped_text(&self, text: &str, font_size: f32) -> ShapedText {
         self.shaped_text_with_features(text, font_size, &[])
     }
 
@@ -180,7 +180,7 @@ impl OwnedTextFace {
         text: &str,
         font_size: f32,
         features: &[rustybuzz::Feature],
-    ) -> OwnedShapedText {
+    ) -> ShapedText {
         let edge_metrics = self.default_text_edge_metrics(font_size);
         let Some(face) = self.parsed_face() else {
             return fallback_shaped_text(text, font_size, edge_metrics);
@@ -206,7 +206,7 @@ impl OwnedTextFace {
             cursor_x += position.x_advance;
             cursor_y += position.y_advance;
             advance_width += position.x_advance;
-            shaped_glyphs.push(OwnedShapedGlyph {
+            shaped_glyphs.push(ShapedGlyph {
                 glyph_id: ttf_parser::GlyphId(info.glyph_id as u16),
                 unicode: glyph_unicode_for_cluster(text, info.cluster),
                 x: x as f32 * scale,
@@ -221,8 +221,8 @@ impl OwnedTextFace {
             width = preserve_color_emoji_joiner_tofu(&face, scale, &mut shaped_glyphs, width);
         }
 
-        OwnedShapedText {
-            metrics: OwnedShapedMetrics {
+        ShapedText {
+            metrics: ShapedTextMetrics {
                 width,
                 ascent: edge_metrics.ascent,
                 descent: edge_metrics.descent,
@@ -236,7 +236,7 @@ impl OwnedTextFace {
     pub(crate) fn script_style(
         &self,
         parent_style: &PlainTextStyle,
-        script: OwnedTextScript,
+        script: TextScript,
     ) -> PlainTextStyle {
         let Some(face) = self.parsed_face() else {
             return PlainTextStyle {
@@ -246,8 +246,8 @@ impl OwnedTextFace {
         };
         let scale = font_scale(&face, parent_style.font_size.max(1.0));
         let metrics = match script {
-            OwnedTextScript::Subscript => face.subscript_metrics(),
-            OwnedTextScript::Superscript => face.superscript_metrics(),
+            TextScript::Subscript => face.subscript_metrics(),
+            TextScript::Superscript => face.superscript_metrics(),
         };
         let font_size = metrics
             .and_then(|metrics| (metrics.y_size > 0).then_some(metrics.y_size as f32 * scale))
@@ -260,25 +260,21 @@ impl OwnedTextFace {
         }
     }
 
-    pub(crate) fn script_baseline_shift(
-        &self,
-        parent_font_size: f32,
-        script: OwnedTextScript,
-    ) -> f32 {
+    pub(crate) fn script_baseline_shift(&self, parent_font_size: f32, script: TextScript) -> f32 {
         let Some(face) = self.parsed_face() else {
             return fallback_script_shift(parent_font_size, script);
         };
         let scale = font_scale(&face, parent_font_size.max(1.0));
         let metrics = match script {
-            OwnedTextScript::Subscript => face.subscript_metrics(),
-            OwnedTextScript::Superscript => face.superscript_metrics(),
+            TextScript::Subscript => face.subscript_metrics(),
+            TextScript::Superscript => face.superscript_metrics(),
         };
         metrics
             .map(|metrics| {
                 let offset = metrics.y_offset as f32 * scale;
                 match script {
-                    OwnedTextScript::Subscript => offset.abs(),
-                    OwnedTextScript::Superscript => -offset.abs(),
+                    TextScript::Subscript => offset.abs(),
+                    TextScript::Superscript => -offset.abs(),
                 }
             })
             .unwrap_or_else(|| fallback_script_shift(parent_font_size, script))
@@ -333,8 +329,8 @@ pub(crate) fn shape_plain_text_with_fallback(
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
-) -> Result<Option<OwnedSegmentedText>, MathTypesetError> {
-    shape_plain_text_with_fallback_mode(style, text, font_size, features, OwnedFallbackMode::Full)
+) -> Result<Option<SegmentedText>, MathTypesetError> {
+    shape_plain_text_with_fallback_mode(style, text, font_size, features, FallbackMode::Full)
 }
 
 pub(crate) fn shape_plain_text_with_non_emoji_fallback(
@@ -342,18 +338,18 @@ pub(crate) fn shape_plain_text_with_non_emoji_fallback(
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
-) -> Result<Option<OwnedSegmentedText>, MathTypesetError> {
+) -> Result<Option<SegmentedText>, MathTypesetError> {
     shape_plain_text_with_fallback_mode(
         style,
         text,
         font_size,
         features,
-        OwnedFallbackMode::PreserveColorEmojiTofu,
+        FallbackMode::PreserveColorEmojiTofu,
     )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OwnedFallbackMode {
+enum FallbackMode {
     Full,
     PreserveColorEmojiTofu,
 }
@@ -363,21 +359,21 @@ fn shape_plain_text_with_fallback_mode(
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
-    mode: OwnedFallbackMode,
-) -> Result<Option<OwnedSegmentedText>, MathTypesetError> {
-    let Some(primary) = OwnedTextFace::for_plain_style(style)?
-        .or_else(|| fontdb_face_for_style_and_text(style, text))
+    mode: FallbackMode,
+) -> Result<Option<SegmentedText>, MathTypesetError> {
+    let Some(primary) =
+        TextFace::for_plain_style(style)?.or_else(|| fontdb_face_for_style_and_text(style, text))
     else {
         return Ok(None);
     };
 
     if text.is_empty() {
-        return Ok(Some(OwnedSegmentedText::single(
+        return Ok(Some(SegmentedText::single(
             primary, text, font_size, features,
         )));
     }
 
-    let mut spans = Vec::<OwnedTextSpan>::new();
+    let mut spans = Vec::<TextMarkupSpan>::new();
     for visual_range in bidi_visual_ranges(text) {
         for (relative_start, grapheme) in text[visual_range.clone()].grapheme_indices(true) {
             let start = visual_range.start + relative_start;
@@ -396,7 +392,7 @@ fn shape_plain_text_with_fallback_mode(
                 .has_missing_glyph
             {
                 primary.clone()
-            } else if mode == OwnedFallbackMode::PreserveColorEmojiTofu
+            } else if mode == FallbackMode::PreserveColorEmojiTofu
                 && grapheme_contains_color_emoji(grapheme)
             {
                 primary.clone()
@@ -417,7 +413,7 @@ fn shape_plain_text_with_fallback_mode(
                 }
             }
 
-            spans.push(OwnedTextSpan {
+            spans.push(TextMarkupSpan {
                 face,
                 text: grapheme.to_string(),
                 byte_range: start..end,
@@ -438,7 +434,7 @@ fn shape_plain_text_with_fallback_mode(
         ascent = ascent.max(shaped.metrics.ascent);
         descent = descent.max(shaped.metrics.descent);
         let width = shaped.metrics.width;
-        runs.push(OwnedShapedTextRun {
+        runs.push(ShapedTextRun {
             face: span.face,
             text: span.text,
             byte_range: span.byte_range,
@@ -449,8 +445,8 @@ fn shape_plain_text_with_fallback_mode(
     }
 
     Ok(Some(
-        OwnedSegmentedText {
-            metrics: OwnedShapedMetrics {
+        SegmentedText {
+            metrics: ShapedTextMetrics {
                 width: x,
                 ascent,
                 descent,
@@ -463,8 +459,8 @@ fn shape_plain_text_with_fallback_mode(
     ))
 }
 
-struct OwnedTextSpan {
-    face: OwnedTextFace,
+struct TextMarkupSpan {
+    face: TextFace,
     text: String,
     byte_range: Range<usize>,
     visual_range: Range<usize>,
@@ -507,7 +503,7 @@ fn should_preserve_color_emoji_joiner_tofu(text: &str) -> bool {
 fn preserve_color_emoji_joiner_tofu(
     face: &ttf_parser::Face<'_>,
     scale: f32,
-    glyphs: &mut [OwnedShapedGlyph],
+    glyphs: &mut [ShapedGlyph],
     width: f32,
 ) -> f32 {
     let missing_advance = face
@@ -549,7 +545,7 @@ fn is_neutral_script(script: Script) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OwnedTextScript {
+pub(crate) enum TextScript {
     Subscript,
     Superscript,
 }
@@ -564,11 +560,9 @@ static FONTDB: LazyLock<fontdb::Database> = LazyLock::new(|| {
     db
 });
 
-fn embedded_atkinson_face(
-    style: &PlainTextStyle,
-) -> Result<Option<OwnedTextFace>, MathTypesetError> {
+fn embedded_atkinson_face(style: &PlainTextStyle) -> Result<Option<TextFace>, MathTypesetError> {
     let face = select_atkinson_face(&style.font_weight, style.font_style).ok_or(
-        MathTypesetError::UnsupportedOutput("owned plain text requires an embedded Atkinson face"),
+        MathTypesetError::UnsupportedOutput("plain text requires an embedded Atkinson face"),
     )?;
     ttf_parser::Face::parse(face.data, 0).map_err(|_| MathTypesetError::Engine {
         start: 0,
@@ -576,13 +570,13 @@ fn embedded_atkinson_face(
         message: format!("failed to parse embedded font {}", face.name),
     })?;
 
-    Ok(Some(OwnedTextFace {
-        data: OwnedTextFontData::Static(face.data),
+    Ok(Some(TextFace {
+        data: TextFontData::Static(face.data),
         face_index: 0,
     }))
 }
 
-fn fontdb_face_for_style_and_text(style: &PlainTextStyle, text: &str) -> Option<OwnedTextFace> {
+fn fontdb_face_for_style_and_text(style: &PlainTextStyle, text: &str) -> Option<TextFace> {
     let db = &*FONTDB;
     let query = fontdb::Query {
         families: &fontdb_families(&style.font_family),
@@ -611,11 +605,11 @@ fn fontdb_face_for_style_and_text(style: &PlainTextStyle, text: &str) -> Option<
         .find(|face| !face.shaped_text(text, style.font_size).has_missing_glyph)
 }
 
-fn load_fontdb_face(db: &fontdb::Database, id: fontdb::ID) -> Option<OwnedTextFace> {
+fn load_fontdb_face(db: &fontdb::Database, id: fontdb::ID) -> Option<TextFace> {
     db.with_face_data(id, |data, face_index| {
         ttf_parser::Face::parse(data, face_index).ok()?;
-        Some(OwnedTextFace {
-            data: OwnedTextFontData::Shared(Arc::<[u8]>::from(data)),
+        Some(TextFace {
+            data: TextFontData::Shared(Arc::<[u8]>::from(data)),
             face_index,
         })
     })?
@@ -652,14 +646,10 @@ fn fontdb_style(style: FontStyle) -> fontdb::Style {
     }
 }
 
-fn fallback_shaped_text(
-    text: &str,
-    font_size: f32,
-    edge_metrics: OwnedFontMetrics,
-) -> OwnedShapedText {
+fn fallback_shaped_text(text: &str, font_size: f32, edge_metrics: TextFontMetrics) -> ShapedText {
     let fallback = fallback_width(text, font_size);
-    OwnedShapedText {
-        metrics: OwnedShapedMetrics {
+    ShapedText {
+        metrics: ShapedTextMetrics {
             width: fallback,
             ascent: edge_metrics.ascent,
             descent: edge_metrics.descent,
@@ -670,19 +660,19 @@ fn fallback_shaped_text(
     }
 }
 
-fn fallback_metrics(font_size: f32) -> OwnedFontMetrics {
+fn fallback_metrics(font_size: f32) -> TextFontMetrics {
     let font_size = font_size.max(1.0);
-    OwnedFontMetrics {
+    TextFontMetrics {
         ascent: font_size * 0.8,
         descent: font_size * 0.2,
         height: font_size,
     }
 }
 
-fn fallback_script_shift(parent_font_size: f32, script: OwnedTextScript) -> f32 {
+fn fallback_script_shift(parent_font_size: f32, script: TextScript) -> f32 {
     match script {
-        OwnedTextScript::Subscript => parent_font_size.max(1.0) * 0.2,
-        OwnedTextScript::Superscript => -parent_font_size.max(1.0) * 0.35,
+        TextScript::Subscript => parent_font_size.max(1.0) * 0.2,
+        TextScript::Superscript => -parent_font_size.max(1.0) * 0.35,
     }
 }
 
@@ -752,7 +742,7 @@ mod tests {
             ..PlainTextStyle::default()
         };
 
-        let face = OwnedTextFace::for_plain_style(&style)
+        let face = TextFace::for_plain_style(&style)
             .unwrap()
             .expect("default sans-serif should resolve");
 
@@ -767,7 +757,7 @@ mod tests {
             ..PlainTextStyle::default()
         };
 
-        let Some(face) = OwnedTextFace::for_plain_style_and_text(&style, "Hello").unwrap() else {
+        let Some(face) = TextFace::for_plain_style_and_text(&style, "Hello").unwrap() else {
             return;
         };
 
@@ -873,7 +863,7 @@ mod tests {
     #[test]
     fn keeps_atkinson_fast_path_for_default_sans_serif() {
         let style = PlainTextStyle::default();
-        let face = OwnedTextFace::for_plain_style_and_text(&style, "Hello")
+        let face = TextFace::for_plain_style_and_text(&style, "Hello")
             .unwrap()
             .expect("default sans-serif should resolve");
 

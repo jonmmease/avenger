@@ -6,27 +6,24 @@ use crate::types::{
     MathFragmentOptions, MathRunArtifact, TextLineArtifact, TextLineOptions, TypesetMetrics,
 };
 
-use crate::owned::ast::{OwnedLine, OwnedLineNode};
-use crate::owned::inline::try_typeset_owned_text_line;
-use crate::owned::math::metrics::try_typeset_simple_row_fragment;
-use crate::owned::math::syntax::parse_owned_math;
-use crate::owned::syntax::parse_owned_line;
+use crate::engine::ast::{LineNode, ParsedLine};
+use crate::engine::inline::try_typeset_text_line;
+use crate::engine::math::metrics::try_typeset_simple_row_fragment;
+use crate::engine::math::syntax::parse_math;
+use crate::engine::syntax::parse_line;
 
 #[derive(Clone)]
-pub(crate) struct OwnedTypstEngine {
+pub(crate) struct TypstEngineCore {
     config: TypstEngineConfig,
 }
 
-impl std::fmt::Debug for OwnedTypstEngine {
+impl std::fmt::Debug for TypstEngineCore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("OwnedTypstEngine")
-            .field("phase", &"owned-subset")
-            .field("delegate_initialized", &self.delegate_initialized())
-            .finish_non_exhaustive()
+        f.debug_struct("TypstEngineCore").finish_non_exhaustive()
     }
 }
 
-impl OwnedTypstEngine {
+impl TypstEngineCore {
     pub(crate) fn new(config: &TypstEngineConfig) -> Result<Self, TypstInitError> {
         Ok(Self {
             config: config.clone(),
@@ -38,7 +35,7 @@ impl OwnedTypstEngine {
         source: &str,
         options: &MathFragmentOptions,
     ) -> Result<MathRunArtifact, MathTypesetError> {
-        let math = parse_owned_math(source, 0)?;
+        let math = parse_math(source, 0)?;
         if let Some(artifact) = try_typeset_simple_row_fragment(&math, options, &self.config)? {
             return Ok(artifact);
         }
@@ -54,54 +51,50 @@ impl OwnedTypstEngine {
             return Ok(empty_text_line_artifact(source, options));
         }
 
-        let line = parse_owned_line(source, &options.delimiters)?;
-        validate_owned_line_math(&line)?;
-        if let Some(artifact) = try_typeset_owned_text_line(source, &line, options, &self.config)? {
+        let line = parse_line(source, &options.delimiters)?;
+        validate_line_math(&line)?;
+        if let Some(artifact) = try_typeset_text_line(source, &line, options, &self.config)? {
             return Ok(artifact);
         }
         if line_contains_static_markup(&line) {
             return Err(MathTypesetError::UnsupportedOutput(
-                "owned static text markup is parsed but not rendered yet",
+                "static text markup is parsed but not rendered yet",
             ));
         }
 
         unsupported_text_line()
     }
-
-    fn delegate_initialized(&self) -> bool {
-        false
-    }
 }
 
 fn unsupported_fragment() -> Result<MathRunArtifact, MathTypesetError> {
     Err(MathTypesetError::UnsupportedOutput(
-        "owned Typst backend does not support this math subset yet",
+        "this Typst math subset is not supported yet",
     ))
 }
 
 fn unsupported_text_line() -> Result<TextLineArtifact, MathTypesetError> {
     Err(MathTypesetError::UnsupportedOutput(
-        "owned Typst backend does not support this text-line subset yet",
+        "this Typst text-line subset is not supported yet",
     ))
 }
 
-fn line_contains_static_markup(line: &OwnedLine) -> bool {
+fn line_contains_static_markup(line: &ParsedLine) -> bool {
     nodes_contain_static_markup(&line.nodes)
 }
 
-fn validate_owned_line_math(line: &OwnedLine) -> Result<(), MathTypesetError> {
+fn validate_line_math(line: &ParsedLine) -> Result<(), MathTypesetError> {
     for node in &line.nodes {
-        if let OwnedLineNode::Math(math) = node {
-            parse_owned_math(&math.source, math.source_range.start)?;
+        if let LineNode::Math(math) = node {
+            parse_math(&math.source, math.source_range.start)?;
         }
     }
     Ok(())
 }
 
-fn nodes_contain_static_markup(nodes: &[OwnedLineNode]) -> bool {
+fn nodes_contain_static_markup(nodes: &[LineNode]) -> bool {
     nodes.iter().any(|node| match node {
-        OwnedLineNode::Plain(_) | OwnedLineNode::Math(_) | OwnedLineNode::Emoji(_) => false,
-        OwnedLineNode::TextSpan(_) => true,
+        LineNode::Plain(_) | LineNode::Math(_) | LineNode::Emoji(_) => false,
+        LineNode::TextSpan(_) => true,
     })
 }
 
@@ -143,9 +136,8 @@ mod tests {
     use crate::types::{MathOutputRequest, TextLineOutputRequest};
 
     #[test]
-    fn empty_text_line_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
-        assert!(!engine.delegate_initialized());
+    fn empty_text_line_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
 
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
@@ -166,12 +158,11 @@ mod tests {
             .as_ref()
             .is_some_and(|pdf_text| pdf_text.glyph_runs.is_empty()));
         assert!(artifact.positioned_runs.is_empty());
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn plain_text_line_paths_use_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn plain_text_line_paths_use_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
@@ -182,12 +173,11 @@ mod tests {
             .paths
             .as_ref()
             .is_some_and(|paths| paths.items.len() == 5));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn plain_text_line_with_non_rtl_missing_glyph_paths_uses_owned_fast_path() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn plain_text_line_with_non_rtl_missing_glyph_paths_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
@@ -195,12 +185,11 @@ mod tests {
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn non_atkinson_plain_text_can_use_owned_fontdb_fallback_without_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn non_atkinson_plain_text_can_use_fontdb_fallback() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.text_style.font_family = "serif".to_string();
         options.outputs = TextLineOutputRequest {
@@ -219,12 +208,11 @@ mod tests {
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
         assert_eq!(artifact.font_resources.len(), 1);
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn non_atkinson_mixed_script_text_can_segment_fallback_fonts_without_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn non_atkinson_mixed_script_text_can_segment_fallback_fonts() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.text_style.font_family = "serif".to_string();
         options.outputs = TextLineOutputRequest {
@@ -250,12 +238,11 @@ mod tests {
         assert_eq!(artifact.positioned_runs[0].text, "Hello 温度");
         assert!(artifact.paths.is_some());
         assert!(artifact.font_resources.len() >= 2);
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn default_mixed_script_text_can_segment_fallback_fonts_without_delegate_when_available() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn default_mixed_script_text_can_segment_fallback_fonts_when_available() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: true,
@@ -276,12 +263,11 @@ mod tests {
         assert_eq!(artifact.positioned_runs[0].text, "Hello 温度");
         assert!(artifact.paths.is_some());
         assert!(artifact.font_resources.len() >= 2);
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn plain_text_line_with_rtl_text_uses_owned_fallback_without_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn plain_text_line_with_rtl_text_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: true,
@@ -296,12 +282,11 @@ mod tests {
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
         assert_eq!(artifact.positioned_runs.len(), 1);
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn plain_text_line_with_zwj_emoji_uses_owned_missing_glyph_path_without_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn plain_text_line_with_zwj_emoji_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: true,
@@ -316,12 +301,11 @@ mod tests {
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
         assert_eq!(artifact.positioned_runs.len(), 1);
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn named_emoji_alias_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn named_emoji_alias_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: true,
@@ -339,12 +323,11 @@ mod tests {
         assert_eq!(artifact.positioned_runs[0].text, "Revenue 🚀");
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn unknown_static_command_errors_before_delegate_initialization() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn unknown_static_command_errors_before_rendering() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = false;
 
@@ -359,12 +342,11 @@ mod tests {
                 message: "unsupported static text command"
             }
         );
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn static_command_options_error_before_delegate_initialization() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn static_command_options_error_before_rendering() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = false;
 
@@ -379,12 +361,11 @@ mod tests {
                 message: "static text commands do not support Typst-style options"
             }
         );
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn supported_static_decoration_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn supported_static_decoration_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: true,
@@ -401,12 +382,11 @@ mod tests {
         assert_eq!(artifact.positioned_runs[0].text, "important");
         assert!(artifact.positioned_runs[0].paths.is_some());
         assert!(artifact.pdf_text.is_some());
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn static_subscript_and_superscript_use_owned_fast_path_without_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn static_subscript_and_superscript_use_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: true,
@@ -436,12 +416,11 @@ mod tests {
             .is_some_and(|style| style.font_size < options.text_style.font_size));
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn matrix_math_fragment_errors_before_delegate_initialization() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn matrix_math_fragment_errors_before_rendering() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
 
         let err = engine
             .typeset_fragment("mat(1, 2; 3, 4)", &MathFragmentOptions::default())
@@ -451,15 +430,14 @@ mod tests {
             err,
             MathTypesetError::UnsupportedSyntax {
                 position: 0,
-                message: "matrix/table math is not supported in owned Typst subset"
+                message: "matrix/table math is not supported in Avenger Typst subset"
             }
         );
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_row_math_fragment_metrics_only_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_row_math_fragment_metrics_only_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: false,
@@ -472,12 +450,11 @@ mod tests {
             .unwrap();
 
         assert!(artifact.metrics.width > 0.0);
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_row_math_fragment_paths_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_row_math_fragment_paths_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -493,12 +470,11 @@ mod tests {
             .paths
             .as_ref()
             .is_some_and(|paths| !paths.items.is_empty()));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_row_math_fragment_pdf_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_row_math_fragment_pdf_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -512,12 +488,11 @@ mod tests {
 
         assert!(artifact.pdf_text.is_some());
         assert_eq!(artifact.font_resources.len(), 1);
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_script_math_fragment_pdf_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_script_math_fragment_pdf_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -530,15 +505,14 @@ mod tests {
         let pdf = artifact
             .pdf_text
             .as_ref()
-            .expect("owned script path should emit PDF glyph metadata");
+            .expect("Typst script path should emit PDF glyph metadata");
         assert!(pdf.glyph_runs.iter().any(|run| run.font_size < 12.0));
         assert_eq!(artifact.font_resources.len(), 1);
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_fraction_math_fragment_paths_use_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_fraction_math_fragment_paths_use_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -556,12 +530,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_frac_call_math_fragment_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_frac_call_math_fragment_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -579,12 +552,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_binom_math_fragment_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_binom_math_fragment_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -602,12 +574,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_cancel_math_fragment_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_cancel_math_fragment_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -625,12 +596,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 1));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_sqrt_fraction_math_fragment_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_sqrt_fraction_math_fragment_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -650,12 +620,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 6));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_indexed_root_math_fragment_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_indexed_root_math_fragment_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -673,12 +642,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 3));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_group_math_fragment_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_group_math_fragment_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -696,12 +664,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn identifier_subscript_group_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn identifier_subscript_group_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -719,12 +686,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 5));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_delimiter_call_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_delimiter_call_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -742,12 +708,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 3));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_lr_call_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_lr_call_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -765,12 +730,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 5));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn simple_operator_call_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_operator_call_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -788,12 +752,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn operator_identifier_script_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn operator_identifier_script_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -813,12 +776,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() > 6));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn common_named_symbols_use_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn common_named_symbols_use_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -850,13 +812,12 @@ mod tests {
         assert!(glyph_text.contains('∈'));
         assert!(glyph_text.contains('⊆'));
         assert!(glyph_text.contains('⇒'));
-        assert!(!engine.delegate_initialized());
     }
 
     #[cfg(feature = "raster")]
     #[test]
-    fn simple_row_math_fragment_raster_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn simple_row_math_fragment_raster_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: false,
@@ -869,12 +830,11 @@ mod tests {
             .unwrap();
 
         assert!(artifact.raster.is_some());
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn matrix_text_line_span_reports_source_offset_before_delegate_initialization() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn matrix_text_line_span_reports_source_offset() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = false;
 
@@ -886,15 +846,14 @@ mod tests {
             err,
             MathTypesetError::UnsupportedSyntax {
                 position: 8,
-                message: "matrix/table math is not supported in owned Typst subset"
+                message: "matrix/table math is not supported in Avenger Typst subset"
             }
         );
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn plain_text_line_metrics_only_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn plain_text_line_metrics_only_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: false,
@@ -908,12 +867,11 @@ mod tests {
         assert!(artifact.metrics.width > 0.0);
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.positioned_runs[0].text, "Hello");
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn plain_text_line_pdf_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn plain_text_line_pdf_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: false,
@@ -930,12 +888,11 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 1));
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn mixed_text_math_metrics_use_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn mixed_text_math_metrics_use_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: false,
@@ -953,12 +910,11 @@ mod tests {
         assert_eq!(artifact.positioned_runs[0].text, "Price $7, score ");
         assert_eq!(artifact.positioned_runs[1].text, "R^2");
         assert_eq!(artifact.positioned_runs[2].text, " = 0.94");
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn mixed_text_math_paths_use_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn mixed_text_math_paths_use_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
         options.outputs.positioned_runs = true;
@@ -970,12 +926,11 @@ mod tests {
         assert!(artifact.paths.is_some());
         assert_eq!(artifact.positioned_runs.len(), 3);
         assert!(artifact.positioned_runs[1].paths.is_some());
-        assert!(!engine.delegate_initialized());
     }
 
     #[test]
-    fn mixed_text_math_pdf_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn mixed_text_math_pdf_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: false,
@@ -997,13 +952,12 @@ mod tests {
         assert!(artifact.positioned_runs[0].pdf_text.is_none());
         assert!(artifact.positioned_runs[1].pdf_text.is_some());
         assert!(artifact.positioned_runs[2].pdf_text.is_none());
-        assert!(!engine.delegate_initialized());
     }
 
     #[cfg(feature = "raster")]
     #[test]
-    fn mixed_text_math_raster_uses_owned_fast_path_without_initializing_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+    fn mixed_text_math_raster_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: false,
@@ -1021,6 +975,5 @@ mod tests {
             .raster
             .as_ref()
             .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0));
-        assert!(!engine.delegate_initialized());
     }
 }

@@ -1,5 +1,5 @@
 use crate::delimiter::{parse_segments, ParsedSegment};
-use crate::engine::mock::MockMathEngine;
+use crate::engine::engine::TypstEngineCore;
 use crate::error::{MathTypesetError, TypstInitError};
 use crate::limits::MathLimits;
 use crate::pdf::{MathFontResource, MathFontResourceId};
@@ -12,19 +12,6 @@ use crate::types::{
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum TypstEngineBackend {
-    DeterministicMock,
-    OwnedTypst,
-}
-
-impl Default for TypstEngineBackend {
-    fn default() -> Self {
-        Self::DeterministicMock
-    }
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TypstCacheConfig {
@@ -34,7 +21,6 @@ pub struct TypstCacheConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TypstEngineConfig {
-    pub backend: TypstEngineBackend,
     pub font_config: MathFontConfig,
     pub cache: TypstCacheConfig,
     pub strictness: MathStrictness,
@@ -43,7 +29,6 @@ pub struct TypstEngineConfig {
 impl Default for TypstEngineConfig {
     fn default() -> Self {
         Self {
-            backend: TypstEngineBackend::default(),
             font_config: MathFontConfig::default(),
             cache: TypstCacheConfig::default(),
             strictness: MathStrictness::default(),
@@ -53,24 +38,14 @@ impl Default for TypstEngineConfig {
 
 #[derive(Debug, Clone)]
 pub struct AvengerTypst {
-    engine: EngineInner,
-}
-
-#[derive(Debug, Clone)]
-enum EngineInner {
-    Mock(MockMathEngine),
-    #[cfg(feature = "owned")]
-    Owned(crate::owned::engine::OwnedTypstEngine),
+    engine: TypstEngineCore,
 }
 
 impl AvengerTypst {
     pub fn new(config: TypstEngineConfig) -> Result<Self, TypstInitError> {
-        match config.backend {
-            TypstEngineBackend::DeterministicMock => Ok(Self {
-                engine: EngineInner::Mock(MockMathEngine),
-            }),
-            TypstEngineBackend::OwnedTypst => new_owned_typst_engine(config),
-        }
+        Ok(Self {
+            engine: TypstEngineCore::new(&config)?,
+        })
     }
 
     pub fn typeset_math_fragment(
@@ -80,11 +55,7 @@ impl AvengerTypst {
     ) -> Result<MathRunArtifact, MathTypesetError> {
         validate_source_limits(source, options.limits)?;
         validate_math_fragment(source, options.limits, 0..source.len())?;
-        match &self.engine {
-            EngineInner::Mock(engine) => engine.typeset_fragment(source, options),
-            #[cfg(feature = "owned")]
-            EngineInner::Owned(engine) => engine.typeset_fragment(source, options),
-        }
+        self.engine.typeset_fragment(source, options)
     }
 
     pub fn typeset_math_string(
@@ -164,26 +135,8 @@ impl AvengerTypst {
         let segments = parse_segments(source, &options.delimiters)?;
         validate_math_segments(&segments, options.limits)?;
 
-        match &self.engine {
-            EngineInner::Mock(engine) => engine.typeset_text_line(source, options),
-            #[cfg(feature = "owned")]
-            EngineInner::Owned(engine) => engine.typeset_text_line(source, options),
-        }
+        self.engine.typeset_text_line(source, options)
     }
-}
-
-#[cfg(feature = "owned")]
-fn new_owned_typst_engine(config: TypstEngineConfig) -> Result<AvengerTypst, TypstInitError> {
-    Ok(AvengerTypst {
-        engine: EngineInner::Owned(crate::owned::engine::OwnedTypstEngine::new(&config)?),
-    })
-}
-
-#[cfg(not(feature = "owned"))]
-fn new_owned_typst_engine(_config: TypstEngineConfig) -> Result<AvengerTypst, TypstInitError> {
-    Err(TypstInitError::BackendUnavailable(
-        "owned Typst backend requires the owned feature",
-    ))
 }
 
 fn validate_source_limits(source: &str, limits: MathLimits) -> Result<(), MathTypesetError> {
@@ -245,7 +198,7 @@ fn validate_math_fragment(
             limit: limits.max_math_depth,
         });
     }
-    validate_owned_math_parse(source, range.start)?;
+    validate_math_parse(source, range.start)?;
 
     Ok(())
 }
@@ -271,14 +224,8 @@ fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), MathTypesetEr
     Ok(())
 }
 
-#[cfg(feature = "owned")]
-fn validate_owned_math_parse(source: &str, offset: usize) -> Result<(), MathTypesetError> {
-    crate::owned::math::syntax::parse_owned_math(source, offset).map(|_| ())
-}
-
-#[cfg(not(feature = "owned"))]
-fn validate_owned_math_parse(_source: &str, _offset: usize) -> Result<(), MathTypesetError> {
-    Ok(())
+fn validate_math_parse(source: &str, offset: usize) -> Result<(), MathTypesetError> {
+    crate::engine::math::syntax::parse_math(source, offset).map(|_| ())
 }
 
 fn max_grouping_depth(source: &str) -> usize {

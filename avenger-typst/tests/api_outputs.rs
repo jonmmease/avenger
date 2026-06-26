@@ -1,7 +1,7 @@
-use avenger_typst::{
-    AvengerTypst, MathOutputRequest, MathStringRun, RasterRequest, TextLineOutputRequest,
-    TypstEngineConfig,
-};
+use avenger_typst::{AvengerTypst, MathOutputRequest, MathStringRun, TypstEngineConfig};
+
+#[cfg(feature = "raster")]
+use avenger_typst::{PositionedTextLineRunKind, RasterRequest, TextLineOutputRequest};
 
 fn engine() -> AvengerTypst {
     AvengerTypst::new(TypstEngineConfig::default()).unwrap()
@@ -25,17 +25,22 @@ fn paths_can_be_disabled() {
 }
 
 #[test]
-fn raster_payload_can_be_requested_from_mock_engine() {
+#[cfg(feature = "raster")]
+fn raster_payload_can_be_requested() {
     let mut options = avenger_typst::MathFragmentOptions::default();
     options.outputs.raster = Some(RasterRequest { scale: 2.0 });
 
     let artifact = engine().typeset_math_fragment("x", &options).unwrap();
     let raster = artifact.raster.unwrap();
     assert_eq!(raster.scale, 2.0);
-    assert_eq!(raster.image.width, 1);
-    assert_eq!(raster.image.height, 1);
-    assert_eq!(raster.origin_x, 0.0);
-    assert_eq!(raster.origin_y, 0.0);
+    assert!(raster.image.width > 0);
+    assert!(raster.image.height > 0);
+    assert_eq!(
+        raster.image.data.len(),
+        raster.image.width as usize * raster.image.height as usize * 4
+    );
+    assert!(raster.logical_width > 0.0);
+    assert!(raster.logical_height > 0.0);
 }
 
 #[test]
@@ -43,16 +48,16 @@ fn pdf_text_layer_can_be_requested() {
     let mut options = avenger_typst::MathFragmentOptions::default();
     options.outputs.pdf_text_layer = true;
 
-    let artifact = engine().typeset_math_fragment("xy", &options).unwrap();
+    let artifact = engine().typeset_math_fragment("x + y", &options).unwrap();
     let pdf_text = artifact.pdf_text.unwrap();
-    assert_eq!(pdf_text.semantic_text, "xy");
-    assert_eq!(pdf_text.glyph_runs.len(), 1);
-    assert_eq!(pdf_text.glyph_runs[0].glyphs.len(), 2);
+    assert_eq!(pdf_text.semantic_text, "x + y");
+    assert!(!pdf_text.glyph_runs.is_empty());
+    assert!(pdf_text.glyph_runs.iter().any(|run| !run.glyphs.is_empty()));
     assert_eq!(artifact.font_resources.len(), 1);
 }
 
 #[test]
-fn string_artifact_deduplicates_mock_font_resources() {
+fn string_artifact_deduplicates_font_resources() {
     let mut options = avenger_typst::MathStringOptions::default();
     options.outputs = MathOutputRequest {
         paths: true,
@@ -86,7 +91,8 @@ fn string_artifact_deduplicates_mock_font_resources() {
 }
 
 #[test]
-fn text_line_outputs_can_be_requested_from_mock_engine() {
+#[cfg(feature = "raster")]
+fn text_line_outputs_can_be_requested() {
     let mut options = avenger_typst::TextLineOptions::default();
     options.outputs = TextLineOutputRequest {
         paths: true,
@@ -103,8 +109,15 @@ fn text_line_outputs_can_be_requested_from_mock_engine() {
     assert!(artifact.paths.is_some());
     assert!(artifact.raster.is_some());
     assert!(artifact.pdf_text.is_some());
-    assert_eq!(artifact.positioned_runs.len(), 1);
-    assert_eq!(artifact.font_resources.len(), 1);
+    assert!(artifact
+        .positioned_runs
+        .iter()
+        .any(|run| run.kind == PositionedTextLineRunKind::Plain));
+    assert!(artifact
+        .positioned_runs
+        .iter()
+        .any(|run| run.kind == PositionedTextLineRunKind::Math));
+    assert!(!artifact.font_resources.is_empty());
 }
 
 #[test]

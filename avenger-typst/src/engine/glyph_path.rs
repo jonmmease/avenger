@@ -7,7 +7,7 @@ pub(crate) fn outline_glyph_path(
     x_offset: f32,
     y_offset: f32,
 ) -> MathPathData {
-    let mut builder = OwnedGlyphPathBuilder {
+    let mut builder = GlyphPathBuilder {
         path: MathPathData::default(),
         scale: font_size / face.units_per_em() as f32,
         x_offset,
@@ -17,14 +17,14 @@ pub(crate) fn outline_glyph_path(
     builder.path
 }
 
-struct OwnedGlyphPathBuilder {
+struct GlyphPathBuilder {
     path: MathPathData,
     scale: f32,
     x_offset: f32,
     y_offset: f32,
 }
 
-impl OwnedGlyphPathBuilder {
+impl GlyphPathBuilder {
     fn point(&self, x: f32, y: f32) -> (f32, f32) {
         (
             self.x_offset + x * self.scale,
@@ -33,7 +33,7 @@ impl OwnedGlyphPathBuilder {
     }
 }
 
-impl ttf_parser::OutlineBuilder for OwnedGlyphPathBuilder {
+impl ttf_parser::OutlineBuilder for GlyphPathBuilder {
     fn move_to(&mut self, x: f32, y: f32) {
         let (x, y) = self.point(x, y);
         self.path.commands.push(MathPathCommand::MoveTo { x, y });

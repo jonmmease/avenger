@@ -2,16 +2,15 @@
 
 ## Goal
 
-Make the owned `avenger-typst` text engine the only Avenger text backend. Text
-should always support Typst-style `$...$` math fragments and the owned static
-text markup subset. Remove the old optional math wiring, cosmic-text backend,
+Make the `avenger-typst` text engine the only Avenger text backend. Text
+should always support Typst-style `$...$` math fragments and the static text
+markup subset. Remove the old optional math wiring, cosmic-text backend,
 HTML canvas text path, dynamic measurer/rasterizer traits, and explicit
 measurement propagation that existed only to choose between text engines.
 
 ## Target Architecture
 
-- [x] `avenger-text` exposes one concrete text engine built on owned
-  `avenger-typst`.
+- [x] `avenger-text` exposes one concrete text engine built on `avenger-typst`.
 - [x] Typst text/math behavior is always available; no runtime
   `TextMathConfig.mode = Plain` switch is needed for normal chart rendering.
 - [x] SVG/PDF use the hybrid Typst extraction path by default:
@@ -30,7 +29,7 @@ measurement propagation that existed only to choose between text engines.
   - [x] Remove `fontdb` feature if it only exists for the old cosmic resolver.
   - [x] Remove `typst-math`, `typst-math-raster`, `typst-text`, and
     `typst-text-raster` feature gates.
-  - [x] Make `avenger-typst` a normal dependency with owned text support.
+  - [x] Make `avenger-typst` a normal dependency with text support.
   - [x] Make raster support a normal dependency if WGPU always needs it, or keep
     a single `raster` feature only if non-rendering builds genuinely benefit.
 - [x] Remove cosmic-only modules.
@@ -225,7 +224,8 @@ Run release mode throughout.
 - [ ] `cargo test --release -p avenger-chart --features visual-tests --test visual_regression -- --nocapture`
 - [ ] Run SVG/PDF sidecar validation used by chart visual tests.
 - [ ] Run wasm build checks for browser targets that previously relied on HTML
-  canvas text measurement.
+  canvas text measurement. Deferred for this slice; do not block current Typst
+  text cleanup on wasm packaging fixes.
 - [x] Run text-size and text-render probes and record current numbers.
   - [x] `cargo build --release --manifest-path tools/text-size-probe/Cargo.toml --features typst`
   - [x] `tools/text-render-probe/measure.sh`: `typst` binary 8,332,624 B,
@@ -246,13 +246,14 @@ Run release mode throughout.
   are updated.
 - [x] Do not preserve cosmic behavior as a hidden fallback.
 - [x] Do not preserve HTML canvas behavior as a hidden fallback.
-- [ ] If a platform issue appears, fix the owned Typst path for that platform
+- [ ] If a platform issue appears, fix the Avenger Typst path for that platform
   instead of reintroducing backend selection.
 
 ## Main Risks
 
-- [ ] Wasm/browser builds may need owned Typst font fallback adjustments after
-  removing HTML canvas text measurement.
+- [ ] Wasm/browser builds may need Typst font fallback adjustments after
+  removing HTML canvas text measurement. Deferred for a later browser-focused
+  pass.
 - [ ] All chart baselines can shift because regular text now always goes through
   Typst shaping/rasterization.
 - [ ] Whole-line atlas entries may affect cache pressure compared with

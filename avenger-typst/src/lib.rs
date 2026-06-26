@@ -8,11 +8,8 @@ mod api;
 mod delimiter;
 mod engine;
 mod error;
-#[cfg(feature = "owned")]
 mod fonts;
 mod limits;
-#[cfg(feature = "owned")]
-mod owned;
 mod paths;
 mod pdf;
 mod raster;
@@ -20,7 +17,7 @@ mod style;
 mod types;
 mod warnings;
 
-pub use api::{AvengerTypst, TypstCacheConfig, TypstEngineBackend, TypstEngineConfig};
+pub use api::{AvengerTypst, TypstCacheConfig, TypstEngineConfig};
 pub use delimiter::{
     MathDelimiterInfo, MathDelimiterOptions, MathDisplayHint, UnmatchedDelimiterPolicy,
 };

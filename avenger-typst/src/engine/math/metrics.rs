@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::api::TypstEngineConfig;
+use crate::engine::glyph_path::outline_glyph_path;
 use crate::error::MathTypesetError;
-use crate::owned::glyph_path::outline_glyph_path;
 use crate::paths::{
     MathPathArtifact, MathPathCommand, MathPathData, MathPathItem, MathPathKind, MathStroke,
     MathTransform,
@@ -15,13 +15,10 @@ use crate::raster::rasterize_path_artifact;
 use crate::style::MathFontSpec;
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
-use super::ast::{
-    OwnedMath, OwnedMathNode, OwnedMathOperator, OwnedMathShorthand, OwnedMathText,
-    OwnedMathTextKind,
-};
+use super::ast::{MathAst, MathNode, MathOperator, MathShorthand, MathText, MathTextKind};
 
 pub(crate) fn try_typeset_simple_row_fragment(
-    math: &OwnedMath,
+    math: &MathAst,
     options: &MathFragmentOptions,
     config: &TypstEngineConfig,
 ) -> Result<Option<MathRunArtifact>, MathTypesetError> {
@@ -133,7 +130,7 @@ enum LaidOutDrawItem {
     Shape(usize),
 }
 
-struct OwnedPdfArtifact {
+struct PdfArtifact {
     text_layer: MathPdfTextLayer,
     font_resources: Vec<MathFontResource>,
 }
@@ -153,8 +150,8 @@ enum SimpleMathClass {
 }
 
 fn layout_simple_row(
-    font: &OwnedMathFont,
-    math: &OwnedMath,
+    font: &MathFont,
+    math: &MathAst,
     font_size: f32,
 ) -> Result<Option<SimpleRowLayout>, MathTypesetError> {
     let Some(atom) = layout_simple_nodes_as_atom(font, &math.nodes, font_size, 0)? else {
@@ -167,8 +164,8 @@ fn layout_simple_row(
 }
 
 fn layout_simple_nodes_as_atom(
-    font: &OwnedMathFont,
-    nodes: &[OwnedMathNode],
+    font: &MathFont,
+    nodes: &[MathNode],
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -177,10 +174,10 @@ fn layout_simple_nodes_as_atom(
     while index < nodes.len() {
         let node = &nodes[index];
         match node {
-            OwnedMathNode::Space(_) => {}
+            MathNode::Space(_) => {}
             _ => {
                 let (atom, consumed) =
-                    if let (OwnedMathNode::Attach(attach), Some(OwnedMathNode::Group(group))) =
+                    if let (MathNode::Attach(attach), Some(MathNode::Group(group))) =
                         (node, nodes.get(index + 1))
                     {
                         if is_identifier_subscript_group_continuation(attach, group) {
@@ -318,8 +315,8 @@ fn append_atom_items(
 }
 
 fn layout_simple_node(
-    font: &OwnedMathFont,
-    node: &OwnedMathNode,
+    font: &MathFont,
+    node: &MathNode,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -338,19 +335,19 @@ fn layout_simple_node(
         return Ok(Some(layout));
     }
 
-    if let OwnedMathNode::Attach(attach) = node {
+    if let MathNode::Attach(attach) = node {
         return layout_simple_attach(font, attach, font_size, script_level);
     }
 
-    if let OwnedMathNode::Fraction(fraction) = node {
+    if let MathNode::Fraction(fraction) = node {
         return layout_simple_fraction(font, fraction, font_size, script_level);
     }
 
-    if let OwnedMathNode::Group(group) = node {
+    if let MathNode::Group(group) = node {
         return layout_simple_group(font, group, font_size, script_level);
     }
 
-    if let OwnedMathNode::Call(call) = node {
+    if let MathNode::Call(call) = node {
         if let Some(atom) = layout_simple_operator_call(font, call, font_size, script_level)? {
             return Ok(Some(atom));
         }
@@ -387,8 +384,8 @@ fn layout_simple_node(
 }
 
 fn layout_simple_variant_call(
-    font: &OwnedMathFont,
-    call: &super::ast::OwnedMathCall,
+    font: &MathFont,
+    call: &super::ast::MathCall,
     selection: MathStyleSelection,
     font_size: f32,
     script_level: u8,
@@ -401,8 +398,8 @@ fn layout_simple_variant_call(
 }
 
 fn layout_simple_operator_call(
-    font: &OwnedMathFont,
-    call: &super::ast::OwnedMathCall,
+    font: &MathFont,
+    call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -410,7 +407,7 @@ fn layout_simple_operator_call(
         let [arg] = &call.args[..] else {
             return Ok(None);
         };
-        let [OwnedMathNode::StringLiteral(text)] = &arg.nodes[..] else {
+        let [MathNode::StringLiteral(text)] = &arg.nodes[..] else {
             return Ok(None);
         };
         return layout_operator_atom(font, &text.text, font_size, script_level).map(Some);
@@ -423,12 +420,12 @@ fn layout_simple_operator_call(
         return Ok(None);
     };
     let nodes = [
-        OwnedMathNode::Identifier(super::ast::OwnedMathIdentifier {
+        MathNode::Identifier(super::ast::MathIdentifier {
             name: text.to_string(),
             symbol: None,
             byte_range: call.byte_range.start..call.byte_range.start + call.name.len(),
         }),
-        OwnedMathNode::Group(super::ast::OwnedMathGroup {
+        MathNode::Group(super::ast::MathGroup {
             left: '(',
             right: ')',
             body: arg.nodes.clone(),
@@ -439,8 +436,8 @@ fn layout_simple_operator_call(
 }
 
 fn layout_simple_group(
-    font: &OwnedMathFont,
-    group: &super::ast::OwnedMathGroup,
+    font: &MathFont,
+    group: &super::ast::MathGroup,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -455,8 +452,8 @@ fn layout_simple_group(
 }
 
 fn layout_simple_delimited_call(
-    font: &OwnedMathFont,
-    call: &super::ast::OwnedMathCall,
+    font: &MathFont,
+    call: &super::ast::MathCall,
     left: char,
     right: char,
     font_size: f32,
@@ -469,8 +466,8 @@ fn layout_simple_delimited_call(
 }
 
 fn layout_simple_lr_call(
-    font: &OwnedMathFont,
-    call: &super::ast::OwnedMathCall,
+    font: &MathFont,
+    call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -483,13 +480,13 @@ fn layout_simple_lr_call(
     layout_simple_delimited_nodes(font, left, body_nodes, right, font_size, script_level)
 }
 
-fn lr_call_delimited_body(nodes: &[OwnedMathNode]) -> Option<(char, &[OwnedMathNode], char)> {
+fn lr_call_delimited_body(nodes: &[MathNode]) -> Option<(char, &[MathNode], char)> {
     let start = nodes
         .iter()
-        .position(|node| !matches!(node, OwnedMathNode::Space(_)))?;
+        .position(|node| !matches!(node, MathNode::Space(_)))?;
     let end = nodes
         .iter()
-        .rposition(|node| !matches!(node, OwnedMathNode::Space(_)))?
+        .rposition(|node| !matches!(node, MathNode::Space(_)))?
         + 1;
     if end <= start + 2 {
         return None;
@@ -500,12 +497,12 @@ fn lr_call_delimited_body(nodes: &[OwnedMathNode]) -> Option<(char, &[OwnedMathN
     is_lr_delimiter_pair(left, right).then_some((left, &nodes[start + 1..end - 1], right))
 }
 
-fn delimiter_char_from_node(node: &OwnedMathNode) -> Option<char> {
+fn delimiter_char_from_node(node: &MathNode) -> Option<char> {
     match node {
-        OwnedMathNode::Operator(operator) => single_char(&operator.operator),
-        OwnedMathNode::Text(text) => single_char(&text.text),
-        OwnedMathNode::Identifier(identifier) => identifier.symbol.and_then(single_char),
-        OwnedMathNode::Shorthand(shorthand) => single_char(shorthand.replacement),
+        MathNode::Operator(operator) => single_char(&operator.operator),
+        MathNode::Text(text) => single_char(&text.text),
+        MathNode::Identifier(identifier) => identifier.symbol.and_then(single_char),
+        MathNode::Shorthand(shorthand) => single_char(shorthand.replacement),
         _ => None,
     }
     .filter(|delimiter| is_lr_delimiter(*delimiter))
@@ -533,9 +530,9 @@ fn is_lr_delimiter_pair(left: char, right: char) -> bool {
 }
 
 fn layout_simple_delimited_nodes(
-    font: &OwnedMathFont,
+    font: &MathFont,
     left: char,
-    body_nodes: &[OwnedMathNode],
+    body_nodes: &[MathNode],
     right: char,
     font_size: f32,
     script_level: u8,
@@ -556,7 +553,7 @@ fn layout_simple_delimited_nodes(
 }
 
 fn layout_simple_delimited_atom(
-    font: &OwnedMathFont,
+    font: &MathFont,
     left: char,
     mut body: LaidOutMathAtom,
     right: char,
@@ -651,7 +648,7 @@ enum DelimiterTarget {
 }
 
 fn layout_delimiter_atom_with_target(
-    font: &OwnedMathFont,
+    font: &MathFont,
     delimiter: char,
     font_size: f32,
     script_level: u8,
@@ -722,8 +719,8 @@ fn delimiter_call_chars(name: &str) -> Option<(char, char)> {
 }
 
 fn layout_simple_sqrt(
-    font: &OwnedMathFont,
-    call: &super::ast::OwnedMathCall,
+    font: &MathFont,
+    call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -734,8 +731,8 @@ fn layout_simple_sqrt(
 }
 
 fn layout_simple_root(
-    font: &OwnedMathFont,
-    call: &super::ast::OwnedMathCall,
+    font: &MathFont,
+    call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -752,8 +749,8 @@ fn layout_simple_root(
 }
 
 fn layout_simple_cancel_call(
-    font: &OwnedMathFont,
-    call: &super::ast::OwnedMathCall,
+    font: &MathFont,
+    call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -800,8 +797,8 @@ fn layout_simple_cancel_call(
 }
 
 fn layout_simple_accent_call(
-    font: &OwnedMathFont,
-    call: &super::ast::OwnedMathCall,
+    font: &MathFont,
+    call: &super::ast::MathCall,
     accent: char,
     font_size: f32,
     script_level: u8,
@@ -864,9 +861,9 @@ fn accent_call_char(name: &str) -> Option<char> {
 }
 
 fn layout_simple_radical(
-    font: &OwnedMathFont,
-    radicand_nodes: &[OwnedMathNode],
-    index_nodes: Option<&[OwnedMathNode]>,
+    font: &MathFont,
+    radicand_nodes: &[MathNode],
+    index_nodes: Option<&[MathNode]>,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -976,8 +973,8 @@ fn layout_simple_radical(
 }
 
 fn layout_simple_fraction(
-    font: &OwnedMathFont,
-    fraction: &super::ast::OwnedMathFraction,
+    font: &MathFont,
+    fraction: &super::ast::MathFraction,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -991,8 +988,8 @@ fn layout_simple_fraction(
 }
 
 fn layout_simple_fraction_call(
-    font: &OwnedMathFont,
-    call: &super::ast::OwnedMathCall,
+    font: &MathFont,
+    call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -1009,8 +1006,8 @@ fn layout_simple_fraction_call(
 }
 
 fn layout_simple_binom_call(
-    font: &OwnedMathFont,
-    call: &super::ast::OwnedMathCall,
+    font: &MathFont,
+    call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -1041,9 +1038,9 @@ fn layout_simple_binom_call(
 }
 
 fn layout_simple_fraction_nodes(
-    font: &OwnedMathFont,
-    numerator_nodes: &[OwnedMathNode],
-    denominator_nodes: &[OwnedMathNode],
+    font: &MathFont,
+    numerator_nodes: &[MathNode],
+    denominator_nodes: &[MathNode],
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -1064,9 +1061,9 @@ enum StackRule {
 }
 
 fn layout_simple_stack_nodes(
-    font: &OwnedMathFont,
-    numerator_nodes: &[OwnedMathNode],
-    denominator_nodes: &[OwnedMathNode],
+    font: &MathFont,
+    numerator_nodes: &[MathNode],
+    denominator_nodes: &[MathNode],
     font_size: f32,
     script_level: u8,
     rule: StackRule,
@@ -1158,7 +1155,7 @@ fn layout_simple_stack_nodes(
 }
 
 fn layout_simple_no_rule_stack(
-    font: &OwnedMathFont,
+    font: &MathFont,
     mut numerator: LaidOutMathAtom,
     mut denominator: LaidOutMathAtom,
     font_size: f32,
@@ -1202,7 +1199,7 @@ fn finalize_inline_frame_atom(
     mut glyphs: Vec<LaidOutGlyph>,
     mut shapes: Vec<LaidOutShape>,
     draw_order: Vec<LaidOutDrawItem>,
-    font: &OwnedMathFont,
+    font: &MathFont,
     font_size: f32,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
     let final_ascent =
@@ -1237,20 +1234,20 @@ fn finalize_inline_frame_atom(
 }
 
 fn layout_fraction_child(
-    font: &OwnedMathFont,
-    node: &OwnedMathNode,
+    font: &MathFont,
+    node: &MathNode,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
-    if let OwnedMathNode::Group(group) = node {
+    if let MathNode::Group(group) = node {
         return layout_simple_nodes_as_atom(font, &group.body, font_size, script_level);
     }
     layout_simple_node(font, node, font_size, script_level)
 }
 
 fn layout_fraction_child_nodes(
-    font: &OwnedMathFont,
-    nodes: &[OwnedMathNode],
+    font: &MathFont,
+    nodes: &[MathNode],
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -1266,8 +1263,8 @@ const CANCEL_STROKE_EM: f32 = 0.05;
 const CANCEL_LENGTH_EXTRA_EM: f32 = 0.3;
 
 fn layout_simple_attach(
-    font: &OwnedMathFont,
-    attach: &super::ast::OwnedMathAttach,
+    font: &MathFont,
+    attach: &super::ast::MathAttach,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -1299,9 +1296,9 @@ fn layout_simple_attach(
 }
 
 fn layout_simple_attach_with_bottom_continuation(
-    font: &OwnedMathFont,
-    attach: &super::ast::OwnedMathAttach,
-    group: &super::ast::OwnedMathGroup,
+    font: &MathFont,
+    attach: &super::ast::MathAttach,
+    group: &super::ast::MathGroup,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
@@ -1321,7 +1318,7 @@ fn layout_simple_attach_with_bottom_continuation(
         .map(|node| layout_script_child(font, node, script_font_size, script_level + 1))
         .transpose()?
         .flatten();
-    let bottom_nodes = [bottom_node.clone(), OwnedMathNode::Group(group.clone())];
+    let bottom_nodes = [bottom_node.clone(), MathNode::Group(group.clone())];
     let bottom =
         layout_simple_nodes_as_atom(font, &bottom_nodes, script_font_size, script_level + 1)?;
     if (attach.top.is_some() && top.is_none()) || bottom.is_none() {
@@ -1332,17 +1329,17 @@ fn layout_simple_attach_with_bottom_continuation(
 }
 
 fn is_identifier_subscript_group_continuation(
-    attach: &super::ast::OwnedMathAttach,
-    group: &super::ast::OwnedMathGroup,
+    attach: &super::ast::MathAttach,
+    group: &super::ast::MathGroup,
 ) -> bool {
     // Typst parses `_n(x)` like an identifier subscript expression with an
     // adjacent call-style group, while `_0(x)` leaves `(x)` at the outer level.
     attach.byte_range.end == group.byte_range.start
-        && matches!(attach.bottom.as_deref(), Some(OwnedMathNode::Identifier(_)))
+        && matches!(attach.bottom.as_deref(), Some(MathNode::Identifier(_)))
 }
 
 fn layout_simple_attach_parts(
-    font: &OwnedMathFont,
+    font: &MathFont,
     font_size: f32,
     base: LaidOutMathAtom,
     top: Option<LaidOutMathAtom>,
@@ -1435,19 +1432,19 @@ fn layout_simple_attach_parts(
 }
 
 fn layout_script_child(
-    font: &OwnedMathFont,
-    node: &OwnedMathNode,
+    font: &MathFont,
+    node: &MathNode,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
-    if let OwnedMathNode::Group(group) = node {
+    if let MathNode::Group(group) = node {
         return layout_simple_nodes_as_atom(font, &group.body, font_size, script_level);
     }
     layout_simple_node(font, node, font_size, script_level)
 }
 
 fn script_font_size(
-    font: &OwnedMathFont,
+    font: &MathFont,
     font_size: f32,
     script_level: u8,
 ) -> Result<f32, MathTypesetError> {
@@ -1473,7 +1470,7 @@ fn script_font_size(
 }
 
 fn compute_script_shifts(
-    font: &OwnedMathFont,
+    font: &MathFont,
     font_size: f32,
     base: &LaidOutMathAtom,
     top: Option<&LaidOutMathAtom>,
@@ -1522,7 +1519,7 @@ fn compute_script_shifts(
 
     // Text-like bases intentionally do not apply Typst's base ascent/descent
     // drop rules. Keep `base` in the signature because non-text-like boxes will
-    // need those fields when fractions and radicals become owned.
+    // need those fields when fractions and radicals become supported.
     let _ = base;
 
     Ok((shift_up, shift_down))
@@ -1548,7 +1545,7 @@ impl ScriptCorner {
 }
 
 fn math_kern(
-    font: &OwnedMathFont,
+    font: &MathFont,
     base: &LaidOutMathAtom,
     script: &LaidOutMathAtom,
     shift: f32,
@@ -1592,7 +1589,7 @@ fn edge_glyph(atom: &LaidOutMathAtom, corner: ScriptCorner) -> Option<&LaidOutGl
 }
 
 fn kern_at_height(
-    font: &OwnedMathFont,
+    font: &MathFont,
     glyph: Option<&LaidOutGlyph>,
     corner: ScriptCorner,
     height: f32,
@@ -1638,7 +1635,7 @@ fn kern_at_height(
 }
 
 fn math_constant(
-    font: &OwnedMathFont,
+    font: &MathFont,
     font_size: f32,
     constant: impl FnOnce(ttf_parser::math::Constants<'_>) -> i16,
 ) -> Result<f32, MathTypesetError> {
@@ -1653,7 +1650,7 @@ fn math_constant(
 }
 
 fn math_percent(
-    font: &OwnedMathFont,
+    font: &MathFont,
     constant: impl FnOnce(ttf_parser::math::Constants<'_>) -> i16,
 ) -> Result<f32, MathTypesetError> {
     let face = parse_math_face(font, "math percentage constant")?;
@@ -1666,7 +1663,7 @@ fn math_percent(
     Ok(value as f32 / 100.0)
 }
 
-fn font_cap_height(font: &OwnedMathFont, font_size: f32) -> Result<f32, MathTypesetError> {
+fn font_cap_height(font: &MathFont, font_size: f32) -> Result<f32, MathTypesetError> {
     let face = parse_math_face(font, "font cap height")?;
     Ok(face
         .capital_height()
@@ -1677,24 +1674,24 @@ fn font_cap_height(font: &OwnedMathFont, font_size: f32) -> Result<f32, MathType
 }
 
 #[cfg(test)]
-fn single_atom_text(math: &OwnedMath) -> Option<String> {
+fn single_atom_text(math: &MathAst) -> Option<String> {
     let [node] = &math.nodes[..] else {
         return None;
     };
     simple_atom(node).map(|atom| atom.styled_text)
 }
 
-fn simple_atom(node: &OwnedMathNode) -> Option<SimpleMathAtom> {
+fn simple_atom(node: &MathNode) -> Option<SimpleMathAtom> {
     match node {
-        OwnedMathNode::Text(text) => Some(SimpleMathAtom {
+        MathNode::Text(text) => Some(SimpleMathAtom {
             styled_text: style_text_atom(text),
             class: match text.kind {
-                OwnedMathTextKind::Grapheme => SimpleMathClass::Alphabetic,
-                OwnedMathTextKind::Number => SimpleMathClass::Normal,
+                MathTextKind::Grapheme => SimpleMathClass::Alphabetic,
+                MathTextKind::Number => SimpleMathClass::Normal,
             },
             text_operator: false,
         }),
-        OwnedMathNode::Identifier(identifier) => {
+        MathNode::Identifier(identifier) => {
             let text = identifier.symbol.unwrap_or(&identifier.name);
             if let Some(operator) = operator_identifier_text(text) {
                 Some(SimpleMathAtom {
@@ -1712,12 +1709,12 @@ fn simple_atom(node: &OwnedMathNode) -> Option<SimpleMathAtom> {
                 None
             }
         }
-        OwnedMathNode::Operator(operator) => Some(SimpleMathAtom {
+        MathNode::Operator(operator) => Some(SimpleMathAtom {
             styled_text: operator_text(operator),
             class: operator_class(&operator.operator),
             text_operator: false,
         }),
-        OwnedMathNode::Shorthand(shorthand) => Some(SimpleMathAtom {
+        MathNode::Shorthand(shorthand) => Some(SimpleMathAtom {
             styled_text: shorthand_text(shorthand),
             class: symbol_class(shorthand.replacement),
             text_operator: false,
@@ -1727,7 +1724,7 @@ fn simple_atom(node: &OwnedMathNode) -> Option<SimpleMathAtom> {
 }
 
 fn layout_operator_atom(
-    font: &OwnedMathFont,
+    font: &MathFont,
     text: &str,
     font_size: f32,
     script_level: u8,
@@ -1736,14 +1733,14 @@ fn layout_operator_atom(
         MathTypesetError::Engine {
             start: 0,
             end: text.len(),
-            message: "failed to parse owned math font".to_string(),
+            message: "failed to parse Typst math font".to_string(),
         }
     })?;
     let Some(rusty) = rustybuzz::Face::from_slice(&font.data, font.face_index) else {
         return Err(MathTypesetError::Engine {
             start: 0,
             end: text.len(),
-            message: "failed to shape owned math font".to_string(),
+            message: "failed to shape Typst math font".to_string(),
         });
     };
 
@@ -1846,10 +1843,10 @@ fn glyph_unicode_for_cluster(text: &str, cluster: u32) -> String {
     text[start..end].to_string()
 }
 
-fn style_text_atom(text: &OwnedMathText) -> String {
+fn style_text_atom(text: &MathText) -> String {
     match text.kind {
-        OwnedMathTextKind::Grapheme => style_default_math_text(&text.text),
-        OwnedMathTextKind::Number => text.text.clone(),
+        MathTextKind::Grapheme => style_default_math_text(&text.text),
+        MathTextKind::Number => text.text.clone(),
     }
 }
 
@@ -1857,39 +1854,39 @@ fn style_default_math_text(text: &str) -> String {
     text.chars().map(style_default_math_char).collect()
 }
 
-fn style_math_nodes(nodes: &[OwnedMathNode], selection: MathStyleSelection) -> Vec<OwnedMathNode> {
+fn style_math_nodes(nodes: &[MathNode], selection: MathStyleSelection) -> Vec<MathNode> {
     nodes
         .iter()
         .flat_map(|node| style_math_node(node, selection))
         .collect()
 }
 
-fn style_math_node(node: &OwnedMathNode, selection: MathStyleSelection) -> Vec<OwnedMathNode> {
+fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNode> {
     match node {
-        OwnedMathNode::Space(_)
-        | OwnedMathNode::Operator(_)
-        | OwnedMathNode::Shorthand(_)
-        | OwnedMathNode::StringLiteral(_) => vec![node.clone()],
-        OwnedMathNode::Text(text) => vec![OwnedMathNode::Text(super::ast::OwnedMathText {
+        MathNode::Space(_)
+        | MathNode::Operator(_)
+        | MathNode::Shorthand(_)
+        | MathNode::StringLiteral(_) => vec![node.clone()],
+        MathNode::Text(text) => vec![MathNode::Text(super::ast::MathText {
             text: style_math_text_with_selection(&text.text, selection),
-            kind: OwnedMathTextKind::Number,
+            kind: MathTextKind::Number,
             byte_range: text.byte_range.clone(),
         })],
-        OwnedMathNode::Identifier(identifier) => {
+        MathNode::Identifier(identifier) => {
             let text = identifier.symbol.unwrap_or(&identifier.name);
-            vec![OwnedMathNode::Text(super::ast::OwnedMathText {
+            vec![MathNode::Text(super::ast::MathText {
                 text: style_math_text_with_selection(text, selection),
-                kind: OwnedMathTextKind::Number,
+                kind: MathTextKind::Number,
                 byte_range: identifier.byte_range.clone(),
             })]
         }
-        OwnedMathNode::Group(group) => vec![OwnedMathNode::Group(super::ast::OwnedMathGroup {
+        MathNode::Group(group) => vec![MathNode::Group(super::ast::MathGroup {
             left: group.left,
             right: group.right,
             body: style_math_nodes(&group.body, selection),
             byte_range: group.byte_range.clone(),
         })],
-        OwnedMathNode::Attach(attach) => {
+        MathNode::Attach(attach) => {
             let base = style_single_math_node(&attach.base, selection);
             let top = attach
                 .top
@@ -1899,7 +1896,7 @@ fn style_math_node(node: &OwnedMathNode, selection: MathStyleSelection) -> Vec<O
                 .bottom
                 .as_ref()
                 .map(|node| Box::new(style_single_math_node(node, selection)));
-            vec![OwnedMathNode::Attach(super::ast::OwnedMathAttach {
+            vec![MathNode::Attach(super::ast::MathAttach {
                 base: Box::new(base),
                 top,
                 bottom,
@@ -1907,15 +1904,15 @@ fn style_math_node(node: &OwnedMathNode, selection: MathStyleSelection) -> Vec<O
                 byte_range: attach.byte_range.clone(),
             })]
         }
-        OwnedMathNode::Fraction(fraction) => {
-            vec![OwnedMathNode::Fraction(super::ast::OwnedMathFraction {
+        MathNode::Fraction(fraction) => {
+            vec![MathNode::Fraction(super::ast::MathFraction {
                 numerator: Box::new(style_single_math_node(&fraction.numerator, selection)),
                 denominator: Box::new(style_single_math_node(&fraction.denominator, selection)),
                 slash_range: fraction.slash_range.clone(),
                 byte_range: fraction.byte_range.clone(),
             })]
         }
-        OwnedMathNode::Call(call) => {
+        MathNode::Call(call) => {
             if let Some(nested) = MathStyleSelection::from_call_name(&call.name) {
                 let combined = selection.compose(nested);
                 return call
@@ -1925,12 +1922,12 @@ fn style_math_node(node: &OwnedMathNode, selection: MathStyleSelection) -> Vec<O
                     .collect();
             }
 
-            vec![OwnedMathNode::Call(super::ast::OwnedMathCall {
+            vec![MathNode::Call(super::ast::MathCall {
                 name: call.name.clone(),
                 args: call
                     .args
                     .iter()
-                    .map(|arg| super::ast::OwnedMathArg {
+                    .map(|arg| super::ast::MathArg {
                         nodes: style_math_nodes(&arg.nodes, selection),
                         byte_range: arg.byte_range.clone(),
                     })
@@ -1941,12 +1938,12 @@ fn style_math_node(node: &OwnedMathNode, selection: MathStyleSelection) -> Vec<O
     }
 }
 
-fn style_single_math_node(node: &OwnedMathNode, selection: MathStyleSelection) -> OwnedMathNode {
+fn style_single_math_node(node: &MathNode, selection: MathStyleSelection) -> MathNode {
     let mut styled = style_math_node(node, selection);
     if styled.len() == 1 {
         styled.remove(0)
     } else {
-        OwnedMathNode::Group(super::ast::OwnedMathGroup {
+        MathNode::Group(super::ast::MathGroup {
             left: '(',
             right: ')',
             body: styled,
@@ -1958,7 +1955,7 @@ fn style_single_math_node(node: &OwnedMathNode, selection: MathStyleSelection) -
 fn style_math_text_with_selection(text: &str, selection: MathStyleSelection) -> String {
     text.chars()
         .flat_map(|ch| {
-            let style = OwnedMathAlphabetStyle::select(ch, selection);
+            let style = MathAlphabetStyle::select(ch, selection);
             style_math_char(ch, style)
                 .into_iter()
                 .filter(|styled| *styled != '\0')
@@ -1966,14 +1963,14 @@ fn style_math_text_with_selection(text: &str, selection: MathStyleSelection) -> 
         .collect()
 }
 
-fn operator_text(operator: &OwnedMathOperator) -> String {
+fn operator_text(operator: &MathOperator) -> String {
     match operator.operator.as_str() {
         "-" => "−".to_string(),
         _ => operator.operator.clone(),
     }
 }
 
-fn shorthand_text(shorthand: &OwnedMathShorthand) -> String {
+fn shorthand_text(shorthand: &MathShorthand) -> String {
     shorthand.replacement.to_string()
 }
 
@@ -2136,7 +2133,7 @@ fn to_math_italic(ch: char) -> char {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct MathStyleSelection {
-    variant: Option<OwnedMathVariant>,
+    variant: Option<MathVariant>,
     bold: bool,
     italic: Option<bool>,
 }
@@ -2148,13 +2145,13 @@ impl MathStyleSelection {
             "bold" => selection.bold = true,
             "upright" => selection.italic = Some(false),
             "italic" => selection.italic = Some(true),
-            "serif" => selection.variant = Some(OwnedMathVariant::Plain),
-            "sans" => selection.variant = Some(OwnedMathVariant::SansSerif),
-            "cal" => selection.variant = Some(OwnedMathVariant::Chancery),
-            "scr" => selection.variant = Some(OwnedMathVariant::Roundhand),
-            "frak" => selection.variant = Some(OwnedMathVariant::Fraktur),
-            "mono" => selection.variant = Some(OwnedMathVariant::Monospace),
-            "bb" => selection.variant = Some(OwnedMathVariant::DoubleStruck),
+            "serif" => selection.variant = Some(MathVariant::Plain),
+            "sans" => selection.variant = Some(MathVariant::SansSerif),
+            "cal" => selection.variant = Some(MathVariant::Chancery),
+            "scr" => selection.variant = Some(MathVariant::Roundhand),
+            "frak" => selection.variant = Some(MathVariant::Fraktur),
+            "mono" => selection.variant = Some(MathVariant::Monospace),
+            "bb" => selection.variant = Some(MathVariant::DoubleStruck),
             _ => return None,
         }
         Some(selection)
@@ -2170,7 +2167,7 @@ impl MathStyleSelection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OwnedMathVariant {
+enum MathVariant {
     Plain,
     Fraktur,
     SansSerif,
@@ -2181,7 +2178,7 @@ enum OwnedMathVariant {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OwnedMathAlphabetStyle {
+enum MathAlphabetStyle {
     Plain,
     Bold,
     Italic,
@@ -2202,60 +2199,52 @@ enum OwnedMathAlphabetStyle {
     Hebrew,
 }
 
-impl OwnedMathAlphabetStyle {
+impl MathAlphabetStyle {
     fn select(ch: char, selection: MathStyleSelection) -> Self {
-        use OwnedMathAlphabetStyle::*;
+        use MathAlphabetStyle::*;
 
         match (
-            selection.variant.unwrap_or(OwnedMathVariant::Plain),
+            selection.variant.unwrap_or(MathVariant::Plain),
             selection.bold,
             selection.italic,
         ) {
-            (OwnedMathVariant::SansSerif, false, Some(false)) if ch.is_ascii_alphabetic() => {
-                SansSerif
-            }
-            (OwnedMathVariant::SansSerif, false, _) if ch.is_ascii_alphabetic() => SansSerifItalic,
-            (OwnedMathVariant::SansSerif, true, Some(false)) if ch.is_ascii_alphabetic() => {
+            (MathVariant::SansSerif, false, Some(false)) if ch.is_ascii_alphabetic() => SansSerif,
+            (MathVariant::SansSerif, false, _) if ch.is_ascii_alphabetic() => SansSerifItalic,
+            (MathVariant::SansSerif, true, Some(false)) if ch.is_ascii_alphabetic() => {
                 SansSerifBold
             }
-            (OwnedMathVariant::SansSerif, true, _) if ch.is_ascii_alphabetic() => {
+            (MathVariant::SansSerif, true, _) if ch.is_ascii_alphabetic() => SansSerifBoldItalic,
+            (MathVariant::SansSerif, false, _) if ch.is_ascii_digit() => SansSerif,
+            (MathVariant::SansSerif, true, _) if ch.is_ascii_digit() => SansSerifBold,
+            (MathVariant::SansSerif, _, Some(false)) if is_greek_math_char(ch) => SansSerifBold,
+            (MathVariant::SansSerif, _, Some(true)) if is_greek_math_char(ch) => {
                 SansSerifBoldItalic
             }
-            (OwnedMathVariant::SansSerif, false, _) if ch.is_ascii_digit() => SansSerif,
-            (OwnedMathVariant::SansSerif, true, _) if ch.is_ascii_digit() => SansSerifBold,
-            (OwnedMathVariant::SansSerif, _, Some(false)) if is_greek_math_char(ch) => {
-                SansSerifBold
-            }
-            (OwnedMathVariant::SansSerif, _, Some(true)) if is_greek_math_char(ch) => {
+            (MathVariant::SansSerif, _, None) if is_upper_greek_math_char(ch) => SansSerifBold,
+            (MathVariant::SansSerif, _, None) if is_lower_greek_math_char(ch) => {
                 SansSerifBoldItalic
             }
-            (OwnedMathVariant::SansSerif, _, None) if is_upper_greek_math_char(ch) => SansSerifBold,
-            (OwnedMathVariant::SansSerif, _, None) if is_lower_greek_math_char(ch) => {
-                SansSerifBoldItalic
-            }
-            (OwnedMathVariant::Fraktur, false, _) if ch.is_ascii_alphabetic() => Fraktur,
-            (OwnedMathVariant::Fraktur, true, _) if ch.is_ascii_alphabetic() => BoldFraktur,
-            (OwnedMathVariant::Monospace, _, _)
-                if ch.is_ascii_digit() || ch.is_ascii_alphabetic() =>
-            {
+            (MathVariant::Fraktur, false, _) if ch.is_ascii_alphabetic() => Fraktur,
+            (MathVariant::Fraktur, true, _) if ch.is_ascii_alphabetic() => BoldFraktur,
+            (MathVariant::Monospace, _, _) if ch.is_ascii_digit() || ch.is_ascii_alphabetic() => {
                 Monospace
             }
-            (OwnedMathVariant::DoubleStruck, _, Some(true))
+            (MathVariant::DoubleStruck, _, Some(true))
                 if matches!(ch, 'D' | 'd' | 'e' | 'i' | 'j') =>
             {
                 DoubleStruckItalic
             }
-            (OwnedMathVariant::DoubleStruck, _, _)
+            (MathVariant::DoubleStruck, _, _)
                 if ch.is_ascii_digit()
                     || ch.is_ascii_alphabetic()
                     || matches!(ch, '∑' | 'Γ' | 'Π' | 'γ' | 'π') =>
             {
                 DoubleStruck
             }
-            (OwnedMathVariant::Chancery, false, _) if ch.is_ascii_alphabetic() => Chancery,
-            (OwnedMathVariant::Chancery, true, _) if ch.is_ascii_alphabetic() => BoldChancery,
-            (OwnedMathVariant::Roundhand, false, _) if ch.is_ascii_alphabetic() => Roundhand,
-            (OwnedMathVariant::Roundhand, true, _) if ch.is_ascii_alphabetic() => BoldRoundhand,
+            (MathVariant::Chancery, false, _) if ch.is_ascii_alphabetic() => Chancery,
+            (MathVariant::Chancery, true, _) if ch.is_ascii_alphabetic() => BoldChancery,
+            (MathVariant::Roundhand, false, _) if ch.is_ascii_alphabetic() => Roundhand,
+            (MathVariant::Roundhand, true, _) if ch.is_ascii_alphabetic() => BoldRoundhand,
             (_, false, Some(true)) if ch.is_ascii_alphabetic() || is_greek_math_char(ch) => Italic,
             (_, false, None) if ch.is_ascii_alphabetic() || is_lower_greek_math_char(ch) => Italic,
             (_, true, Some(false)) if ch.is_ascii_alphabetic() || is_greek_math_char(ch) => Bold,
@@ -2274,8 +2263,8 @@ impl OwnedMathAlphabetStyle {
     }
 }
 
-fn style_math_char(ch: char, style: OwnedMathAlphabetStyle) -> [char; 2] {
-    use OwnedMathAlphabetStyle::*;
+fn style_math_char(ch: char, style: MathAlphabetStyle) -> [char; 2] {
+    use MathAlphabetStyle::*;
     match style {
         Plain => [ch, '\0'],
         Bold => [to_math_bold(ch), '\0'],
@@ -2528,12 +2517,12 @@ fn to_math_hebrew(ch: char) -> char {
     apply_math_delta(ch, delta)
 }
 
-struct OwnedMathFont {
+struct MathFont {
     data: Vec<u8>,
     face_index: u32,
 }
 
-fn load_default_math_font(config: &TypstEngineConfig) -> Option<OwnedMathFont> {
+fn load_default_math_font(config: &TypstEngineConfig) -> Option<MathFont> {
     for path in crate::fonts::candidate_math_font_paths(config) {
         let Ok(data) = std::fs::read(path) else {
             continue;
@@ -2544,7 +2533,7 @@ fn load_default_math_font(config: &TypstEngineConfig) -> Option<OwnedMathFont> {
                 continue;
             };
             if face.tables().math.is_some() {
-                return Some(OwnedMathFont { data, face_index });
+                return Some(MathFont { data, face_index });
             }
         }
     }
@@ -2552,18 +2541,18 @@ fn load_default_math_font(config: &TypstEngineConfig) -> Option<OwnedMathFont> {
 }
 
 fn parse_math_face<'a>(
-    font: &'a OwnedMathFont,
+    font: &'a MathFont,
     context: &str,
 ) -> Result<ttf_parser::Face<'a>, MathTypesetError> {
     ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| MathTypesetError::Engine {
         start: 0,
         end: 0,
-        message: format!("failed to parse owned math font for {context}"),
+        message: format!("failed to parse Typst math font for {context}"),
     })
 }
 
 fn layout_styled_atom_with_class(
-    font: &OwnedMathFont,
+    font: &MathFont,
     text: &str,
     font_size: f32,
     script_style: Option<u32>,
@@ -2573,14 +2562,14 @@ fn layout_styled_atom_with_class(
         MathTypesetError::Engine {
             start: 0,
             end: text.len(),
-            message: "failed to parse owned math font".to_string(),
+            message: "failed to parse Typst math font".to_string(),
         }
     })?;
     let Some(rusty) = rustybuzz::Face::from_slice(&font.data, font.face_index) else {
         return Err(MathTypesetError::Engine {
             start: 0,
             end: text.len(),
-            message: "failed to shape owned math font".to_string(),
+            message: "failed to shape Typst math font".to_string(),
         });
     };
 
@@ -2675,7 +2664,7 @@ fn layout_styled_atom_with_class(
 }
 
 fn layout_accent_atom(
-    font: &OwnedMathFont,
+    font: &MathFont,
     accent: char,
     font_size: f32,
     script_level: u8,
@@ -2690,7 +2679,7 @@ fn layout_accent_atom(
 }
 
 fn atom_top_accent_attachment(
-    font: &OwnedMathFont,
+    font: &MathFont,
     atom: &LaidOutMathAtom,
 ) -> Result<f32, MathTypesetError> {
     if atom.glyphs.len() == 1 && atom.shapes.is_empty() {
@@ -2703,7 +2692,7 @@ fn atom_top_accent_attachment(
 }
 
 fn top_accent_attachment(
-    font: &OwnedMathFont,
+    font: &MathFont,
     glyph: &LaidOutGlyph,
 ) -> Result<Option<f32>, MathTypesetError> {
     let face = parse_math_face(font, "top accent attachment")?;
@@ -2727,16 +2716,16 @@ fn script_style_feature(script_level: u8) -> Option<u32> {
 }
 
 fn pdf_text_from_simple_row(
-    font: &OwnedMathFont,
+    font: &MathFont,
     layout: &SimpleRowLayout,
     source: &str,
     fill: crate::style::Color,
-) -> Result<OwnedPdfArtifact, MathTypesetError> {
+) -> Result<PdfArtifact, MathTypesetError> {
     let face = ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| {
         MathTypesetError::Engine {
             start: 0,
             end: source.len(),
-            message: "failed to parse owned math font for PDF glyph output".to_string(),
+            message: "failed to parse Typst math font for PDF glyph output".to_string(),
         }
     })?;
     let font_id = MathFontResourceId(0);
@@ -2785,7 +2774,7 @@ fn pdf_text_from_simple_row(
         }
     }
 
-    Ok(OwnedPdfArtifact {
+    Ok(PdfArtifact {
         text_layer: MathPdfTextLayer {
             logical_width: layout.metrics.width,
             logical_height: layout.metrics.height,
@@ -2853,7 +2842,7 @@ fn is_extended_shape(face: &ttf_parser::Face<'_>, glyph_id: ttf_parser::GlyphId)
 }
 
 fn path_artifact_from_simple_row(
-    font: &OwnedMathFont,
+    font: &MathFont,
     layout: &SimpleRowLayout,
     fill: crate::style::Color,
 ) -> MathPathArtifact {
@@ -2930,13 +2919,13 @@ fn path_artifact_from_simple_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::owned::math::syntax::parse_owned_math;
+    use crate::engine::math::syntax::parse_math;
     use crate::types::MathOutputRequest;
 
     #[test]
     #[cfg(not(feature = "raster"))]
     fn atom_fragment_declines_raster_without_raster_feature() {
-        let math = parse_owned_math("1", 0).unwrap();
+        let math = parse_math("1", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: false,
@@ -2953,7 +2942,7 @@ mod tests {
 
     #[test]
     fn atom_fragment_can_emit_pdf_glyph_metadata() {
-        let math = parse_owned_math("1", 0).unwrap();
+        let math = parse_math("1", 0).unwrap();
         let mut options = MathFragmentOptions::default();
 
         options.outputs = MathOutputRequest {
@@ -2975,8 +2964,8 @@ mod tests {
 
     #[cfg(feature = "raster")]
     #[test]
-    fn atom_fragment_can_rasterize_from_owned_paths() {
-        let math = parse_owned_math("alpha + beta -> gamma", 0).unwrap();
+    fn atom_fragment_can_rasterize_from_typst_paths() {
+        let math = parse_math("alpha + beta -> gamma", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: false,
@@ -2987,7 +2976,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple row should rasterize through owned paths");
+                .expect("simple row should rasterize through Typst paths");
 
         assert!(artifact.paths.is_none());
         assert!(artifact
@@ -2998,7 +2987,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_script_glyph_metadata() {
-        let math = parse_owned_math("x^2", 0).unwrap();
+        let math = parse_math("x^2", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: false,
@@ -3009,7 +2998,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple superscript should be handled by owned row path");
+                .expect("simple superscript should be handled by Typst row path");
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 2);
         assert!(pdf.glyph_runs[1].font_size < pdf.glyph_runs[0].font_size);
@@ -3017,7 +3006,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_fraction_rule_paths() {
-        let math = parse_owned_math("a / (b + c)", 0).unwrap();
+        let math = parse_math("a / (b + c)", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -3028,7 +3017,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple fraction should be handled by owned row path");
+                .expect("simple fraction should be handled by Typst row path");
         let paths = artifact.paths.expect("fraction paths should exist");
         assert!(paths
             .items
@@ -3040,7 +3029,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_frac_call_rule_paths() {
-        let math = parse_owned_math("frac(x + y, z)", 0).unwrap();
+        let math = parse_math("frac(x + y, z)", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -3051,7 +3040,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple frac call should be handled by owned row path");
+                .expect("simple frac call should be handled by Typst row path");
         let paths = artifact.paths.expect("fraction paths should exist");
         assert!(paths
             .items
@@ -3063,7 +3052,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_binom_paths_without_fraction_rule() {
-        let math = parse_owned_math("binom(n, k)", 0).unwrap();
+        let math = parse_math("binom(n, k)", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -3074,7 +3063,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple binom call should be handled by owned row path");
+                .expect("simple binom call should be handled by Typst row path");
         let paths = artifact.paths.expect("binom paths should exist");
         assert_eq!(paths.items.len(), 4);
         assert!(paths
@@ -3093,7 +3082,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_cancel_overlay_path() {
-        let math = parse_owned_math("cancel(x)", 0).unwrap();
+        let math = parse_math("cancel(x)", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -3104,7 +3093,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple cancel call should be handled by owned row path");
+                .expect("simple cancel call should be handled by Typst row path");
         let paths = artifact.paths.expect("cancel paths should exist");
         assert_eq!(paths.items.len(), 2);
         assert!(matches!(
@@ -3119,7 +3108,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_sqrt_overbar_paths() {
-        let math = parse_owned_math("sqrt(x)", 0).unwrap();
+        let math = parse_math("sqrt(x)", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -3130,7 +3119,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple sqrt should be handled by owned row path");
+                .expect("simple sqrt should be handled by Typst row path");
         let paths = artifact.paths.expect("sqrt paths should exist");
         assert_eq!(paths.items.len(), 3);
         assert!(matches!(paths.items[1].kind, MathPathKind::MathShape));
@@ -3140,7 +3129,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_indexed_root_paths() {
-        let math = parse_owned_math("root(3, x)", 0).unwrap();
+        let math = parse_math("root(3, x)", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -3151,7 +3140,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple indexed root should be handled by owned row path");
+                .expect("simple indexed root should be handled by Typst row path");
         let paths = artifact.paths.expect("root paths should exist");
         assert_eq!(paths.items.len(), 4);
         assert!(matches!(paths.items[2].kind, MathPathKind::MathShape));
@@ -3162,7 +3151,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_visible_group_paths() {
-        let math = parse_owned_math("x(t)", 0).unwrap();
+        let math = parse_math("x(t)", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -3173,7 +3162,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple visible group should be handled by owned row path");
+                .expect("simple visible group should be handled by Typst row path");
         let paths = artifact.paths.expect("group paths should exist");
         assert_eq!(paths.items.len(), 4);
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
@@ -3189,7 +3178,7 @@ mod tests {
     #[cfg(feature = "raster")]
     #[test]
     fn simple_row_can_rasterize_visible_group() {
-        let math = parse_owned_math("x(t)", 0).unwrap();
+        let math = parse_math("x(t)", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: false,
@@ -3200,7 +3189,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple visible group should rasterize through owned paths");
+                .expect("simple visible group should rasterize through Typst paths");
         assert!(artifact
             .raster
             .as_ref()
@@ -3209,7 +3198,7 @@ mod tests {
 
     #[test]
     fn simple_row_extends_identifier_subscript_with_adjacent_group() {
-        let math = parse_owned_math("J_n(x)", 0).unwrap();
+        let math = parse_math("J_n(x)", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -3220,7 +3209,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("identifier subscript group should be handled by owned row path");
+                .expect("identifier subscript group should be handled by Typst row path");
         let paths = artifact.paths.expect("group paths should exist");
         assert_eq!(paths.items.len(), 5);
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
@@ -3246,7 +3235,7 @@ mod tests {
             ("ceil(x)", "⌈𝑥⌉"),
             ("round(x)", "⌊𝑥⌉"),
         ] {
-            let math = parse_owned_math(source, 0).unwrap();
+            let math = parse_math(source, 0).unwrap();
             let artifact =
                 try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                     .unwrap()
@@ -3266,7 +3255,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_lr_delimited_call() {
-        let math = parse_owned_math("lr(|x + y|)", 0).unwrap();
+        let math = parse_math("lr(|x + y|)", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -3277,7 +3266,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple lr call should be handled by owned row path");
+                .expect("simple lr call should be handled by Typst row path");
         let paths = artifact.paths.expect("lr paths should exist");
         assert_eq!(paths.items.len(), 5);
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
@@ -3304,7 +3293,7 @@ mod tests {
             ("cos(theta)", "cos(𝜃)"),
             ("op(\"custom\")", "custom"),
         ] {
-            let math = parse_owned_math(source, 0).unwrap();
+            let math = parse_math(source, 0).unwrap();
             let artifact =
                 try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                     .unwrap()
@@ -3322,7 +3311,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_operator_identifier_with_script() {
-        let math = parse_owned_math("lim_(x -> oo) f(x)", 0).unwrap();
+        let math = parse_math("lim_(x -> oo) f(x)", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: true,
@@ -3333,7 +3322,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("operator identifier with script should be handled by owned row path");
+                .expect("operator identifier with script should be handled by Typst row path");
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         let text: String = pdf
             .glyph_runs
@@ -3365,7 +3354,7 @@ mod tests {
             ("upright(R)", "R"),
             ("italic(R)", "𝑅"),
         ] {
-            let math = parse_owned_math(source, 0).unwrap();
+            let math = parse_math(source, 0).unwrap();
             let artifact =
                 try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                     .unwrap()
@@ -3398,7 +3387,7 @@ mod tests {
             ("bar(x)", "𝑥\u{0304}"),
             ("arrow(v)", "𝑣\u{20d7}"),
         ] {
-            let math = parse_owned_math(source, 0).unwrap();
+            let math = parse_math(source, 0).unwrap();
             let artifact =
                 try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                     .unwrap()
@@ -3418,7 +3407,7 @@ mod tests {
 
     #[test]
     fn simple_row_omits_script_group_delimiters() {
-        let math = parse_owned_math("sum_(i=0)^n i", 0).unwrap();
+        let math = parse_math("sum_(i=0)^n i", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
             paths: false,
@@ -3429,7 +3418,7 @@ mod tests {
         let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .expect("simple grouped script should be handled by owned row path");
+                .expect("simple grouped script should be handled by Typst row path");
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         let text: String = pdf
             .glyph_runs
@@ -3442,8 +3431,8 @@ mod tests {
 
     #[test]
     fn atom_fragment_styles_latin_and_greek_as_math_italic() {
-        let x = parse_owned_math("x", 0).unwrap();
-        let alpha = parse_owned_math("alpha", 0).unwrap();
+        let x = parse_math("x", 0).unwrap();
+        let alpha = parse_math("alpha", 0).unwrap();
 
         assert_eq!(single_atom_text(&x).as_deref(), Some("𝑥"));
         assert_eq!(single_atom_text(&alpha).as_deref(), Some("𝛼"));
@@ -3451,9 +3440,9 @@ mod tests {
 
     #[test]
     fn atom_fragment_keeps_numbers_and_operators_plain() {
-        let number = parse_owned_math("0.94", 0).unwrap();
-        let plus = parse_owned_math("+", 0).unwrap();
-        let arrow = parse_owned_math("->", 0).unwrap();
+        let number = parse_math("0.94", 0).unwrap();
+        let plus = parse_math("+", 0).unwrap();
+        let arrow = parse_math("->", 0).unwrap();
 
         assert_eq!(single_atom_text(&number).as_deref(), Some("0.94"));
         assert_eq!(single_atom_text(&plus).as_deref(), Some("+"));

@@ -15,17 +15,17 @@ use crate::types::{
 };
 use crate::warnings::MathTypesetWarning;
 
-use super::ast::{OwnedLine, OwnedLineNode, OwnedMathSpan, OwnedPlainText, OwnedTextSpanKind};
+use super::ast::{LineNode, MathSpan, ParsedLine, PlainTextNode, TextMarkupKind};
 use super::font::{
-    shape_plain_text_with_fallback, shape_plain_text_with_non_emoji_fallback, OwnedSegmentedText,
-    OwnedShapedText, OwnedTextFace, OwnedTextScript,
+    shape_plain_text_with_fallback, shape_plain_text_with_non_emoji_fallback, SegmentedText,
+    ShapedText, TextFace, TextScript,
 };
 use super::math::metrics::try_typeset_simple_row_fragment;
-use super::math::syntax::parse_owned_math;
+use super::math::syntax::parse_math;
 
-pub(crate) fn try_typeset_owned_text_line(
+pub(crate) fn try_typeset_text_line(
     source: &str,
-    line: &OwnedLine,
+    line: &ParsedLine,
     options: &TextLineOptions,
     config: &TypstEngineConfig,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
@@ -37,8 +37,8 @@ pub(crate) fn try_typeset_owned_text_line(
         matches!(node, RenderNode::Math(_))
             || matches!(
                 node,
-                RenderNode::DecoratedText(OwnedDecoratedText {
-                    kind: OwnedTextSpanKind::Subscript | OwnedTextSpanKind::Superscript,
+                RenderNode::DecoratedText(DecoratedText {
+                    kind: TextMarkupKind::Subscript | TextMarkupKind::Superscript,
                     ..
                 })
             )
@@ -58,19 +58,19 @@ struct RenderLine {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RenderNode {
-    Plain(OwnedPlainText),
-    DecoratedText(OwnedDecoratedText),
-    Math(OwnedMathSpan),
+    Plain(PlainTextNode),
+    DecoratedText(DecoratedText),
+    Math(MathSpan),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct OwnedDecoratedText {
-    kind: OwnedTextSpanKind,
+struct DecoratedText {
+    kind: TextMarkupKind,
     text: String,
     byte_range: std::ops::Range<usize>,
 }
 
-fn line_with_rendered_static_markup(line: &OwnedLine) -> Option<RenderLine> {
+fn line_with_rendered_static_markup(line: &ParsedLine) -> Option<RenderLine> {
     let mut nodes: Vec<RenderNode> = Vec::new();
     let mut pending_plain = String::new();
     let mut pending_start = None;
@@ -82,7 +82,7 @@ fn line_with_rendered_static_markup(line: &OwnedLine) -> Option<RenderLine> {
                        pending_end: usize| {
         if let Some(start) = pending_start.take() {
             if !pending_plain.is_empty() {
-                nodes.push(RenderNode::Plain(OwnedPlainText {
+                nodes.push(RenderNode::Plain(PlainTextNode {
                     text: std::mem::take(pending_plain),
                     byte_range: start..pending_end,
                 }));
@@ -92,21 +92,21 @@ fn line_with_rendered_static_markup(line: &OwnedLine) -> Option<RenderLine> {
 
     for node in &line.nodes {
         match node {
-            OwnedLineNode::Plain(plain) => {
+            LineNode::Plain(plain) => {
                 if pending_start.is_none() {
                     pending_start = Some(plain.byte_range.start);
                 }
                 pending_end = plain.byte_range.end;
                 pending_plain.push_str(&plain.text);
             }
-            OwnedLineNode::Emoji(alias) => {
+            LineNode::Emoji(alias) => {
                 if pending_start.is_none() {
                     pending_start = Some(alias.byte_range.start);
                 }
                 pending_end = alias.byte_range.end;
                 pending_plain.push_str(alias.emoji);
             }
-            OwnedLineNode::Math(math) => {
+            LineNode::Math(math) => {
                 flush_plain(
                     &mut nodes,
                     &mut pending_plain,
@@ -115,7 +115,7 @@ fn line_with_rendered_static_markup(line: &OwnedLine) -> Option<RenderLine> {
                 );
                 nodes.push(RenderNode::Math(math.clone()));
             }
-            OwnedLineNode::TextSpan(span) => {
+            LineNode::TextSpan(span) => {
                 let kind = supported_decoration_kind(span.kind)?;
                 let text = render_plain_static_body(&span.body)?;
                 flush_plain(
@@ -125,7 +125,7 @@ fn line_with_rendered_static_markup(line: &OwnedLine) -> Option<RenderLine> {
                     pending_end,
                 );
                 if !text.is_empty() {
-                    nodes.push(RenderNode::DecoratedText(OwnedDecoratedText {
+                    nodes.push(RenderNode::DecoratedText(DecoratedText {
                         kind,
                         text,
                         byte_range: span.body_range.clone(),
@@ -148,24 +148,24 @@ fn line_with_rendered_static_markup(line: &OwnedLine) -> Option<RenderLine> {
     })
 }
 
-fn supported_decoration_kind(kind: OwnedTextSpanKind) -> Option<OwnedTextSpanKind> {
+fn supported_decoration_kind(kind: TextMarkupKind) -> Option<TextMarkupKind> {
     match kind {
-        OwnedTextSpanKind::Underline
-        | OwnedTextSpanKind::Strike
-        | OwnedTextSpanKind::Overline
-        | OwnedTextSpanKind::Subscript
-        | OwnedTextSpanKind::Superscript
-        | OwnedTextSpanKind::Highlight => Some(kind),
+        TextMarkupKind::Underline
+        | TextMarkupKind::Strike
+        | TextMarkupKind::Overline
+        | TextMarkupKind::Subscript
+        | TextMarkupKind::Superscript
+        | TextMarkupKind::Highlight => Some(kind),
     }
 }
 
-fn render_plain_static_body(nodes: &[OwnedLineNode]) -> Option<String> {
+fn render_plain_static_body(nodes: &[LineNode]) -> Option<String> {
     let mut text = String::new();
     for node in nodes {
         match node {
-            OwnedLineNode::Plain(plain) => text.push_str(&plain.text),
-            OwnedLineNode::Emoji(alias) => text.push_str(alias.emoji),
-            OwnedLineNode::Math(_) | OwnedLineNode::TextSpan(_) => return None,
+            LineNode::Plain(plain) => text.push_str(&plain.text),
+            LineNode::Emoji(alias) => text.push_str(alias.emoji),
+            LineNode::Math(_) | LineNode::TextSpan(_) => return None,
         }
     }
     Some(text)
@@ -176,8 +176,8 @@ fn shape_plain_text_for_style(
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
-) -> Result<Option<OwnedSegmentedText>, MathTypesetError> {
-    if OwnedTextFace::plain_style_uses_embedded_atkinson(style) {
+) -> Result<Option<SegmentedText>, MathTypesetError> {
+    if TextFace::plain_style_uses_embedded_atkinson(style) {
         shape_plain_text_with_non_emoji_fallback(style, text, font_size, features)
     } else {
         shape_plain_text_with_fallback(style, text, font_size, features)
@@ -213,13 +213,13 @@ fn try_typeset_plain_text_line(
         }
         RenderNode::DecoratedText(decorated) => {
             let Some(face) =
-                OwnedTextFace::for_plain_style_and_text(&options.text_style, &decorated.text)?
+                TextFace::for_plain_style_and_text(&options.text_style, &decorated.text)?
             else {
                 return Ok(None);
             };
             typeset_plain_text_line(
                 source,
-                &OwnedPlainText {
+                &PlainTextNode {
                     text: decorated.text.clone(),
                     byte_range: decorated.byte_range.clone(),
                 },
@@ -323,7 +323,7 @@ fn try_typeset_mixed_metrics_text_line(
                 }
                 let script = text_script_for_kind(decorated.kind);
                 let Some(text_face) =
-                    OwnedTextFace::for_plain_style_and_text(&options.text_style, &decorated.text)?
+                    TextFace::for_plain_style_and_text(&options.text_style, &decorated.text)?
                 else {
                     return Ok(None);
                 };
@@ -395,7 +395,7 @@ fn try_typeset_mixed_metrics_text_line(
                 });
             }
             RenderNode::Math(span) => {
-                let math = parse_owned_math(&span.source, span.source_range.start)?;
+                let math = parse_math(&span.source, span.source_range.start)?;
                 let Some(artifact) = try_typeset_simple_row_fragment(&math, &math_options, config)?
                 else {
                     return Ok(None);
@@ -523,21 +523,21 @@ struct MixedRunPart {
     font_resources: Vec<MathFontResource>,
 }
 
-fn text_script_for_kind(kind: OwnedTextSpanKind) -> Option<OwnedTextScript> {
+fn text_script_for_kind(kind: TextMarkupKind) -> Option<TextScript> {
     match kind {
-        OwnedTextSpanKind::Subscript => Some(OwnedTextScript::Subscript),
-        OwnedTextSpanKind::Superscript => Some(OwnedTextScript::Superscript),
-        OwnedTextSpanKind::Underline
-        | OwnedTextSpanKind::Strike
-        | OwnedTextSpanKind::Overline
-        | OwnedTextSpanKind::Highlight => None,
+        TextMarkupKind::Subscript => Some(TextScript::Subscript),
+        TextMarkupKind::Superscript => Some(TextScript::Superscript),
+        TextMarkupKind::Underline
+        | TextMarkupKind::Strike
+        | TextMarkupKind::Overline
+        | TextMarkupKind::Highlight => None,
     }
 }
 
 fn text_style_for_decorated_run(
-    face: &OwnedTextFace,
+    face: &TextFace,
     style: &PlainTextStyle,
-    kind: OwnedTextSpanKind,
+    kind: TextMarkupKind,
 ) -> PlainTextStyle {
     text_script_for_kind(kind)
         .map(|script| face.script_style(style, script))
@@ -545,17 +545,17 @@ fn text_style_for_decorated_run(
 }
 
 fn shape_text_for_static_run(
-    face: &OwnedTextFace,
+    face: &TextFace,
     text: &str,
     font_size: f32,
-    script: Option<OwnedTextScript>,
-) -> OwnedShapedText {
+    script: Option<TextScript>,
+) -> ShapedText {
     let Some(script) = script else {
         return face.shaped_text(text, font_size);
     };
     let tag = match script {
-        OwnedTextScript::Subscript => b"subs",
-        OwnedTextScript::Superscript => b"sups",
+        TextScript::Subscript => b"subs",
+        TextScript::Superscript => b"sups",
     };
     let features = [rustybuzz::Feature::new(
         rustybuzz::ttf_parser::Tag::from_bytes(tag),
@@ -572,7 +572,7 @@ fn shape_text_for_static_run(
     }
 }
 
-fn shaped_feature_changed_glyphs(a: &OwnedShapedText, b: &OwnedShapedText) -> bool {
+fn shaped_feature_changed_glyphs(a: &ShapedText, b: &ShapedText) -> bool {
     a.glyphs.len() == b.glyphs.len()
         && a.glyphs
             .iter()
@@ -580,7 +580,7 @@ fn shaped_feature_changed_glyphs(a: &OwnedShapedText, b: &OwnedShapedText) -> bo
             .any(|(a, b)| a.glyph_id != b.glyph_id)
 }
 
-fn shifted_text_metrics(shaped: &OwnedShapedText, baseline_shift: f32) -> TypesetMetrics {
+fn shifted_text_metrics(shaped: &ShapedText, baseline_shift: f32) -> TypesetMetrics {
     let ascent = (shaped.metrics.ascent - baseline_shift).max(0.0);
     let descent = (shaped.metrics.descent + baseline_shift).max(0.0);
     TypesetMetrics {
@@ -592,10 +592,7 @@ fn shifted_text_metrics(shaped: &OwnedShapedText, baseline_shift: f32) -> Typese
     }
 }
 
-fn metrics_from_segmented_text(
-    segmented: &OwnedSegmentedText,
-    baseline_shift: f32,
-) -> TypesetMetrics {
+fn metrics_from_segmented_text(segmented: &SegmentedText, baseline_shift: f32) -> TypesetMetrics {
     let ascent = (segmented.metrics.ascent - baseline_shift).max(0.0);
     let descent = (segmented.metrics.descent + baseline_shift).max(0.0);
     TypesetMetrics {
@@ -608,18 +605,18 @@ fn metrics_from_segmented_text(
 }
 
 fn plain_path_artifact_from_shaped(
-    face: &OwnedTextFace,
-    shaped: &OwnedShapedText,
+    face: &TextFace,
+    shaped: &ShapedText,
     metrics: TypesetMetrics,
     glyph_baseline_y: f32,
     font_size: f32,
     fill: Color,
-    decoration: Option<OwnedTextSpanKind>,
+    decoration: Option<TextMarkupKind>,
 ) -> MathPathArtifact {
     let mut items = Vec::new();
-    if matches!(decoration, Some(OwnedTextSpanKind::Highlight)) {
+    if matches!(decoration, Some(TextMarkupKind::Highlight)) {
         if let Some(highlight) =
-            decoration_path_item(OwnedTextSpanKind::Highlight, metrics, font_size, fill)
+            decoration_path_item(TextMarkupKind::Highlight, metrics, font_size, fill)
         {
             items.push(highlight);
         }
@@ -652,9 +649,7 @@ fn plain_path_artifact_from_shaped(
     );
 
     if let Some(
-        kind @ (OwnedTextSpanKind::Underline
-        | OwnedTextSpanKind::Strike
-        | OwnedTextSpanKind::Overline),
+        kind @ (TextMarkupKind::Underline | TextMarkupKind::Strike | TextMarkupKind::Overline),
     ) = decoration
     {
         if let Some(item) = decoration_path_item(kind, metrics, font_size, fill) {
@@ -670,17 +665,17 @@ fn plain_path_artifact_from_shaped(
 }
 
 fn plain_path_artifact_from_segmented(
-    segmented: &OwnedSegmentedText,
+    segmented: &SegmentedText,
     metrics: TypesetMetrics,
     glyph_baseline_y: f32,
     font_size: f32,
     fill: Color,
-    decoration: Option<OwnedTextSpanKind>,
+    decoration: Option<TextMarkupKind>,
 ) -> MathPathArtifact {
     let mut items = Vec::new();
-    if matches!(decoration, Some(OwnedTextSpanKind::Highlight)) {
+    if matches!(decoration, Some(TextMarkupKind::Highlight)) {
         if let Some(highlight) =
-            decoration_path_item(OwnedTextSpanKind::Highlight, metrics, font_size, fill)
+            decoration_path_item(TextMarkupKind::Highlight, metrics, font_size, fill)
         {
             items.push(highlight);
         }
@@ -715,9 +710,7 @@ fn plain_path_artifact_from_segmented(
     }
 
     if let Some(
-        kind @ (OwnedTextSpanKind::Underline
-        | OwnedTextSpanKind::Strike
-        | OwnedTextSpanKind::Overline),
+        kind @ (TextMarkupKind::Underline | TextMarkupKind::Strike | TextMarkupKind::Overline),
     ) = decoration
     {
         if let Some(item) = decoration_path_item(kind, metrics, font_size, fill) {
@@ -733,7 +726,7 @@ fn plain_path_artifact_from_segmented(
 }
 
 fn decoration_path_artifact(
-    kind: OwnedTextSpanKind,
+    kind: TextMarkupKind,
     metrics: TypesetMetrics,
     font_size: f32,
     fill: Color,
@@ -746,14 +739,14 @@ fn decoration_path_artifact(
 }
 
 fn decoration_path_item(
-    kind: OwnedTextSpanKind,
+    kind: TextMarkupKind,
     metrics: TypesetMetrics,
     font_size: f32,
     fill: Color,
 ) -> Option<MathPathItem> {
     let thickness = (font_size * 0.06).max(0.5);
     let item = match kind {
-        OwnedTextSpanKind::Highlight => MathPathItem {
+        TextMarkupKind::Highlight => MathPathItem {
             path: MathPathData::rect(metrics.width, metrics.height),
             kind: MathPathKind::MathShape,
             fill: Some(crate::style::Color::rgba(1.0, 0.9, 0.25, 0.35)),
@@ -761,22 +754,20 @@ fn decoration_path_item(
             transform: MathTransform::IDENTITY,
             clip: None,
         },
-        OwnedTextSpanKind::Underline => line_decoration_item(
+        TextMarkupKind::Underline => line_decoration_item(
             metrics.width,
             (metrics.baseline + thickness).min(metrics.height),
             thickness,
             fill,
         ),
-        OwnedTextSpanKind::Strike => line_decoration_item(
+        TextMarkupKind::Strike => line_decoration_item(
             metrics.width,
             (metrics.baseline - font_size * 0.32).max(0.0),
             thickness,
             fill,
         ),
-        OwnedTextSpanKind::Overline => {
-            line_decoration_item(metrics.width, thickness, thickness, fill)
-        }
-        OwnedTextSpanKind::Subscript | OwnedTextSpanKind::Superscript => return None,
+        TextMarkupKind::Overline => line_decoration_item(metrics.width, thickness, thickness, fill),
+        TextMarkupKind::Subscript | TextMarkupKind::Superscript => return None,
     };
     Some(item)
 }
@@ -802,7 +793,7 @@ fn line_decoration_item(width: f32, y: f32, thickness: f32, fill: Color) -> Math
 
 fn plain_pdf_text_from_shaped(
     semantic_text: &str,
-    shaped: &OwnedShapedText,
+    shaped: &ShapedText,
     metrics: TypesetMetrics,
     glyph_baseline_y: f32,
     font_size: f32,
@@ -844,7 +835,7 @@ fn plain_pdf_text_from_shaped(
 
 fn plain_pdf_text_from_segmented(
     semantic_text: &str,
-    segmented: &OwnedSegmentedText,
+    segmented: &SegmentedText,
     metrics: TypesetMetrics,
     glyph_baseline_y: f32,
     font_size: f32,
@@ -1040,10 +1031,10 @@ fn intern_font_resource(
 
 fn typeset_plain_text_line(
     source: &str,
-    plain: &OwnedPlainText,
-    decoration: Option<OwnedTextSpanKind>,
+    plain: &PlainTextNode,
+    decoration: Option<TextMarkupKind>,
     options: &TextLineOptions,
-    face: OwnedTextFace,
+    face: TextFace,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
     let font_size = options.text_style.font_size.max(1.0);
     let shaped = face.shaped_text(&plain.text, font_size);
@@ -1128,10 +1119,10 @@ fn typeset_plain_text_line(
 
 fn typeset_segmented_plain_text_line(
     source: &str,
-    plain: &OwnedPlainText,
-    decoration: Option<OwnedTextSpanKind>,
+    plain: &PlainTextNode,
+    decoration: Option<TextMarkupKind>,
     options: &TextLineOptions,
-    segmented: OwnedSegmentedText,
+    segmented: SegmentedText,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
     let font_size = options.text_style.font_size.max(1.0);
     let metrics = metrics_from_segmented_text(&segmented, 0.0);
@@ -1206,11 +1197,11 @@ fn typeset_segmented_plain_text_line(
 mod tests {
     use super::*;
     use crate::delimiter::MathDelimiterOptions;
-    use crate::owned::syntax::parse_owned_line;
+    use crate::engine::syntax::parse_line;
     use crate::types::TextLineOutputRequest;
 
     fn render_line(source: &str) -> RenderLine {
-        let line = parse_owned_line(source, &MathDelimiterOptions::default()).unwrap();
+        let line = parse_line(source, &MathDelimiterOptions::default()).unwrap();
         line_with_rendered_static_markup(&line).expect("test line should be renderable")
     }
 
@@ -1292,7 +1283,7 @@ mod tests {
 
         let artifact = try_typeset_plain_text_line("Revenue 🚀", &line, &options)
             .unwrap()
-            .expect("non-RTL missing glyphs should stay on the owned path");
+            .expect("non-RTL missing glyphs should stay on the Typst path");
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());

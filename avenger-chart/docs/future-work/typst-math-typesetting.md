@@ -4,10 +4,10 @@ Date: 2026-06-24
 Last updated: 2026-06-26
 
 Status: partially implemented in the active text-engine branch; vendor-route
-research superseded by the owned `avenger-typst` text engine.
+research superseded by the `avenger-typst` text engine.
 
 Current direction: `avenger-typst` owns the strict Typst-style text/math subset
-directly. `avenger-text` should always use that owned engine for regular text
+directly. `avenger-text` should always use that engine for regular text
 and `$...$` math fragments; the old cosmic-text and HTML canvas text backends
 are no longer the target architecture. The active path should not depend on
 `vendor-typst`, `typst-library`, `typst-layout`, or `typst-syntax`. Sections
@@ -22,7 +22,7 @@ studied was `../typst` at commit
 
 ## Goal
 
-Use the owned Typst-style text engine for Avenger labels, titles, axis labels,
+Use the Avenger Typst-style text engine for Avenger labels, titles, axis labels,
 legend labels, and similar text-bearing chart surfaces, including Typst-style
 math fragments.
 
@@ -33,7 +33,7 @@ $x^2 + y^2$
 ```
 
 Text outside math spans should be shaped, measured, rasterized, and exported by
-the same owned `avenger-typst` line engine as text inside math spans. This keeps
+the same `avenger-typst` line engine as text inside math spans. This keeps
 mixed strings such as `Price $7, score $R^2$ = 0.94` positioned by one line
 layout pass instead of by summing independently measured fragments.
 
@@ -54,7 +54,7 @@ fragments.
 
 The current long-term plan is:
 
-1. Keep `avenger-typst` as the low-level owned Typst-style text/math crate.
+1. Keep `avenger-typst` as the low-level Avenger Typst-style text/math crate.
 2. Make `avenger-text::TextEngine` the single concrete text engine.
 3. Always parse supported static text markup and `$...$` math spans.
 4. Return measured artifacts with width, height, baseline, ascent, descent,
@@ -64,10 +64,10 @@ The current long-term plan is:
 6. Use hybrid SVG/PDF export: native SVG `<text>` for regular runs and paths
    for math/decorations, then let `svg2pdf` embed the native text.
 
-The main reason to prefer the owned subset over a full Typst dependency is size,
+The main reason to prefer the Avenger subset over a full Typst dependency is size,
 control, and predictable syntax errors for unsupported document/evaluator
 features. Earlier vendored/full-Typst size measurements in this document are
-historical and should be regenerated with the owned engine before making release
+historical and should be regenerated with the current engine before making release
 decisions.
 
 ## Typst Math Syntax
@@ -548,7 +548,7 @@ evaluation, except for escaped characters that should render literally.
 
 Historical note: the implementation no longer follows the vendor route. The
 old plan was to copy and patch a small Typst subset, then periodically sync it
-from upstream. That path was replaced by the owned `avenger-typst` parser, text
+from upstream. That path was replaced by the `avenger-typst` parser, text
 layout, math layout, artifact lowering, and strict unsupported-syntax errors.
 
 ## Frame-To-Artifact Lowering
@@ -598,16 +598,16 @@ vendored Typst crates:
 | Backend | Binary bytes | PNG bytes | Notes |
 | --- | ---: | ---: | --- |
 | `cosmic` | 8,998,848 | 56,378 | Existing WGPU text path. |
-| `typst` | 8,332,624 | 42,692 | Owned Typst-style text/math path, no `cosmic-text`. |
+| `typst` | 8,332,624 | 42,692 | Avenger Typst-style text/math path, no `cosmic-text`. |
 
-In this low-level probe the owned Typst path is about 665 KB smaller than the
+In this low-level probe the Avenger Typst path is about 665 KB smaller than the
 cosmic path while also supporting math syntax. Re-run the probe before making
 release decisions because the exact number depends on platform, feature set,
 and link profile.
 
 This supports the current decision:
 
-- Make the owned Typst-style path the default Avenger text engine.
+- Make the Avenger Typst-style path the default Avenger text engine.
 - Remove cosmic-text and HTML canvas text backends from the core path.
 - Do not add `typst-render` or `typst-pdf` for first-stage math rendering.
 - Keep shared dependencies such as `rustybuzz`, `ttf-parser`, and `fontdb`
@@ -664,12 +664,12 @@ Possible upstream contributions:
 
 ## Implementation Phases
 
-Phase 1: owned text engine as default.
+Phase 1: text engine as default.
 
 - Own the Typst-style text/math parser and strict subset validation in
   `avenger-typst`.
 - Route `avenger-text::TextEngine` measurement, rasterization, and path
-  extraction through the owned engine.
+  extraction through the default engine.
 - Remove cosmic-text, HTML canvas text measurement, and text-backend feature
   gates from the core path.
 - Use whole-line raster atlas entries for WGPU.
@@ -681,7 +681,7 @@ Phase 2: hybrid SVG/PDF output.
 - Let current `svg2pdf` convert that hybrid SVG to PDF. This keeps regular text
   embedded by `svg2pdf` and keeps math z-order correct because math paths are
   emitted at the text mark's display-list position.
-- Keep PDF glyph metadata in the owned text artifacts for future direct math
+- Keep PDF glyph metadata in the text artifacts for future direct math
   font embedding.
 
 Phase 3: validation and size work.

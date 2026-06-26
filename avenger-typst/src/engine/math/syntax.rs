@@ -1,19 +1,18 @@
 use crate::error::MathTypesetError;
 
 use super::ast::{
-    OwnedMath, OwnedMathArg, OwnedMathAttach, OwnedMathCall, OwnedMathFraction, OwnedMathGroup,
-    OwnedMathIdentifier, OwnedMathNode, OwnedMathOperator, OwnedMathShorthand, OwnedMathSpace,
-    OwnedMathStringLiteral, OwnedMathText, OwnedMathTextKind,
+    MathArg, MathAst, MathAttach, MathCall, MathFraction, MathGroup, MathIdentifier, MathNode,
+    MathOperator, MathShorthand, MathSpace, MathStringLiteral, MathText, MathTextKind,
 };
 
-pub(crate) fn parse_owned_math(source: &str, offset: usize) -> Result<OwnedMath, MathTypesetError> {
+pub(crate) fn parse_math(source: &str, offset: usize) -> Result<MathAst, MathTypesetError> {
     let mut parser = Parser {
         source,
         offset,
         pos: 0,
     };
     let nodes = parser.parse_sequence(&[])?;
-    Ok(OwnedMath {
+    Ok(MathAst {
         source: source.to_string(),
         nodes,
     })
@@ -26,7 +25,7 @@ struct Parser<'a> {
 }
 
 impl Parser<'_> {
-    fn parse_sequence(&mut self, stop: &[char]) -> Result<Vec<OwnedMathNode>, MathTypesetError> {
+    fn parse_sequence(&mut self, stop: &[char]) -> Result<Vec<MathNode>, MathTypesetError> {
         let mut nodes = Vec::new();
 
         while let Some((idx, ch)) = self.peek_char() {
@@ -40,7 +39,7 @@ impl Parser<'_> {
             if ch == '\n' || ch == '\r' {
                 return Err(self.unsupported(
                     idx,
-                    "multi-line math is not supported in owned Typst subset",
+                    "multi-line math is not supported in Avenger Typst subset",
                 ));
             }
 
@@ -64,7 +63,7 @@ impl Parser<'_> {
                     other => other,
                 })?;
                 let byte_range = numerator.byte_range().start..denominator.byte_range().end;
-                nodes.push(OwnedMathNode::Fraction(OwnedMathFraction {
+                nodes.push(MathNode::Fraction(MathFraction {
                     numerator: Box::new(numerator),
                     denominator: Box::new(denominator),
                     slash_range,
@@ -79,7 +78,7 @@ impl Parser<'_> {
         Ok(nodes)
     }
 
-    fn parse_postfix_atom(&mut self) -> Result<OwnedMathNode, MathTypesetError> {
+    fn parse_postfix_atom(&mut self) -> Result<MathNode, MathTypesetError> {
         let base = self.parse_atom()?;
         let mut top = None;
         let mut bottom = None;
@@ -113,7 +112,7 @@ impl Parser<'_> {
         if top.is_none() && bottom.is_none() && primes == 0 {
             Ok(base)
         } else {
-            Ok(OwnedMathNode::Attach(OwnedMathAttach {
+            Ok(MathNode::Attach(MathAttach {
                 base: Box::new(base),
                 top,
                 bottom,
@@ -123,7 +122,7 @@ impl Parser<'_> {
         }
     }
 
-    fn parse_script_arg(&mut self) -> Result<OwnedMathNode, MathTypesetError> {
+    fn parse_script_arg(&mut self) -> Result<MathNode, MathTypesetError> {
         self.consume_spaces();
         if self.peek_char().is_none() {
             return Err(self.unsupported(self.pos, "math script expects an expression"));
@@ -131,7 +130,7 @@ impl Parser<'_> {
         self.parse_atom()
     }
 
-    fn parse_atom(&mut self) -> Result<OwnedMathNode, MathTypesetError> {
+    fn parse_atom(&mut self) -> Result<MathNode, MathTypesetError> {
         let Some((idx, ch)) = self.peek_char() else {
             return Err(self.unsupported(self.pos, "expected math expression"));
         };
@@ -153,7 +152,7 @@ impl Parser<'_> {
         if let Some((source, replacement)) = self.peek_shorthand() {
             let start = idx;
             self.pos += source.len();
-            return Ok(OwnedMathNode::Shorthand(OwnedMathShorthand {
+            return Ok(MathNode::Shorthand(MathShorthand {
                 source: source.to_string(),
                 replacement,
                 byte_range: self.absolute(start)..self.absolute(self.pos),
@@ -176,34 +175,34 @@ impl Parser<'_> {
         if ch == '&' {
             return Err(self.unsupported(
                 idx,
-                "math alignment markers are not supported in owned Typst subset",
+                "math alignment markers are not supported in Avenger Typst subset",
             ));
         }
 
         if ch == ';' {
             return Err(self.unsupported(
                 idx,
-                "semicolon math arguments are not supported in owned Typst subset",
+                "semicolon math arguments are not supported in Avenger Typst subset",
             ));
         }
 
         if is_operator_char(ch) {
             self.consume_char();
-            return Ok(OwnedMathNode::Operator(OwnedMathOperator {
+            return Ok(MathNode::Operator(MathOperator {
                 operator: ch.to_string(),
                 byte_range: self.absolute(idx)..self.absolute(idx + ch.len_utf8()),
             }));
         }
 
         self.consume_char();
-        Ok(OwnedMathNode::Text(OwnedMathText {
+        Ok(MathNode::Text(MathText {
             text: ch.to_string(),
-            kind: OwnedMathTextKind::Grapheme,
+            kind: MathTextKind::Grapheme,
             byte_range: self.absolute(idx)..self.absolute(idx + ch.len_utf8()),
         }))
     }
 
-    fn parse_group(&mut self, left: char, right: char) -> Result<OwnedMathNode, MathTypesetError> {
+    fn parse_group(&mut self, left: char, right: char) -> Result<MathNode, MathTypesetError> {
         let start = self.pos;
         self.consume_char();
         let body = self.parse_sequence(&[right])?;
@@ -214,7 +213,7 @@ impl Parser<'_> {
             return Err(self.unsupported(close_idx, "mismatched math delimiter"));
         }
         self.consume_char();
-        Ok(OwnedMathNode::Group(OwnedMathGroup {
+        Ok(MathNode::Group(MathGroup {
             left,
             right,
             body,
@@ -222,7 +221,7 @@ impl Parser<'_> {
         }))
     }
 
-    fn parse_string_literal(&mut self) -> Result<OwnedMathNode, MathTypesetError> {
+    fn parse_string_literal(&mut self) -> Result<MathNode, MathTypesetError> {
         let start = self.pos;
         self.consume_char();
         let mut text = String::new();
@@ -231,7 +230,7 @@ impl Parser<'_> {
             self.consume_char();
             match ch {
                 '"' => {
-                    return Ok(OwnedMathNode::StringLiteral(OwnedMathStringLiteral {
+                    return Ok(MathNode::StringLiteral(MathStringLiteral {
                         text,
                         byte_range: self.absolute(start)..self.absolute(self.pos),
                     }));
@@ -250,7 +249,7 @@ impl Parser<'_> {
         Err(self.unsupported(start, "unterminated math string literal"))
     }
 
-    fn parse_number(&mut self) -> OwnedMathNode {
+    fn parse_number(&mut self) -> MathNode {
         let start = self.pos;
         let mut seen_dot = false;
 
@@ -265,14 +264,14 @@ impl Parser<'_> {
             }
         }
 
-        OwnedMathNode::Text(OwnedMathText {
+        MathNode::Text(MathText {
             text: self.source[start..self.pos].to_string(),
-            kind: OwnedMathTextKind::Number,
+            kind: MathTextKind::Number,
             byte_range: self.absolute(start)..self.absolute(self.pos),
         })
     }
 
-    fn parse_identifier_or_call(&mut self) -> Result<OwnedMathNode, MathTypesetError> {
+    fn parse_identifier_or_call(&mut self) -> Result<MathNode, MathTypesetError> {
         let start = self.pos;
         self.consume_char();
 
@@ -289,7 +288,7 @@ impl Parser<'_> {
         if matches!(self.peek_char(), Some((_, '('))) && is_unsupported_math_table_call_name(name) {
             return Err(self.unsupported(
                 start,
-                "matrix/table math is not supported in owned Typst subset",
+                "matrix/table math is not supported in Avenger Typst subset",
             ));
         }
 
@@ -297,7 +296,7 @@ impl Parser<'_> {
             return self.parse_call(start, name.to_string());
         }
 
-        Ok(OwnedMathNode::Identifier(OwnedMathIdentifier {
+        Ok(MathNode::Identifier(MathIdentifier {
             name: name.to_string(),
             symbol: named_math_symbol(name),
             byte_range: self.absolute(start)..self.absolute(self.pos),
@@ -327,7 +326,7 @@ impl Parser<'_> {
         &mut self,
         name_start: usize,
         name: String,
-    ) -> Result<OwnedMathNode, MathTypesetError> {
+    ) -> Result<MathNode, MathTypesetError> {
         self.expect_char('(')?;
         let mut args = Vec::new();
 
@@ -344,11 +343,11 @@ impl Parser<'_> {
             if let Some(position) = named_argument_colon_position(&nodes) {
                 return Err(MathTypesetError::UnsupportedSyntax {
                     position,
-                    message: "named math arguments are not supported in owned Typst subset",
+                    message: "named math arguments are not supported in Avenger Typst subset",
                 });
             }
             let arg_end = self.pos;
-            args.push(OwnedMathArg {
+            args.push(MathArg {
                 nodes,
                 byte_range: self.absolute(arg_start)..self.absolute(arg_end),
             });
@@ -360,7 +359,7 @@ impl Parser<'_> {
                 Some((semi_idx, ';')) => {
                     return Err(self.unsupported(
                         semi_idx,
-                        "semicolon math arguments are not supported in owned Typst subset",
+                        "semicolon math arguments are not supported in Avenger Typst subset",
                     ));
                 }
                 Some((_, ')')) => {
@@ -376,14 +375,14 @@ impl Parser<'_> {
             }
         }
 
-        Ok(OwnedMathNode::Call(OwnedMathCall {
+        Ok(MathNode::Call(MathCall {
             name,
             args,
             byte_range: self.absolute(name_start)..self.absolute(self.pos),
         }))
     }
 
-    fn parse_space(&mut self) -> OwnedMathNode {
+    fn parse_space(&mut self) -> MathNode {
         let start = self.pos;
         while let Some((_, ch)) = self.peek_char() {
             if ch.is_whitespace() {
@@ -392,7 +391,7 @@ impl Parser<'_> {
                 break;
             }
         }
-        OwnedMathNode::Space(OwnedMathSpace {
+        MathNode::Space(MathSpace {
             byte_range: self.absolute(start)..self.absolute(self.pos),
         })
     }
@@ -452,10 +451,10 @@ impl Parser<'_> {
 }
 
 fn take_fraction_numerator(
-    nodes: &mut Vec<OwnedMathNode>,
+    nodes: &mut Vec<MathNode>,
     slash_position: usize,
-) -> Result<OwnedMathNode, MathTypesetError> {
-    while matches!(nodes.last(), Some(OwnedMathNode::Space(_))) {
+) -> Result<MathNode, MathTypesetError> {
+    while matches!(nodes.last(), Some(MathNode::Space(_))) {
         nodes.pop();
     }
     nodes.pop().ok_or(MathTypesetError::UnsupportedSyntax {
@@ -464,11 +463,9 @@ fn take_fraction_numerator(
     })
 }
 
-fn named_argument_colon_position(nodes: &[OwnedMathNode]) -> Option<usize> {
+fn named_argument_colon_position(nodes: &[MathNode]) -> Option<usize> {
     match nodes {
-        [OwnedMathNode::Identifier(_), OwnedMathNode::Operator(operator), ..]
-            if operator.operator == ":" =>
-        {
+        [MathNode::Identifier(_), MathNode::Operator(operator), ..] if operator.operator == ":" => {
             Some(operator.byte_range.start)
         }
         _ => None,
@@ -708,8 +705,8 @@ fn named_math_symbol(name: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
 
-    fn parse(source: &str) -> OwnedMath {
-        parse_owned_math(source, 0).unwrap()
+    fn parse(source: &str) -> MathAst {
+        parse_math(source, 0).unwrap()
     }
 
     #[test]
@@ -748,8 +745,8 @@ mod tests {
             "R^2 = 0.94",
             "y = sqrt(x) / (1 + x^2)",
         ] {
-            parse_owned_math(source, 0)
-                .unwrap_or_else(|err| panic!("owned math parser failed for {source:?}: {err:?}"));
+            parse_math(source, 0)
+                .unwrap_or_else(|err| panic!("Typst math parser failed for {source:?}: {err:?}"));
         }
     }
 
@@ -758,16 +755,16 @@ mod tests {
         let math = parse("sqrt(x) / (1 + x^2)");
 
         assert_eq!(math.nodes.len(), 1);
-        let OwnedMathNode::Fraction(fraction) = &math.nodes[0] else {
+        let MathNode::Fraction(fraction) = &math.nodes[0] else {
             panic!("expected slash fraction");
         };
         assert!(matches!(
             fraction.numerator.as_ref(),
-            OwnedMathNode::Call(call) if call.name == "sqrt"
+            MathNode::Call(call) if call.name == "sqrt"
         ));
         assert!(matches!(
             fraction.denominator.as_ref(),
-            OwnedMathNode::Group(group) if group.left == '(' && group.right == ')'
+            MathNode::Group(group) if group.left == '(' && group.right == ')'
         ));
     }
 
@@ -777,12 +774,12 @@ mod tests {
 
         assert!(matches!(
             &math.nodes[0],
-            OwnedMathNode::Attach(attach)
+            MathNode::Attach(attach)
                 if attach.top.is_some() && attach.bottom.is_some() && attach.primes == 0
         ));
         assert!(matches!(
             &math.nodes[4],
-            OwnedMathNode::Attach(attach) if attach.primes == 2
+            MathNode::Attach(attach) if attach.primes == 2
         ));
     }
 
@@ -792,31 +789,31 @@ mod tests {
 
         assert!(matches!(
             &math.nodes[0],
-            OwnedMathNode::Identifier(ident)
+            MathNode::Identifier(ident)
                 if ident.name == "alpha" && ident.symbol == Some("α")
         ));
         assert!(matches!(
             &math.nodes[2],
-            OwnedMathNode::Shorthand(shorthand)
+            MathNode::Shorthand(shorthand)
                 if shorthand.source == "->" && shorthand.replacement == "→"
         ));
         assert!(matches!(
             &math.nodes[4],
-            OwnedMathNode::Identifier(ident) if ident.symbol == Some("ℝ")
+            MathNode::Identifier(ident) if ident.symbol == Some("ℝ")
         ));
         assert!(matches!(
             &math.nodes[8],
-            OwnedMathNode::Identifier(ident)
+            MathNode::Identifier(ident)
                 if ident.name == "in.not" && ident.symbol == Some("∉")
         ));
         assert!(matches!(
             &math.nodes[12],
-            OwnedMathNode::Identifier(ident)
+            MathNode::Identifier(ident)
                 if ident.name == "subset.eq" && ident.symbol == Some("⊆")
         ));
         assert!(matches!(
             &math.nodes[16],
-            OwnedMathNode::Identifier(ident)
+            MathNode::Identifier(ident)
                 if ident.name == "arrow.r.double" && ident.symbol == Some("⇒")
         ));
     }
@@ -828,9 +825,9 @@ mod tests {
         assert!(matches!(
             &math.nodes[..],
             [
-                OwnedMathNode::Identifier(identifier),
-                OwnedMathNode::Operator(operator),
-                OwnedMathNode::Identifier(suffix),
+                MathNode::Identifier(identifier),
+                MathNode::Operator(operator),
+                MathNode::Identifier(suffix),
             ] if identifier.name == "arrow"
                 && identifier.symbol.is_none()
                 && operator.operator == "."
@@ -844,19 +841,19 @@ mod tests {
 
         assert!(matches!(
             &math.nodes[0],
-            OwnedMathNode::Call(call) if call.name == "frac" && call.args.len() == 2
+            MathNode::Call(call) if call.name == "frac" && call.args.len() == 2
         ));
         assert!(matches!(
             &math.nodes[4],
-            OwnedMathNode::Call(call) if call.name == "op" && call.args.len() == 1
+            MathNode::Call(call) if call.name == "op" && call.args.len() == 1
         ));
         assert!(matches!(
             &math.nodes[8],
-            OwnedMathNode::Call(call) if call.name == "bb" && call.args.len() == 1
+            MathNode::Call(call) if call.name == "bb" && call.args.len() == 1
         ));
         assert!(matches!(
             &math.nodes[12],
-            OwnedMathNode::Call(call) if call.name == "scr" && call.args.len() == 1
+            MathNode::Call(call) if call.name == "scr" && call.args.len() == 1
         ));
     }
 
@@ -866,7 +863,7 @@ mod tests {
 
         assert!(matches!(
             &math.nodes[..],
-            [OwnedMathNode::Identifier(_), OwnedMathNode::Group(_)]
+            [MathNode::Identifier(_), MathNode::Group(_)]
         ));
     }
 
@@ -877,13 +874,13 @@ mod tests {
             ("vec(1, 2, 3)", 10),
             ("cases(x, y)", 10),
         ] {
-            let err = parse_owned_math(source, 10).unwrap_err();
+            let err = parse_math(source, 10).unwrap_err();
 
             assert_eq!(
                 err,
                 MathTypesetError::UnsupportedSyntax {
                     position,
-                    message: "matrix/table math is not supported in owned Typst subset"
+                    message: "matrix/table math is not supported in Avenger Typst subset"
                 },
                 "{source}"
             );
@@ -892,72 +889,72 @@ mod tests {
 
     #[test]
     fn rejects_semicolon_arguments() {
-        let err = parse_owned_math("frac(1; 2)", 0).unwrap_err();
+        let err = parse_math("frac(1; 2)", 0).unwrap_err();
 
         assert_eq!(
             err,
             MathTypesetError::UnsupportedSyntax {
                 position: 6,
-                message: "semicolon math arguments are not supported in owned Typst subset"
+                message: "semicolon math arguments are not supported in Avenger Typst subset"
             }
         );
     }
 
     #[test]
     fn rejects_top_level_semicolon_math() {
-        let err = parse_owned_math("x; y", 5).unwrap_err();
+        let err = parse_math("x; y", 5).unwrap_err();
 
         assert_eq!(
             err,
             MathTypesetError::UnsupportedSyntax {
                 position: 6,
-                message: "semicolon math arguments are not supported in owned Typst subset"
+                message: "semicolon math arguments are not supported in Avenger Typst subset"
             }
         );
     }
 
     #[test]
     fn rejects_multiline_math() {
-        let err = parse_owned_math("x\n+ y", 5).unwrap_err();
+        let err = parse_math("x\n+ y", 5).unwrap_err();
 
         assert_eq!(
             err,
             MathTypesetError::UnsupportedSyntax {
                 position: 6,
-                message: "multi-line math is not supported in owned Typst subset"
+                message: "multi-line math is not supported in Avenger Typst subset"
             }
         );
     }
 
     #[test]
     fn rejects_alignment_markers() {
-        let err = parse_owned_math("x &= y", 5).unwrap_err();
+        let err = parse_math("x &= y", 5).unwrap_err();
 
         assert_eq!(
             err,
             MathTypesetError::UnsupportedSyntax {
                 position: 7,
-                message: "math alignment markers are not supported in owned Typst subset"
+                message: "math alignment markers are not supported in Avenger Typst subset"
             }
         );
     }
 
     #[test]
     fn rejects_named_call_arguments() {
-        let err = parse_owned_math("frac(num: x, denom: y)", 5).unwrap_err();
+        let err = parse_math("frac(num: x, denom: y)", 5).unwrap_err();
 
         assert_eq!(
             err,
             MathTypesetError::UnsupportedSyntax {
                 position: 13,
-                message: "named math arguments are not supported in owned Typst subset"
+                message: "named math arguments are not supported in Avenger Typst subset"
             }
         );
     }
 
     #[test]
     fn rejects_unterminated_groups() {
-        let err = parse_owned_math("sqrt(x", 0).unwrap_err();
+        let err = parse_math("sqrt(x", 0).unwrap_err();
 
         assert_eq!(
             err,

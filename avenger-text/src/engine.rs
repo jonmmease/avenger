@@ -22,10 +22,7 @@ impl TextEngine {
 
     pub fn with_config(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Ok(Self::new(
-            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
-                backend: avenger_typst::TypstEngineBackend::OwnedTypst,
-                ..avenger_typst::TypstEngineConfig::default()
-            })?,
+            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default())?,
             math,
         ))
     }

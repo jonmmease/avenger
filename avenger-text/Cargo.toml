@@ -22,4 +22,4 @@ fontdb = { workspace = true }
 [dependencies.avenger-typst]
 path = "../avenger-typst"
 default-features = false
-features = ["owned", "raster"]
+features = ["raster"]

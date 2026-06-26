@@ -374,17 +374,13 @@ mod tests {
         crate::math::TextMarkupConfig::default()
     }
 
-    fn owned_typst() -> avenger_typst::AvengerTypst {
-        avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
-            backend: avenger_typst::TypstEngineBackend::OwnedTypst,
-            ..Default::default()
-        })
-        .unwrap()
+    fn typst() -> avenger_typst::AvengerTypst {
+        avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap()
     }
 
     #[test]
     fn text_line_extractor_returns_plain_runs_and_math_paths() {
-        let typst = owned_typst();
+        let typst = typst();
         let extractor = TextPathExtractorImpl::new(typst, math_config());
         let text = "speed $v^2$".to_string();
         let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
@@ -406,7 +402,7 @@ mod tests {
 
     #[test]
     fn text_line_extractor_returns_plain_runs_and_static_decoration_paths() {
-        let typst = owned_typst();
+        let typst = typst();
         let extractor = TextPathExtractorImpl::new(typst, math_config());
         let text = "#underline[important]".to_string();
         let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
@@ -424,7 +420,7 @@ mod tests {
 
     #[test]
     fn text_line_extractor_returns_script_runs_with_smaller_style() {
-        let typst = owned_typst();
+        let typst = typst();
         let extractor = TextPathExtractorImpl::new(typst, math_config());
         let text = "H#sub[2]O #super[*]".to_string();
         let buffer = extractor.extract_text_paths(&config(&text)).unwrap();

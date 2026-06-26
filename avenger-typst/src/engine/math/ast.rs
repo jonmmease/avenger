@@ -1,26 +1,26 @@
 use std::ops::Range;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMath {
+pub(crate) struct MathAst {
     pub(crate) source: String,
-    pub(crate) nodes: Vec<OwnedMathNode>,
+    pub(crate) nodes: Vec<MathNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum OwnedMathNode {
-    Space(OwnedMathSpace),
-    Text(OwnedMathText),
-    Identifier(OwnedMathIdentifier),
-    Operator(OwnedMathOperator),
-    Shorthand(OwnedMathShorthand),
-    StringLiteral(OwnedMathStringLiteral),
-    Group(OwnedMathGroup),
-    Attach(OwnedMathAttach),
-    Fraction(OwnedMathFraction),
-    Call(OwnedMathCall),
+pub(crate) enum MathNode {
+    Space(MathSpace),
+    Text(MathText),
+    Identifier(MathIdentifier),
+    Operator(MathOperator),
+    Shorthand(MathShorthand),
+    StringLiteral(MathStringLiteral),
+    Group(MathGroup),
+    Attach(MathAttach),
+    Fraction(MathFraction),
+    Call(MathCall),
 }
 
-impl OwnedMathNode {
+impl MathNode {
     pub(crate) fn byte_range(&self) -> Range<usize> {
         match self {
             Self::Space(node) => node.byte_range.clone(),
@@ -38,83 +38,83 @@ impl OwnedMathNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMathSpace {
+pub(crate) struct MathSpace {
     pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMathText {
+pub(crate) struct MathText {
     pub(crate) text: String,
-    pub(crate) kind: OwnedMathTextKind,
+    pub(crate) kind: MathTextKind,
     pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OwnedMathTextKind {
+pub(crate) enum MathTextKind {
     Grapheme,
     Number,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMathIdentifier {
+pub(crate) struct MathIdentifier {
     pub(crate) name: String,
     pub(crate) symbol: Option<&'static str>,
     pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMathOperator {
+pub(crate) struct MathOperator {
     pub(crate) operator: String,
     pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMathShorthand {
+pub(crate) struct MathShorthand {
     pub(crate) source: String,
     pub(crate) replacement: &'static str,
     pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMathStringLiteral {
+pub(crate) struct MathStringLiteral {
     pub(crate) text: String,
     pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMathGroup {
+pub(crate) struct MathGroup {
     pub(crate) left: char,
     pub(crate) right: char,
-    pub(crate) body: Vec<OwnedMathNode>,
+    pub(crate) body: Vec<MathNode>,
     pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMathAttach {
-    pub(crate) base: Box<OwnedMathNode>,
-    pub(crate) top: Option<Box<OwnedMathNode>>,
-    pub(crate) bottom: Option<Box<OwnedMathNode>>,
+pub(crate) struct MathAttach {
+    pub(crate) base: Box<MathNode>,
+    pub(crate) top: Option<Box<MathNode>>,
+    pub(crate) bottom: Option<Box<MathNode>>,
     pub(crate) primes: usize,
     pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMathFraction {
-    pub(crate) numerator: Box<OwnedMathNode>,
-    pub(crate) denominator: Box<OwnedMathNode>,
+pub(crate) struct MathFraction {
+    pub(crate) numerator: Box<MathNode>,
+    pub(crate) denominator: Box<MathNode>,
     pub(crate) slash_range: Range<usize>,
     pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMathCall {
+pub(crate) struct MathCall {
     pub(crate) name: String,
-    pub(crate) args: Vec<OwnedMathArg>,
+    pub(crate) args: Vec<MathArg>,
     pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedMathArg {
-    pub(crate) nodes: Vec<OwnedMathNode>,
+pub(crate) struct MathArg {
+    pub(crate) nodes: Vec<MathNode>,
     pub(crate) byte_range: Range<usize>,
 }

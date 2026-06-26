@@ -1,8 +1,5 @@
 use avenger_typst::{AvengerTypst, MathTypesetError, TypstEngineConfig};
 
-#[cfg(not(feature = "owned"))]
-use avenger_typst::TypstInitError;
-
 fn engine() -> AvengerTypst {
     AvengerTypst::new(TypstEngineConfig::default()).unwrap()
 }
@@ -82,29 +79,9 @@ fn math_depth_limit_is_enforced() {
     );
 }
 
-#[cfg(not(feature = "owned"))]
 #[test]
-fn explicit_owned_typst_backend_reports_unavailable_without_owned_feature() {
-    let err = AvengerTypst::new(TypstEngineConfig {
-        backend: avenger_typst::TypstEngineBackend::OwnedTypst,
-        ..Default::default()
-    })
-    .unwrap_err();
-
-    assert_eq!(
-        err,
-        TypstInitError::BackendUnavailable("owned Typst backend requires the owned feature")
-    );
-}
-
-#[cfg(feature = "owned")]
-#[test]
-fn explicit_owned_typst_backend_produces_paths() {
-    let engine = AvengerTypst::new(TypstEngineConfig {
-        backend: avenger_typst::TypstEngineBackend::OwnedTypst,
-        ..Default::default()
-    })
-    .unwrap();
+fn default_engine_produces_paths() {
+    let engine = AvengerTypst::new(TypstEngineConfig::default()).unwrap();
 
     let artifact = engine
         .typeset_math_fragment("x^2 + y^2", &Default::default())
