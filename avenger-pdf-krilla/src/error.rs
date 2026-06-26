@@ -12,6 +12,10 @@ pub enum AvengerPdfError {
     UnsupportedFeature(String),
     #[error("image embedding error: {0}")]
     Image(String),
+    #[error("text rendering error: {0}")]
+    Text(#[from] avenger_text::error::AvengerTextError),
+    #[error("invalid PDF text buffer: {0}")]
+    TextBuffer(String),
     #[error("PDF conversion error: {0}")]
     Conversion(String),
     #[error("I/O error: {0}")]

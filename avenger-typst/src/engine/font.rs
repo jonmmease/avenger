@@ -197,6 +197,7 @@ impl TextFace {
         let mut advance_width = 0i32;
         let mut shaped_glyphs = Vec::new();
         let mut has_missing_glyph = false;
+        let cluster_starts = glyph_cluster_starts(text, glyphs.glyph_infos());
 
         for (info, position) in glyphs.glyph_infos().iter().zip(glyphs.glyph_positions()) {
             has_missing_glyph |= info.glyph_id == 0;
@@ -205,7 +206,7 @@ impl TextFace {
             cursor_x += position.x_advance;
             cursor_y += position.y_advance;
             advance_width += position.x_advance;
-            let byte_range = glyph_cluster_range(text, info.cluster);
+            let byte_range = glyph_cluster_range(text, info.cluster, &cluster_starts);
             shaped_glyphs.push(ShapedGlyph {
                 glyph_id: ttf_parser::GlyphId(info.glyph_id as u16),
                 unicode: text.get(byte_range.clone()).unwrap_or_default().to_string(),
@@ -684,21 +685,37 @@ fn fallback_script_shift(parent_font_size: f32, script: TextScript) -> f32 {
     }
 }
 
-fn glyph_cluster_range(text: &str, cluster: u32) -> Range<usize> {
+fn glyph_cluster_starts(text: &str, glyph_infos: &[rustybuzz::GlyphInfo]) -> Vec<usize> {
+    let mut starts = glyph_infos
+        .iter()
+        .map(|info| info.cluster as usize)
+        .filter(|&start| start <= text.len() && text.is_char_boundary(start))
+        .collect::<Vec<_>>();
+    starts.sort_unstable();
+    starts.dedup();
+    starts
+}
+
+fn glyph_cluster_range(text: &str, cluster: u32, cluster_starts: &[usize]) -> Range<usize> {
     let cluster = cluster as usize;
     let Some((start, _)) = text.char_indices().find(|(start, _)| *start == cluster) else {
         return 0..0;
     };
-    let end = text[start..]
-        .grapheme_indices(true)
-        .nth(1)
-        .map_or(text.len(), |(next, _)| start + next);
+    let end = cluster_starts
+        .iter()
+        .copied()
+        .find(|candidate| *candidate > start)
+        .unwrap_or(text.len());
     start..end
 }
 
 #[cfg(test)]
 fn glyph_unicode_for_cluster(text: &str, cluster: u32) -> String {
-    text.get(glyph_cluster_range(text, cluster))
+    let cluster_starts = text
+        .grapheme_indices(true)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    text.get(glyph_cluster_range(text, cluster, &cluster_starts))
         .unwrap_or_default()
         .to_string()
 }

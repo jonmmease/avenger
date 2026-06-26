@@ -32,6 +32,10 @@ default-features = false
 path = "../avenger-text"
 default-features = false
 
+[dependencies.avenger-typst]
+path = "../avenger-typst"
+default-features = false
+
 [dev-dependencies.pdf-extract]
 version = "0.10.0"
 

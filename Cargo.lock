@@ -1132,6 +1132,7 @@ dependencies = [
  "avenger-image",
  "avenger-scenegraph",
  "avenger-text",
+ "avenger-typst",
  "itertools 0.14.0",
  "krilla",
  "krilla-svg",

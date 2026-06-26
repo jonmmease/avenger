@@ -1,20 +1,40 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::types::{StrokeCap, StrokeJoin};
 use avenger_scenegraph::{
     marks::{
-        arc::SceneArcMark, area::SceneAreaMark, group::Clip, image::SceneImageMark,
-        line::SceneLineMark, mark::SceneMark, path::ScenePathMark, rect::SceneRectMark,
-        rule::SceneRuleMark, symbol::SceneSymbolMark, trail::SceneTrailMark,
+        arc::SceneArcMark,
+        area::SceneAreaMark,
+        group::Clip,
+        image::SceneImageMark,
+        line::SceneLineMark,
+        mark::SceneMark,
+        path::ScenePathMark,
+        rect::SceneRectMark,
+        rule::SceneRuleMark,
+        symbol::SceneSymbolMark,
+        text::SceneTextMark,
+        text_leader::{
+            compute_text_leader_geometry, TextLeaderArrowhead, TextLeaderGeometry,
+            TextLeaderGeometryInput, TextLeaderPath,
+        },
+        trail::SceneTrailMark,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
+use avenger_text::{
+    path::{TextPathItem, TextPathKind},
+    pdf::{TextPdfBuffer, TextPdfDrawItem, TextPdfExtractionConfig},
+    types::{TextAlign, TextBaseline},
+    TextEngine,
+};
+use avenger_typst::{MathFontResource, MathFontResourceId, MathPdfGlyphRun};
 use itertools::izip;
 use krilla::{
     color::rgb,
-    geom::{PathBuilder, Rect, Size, Transform},
+    geom::{PathBuilder, Point, Rect, Size, Transform},
     image::Image,
     num::NormalizedF32,
     page::PageSettings,
@@ -23,7 +43,8 @@ use krilla::{
         Stop, Stroke, StrokeDash,
     },
     surface::Surface,
-    Document, SerializeSettings,
+    text::{Font as KrillaFont, GlyphId, KrillaGlyph, Tag},
+    Data, Document, SerializeSettings,
 };
 use lyon_algorithms::aabb::bounding_box;
 use lyon_path::{Event, Path as LyonPath};
@@ -61,8 +82,12 @@ impl PdfRenderer {
         let mut document = Document::new_with(settings);
         let mut page = document.start_page_with(page_settings);
         let mut surface = page.surface();
+        let text_engine = TextEngine::with_default_config().map_err(|err| {
+            AvengerPdfError::TextBuffer(format!("failed to initialize text engine: {err}"))
+        })?;
+        let mut font_cache = PdfFontCache::default();
         self.draw_background(&mut surface, width, height)?;
-        self.draw_scene_graph(&mut surface, scene_graph)?;
+        self.draw_scene_graph(&mut surface, scene_graph, &text_engine, &mut font_cache)?;
         surface.finish();
         page.finish();
 
@@ -123,6 +148,8 @@ impl PdfRenderer {
         &self,
         surface: &mut Surface<'_>,
         scene_graph: &SceneGraph,
+        text_engine: &TextEngine,
+        font_cache: &mut PdfFontCache,
     ) -> Result<(), AvengerPdfError> {
         let display_list = SceneDisplayList::from_scene_graph(scene_graph);
 
@@ -137,7 +164,7 @@ impl PdfRenderer {
                     self.draw_path_mark(surface, mark, item.origin)
                 }
                 SceneDisplayMark::Borrowed(mark) => {
-                    self.draw_scene_mark(surface, mark, item.origin)
+                    self.draw_scene_mark(surface, mark, item.origin, text_engine, font_cache)
                 }
             };
 
@@ -156,6 +183,8 @@ impl PdfRenderer {
         surface: &mut Surface<'_>,
         mark: &SceneMark,
         origin: [f32; 2],
+        text_engine: &TextEngine,
+        font_cache: &mut PdfFontCache,
     ) -> Result<(), AvengerPdfError> {
         match mark {
             SceneMark::Rect(mark) => self.draw_rect_mark(surface, mark, origin),
@@ -167,9 +196,9 @@ impl PdfRenderer {
             SceneMark::Arc(mark) => self.draw_arc_mark(surface, mark, origin),
             SceneMark::Trail(mark) => self.draw_trail_mark(surface, mark, origin),
             SceneMark::Image(mark) => self.draw_image_mark(surface, mark, origin),
-            SceneMark::Text(_) => Err(AvengerPdfError::UnsupportedFeature(
-                "text marks are not implemented in avenger-pdf-krilla yet".to_string(),
-            )),
+            SceneMark::Text(mark) => {
+                self.draw_text_mark(surface, mark, origin, text_engine, font_cache)
+            }
             SceneMark::Group(_) => Ok(()),
         }
     }
@@ -400,6 +429,314 @@ impl PdfRenderer {
         )
     }
 
+    fn draw_text_mark(
+        &self,
+        surface: &mut Surface<'_>,
+        mark: &SceneTextMark,
+        origin: [f32; 2],
+        text_engine: &TextEngine,
+        font_cache: &mut PdfFontCache,
+    ) -> Result<(), AvengerPdfError> {
+        let leader_stroke_dash_values = mark
+            .leader_stroke_dash
+            .as_ref()
+            .map(|dash| dash.as_vec(mark.len as usize, mark.indices.as_ref()));
+
+        for (
+            index,
+            (
+                text,
+                target,
+                label,
+                defined,
+                align,
+                baseline,
+                angle,
+                color,
+                font,
+                font_size,
+                font_weight,
+                font_style,
+                limit,
+                leader,
+                leader_stroke,
+                leader_stroke_width,
+                leader_stroke_cap,
+                leader_stroke_join,
+                leader_label_padding,
+                leader_target_radius,
+                leader_min_length,
+                leader_shape,
+                leader_arrow,
+                leader_arrow_length,
+                leader_arrow_width,
+            ),
+        ) in izip!(
+            mark.text_iter(),
+            mark.target_position_iter(),
+            mark.label_position_iter(),
+            mark.defined_iter(),
+            mark.align_iter(),
+            mark.baseline_iter(),
+            mark.angle_iter(),
+            mark.color_iter(),
+            mark.font_iter(),
+            mark.font_size_iter(),
+            mark.font_weight_iter(),
+            mark.font_style_iter(),
+            mark.limit_iter(),
+            mark.leader_iter(),
+            mark.leader_stroke_iter(),
+            mark.leader_stroke_width_iter(),
+            mark.leader_stroke_cap_iter(),
+            mark.leader_stroke_join_iter(),
+            mark.leader_label_padding_iter(),
+            mark.leader_target_radius_iter(),
+            mark.leader_min_length_iter(),
+            mark.leader_shape_iter(),
+            mark.leader_arrow_iter(),
+            mark.leader_arrow_length_iter(),
+            mark.leader_arrow_width_iter(),
+        )
+        .enumerate()
+        {
+            if !*defined {
+                continue;
+            }
+
+            let ColorOrGradient::Color(text_color) = color else {
+                return Err(AvengerPdfError::UnsupportedFeature(
+                    "gradient text paint is not supported by avenger-pdf-krilla".to_string(),
+                ));
+            };
+            let target = [target[0] + origin[0], target[1] + origin[1]];
+            let label = [label[0] + origin[0], label[1] + origin[1]];
+            let buffer = text_engine.extract_pdf_with_plain_fallback(&TextPdfExtractionConfig {
+                text,
+                color: *text_color,
+                font,
+                font_size: *font_size,
+                font_weight: *font_weight,
+                font_style: *font_style,
+                limit: *limit,
+            })?;
+
+            if *leader {
+                if let Some(geometry) = compute_text_leader_geometry(TextLeaderGeometryInput {
+                    target,
+                    label_anchor: label,
+                    angle_degrees: *angle,
+                    text_bounds: &buffer.bounds,
+                    align,
+                    baseline,
+                    label_padding: *leader_label_padding,
+                    target_radius: *leader_target_radius,
+                    min_length: *leader_min_length,
+                    shape: *leader_shape,
+                    arrow: *leader_arrow,
+                    arrow_length: *leader_arrow_length,
+                    arrow_width: *leader_arrow_width,
+                }) {
+                    self.draw_text_leader(
+                        surface,
+                        &geometry,
+                        leader_stroke,
+                        *leader_stroke_width,
+                        *leader_stroke_cap,
+                        *leader_stroke_join,
+                        leader_stroke_dash_values
+                            .as_ref()
+                            .and_then(|values| values.get(index).map(Vec::as_slice)),
+                    )?;
+                }
+            }
+
+            self.draw_text_pdf_buffer(
+                surface, &buffer, label, align, baseline, *angle, font_cache,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn draw_text_pdf_buffer(
+        &self,
+        surface: &mut Surface<'_>,
+        buffer: &TextPdfBuffer,
+        label: [f32; 2],
+        align: &TextAlign,
+        baseline: &TextBaseline,
+        angle: f32,
+        font_cache: &mut PdfFontCache,
+    ) -> Result<(), AvengerPdfError> {
+        let [x, text_top] = buffer.bounds.calculate_origin(label, align, baseline);
+        if angle != 0.0 {
+            surface.push_transform(&Transform::from_rotate_at(angle, label[0], label[1]));
+        }
+
+        let result = (|| {
+            for draw_item in &buffer.draw_items {
+                match *draw_item {
+                    TextPdfDrawItem::GlyphRun(index) => {
+                        let Some(run) = buffer.glyph_runs.get(index) else {
+                            return Err(AvengerPdfError::TextBuffer(
+                                "PDF text buffer referenced a missing glyph run".to_string(),
+                            ));
+                        };
+                        self.draw_pdf_glyph_run(surface, buffer, run, x, text_top, font_cache)?;
+                    }
+                    TextPdfDrawItem::PathItem(index) => {
+                        let Some(item) = buffer.items.get(index) else {
+                            return Err(AvengerPdfError::TextBuffer(
+                                "PDF text buffer referenced a missing path item".to_string(),
+                            ));
+                        };
+                        self.draw_text_path_item(surface, item, x, text_top)?;
+                    }
+                }
+            }
+            Ok(())
+        })();
+
+        if angle != 0.0 {
+            surface.pop();
+        }
+        result
+    }
+
+    fn draw_pdf_glyph_run(
+        &self,
+        surface: &mut Surface<'_>,
+        buffer: &TextPdfBuffer,
+        run: &MathPdfGlyphRun,
+        x: f32,
+        y: f32,
+        font_cache: &mut PdfFontCache,
+    ) -> Result<(), AvengerPdfError> {
+        let resource = font_resource(buffer, run.font)?;
+        let font = font_cache.font_for(resource)?;
+        let glyphs = krilla_glyphs_from_run(run)?;
+        if glyphs.is_empty() {
+            return Ok(());
+        }
+
+        surface.set_fill(color_fill([run.fill.r, run.fill.g, run.fill.b, run.fill.a]));
+        surface.set_stroke(run.stroke.as_ref().and_then(|stroke| {
+            color_stroke(
+                [
+                    stroke.color.r,
+                    stroke.color.g,
+                    stroke.color.b,
+                    stroke.color.a,
+                ],
+                stroke.width,
+            )
+        }));
+        surface.draw_glyphs(
+            Point::from_xy(x, y),
+            &glyphs,
+            font,
+            &run.text,
+            run.font_size,
+            false,
+        );
+        Ok(())
+    }
+
+    fn draw_text_path_item(
+        &self,
+        surface: &mut Surface<'_>,
+        item: &TextPathItem,
+        x: f32,
+        y: f32,
+    ) -> Result<(), AvengerPdfError> {
+        if item.kind != TextPathKind::MathShape {
+            return Ok(());
+        }
+        let fill = item.fill.map(ColorOrGradient::Color);
+        let stroke = item
+            .stroke
+            .as_ref()
+            .map(|stroke| ColorOrGradient::Color(stroke.color));
+
+        surface.push_transform(&Transform::from_translate(x, y));
+        let result = self.draw_path_with_style(
+            surface,
+            &item.path,
+            PathStyle {
+                fill: fill.as_ref(),
+                stroke: stroke.as_ref(),
+                stroke_width: item.stroke.as_ref().map(|stroke| stroke.width),
+                stroke_cap: None,
+                stroke_join: None,
+                stroke_dash: None,
+                gradients: &[],
+            },
+        );
+        surface.pop();
+        result
+    }
+
+    fn draw_text_leader(
+        &self,
+        surface: &mut Surface<'_>,
+        geometry: &TextLeaderGeometry,
+        stroke: &ColorOrGradient,
+        stroke_width: f32,
+        stroke_cap: StrokeCap,
+        stroke_join: StrokeJoin,
+        stroke_dash: Option<&[f32]>,
+    ) -> Result<(), AvengerPdfError> {
+        let spine = text_leader_path(&geometry.spine);
+        self.draw_path_with_style(
+            surface,
+            &spine,
+            PathStyle {
+                fill: None,
+                stroke: Some(stroke),
+                stroke_width: Some(stroke_width.max(0.0)),
+                stroke_cap: Some(stroke_cap),
+                stroke_join: Some(stroke_join),
+                stroke_dash,
+                gradients: &[],
+            },
+        )?;
+
+        if let Some(arrowhead) = &geometry.arrowhead {
+            let path = text_leader_arrowhead_path(arrowhead);
+            match arrowhead {
+                TextLeaderArrowhead::Open { .. } => self.draw_path_with_style(
+                    surface,
+                    &path,
+                    PathStyle {
+                        fill: None,
+                        stroke: Some(stroke),
+                        stroke_width: Some(stroke_width.max(0.0)),
+                        stroke_cap: Some(stroke_cap),
+                        stroke_join: Some(stroke_join),
+                        stroke_dash: None,
+                        gradients: &[],
+                    },
+                )?,
+                TextLeaderArrowhead::Triangle { .. } => self.draw_path_with_style(
+                    surface,
+                    &path,
+                    PathStyle {
+                        fill: Some(stroke),
+                        stroke: None,
+                        stroke_width: None,
+                        stroke_cap: None,
+                        stroke_join: None,
+                        stroke_dash: None,
+                        gradients: &[],
+                    },
+                )?,
+            }
+        }
+
+        Ok(())
+    }
+
     fn draw_image_mark(
         &self,
         surface: &mut Surface<'_>,
@@ -475,6 +812,71 @@ struct PathStyle<'a> {
     gradients: &'a [Gradient],
 }
 
+#[derive(Default)]
+struct PdfFontCache {
+    fonts: HashMap<FontCacheKey, KrillaFont>,
+}
+
+impl PdfFontCache {
+    fn font_for(&mut self, resource: &MathFontResource) -> Result<KrillaFont, AvengerPdfError> {
+        let key = FontCacheKey::from_resource(resource);
+        if let Some(font) = self.fonts.get(&key) {
+            return Ok(font.clone());
+        }
+
+        let variation_coords = resource
+            .variations
+            .iter()
+            .map(|variation| (Tag::new(&variation.tag), variation.value))
+            .collect::<Vec<_>>();
+        let font = KrillaFont::new_variable(
+            Data::from(resource.data.to_vec()),
+            resource.face_index,
+            &variation_coords,
+        )
+        .ok_or_else(|| {
+            AvengerPdfError::Font(format!(
+                "failed to load font resource {} ({})",
+                resource.id.0, resource.family
+            ))
+        })?;
+        self.fonts.insert(key, font.clone());
+        Ok(font)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FontCacheKey {
+    face_index: u32,
+    data_ptr: usize,
+    data_len: usize,
+    variations: Vec<FontVariationKey>,
+}
+
+impl FontCacheKey {
+    fn from_resource(resource: &MathFontResource) -> Self {
+        Self {
+            face_index: resource.face_index,
+            data_ptr: resource.data.as_ref().as_ptr() as usize,
+            data_len: resource.data.len(),
+            variations: resource
+                .variations
+                .iter()
+                .map(|variation| FontVariationKey {
+                    tag: variation.tag,
+                    value_bits: variation.value.to_bits(),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct FontVariationKey {
+    tag: [u8; 4],
+    value_bits: u32,
+}
+
 fn lyon_path_to_krilla(path: &LyonPath) -> Option<krilla::geom::Path> {
     let mut builder = PathBuilder::new();
     let mut has_segments = false;
@@ -544,6 +946,37 @@ fn fill_from_paint(
         opacity,
         rule: FillRule::NonZero,
     }))
+}
+
+fn color_fill(color: [f32; 4]) -> Option<Fill> {
+    let [r, g, b, a] = color.map(|value| value.clamp(0.0, 1.0));
+    if a <= 0.0 {
+        return None;
+    }
+    Some(Fill {
+        paint: rgb::Color::new(color_channel(r), color_channel(g), color_channel(b)).into(),
+        opacity: normalized(a),
+        rule: FillRule::NonZero,
+    })
+}
+
+fn color_stroke(color: [f32; 4], width: f32) -> Option<Stroke> {
+    if width <= 0.0 {
+        return None;
+    }
+    let [r, g, b, a] = color.map(|value| value.clamp(0.0, 1.0));
+    if a <= 0.0 {
+        return None;
+    }
+    Some(Stroke {
+        paint: rgb::Color::new(color_channel(r), color_channel(g), color_channel(b)).into(),
+        width,
+        miter_limit: 10.0,
+        line_cap: LineCap::Butt,
+        line_join: LineJoin::Miter,
+        opacity: normalized(a),
+        dash: None,
+    })
 }
 
 fn stroke_from_style(
@@ -723,6 +1156,118 @@ fn close_single_point_subpath(
     }
 }
 
+fn font_resource(
+    buffer: &TextPdfBuffer,
+    id: MathFontResourceId,
+) -> Result<&MathFontResource, AvengerPdfError> {
+    buffer
+        .font_resources
+        .iter()
+        .find(|resource| resource.id == id)
+        .ok_or_else(|| {
+            AvengerPdfError::TextBuffer(format!("PDF text buffer referenced missing font {}", id.0))
+        })
+}
+
+fn krilla_glyphs_from_run(run: &MathPdfGlyphRun) -> Result<Vec<KrillaGlyph>, AvengerPdfError> {
+    let font_size = run.font_size.max(0.0001);
+    let use_run_actual_text = run.text.chars().any(|ch| !ch.is_ascii());
+    let mut cursor_x = 0.0;
+    let mut cursor_y = 0.0;
+    let mut glyphs = Vec::with_capacity(run.glyphs.len());
+
+    for glyph in &run.glyphs {
+        if !is_translation_only(glyph.transform) {
+            return Err(AvengerPdfError::UnsupportedFeature(
+                "non-translation PDF glyph transforms are not supported".to_string(),
+            ));
+        }
+        let glyph_x = glyph.transform.dx + glyph.x;
+        let glyph_y = glyph.transform.dy + glyph.y;
+        glyphs.push(KrillaGlyph::new(
+            GlyphId::new(glyph.glyph_id as u32),
+            glyph.x_advance / font_size,
+            (glyph_x - cursor_x) / font_size,
+            (glyph_y - cursor_y) / font_size,
+            glyph.y_advance / font_size,
+            if use_run_actual_text {
+                0..run.text.len()
+            } else {
+                glyph.text_range.clone()
+            },
+            None,
+        ));
+        cursor_x += glyph.x_advance;
+        cursor_y += glyph.y_advance;
+    }
+
+    Ok(glyphs)
+}
+
+fn is_translation_only(transform: avenger_typst::MathTransform) -> bool {
+    const EPSILON: f32 = 1.0e-5;
+    (transform.xx - 1.0).abs() < EPSILON
+        && transform.yx.abs() < EPSILON
+        && transform.xy.abs() < EPSILON
+        && (transform.yy - 1.0).abs() < EPSILON
+}
+
+fn text_leader_path(path: &TextLeaderPath) -> LyonPath {
+    let mut builder = LyonPath::builder();
+    match path {
+        TextLeaderPath::Line { start, end } => {
+            builder.begin(lyon_path::math::point(start[0], start[1]));
+            builder.line_to(lyon_path::math::point(end[0], end[1]));
+            builder.end(false);
+        }
+        TextLeaderPath::Polyline { points } => {
+            if let Some(first) = points.first() {
+                builder.begin(lyon_path::math::point(first[0], first[1]));
+                for point in points.iter().skip(1) {
+                    builder.line_to(lyon_path::math::point(point[0], point[1]));
+                }
+                builder.end(false);
+            }
+        }
+        TextLeaderPath::Cubic {
+            start,
+            ctrl1,
+            ctrl2,
+            end,
+        } => {
+            builder.begin(lyon_path::math::point(start[0], start[1]));
+            builder.cubic_bezier_to(
+                lyon_path::math::point(ctrl1[0], ctrl1[1]),
+                lyon_path::math::point(ctrl2[0], ctrl2[1]),
+                lyon_path::math::point(end[0], end[1]),
+            );
+            builder.end(false);
+        }
+    }
+    builder.build()
+}
+
+fn text_leader_arrowhead_path(arrowhead: &TextLeaderArrowhead) -> LyonPath {
+    let mut builder = LyonPath::builder();
+    match arrowhead {
+        TextLeaderArrowhead::Open { left, right } => {
+            builder.begin(lyon_path::math::point(left[0][0], left[0][1]));
+            builder.line_to(lyon_path::math::point(left[1][0], left[1][1]));
+            builder.end(false);
+            builder.begin(lyon_path::math::point(right[0][0], right[0][1]));
+            builder.line_to(lyon_path::math::point(right[1][0], right[1][1]));
+            builder.end(false);
+        }
+        TextLeaderArrowhead::Triangle { points } => {
+            builder.begin(lyon_path::math::point(points[0][0], points[0][1]));
+            builder.line_to(lyon_path::math::point(points[1][0], points[1][1]));
+            builder.line_to(lyon_path::math::point(points[2][0], points[2][1]));
+            builder.close();
+        }
+    }
+    builder.build()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -738,6 +1283,7 @@ mod tests {
         rect::SceneRectMark,
         text::SceneTextMark,
     };
+    use avenger_text::types::{TextAlign, TextBaseline};
 
     fn empty_scene_graph(width: f32, height: f32) -> SceneGraph {
         SceneGraph {
@@ -745,6 +1291,25 @@ mod tests {
             height,
             origin: [0.0, 0.0],
             marks: Vec::new(),
+        }
+    }
+
+    fn text_scene_graph(text: &str) -> SceneGraph {
+        SceneGraph {
+            width: 240.0,
+            height: 80.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar(text.to_string()),
+                x: ScalarOrArray::new_scalar(12.0),
+                y: ScalarOrArray::new_scalar(36.0),
+                align: ScalarOrArray::new_scalar(TextAlign::Left),
+                baseline: ScalarOrArray::new_scalar(TextBaseline::Alphabetic),
+                font_size: ScalarOrArray::new_scalar(18.0),
+                limit: ScalarOrArray::new_scalar(f32::INFINITY),
+                ..Default::default()
+            }
+            .into()],
         }
     }
 
@@ -894,18 +1459,46 @@ mod tests {
     }
 
     #[test]
-    fn text_marks_report_not_implemented_yet() {
-        let scene_graph = SceneGraph {
-            width: 40.0,
-            height: 40.0,
-            origin: [0.0, 0.0],
-            marks: vec![SceneTextMark::default().into()],
-        };
+    fn renders_plain_text_as_extractable_pdf_text() {
+        let pdf = PdfRenderer::new()
+            .render_scene_graph(&text_scene_graph("Hello PDF"))
+            .unwrap();
+        let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
 
-        let err = PdfRenderer::new()
-            .render_scene_graph(&scene_graph)
-            .unwrap_err();
+        assert!(extracted.contains("Hello PDF"), "{extracted:?}");
+    }
 
-        assert!(matches!(err, AvengerPdfError::UnsupportedFeature(_)));
+    #[test]
+    fn renders_math_text_as_extractable_pdf_text() {
+        let pdf = PdfRenderer::new()
+            .render_scene_graph(&text_scene_graph("score $R^2$ = 0.94"))
+            .unwrap();
+        let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
+
+        assert!(extracted.contains("score"), "{extracted:?}");
+        assert!(extracted.contains("0.94"), "{extracted:?}");
+        assert!(!extracted.contains('$'), "{extracted:?}");
+    }
+
+    #[test]
+    fn renders_named_emoji_as_extractable_pdf_text() {
+        let pdf = PdfRenderer::new()
+            .render_scene_graph(&text_scene_graph("Mood #emoji.face"))
+            .unwrap();
+        let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
+
+        assert!(extracted.contains("Mood"), "{extracted:?}");
+        assert!(extracted.contains('😀'), "{extracted:?}");
+    }
+
+    #[test]
+    fn renders_complex_script_text_as_extractable_pdf_text() {
+        let pdf = PdfRenderer::new()
+            .render_scene_graph(&text_scene_graph("שלום नमस्ते"))
+            .unwrap();
+        let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
+
+        assert!(extracted.contains("שלום"), "{extracted:?}");
+        assert!(extracted.contains("नमस्ते"), "{extracted:?}");
     }
 }
