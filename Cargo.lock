@@ -1247,6 +1247,7 @@ dependencies = [
  "tiny-skia",
  "ttf-parser",
  "unicode-bidi",
+ "unicode-script",
  "unicode-segmentation",
 ]
 

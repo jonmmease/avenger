@@ -284,6 +284,7 @@ Progress:
 - [x] Route default Atkinson plain text through segmented non-emoji fallback, so CJK/RTL/other text glyph misses can use owned fallback fonts while current color-emoji/tofu behavior remains isolated.
 - [x] Preserve full Unicode grapheme clusters in owned plain-text glyph metadata for combining marks, emoji modifiers, and regional-indicator flags.
 - [x] Add an initial Unicode bidi visual-run pass before owned plain-text fallback shaping, preserving logical source ranges while placing directional runs in visual order.
+- [x] Add script-aware span boundaries before owned plain-text shaping, so mixed-script labels are shaped as separate Rustybuzz buffers even when one fallback face covers multiple scripts.
 - [ ] Extend the owned plain text line path from Atkinson-only shaping to fallback fonts, bidi, emoji, and complex-script segmentation.
 - [x] Keep color emoji and static named emoji aliases on the owned path as Atkinson glyph-0/tofu output, matching the current vendored behavior until real color/ZWJ emoji rendering is implemented.
 

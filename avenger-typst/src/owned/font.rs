@@ -7,6 +7,7 @@ use crate::paths::MathPathData;
 use crate::pdf::{MathFontResource, MathFontResourceId};
 use crate::style::{FontStyle, FontWeight, PlainTextStyle};
 use unicode_bidi::BidiInfo;
+use unicode_script::{Script, UnicodeScript};
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Clone)]
@@ -376,6 +377,15 @@ fn shape_plain_text_with_fallback_mode(
         for (relative_start, grapheme) in text[visual_range.clone()].grapheme_indices(true) {
             let start = visual_range.start + relative_start;
             let end = start + grapheme.len();
+            let grapheme_script = script_for_grapheme(grapheme);
+            let script = if is_neutral_script(grapheme_script) {
+                spans
+                    .last()
+                    .map(|span| span.script)
+                    .unwrap_or(grapheme_script)
+            } else {
+                grapheme_script
+            };
             let face = if !primary
                 .shaped_text_with_features(grapheme, font_size, features)
                 .has_missing_glyph
@@ -391,6 +401,7 @@ fn shape_plain_text_with_fallback_mode(
 
             if let Some(span) = spans.last_mut() {
                 if span.face.same_font(&face)
+                    && span.script == script
                     && span.byte_range.end == start
                     && span.visual_range.end == start
                 {
@@ -406,6 +417,7 @@ fn shape_plain_text_with_fallback_mode(
                 text: grapheme.to_string(),
                 byte_range: start..end,
                 visual_range: start..end,
+                script,
             });
         }
     }
@@ -451,6 +463,7 @@ struct OwnedTextSpan {
     text: String,
     byte_range: Range<usize>,
     visual_range: Range<usize>,
+    script: Script,
 }
 
 fn bidi_visual_ranges(text: &str) -> Vec<Range<usize>> {
@@ -480,6 +493,18 @@ fn is_color_emoji_char(ch: char) -> bool {
             | '\u{FE0F}'
             | '\u{200D}'
     )
+}
+
+fn script_for_grapheme(grapheme: &str) -> Script {
+    grapheme
+        .chars()
+        .map(|ch| ch.script())
+        .find(|script| !is_neutral_script(*script))
+        .unwrap_or(Script::Common)
+}
+
+fn is_neutral_script(script: Script) -> bool {
+    matches!(script, Script::Common | Script::Inherited | Script::Unknown)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -737,6 +762,39 @@ mod tests {
         );
         assert_eq!(segmented.runs[0].byte_range, 0..6);
         assert_eq!(segmented.runs[1].byte_range, 6.."Hello 温度".len());
+        assert!(segmented.runs[1].x > segmented.runs[0].x);
+    }
+
+    #[test]
+    fn script_for_grapheme_prefers_first_non_neutral_script() {
+        assert_eq!(script_for_grapheme("a"), Script::Latin);
+        assert_eq!(script_for_grapheme("न"), Script::Devanagari);
+        assert_eq!(script_for_grapheme("e\u{301}"), Script::Latin);
+        assert_eq!(script_for_grapheme(" "), Script::Common);
+    }
+
+    #[test]
+    fn segmented_fallback_breaks_at_script_boundaries_when_fonts_are_available() {
+        let style = PlainTextStyle {
+            font_family: "Atkinson Hyperlegible Next".to_string(),
+            ..PlainTextStyle::default()
+        };
+
+        let Some(segmented) =
+            shape_plain_text_with_non_emoji_fallback(&style, "abc नमस्ते", style.font_size, &[])
+                .unwrap()
+        else {
+            return;
+        };
+
+        if segmented.has_missing_glyph {
+            return;
+        }
+
+        assert!(segmented.metrics.width > 0.0);
+        assert!(segmented.runs.len() >= 2);
+        assert_eq!(segmented.runs[0].text, "abc ");
+        assert!(segmented.runs.iter().any(|run| run.text.contains("न")));
         assert!(segmented.runs[1].x > segmented.runs[0].x);
     }
 
