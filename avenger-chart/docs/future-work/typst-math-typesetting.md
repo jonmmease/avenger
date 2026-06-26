@@ -3,13 +3,16 @@
 Date: 2026-06-24
 Last updated: 2026-06-26
 
-Status: partially implemented; vendor-route research superseded by the owned
-`avenger-typst` text engine.
+Status: partially implemented in the active text-engine branch; vendor-route
+research superseded by the owned `avenger-typst` text engine.
 
 Current direction: `avenger-typst` owns the strict Typst-style text/math subset
-directly. The active `typst-text` path should not depend on `vendor-typst`,
-`typst-library`, `typst-layout`, or `typst-syntax`. Sections below that discuss
-vendoring are retained as historical research, not as the implementation plan.
+directly. `avenger-text` should always use that owned engine for regular text
+and `$...$` math fragments; the old cosmic-text and HTML canvas text backends
+are no longer the target architecture. The active path should not depend on
+`vendor-typst`, `typst-library`, `typst-layout`, or `typst-syntax`. Sections
+below that discuss vendoring or optional Typst features are retained as
+historical research, not as the implementation plan.
 
 Source notes: this document condenses the scratch research in
 `scratch/typst-math-typesetting-analysis.md` and
@@ -19,8 +22,9 @@ studied was `../typst` at commit
 
 ## Goal
 
-Add support for Typst-style math fragments in Avenger labels, titles, axis
-labels, legend labels, and similar text-bearing chart surfaces.
+Use the owned Typst-style text engine for Avenger labels, titles, axis labels,
+legend labels, and similar text-bearing chart surfaces, including Typst-style
+math fragments.
 
 The target user-facing shape is a string that may contain math spans such as:
 
@@ -28,8 +32,10 @@ The target user-facing shape is a string that may contain math spans such as:
 $x^2 + y^2$
 ```
 
-Text outside math spans should remain normal Avenger text. Text inside math
-spans should be measured and rendered by a Typst-derived math engine.
+Text outside math spans should be shaped, measured, rasterized, and exported by
+the same owned `avenger-typst` line engine as text inside math spans. This keeps
+mixed strings such as `Price $7, score $R^2$ = 0.94` positioned by one line
+layout pass instead of by summing independently measured fragments.
 
 The intended scope is math fragments, not arbitrary Typst documents. In
 particular, this should support LaTeX-like math use cases and should reject
@@ -38,21 +44,25 @@ show rules, and arbitrary content embedded inside math.
 
 ## Summary
 
-Using Typst math for Avenger is feasible, but only for explicit math
-fragments. Regular text should stay on Avenger's existing text path. A Typst
-equation is a laid-out mini scene: it can contain positioned glyph runs,
-fraction rules, radicals, accents, stretchy delimiters, matrices, grouped
-transforms, and other shapes.
+Using Typst-style text/math for Avenger is feasible as the default text path,
+provided the supported syntax remains a strict subset rather than arbitrary
+Typst documents. A math span is a laid-out mini scene: it can contain positioned
+glyph runs, fraction rules, radicals, accents, stretchy delimiters, grouped
+transforms, and other shapes. A mixed text label should therefore be laid out as
+one text line by `avenger-typst`, not as separately positioned plain and math
+fragments.
 
-The recommended long-term plan is:
+The current long-term plan is:
 
-1. Keep `avenger-typst` as the low-level optional Typst-style text/math crate.
-2. Parse label strings into normal text runs and `$...$` math runs.
-3. Route text and math through the owned `avenger-typst` subset engine.
+1. Keep `avenger-typst` as the low-level owned Typst-style text/math crate.
+2. Make `avenger-text::TextEngine` the single concrete text engine.
+3. Always parse supported static text markup and `$...$` math spans.
 4. Return measured artifacts with width, height, baseline, ascent, descent,
-   vector paths, optional rasters, and optional PDF glyph placement data.
-5. Integrate through optional `avenger-text` wrappers and renderer feature flags
-   under the user-facing `typst-text` path.
+   vector paths, rasters, native plain-run metadata, and future PDF glyph
+   placement data.
+5. Use whole-line Typst raster entries for WGPU.
+6. Use hybrid SVG/PDF export: native SVG `<text>` for regular runs and paths
+   for math/decorations, then let `svg2pdf` embed the native text.
 
 The main reason to prefer the owned subset over a full Typst dependency is size,
 control, and predictable syntax errors for unsupported document/evaluator
@@ -77,26 +87,37 @@ math", because Typst's math language is similar but not identical.
 
 ## Current Avenger Boundaries
 
-Avenger's current text stack is optimized for normal text:
+The active text stack is now centered on a single concrete text engine:
 
 - `SceneTextMark` stores strings plus font, size, fill, alignment, baseline,
   angle, and limit properties.
-- `avenger-text` measures text through a narrow `TextMeasurer` trait.
-- WGPU rendering rasterizes glyphs into an atlas.
-- SVG rendering emits native SVG `<text>`.
-- PDF rendering emits SVG and passes it through `svg2pdf` with text embedding
-  enabled, so normal Avenger text can become real embedded PDF text.
+- `avenger-text::TextEngine` measures text, produces whole-line rasters, and
+  extracts hybrid text/path output.
+- WGPU rendering stores whole text lines in the atlas instead of individual
+  cosmic-text glyph entries.
+- SVG rendering emits native SVG `<text>` for regular runs and paths for math
+  and static decoration shapes.
+- PDF rendering continues to emit SVG and pass it through `svg2pdf` with text
+  embedding enabled, so regular text runs become real embedded PDF text while
+  math remains vector paths for now.
 
-Typst math does not naturally fit a text-only glyph model. The chosen
-integration is to keep `SceneTextMark` and the existing text traits for regular
-text, add math-aware wrappers for mixed strings, and add a path extraction
-trait for vector output. Math snippets become measured run artifacts inside
-the text pipeline rather than a separate chart mark.
+Typst math does not naturally fit a glyph-only text model, but it does fit a
+text-line artifact model. Math snippets remain part of `SceneTextMark` strings
+rather than becoming separate chart marks. The one remaining service trait in
+the chart stack is `TextMeasurementService`, retained only so derived mark
+adjustments can reuse the evaluation-level text measurement cache; it is not a
+backend-selection seam.
 
 ## Public API Sketch
 
-Math parsing should be opt-in, not magical for every string. The selected
-configuration shape is a markup mode on text options:
+Math parsing is now default behavior for text rendered through Avenger. The
+public configuration surface should stay small and should not expose a switch
+back to a plain/cosmic text backend. The current shape is a single concrete
+`avenger_text::TextEngine` plus a small `TextMarkupConfig` for delimiters,
+strict syntax, limits, and error policy.
+
+The older opt-in sketch below is retained as historical context, not as the
+current API plan:
 
 ```rust
 pub enum TextMarkupMode {
@@ -586,13 +607,13 @@ and link profile.
 
 This supports the current decision:
 
-- Keep both cosmic and owned Typst paths available until visual parity and
-  integration risk are better understood.
-- Consider owned Typst as a plausible default if broader chart baselines stay
-  stable and unsupported syntax errors are acceptable.
+- Make the owned Typst-style path the default Avenger text engine.
+- Remove cosmic-text and HTML canvas text backends from the core path.
 - Do not add `typst-render` or `typst-pdf` for first-stage math rendering.
-- Align shared dependencies such as `rustybuzz`, `ttf-parser`, and `fontdb`
-  where possible.
+- Keep shared dependencies such as `rustybuzz`, `ttf-parser`, and `fontdb`
+  aligned where possible.
+- Continue measuring text-size and text-render probes before release because
+  exact size depends on platform, feature set, and link profile.
 
 ## Upstream Discussion
 
@@ -643,37 +664,34 @@ Possible upstream contributions:
 
 ## Implementation Phases
 
-Phase 1: low-level math fragment crate.
+Phase 1: owned text engine as default.
 
-- Keep `avenger-typst` optional and independent from `avenger-text`.
-- Own the Typst-style text/math parser and strict subset validation.
-- Add owned math and text layout facades.
-- Lower owned layout artifacts to metrics, path artifacts, optional raster artifacts, and
-  `MathPdfTextLayer`.
-- Add unit tests for scripts, fractions, roots, accents, delimiters, color,
-  baseline alignment, emoji, bidi/complex scripts, and unsupported syntax
-  rejection. Matrices and cases remain out of the first supported subset.
+- Own the Typst-style text/math parser and strict subset validation in
+  `avenger-typst`.
+- Route `avenger-text::TextEngine` measurement, rasterization, and path
+  extraction through the owned engine.
+- Remove cosmic-text, HTML canvas text measurement, and text-backend feature
+  gates from the core path.
+- Use whole-line raster atlas entries for WGPU.
 
-Phase 2: optional `avenger-text` integration.
+Phase 2: hybrid SVG/PDF output.
 
-- Add `typst-text` and `typst-text-raster` feature flags.
-- Keep cosmic available as the regular native text backend while the owned
-  Typst path matures.
-- Add Typst `TextMeasurer` and `TextRasterizer` implementations that parse
-  opt-in `$...$` math spans and static text markup in one line.
-- Add a `TextPathExtractor` trait.
-- Implement `TextPathExtractor` for cosmic and for math-aware mixed labels.
-- Cache artifacts by source/style/font/output scale/fork revision.
-
-Phase 3: path-first renderer integration.
-
-- Emit regular text as native SVG `<text>`.
-- Emit math spans as paths in SVG.
-- Let current `svg2pdf` convert that SVG to PDF. This keeps regular text
+- Emit regular text runs as native SVG `<text>`.
+- Emit math spans and static decoration shapes as paths.
+- Let current `svg2pdf` convert that hybrid SVG to PDF. This keeps regular text
   embedded by `svg2pdf` and keeps math z-order correct because math paths are
   emitted at the text mark's display-list position.
-- Rasterize math path artifacts for WGPU atlas entries behind
-  `typst-math-raster`.
+- Keep PDF glyph metadata in the owned text artifacts for future direct math
+  font embedding.
+
+Phase 3: validation and size work.
+
+- Run and review all chart visual baselines because every label now uses the
+  Typst path.
+- Verify emoji, bidi, complex scripts, escaped dollars, unsupported syntax
+  errors, SVG native text, PDF selectable text, and WGPU whole-line rasters.
+- Continue text-size and text-render probes.
+- Add dependency deny-list and API/visual/metric guardrails.
 
 Phase 4: embedded PDF math text.
 
@@ -697,26 +715,26 @@ Phase 5: prune and sync.
 
 ## Open Questions
 
-- Which chart-level helpers should be added on top of opt-in text markup:
-  `title_math`, `axis_title_math`, typed label content, or only configuration
-  knobs at first?
+- Which chart-level helpers should be added on top of default text markup:
+  `title_math`, `axis_title_math`, typed label content, or no extra helpers?
 - Should display-style math ever be enabled in chart labels, or should all math
   delimiters be treated as inline by default?
 - Which math font choices should be supported beyond New Computer Modern Math?
 - Which z-order-preserving embedded PDF route should follow the overlay
   prototype: direct krilla PDF emission, `svg2pdf`/`krilla-svg` callback API, or
   content-stream replacement?
-- How small does the owned Typst-style text path need to become before it is
-  acceptable as a default Avenger feature?
+- Which additional size-reduction opportunities remain after removing the full
+  Typst/vendored path and cosmic-text?
 
 ## Recommendation
 
 Use an owned, patchable Typst-style text/math subset rather than the full Typst
-crate for the production path. The helper should return metrics plus backend
-payloads, not rendered text strings. SVG and normal PDF can use paths for only
-the math spans. WGPU can rasterize those paths. Embedded PDF text can later use
-the same returned glyph placement and font resources, but it should not become
-the default for general text marks until it preserves the text mark's z-order.
+crate for the production path. `avenger-text::TextEngine` should return metrics
+plus backend payloads, not rendered text strings. WGPU should rasterize whole
+text lines. SVG/PDF should use native text for regular runs and paths for math
+and decorations. Embedded PDF math text can later use the same returned glyph
+placement and font resources, but it should not become the default until it
+preserves the text mark's z-order.
 
 Keep the full scratch analysis as background, but treat this document as the
 working plan.
