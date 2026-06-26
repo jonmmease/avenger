@@ -143,6 +143,23 @@ where
                 config.font_style,
             )
         });
+        if raster_text.is_empty() {
+            return Ok(TextRasterizationBuffer {
+                text_bounds: bounds_from_metrics(
+                    avenger_typst::TypesetMetrics {
+                        width: 0.0,
+                        height: 0.0,
+                        baseline: 0.0,
+                        ascent: 0.0,
+                        descent: 0.0,
+                    },
+                    config.font_size,
+                    false,
+                ),
+                glyphs: Vec::new(),
+            });
+        }
+
         let fill = color_key(config.color);
         let result = typeset_line(
             &self.typst,
@@ -758,5 +775,35 @@ mod tests {
         assert_eq!(buffer.glyphs.len(), 1);
         assert_eq!(buffer.glyphs[0].0.bbox.width, 1);
         assert_eq!(buffer.glyphs[0].0.bbox.height, 1);
+    }
+
+    #[test]
+    fn typst_rasterizer_accepts_empty_text() {
+        let rasterizer = TypstTextRasterizer::<()>::new(
+            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap(),
+            TextMathConfig::default(),
+        );
+        let text = String::new();
+        let font = "sans-serif".to_string();
+        let color = [0.0, 0.0, 0.0, 1.0];
+        let buffer = rasterizer
+            .rasterize(
+                &TextRasterizationConfig {
+                    text: &text,
+                    color: &color,
+                    font: &font,
+                    font_size: 12.0,
+                    font_weight: &WEIGHT,
+                    font_style: &STYLE,
+                    limit: f32::INFINITY,
+                },
+                1.0,
+                &HashMap::new(),
+            )
+            .unwrap();
+
+        assert!(buffer.glyphs.is_empty());
+        assert_eq!(buffer.text_bounds.width, 0.0);
+        assert_eq!(buffer.text_bounds.height, 12.0);
     }
 }
