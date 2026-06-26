@@ -1,6 +1,8 @@
 use crate::api::TypstEngineConfig;
 use crate::error::MathTypesetError;
-use crate::paths::{MathPathArtifact, MathPathItem, MathPathKind, MathTransform};
+use crate::paths::{
+    MathPathArtifact, MathPathData, MathPathItem, MathPathKind, MathStroke, MathTransform,
+};
 use crate::pdf::{
     MathFontResource, MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer,
 };
@@ -12,7 +14,7 @@ use crate::types::{
 };
 use crate::warnings::MathTypesetWarning;
 
-use super::ast::{OwnedLine, OwnedLineNode, OwnedPlainText};
+use super::ast::{OwnedLine, OwnedLineNode, OwnedMathSpan, OwnedPlainText, OwnedTextSpanKind};
 use super::font::{OwnedShapedText, OwnedTextFace};
 use super::glyph_path::outline_glyph_path;
 use super::math::metrics::try_typeset_simple_row_fragment;
@@ -24,14 +26,14 @@ pub(crate) fn try_typeset_owned_text_line(
     options: &TextLineOptions,
     config: &TypstEngineConfig,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
-    let Some(line) = line_with_rendered_emoji_aliases(line) else {
+    let Some(line) = line_with_rendered_static_markup(line) else {
         return Ok(None);
     };
 
     if line
         .nodes
         .iter()
-        .any(|node| matches!(node, OwnedLineNode::Math(_)))
+        .any(|node| matches!(node, RenderNode::Math(_)))
     {
         return try_typeset_mixed_metrics_text_line(source, &line, options, config);
     }
@@ -39,19 +41,39 @@ pub(crate) fn try_typeset_owned_text_line(
     try_typeset_plain_text_line(source, &line, options)
 }
 
-fn line_with_rendered_emoji_aliases(line: &OwnedLine) -> Option<OwnedLine> {
-    let mut nodes = Vec::new();
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RenderLine {
+    source: String,
+    nodes: Vec<RenderNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RenderNode {
+    Plain(OwnedPlainText),
+    DecoratedText(OwnedDecoratedText),
+    Math(OwnedMathSpan),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OwnedDecoratedText {
+    kind: OwnedTextSpanKind,
+    text: String,
+    byte_range: std::ops::Range<usize>,
+}
+
+fn line_with_rendered_static_markup(line: &OwnedLine) -> Option<RenderLine> {
+    let mut nodes: Vec<RenderNode> = Vec::new();
     let mut pending_plain = String::new();
     let mut pending_start = None;
     let mut pending_end = 0usize;
 
-    let flush_plain = |nodes: &mut Vec<OwnedLineNode>,
+    let flush_plain = |nodes: &mut Vec<RenderNode>,
                        pending_plain: &mut String,
                        pending_start: &mut Option<usize>,
                        pending_end: usize| {
         if let Some(start) = pending_start.take() {
             if !pending_plain.is_empty() {
-                nodes.push(OwnedLineNode::Plain(OwnedPlainText {
+                nodes.push(RenderNode::Plain(OwnedPlainText {
                     text: std::mem::take(pending_plain),
                     byte_range: start..pending_end,
                 }));
@@ -82,9 +104,25 @@ fn line_with_rendered_emoji_aliases(line: &OwnedLine) -> Option<OwnedLine> {
                     &mut pending_start,
                     pending_end,
                 );
-                nodes.push(OwnedLineNode::Math(math.clone()));
+                nodes.push(RenderNode::Math(math.clone()));
             }
-            OwnedLineNode::TextSpan(_) => return None,
+            OwnedLineNode::TextSpan(span) => {
+                let kind = supported_decoration_kind(span.kind)?;
+                let text = render_plain_static_body(&span.body)?;
+                flush_plain(
+                    &mut nodes,
+                    &mut pending_plain,
+                    &mut pending_start,
+                    pending_end,
+                );
+                if !text.is_empty() {
+                    nodes.push(RenderNode::DecoratedText(OwnedDecoratedText {
+                        kind,
+                        text,
+                        byte_range: span.body_range.clone(),
+                    }));
+                }
+            }
         }
     }
 
@@ -95,15 +133,37 @@ fn line_with_rendered_emoji_aliases(line: &OwnedLine) -> Option<OwnedLine> {
         pending_end,
     );
 
-    Some(OwnedLine {
+    Some(RenderLine {
         source: line.source.clone(),
         nodes,
     })
 }
 
-pub(crate) fn try_typeset_plain_text_line(
+fn supported_decoration_kind(kind: OwnedTextSpanKind) -> Option<OwnedTextSpanKind> {
+    match kind {
+        OwnedTextSpanKind::Underline
+        | OwnedTextSpanKind::Strike
+        | OwnedTextSpanKind::Overline
+        | OwnedTextSpanKind::Highlight => Some(kind),
+        OwnedTextSpanKind::Subscript | OwnedTextSpanKind::Superscript => None,
+    }
+}
+
+fn render_plain_static_body(nodes: &[OwnedLineNode]) -> Option<String> {
+    let mut text = String::new();
+    for node in nodes {
+        match node {
+            OwnedLineNode::Plain(plain) => text.push_str(&plain.text),
+            OwnedLineNode::Emoji(alias) => text.push_str(alias.emoji),
+            OwnedLineNode::Math(_) | OwnedLineNode::TextSpan(_) => return None,
+        }
+    }
+    Some(text)
+}
+
+fn try_typeset_plain_text_line(
     source: &str,
-    line: &OwnedLine,
+    line: &RenderLine,
     options: &TextLineOptions,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
     #[cfg(not(feature = "raster"))]
@@ -111,7 +171,7 @@ pub(crate) fn try_typeset_plain_text_line(
         return Ok(None);
     }
 
-    let [OwnedLineNode::Plain(plain)] = &line.nodes[..] else {
+    let [node] = &line.nodes[..] else {
         return Ok(None);
     };
 
@@ -119,12 +179,25 @@ pub(crate) fn try_typeset_plain_text_line(
         return Ok(None);
     };
 
-    typeset_plain_text_line(source, plain, options, face)
+    match node {
+        RenderNode::Plain(plain) => typeset_plain_text_line(source, plain, None, options, face),
+        RenderNode::DecoratedText(decorated) => typeset_plain_text_line(
+            source,
+            &OwnedPlainText {
+                text: decorated.text.clone(),
+                byte_range: decorated.byte_range.clone(),
+            },
+            Some(decorated.kind),
+            options,
+            face,
+        ),
+        RenderNode::Math(_) => Ok(None),
+    }
 }
 
 fn try_typeset_mixed_metrics_text_line(
     source: &str,
-    line: &OwnedLine,
+    line: &RenderLine,
     options: &TextLineOptions,
     config: &TypstEngineConfig,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
@@ -156,7 +229,7 @@ fn try_typeset_mixed_metrics_text_line(
 
     for node in &line.nodes {
         match node {
-            OwnedLineNode::Plain(plain) => {
+            RenderNode::Plain(plain) => {
                 if plain.text.is_empty() {
                     continue;
                 }
@@ -180,6 +253,7 @@ fn try_typeset_mixed_metrics_text_line(
                             metrics,
                             text_font_size,
                             options.text_style.fill,
+                            None,
                         )
                     });
                 let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
@@ -207,11 +281,82 @@ fn try_typeset_mixed_metrics_text_line(
                     byte_range: plain.byte_range.clone(),
                     metrics,
                     paths,
+                    positioned_paths: None,
                     pdf_text,
                     font_resources,
                 });
             }
-            OwnedLineNode::Math(span) => {
+            RenderNode::DecoratedText(decorated) => {
+                if decorated.text.is_empty() {
+                    continue;
+                }
+                let shaped = text_face.shaped_text(&decorated.text, text_font_size);
+                if shaped.has_missing_glyph
+                    && requires_delegate_for_missing_glyph_text(&decorated.text)
+                {
+                    return Ok(None);
+                }
+                let metrics = TypesetMetrics {
+                    width: shaped.metrics.width,
+                    height: shaped.metrics.height,
+                    baseline: shaped.metrics.ascent,
+                    ascent: shaped.metrics.ascent,
+                    descent: shaped.metrics.descent,
+                };
+                let paths =
+                    (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
+                        plain_path_artifact_from_shaped(
+                            &text_face,
+                            &shaped,
+                            metrics,
+                            text_font_size,
+                            options.text_style.fill,
+                            Some(decorated.kind),
+                        )
+                    });
+                let positioned_paths = options
+                    .outputs
+                    .positioned_runs
+                    .then(|| {
+                        decoration_path_artifact(
+                            decorated.kind,
+                            metrics,
+                            text_font_size,
+                            options.text_style.fill,
+                        )
+                    })
+                    .flatten();
+                let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
+                    let font_id = MathFontResourceId(0);
+                    (
+                        Some(plain_pdf_text_from_shaped(
+                            &decorated.text,
+                            &shaped,
+                            metrics,
+                            text_font_size,
+                            options.text_style.fill,
+                            font_id,
+                        )),
+                        vec![text_face.font_resource(font_id)],
+                    )
+                } else {
+                    (None, Vec::new())
+                };
+                width += metrics.width;
+                ascent = ascent.max(metrics.ascent);
+                descent = descent.max(metrics.descent);
+                run_parts.push(MixedRunPart {
+                    kind: PositionedTextLineRunKind::Plain,
+                    text: decorated.text.clone(),
+                    byte_range: decorated.byte_range.clone(),
+                    metrics,
+                    paths,
+                    positioned_paths,
+                    pdf_text,
+                    font_resources,
+                });
+            }
+            RenderNode::Math(span) => {
                 let math = parse_owned_math(&span.source, span.source_range.start)?;
                 let Some(artifact) = try_typeset_simple_row_fragment(&math, &math_options, config)?
                 else {
@@ -225,12 +370,12 @@ fn try_typeset_mixed_metrics_text_line(
                     text: span.source.clone(),
                     byte_range: span.source_range.clone(),
                     metrics: artifact.metrics,
+                    positioned_paths: artifact.paths.clone(),
                     paths: artifact.paths,
                     pdf_text: artifact.pdf_text,
                     font_resources: artifact.font_resources,
                 });
             }
-            OwnedLineNode::TextSpan(_) | OwnedLineNode::Emoji(_) => return Ok(None),
         }
     }
 
@@ -269,13 +414,9 @@ fn try_typeset_mixed_metrics_text_line(
             .iter()
             .map(|part| {
                 let dy = metrics.baseline - part.metrics.baseline;
-                let paths = matches!(part.kind, PositionedTextLineRunKind::Math)
-                    .then(|| {
-                        part.paths.clone().map(|paths| {
-                            offset_path_artifact(paths, x, dy, part.metrics.width, metrics.height)
-                        })
-                    })
-                    .flatten();
+                let paths = part.positioned_paths.clone().map(|paths| {
+                    offset_path_artifact(paths, x, dy, part.metrics.width, metrics.height)
+                });
                 let (pdf_text, font_resources) =
                     if matches!(part.kind, PositionedTextLineRunKind::Math) {
                         (
@@ -334,6 +475,7 @@ struct MixedRunPart {
     byte_range: std::ops::Range<usize>,
     metrics: TypesetMetrics,
     paths: Option<MathPathArtifact>,
+    positioned_paths: Option<MathPathArtifact>,
     pdf_text: Option<MathPdfTextLayer>,
     font_resources: Vec<MathFontResource>,
 }
@@ -344,36 +486,132 @@ fn plain_path_artifact_from_shaped(
     metrics: TypesetMetrics,
     font_size: f32,
     fill: crate::style::Color,
+    decoration: Option<OwnedTextSpanKind>,
 ) -> MathPathArtifact {
-    let items = shaped
-        .glyphs
-        .iter()
-        .enumerate()
-        .filter_map(|(glyph_index, glyph)| {
-            let path = outline_glyph_path(
-                &face.face,
-                glyph.glyph_id,
-                font_size,
-                glyph.x,
-                metrics.baseline + glyph.y,
-            );
-            (!path.commands.is_empty()).then(|| MathPathItem {
-                path,
-                kind: MathPathKind::GlyphOutline {
-                    glyph_run: 0,
-                    glyph_index,
-                },
-                fill: Some(fill),
-                stroke: None,
-                transform: MathTransform::IDENTITY,
-                clip: None,
-            })
-        })
-        .collect();
+    let mut items = Vec::new();
+    if matches!(decoration, Some(OwnedTextSpanKind::Highlight)) {
+        if let Some(highlight) =
+            decoration_path_item(OwnedTextSpanKind::Highlight, metrics, font_size, fill)
+        {
+            items.push(highlight);
+        }
+    }
+
+    items.extend(
+        shaped
+            .glyphs
+            .iter()
+            .enumerate()
+            .filter_map(|(glyph_index, glyph)| {
+                let path = outline_glyph_path(
+                    &face.face,
+                    glyph.glyph_id,
+                    font_size,
+                    glyph.x,
+                    metrics.baseline + glyph.y,
+                );
+                (!path.commands.is_empty()).then(|| MathPathItem {
+                    path,
+                    kind: MathPathKind::GlyphOutline {
+                        glyph_run: 0,
+                        glyph_index,
+                    },
+                    fill: Some(fill),
+                    stroke: None,
+                    transform: MathTransform::IDENTITY,
+                    clip: None,
+                })
+            }),
+    );
+
+    if let Some(
+        kind @ (OwnedTextSpanKind::Underline
+        | OwnedTextSpanKind::Strike
+        | OwnedTextSpanKind::Overline),
+    ) = decoration
+    {
+        if let Some(item) = decoration_path_item(kind, metrics, font_size, fill) {
+            items.push(item);
+        }
+    }
+
     MathPathArtifact {
         logical_width: metrics.width,
         logical_height: metrics.height,
         items,
+    }
+}
+
+fn decoration_path_artifact(
+    kind: OwnedTextSpanKind,
+    metrics: TypesetMetrics,
+    font_size: f32,
+    fill: crate::style::Color,
+) -> Option<MathPathArtifact> {
+    decoration_path_item(kind, metrics, font_size, fill).map(|item| MathPathArtifact {
+        logical_width: metrics.width,
+        logical_height: metrics.height,
+        items: vec![item],
+    })
+}
+
+fn decoration_path_item(
+    kind: OwnedTextSpanKind,
+    metrics: TypesetMetrics,
+    font_size: f32,
+    fill: crate::style::Color,
+) -> Option<MathPathItem> {
+    let thickness = (font_size * 0.06).max(0.5);
+    let item = match kind {
+        OwnedTextSpanKind::Highlight => MathPathItem {
+            path: MathPathData::rect(metrics.width, metrics.height),
+            kind: MathPathKind::MathShape,
+            fill: Some(crate::style::Color::rgba(1.0, 0.9, 0.25, 0.35)),
+            stroke: None,
+            transform: MathTransform::IDENTITY,
+            clip: None,
+        },
+        OwnedTextSpanKind::Underline => line_decoration_item(
+            metrics.width,
+            (metrics.baseline + thickness).min(metrics.height),
+            thickness,
+            fill,
+        ),
+        OwnedTextSpanKind::Strike => line_decoration_item(
+            metrics.width,
+            (metrics.baseline - font_size * 0.32).max(0.0),
+            thickness,
+            fill,
+        ),
+        OwnedTextSpanKind::Overline => {
+            line_decoration_item(metrics.width, thickness, thickness, fill)
+        }
+        OwnedTextSpanKind::Subscript | OwnedTextSpanKind::Superscript => return None,
+    };
+    Some(item)
+}
+
+fn line_decoration_item(
+    width: f32,
+    y: f32,
+    thickness: f32,
+    fill: crate::style::Color,
+) -> MathPathItem {
+    MathPathItem {
+        path: MathPathData {
+            commands: vec![
+                crate::paths::MathPathCommand::MoveTo { x: 0.0, y },
+                crate::paths::MathPathCommand::LineTo { x: width, y },
+            ],
+        },
+        kind: MathPathKind::MathShape,
+        fill: None,
+        stroke: Some(MathStroke {
+            color: fill,
+            width: thickness,
+        }),
+        transform: MathTransform::IDENTITY,
+        clip: None,
     }
 }
 
@@ -545,6 +783,7 @@ fn same_font_resource(a: &MathFontResource, b: &MathFontResource) -> bool {
 fn typeset_plain_text_line(
     source: &str,
     plain: &OwnedPlainText,
+    decoration: Option<OwnedTextSpanKind>,
     options: &TextLineOptions,
     face: OwnedTextFace<'_>,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
@@ -598,36 +837,14 @@ fn typeset_plain_text_line(
             .collect(),
     });
     let path_artifact = (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
-        let items = shaped
-            .glyphs
-            .iter()
-            .enumerate()
-            .filter_map(|(glyph_index, glyph)| {
-                let path = outline_glyph_path(
-                    &face.face,
-                    glyph.glyph_id,
-                    font_size,
-                    glyph.x,
-                    metrics.baseline + glyph.y,
-                );
-                (!path.commands.is_empty()).then(|| MathPathItem {
-                    path,
-                    kind: MathPathKind::GlyphOutline {
-                        glyph_run: 0,
-                        glyph_index,
-                    },
-                    fill: Some(options.text_style.fill),
-                    stroke: None,
-                    transform: MathTransform::IDENTITY,
-                    clip: None,
-                })
-            })
-            .collect();
-        MathPathArtifact {
-            logical_width: metrics.width,
-            logical_height: metrics.height,
-            items,
-        }
+        plain_path_artifact_from_shaped(
+            &face,
+            &shaped,
+            metrics,
+            font_size,
+            options.text_style.fill,
+            decoration,
+        )
     });
     let paths = options.outputs.paths.then(|| {
         path_artifact
@@ -641,6 +858,11 @@ fn typeset_plain_text_line(
     };
     #[cfg(not(feature = "raster"))]
     let raster = None;
+    let positioned_paths = options
+        .outputs
+        .positioned_runs
+        .then(|| decoration_path_artifact(decoration?, metrics, font_size, options.text_style.fill))
+        .flatten();
     let positioned_runs = options.outputs.positioned_runs.then(|| {
         vec![PositionedTextLineRun {
             kind: PositionedTextLineRunKind::Plain,
@@ -649,7 +871,7 @@ fn typeset_plain_text_line(
             x: 0.0,
             y: metrics.baseline,
             metrics,
-            paths: None,
+            paths: positioned_paths,
             pdf_text: None,
             font_resources: Vec::new(),
         }]
@@ -694,9 +916,14 @@ mod tests {
     use crate::owned::syntax::parse_owned_line;
     use crate::types::TextLineOutputRequest;
 
+    fn render_line(source: &str) -> RenderLine {
+        let line = parse_owned_line(source, &MathDelimiterOptions::default()).unwrap();
+        line_with_rendered_static_markup(&line).expect("test line should be renderable")
+    }
+
     #[test]
     fn plain_line_fast_path_returns_positioned_plain_run() {
-        let line = parse_owned_line("Hello", &MathDelimiterOptions::default()).unwrap();
+        let line = render_line("Hello");
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: false,
@@ -721,7 +948,7 @@ mod tests {
 
     #[test]
     fn plain_line_fast_path_can_emit_paths() {
-        let line = parse_owned_line("Hello", &MathDelimiterOptions::default()).unwrap();
+        let line = render_line("Hello");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
@@ -736,7 +963,7 @@ mod tests {
     #[cfg(not(feature = "raster"))]
     #[test]
     fn plain_line_fast_path_declines_raster_without_raster_feature() {
-        let line = parse_owned_line("Hello", &MathDelimiterOptions::default()).unwrap();
+        let line = render_line("Hello");
         let mut options = TextLineOptions::default();
         options.outputs.raster = Some(crate::raster::RasterRequest::default());
 
@@ -748,7 +975,7 @@ mod tests {
     #[cfg(feature = "raster")]
     #[test]
     fn plain_line_fast_path_can_emit_raster() {
-        let line = parse_owned_line("Hello", &MathDelimiterOptions::default()).unwrap();
+        let line = render_line("Hello");
         let mut options = TextLineOptions::default();
         options.outputs.paths = false;
         options.outputs.raster = Some(crate::raster::RasterRequest { scale: 2.0 });
@@ -766,7 +993,7 @@ mod tests {
 
     #[test]
     fn plain_line_fast_path_can_emit_non_rtl_missing_glyphs() {
-        let line = parse_owned_line("Revenue 🚀", &MathDelimiterOptions::default()).unwrap();
+        let line = render_line("Revenue 🚀");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
@@ -780,7 +1007,7 @@ mod tests {
 
     #[test]
     fn plain_line_fast_path_declines_rtl_missing_glyphs() {
-        let line = parse_owned_line("שלום", &MathDelimiterOptions::default()).unwrap();
+        let line = render_line("שלום");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
@@ -791,7 +1018,7 @@ mod tests {
 
     #[test]
     fn plain_line_fast_path_declines_zwj_missing_glyphs() {
-        let line = parse_owned_line("Family 👨‍👩‍👧‍👦", &MathDelimiterOptions::default()).unwrap();
+        let line = render_line("Family 👨‍👩‍👧‍👦");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
@@ -802,7 +1029,7 @@ mod tests {
 
     #[test]
     fn plain_line_fast_path_can_emit_pdf_glyph_metadata() {
-        let line = parse_owned_line("Hello", &MathDelimiterOptions::default()).unwrap();
+        let line = render_line("Hello");
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
             paths: false,
@@ -822,5 +1049,50 @@ mod tests {
         assert_eq!(pdf.glyph_runs[0].glyphs.len(), 5);
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert!(artifact.positioned_runs[0].pdf_text.is_none());
+    }
+
+    #[test]
+    fn decorated_plain_line_emits_text_and_decoration_paths() {
+        let line = render_line("#underline[important]");
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let artifact = try_typeset_plain_text_line("#underline[important]", &line, &options)
+            .unwrap()
+            .expect("supported static decoration should use fast path");
+
+        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert_eq!(artifact.positioned_runs[0].text, "important");
+        assert!(artifact.positioned_runs[0]
+            .paths
+            .as_ref()
+            .is_some_and(|paths| paths.items.len() == 1 && paths.items[0].stroke.is_some()));
+        assert!(artifact.paths.as_ref().is_some_and(|paths| {
+            paths
+                .items
+                .iter()
+                .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some())
+        }));
+        assert!(artifact.pdf_text.is_some());
+    }
+
+    #[test]
+    fn highlighted_plain_line_emits_background_before_glyphs() {
+        let line = render_line("#highlight[warning]");
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        let artifact = try_typeset_plain_text_line("#highlight[warning]", &line, &options)
+            .unwrap()
+            .expect("supported static highlight should use fast path");
+        let paths = artifact.paths.expect("highlight paths should exist");
+
+        assert!(matches!(paths.items[0].kind, MathPathKind::MathShape));
+        assert!(paths.items[0].fill.is_some());
     }
 }

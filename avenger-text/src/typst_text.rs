@@ -391,10 +391,15 @@ pub(crate) fn text_line_options(
     let mut math_style = math_style;
     math_style.font_size = font_size;
     math_style.fill = avenger_typst::Color::rgba(color[0], color[1], color[2], color[3]);
+    let font_family = if font.trim().is_empty() {
+        avenger_typst::PlainTextStyle::default().font_family
+    } else {
+        font.to_string()
+    };
 
     avenger_typst::TextLineOptions {
         text_style: avenger_typst::PlainTextStyle {
-            font_family: font.to_string(),
+            font_family,
             font_size,
             fill: avenger_typst::Color::rgba(color[0], color[1], color[2], color[3]),
             font_weight: typst_font_weight(font_weight),

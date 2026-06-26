@@ -396,6 +396,27 @@ impl TextPathExtractor for TypstTextPathExtractor {
         for run in result.artifact.positioned_runs {
             match run.kind {
                 avenger_typst::PositionedTextLineRunKind::Plain => {
+                    let mut after_text_items = Vec::new();
+                    if let Some(paths) = run.paths {
+                        for item in paths.items {
+                            let text_item = typst_path_item_to_text_path_item(
+                                item,
+                                run.byte_range.clone(),
+                                0.0,
+                                y_offset,
+                            );
+                            if text_item.fill.is_some() && text_item.stroke.is_none() {
+                                let path_index = output.items.len();
+                                output.items.push(text_item);
+                                output
+                                    .draw_items
+                                    .push(TextPathDrawItem::PathItem(path_index));
+                            } else {
+                                after_text_items.push(text_item);
+                            }
+                        }
+                    }
+
                     let run_bounds = tight_bounds_from_metrics(run.metrics);
                     let run_index = output.plain_runs.len();
                     output.plain_runs.push(PlainTextPathRun {
@@ -408,6 +429,13 @@ impl TextPathExtractor for TypstTextPathExtractor {
                     output
                         .draw_items
                         .push(TextPathDrawItem::PlainRun(run_index));
+                    for item in after_text_items {
+                        let path_index = output.items.len();
+                        output.items.push(item);
+                        output
+                            .draw_items
+                            .push(TextPathDrawItem::PathItem(path_index));
+                    }
                 }
                 avenger_typst::PositionedTextLineRunKind::Math => {
                     let paths = run.paths.ok_or_else(|| {
@@ -592,5 +620,28 @@ mod tests {
             .iter()
             .skip(1)
             .all(|item| matches!(item, TextPathDrawItem::PathItem(_))));
+    }
+
+    #[cfg(feature = "typst-text")]
+    #[test]
+    fn typst_text_extractor_returns_plain_runs_and_static_decoration_paths() {
+        let typst = avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
+            backend: avenger_typst::TypstEngineBackend::OwnedTypst,
+            ..Default::default()
+        })
+        .unwrap();
+        let extractor = TypstTextPathExtractor::new(typst, math_config());
+        let text = "#underline[important]".to_string();
+        let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
+
+        assert_eq!(buffer.plain_runs.len(), 1);
+        assert_eq!(buffer.plain_runs[0].text, "important");
+        assert_eq!(buffer.items.len(), 1);
+        assert_eq!(buffer.items[0].kind, TextPathKind::MathShape);
+        assert!(buffer.items[0].stroke.is_some());
+        assert!(matches!(
+            buffer.draw_items.as_slice(),
+            [TextPathDrawItem::PlainRun(0), TextPathDrawItem::PathItem(0)]
+        ));
     }
 }

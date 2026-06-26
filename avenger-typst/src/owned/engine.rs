@@ -308,14 +308,34 @@ mod tests {
     }
 
     #[test]
+    fn supported_static_decoration_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let artifact = engine
+            .typeset_text_line("#underline[important]", &options)
+            .unwrap();
+
+        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert_eq!(artifact.positioned_runs[0].text, "important");
+        assert!(artifact.positioned_runs[0].paths.is_some());
+        assert!(artifact.pdf_text.is_some());
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
     fn parsed_but_unrendered_static_markup_errors_without_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = false;
 
-        let err = engine
-            .typeset_text_line("#underline[important]", &options)
-            .unwrap_err();
+        let err = engine.typeset_text_line("#sub[n]", &options).unwrap_err();
 
         assert_eq!(
             err,
