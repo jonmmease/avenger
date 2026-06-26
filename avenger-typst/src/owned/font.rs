@@ -1,13 +1,37 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use crate::error::MathTypesetError;
 use crate::fonts::{EmbeddedFontFace, ATKINSON_FACES};
+use crate::paths::MathPathData;
 use crate::pdf::{MathFontResource, MathFontResourceId};
 use crate::style::{FontStyle, FontWeight, PlainTextStyle};
 
-pub(crate) struct OwnedTextFace<'a> {
-    pub(crate) face: ttf_parser::Face<'a>,
-    data: &'a [u8],
+#[derive(Clone)]
+pub(crate) struct OwnedTextFace {
+    data: OwnedTextFontData,
+    face_index: u32,
+}
+
+#[derive(Clone)]
+enum OwnedTextFontData {
+    Static(&'static [u8]),
+    Shared(Arc<[u8]>),
+}
+
+impl OwnedTextFontData {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Static(data) => data,
+            Self::Shared(data) => data.as_ref(),
+        }
+    }
+
+    fn resource_data(&self) -> Arc<[u8]> {
+        match self {
+            Self::Static(data) => Arc::<[u8]>::from(*data),
+            Self::Shared(data) => data.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -42,42 +66,42 @@ pub(crate) struct OwnedFontMetrics {
     pub(crate) height: f32,
 }
 
-impl<'a> OwnedTextFace<'a> {
+impl OwnedTextFace {
     pub(crate) fn for_plain_style(
         style: &PlainTextStyle,
     ) -> Result<Option<Self>, MathTypesetError> {
-        if !resolves_to_embedded_atkinson(&style.font_family) {
-            return Ok(None);
+        if resolves_to_embedded_atkinson(&style.font_family) {
+            return embedded_atkinson_face(style);
         }
 
-        let face = select_atkinson_face(&style.font_weight, style.font_style).ok_or(
-            MathTypesetError::UnsupportedOutput(
-                "owned plain text requires an embedded Atkinson face",
-            ),
-        )?;
-        let parsed =
-            ttf_parser::Face::parse(face.data, 0).map_err(|_| MathTypesetError::Engine {
-                start: 0,
-                end: 0,
-                message: format!("failed to parse embedded font {}", face.name),
-            })?;
+        Ok(fontdb_face_for_style_and_text(style, ""))
+    }
 
-        Ok(Some(Self {
-            face: parsed,
-            data: face.data,
-        }))
+    pub(crate) fn for_plain_style_and_text(
+        style: &PlainTextStyle,
+        text: &str,
+    ) -> Result<Option<Self>, MathTypesetError> {
+        if let Some(primary) = Self::for_plain_style(style)? {
+            if !primary.shaped_text(text, style.font_size).has_missing_glyph {
+                return Ok(Some(primary));
+            }
+            return Ok(Some(primary));
+        }
+
+        Ok(fontdb_face_for_style_and_text(style, text))
     }
 
     pub(crate) fn default_text_edge_metrics(&self, font_size: f32) -> OwnedFontMetrics {
-        let scale = font_scale(&self.face, font_size);
-        let cap_height = self
-            .face
+        let Some(face) = self.parsed_face() else {
+            return fallback_metrics(font_size);
+        };
+        let scale = font_scale(&face, font_size);
+        let cap_height = face
             .capital_height()
             .filter(|height| *height > 0)
             .unwrap_or_else(|| {
-                self.face
-                    .typographic_ascender()
-                    .unwrap_or_else(|| self.face.ascender())
+                face.typographic_ascender()
+                    .unwrap_or_else(|| face.ascender())
             })
             .max(0) as f32
             * scale;
@@ -100,23 +124,16 @@ impl<'a> OwnedTextFace<'a> {
         features: &[rustybuzz::Feature],
     ) -> OwnedShapedText {
         let edge_metrics = self.default_text_edge_metrics(font_size);
-        let Some(face) = rustybuzz::Face::from_slice(self.data, 0) else {
-            let fallback = fallback_width(text, font_size);
-            return OwnedShapedText {
-                metrics: OwnedShapedMetrics {
-                    width: fallback,
-                    ascent: edge_metrics.ascent,
-                    descent: edge_metrics.descent,
-                    height: edge_metrics.height,
-                },
-                glyphs: Vec::new(),
-                has_missing_glyph: true,
-            };
+        let Some(face) = self.parsed_face() else {
+            return fallback_shaped_text(text, font_size, edge_metrics);
+        };
+        let Some(rusty) = rustybuzz::Face::from_slice(self.data.as_slice(), self.face_index) else {
+            return fallback_shaped_text(text, font_size, edge_metrics);
         };
         let mut buffer = rustybuzz::UnicodeBuffer::new();
         buffer.push_str(text);
-        let glyphs = rustybuzz::shape(&face, features, buffer);
-        let scale = font_scale(&self.face, font_size);
+        let glyphs = rustybuzz::shape(&rusty, features, buffer);
+        let scale = font_scale(&face, font_size);
         let mut cursor_x = 0i32;
         let mut cursor_y = 0i32;
         let mut advance_width = 0i32;
@@ -157,10 +174,16 @@ impl<'a> OwnedTextFace<'a> {
         parent_style: &PlainTextStyle,
         script: OwnedTextScript,
     ) -> PlainTextStyle {
-        let scale = font_scale(&self.face, parent_style.font_size.max(1.0));
+        let Some(face) = self.parsed_face() else {
+            return PlainTextStyle {
+                font_size: parent_style.font_size.max(1.0) * 0.7,
+                ..parent_style.clone()
+            };
+        };
+        let scale = font_scale(&face, parent_style.font_size.max(1.0));
         let metrics = match script {
-            OwnedTextScript::Subscript => self.face.subscript_metrics(),
-            OwnedTextScript::Superscript => self.face.superscript_metrics(),
+            OwnedTextScript::Subscript => face.subscript_metrics(),
+            OwnedTextScript::Superscript => face.superscript_metrics(),
         };
         let font_size = metrics
             .and_then(|metrics| (metrics.y_size > 0).then_some(metrics.y_size as f32 * scale))
@@ -178,10 +201,13 @@ impl<'a> OwnedTextFace<'a> {
         parent_font_size: f32,
         script: OwnedTextScript,
     ) -> f32 {
-        let scale = font_scale(&self.face, parent_font_size.max(1.0));
+        let Some(face) = self.parsed_face() else {
+            return fallback_script_shift(parent_font_size, script);
+        };
+        let scale = font_scale(&face, parent_font_size.max(1.0));
         let metrics = match script {
-            OwnedTextScript::Subscript => self.face.subscript_metrics(),
-            OwnedTextScript::Superscript => self.face.superscript_metrics(),
+            OwnedTextScript::Subscript => face.subscript_metrics(),
+            OwnedTextScript::Superscript => face.superscript_metrics(),
         };
         metrics
             .map(|metrics| {
@@ -191,23 +217,50 @@ impl<'a> OwnedTextFace<'a> {
                     OwnedTextScript::Superscript => -offset.abs(),
                 }
             })
-            .unwrap_or_else(|| match script {
-                OwnedTextScript::Subscript => parent_font_size.max(1.0) * 0.2,
-                OwnedTextScript::Superscript => -parent_font_size.max(1.0) * 0.35,
-            })
+            .unwrap_or_else(|| fallback_script_shift(parent_font_size, script))
+    }
+
+    pub(crate) fn outline_glyph_path(
+        &self,
+        glyph_id: ttf_parser::GlyphId,
+        font_size: f32,
+        x: f32,
+        y: f32,
+    ) -> MathPathData {
+        let Some(face) = self.parsed_face() else {
+            return MathPathData {
+                commands: Vec::new(),
+            };
+        };
+        super::glyph_path::outline_glyph_path(&face, glyph_id, font_size, x, y)
     }
 
     pub(crate) fn font_resource(&self, id: MathFontResourceId) -> MathFontResource {
+        let face = self.parsed_face();
         MathFontResource {
             id,
-            family: font_name(&self.face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
-                .or_else(|| font_name(&self.face, ttf_parser::name_id::FAMILY))
+            family: face
+                .as_ref()
+                .and_then(|face| font_name(face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY))
+                .or_else(|| {
+                    face.as_ref()
+                        .and_then(|face| font_name(face, ttf_parser::name_id::FAMILY))
+                })
                 .unwrap_or_else(|| "Unknown".to_string()),
-            postscript_name: font_name(&self.face, ttf_parser::name_id::POST_SCRIPT_NAME),
-            face_index: 0,
-            units_per_em: self.face.units_per_em() as f32,
-            data: Arc::<[u8]>::from(self.data),
+            postscript_name: face
+                .as_ref()
+                .and_then(|face| font_name(face, ttf_parser::name_id::POST_SCRIPT_NAME)),
+            face_index: self.face_index,
+            units_per_em: face
+                .as_ref()
+                .map(|face| face.units_per_em() as f32)
+                .unwrap_or(1000.0),
+            data: self.data.resource_data(),
         }
+    }
+
+    fn parsed_face(&self) -> Option<ttf_parser::Face<'_>> {
+        ttf_parser::Face::parse(self.data.as_slice(), self.face_index).ok()
     }
 }
 
@@ -215,6 +268,138 @@ impl<'a> OwnedTextFace<'a> {
 pub(crate) enum OwnedTextScript {
     Subscript,
     Superscript,
+}
+
+static FONTDB: LazyLock<fontdb::Database> = LazyLock::new(|| {
+    let mut db = fontdb::Database::new();
+    for face in ATKINSON_FACES {
+        db.load_font_data(face.data.to_vec());
+    }
+    db.set_sans_serif_family("Atkinson Hyperlegible Next");
+    db.load_system_fonts();
+    db
+});
+
+fn embedded_atkinson_face(
+    style: &PlainTextStyle,
+) -> Result<Option<OwnedTextFace>, MathTypesetError> {
+    let face = select_atkinson_face(&style.font_weight, style.font_style).ok_or(
+        MathTypesetError::UnsupportedOutput("owned plain text requires an embedded Atkinson face"),
+    )?;
+    ttf_parser::Face::parse(face.data, 0).map_err(|_| MathTypesetError::Engine {
+        start: 0,
+        end: 0,
+        message: format!("failed to parse embedded font {}", face.name),
+    })?;
+
+    Ok(Some(OwnedTextFace {
+        data: OwnedTextFontData::Static(face.data),
+        face_index: 0,
+    }))
+}
+
+fn fontdb_face_for_style_and_text(style: &PlainTextStyle, text: &str) -> Option<OwnedTextFace> {
+    let db = &*FONTDB;
+    let query = fontdb::Query {
+        families: &fontdb_families(&style.font_family),
+        weight: fontdb::Weight(font_weight_number(&style.font_weight)),
+        stretch: fontdb::Stretch::Normal,
+        style: fontdb_style(style.font_style),
+    };
+
+    if let Some(face) = db
+        .query(&query)
+        .and_then(|id| load_fontdb_face(db, id))
+        .filter(|face| {
+            text.is_empty() || !face.shaped_text(text, style.font_size).has_missing_glyph
+        })
+    {
+        return Some(face);
+    }
+
+    if text.is_empty() {
+        return None;
+    }
+
+    db.faces()
+        .filter(|info| info.style == fontdb_style(style.font_style))
+        .filter_map(|info| load_fontdb_face(db, info.id))
+        .find(|face| !face.shaped_text(text, style.font_size).has_missing_glyph)
+}
+
+fn load_fontdb_face(db: &fontdb::Database, id: fontdb::ID) -> Option<OwnedTextFace> {
+    db.with_face_data(id, |data, face_index| {
+        ttf_parser::Face::parse(data, face_index).ok()?;
+        Some(OwnedTextFace {
+            data: OwnedTextFontData::Shared(Arc::<[u8]>::from(data)),
+            face_index,
+        })
+    })?
+}
+
+fn fontdb_families(font_family: &str) -> Vec<fontdb::Family<'_>> {
+    let mut families = Vec::new();
+    for family in font_family.split(',') {
+        let family = family.trim().trim_matches('"').trim_matches('\'');
+        if family.is_empty() {
+            continue;
+        }
+        let generic = match family.to_ascii_lowercase().as_str() {
+            "sans-serif" | "sans serif" => Some(fontdb::Family::SansSerif),
+            "serif" => Some(fontdb::Family::Serif),
+            "monospace" => Some(fontdb::Family::Monospace),
+            "cursive" => Some(fontdb::Family::Cursive),
+            "fantasy" => Some(fontdb::Family::Fantasy),
+            _ => None,
+        };
+        families.push(generic.unwrap_or(fontdb::Family::Name(family)));
+    }
+    if families.is_empty() {
+        families.push(fontdb::Family::SansSerif);
+    }
+    families
+}
+
+fn fontdb_style(style: FontStyle) -> fontdb::Style {
+    match style {
+        FontStyle::Normal => fontdb::Style::Normal,
+        FontStyle::Italic => fontdb::Style::Italic,
+        FontStyle::Oblique => fontdb::Style::Oblique,
+    }
+}
+
+fn fallback_shaped_text(
+    text: &str,
+    font_size: f32,
+    edge_metrics: OwnedFontMetrics,
+) -> OwnedShapedText {
+    let fallback = fallback_width(text, font_size);
+    OwnedShapedText {
+        metrics: OwnedShapedMetrics {
+            width: fallback,
+            ascent: edge_metrics.ascent,
+            descent: edge_metrics.descent,
+            height: edge_metrics.height,
+        },
+        glyphs: Vec::new(),
+        has_missing_glyph: true,
+    }
+}
+
+fn fallback_metrics(font_size: f32) -> OwnedFontMetrics {
+    let font_size = font_size.max(1.0);
+    OwnedFontMetrics {
+        ascent: font_size * 0.8,
+        descent: font_size * 0.2,
+        height: font_size,
+    }
+}
+
+fn fallback_script_shift(parent_font_size: f32, script: OwnedTextScript) -> f32 {
+    match script {
+        OwnedTextScript::Subscript => parent_font_size.max(1.0) * 0.2,
+        OwnedTextScript::Superscript => -parent_font_size.max(1.0) * 0.35,
+    }
 }
 
 fn glyph_unicode_for_cluster(text: &str, cluster: u32) -> String {
@@ -292,12 +477,29 @@ mod tests {
     }
 
     #[test]
-    fn declines_non_atkinson_fonts_for_fast_path() {
+    fn can_resolve_fontdb_fallback_for_non_atkinson_family() {
         let style = PlainTextStyle {
             font_family: "serif".to_string(),
             ..PlainTextStyle::default()
         };
 
-        assert!(OwnedTextFace::for_plain_style(&style).unwrap().is_none());
+        let Some(face) = OwnedTextFace::for_plain_style_and_text(&style, "Hello").unwrap() else {
+            return;
+        };
+
+        assert!(face.shaped_text("Hello", 12.0).metrics.width > 0.0);
+    }
+
+    #[test]
+    fn keeps_atkinson_fast_path_for_default_sans_serif() {
+        let style = PlainTextStyle::default();
+        let face = OwnedTextFace::for_plain_style_and_text(&style, "Hello")
+            .unwrap()
+            .expect("default sans-serif should resolve");
+
+        assert_eq!(
+            face.font_resource(MathFontResourceId(0)).family,
+            "Atkinson Hyperlegible Next"
+        );
     }
 }

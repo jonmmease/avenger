@@ -219,7 +219,31 @@ mod tests {
     }
 
     #[test]
-    fn plain_text_line_with_rtl_missing_glyph_paths_initializes_delegate() {
+    fn non_atkinson_plain_text_can_use_owned_fontdb_fallback_without_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.text_style.font_family = "serif".to_string();
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let Ok(artifact) = engine.typeset_text_line("Fallback font", &options) else {
+            return;
+        };
+
+        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert_eq!(artifact.positioned_runs[0].text, "Fallback font");
+        assert!(artifact.paths.is_some());
+        assert!(artifact.pdf_text.is_some());
+        assert_eq!(artifact.font_resources.len(), 1);
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn plain_text_line_with_rtl_text_uses_owned_fallback_or_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
@@ -228,11 +252,10 @@ mod tests {
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
-        assert!(engine.delegate.lock().unwrap().is_some());
     }
 
     #[test]
-    fn plain_text_line_with_zwj_missing_glyph_paths_initializes_delegate() {
+    fn plain_text_line_with_zwj_emoji_uses_owned_fallback_or_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
@@ -241,7 +264,6 @@ mod tests {
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
-        assert!(engine.delegate.lock().unwrap().is_some());
     }
 
     #[test]

@@ -279,6 +279,7 @@ Progress:
 - [x] Extend the owned math fragment path from simple-row metrics/paths/raster/PDF metadata to scripts, fractions, roots, delimiters, grouped expressions, and text operators for the currently supported single-line subset.
 - [x] Add owned mixed plain-text/math line metrics and positioned-run output for supported Atkinson + simple-math labels, including escaped-dollar source ranges and math positioned-run path artifacts, while delegating full-line paths/raster/PDF for now.
 - [x] Extend owned mixed plain-text/math lines from metrics/positioned-run output to full-line paths, raster output, PDF text metadata, and font-resource merging.
+- [x] Add initial owned `fontdb` face selection for non-Atkinson plain text, including path/PDF font-resource support while preserving Atkinson as the fast default face and current default missing-glyph behavior.
 - [ ] Extend the owned plain text line path from Atkinson-only shaping to fallback fonts, bidi, emoji, and complex-script segmentation.
 - [x] Keep simple non-RTL, non-ZWJ missing-glyph plain text and static named emoji aliases on the owned path as Atkinson glyph-0/tofu output, matching the current vendored behavior until real fallback fonts, bidi, and color/ZWJ emoji are implemented.
 

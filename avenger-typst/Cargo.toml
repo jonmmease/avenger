@@ -7,6 +7,7 @@ edition = "2021"
 default = []
 vendor-typst = [
     "dep:comemo",
+    "dep:fontdb",
     "dep:rustybuzz",
     "dep:ttf-parser",
     "dep:typst-layout",
@@ -21,6 +22,7 @@ serde = ["dep:serde"]
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
 comemo = { version = "0.5.1", optional = true }
+fontdb = { workspace = true, optional = true }
 rustybuzz = { workspace = true, optional = true }
 ttf-parser = { workspace = true, optional = true }
 tiny-skia = { workspace = true, optional = true }

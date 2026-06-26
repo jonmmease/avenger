@@ -17,7 +17,6 @@ use crate::warnings::MathTypesetWarning;
 
 use super::ast::{OwnedLine, OwnedLineNode, OwnedMathSpan, OwnedPlainText, OwnedTextSpanKind};
 use super::font::{OwnedShapedText, OwnedTextFace, OwnedTextScript};
-use super::glyph_path::outline_glyph_path;
 use super::math::metrics::try_typeset_simple_row_fragment;
 use super::math::syntax::parse_owned_math;
 
@@ -183,22 +182,32 @@ fn try_typeset_plain_text_line(
         return Ok(None);
     };
 
-    let Some(face) = OwnedTextFace::for_plain_style(&options.text_style)? else {
-        return Ok(None);
-    };
-
     match node {
-        RenderNode::Plain(plain) => typeset_plain_text_line(source, plain, None, options, face),
-        RenderNode::DecoratedText(decorated) => typeset_plain_text_line(
-            source,
-            &OwnedPlainText {
-                text: decorated.text.clone(),
-                byte_range: decorated.byte_range.clone(),
-            },
-            Some(decorated.kind),
-            options,
-            face,
-        ),
+        RenderNode::Plain(plain) => {
+            let Some(face) =
+                OwnedTextFace::for_plain_style_and_text(&options.text_style, &plain.text)?
+            else {
+                return Ok(None);
+            };
+            typeset_plain_text_line(source, plain, None, options, face)
+        }
+        RenderNode::DecoratedText(decorated) => {
+            let Some(face) =
+                OwnedTextFace::for_plain_style_and_text(&options.text_style, &decorated.text)?
+            else {
+                return Ok(None);
+            };
+            typeset_plain_text_line(
+                source,
+                &OwnedPlainText {
+                    text: decorated.text.clone(),
+                    byte_range: decorated.byte_range.clone(),
+                },
+                Some(decorated.kind),
+                options,
+                face,
+            )
+        }
         RenderNode::Math(_) => Ok(None),
     }
 }
@@ -214,9 +223,6 @@ fn try_typeset_mixed_metrics_text_line(
         return Ok(None);
     }
 
-    let Some(text_face) = OwnedTextFace::for_plain_style(&options.text_style)? else {
-        return Ok(None);
-    };
     let text_font_size = options.text_style.font_size.max(1.0);
     let math_options = MathFragmentOptions {
         style: options.math_style.clone(),
@@ -241,6 +247,11 @@ fn try_typeset_mixed_metrics_text_line(
                 if plain.text.is_empty() {
                     continue;
                 }
+                let Some(text_face) =
+                    OwnedTextFace::for_plain_style_and_text(&options.text_style, &plain.text)?
+                else {
+                    return Ok(None);
+                };
                 let shaped = text_face.shaped_text(&plain.text, text_font_size);
                 if shaped.has_missing_glyph && requires_delegate_for_missing_glyph_text(&plain.text)
                 {
@@ -303,6 +314,11 @@ fn try_typeset_mixed_metrics_text_line(
                     continue;
                 }
                 let script = text_script_for_kind(decorated.kind);
+                let Some(text_face) =
+                    OwnedTextFace::for_plain_style_and_text(&options.text_style, &decorated.text)?
+                else {
+                    return Ok(None);
+                };
                 let run_style =
                     text_style_for_decorated_run(&text_face, &options.text_style, decorated.kind);
                 let run_font_size = run_style.font_size.max(1.0);
@@ -516,7 +532,7 @@ fn text_script_for_kind(kind: OwnedTextSpanKind) -> Option<OwnedTextScript> {
 }
 
 fn text_style_for_decorated_run(
-    face: &OwnedTextFace<'_>,
+    face: &OwnedTextFace,
     style: &PlainTextStyle,
     kind: OwnedTextSpanKind,
 ) -> PlainTextStyle {
@@ -526,7 +542,7 @@ fn text_style_for_decorated_run(
 }
 
 fn shape_text_for_static_run(
-    face: &OwnedTextFace<'_>,
+    face: &OwnedTextFace,
     text: &str,
     font_size: f32,
     script: Option<OwnedTextScript>,
@@ -574,7 +590,7 @@ fn shifted_text_metrics(shaped: &OwnedShapedText, baseline_shift: f32) -> Typese
 }
 
 fn plain_path_artifact_from_shaped(
-    face: &OwnedTextFace<'_>,
+    face: &OwnedTextFace,
     shaped: &OwnedShapedText,
     metrics: TypesetMetrics,
     glyph_baseline_y: f32,
@@ -597,8 +613,7 @@ fn plain_path_artifact_from_shaped(
             .iter()
             .enumerate()
             .filter_map(|(glyph_index, glyph)| {
-                let path = outline_glyph_path(
-                    &face.face,
+                let path = face.outline_glyph_path(
                     glyph.glyph_id,
                     font_size,
                     glyph.x,
@@ -875,7 +890,7 @@ fn typeset_plain_text_line(
     plain: &OwnedPlainText,
     decoration: Option<OwnedTextSpanKind>,
     options: &TextLineOptions,
-    face: OwnedTextFace<'_>,
+    face: OwnedTextFace,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
     let font_size = options.text_style.font_size.max(1.0);
     let shaped = face.shaped_text(&plain.text, font_size);
@@ -1078,25 +1093,28 @@ mod tests {
     }
 
     #[test]
-    fn plain_line_fast_path_declines_rtl_missing_glyphs() {
+    fn plain_line_fast_path_handles_rtl_with_fallback_when_available() {
         let line = render_line("שלום");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
-        assert!(try_typeset_plain_text_line("שלום", &line, &options)
-            .unwrap()
-            .is_none());
+        if let Some(artifact) = try_typeset_plain_text_line("שלום", &line, &options).unwrap() {
+            assert!(artifact.metrics.width > 0.0);
+            assert!(artifact.paths.is_some());
+        }
     }
 
     #[test]
-    fn plain_line_fast_path_declines_zwj_missing_glyphs() {
+    fn plain_line_fast_path_handles_zwj_with_fallback_when_available() {
         let line = render_line("Family 👨‍👩‍👧‍👦");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
-        assert!(try_typeset_plain_text_line("Family 👨‍👩‍👧‍👦", &line, &options)
-            .unwrap()
-            .is_none());
+        if let Some(artifact) = try_typeset_plain_text_line("Family 👨‍👩‍👧‍👦", &line, &options).unwrap()
+        {
+            assert!(artifact.metrics.width > 0.0);
+            assert!(artifact.paths.is_some());
+        }
     }
 
     #[test]
