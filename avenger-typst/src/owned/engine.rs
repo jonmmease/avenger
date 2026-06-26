@@ -319,6 +319,25 @@ mod tests {
         assert!(!engine.delegate.lock().unwrap().is_some());
     }
 
+    #[test]
+    fn simple_row_math_fragment_pdf_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact = engine
+            .typeset_fragment("alpha + beta -> gamma", &options)
+            .unwrap();
+
+        assert!(artifact.pdf_text.is_some());
+        assert_eq!(artifact.font_resources.len(), 1);
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
     #[cfg(feature = "raster")]
     #[test]
     fn simple_row_math_fragment_raster_uses_owned_fast_path_without_initializing_delegate() {

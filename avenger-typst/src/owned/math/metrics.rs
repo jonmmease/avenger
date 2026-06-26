@@ -1,7 +1,12 @@
+use std::sync::Arc;
+
 use crate::api::TypstEngineConfig;
 use crate::error::MathTypesetError;
 use crate::paths::{
     MathPathArtifact, MathPathCommand, MathPathData, MathPathItem, MathPathKind, MathTransform,
+};
+use crate::pdf::{
+    MathFontResource, MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer,
 };
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
@@ -18,9 +23,6 @@ pub(crate) fn try_typeset_simple_row_fragment(
     options: &MathFragmentOptions,
     config: &TypstEngineConfig,
 ) -> Result<Option<MathRunArtifact>, MathTypesetError> {
-    if options.outputs.pdf_text_layer {
-        return Ok(None);
-    }
     #[cfg(not(feature = "raster"))]
     if options.outputs.raster.is_some() {
         return Ok(None);
@@ -60,13 +62,19 @@ pub(crate) fn try_typeset_simple_row_fragment(
             .clone()
             .expect("path artifact should be available for path requests")
     });
+    let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
+        let artifact = pdf_text_from_simple_row(&font, &layout, &math.source, options.style.fill)?;
+        (Some(artifact.text_layer), artifact.font_resources)
+    } else {
+        (None, Vec::new())
+    };
 
     Ok(Some(MathRunArtifact {
         metrics: layout.metrics,
         paths,
         raster,
-        pdf_text: None,
-        font_resources: Vec::new(),
+        pdf_text,
+        font_resources,
         warnings: Vec::new(),
     }))
 }
@@ -92,7 +100,14 @@ struct LaidOutSimpleAtom {
 #[derive(Debug, Clone)]
 struct LaidOutGlyph {
     glyph_id: ttf_parser::GlyphId,
+    unicode: String,
     x: f32,
+    x_advance: f32,
+}
+
+struct OwnedPdfArtifact {
+    text_layer: MathPdfTextLayer,
+    font_resources: Vec<MathFontResource>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -402,13 +417,16 @@ fn layout_styled_atom(
             continue;
         };
         let glyph_id = ttf_parser::GlyphId(info.glyph_id as u16);
-        width += position.x_advance;
+        let mut advance = position.x_advance;
         if !is_extended_shape(&face, glyph_id) {
-            width += italic_correction(&face, glyph_id).unwrap_or_default() as i32;
+            advance += italic_correction(&face, glyph_id).unwrap_or_default() as i32;
         }
+        width += advance;
         glyphs.push(LaidOutGlyph {
             glyph_id,
+            unicode: ch.to_string(),
             x: glyph_x,
+            x_advance: advance as f32 * scale,
         });
         if let Some(bounds) = face.glyph_bounding_box(glyph_id) {
             glyph_ascent = glyph_ascent.max(bounds.y_max);
@@ -430,6 +448,75 @@ fn layout_styled_atom(
         },
         glyphs,
     })
+}
+
+fn pdf_text_from_simple_row(
+    font: &OwnedMathFont,
+    layout: &SimpleRowLayout,
+    source: &str,
+    fill: crate::style::Color,
+) -> Result<OwnedPdfArtifact, MathTypesetError> {
+    let face = ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| {
+        MathTypesetError::Engine {
+            start: 0,
+            end: source.len(),
+            message: "failed to parse owned math font for PDF glyph output".to_string(),
+        }
+    })?;
+    let font_id = MathFontResourceId(0);
+    let font_resources = vec![MathFontResource {
+        id: font_id,
+        family: font_name(&face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
+            .or_else(|| font_name(&face, ttf_parser::name_id::FAMILY))
+            .unwrap_or_else(|| "Unknown".to_string()),
+        postscript_name: font_name(&face, ttf_parser::name_id::POST_SCRIPT_NAME),
+        face_index: font.face_index,
+        units_per_em: face.units_per_em() as f32,
+        data: Arc::<[u8]>::from(font.data.clone()),
+    }];
+
+    let mut glyph_runs = Vec::new();
+    for atom in &layout.atoms {
+        for glyph in &atom.glyphs {
+            glyph_runs.push(MathPdfGlyphRun {
+                font: font_id,
+                font_size: layout.metrics.ascent / face.capital_height().unwrap_or(1).max(1) as f32
+                    * face.units_per_em() as f32,
+                fill,
+                stroke: None,
+                glyphs: vec![MathPdfGlyph {
+                    glyph_id: glyph.glyph_id.0,
+                    unicode: glyph.unicode.clone(),
+                    x: 0.0,
+                    y: 0.0,
+                    x_advance: glyph.x_advance,
+                    y_advance: 0.0,
+                    transform: MathTransform {
+                        dx: atom.x + glyph.x,
+                        dy: layout.metrics.baseline,
+                        ..MathTransform::IDENTITY
+                    },
+                }],
+            });
+        }
+    }
+
+    Ok(OwnedPdfArtifact {
+        text_layer: MathPdfTextLayer {
+            logical_width: layout.metrics.width,
+            logical_height: layout.metrics.height,
+            semantic_text: source.to_string(),
+            glyph_runs,
+        },
+        font_resources,
+    })
+}
+
+fn font_name(face: &ttf_parser::Face<'_>, name_id: u16) -> Option<String> {
+    face.names()
+        .into_iter()
+        .find(|name| name.name_id == name_id && name.is_unicode())
+        .and_then(|name| name.to_string())
 }
 
 fn italic_correction(face: &ttf_parser::Face<'_>, glyph_id: ttf_parser::GlyphId) -> Option<i16> {
@@ -578,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn atom_fragment_declines_pdf_outputs() {
+    fn atom_fragment_can_emit_pdf_glyph_metadata() {
         let math = parse_owned_math("1", 0).unwrap();
         let mut options = MathFragmentOptions::default();
 
@@ -591,7 +678,11 @@ mod tests {
         assert!(
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .is_none()
+                .is_some_and(|artifact| artifact
+                    .pdf_text
+                    .as_ref()
+                    .is_some_and(|pdf| pdf.glyph_runs.len() == 1)
+                    && artifact.font_resources.len() == 1)
         );
     }
 
