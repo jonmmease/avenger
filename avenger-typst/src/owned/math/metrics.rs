@@ -366,6 +366,9 @@ fn layout_simple_node(
         if let Some((left, right)) = delimiter_call_chars(&call.name) {
             return layout_simple_delimited_call(font, call, left, right, font_size, script_level);
         }
+        if call.name == "lr" {
+            return layout_simple_lr_call(font, call, font_size, script_level);
+        }
         if call.name == "sqrt" {
             return layout_simple_sqrt(font, call, font_size, script_level);
         }
@@ -463,6 +466,70 @@ fn layout_simple_delimited_call(
         return Ok(None);
     };
     layout_simple_delimited_nodes(font, left, &arg.nodes, right, font_size, script_level)
+}
+
+fn layout_simple_lr_call(
+    font: &OwnedMathFont,
+    call: &super::ast::OwnedMathCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let Some((left, body_nodes, right)) = lr_call_delimited_body(&arg.nodes) else {
+        return Ok(None);
+    };
+    layout_simple_delimited_nodes(font, left, body_nodes, right, font_size, script_level)
+}
+
+fn lr_call_delimited_body(nodes: &[OwnedMathNode]) -> Option<(char, &[OwnedMathNode], char)> {
+    let start = nodes
+        .iter()
+        .position(|node| !matches!(node, OwnedMathNode::Space(_)))?;
+    let end = nodes
+        .iter()
+        .rposition(|node| !matches!(node, OwnedMathNode::Space(_)))?
+        + 1;
+    if end <= start + 2 {
+        return None;
+    }
+
+    let left = delimiter_char_from_node(&nodes[start])?;
+    let right = delimiter_char_from_node(&nodes[end - 1])?;
+    is_lr_delimiter_pair(left, right).then_some((left, &nodes[start + 1..end - 1], right))
+}
+
+fn delimiter_char_from_node(node: &OwnedMathNode) -> Option<char> {
+    match node {
+        OwnedMathNode::Operator(operator) => single_char(&operator.operator),
+        OwnedMathNode::Text(text) => single_char(&text.text),
+        OwnedMathNode::Identifier(identifier) => identifier.symbol.and_then(single_char),
+        OwnedMathNode::Shorthand(shorthand) => single_char(shorthand.replacement),
+        _ => None,
+    }
+    .filter(|delimiter| is_lr_delimiter(*delimiter))
+}
+
+fn is_lr_delimiter(delimiter: char) -> bool {
+    matches!(
+        delimiter,
+        '|' | '‖' | '(' | ')' | '[' | ']' | '{' | '}' | '⌊' | '⌋' | '⌈' | '⌉' | '⟨' | '⟩'
+    )
+}
+
+fn is_lr_delimiter_pair(left: char, right: char) -> bool {
+    matches!(
+        (left, right),
+        ('|', '|')
+            | ('‖', '‖')
+            | ('(', ')')
+            | ('[', ']')
+            | ('{', '}')
+            | ('⌊', '⌋')
+            | ('⌈', '⌉')
+            | ('⟨', '⟩')
+    )
 }
 
 fn layout_simple_delimited_nodes(
@@ -3195,6 +3262,32 @@ mod tests {
                 .collect();
             assert_eq!(text, expected, "{source}");
         }
+    }
+
+    #[test]
+    fn simple_row_can_emit_lr_delimited_call() {
+        let math = parse_owned_math("lr(|x + y|)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("simple lr call should be handled by owned row path");
+        let paths = artifact.paths.expect("lr paths should exist");
+        assert_eq!(paths.items.len(), 5);
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let text: String = pdf
+            .glyph_runs
+            .iter()
+            .flat_map(|run| &run.glyphs)
+            .map(|glyph| glyph.unicode.as_str())
+            .collect();
+        assert_eq!(text, "|𝑥+𝑦|");
     }
 
     #[test]

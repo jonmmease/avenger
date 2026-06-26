@@ -818,6 +818,29 @@ mod tests {
     }
 
     #[test]
+    fn simple_lr_call_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact = engine.typeset_fragment("lr(|x + y|)", &options).unwrap();
+
+        assert!(artifact
+            .paths
+            .as_ref()
+            .is_some_and(|paths| paths.items.len() == 5));
+        assert!(artifact
+            .pdf_text
+            .as_ref()
+            .is_some_and(|pdf| pdf.glyph_runs.len() == 5));
+        assert!(!engine.delegate_initialized());
+    }
+
+    #[test]
     fn simple_operator_call_uses_owned_fast_path_without_initializing_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
