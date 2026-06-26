@@ -602,7 +602,7 @@ fn glyph_unicode_for_cluster(text: &str, cluster: u32) -> String {
         return String::new();
     };
     let end = text[start..]
-        .char_indices()
+        .grapheme_indices(true)
         .nth(1)
         .map_or(text.len(), |(next, _)| start + next);
     text[start..end].to_string()
@@ -714,6 +714,13 @@ mod tests {
         assert_eq!(segmented.runs[0].byte_range, 0..6);
         assert_eq!(segmented.runs[1].byte_range, 6.."Hello 温度".len());
         assert!(segmented.runs[1].x > segmented.runs[0].x);
+    }
+
+    #[test]
+    fn glyph_unicode_for_cluster_returns_whole_grapheme() {
+        assert_eq!(glyph_unicode_for_cluster("Tone 👍🏽", 5), "👍🏽");
+        assert_eq!(glyph_unicode_for_cluster("Flag 🇯🇵", 5), "🇯🇵");
+        assert_eq!(glyph_unicode_for_cluster("Cafe\u{301}", 3), "e\u{301}");
     }
 
     #[test]

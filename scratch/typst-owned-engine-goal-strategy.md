@@ -282,6 +282,7 @@ Progress:
 - [x] Add initial owned `fontdb` face selection for non-Atkinson plain text, including path/PDF font-resource support while preserving Atkinson as the fast default face and current default missing-glyph behavior.
 - [x] Add initial grapheme-based segmented fallback shaping for non-Atkinson plain text, including path/PDF lowering across multiple font resources and `rustybuzz` segment-property guessing.
 - [x] Route default Atkinson plain text through segmented non-emoji fallback, so CJK/RTL/other text glyph misses can use owned fallback fonts while current color-emoji/tofu behavior remains isolated.
+- [x] Preserve full Unicode grapheme clusters in owned plain-text glyph metadata for combining marks, emoji modifiers, and regional-indicator flags.
 - [ ] Extend the owned plain text line path from Atkinson-only shaping to fallback fonts, bidi, emoji, and complex-script segmentation.
 - [x] Keep color emoji and static named emoji aliases on the owned path as Atkinson glyph-0/tofu output, matching the current vendored behavior until real color/ZWJ emoji rendering is implemented.
 
