@@ -286,8 +286,14 @@ impl Parser<'_> {
         self.consume_known_dotted_symbol_suffixes(start);
 
         let name = &self.source[start..self.pos];
-        if matches!(self.peek_char(), Some((_, '('))) && (is_math_call_name(name) || name == "mat")
-        {
+        if matches!(self.peek_char(), Some((_, '('))) && is_unsupported_math_table_call_name(name) {
+            return Err(self.unsupported(
+                start,
+                "matrix/table math is not supported in owned Typst subset",
+            ));
+        }
+
+        if matches!(self.peek_char(), Some((_, '('))) && is_math_call_name(name) {
             return self.parse_call(start, name.to_string());
         }
 
@@ -322,13 +328,6 @@ impl Parser<'_> {
         name_start: usize,
         name: String,
     ) -> Result<OwnedMathNode, MathTypesetError> {
-        if name == "mat" {
-            return Err(self.unsupported(
-                name_start,
-                "matrix/table math is not supported in owned Typst subset",
-            ));
-        }
-
         self.expect_char('(')?;
         let mut args = Vec::new();
 
@@ -563,7 +562,6 @@ fn is_math_call_name(name: &str) -> bool {
             | "dot"
             | "ddot"
             | "bar"
-            | "vec"
             | "arrow"
             | "bb"
             | "cal"
@@ -576,6 +574,10 @@ fn is_math_call_name(name: &str) -> bool {
             | "italic"
             | "bold"
     )
+}
+
+fn is_unsupported_math_table_call_name(name: &str) -> bool {
+    matches!(name, "mat" | "vec" | "cases")
 }
 
 fn named_math_symbol(name: &str) -> Option<&'static str> {
@@ -870,15 +872,22 @@ mod tests {
 
     #[test]
     fn rejects_matrix_calls() {
-        let err = parse_owned_math("mat(1, 2; 3, 4)", 10).unwrap_err();
+        for (source, position) in [
+            ("mat(1, 2; 3, 4)", 10),
+            ("vec(1, 2, 3)", 10),
+            ("cases(x, y)", 10),
+        ] {
+            let err = parse_owned_math(source, 10).unwrap_err();
 
-        assert_eq!(
-            err,
-            MathTypesetError::UnsupportedSyntax {
-                position: 10,
-                message: "matrix/table math is not supported in owned Typst subset"
-            }
-        );
+            assert_eq!(
+                err,
+                MathTypesetError::UnsupportedSyntax {
+                    position,
+                    message: "matrix/table math is not supported in owned Typst subset"
+                },
+                "{source}"
+            );
+        }
     }
 
     #[test]
