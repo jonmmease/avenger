@@ -15,7 +15,14 @@ pub(crate) fn parse_owned_line(
     for segment in parse_segments(source, delimiters)? {
         match segment {
             ParsedSegment::Plain { text, range } => {
-                parse_plain_markup(&text, range.start, &mut nodes)?;
+                if !text.contains(['#', '\\']) {
+                    nodes.push(OwnedLineNode::Plain(OwnedPlainText {
+                        text,
+                        byte_range: range,
+                    }));
+                } else {
+                    parse_plain_markup(&text, range.start, &mut nodes)?;
+                }
             }
             ParsedSegment::Math {
                 source,

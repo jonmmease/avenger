@@ -10,7 +10,7 @@ use crate::types::{
 
 use crate::engine::typst::TypstMathEngine;
 use crate::owned::ast::{OwnedLine, OwnedLineNode};
-use crate::owned::inline::try_typeset_plain_text_line;
+use crate::owned::inline::try_typeset_owned_text_line;
 use crate::owned::math::metrics::try_typeset_simple_row_fragment;
 use crate::owned::math::syntax::parse_owned_math;
 use crate::owned::syntax::parse_owned_line;
@@ -67,7 +67,7 @@ impl OwnedTypstEngine {
 
         let line = parse_owned_line(source, &options.delimiters)?;
         validate_owned_line_math(&line)?;
-        if let Some(artifact) = try_typeset_plain_text_line(source, &line, options)? {
+        if let Some(artifact) = try_typeset_owned_text_line(source, &line, options, &self.config)? {
             return Ok(artifact);
         }
         if line_contains_static_markup(&line) {
@@ -664,5 +664,43 @@ mod tests {
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 1));
         assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn mixed_text_math_metrics_use_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: false,
+            raster: None,
+            pdf_text_layer: false,
+            positioned_runs: true,
+        };
+
+        let artifact = engine
+            .typeset_text_line("Price \\$7, score $R^2$ = 0.94", &options)
+            .unwrap();
+
+        assert!(artifact.metrics.width > 0.0);
+        assert_eq!(artifact.positioned_runs.len(), 3);
+        assert_eq!(artifact.positioned_runs[0].text, "Price $7, score ");
+        assert_eq!(artifact.positioned_runs[1].text, "R^2");
+        assert_eq!(artifact.positioned_runs[2].text, " = 0.94");
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn mixed_text_math_paths_initializes_delegate_until_owned_heavy_output_slice() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+        options.outputs.positioned_runs = true;
+
+        let artifact = engine
+            .typeset_text_line("Price \\$7, score $R^2$ = 0.94", &options)
+            .unwrap();
+
+        assert!(artifact.paths.is_some());
+        assert!(engine.delegate.lock().unwrap().is_some());
     }
 }

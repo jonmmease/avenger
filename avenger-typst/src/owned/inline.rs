@@ -1,17 +1,45 @@
+use crate::api::TypstEngineConfig;
 use crate::error::MathTypesetError;
 use crate::paths::{MathPathArtifact, MathPathItem, MathPathKind, MathTransform};
 use crate::pdf::{MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer};
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
 use crate::types::{
-    PositionedTextLineRun, PositionedTextLineRunKind, TextLineArtifact, TextLineOptions,
-    TypesetMetrics,
+    MathFragmentOptions, MathOutputRequest, PositionedTextLineRun, PositionedTextLineRunKind,
+    TextLineArtifact, TextLineOptions, TypesetMetrics,
 };
 use crate::warnings::MathTypesetWarning;
 
 use super::ast::{OwnedLine, OwnedLineNode, OwnedPlainText};
 use super::font::OwnedTextFace;
 use super::glyph_path::outline_glyph_path;
+use super::math::metrics::try_typeset_simple_row_fragment;
+use super::math::syntax::parse_owned_math;
+
+pub(crate) fn try_typeset_owned_text_line(
+    source: &str,
+    line: &OwnedLine,
+    options: &TextLineOptions,
+    config: &TypstEngineConfig,
+) -> Result<Option<TextLineArtifact>, MathTypesetError> {
+    if line
+        .nodes
+        .iter()
+        .any(|node| !matches!(node, OwnedLineNode::Plain(_) | OwnedLineNode::Math(_)))
+    {
+        return Ok(None);
+    }
+
+    if line
+        .nodes
+        .iter()
+        .any(|node| matches!(node, OwnedLineNode::Math(_)))
+    {
+        return try_typeset_mixed_metrics_text_line(source, line, options, config);
+    }
+
+    try_typeset_plain_text_line(source, line, options)
+}
 
 pub(crate) fn try_typeset_plain_text_line(
     source: &str,
@@ -32,6 +60,142 @@ pub(crate) fn try_typeset_plain_text_line(
     };
 
     typeset_plain_text_line(source, plain, options, face)
+}
+
+fn try_typeset_mixed_metrics_text_line(
+    source: &str,
+    line: &OwnedLine,
+    options: &TextLineOptions,
+    config: &TypstEngineConfig,
+) -> Result<Option<TextLineArtifact>, MathTypesetError> {
+    if options.outputs.paths || options.outputs.raster.is_some() || options.outputs.pdf_text_layer {
+        return Ok(None);
+    }
+
+    let Some(text_face) = OwnedTextFace::for_plain_style(&options.text_style)? else {
+        return Ok(None);
+    };
+    let text_font_size = options.text_style.font_size.max(1.0);
+    let math_options = MathFragmentOptions {
+        style: options.math_style.clone(),
+        outputs: MathOutputRequest {
+            paths: options.outputs.positioned_runs,
+            raster: None,
+            pdf_text_layer: false,
+        },
+        syntax: options.syntax,
+        limits: options.limits,
+    };
+    let mut run_parts = Vec::new();
+    let mut width = 0.0f32;
+    let mut ascent = 0.0f32;
+    let mut descent = 0.0f32;
+
+    for node in &line.nodes {
+        match node {
+            OwnedLineNode::Plain(plain) => {
+                if plain.text.is_empty() {
+                    continue;
+                }
+                let shaped = text_face.shaped_text(&plain.text, text_font_size);
+                if shaped.has_missing_glyph {
+                    return Ok(None);
+                }
+                let metrics = TypesetMetrics {
+                    width: shaped.metrics.width,
+                    height: shaped.metrics.height,
+                    baseline: shaped.metrics.ascent,
+                    ascent: shaped.metrics.ascent,
+                    descent: shaped.metrics.descent,
+                };
+                width += metrics.width;
+                ascent = ascent.max(metrics.ascent);
+                descent = descent.max(metrics.descent);
+                run_parts.push(MixedRunPart {
+                    kind: PositionedTextLineRunKind::Plain,
+                    text: plain.text.clone(),
+                    byte_range: plain.byte_range.clone(),
+                    width: metrics.width,
+                    paths: None,
+                });
+            }
+            OwnedLineNode::Math(span) => {
+                let math = parse_owned_math(&span.source, span.source_range.start)?;
+                let Some(artifact) = try_typeset_simple_row_fragment(&math, &math_options, config)?
+                else {
+                    return Ok(None);
+                };
+                width += artifact.metrics.width;
+                ascent = ascent.max(artifact.metrics.ascent);
+                descent = descent.max(artifact.metrics.descent);
+                run_parts.push(MixedRunPart {
+                    kind: PositionedTextLineRunKind::Math,
+                    text: span.source.clone(),
+                    byte_range: span.source_range.clone(),
+                    width: artifact.metrics.width,
+                    paths: artifact.paths,
+                });
+            }
+            OwnedLineNode::TextSpan(_) | OwnedLineNode::Emoji(_) => return Ok(None),
+        }
+    }
+
+    let metrics = TypesetMetrics {
+        width,
+        height: ascent + descent,
+        baseline: ascent,
+        ascent,
+        descent,
+    };
+    let positioned_runs = if options.outputs.positioned_runs {
+        let mut x = 0.0;
+        run_parts
+            .into_iter()
+            .map(|part| {
+                let mut paths = part.paths;
+                if let Some(paths) = &mut paths {
+                    paths.logical_height = metrics.height;
+                }
+                let run = PositionedTextLineRun {
+                    kind: part.kind,
+                    text: part.text,
+                    byte_range: part.byte_range,
+                    x,
+                    y: metrics.baseline,
+                    metrics: TypesetMetrics {
+                        width: part.width,
+                        ..metrics
+                    },
+                    paths,
+                    pdf_text: None,
+                    font_resources: Vec::new(),
+                };
+                x += part.width;
+                run
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    Ok(Some(TextLineArtifact {
+        source: source.to_string(),
+        metrics,
+        paths: None,
+        raster: None,
+        pdf_text: None,
+        positioned_runs,
+        font_resources: Vec::new(),
+        warnings: Vec::<MathTypesetWarning>::new(),
+    }))
+}
+
+struct MixedRunPart {
+    kind: PositionedTextLineRunKind,
+    text: String,
+    byte_range: std::ops::Range<usize>,
+    width: f32,
+    paths: Option<MathPathArtifact>,
 }
 
 fn typeset_plain_text_line(

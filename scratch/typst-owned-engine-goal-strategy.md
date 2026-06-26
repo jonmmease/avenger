@@ -273,6 +273,8 @@ Progress:
 - [x] Add owned path extraction for plain Atkinson-only text lines by sharing the glyph-outline lowering helper with math, preserving vendor-compatible path topology for covered glyphs and delegating missing-glyph labels such as emoji until fallback segmentation is implemented.
 - [x] Add owned raster output for plain Atkinson-only text lines behind the `raster` feature by feeding the owned path artifact through the existing tiny-skia rasterizer, while preserving non-raster-feature delegation behavior.
 - [x] Extend the owned math fragment path from simple-row metrics/paths/raster/PDF metadata to scripts, fractions, roots, delimiters, grouped expressions, and text operators for the currently supported single-line subset.
+- [x] Add owned mixed plain-text/math line metrics and positioned-run output for supported Atkinson + simple-math labels, including escaped-dollar source ranges and math positioned-run path artifacts, while delegating full-line paths/raster/PDF for now.
+- [ ] Extend owned mixed plain-text/math lines from metrics/positioned-run output to full-line paths, raster output, PDF text metadata, and font-resource merging.
 - [ ] Extend the owned plain text line path from Atkinson-only shaping to fallback fonts, bidi, emoji, and complex-script segmentation.
 
 Needed families:
