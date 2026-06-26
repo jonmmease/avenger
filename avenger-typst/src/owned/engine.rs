@@ -319,6 +319,25 @@ mod tests {
         assert!(!engine.delegate.lock().unwrap().is_some());
     }
 
+    #[cfg(feature = "raster")]
+    #[test]
+    fn simple_row_math_fragment_raster_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: false,
+            raster: Some(crate::raster::RasterRequest { scale: 1.5 }),
+            pdf_text_layer: false,
+        };
+
+        let artifact = engine
+            .typeset_fragment("alpha + beta -> gamma", &options)
+            .unwrap();
+
+        assert!(artifact.raster.is_some());
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
     #[test]
     fn matrix_text_line_span_reports_source_offset_before_delegate_initialization() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();

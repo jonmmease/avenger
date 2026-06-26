@@ -155,6 +155,64 @@ fn owned_backend_matches_vendor_for_simple_row_fragment_paths_fast_path() {
     }
 }
 
+#[cfg(feature = "raster")]
+#[test]
+fn owned_backend_matches_vendor_for_simple_row_fragment_raster_fast_path() {
+    let vendor = vendor();
+    let owned = owned();
+    let mut options = MathFragmentOptions::default();
+    options.outputs = MathOutputRequest {
+        paths: false,
+        raster: Some(avenger_typst::RasterRequest { scale: 2.0 }),
+        pdf_text_layer: false,
+    };
+
+    for source in ["x", "alpha + beta -> gamma", "alpha + pi + sum"] {
+        let vendor_artifact = vendor
+            .typeset_math_fragment(source, &options)
+            .unwrap_or_else(|err| panic!("vendor failed for {source:?}: {err:?}"));
+        let owned_artifact = owned
+            .typeset_math_fragment(source, &options)
+            .unwrap_or_else(|err| panic!("owned failed for {source:?}: {err:?}"));
+
+        assert_metrics_close(
+            source,
+            "raster fragment metrics",
+            vendor_artifact.metrics,
+            owned_artifact.metrics,
+        );
+        let vendor_raster = vendor_artifact
+            .raster
+            .as_ref()
+            .unwrap_or_else(|| panic!("vendor raster missing for {source:?}"));
+        let owned_raster = owned_artifact
+            .raster
+            .as_ref()
+            .unwrap_or_else(|| panic!("owned raster missing for {source:?}"));
+
+        assert_eq!(
+            owned_raster.image.width, vendor_raster.image.width,
+            "{source:?} raster width"
+        );
+        assert_eq!(
+            owned_raster.image.height, vendor_raster.image.height,
+            "{source:?} raster height"
+        );
+        assert_close(
+            source,
+            "raster origin x",
+            vendor_raster.origin_x,
+            owned_raster.origin_x,
+        );
+        assert_close(
+            source,
+            "raster origin y",
+            vendor_raster.origin_y,
+            owned_raster.origin_y,
+        );
+    }
+}
+
 #[test]
 fn owned_backend_matches_vendor_for_text_line_metrics_and_runs() {
     let vendor = vendor();

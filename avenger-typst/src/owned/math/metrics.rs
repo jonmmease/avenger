@@ -3,6 +3,8 @@ use crate::error::MathTypesetError;
 use crate::paths::{
     MathPathArtifact, MathPathCommand, MathPathData, MathPathItem, MathPathKind, MathTransform,
 };
+#[cfg(feature = "raster")]
+use crate::raster::rasterize_path_artifact;
 use crate::style::MathFontSpec;
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
@@ -16,7 +18,11 @@ pub(crate) fn try_typeset_simple_row_fragment(
     options: &MathFragmentOptions,
     config: &TypstEngineConfig,
 ) -> Result<Option<MathRunArtifact>, MathTypesetError> {
-    if options.outputs.raster.is_some() || options.outputs.pdf_text_layer {
+    if options.outputs.pdf_text_layer {
+        return Ok(None);
+    }
+    #[cfg(not(feature = "raster"))]
+    if options.outputs.raster.is_some() {
         return Ok(None);
     }
     if !matches!(options.style.font, MathFontSpec::NewComputerModernMath) {
@@ -32,15 +38,33 @@ pub(crate) fn try_typeset_simple_row_fragment(
     let Some(layout) = layout_simple_row(&font, math, options.style.font_size.max(1.0))? else {
         return Ok(None);
     };
-    let paths = options
-        .outputs
-        .paths
+    let path_artifact = (options.outputs.paths || options.outputs.raster.is_some())
         .then(|| path_artifact_from_simple_row(&font, &layout, options.style.fill));
+    #[cfg(feature = "raster")]
+    let raster = options
+        .outputs
+        .raster
+        .map(|request| {
+            rasterize_path_artifact(
+                path_artifact
+                    .as_ref()
+                    .expect("path artifact should be available for raster requests"),
+                request,
+            )
+        })
+        .transpose()?;
+    #[cfg(not(feature = "raster"))]
+    let raster = None;
+    let paths = options.outputs.paths.then(|| {
+        path_artifact
+            .clone()
+            .expect("path artifact should be available for path requests")
+    });
 
     Ok(Some(MathRunArtifact {
         metrics: layout.metrics,
         paths,
-        raster: None,
+        raster,
         pdf_text: None,
         font_resources: Vec::new(),
         warnings: Vec::new(),
@@ -536,7 +560,8 @@ mod tests {
     use crate::types::MathOutputRequest;
 
     #[test]
-    fn atom_fragment_declines_raster_and_pdf_outputs() {
+    #[cfg(not(feature = "raster"))]
+    fn atom_fragment_declines_raster_without_raster_feature() {
         let math = parse_owned_math("1", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
@@ -550,6 +575,12 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn atom_fragment_declines_pdf_outputs() {
+        let math = parse_owned_math("1", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
 
         options.outputs = MathOutputRequest {
             paths: false,
@@ -562,6 +593,29 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[cfg(feature = "raster")]
+    #[test]
+    fn atom_fragment_can_rasterize_from_owned_paths() {
+        let math = parse_owned_math("alpha + beta -> gamma", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: false,
+            raster: Some(crate::raster::RasterRequest { scale: 2.0 }),
+            pdf_text_layer: false,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("simple row should rasterize through owned paths");
+
+        assert!(artifact.paths.is_none());
+        assert!(artifact
+            .raster
+            .as_ref()
+            .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0));
     }
 
     #[test]
