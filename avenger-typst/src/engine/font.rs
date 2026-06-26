@@ -52,6 +52,7 @@ pub(crate) struct ShapedTextMetrics {
 pub(crate) struct ShapedGlyph {
     pub(crate) glyph_id: ttf_parser::GlyphId,
     pub(crate) unicode: String,
+    pub(crate) byte_range: Range<usize>,
     pub(crate) x: f32,
     pub(crate) y: f32,
     pub(crate) x_advance: f32,
@@ -204,9 +205,11 @@ impl TextFace {
             cursor_x += position.x_advance;
             cursor_y += position.y_advance;
             advance_width += position.x_advance;
+            let byte_range = glyph_cluster_range(text, info.cluster);
             shaped_glyphs.push(ShapedGlyph {
                 glyph_id: ttf_parser::GlyphId(info.glyph_id as u16),
-                unicode: glyph_unicode_for_cluster(text, info.cluster),
+                unicode: text.get(byte_range.clone()).unwrap_or_default().to_string(),
+                byte_range,
                 x: x as f32 * scale,
                 y: -(y as f32) * scale,
                 x_advance: position.x_advance as f32 * scale,
@@ -353,6 +356,7 @@ impl TextFace {
                 .as_ref()
                 .map(|face| face.units_per_em() as f32)
                 .unwrap_or(1000.0),
+            variations: Vec::new(),
             data: self.data.resource_data(),
         }
     }
@@ -680,16 +684,23 @@ fn fallback_script_shift(parent_font_size: f32, script: TextScript) -> f32 {
     }
 }
 
-fn glyph_unicode_for_cluster(text: &str, cluster: u32) -> String {
+fn glyph_cluster_range(text: &str, cluster: u32) -> Range<usize> {
     let cluster = cluster as usize;
     let Some((start, _)) = text.char_indices().find(|(start, _)| *start == cluster) else {
-        return String::new();
+        return 0..0;
     };
     let end = text[start..]
         .grapheme_indices(true)
         .nth(1)
         .map_or(text.len(), |(next, _)| start + next);
-    text[start..end].to_string()
+    start..end
+}
+
+#[cfg(test)]
+fn glyph_unicode_for_cluster(text: &str, cluster: u32) -> String {
+    text.get(glyph_cluster_range(text, cluster))
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn font_name(face: &ttf_parser::Face<'_>, name_id: u16) -> Option<String> {

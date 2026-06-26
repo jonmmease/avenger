@@ -287,7 +287,7 @@ impl TextPathExtractorImpl {
     }
 }
 
-fn typst_path_item_to_text_path_item(
+pub(crate) fn typst_path_item_to_text_path_item(
     item: avenger_typst::MathPathItem,
     byte_range: Range<usize>,
     x_offset: f32,
@@ -389,7 +389,7 @@ fn transform_math_point(
     )
 }
 
-fn rgba_from_typst_color(color: avenger_typst::Color) -> [f32; 4] {
+pub(crate) fn rgba_from_typst_color(color: avenger_typst::Color) -> [f32; 4] {
     [color.r, color.g, color.b, color.a]
 }
 

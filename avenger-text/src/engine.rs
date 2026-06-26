@@ -5,6 +5,7 @@ use crate::{
     math::TextMarkupConfig,
     measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
     path::{TextPathBuffer, TextPathExtractionConfig, TextPathExtractorImpl},
+    pdf::{TextPdfBuffer, TextPdfExtractionConfig, TextPdfExtractorImpl},
     rasterization::{TextRasterCacheKey, TextRasterizationBuffer, TextRasterizationConfig},
     text_line::{TextLineMeasurer, TextLineRasterizer},
 };
@@ -105,6 +106,23 @@ impl TextEngine {
         self.extract_paths(config).or_else(|_| {
             TextPathExtractorImpl::new(self.typst.clone(), self.math.plain_text())
                 .extract_text_paths(config)
+        })
+    }
+
+    pub fn extract_pdf(
+        &self,
+        config: &TextPdfExtractionConfig,
+    ) -> Result<TextPdfBuffer, AvengerTextError> {
+        TextPdfExtractorImpl::new(self.typst.clone(), self.math.clone()).extract_pdf(config)
+    }
+
+    pub fn extract_pdf_with_plain_fallback(
+        &self,
+        config: &TextPdfExtractionConfig,
+    ) -> Result<TextPdfBuffer, AvengerTextError> {
+        self.extract_pdf(config).or_else(|_| {
+            TextPdfExtractorImpl::new(self.typst.clone(), self.math.plain_text())
+                .extract_pdf(config)
         })
     }
 }

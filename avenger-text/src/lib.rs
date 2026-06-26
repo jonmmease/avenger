@@ -5,6 +5,7 @@ pub mod fonts;
 pub mod math;
 pub mod measurement;
 pub mod path;
+pub mod pdf;
 pub mod rasterization;
 mod text_line;
 pub mod types;

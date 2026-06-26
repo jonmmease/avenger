@@ -1775,7 +1775,10 @@ fn layout_operator_atom(
         width += position.x_advance;
         glyphs.push(LaidOutGlyph {
             glyph_id,
-            unicode: glyph_unicode_for_cluster(text, info.cluster),
+            unicode: text
+                .get(glyph_cluster_range(text, info.cluster))
+                .unwrap_or_default()
+                .to_string(),
             x: x as f32 * scale,
             y: -(y as f32) * scale,
             x_advance: position.x_advance as f32 * scale,
@@ -1831,16 +1834,16 @@ fn operator_identifier_text(name: &str) -> Option<&'static str> {
     }
 }
 
-fn glyph_unicode_for_cluster(text: &str, cluster: u32) -> String {
+fn glyph_cluster_range(text: &str, cluster: u32) -> std::ops::Range<usize> {
     let cluster = cluster as usize;
     let Some((start, _)) = text.char_indices().find(|(start, _)| *start == cluster) else {
-        return String::new();
+        return 0..0;
     };
     let end = text[start..]
         .char_indices()
         .nth(1)
         .map_or(text.len(), |(next, _)| start + next);
-    text[start..end].to_string()
+    start..end
 }
 
 fn style_text_atom(text: &MathText) -> String {
@@ -2737,6 +2740,7 @@ fn pdf_text_from_simple_row(
         postscript_name: font_name(&face, ttf_parser::name_id::POST_SCRIPT_NAME),
         face_index: font.face_index,
         units_per_em: face.units_per_em() as f32,
+        variations: Vec::new(),
         data: Arc::<[u8]>::from(font.data.clone()),
     }];
 
@@ -2792,16 +2796,27 @@ fn push_pdf_glyph_run(
     fill: crate::style::Color,
     glyphs: &[LaidOutGlyph],
 ) {
+    let mut text = String::new();
+    let mut glyph_text_ranges = Vec::with_capacity(glyphs.len());
+    for glyph in glyphs {
+        let start = text.len();
+        text.push_str(&glyph.unicode);
+        glyph_text_ranges.push(start..text.len());
+    }
+
     glyph_runs.push(MathPdfGlyphRun {
         font,
         font_size,
         fill,
         stroke: None,
+        text,
         glyphs: glyphs
             .iter()
-            .map(|glyph| MathPdfGlyph {
+            .zip(glyph_text_ranges)
+            .map(|(glyph, text_range)| MathPdfGlyph {
                 glyph_id: glyph.glyph_id.0,
                 unicode: glyph.unicode.clone(),
+                text_range,
                 x: 0.0,
                 y: 0.0,
                 x_advance: glyph.x_advance,

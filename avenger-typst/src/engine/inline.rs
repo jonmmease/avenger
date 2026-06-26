@@ -978,12 +978,14 @@ fn plain_pdf_text_from_shaped(
                 font_size,
                 fill,
                 stroke: None,
+                text: semantic_text.to_string(),
                 glyphs: shaped
                     .glyphs
                     .iter()
                     .map(|glyph| MathPdfGlyph {
                         glyph_id: glyph.glyph_id.0,
                         unicode: glyph.unicode.clone(),
+                        text_range: glyph.byte_range.clone(),
                         x: 0.0,
                         y: 0.0,
                         x_advance: glyph.x_advance,
@@ -1025,6 +1027,7 @@ fn plain_pdf_text_from_segmented(
             font_size,
             fill,
             stroke: None,
+            text: run.text.clone(),
             glyphs: run
                 .shaped
                 .glyphs
@@ -1032,6 +1035,7 @@ fn plain_pdf_text_from_segmented(
                 .map(|glyph| MathPdfGlyph {
                     glyph_id: glyph.glyph_id.0,
                     unicode: glyph.unicode.clone(),
+                    text_range: glyph.byte_range.clone(),
                     x: 0.0,
                     y: 0.0,
                     x_advance: glyph.x_advance,
@@ -1185,7 +1189,7 @@ fn remap_pdf_fonts(
 }
 
 fn same_font_resource(a: &MathFontResource, b: &MathFontResource) -> bool {
-    a.face_index == b.face_index && a.data == b.data
+    a.face_index == b.face_index && a.variations == b.variations && a.data == b.data
 }
 
 fn intern_font_resource(

@@ -311,6 +311,7 @@ fn same_font(a: &MathFontResource, b: &MathFontResource) -> bool {
         && a.postscript_name == b.postscript_name
         && a.face_index == b.face_index
         && (a.units_per_em - b.units_per_em).abs() < f32::EPSILON
+        && a.variations == b.variations
         && a.data == b.data
 }
 
