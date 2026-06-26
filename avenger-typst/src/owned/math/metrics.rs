@@ -8,7 +8,7 @@ use super::ast::{
     OwnedMathTextKind,
 };
 
-pub(crate) fn try_typeset_single_atom_fragment(
+pub(crate) fn try_typeset_simple_row_fragment(
     math: &OwnedMath,
     options: &MathFragmentOptions,
     config: &TypstEngineConfig,
@@ -23,13 +23,12 @@ pub(crate) fn try_typeset_single_atom_fragment(
         return Ok(None);
     }
 
-    let Some(styled_text) = single_atom_text(math) else {
-        return Ok(None);
-    };
     let Some(font) = load_default_math_font(config) else {
         return Ok(None);
     };
-    let metrics = measure_styled_atom(&font, &styled_text, options.style.font_size.max(1.0))?;
+    let Some(metrics) = measure_simple_row(&font, math, options.style.font_size.max(1.0))? else {
+        return Ok(None);
+    };
 
     Ok(Some(MathRunArtifact {
         metrics,
@@ -41,22 +40,103 @@ pub(crate) fn try_typeset_single_atom_fragment(
     }))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SimpleMathAtom {
+    styled_text: String,
+    class: SimpleMathClass,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SimpleMathClass {
+    Normal,
+    Alphabetic,
+    Binary,
+    Vary,
+    Relation,
+    Opening,
+    Closing,
+    Fence,
+    Punctuation,
+    Large,
+}
+
+fn measure_simple_row(
+    font: &OwnedMathFont,
+    math: &OwnedMath,
+    font_size: f32,
+) -> Result<Option<TypesetMetrics>, MathTypesetError> {
+    let mut atoms = Vec::new();
+    for node in &math.nodes {
+        match node {
+            OwnedMathNode::Space(_) => {}
+            _ => {
+                let Some(atom) = simple_atom(node) else {
+                    return Ok(None);
+                };
+                atoms.push(atom);
+            }
+        }
+    }
+
+    let Some(first) = atoms.first() else {
+        return Ok(None);
+    };
+
+    let first_metrics = measure_styled_atom(font, &first.styled_text, font_size)?;
+    let mut metrics = first_metrics;
+    let mut previous = resolved_left_class(None, first.class);
+
+    for atom in atoms.iter().skip(1) {
+        let class = resolved_left_class(Some(previous), atom.class);
+        let atom_metrics = measure_styled_atom(font, &atom.styled_text, font_size)?;
+        metrics.width += math_spacing(previous, class, font_size);
+        metrics.width += atom_metrics.width;
+        metrics.ascent = metrics.ascent.max(atom_metrics.ascent);
+        metrics.descent = metrics.descent.max(atom_metrics.descent);
+        metrics.height = metrics.ascent + metrics.descent;
+        metrics.baseline = metrics.ascent;
+        previous = class;
+    }
+
+    Ok(Some(metrics))
+}
+
+#[cfg(test)]
 fn single_atom_text(math: &OwnedMath) -> Option<String> {
     let [node] = &math.nodes[..] else {
         return None;
     };
+    simple_atom(node).map(|atom| atom.styled_text)
+}
+
+fn simple_atom(node: &OwnedMathNode) -> Option<SimpleMathAtom> {
     match node {
-        OwnedMathNode::Text(text) => Some(style_text_atom(text)),
+        OwnedMathNode::Text(text) => Some(SimpleMathAtom {
+            styled_text: style_text_atom(text),
+            class: match text.kind {
+                OwnedMathTextKind::Grapheme => SimpleMathClass::Alphabetic,
+                OwnedMathTextKind::Number => SimpleMathClass::Normal,
+            },
+        }),
         OwnedMathNode::Identifier(identifier) => {
             let text = identifier.symbol.unwrap_or(&identifier.name);
             if identifier.symbol.is_some() || text.chars().count() == 1 {
-                Some(style_default_math_text(text))
+                Some(SimpleMathAtom {
+                    styled_text: style_default_math_text(text),
+                    class: identifier_class(text),
+                })
             } else {
                 None
             }
         }
-        OwnedMathNode::Operator(operator) => Some(operator_text(operator)),
-        OwnedMathNode::Shorthand(shorthand) => Some(shorthand_text(shorthand)),
+        OwnedMathNode::Operator(operator) => Some(SimpleMathAtom {
+            styled_text: operator_text(operator),
+            class: operator_class(&operator.operator),
+        }),
+        OwnedMathNode::Shorthand(shorthand) => Some(SimpleMathAtom {
+            styled_text: shorthand_text(shorthand),
+            class: symbol_class(shorthand.replacement),
+        }),
         _ => None,
     }
 }
@@ -79,6 +159,75 @@ fn operator_text(operator: &OwnedMathOperator) -> String {
 fn shorthand_text(shorthand: &OwnedMathShorthand) -> String {
     shorthand.replacement.to_string()
 }
+
+fn identifier_class(text: &str) -> SimpleMathClass {
+    if matches!(text, "∑" | "∏" | "∫") {
+        SimpleMathClass::Large
+    } else {
+        SimpleMathClass::Alphabetic
+    }
+}
+
+fn operator_class(text: &str) -> SimpleMathClass {
+    match text {
+        "=" | "<" | ">" | ":" => SimpleMathClass::Relation,
+        "," => SimpleMathClass::Punctuation,
+        "(" | "[" | "{" => SimpleMathClass::Opening,
+        ")" | "]" | "}" => SimpleMathClass::Closing,
+        "|" => SimpleMathClass::Fence,
+        "+" | "-" | "*" | "!" | "&" => SimpleMathClass::Vary,
+        _ => SimpleMathClass::Normal,
+    }
+}
+
+fn symbol_class(text: &str) -> SimpleMathClass {
+    match text {
+        "≤" | "≥" | "≠" | "⇒" | "→" | "←" | "≔" => SimpleMathClass::Relation,
+        "∑" | "∏" | "∫" => SimpleMathClass::Large,
+        _ => SimpleMathClass::Normal,
+    }
+}
+
+fn resolved_left_class(
+    previous: Option<SimpleMathClass>,
+    class: SimpleMathClass,
+) -> SimpleMathClass {
+    if class == SimpleMathClass::Vary
+        && previous.is_some_and(|prev| {
+            matches!(
+                prev,
+                SimpleMathClass::Normal
+                    | SimpleMathClass::Alphabetic
+                    | SimpleMathClass::Closing
+                    | SimpleMathClass::Fence
+            )
+        })
+    {
+        SimpleMathClass::Binary
+    } else {
+        class
+    }
+}
+
+fn math_spacing(left: SimpleMathClass, right: SimpleMathClass, font_size: f32) -> f32 {
+    use SimpleMathClass::*;
+
+    match (left, right) {
+        (_, Punctuation) => 0.0,
+        (Punctuation, _) => THIN_EM * font_size,
+        (Opening, _) | (_, Closing) => 0.0,
+        (Relation, Relation) => 0.0,
+        (Relation, _) | (_, Relation) => THICK_EM * font_size,
+        (Binary, _) | (_, Binary) => MEDIUM_EM * font_size,
+        (Large, Opening | Fence) => 0.0,
+        (Large, _) | (_, Large) => THIN_EM * font_size,
+        _ => 0.0,
+    }
+}
+
+const THIN_EM: f32 = 1.0 / 6.0;
+const MEDIUM_EM: f32 = 2.0 / 9.0;
+const THICK_EM: f32 = 5.0 / 18.0;
 
 fn style_default_math_char(ch: char) -> char {
     if ch.is_ascii_alphabetic() || is_lower_greek_math_char(ch) || matches!(ch, 'ı' | 'ȷ' | 'ħ')
@@ -242,20 +391,20 @@ mod tests {
         };
 
         assert!(
-            try_typeset_single_atom_fragment(&math, &options, &TypstEngineConfig::default())
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
                 .is_none()
         );
     }
 
     #[test]
-    fn atom_fragment_declines_multi_atom_rows() {
-        let math = parse_owned_math("x + y", 0).unwrap();
+    fn simple_row_declines_scripts() {
+        let math = parse_owned_math("x^2", 0).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs.paths = false;
 
         assert!(
-            try_typeset_single_atom_fragment(&math, &options, &TypstEngineConfig::default())
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
                 .is_none()
         );
@@ -279,5 +428,27 @@ mod tests {
         assert_eq!(single_atom_text(&number).as_deref(), Some("0.94"));
         assert_eq!(single_atom_text(&plus).as_deref(), Some("+"));
         assert_eq!(single_atom_text(&arrow).as_deref(), Some("→"));
+    }
+
+    #[test]
+    fn simple_row_inserts_binary_and_relation_spacing() {
+        let font_size = 12.0;
+
+        assert_eq!(
+            math_spacing(
+                SimpleMathClass::Alphabetic,
+                SimpleMathClass::Binary,
+                font_size
+            ),
+            MEDIUM_EM * font_size
+        );
+        assert_eq!(
+            math_spacing(
+                SimpleMathClass::Relation,
+                SimpleMathClass::Alphabetic,
+                font_size
+            ),
+            THICK_EM * font_size
+        );
     }
 }

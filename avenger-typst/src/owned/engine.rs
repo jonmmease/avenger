@@ -11,7 +11,7 @@ use crate::types::{
 use crate::engine::typst::TypstMathEngine;
 use crate::owned::ast::{OwnedLine, OwnedLineNode};
 use crate::owned::inline::try_typeset_plain_text_line;
-use crate::owned::math::metrics::try_typeset_single_atom_fragment;
+use crate::owned::math::metrics::try_typeset_simple_row_fragment;
 use crate::owned::math::syntax::parse_owned_math;
 use crate::owned::syntax::parse_owned_line;
 
@@ -50,7 +50,7 @@ impl OwnedTypstEngine {
         options: &MathFragmentOptions,
     ) -> Result<MathRunArtifact, MathTypesetError> {
         let math = parse_owned_math(source, 0)?;
-        if let Some(artifact) = try_typeset_single_atom_fragment(&math, options, &self.config)? {
+        if let Some(artifact) = try_typeset_simple_row_fragment(&math, options, &self.config)? {
             return Ok(artifact);
         }
         self.with_delegate(|delegate| delegate.typeset_fragment(source, options))
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn single_atom_math_fragment_metrics_only_uses_owned_fast_path_without_initializing_delegate() {
+    fn simple_row_math_fragment_metrics_only_uses_owned_fast_path_without_initializing_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = MathFragmentOptions::default();
         options.outputs = MathOutputRequest {
@@ -290,7 +290,9 @@ mod tests {
             pdf_text_layer: false,
         };
 
-        let artifact = engine.typeset_fragment("x", &options).unwrap();
+        let artifact = engine
+            .typeset_fragment("alpha + beta -> gamma", &options)
+            .unwrap();
 
         assert!(artifact.metrics.width > 0.0);
         assert!(!engine.delegate.lock().unwrap().is_some());
