@@ -360,6 +360,9 @@ fn layout_simple_node(
         if call.name == "binom" {
             return layout_simple_binom_call(font, call, font_size, script_level);
         }
+        if let Some(selection) = MathStyleSelection::from_call_name(&call.name) {
+            return layout_simple_variant_call(font, call, selection, font_size, script_level);
+        }
         if let Some((left, right)) = delimiter_call_chars(&call.name) {
             return layout_simple_delimited_call(font, call, left, right, font_size, script_level);
         }
@@ -375,6 +378,20 @@ fn layout_simple_node(
     }
 
     Ok(None)
+}
+
+fn layout_simple_variant_call(
+    font: &OwnedMathFont,
+    call: &super::ast::OwnedMathCall,
+    selection: MathStyleSelection,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let styled_nodes = style_math_nodes(&arg.nodes, selection);
+    layout_simple_nodes_as_atom(font, &styled_nodes, font_size, script_level)
 }
 
 fn layout_simple_operator_call(
@@ -1706,6 +1723,115 @@ fn style_default_math_text(text: &str) -> String {
     text.chars().map(style_default_math_char).collect()
 }
 
+fn style_math_nodes(nodes: &[OwnedMathNode], selection: MathStyleSelection) -> Vec<OwnedMathNode> {
+    nodes
+        .iter()
+        .flat_map(|node| style_math_node(node, selection))
+        .collect()
+}
+
+fn style_math_node(node: &OwnedMathNode, selection: MathStyleSelection) -> Vec<OwnedMathNode> {
+    match node {
+        OwnedMathNode::Space(_)
+        | OwnedMathNode::Operator(_)
+        | OwnedMathNode::Shorthand(_)
+        | OwnedMathNode::StringLiteral(_) => vec![node.clone()],
+        OwnedMathNode::Text(text) => vec![OwnedMathNode::Text(super::ast::OwnedMathText {
+            text: style_math_text_with_selection(&text.text, selection),
+            kind: OwnedMathTextKind::Number,
+            byte_range: text.byte_range.clone(),
+        })],
+        OwnedMathNode::Identifier(identifier) => {
+            let text = identifier.symbol.unwrap_or(&identifier.name);
+            vec![OwnedMathNode::Text(super::ast::OwnedMathText {
+                text: style_math_text_with_selection(text, selection),
+                kind: OwnedMathTextKind::Number,
+                byte_range: identifier.byte_range.clone(),
+            })]
+        }
+        OwnedMathNode::Group(group) => vec![OwnedMathNode::Group(super::ast::OwnedMathGroup {
+            left: group.left,
+            right: group.right,
+            body: style_math_nodes(&group.body, selection),
+            byte_range: group.byte_range.clone(),
+        })],
+        OwnedMathNode::Attach(attach) => {
+            let base = style_single_math_node(&attach.base, selection);
+            let top = attach
+                .top
+                .as_ref()
+                .map(|node| Box::new(style_single_math_node(node, selection)));
+            let bottom = attach
+                .bottom
+                .as_ref()
+                .map(|node| Box::new(style_single_math_node(node, selection)));
+            vec![OwnedMathNode::Attach(super::ast::OwnedMathAttach {
+                base: Box::new(base),
+                top,
+                bottom,
+                primes: attach.primes,
+                byte_range: attach.byte_range.clone(),
+            })]
+        }
+        OwnedMathNode::Fraction(fraction) => {
+            vec![OwnedMathNode::Fraction(super::ast::OwnedMathFraction {
+                numerator: Box::new(style_single_math_node(&fraction.numerator, selection)),
+                denominator: Box::new(style_single_math_node(&fraction.denominator, selection)),
+                slash_range: fraction.slash_range.clone(),
+                byte_range: fraction.byte_range.clone(),
+            })]
+        }
+        OwnedMathNode::Call(call) => {
+            if let Some(nested) = MathStyleSelection::from_call_name(&call.name) {
+                let combined = selection.compose(nested);
+                return call
+                    .args
+                    .iter()
+                    .flat_map(|arg| style_math_nodes(&arg.nodes, combined))
+                    .collect();
+            }
+
+            vec![OwnedMathNode::Call(super::ast::OwnedMathCall {
+                name: call.name.clone(),
+                args: call
+                    .args
+                    .iter()
+                    .map(|arg| super::ast::OwnedMathArg {
+                        nodes: style_math_nodes(&arg.nodes, selection),
+                        byte_range: arg.byte_range.clone(),
+                    })
+                    .collect(),
+                byte_range: call.byte_range.clone(),
+            })]
+        }
+    }
+}
+
+fn style_single_math_node(node: &OwnedMathNode, selection: MathStyleSelection) -> OwnedMathNode {
+    let mut styled = style_math_node(node, selection);
+    if styled.len() == 1 {
+        styled.remove(0)
+    } else {
+        OwnedMathNode::Group(super::ast::OwnedMathGroup {
+            left: '(',
+            right: ')',
+            body: styled,
+            byte_range: node.byte_range(),
+        })
+    }
+}
+
+fn style_math_text_with_selection(text: &str, selection: MathStyleSelection) -> String {
+    text.chars()
+        .flat_map(|ch| {
+            let style = OwnedMathAlphabetStyle::select(ch, selection);
+            style_math_char(ch, style)
+                .into_iter()
+                .filter(|styled| *styled != '\0')
+        })
+        .collect()
+}
+
 fn operator_text(operator: &OwnedMathOperator) -> String {
     match operator.operator.as_str() {
         "-" => "−".to_string(),
@@ -1836,6 +1962,400 @@ fn to_math_italic(ch: char) -> char {
         _ => return ch,
     };
     std::char::from_u32((ch as u32) + delta).unwrap_or(ch)
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct MathStyleSelection {
+    variant: Option<OwnedMathVariant>,
+    bold: bool,
+    italic: Option<bool>,
+}
+
+impl MathStyleSelection {
+    fn from_call_name(name: &str) -> Option<Self> {
+        let mut selection = Self::default();
+        match name {
+            "bold" => selection.bold = true,
+            "upright" => selection.italic = Some(false),
+            "italic" => selection.italic = Some(true),
+            "serif" => selection.variant = Some(OwnedMathVariant::Plain),
+            "sans" => selection.variant = Some(OwnedMathVariant::SansSerif),
+            "cal" => selection.variant = Some(OwnedMathVariant::Chancery),
+            "scr" => selection.variant = Some(OwnedMathVariant::Roundhand),
+            "frak" => selection.variant = Some(OwnedMathVariant::Fraktur),
+            "mono" => selection.variant = Some(OwnedMathVariant::Monospace),
+            "bb" => selection.variant = Some(OwnedMathVariant::DoubleStruck),
+            _ => return None,
+        }
+        Some(selection)
+    }
+
+    fn compose(self, nested: Self) -> Self {
+        Self {
+            variant: nested.variant.or(self.variant),
+            bold: self.bold || nested.bold,
+            italic: nested.italic.or(self.italic),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnedMathVariant {
+    Plain,
+    Fraktur,
+    SansSerif,
+    Monospace,
+    DoubleStruck,
+    Chancery,
+    Roundhand,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnedMathAlphabetStyle {
+    Plain,
+    Bold,
+    Italic,
+    BoldItalic,
+    Fraktur,
+    BoldFraktur,
+    SansSerif,
+    SansSerifBold,
+    SansSerifItalic,
+    SansSerifBoldItalic,
+    Monospace,
+    DoubleStruck,
+    DoubleStruckItalic,
+    Chancery,
+    BoldChancery,
+    Roundhand,
+    BoldRoundhand,
+    Hebrew,
+}
+
+impl OwnedMathAlphabetStyle {
+    fn select(ch: char, selection: MathStyleSelection) -> Self {
+        use OwnedMathAlphabetStyle::*;
+
+        match (
+            selection.variant.unwrap_or(OwnedMathVariant::Plain),
+            selection.bold,
+            selection.italic,
+        ) {
+            (OwnedMathVariant::SansSerif, false, Some(false)) if ch.is_ascii_alphabetic() => {
+                SansSerif
+            }
+            (OwnedMathVariant::SansSerif, false, _) if ch.is_ascii_alphabetic() => SansSerifItalic,
+            (OwnedMathVariant::SansSerif, true, Some(false)) if ch.is_ascii_alphabetic() => {
+                SansSerifBold
+            }
+            (OwnedMathVariant::SansSerif, true, _) if ch.is_ascii_alphabetic() => {
+                SansSerifBoldItalic
+            }
+            (OwnedMathVariant::SansSerif, false, _) if ch.is_ascii_digit() => SansSerif,
+            (OwnedMathVariant::SansSerif, true, _) if ch.is_ascii_digit() => SansSerifBold,
+            (OwnedMathVariant::SansSerif, _, Some(false)) if is_greek_math_char(ch) => {
+                SansSerifBold
+            }
+            (OwnedMathVariant::SansSerif, _, Some(true)) if is_greek_math_char(ch) => {
+                SansSerifBoldItalic
+            }
+            (OwnedMathVariant::SansSerif, _, None) if is_upper_greek_math_char(ch) => SansSerifBold,
+            (OwnedMathVariant::SansSerif, _, None) if is_lower_greek_math_char(ch) => {
+                SansSerifBoldItalic
+            }
+            (OwnedMathVariant::Fraktur, false, _) if ch.is_ascii_alphabetic() => Fraktur,
+            (OwnedMathVariant::Fraktur, true, _) if ch.is_ascii_alphabetic() => BoldFraktur,
+            (OwnedMathVariant::Monospace, _, _)
+                if ch.is_ascii_digit() || ch.is_ascii_alphabetic() =>
+            {
+                Monospace
+            }
+            (OwnedMathVariant::DoubleStruck, _, Some(true))
+                if matches!(ch, 'D' | 'd' | 'e' | 'i' | 'j') =>
+            {
+                DoubleStruckItalic
+            }
+            (OwnedMathVariant::DoubleStruck, _, _)
+                if ch.is_ascii_digit()
+                    || ch.is_ascii_alphabetic()
+                    || matches!(ch, '∑' | 'Γ' | 'Π' | 'γ' | 'π') =>
+            {
+                DoubleStruck
+            }
+            (OwnedMathVariant::Chancery, false, _) if ch.is_ascii_alphabetic() => Chancery,
+            (OwnedMathVariant::Chancery, true, _) if ch.is_ascii_alphabetic() => BoldChancery,
+            (OwnedMathVariant::Roundhand, false, _) if ch.is_ascii_alphabetic() => Roundhand,
+            (OwnedMathVariant::Roundhand, true, _) if ch.is_ascii_alphabetic() => BoldRoundhand,
+            (_, false, Some(true)) if ch.is_ascii_alphabetic() || is_greek_math_char(ch) => Italic,
+            (_, false, None) if ch.is_ascii_alphabetic() || is_lower_greek_math_char(ch) => Italic,
+            (_, true, Some(false)) if ch.is_ascii_alphabetic() || is_greek_math_char(ch) => Bold,
+            (_, true, Some(true)) if ch.is_ascii_alphabetic() || is_greek_math_char(ch) => {
+                BoldItalic
+            }
+            (_, true, None) if ch.is_ascii_alphabetic() || is_lower_greek_math_char(ch) => {
+                BoldItalic
+            }
+            (_, true, None) if is_upper_greek_math_char(ch) => Bold,
+            (_, true, _) if ch.is_ascii_digit() || matches!(ch, 'Ϝ' | 'ϝ') => Bold,
+            (_, _, Some(true) | None) if matches!(ch, 'ı' | 'ȷ' | 'ħ') => Italic,
+            (_, _, Some(true) | None) if is_hebrew_math_char(ch) => Hebrew,
+            _ => Plain,
+        }
+    }
+}
+
+fn style_math_char(ch: char, style: OwnedMathAlphabetStyle) -> [char; 2] {
+    use OwnedMathAlphabetStyle::*;
+    match style {
+        Plain => [ch, '\0'],
+        Bold => [to_math_bold(ch), '\0'],
+        Italic => [to_math_italic(ch), '\0'],
+        BoldItalic => [to_math_bold_italic(ch), '\0'],
+        Fraktur => [to_math_fraktur(ch), '\0'],
+        BoldFraktur => [to_math_bold_fraktur(ch), '\0'],
+        SansSerif => [to_math_sans_serif(ch), '\0'],
+        SansSerifBold => [to_math_sans_serif_bold(ch), '\0'],
+        SansSerifItalic => [to_math_sans_serif_italic(ch), '\0'],
+        SansSerifBoldItalic => [to_math_sans_serif_bold_italic(ch), '\0'],
+        Monospace => [to_math_monospace(ch), '\0'],
+        DoubleStruck => [to_math_double_struck(ch), '\0'],
+        DoubleStruckItalic => [to_math_double_struck_italic(ch), '\0'],
+        Chancery => with_variation_selector(to_math_script(ch), '\u{fe00}', ch),
+        BoldChancery => with_variation_selector(to_math_bold_script(ch), '\u{fe00}', ch),
+        Roundhand => with_variation_selector(to_math_script(ch), '\u{fe01}', ch),
+        BoldRoundhand => with_variation_selector(to_math_bold_script(ch), '\u{fe01}', ch),
+        Hebrew => [to_math_hebrew(ch), '\0'],
+    }
+}
+
+fn with_variation_selector(styled: char, selector: char, original: char) -> [char; 2] {
+    if styled == original && !original.is_ascii_alphabetic() {
+        [styled, '\0']
+    } else {
+        [styled, selector]
+    }
+}
+
+fn is_greek_math_char(ch: char) -> bool {
+    is_upper_greek_math_char(ch) || is_lower_greek_math_char(ch)
+}
+
+fn is_upper_greek_math_char(ch: char) -> bool {
+    matches!(ch, 'Α'..='Ω' | '∇' | 'ϴ')
+}
+
+fn is_hebrew_math_char(ch: char) -> bool {
+    matches!(ch, 'א'..='ד')
+}
+
+fn apply_math_delta(ch: char, delta: u32) -> char {
+    std::char::from_u32((ch as u32) + delta).unwrap_or(ch)
+}
+
+fn to_math_bold(ch: char) -> char {
+    let delta = match ch {
+        'A'..='Z' => 0x1D3BF,
+        'a'..='z' => 0x1D3B9,
+        'Α'..='Ρ' => 0x1D317,
+        'ϴ' => 0x1D2C5,
+        'Σ'..='Ω' => 0x1D317,
+        '∇' => 0x1B4BA,
+        'α'..='ω' => 0x1D311,
+        '∂' => 0x1B4D9,
+        'ϵ' => 0x1D2E7,
+        'ϑ' => 0x1D30C,
+        'ϰ' => 0x1D2EE,
+        'ϕ' => 0x1D30A,
+        'ϱ' => 0x1D2EF,
+        'ϖ' => 0x1D30B,
+        'Ϝ'..='ϝ' => 0x1D3EE,
+        '0'..='9' => 0x1D79E,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_bold_italic(ch: char) -> char {
+    let delta = match ch {
+        'A'..='Z' => 0x1D427,
+        'a'..='z' => 0x1D421,
+        'Α'..='Ρ' => 0x1D38B,
+        'ϴ' => 0x1D339,
+        'Σ'..='Ω' => 0x1D38B,
+        '∇' => 0x1B52E,
+        'α'..='ω' => 0x1D385,
+        '∂' => 0x1B54D,
+        'ϵ' => 0x1D35B,
+        'ϑ' => 0x1D380,
+        'ϰ' => 0x1D362,
+        'ϕ' => 0x1D37E,
+        'ϱ' => 0x1D363,
+        'ϖ' => 0x1D37F,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_script(ch: char) -> char {
+    let delta = match ch {
+        'g' => 0x20A3,
+        'H' => 0x20C3,
+        'I' => 0x20C7,
+        'L' => 0x20C6,
+        'R' => 0x20C9,
+        'B' => 0x20EA,
+        'e' => 0x20CA,
+        'E'..='F' => 0x20EB,
+        'M' => 0x20E6,
+        'o' => 0x20C5,
+        'A'..='Z' => 0x1D45B,
+        'a'..='z' => 0x1D455,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_bold_script(ch: char) -> char {
+    let delta = match ch {
+        'A'..='Z' => 0x1D48F,
+        'a'..='z' => 0x1D489,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_fraktur(ch: char) -> char {
+    let delta = match ch {
+        'H' => 0x20C4,
+        'I' => 0x20C8,
+        'R' => 0x20CA,
+        'Z' => 0x20CE,
+        'C' => 0x20EA,
+        'A'..='Z' => 0x1D4C3,
+        'a'..='z' => 0x1D4BD,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_bold_fraktur(ch: char) -> char {
+    let delta = match ch {
+        'A'..='Z' => 0x1D52B,
+        'a'..='z' => 0x1D525,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_sans_serif(ch: char) -> char {
+    let delta = match ch {
+        'A'..='Z' => 0x1D55F,
+        'a'..='z' => 0x1D559,
+        '0'..='9' => 0x1D7B2,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_sans_serif_bold(ch: char) -> char {
+    let delta = match ch {
+        'A'..='Z' => 0x1D593,
+        'a'..='z' => 0x1D58D,
+        'Α'..='Ρ' => 0x1D3C5,
+        'ϴ' => 0x1D373,
+        'Σ'..='Ω' => 0x1D3C5,
+        '∇' => 0x1B568,
+        'α'..='ω' => 0x1D3BF,
+        '∂' => 0x1B587,
+        'ϵ' => 0x1D395,
+        'ϑ' => 0x1D3BA,
+        'ϰ' => 0x1D39C,
+        'ϕ' => 0x1D3B8,
+        'ϱ' => 0x1D39D,
+        'ϖ' => 0x1D3B9,
+        '0'..='9' => 0x1D7BC,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_sans_serif_italic(ch: char) -> char {
+    let delta = match ch {
+        'A'..='Z' => 0x1D5C7,
+        'a'..='z' => 0x1D5C1,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_sans_serif_bold_italic(ch: char) -> char {
+    let delta = match ch {
+        'A'..='Z' => 0x1D5FB,
+        'a'..='z' => 0x1D5F5,
+        'Α'..='Ρ' => 0x1D3FF,
+        'ϴ' => 0x1D3AD,
+        'Σ'..='Ω' => 0x1D3FF,
+        '∇' => 0x1B5A2,
+        'α'..='ω' => 0x1D3F9,
+        '∂' => 0x1B5C1,
+        'ϵ' => 0x1D3CF,
+        'ϑ' => 0x1D3F4,
+        'ϰ' => 0x1D3D6,
+        'ϕ' => 0x1D3F2,
+        'ϱ' => 0x1D3D7,
+        'ϖ' => 0x1D3F3,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_monospace(ch: char) -> char {
+    let delta = match ch {
+        'A'..='Z' => 0x1D62F,
+        'a'..='z' => 0x1D629,
+        '0'..='9' => 0x1D7C6,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_double_struck(ch: char) -> char {
+    let delta = match ch {
+        'C' => 0x20BF,
+        'H' => 0x20C5,
+        'N' => 0x20C7,
+        'P'..='Q' => 0x20C9,
+        'R' => 0x20CB,
+        'Z' => 0x20CA,
+        'π' => 0x1D7C,
+        'γ' => 0x1D8A,
+        'Γ' => 0x1DAB,
+        'Π' => 0x1D9F,
+        '∑' => return '⅀',
+        'A'..='Z' => 0x1D4F7,
+        'a'..='z' => 0x1D4F1,
+        '0'..='9' => 0x1D7A8,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_double_struck_italic(ch: char) -> char {
+    let delta = match ch {
+        'D' => 0x2101,
+        'd'..='e' => 0x20E2,
+        'i'..='j' => 0x20DF,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
+}
+
+fn to_math_hebrew(ch: char) -> char {
+    let delta = match ch {
+        'א'..='ד' => 0x1B65,
+        _ => return ch,
+    };
+    apply_math_delta(ch, delta)
 }
 
 struct OwnedMathFont {
@@ -2579,6 +3099,42 @@ mod tests {
             .collect();
         assert!(text.starts_with("lim"));
         assert!(text.contains("∞"));
+    }
+
+    #[test]
+    fn simple_row_can_emit_math_variant_calls() {
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        for (source, expected) in [
+            ("bb(R)", "ℝ"),
+            ("cal(P)", "𝒫"),
+            ("scr(L)", "ℒ"),
+            ("frak(g)", "𝔤"),
+            ("sans(x)", "𝘹"),
+            ("mono(123)", "𝟷𝟸𝟹"),
+            ("bold(alpha + 2)", "𝜶+𝟐"),
+            ("upright(R)", "R"),
+            ("italic(R)", "𝑅"),
+        ] {
+            let math = parse_owned_math(source, 0).unwrap();
+            let artifact =
+                try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("math variant call should be handled: {source}"));
+            let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+            let text: String = pdf
+                .glyph_runs
+                .iter()
+                .flat_map(|run| &run.glyphs)
+                .map(|glyph| glyph.unicode.as_str())
+                .collect();
+            assert_eq!(text, expected, "{source}");
+        }
     }
 
     #[test]

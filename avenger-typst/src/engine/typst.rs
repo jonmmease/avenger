@@ -30,7 +30,7 @@ use typst_library::diag::{FileError, FileResult, SourceResult};
 use typst_library::engine::{Engine, Route, Sink, Traced};
 use typst_library::foundations::{
     Args, Closure, Content, Context, Func, Module, NativeElement, NativeRuleMap, Packed, Scope,
-    SequenceElem, ShowSet, StyleChain, Styles, SymbolElem, Value,
+    SequenceElem, ShowSet, StyleChain, StyledElem, Styles, SymbolElem, Value,
 };
 use typst_library::introspection::{
     EmptyIntrospector, Introspector, Location, Locator, Tag, TagElem, TagFlags,
@@ -608,19 +608,24 @@ fn realize_math_subset<'a>(
     styles: StyleChain<'a>,
 ) -> SourceResult<Vec<Pair<'a>>> {
     let mut pairs = Vec::new();
-    collect_realized_pairs(content, styles, &mut pairs);
+    collect_realized_pairs(content, styles, _arenas, &mut pairs);
     Ok(pairs)
 }
 
 fn collect_realized_pairs<'a>(
     content: &'a Content,
     styles: StyleChain<'a>,
+    arenas: &'a Arenas,
     pairs: &mut Vec<Pair<'a>>,
 ) {
     if let Some(sequence) = content.to_packed::<SequenceElem>() {
         for child in &sequence.children {
-            collect_realized_pairs(child, styles, pairs);
+            collect_realized_pairs(child, styles, arenas, pairs);
         }
+    } else if let Some(styled) = content.to_packed::<StyledElem>() {
+        let flattened = styles.chain(&styled.styles).to_map();
+        let styles = StyleChain::new(arenas.styles.alloc(flattened));
+        collect_realized_pairs(&styled.child, styles, arenas, pairs);
     } else {
         pairs.push((content, styles));
     }
@@ -1668,6 +1673,16 @@ fn lower_math_call(call: ast::MathCall<'_>) -> Result<Content, MathTypesetError>
         "ceil" => lower_delimited_call(call, '⌈', '⌉'),
         "round" => lower_delimited_call(call, '⌊', '⌉'),
         "cancel" => lower_one_arg_call(call, |body| CancelElem::new(body).pack()),
+        "bold" => lower_one_arg_call(call, typst_library::math::bold),
+        "upright" => lower_one_arg_call(call, typst_library::math::upright),
+        "italic" => lower_one_arg_call(call, typst_library::math::italic),
+        "serif" => lower_one_arg_call(call, typst_library::math::serif),
+        "sans" => lower_one_arg_call(call, typst_library::math::sans),
+        "cal" => lower_one_arg_call(call, typst_library::math::cal),
+        "scr" => lower_one_arg_call(call, typst_library::math::scr),
+        "frak" => lower_one_arg_call(call, typst_library::math::frak),
+        "mono" => lower_one_arg_call(call, typst_library::math::mono),
+        "bb" => lower_one_arg_call(call, typst_library::math::bb),
         "op" => lower_op_call(call),
         "sin" | "cos" | "tan" | "log" | "ln" | "lim" | "max" | "min" => {
             lower_operator_call(call, callee.as_str())

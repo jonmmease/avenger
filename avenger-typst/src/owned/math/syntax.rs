@@ -500,6 +500,8 @@ fn is_math_call_name(name: &str) -> bool {
             | "frak"
             | "sans"
             | "mono"
+            | "serif"
+            | "scr"
             | "upright"
             | "italic"
             | "bold"
@@ -661,7 +663,7 @@ mod tests {
 
     #[test]
     fn parses_whitelisted_function_calls() {
-        let math = parse("frac(x, y) + op(\"custom\")");
+        let math = parse("frac(x, y) + op(\"custom\") + bb(R) + scr(P)");
 
         assert!(matches!(
             &math.nodes[0],
@@ -670,6 +672,14 @@ mod tests {
         assert!(matches!(
             &math.nodes[4],
             OwnedMathNode::Call(call) if call.name == "op" && call.args.len() == 1
+        ));
+        assert!(matches!(
+            &math.nodes[8],
+            OwnedMathNode::Call(call) if call.name == "bb" && call.args.len() == 1
+        ));
+        assert!(matches!(
+            &math.nodes[12],
+            OwnedMathNode::Call(call) if call.name == "scr" && call.args.len() == 1
         ));
     }
 
