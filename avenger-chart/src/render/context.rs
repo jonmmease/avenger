@@ -322,7 +322,7 @@ impl TextMeasurementRuntime {
             return Ok(Self::plain());
         }
 
-        let measurer = TypstTextMeasurer::with_vendor_typst(text_math.clone())
+        let measurer = TypstTextMeasurer::with_config(text_math.clone())
             .map_err(|err| crate::error::AvengerChartError::InternalError(err.to_string()))?;
         Ok(Self {
             measurer: Arc::new(measurer),
@@ -2030,5 +2030,31 @@ mod tests {
         let requests = ctx.resource_requests_snapshot();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].key, ResourceKey::new("tile/0/0/0"));
+    }
+
+    #[cfg(feature = "typst-math-layout")]
+    #[test]
+    fn typst_text_measurement_runtime_uses_configured_owned_backend() {
+        let text_math = avenger_text::math::TextMathConfig {
+            mode: avenger_text::math::TextMarkupMode::TypstMathDelimited(Default::default()),
+            ..Default::default()
+        };
+
+        let runtime = TextMeasurementRuntime::from_math_config(&text_math).unwrap();
+        let bounds = runtime.measurer.measure_text_bounds(
+            &avenger_text::measurement::TextMeasurementConfig {
+                text: "value $x^2$",
+                font: "sans-serif",
+                font_size: 12.0,
+                font_weight: &avenger_text::types::FontWeight::Name(
+                    avenger_text::types::FontWeightNameSpec::Normal,
+                ),
+                font_style: &avenger_text::types::FontStyle::Normal,
+            },
+        );
+
+        assert!(bounds.width > 0.0);
+        assert!(bounds.height > 0.0);
+        assert!(runtime.cache_tag.contains("OwnedTypst"));
     }
 }

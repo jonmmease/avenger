@@ -47,10 +47,6 @@ impl TypstTextMeasurer {
         ))
     }
 
-    pub fn with_vendor_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Self::with_typst_backend(math, avenger_typst::TypstEngineBackend::VendorTypst)
-    }
-
     pub fn with_owned_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Self::with_typst_backend(math, avenger_typst::TypstEngineBackend::OwnedTypst)
     }
@@ -132,10 +128,6 @@ impl<CacheValue> TypstTextRasterizer<CacheValue> {
             })?,
             math,
         ))
-    }
-
-    pub fn with_vendor_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Self::with_typst_backend(math, avenger_typst::TypstEngineBackend::VendorTypst)
     }
 
     pub fn with_owned_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {

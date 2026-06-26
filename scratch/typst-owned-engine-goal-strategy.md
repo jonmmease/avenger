@@ -537,6 +537,7 @@ This phase can be incremental, but robust international shaping is a requirement
 
 Only after the owned backend is complete:
 
+- [x] Remove stale vendor-specific constructor usage from `avenger-text` and chart text measurement so `typst-text` uses `TextMathConfig`'s configured owned backend instead of requiring `vendor-typst`.
 - [ ] Remove `vendor-typst` feature from `avenger-typst`.
 - [ ] Remove vendored Typst crate dependencies from `avenger-typst/Cargo.toml`.
 - [ ] Remove workspace references if no other crate needs them.
