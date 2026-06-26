@@ -194,7 +194,7 @@ pub fn default_text_measurer() -> impl TextMeasurer {
     not(target_arch = "wasm32")
 ))]
 pub fn default_text_measurer() -> impl TextMeasurer {
-    crate::typst_text::TypstTextMeasurer::with_vendor_typst(crate::math::TextMathConfig::default())
+    crate::typst_text::TypstTextMeasurer::with_config(crate::math::TextMathConfig::default())
         .expect("failed to initialize Typst text measurer")
 }
 

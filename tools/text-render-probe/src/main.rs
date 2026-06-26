@@ -10,7 +10,7 @@ use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 
 #[cfg(feature = "typst")]
-use avenger_text::math::{TextMarkupMode, TextMathConfig};
+use avenger_text::math::{TextMarkupMode, TextMathConfig, TypstEngineBackend};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     pollster::block_on(run())
@@ -48,9 +48,20 @@ fn canvas_config() -> CanvasConfig {
     let mut config = CanvasConfig::default();
     config.text_math = TextMathConfig {
         mode: TextMarkupMode::TypstMathDelimited(Default::default()),
+        typst_backend: typst_backend(),
         ..Default::default()
     };
     config
+}
+
+#[cfg(all(feature = "typst", not(feature = "typst-owned")))]
+fn typst_backend() -> TypstEngineBackend {
+    TypstEngineBackend::VendorTypst
+}
+
+#[cfg(feature = "typst-owned")]
+fn typst_backend() -> TypstEngineBackend {
+    TypstEngineBackend::OwnedTypst
 }
 
 fn hello_text_scene() -> SceneGraph {

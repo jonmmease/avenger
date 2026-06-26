@@ -14,11 +14,14 @@ Current macOS arm64 results with the workspace `release` profile:
 | Backend | Binary bytes | PNG bytes |
 | --- | ---: | ---: |
 | cosmic | 8,998,848 | 56,378 |
-| typst | 19,901,520 | 40,442 |
+| typst-vendor | 19,901,648 | 40,442 |
+| typst-owned | 19,901,664 | 40,442 |
 
-Typst adds 10,902,672 bytes, about 10.4 MiB, for this low-level PNG render
-path. The script also asserts that the Typst probe dependency graph does not
-contain `cosmic-text`.
+The current vendor Typst path adds 10,902,800 bytes, about 10.4 MiB, for this
+low-level PNG render path. The current owned Typst path adds 10,902,816 bytes,
+just 16 bytes more than vendor while it delegates to the vendor backend. The
+script also asserts that neither Typst probe dependency graph contains
+`cosmic-text`.
 
 After aligning direct workspace dependency versions with the vendored Typst path
 where practical, this probe uses a single `png`, `svgtypes`, `kurbo`, and `phf`

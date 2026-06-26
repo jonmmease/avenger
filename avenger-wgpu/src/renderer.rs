@@ -742,7 +742,7 @@ fn make_typst_text_atlas_builder(
     use std::sync::Arc;
 
     let typst_rasterizer =
-        avenger_text::typst_text::TypstTextRasterizer::<GlyphBBoxAndAtlasCoords>::with_vendor_typst(
+        avenger_text::typst_text::TypstTextRasterizer::<GlyphBBoxAndAtlasCoords>::with_config(
             text_math.clone(),
         )
         .expect("failed to initialize Typst text rasterizer");

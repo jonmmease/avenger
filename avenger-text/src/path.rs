@@ -304,14 +304,30 @@ impl TypstTextPathExtractor {
         Self { typst, math }
     }
 
-    pub fn with_vendor_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
+    pub fn with_config(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
+        Self::with_typst_backend(math.clone(), math.typst_backend)
+    }
+
+    pub fn with_typst_backend(
+        mut math: TextMathConfig,
+        backend: avenger_typst::TypstEngineBackend,
+    ) -> Result<Self, avenger_typst::TypstInitError> {
+        math.typst_backend = backend;
         Ok(Self::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
-                backend: avenger_typst::TypstEngineBackend::VendorTypst,
+                backend,
                 ..avenger_typst::TypstEngineConfig::default()
             })?,
             math,
         ))
+    }
+
+    pub fn with_vendor_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
+        Self::with_typst_backend(math, avenger_typst::TypstEngineBackend::VendorTypst)
+    }
+
+    pub fn with_owned_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
+        Self::with_typst_backend(math, avenger_typst::TypstEngineBackend::OwnedTypst)
     }
 }
 

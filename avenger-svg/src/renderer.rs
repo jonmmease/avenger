@@ -537,7 +537,7 @@ impl SvgRenderer {
             return Ok(None);
         }
 
-        TypstTextPathExtractor::with_vendor_typst(self.options.text_math.clone())
+        TypstTextPathExtractor::with_config(self.options.text_math.clone())
             .map(Some)
             .map_err(|err| AvengerSvgError::Text(err.to_string()))
     }

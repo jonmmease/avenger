@@ -26,18 +26,27 @@ build_one() {
     printf '%s,%s,%s\n' "$name" "$(size_bytes "$binary")" "$(size_bytes "$png")"
 }
 
+assert_no_cosmic_text() {
+    local feature="$1"
+    local output="/tmp/text-render-probe-cosmic-tree-$feature.txt"
+
+    if cargo tree -p "$binary_name" --no-default-features --features "$feature" -i cosmic-text >"$output" 2>&1; then
+        echo "unexpected cosmic-text dependency in $feature probe" >&2
+        cat "$output" >&2
+        exit 1
+    fi
+
+    if ! grep -q 'did not match any packages' "$output"; then
+        echo "could not confirm absence of cosmic-text in $feature probe" >&2
+        cat "$output" >&2
+        exit 1
+    fi
+}
+
 printf 'backend,binary_bytes,png_bytes\n'
 build_one cosmic cosmic
-build_one typst typst
+build_one typst-vendor typst
+build_one typst-owned typst-owned
 
-if cargo tree -p "$binary_name" --no-default-features --features typst -i cosmic-text >/tmp/text-render-probe-cosmic-tree.txt 2>&1; then
-    echo "unexpected cosmic-text dependency in typst probe" >&2
-    cat /tmp/text-render-probe-cosmic-tree.txt >&2
-    exit 1
-fi
-
-if ! grep -q 'did not match any packages' /tmp/text-render-probe-cosmic-tree.txt; then
-    echo "could not confirm absence of cosmic-text in typst probe" >&2
-    cat /tmp/text-render-probe-cosmic-tree.txt >&2
-    exit 1
-fi
+assert_no_cosmic_text typst
+assert_no_cosmic_text typst-owned

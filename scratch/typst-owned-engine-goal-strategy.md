@@ -220,7 +220,7 @@ The destination should not mirror `typst-library`, `typst-layout`, or `typst-syn
   - positioned runs
   - path bounds
   - glyph ids and font names for future PDF embedding
-- [ ] Add a text-render size probe target that can build:
+- [x] Add a text-render size probe target that can build:
   - vendor backend
   - owned backend
   - cosmic backend
