@@ -42,7 +42,7 @@ impl Default for TextMathConfig {
     fn default() -> Self {
         Self {
             mode: TextMarkupMode::Plain,
-            typst_backend: TypstEngineBackend::VendorTypst,
+            typst_backend: TypstEngineBackend::OwnedTypst,
             math_style: MathStyle::default(),
             syntax: MathSyntaxMode::default(),
             limits: MathLimits::default(),

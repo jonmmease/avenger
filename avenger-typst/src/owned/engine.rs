@@ -1,3 +1,4 @@
+#[cfg(feature = "vendor-typst")]
 use std::sync::{Arc, Mutex};
 
 use crate::api::TypstEngineConfig;
@@ -8,6 +9,7 @@ use crate::types::{
     MathFragmentOptions, MathRunArtifact, TextLineArtifact, TextLineOptions, TypesetMetrics,
 };
 
+#[cfg(feature = "vendor-typst")]
 use crate::engine::typst::TypstMathEngine;
 use crate::owned::ast::{OwnedLine, OwnedLineNode};
 use crate::owned::inline::try_typeset_owned_text_line;
@@ -18,6 +20,7 @@ use crate::owned::syntax::parse_owned_line;
 #[derive(Clone)]
 pub(crate) struct OwnedTypstEngine {
     config: TypstEngineConfig,
+    #[cfg(feature = "vendor-typst")]
     delegate: Arc<Mutex<Option<TypstMathEngine>>>,
 }
 
@@ -25,13 +28,7 @@ impl std::fmt::Debug for OwnedTypstEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OwnedTypstEngine")
             .field("phase", &"owned-empty-text-line-delegating-rest")
-            .field(
-                "delegate_initialized",
-                &self
-                    .delegate
-                    .lock()
-                    .is_ok_and(|delegate| delegate.is_some()),
-            )
+            .field("delegate_initialized", &self.delegate_initialized())
             .finish_non_exhaustive()
     }
 }
@@ -40,6 +37,7 @@ impl OwnedTypstEngine {
     pub(crate) fn new(config: &TypstEngineConfig) -> Result<Self, TypstInitError> {
         Ok(Self {
             config: config.clone(),
+            #[cfg(feature = "vendor-typst")]
             delegate: Arc::new(Mutex::new(None)),
         })
     }
@@ -53,7 +51,7 @@ impl OwnedTypstEngine {
         if let Some(artifact) = try_typeset_simple_row_fragment(&math, options, &self.config)? {
             return Ok(artifact);
         }
-        self.with_delegate(|delegate| delegate.typeset_fragment(source, options))
+        self.with_delegate_or_unsupported_fragment(source, options)
     }
 
     pub(crate) fn typeset_text_line(
@@ -76,9 +74,50 @@ impl OwnedTypstEngine {
             ));
         }
 
+        self.with_delegate_or_unsupported_text_line(source, options)
+    }
+
+    #[cfg(feature = "vendor-typst")]
+    fn with_delegate_or_unsupported_fragment(
+        &self,
+        source: &str,
+        options: &MathFragmentOptions,
+    ) -> Result<MathRunArtifact, MathTypesetError> {
+        self.with_delegate(|delegate| delegate.typeset_fragment(source, options))
+    }
+
+    #[cfg(not(feature = "vendor-typst"))]
+    fn with_delegate_or_unsupported_fragment(
+        &self,
+        _source: &str,
+        _options: &MathFragmentOptions,
+    ) -> Result<MathRunArtifact, MathTypesetError> {
+        Err(MathTypesetError::UnsupportedOutput(
+            "owned Typst backend does not support this math subset yet",
+        ))
+    }
+
+    #[cfg(feature = "vendor-typst")]
+    fn with_delegate_or_unsupported_text_line(
+        &self,
+        source: &str,
+        options: &TextLineOptions,
+    ) -> Result<TextLineArtifact, MathTypesetError> {
         self.with_delegate(|delegate| delegate.typeset_text_line(source, options))
     }
 
+    #[cfg(not(feature = "vendor-typst"))]
+    fn with_delegate_or_unsupported_text_line(
+        &self,
+        _source: &str,
+        _options: &TextLineOptions,
+    ) -> Result<TextLineArtifact, MathTypesetError> {
+        Err(MathTypesetError::UnsupportedOutput(
+            "owned Typst backend does not support this text-line subset yet",
+        ))
+    }
+
+    #[cfg(feature = "vendor-typst")]
     fn with_delegate<T>(
         &self,
         run: impl FnOnce(&TypstMathEngine) -> Result<T, MathTypesetError>,
@@ -102,6 +141,19 @@ impl OwnedTypstEngine {
         run(delegate
             .as_ref()
             .expect("owned Typst delegate should be initialized"))
+    }
+
+    fn delegate_initialized(&self) -> bool {
+        #[cfg(feature = "vendor-typst")]
+        {
+            self.delegate
+                .lock()
+                .is_ok_and(|delegate| delegate.is_some())
+        }
+        #[cfg(not(feature = "vendor-typst"))]
+        {
+            false
+        }
     }
 }
 
@@ -165,7 +217,7 @@ mod tests {
     #[test]
     fn empty_text_line_uses_owned_fast_path_without_initializing_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
 
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
@@ -186,7 +238,7 @@ mod tests {
             .as_ref()
             .is_some_and(|pdf_text| pdf_text.glyph_runs.is_empty()));
         assert!(artifact.positioned_runs.is_empty());
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -202,7 +254,7 @@ mod tests {
             .paths
             .as_ref()
             .is_some_and(|paths| paths.items.len() == 5));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -215,7 +267,7 @@ mod tests {
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -239,7 +291,7 @@ mod tests {
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
         assert_eq!(artifact.font_resources.len(), 1);
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -270,7 +322,7 @@ mod tests {
         assert_eq!(artifact.positioned_runs[0].text, "Hello 温度");
         assert!(artifact.paths.is_some());
         assert!(artifact.font_resources.len() >= 2);
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -296,7 +348,7 @@ mod tests {
         assert_eq!(artifact.positioned_runs[0].text, "Hello 温度");
         assert!(artifact.paths.is_some());
         assert!(artifact.font_resources.len() >= 2);
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -311,6 +363,7 @@ mod tests {
         assert!(artifact.paths.is_some());
     }
 
+    #[cfg(feature = "vendor-typst")]
     #[test]
     fn plain_text_line_with_zwj_emoji_uses_owned_fallback_or_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
@@ -321,6 +374,23 @@ mod tests {
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
+    }
+
+    #[cfg(not(feature = "vendor-typst"))]
+    #[test]
+    fn plain_text_line_with_zwj_emoji_reports_unsupported_without_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        let err = engine.typeset_text_line("Family 👨‍👩‍👧‍👦", &options).unwrap_err();
+
+        assert_eq!(
+            err,
+            MathTypesetError::UnsupportedOutput(
+                "owned Typst backend does not support this text-line subset yet"
+            )
+        );
     }
 
     #[test]
@@ -343,7 +413,7 @@ mod tests {
         assert_eq!(artifact.positioned_runs[0].text, "Revenue 🚀");
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -363,7 +433,7 @@ mod tests {
                 message: "unsupported static text command"
             }
         );
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -383,7 +453,7 @@ mod tests {
                 message: "static text commands do not support Typst-style options"
             }
         );
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -405,7 +475,7 @@ mod tests {
         assert_eq!(artifact.positioned_runs[0].text, "important");
         assert!(artifact.positioned_runs[0].paths.is_some());
         assert!(artifact.pdf_text.is_some());
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -440,7 +510,7 @@ mod tests {
             .is_some_and(|style| style.font_size < options.text_style.font_size));
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -458,7 +528,7 @@ mod tests {
                 message: "matrix/table math is not supported in owned Typst subset"
             }
         );
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -476,7 +546,7 @@ mod tests {
             .unwrap();
 
         assert!(artifact.metrics.width > 0.0);
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -497,7 +567,7 @@ mod tests {
             .paths
             .as_ref()
             .is_some_and(|paths| !paths.items.is_empty()));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -516,7 +586,7 @@ mod tests {
 
         assert!(artifact.pdf_text.is_some());
         assert_eq!(artifact.font_resources.len(), 1);
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -537,7 +607,7 @@ mod tests {
             .expect("owned script path should emit PDF glyph metadata");
         assert!(pdf.glyph_runs.iter().any(|run| run.font_size < 12.0));
         assert_eq!(artifact.font_resources.len(), 1);
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -560,7 +630,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -583,7 +653,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -606,7 +676,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -629,7 +699,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 1));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -654,7 +724,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 6));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -677,7 +747,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 3));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -700,7 +770,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -723,7 +793,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 5));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -746,7 +816,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 3));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -769,7 +839,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -794,7 +864,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() > 6));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[cfg(feature = "raster")]
@@ -813,7 +883,7 @@ mod tests {
             .unwrap();
 
         assert!(artifact.raster.is_some());
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -833,7 +903,7 @@ mod tests {
                 message: "matrix/table math is not supported in owned Typst subset"
             }
         );
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -852,7 +922,7 @@ mod tests {
         assert!(artifact.metrics.width > 0.0);
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.positioned_runs[0].text, "Hello");
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -874,7 +944,7 @@ mod tests {
             .pdf_text
             .as_ref()
             .is_some_and(|pdf| pdf.glyph_runs.len() == 1));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -897,7 +967,7 @@ mod tests {
         assert_eq!(artifact.positioned_runs[0].text, "Price $7, score ");
         assert_eq!(artifact.positioned_runs[1].text, "R^2");
         assert_eq!(artifact.positioned_runs[2].text, " = 0.94");
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -914,7 +984,7 @@ mod tests {
         assert!(artifact.paths.is_some());
         assert_eq!(artifact.positioned_runs.len(), 3);
         assert!(artifact.positioned_runs[1].paths.is_some());
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
@@ -941,7 +1011,7 @@ mod tests {
         assert!(artifact.positioned_runs[0].pdf_text.is_none());
         assert!(artifact.positioned_runs[1].pdf_text.is_some());
         assert!(artifact.positioned_runs[2].pdf_text.is_none());
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 
     #[cfg(feature = "raster")]
@@ -965,6 +1035,6 @@ mod tests {
             .raster
             .as_ref()
             .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0));
-        assert!(!engine.delegate.lock().unwrap().is_some());
+        assert!(!engine.delegate_initialized());
     }
 }

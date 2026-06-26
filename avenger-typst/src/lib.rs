@@ -8,10 +8,10 @@ mod api;
 mod delimiter;
 mod engine;
 mod error;
-#[cfg(feature = "vendor-typst")]
+#[cfg(feature = "owned")]
 mod fonts;
 mod limits;
-#[cfg(feature = "vendor-typst")]
+#[cfg(feature = "owned")]
 mod owned;
 mod paths;
 mod pdf;

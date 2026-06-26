@@ -54,12 +54,7 @@ fn canvas_config() -> CanvasConfig {
     config
 }
 
-#[cfg(all(feature = "typst", not(feature = "typst-owned")))]
-fn typst_backend() -> TypstEngineBackend {
-    TypstEngineBackend::VendorTypst
-}
-
-#[cfg(feature = "typst-owned")]
+#[cfg(feature = "typst")]
 fn typst_backend() -> TypstEngineBackend {
     TypstEngineBackend::OwnedTypst
 }

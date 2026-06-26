@@ -40,7 +40,7 @@ optional = true
 path = "../avenger-typst"
 optional = true
 default-features = false
-features = ["vendor-typst"]
+features = ["owned"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.92"

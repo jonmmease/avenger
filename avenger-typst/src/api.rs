@@ -62,7 +62,7 @@ enum EngineInner {
     Mock(MockMathEngine),
     #[cfg(feature = "vendor-typst")]
     Typst(crate::engine::typst::TypstMathEngine),
-    #[cfg(feature = "vendor-typst")]
+    #[cfg(feature = "owned")]
     Owned(crate::owned::engine::OwnedTypstEngine),
 }
 
@@ -88,7 +88,7 @@ impl AvengerTypst {
             EngineInner::Mock(engine) => engine.typeset_fragment(source, options),
             #[cfg(feature = "vendor-typst")]
             EngineInner::Typst(engine) => engine.typeset_fragment(source, options),
-            #[cfg(feature = "vendor-typst")]
+            #[cfg(feature = "owned")]
             EngineInner::Owned(engine) => engine.typeset_fragment(source, options),
         }
     }
@@ -174,7 +174,7 @@ impl AvengerTypst {
             EngineInner::Mock(engine) => engine.typeset_text_line(source, options),
             #[cfg(feature = "vendor-typst")]
             EngineInner::Typst(engine) => engine.typeset_text_line(source, options),
-            #[cfg(feature = "vendor-typst")]
+            #[cfg(feature = "owned")]
             EngineInner::Owned(engine) => engine.typeset_text_line(source, options),
         }
     }
@@ -194,17 +194,17 @@ fn new_vendor_typst_engine(_config: TypstEngineConfig) -> Result<AvengerTypst, T
     ))
 }
 
-#[cfg(feature = "vendor-typst")]
+#[cfg(feature = "owned")]
 fn new_owned_typst_engine(config: TypstEngineConfig) -> Result<AvengerTypst, TypstInitError> {
     Ok(AvengerTypst {
         engine: EngineInner::Owned(crate::owned::engine::OwnedTypstEngine::new(&config)?),
     })
 }
 
-#[cfg(not(feature = "vendor-typst"))]
+#[cfg(not(feature = "owned"))]
 fn new_owned_typst_engine(_config: TypstEngineConfig) -> Result<AvengerTypst, TypstInitError> {
     Err(TypstInitError::BackendUnavailable(
-        "owned Typst backend is currently bootstrapped by the vendor-typst feature",
+        "owned Typst backend requires the owned feature",
     ))
 }
 

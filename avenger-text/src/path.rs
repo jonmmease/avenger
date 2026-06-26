@@ -646,7 +646,7 @@ mod tests {
     #[test]
     fn typst_text_extractor_returns_plain_runs_and_math_paths() {
         let typst = avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
-            backend: avenger_typst::TypstEngineBackend::VendorTypst,
+            backend: avenger_typst::TypstEngineBackend::OwnedTypst,
             ..Default::default()
         })
         .unwrap();
