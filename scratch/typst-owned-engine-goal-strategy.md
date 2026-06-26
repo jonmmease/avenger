@@ -336,6 +336,12 @@ Success criteria:
 
 Once layout is owned and proven, replace `typst-syntax` with a small parser for the strict supported subset.
 
+Progress:
+
+- [x] Add an initial owned line AST and static Typst-shaped parser for plain text, `$...$` math spans, exact text commands, nested static text spans, and named emoji aliases.
+- [ ] Route the owned parser into the owned backend for non-empty text lines.
+- [ ] Add the owned math parser for the strict supported subset.
+
 Keep:
 
 - Typst-like math syntax accepted by current Avenger examples
