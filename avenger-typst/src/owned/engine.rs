@@ -10,6 +10,7 @@ use crate::types::{
 
 use crate::engine::typst::TypstMathEngine;
 use crate::owned::ast::{OwnedLine, OwnedLineNode};
+use crate::owned::inline::try_typeset_plain_text_line;
 use crate::owned::math::syntax::parse_owned_math;
 use crate::owned::syntax::parse_owned_line;
 
@@ -62,6 +63,9 @@ impl OwnedTypstEngine {
 
         let line = parse_owned_line(source, &options.delimiters)?;
         validate_owned_line_math(&line)?;
+        if let Some(artifact) = try_typeset_plain_text_line(source, &line, options)? {
+            return Ok(artifact);
+        }
         if line_contains_static_markup(&line) {
             return Err(MathTypesetError::UnsupportedOutput(
                 "owned static text markup is parsed but not rendered yet",
@@ -183,14 +187,15 @@ mod tests {
     }
 
     #[test]
-    fn non_empty_text_line_initializes_delegate() {
+    fn non_empty_text_line_with_paths_initializes_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
-        options.outputs.paths = false;
+        options.outputs.paths = true;
 
         let artifact = engine.typeset_text_line("x", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
+        assert!(artifact.paths.is_some());
         assert!(engine.delegate.lock().unwrap().is_some());
     }
 
@@ -288,6 +293,25 @@ mod tests {
                 message: "matrix/table math is not supported in owned Typst subset"
             }
         );
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn plain_text_line_metrics_only_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: false,
+            raster: None,
+            pdf_text_layer: false,
+            positioned_runs: true,
+        };
+
+        let artifact = engine.typeset_text_line("Hello", &options).unwrap();
+
+        assert!(artifact.metrics.width > 0.0);
+        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert_eq!(artifact.positioned_runs[0].text, "Hello");
         assert!(!engine.delegate.lock().unwrap().is_some());
     }
 }

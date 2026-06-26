@@ -1240,6 +1240,7 @@ dependencies = [
  "avenger-typst-syntax",
  "avenger-typst-utils",
  "comemo",
+ "rustybuzz",
  "serde",
  "thiserror 2.0.18",
  "tiny-skia",

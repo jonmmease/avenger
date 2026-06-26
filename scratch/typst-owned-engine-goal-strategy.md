@@ -255,7 +255,8 @@ Progress:
 - [x] Move the owned backend shell under `avenger-typst/src/owned/`.
 - [x] Lazily initialize the vendored delegate so owned fast paths can run without constructing a Typst `World`.
 - [x] Add the first owned artifact path: empty text lines with metrics, optional empty paths, optional empty PDF text layer, and positioned-run output.
-- [ ] Copy enough runtime/layout code for a non-empty plain text line.
+- [x] Copy enough runtime/layout code for a non-empty plain text line with metrics-only/positioned-run output, using embedded Atkinson face selection, `rustybuzz` shaping advances, and Typst-compatible cap-height/baseline vertical metrics.
+- [ ] Extend the owned plain text line path to path extraction, raster output, PDF text metadata, fallback fonts, bidi, emoji, and complex-script segmentation.
 - [ ] Copy enough runtime/layout code for a simple math fragment.
 
 Needed families:

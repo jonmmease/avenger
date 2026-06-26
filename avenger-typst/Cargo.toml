@@ -7,6 +7,7 @@ edition = "2021"
 default = []
 vendor-typst = [
     "dep:comemo",
+    "dep:rustybuzz",
     "dep:ttf-parser",
     "dep:typst-layout",
     "dep:typst-library",
@@ -20,6 +21,7 @@ serde = ["dep:serde"]
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
 comemo = { version = "0.5.1", optional = true }
+rustybuzz = { workspace = true, optional = true }
 ttf-parser = { workspace = true, optional = true }
 tiny-skia = { workspace = true, optional = true }
 typst-layout = { package = "avenger-typst-layout", path = "../vendor/typst-avenger/crates/typst-layout", optional = true }

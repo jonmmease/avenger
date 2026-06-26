@@ -8,6 +8,8 @@ mod api;
 mod delimiter;
 mod engine;
 mod error;
+#[cfg(feature = "vendor-typst")]
+mod fonts;
 mod limits;
 #[cfg(feature = "vendor-typst")]
 mod owned;

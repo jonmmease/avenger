@@ -642,69 +642,11 @@ fn pass_through_html_span(content: Content, _color: TypstColor) -> Content {
     content
 }
 
-const ATKINSON_REGULAR: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Regular.ttf"
-);
-const ATKINSON_ITALIC: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Italic.ttf"
-);
-const ATKINSON_BOLD: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Bold.ttf"
-);
-const ATKINSON_BOLD_ITALIC: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-BoldItalic.ttf"
-);
-const ATKINSON_EXTRA_BOLD: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-ExtraBold.ttf"
-);
-const ATKINSON_EXTRA_BOLD_ITALIC: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-ExtraBoldItalic.ttf"
-);
-const ATKINSON_EXTRA_LIGHT: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-ExtraLight.ttf"
-);
-const ATKINSON_EXTRA_LIGHT_ITALIC: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-ExtraLightItalic.ttf"
-);
-const ATKINSON_LIGHT: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Light.ttf"
-);
-const ATKINSON_LIGHT_ITALIC: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-LightItalic.ttf"
-);
-const ATKINSON_MEDIUM: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Medium.ttf"
-);
-const ATKINSON_MEDIUM_ITALIC: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-MediumItalic.ttf"
-);
-const ATKINSON_SEMI_BOLD: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-SemiBold.ttf"
-);
-const ATKINSON_SEMI_BOLD_ITALIC: &[u8] = include_bytes!(
-    "../../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-SemiBoldItalic.ttf"
-);
-
 fn load_typst_fonts(config: &TypstEngineConfig) -> Result<Vec<Font>, TypstInitError> {
     let mut fonts = Vec::new();
-    for data in [
-        ATKINSON_REGULAR,
-        ATKINSON_ITALIC,
-        ATKINSON_BOLD,
-        ATKINSON_BOLD_ITALIC,
-        ATKINSON_EXTRA_BOLD,
-        ATKINSON_EXTRA_BOLD_ITALIC,
-        ATKINSON_EXTRA_LIGHT,
-        ATKINSON_EXTRA_LIGHT_ITALIC,
-        ATKINSON_LIGHT,
-        ATKINSON_LIGHT_ITALIC,
-        ATKINSON_MEDIUM,
-        ATKINSON_MEDIUM_ITALIC,
-        ATKINSON_SEMI_BOLD,
-        ATKINSON_SEMI_BOLD_ITALIC,
-    ] {
+    for face in crate::fonts::ATKINSON_FACES {
         fonts.extend(Font::iter(typst_library::foundations::Bytes::new(
-            data.to_vec(),
+            face.data.to_vec(),
         )));
     }
 
