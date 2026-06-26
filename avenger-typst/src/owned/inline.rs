@@ -1,6 +1,8 @@
 use crate::error::MathTypesetError;
 use crate::paths::{MathPathArtifact, MathPathItem, MathPathKind, MathTransform};
 use crate::pdf::{MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer};
+#[cfg(feature = "raster")]
+use crate::raster::rasterize_path_artifact;
 use crate::types::{
     PositionedTextLineRun, PositionedTextLineRunKind, TextLineArtifact, TextLineOptions,
     TypesetMetrics,
@@ -16,6 +18,7 @@ pub(crate) fn try_typeset_plain_text_line(
     line: &OwnedLine,
     options: &TextLineOptions,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
+    #[cfg(not(feature = "raster"))]
     if options.outputs.raster.is_some() {
         return Ok(None);
     }
@@ -28,7 +31,7 @@ pub(crate) fn try_typeset_plain_text_line(
         return Ok(None);
     };
 
-    Ok(typeset_plain_text_line(source, plain, options, face))
+    typeset_plain_text_line(source, plain, options, face)
 }
 
 fn typeset_plain_text_line(
@@ -36,11 +39,11 @@ fn typeset_plain_text_line(
     plain: &OwnedPlainText,
     options: &TextLineOptions,
     face: OwnedTextFace<'_>,
-) -> Option<TextLineArtifact> {
+) -> Result<Option<TextLineArtifact>, MathTypesetError> {
     let font_size = options.text_style.font_size.max(1.0);
     let shaped = face.shaped_text(&plain.text, font_size);
     if shaped.has_missing_glyph {
-        return None;
+        return Ok(None);
     }
     let metrics = TypesetMetrics {
         width: shaped.metrics.width,
@@ -86,7 +89,7 @@ fn typeset_plain_text_line(
             .into_iter()
             .collect(),
     });
-    let paths = options.outputs.paths.then(|| {
+    let path_artifact = (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
         let items = shaped
             .glyphs
             .iter()
@@ -118,6 +121,18 @@ fn typeset_plain_text_line(
             items,
         }
     });
+    let paths = options.outputs.paths.then(|| {
+        path_artifact
+            .clone()
+            .expect("plain text paths should be built when paths are requested")
+    });
+    #[cfg(feature = "raster")]
+    let raster = match (options.outputs.raster, path_artifact.as_ref()) {
+        (Some(request), Some(paths)) => Some(rasterize_path_artifact(paths, request)?),
+        _ => None,
+    };
+    #[cfg(not(feature = "raster"))]
+    let raster = None;
     let positioned_runs = options.outputs.positioned_runs.then(|| {
         vec![PositionedTextLineRun {
             kind: PositionedTextLineRunKind::Plain,
@@ -132,16 +147,16 @@ fn typeset_plain_text_line(
         }]
     });
 
-    Some(TextLineArtifact {
+    Ok(Some(TextLineArtifact {
         source: source.to_string(),
         metrics,
         paths,
-        raster: None,
+        raster,
         pdf_text,
         positioned_runs: positioned_runs.unwrap_or_default(),
         font_resources,
         warnings: Vec::<MathTypesetWarning>::new(),
-    })
+    }))
 }
 
 #[cfg(test)]
@@ -190,8 +205,9 @@ mod tests {
         assert_eq!(paths.items.len(), 5);
     }
 
+    #[cfg(not(feature = "raster"))]
     #[test]
-    fn plain_line_fast_path_declines_raster_until_owned_raster_slice() {
+    fn plain_line_fast_path_declines_raster_without_raster_feature() {
         let line = parse_owned_line("Hello", &MathDelimiterOptions::default()).unwrap();
         let mut options = TextLineOptions::default();
         options.outputs.raster = Some(crate::raster::RasterRequest::default());
@@ -199,6 +215,25 @@ mod tests {
         assert!(try_typeset_plain_text_line("Hello", &line, &options)
             .unwrap()
             .is_none());
+    }
+
+    #[cfg(feature = "raster")]
+    #[test]
+    fn plain_line_fast_path_can_emit_raster() {
+        let line = parse_owned_line("Hello", &MathDelimiterOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = false;
+        options.outputs.raster = Some(crate::raster::RasterRequest { scale: 2.0 });
+
+        let artifact = try_typeset_plain_text_line("Hello", &line, &options)
+            .unwrap()
+            .expect("plain Atkinson text should use fast path");
+
+        assert!(artifact.paths.is_none());
+        assert!(artifact
+            .raster
+            .as_ref()
+            .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0));
     }
 
     #[test]

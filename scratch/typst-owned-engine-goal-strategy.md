@@ -271,6 +271,7 @@ Progress:
 - [x] Add owned text-operator layout for `sin`, `cos`, `tan`, `log`, `ln`, `lim`, `max`, `min`, and `op("custom")`, including strict vendor lowering, operator identifier/call parsing, Typst-compatible word shaping/kerned advances, script attachment behavior, path output, and coalesced PDF glyph metadata for labels such as `sin(x)` and `lim_(x -> oo) f(x)`.
 - [x] Add owned PDF glyph metadata for plain Atkinson-only text lines when paths/raster are not requested, including shaped glyph IDs, advances, transforms, font resource bytes, and vendor-oracle coverage for labels such as `Hello`, `Axis Tick Spacing`, and `Using count() aggregation`.
 - [x] Add owned path extraction for plain Atkinson-only text lines by sharing the glyph-outline lowering helper with math, preserving vendor-compatible path topology for covered glyphs and delegating missing-glyph labels such as emoji until fallback segmentation is implemented.
+- [x] Add owned raster output for plain Atkinson-only text lines behind the `raster` feature by feeding the owned path artifact through the existing tiny-skia rasterizer, while preserving non-raster-feature delegation behavior.
 - [ ] Extend the owned plain text line path to path extraction, raster output, PDF text metadata, fallback fonts, bidi, emoji, and complex-script segmentation.
 - [ ] Extend the owned math fragment path from simple-row metrics/paths/raster/PDF metadata to scripts, fractions, roots, delimiters, and grouped expressions.
 
