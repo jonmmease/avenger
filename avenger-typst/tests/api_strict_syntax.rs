@@ -65,6 +65,7 @@ fn allows_common_typst_math_fragments() {
         "$alpha + beta$",
         "$sqrt(x^2 + y^2)$",
         "$sum_(i=1)^n x_i$",
+        "$binom(n, k)$",
         "$mat(1, 2; 3, 4)$",
     ];
 

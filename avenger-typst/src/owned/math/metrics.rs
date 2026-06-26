@@ -357,6 +357,9 @@ fn layout_simple_node(
         if call.name == "frac" {
             return layout_simple_fraction_call(font, call, font_size, script_level);
         }
+        if call.name == "binom" {
+            return layout_simple_binom_call(font, call, font_size, script_level);
+        }
         if let Some((left, right)) = delimiter_call_chars(&call.name) {
             return layout_simple_delimited_call(font, call, left, right, font_size, script_level);
         }
@@ -447,11 +450,34 @@ fn layout_simple_delimited_nodes(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
-    let Some(mut body) = layout_simple_nodes_as_atom(font, body_nodes, font_size, script_level)?
-    else {
+    let Some(body) = layout_simple_nodes_as_atom(font, body_nodes, font_size, script_level)? else {
         return Ok(None);
     };
-    let delimiter_target_height = body.ink_ascent + body.ink_descent;
+    layout_simple_delimited_atom(
+        font,
+        left,
+        body,
+        right,
+        font_size,
+        script_level,
+        DelimiterTarget::Ink,
+    )
+    .map(Some)
+}
+
+fn layout_simple_delimited_atom(
+    font: &OwnedMathFont,
+    left: char,
+    mut body: LaidOutMathAtom,
+    right: char,
+    font_size: f32,
+    script_level: u8,
+    target: DelimiterTarget,
+) -> Result<LaidOutMathAtom, MathTypesetError> {
+    let delimiter_target_height = match target {
+        DelimiterTarget::Ink => body.ink_ascent + body.ink_descent,
+        DelimiterTarget::Frame => body.metrics.height,
+    };
     let mut left = layout_delimiter_atom_with_target(
         font,
         left,
@@ -459,6 +485,7 @@ fn layout_simple_delimited_nodes(
         script_level,
         delimiter_target_height,
         SimpleMathClass::Opening,
+        target == DelimiterTarget::Frame,
     )?;
     let mut right = layout_delimiter_atom_with_target(
         font,
@@ -467,6 +494,7 @@ fn layout_simple_delimited_nodes(
         script_level,
         delimiter_target_height,
         SimpleMathClass::Closing,
+        target == DelimiterTarget::Frame,
     )?;
 
     let width = left.metrics.width + body.metrics.width + right.metrics.width;
@@ -506,7 +534,7 @@ fn layout_simple_delimited_nodes(
     append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, body);
     append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, right);
 
-    Ok(Some(LaidOutMathAtom {
+    Ok(LaidOutMathAtom {
         metrics: TypesetMetrics {
             width,
             height: ascent + descent,
@@ -523,7 +551,13 @@ fn layout_simple_delimited_nodes(
         glyphs,
         shapes,
         draw_order,
-    }))
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DelimiterTarget {
+    Ink,
+    Frame,
 }
 
 fn layout_delimiter_atom_with_target(
@@ -533,6 +567,7 @@ fn layout_delimiter_atom_with_target(
     script_level: u8,
     target_height: f32,
     class: SimpleMathClass,
+    force_variant: bool,
 ) -> Result<LaidOutMathAtom, MathTypesetError> {
     let mut atom = layout_styled_atom_with_class(
         font,
@@ -542,7 +577,7 @@ fn layout_delimiter_atom_with_target(
         class,
     )?;
 
-    if target_height <= atom.metrics.height {
+    if !force_variant && target_height <= atom.metrics.height {
         return Ok(atom);
     }
 
@@ -771,12 +806,68 @@ fn layout_simple_fraction_call(
     )
 }
 
+fn layout_simple_binom_call(
+    font: &OwnedMathFont,
+    call: &super::ast::OwnedMathCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let [top, bottom] = &call.args[..] else {
+        return Ok(None);
+    };
+    let Some(stack) = layout_simple_stack_nodes(
+        font,
+        &top.nodes,
+        &bottom.nodes,
+        font_size,
+        script_level,
+        StackRule::None,
+    )?
+    else {
+        return Ok(None);
+    };
+    layout_simple_delimited_atom(
+        font,
+        '(',
+        stack,
+        ')',
+        font_size,
+        script_level,
+        DelimiterTarget::Frame,
+    )
+    .map(Some)
+}
+
 fn layout_simple_fraction_nodes(
     font: &OwnedMathFont,
     numerator_nodes: &[OwnedMathNode],
     denominator_nodes: &[OwnedMathNode],
     font_size: f32,
     script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    layout_simple_stack_nodes(
+        font,
+        numerator_nodes,
+        denominator_nodes,
+        font_size,
+        script_level,
+        StackRule::Fraction,
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StackRule {
+    Fraction,
+    None,
+}
+
+fn layout_simple_stack_nodes(
+    font: &OwnedMathFont,
+    numerator_nodes: &[OwnedMathNode],
+    denominator_nodes: &[OwnedMathNode],
+    font_size: f32,
+    script_level: u8,
+    rule: StackRule,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
     let child_font_size = script_font_size(font, font_size, script_level)?;
     let Some(mut numerator) =
@@ -789,6 +880,10 @@ fn layout_simple_fraction_nodes(
     else {
         return Ok(None);
     };
+
+    if rule == StackRule::None {
+        return layout_simple_no_rule_stack(font, numerator, denominator, font_size);
+    }
 
     let axis = math_constant(font, font_size, |constants| constants.axis_height().value)?;
     let thickness = math_constant(font, font_size, |constants| {
@@ -837,21 +932,61 @@ fn layout_simple_fraction_nodes(
     let mut draw_order = Vec::new();
     append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, numerator);
     append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, denominator);
-    shapes.push(LaidOutShape {
-        path: MathPathData {
-            commands: vec![
-                MathPathCommand::MoveTo { x: 0.0, y: 0.0 },
-                MathPathCommand::LineTo {
-                    x: line_width,
-                    y: 0.0,
-                },
-            ],
-        },
-        x: line_x,
-        y: line_y,
-        stroke_width: thickness,
-    });
-    draw_order.push(LaidOutDrawItem::Shape(shapes.len() - 1));
+    if rule == StackRule::Fraction {
+        shapes.push(LaidOutShape {
+            path: MathPathData {
+                commands: vec![
+                    MathPathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    MathPathCommand::LineTo {
+                        x: line_width,
+                        y: 0.0,
+                    },
+                ],
+            },
+            x: line_x,
+            y: line_y,
+            stroke_width: thickness,
+        });
+        draw_order.push(LaidOutDrawItem::Shape(shapes.len() - 1));
+    }
+
+    finalize_inline_frame_atom(
+        width, height, baseline, glyphs, shapes, draw_order, font, font_size,
+    )
+}
+
+fn layout_simple_no_rule_stack(
+    font: &OwnedMathFont,
+    mut numerator: LaidOutMathAtom,
+    mut denominator: LaidOutMathAtom,
+    font_size: f32,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let shift_up = math_constant(font, font_size, |constants| {
+        constants.stack_top_shift_up().value
+    })?;
+    let shift_down = math_constant(font, font_size, |constants| {
+        constants.stack_bottom_shift_down().value
+    })?;
+    let gap_min = math_constant(font, font_size, |constants| constants.stack_gap_min().value)?;
+    let padding = FRACTION_PADDING_EM * font_size;
+
+    let gap = (shift_up - numerator.metrics.descent) + (shift_down - denominator.metrics.ascent);
+    let gap = gap.max(gap_min);
+    let width = numerator.metrics.width.max(denominator.metrics.width) + 2.0 * padding;
+    let height = numerator.metrics.height + gap + denominator.metrics.height;
+    let baseline = numerator.metrics.ascent + shift_up + (gap_min - gap).max(0.0) / 2.0;
+    let numerator_x = (width - numerator.metrics.width) / 2.0;
+    let denominator_x = (width - denominator.metrics.width) / 2.0;
+    let denominator_y = height - denominator.metrics.height;
+
+    offset_atom(&mut numerator, numerator_x, 0.0);
+    offset_atom(&mut denominator, denominator_x, denominator_y);
+
+    let mut glyphs = Vec::new();
+    let mut shapes = Vec::new();
+    let mut draw_order = Vec::new();
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, numerator);
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, denominator);
 
     finalize_inline_frame_atom(
         width, height, baseline, glyphs, shapes, draw_order, font, font_size,
@@ -2133,6 +2268,36 @@ mod tests {
             .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some()));
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 4);
+    }
+
+    #[test]
+    fn simple_row_can_emit_binom_paths_without_fraction_rule() {
+        let math = parse_owned_math("binom(n, k)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("simple binom call should be handled by owned row path");
+        let paths = artifact.paths.expect("binom paths should exist");
+        assert_eq!(paths.items.len(), 4);
+        assert!(paths
+            .items
+            .iter()
+            .all(|item| !matches!(item.kind, MathPathKind::MathShape)));
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let text: String = pdf
+            .glyph_runs
+            .iter()
+            .flat_map(|run| &run.glyphs)
+            .map(|glyph| glyph.unicode.as_str())
+            .collect();
+        assert_eq!(text, "(𝑛𝑘)");
     }
 
     #[test]

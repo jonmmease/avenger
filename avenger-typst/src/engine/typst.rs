@@ -39,8 +39,8 @@ use typst_library::layout::{
     Abs, Frame, FrameItem, InlineElem, InlineItem, Point, Size, Transform,
 };
 use typst_library::math::{
-    AlignPointElem, AttachElem, EquationElem, FracElem, LrElem, MatElem, MathSize, OpElem,
-    PrimesElem, RootElem,
+    AlignPointElem, AttachElem, BinomElem, EquationElem, FracElem, LrElem, MatElem, MathSize,
+    OpElem, PrimesElem, RootElem,
 };
 use typst_library::routines::{Arenas, Pair, RealizationKind, Routines, SpanMode};
 use typst_library::text::{
@@ -1655,6 +1655,9 @@ fn lower_math_call(call: ast::MathCall<'_>) -> Result<Content, MathTypesetError>
 
     match callee.as_str() {
         "frac" => lower_two_arg_call(call, |num, denom| FracElem::new(num, denom).pack()),
+        "binom" => lower_two_arg_call(call, |upper, lower| {
+            BinomElem::new(upper, vec![lower]).pack()
+        }),
         "sqrt" => lower_one_arg_call(call, |radicand| RootElem::new(radicand).pack()),
         "root" => lower_two_arg_call(call, |index, radicand| {
             RootElem::new(radicand).with_index(Some(index)).pack()
@@ -1862,7 +1865,7 @@ fn unsupported(position: usize, message: &'static str) -> MathTypesetError {
 mod tests {
     use super::*;
     use std::collections::HashSet;
-    use typst_library::math::{AttachElem, FracElem, LrElem, MatElem, OpElem, RootElem};
+    use typst_library::math::{AttachElem, BinomElem, FracElem, LrElem, MatElem, OpElem, RootElem};
 
     #[test]
     fn typst_font_loader_embeds_atkinson_weight_style_faces() {
@@ -1906,6 +1909,13 @@ mod tests {
         let content = lower_math_source("a / b").unwrap();
 
         assert!(content.is::<FracElem>());
+    }
+
+    #[test]
+    fn lowers_binom_call() {
+        let content = lower_math_source("binom(n, k)").unwrap();
+
+        assert!(content.is::<BinomElem>());
     }
 
     #[test]
