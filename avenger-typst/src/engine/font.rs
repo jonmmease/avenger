@@ -1,6 +1,7 @@
 use std::ops::Range;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
+use crate::api::TypstEngineConfig;
 use crate::error::MathTypesetError;
 use crate::fonts::{EmbeddedFontFace, ATKINSON_FACES};
 use crate::paths::{MathImageFormat, MathImageItem, MathPathData, MathTransform};
@@ -122,26 +123,28 @@ pub(crate) struct TextFontMetrics {
 impl TextFace {
     pub(crate) fn for_plain_style(
         style: &PlainTextStyle,
+        fontdb: &fontdb::Database,
     ) -> Result<Option<Self>, MathTypesetError> {
         if resolves_to_embedded_atkinson(&style.font_family) {
             return embedded_atkinson_face(style);
         }
 
-        Ok(fontdb_face_for_style_and_text(style, ""))
+        Ok(fontdb_face_for_style_and_text(fontdb, style, ""))
     }
 
     pub(crate) fn for_plain_style_and_text(
         style: &PlainTextStyle,
         text: &str,
+        fontdb: &fontdb::Database,
     ) -> Result<Option<Self>, MathTypesetError> {
-        if let Some(primary) = Self::for_plain_style(style)? {
+        if let Some(primary) = Self::for_plain_style(style, fontdb)? {
             if !primary.shaped_text(text, style.font_size).has_missing_glyph {
                 return Ok(Some(primary));
             }
-            return Ok(fontdb_face_for_style_and_text(style, text).or(Some(primary)));
+            return Ok(fontdb_face_for_style_and_text(fontdb, style, text).or(Some(primary)));
         }
 
-        Ok(fontdb_face_for_style_and_text(style, text))
+        Ok(fontdb_face_for_style_and_text(fontdb, style, text))
     }
 
     pub(crate) fn same_font(&self, other: &Self) -> bool {
@@ -368,13 +371,14 @@ impl TextFace {
 }
 
 pub(crate) fn shape_plain_text_with_fallback(
+    fontdb: &fontdb::Database,
     style: &PlainTextStyle,
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
 ) -> Result<Option<SegmentedText>, MathTypesetError> {
-    let Some(primary) =
-        TextFace::for_plain_style(style)?.or_else(|| fontdb_face_for_style_and_text(style, text))
+    let Some(primary) = TextFace::for_plain_style(style, fontdb)?
+        .or_else(|| fontdb_face_for_style_and_text(fontdb, style, text))
     else {
         return Ok(None);
     };
@@ -405,7 +409,8 @@ pub(crate) fn shape_plain_text_with_fallback(
             {
                 primary.clone()
             } else {
-                fontdb_face_for_style_and_text(style, grapheme).unwrap_or_else(|| primary.clone())
+                fontdb_face_for_style_and_text(fontdb, style, grapheme)
+                    .unwrap_or_else(|| primary.clone())
             };
 
             if let Some(span) = spans.last_mut() {
@@ -507,15 +512,20 @@ pub(crate) enum TextScript {
     Superscript,
 }
 
-static FONTDB: LazyLock<fontdb::Database> = LazyLock::new(|| {
+pub(crate) fn build_text_fontdb(config: &TypstEngineConfig) -> fontdb::Database {
     let mut db = fontdb::Database::new();
     for face in ATKINSON_FACES {
         db.load_font_data(face.data.to_vec());
     }
     db.set_sans_serif_family("Atkinson Hyperlegible Next");
-    db.load_system_fonts();
+    if config.font_config.load_system_fonts {
+        db.load_system_fonts();
+    }
+    for dir in &config.font_config.extra_font_dirs {
+        db.load_fonts_dir(dir);
+    }
     db
-});
+}
 
 fn embedded_atkinson_face(style: &PlainTextStyle) -> Result<Option<TextFace>, MathTypesetError> {
     let face = select_atkinson_face(&style.font_weight, style.font_style).ok_or(
@@ -535,9 +545,11 @@ fn embedded_atkinson_face(style: &PlainTextStyle) -> Result<Option<TextFace>, Ma
     }))
 }
 
-fn fontdb_face_for_style_and_text(style: &PlainTextStyle, text: &str) -> Option<TextFace> {
-    let db = &*FONTDB;
-
+fn fontdb_face_for_style_and_text(
+    db: &fontdb::Database,
+    style: &PlainTextStyle,
+    text: &str,
+) -> Option<TextFace> {
     if text.chars().any(is_color_emoji_char) {
         if let Some(face) = emoji_fontdb_face_for_text(db, style, text) {
             return Some(face);
@@ -772,14 +784,19 @@ fn fallback_width(text: &str, font_size: f32) -> f32 {
 mod tests {
     use super::*;
 
+    fn test_fontdb() -> fontdb::Database {
+        build_text_fontdb(&TypstEngineConfig::default())
+    }
+
     #[test]
     fn selects_nearest_embedded_weight() {
+        let fontdb = test_fontdb();
         let style = PlainTextStyle {
             font_weight: FontWeight::Number(575),
             ..PlainTextStyle::default()
         };
 
-        let face = TextFace::for_plain_style(&style)
+        let face = TextFace::for_plain_style(&style, &fontdb)
             .unwrap()
             .expect("default sans-serif should resolve");
 
@@ -789,12 +806,14 @@ mod tests {
 
     #[test]
     fn can_resolve_fontdb_fallback_for_non_atkinson_family() {
+        let fontdb = test_fontdb();
         let style = PlainTextStyle {
             font_family: "serif".to_string(),
             ..PlainTextStyle::default()
         };
 
-        let Some(face) = TextFace::for_plain_style_and_text(&style, "Hello").unwrap() else {
+        let Some(face) = TextFace::for_plain_style_and_text(&style, "Hello", &fontdb).unwrap()
+        else {
             return;
         };
 
@@ -803,13 +822,15 @@ mod tests {
 
     #[test]
     fn segmented_fallback_preserves_grapheme_runs_when_fonts_are_available() {
+        let fontdb = test_fontdb();
         let style = PlainTextStyle {
             font_family: "Atkinson Hyperlegible Next".to_string(),
             ..PlainTextStyle::default()
         };
 
         let Some(segmented) =
-            shape_plain_text_with_fallback(&style, "Hello 温度", style.font_size, &[]).unwrap()
+            shape_plain_text_with_fallback(&fontdb, &style, "Hello 温度", style.font_size, &[])
+                .unwrap()
         else {
             return;
         };
@@ -843,13 +864,15 @@ mod tests {
 
     #[test]
     fn segmented_fallback_breaks_at_script_boundaries_when_fonts_are_available() {
+        let fontdb = test_fontdb();
         let style = PlainTextStyle {
             font_family: "Atkinson Hyperlegible Next".to_string(),
             ..PlainTextStyle::default()
         };
 
         let Some(segmented) =
-            shape_plain_text_with_fallback(&style, "abc नमस्ते", style.font_size, &[]).unwrap()
+            shape_plain_text_with_fallback(&fontdb, &style, "abc नमस्ते", style.font_size, &[])
+                .unwrap()
         else {
             return;
         };
@@ -867,13 +890,15 @@ mod tests {
 
     #[test]
     fn segmented_fallback_orders_bidi_runs_visually_when_fonts_are_available() {
+        let fontdb = test_fontdb();
         let style = PlainTextStyle {
             font_family: "Atkinson Hyperlegible Next".to_string(),
             ..PlainTextStyle::default()
         };
 
         let Some(segmented) =
-            shape_plain_text_with_fallback(&style, "אבג ABC", style.font_size, &[]).unwrap()
+            shape_plain_text_with_fallback(&fontdb, &style, "אבג ABC", style.font_size, &[])
+                .unwrap()
         else {
             return;
         };
@@ -898,14 +923,16 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn segmented_fallback_uses_apple_color_emoji_png_glyphs_on_macos() {
+        let fontdb = test_fontdb();
         let style = PlainTextStyle {
             font_family: "Atkinson Hyperlegible Next".to_string(),
             ..PlainTextStyle::default()
         };
 
-        let segmented = shape_plain_text_with_fallback(&style, "Revenue 🚀", style.font_size, &[])
-            .unwrap()
-            .expect("text should shape");
+        let segmented =
+            shape_plain_text_with_fallback(&fontdb, &style, "Revenue 🚀", style.font_size, &[])
+                .unwrap()
+                .expect("text should shape");
         let emoji_run = segmented
             .runs
             .iter()
@@ -937,8 +964,9 @@ mod tests {
 
     #[test]
     fn keeps_atkinson_fast_path_for_default_sans_serif() {
+        let fontdb = test_fontdb();
         let style = PlainTextStyle::default();
-        let face = TextFace::for_plain_style_and_text(&style, "Hello")
+        let face = TextFace::for_plain_style_and_text(&style, "Hello", &fontdb)
             .unwrap()
             .expect("default sans-serif should resolve");
 

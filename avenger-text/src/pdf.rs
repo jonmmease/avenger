@@ -182,6 +182,18 @@ mod tests {
         }
     }
 
+    fn pdf_config_with_font<'a>(text: &'a str, font: &'a str) -> TextPdfExtractionConfig<'a> {
+        TextPdfExtractionConfig {
+            text,
+            color: COLOR,
+            font,
+            font_size: 14.0,
+            font_weight: WEIGHT,
+            font_style: STYLE,
+            limit: f32::INFINITY,
+        }
+    }
+
     #[test]
     fn extracts_plain_text_pdf_glyph_runs() {
         let buffer = engine().extract_pdf(&pdf_config("Hello")).unwrap();
@@ -227,5 +239,26 @@ mod tests {
                 "{sample} should have valid glyph text ranges"
             );
         }
+    }
+
+    #[test]
+    fn configured_extra_font_dirs_drive_pdf_glyph_extraction() {
+        let caveat_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../avenger-vega-test-data/fonts/Caveat/static");
+        let engine = crate::TextEngine::with_font_resolution(&crate::FontResolutionOptions {
+            extra_font_dirs: vec![caveat_dir],
+            ..Default::default()
+        })
+        .unwrap();
+
+        let buffer = engine
+            .extract_pdf(&pdf_config_with_font("Caveat", "Caveat"))
+            .unwrap();
+
+        assert!(buffer
+            .font_resources
+            .iter()
+            .any(|resource| resource.family == "Caveat"));
+        assert!(buffer.glyph_runs.iter().any(|run| run.text == "Caveat"));
     }
 }

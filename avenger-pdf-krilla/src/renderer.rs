@@ -28,7 +28,7 @@ use avenger_text::{
     path::{TextPathItem, TextPathKind},
     pdf::{TextPdfBuffer, TextPdfDrawItem, TextPdfExtractionConfig},
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
-    MissingFontPolicy, TextEngine,
+    FontResolutionOptions, MissingFontPolicy, TextEngine,
 };
 use avenger_typst::{MathFontResource, MathFontResourceId, MathPdfGlyphRun};
 use itertools::izip;
@@ -74,11 +74,9 @@ impl PdfRenderer {
         let height = scene_graph.height.max(3.0);
         let page_settings = PageSettings::from_wh(width, height)
             .ok_or(AvengerPdfError::InvalidPageSize { width, height })?;
-        if matches!(
-            self.options.font_resolution.missing_font,
-            MissingFontPolicy::Error
-        ) {
-            let fontdb = avenger_text::fonts::build_fontdb(&self.options.font_resolution);
+        let font_resolution = effective_font_resolution(scene_graph, &self.options.font_resolution);
+        if matches!(font_resolution.missing_font, MissingFontPolicy::Error) {
+            let fontdb = avenger_text::fonts::build_fontdb(&font_resolution);
             validate_scene_graph_text_fonts(scene_graph, &fontdb)?;
         }
 
@@ -88,7 +86,7 @@ impl PdfRenderer {
         let mut document = Document::new_with(settings);
         let mut page = document.start_page_with(page_settings);
         let mut surface = page.surface();
-        let text_engine = TextEngine::with_default_config().map_err(|err| {
+        let text_engine = TextEngine::with_font_resolution(&font_resolution).map_err(|err| {
             AvengerPdfError::TextBuffer(format!("failed to initialize text engine: {err}"))
         })?;
         let mut font_cache = PdfFontCache::default();
@@ -1274,6 +1272,46 @@ fn text_leader_arrowhead_path(arrowhead: &TextLeaderArrowhead) -> LyonPath {
     builder.build()
 }
 
+fn effective_font_resolution(
+    scene_graph: &SceneGraph,
+    options: &FontResolutionOptions,
+) -> FontResolutionOptions {
+    let mut options = options.clone();
+    if scene_graph_contains_system_fallback_text(scene_graph) {
+        options.load_system_fonts = true;
+    }
+    options
+}
+
+fn scene_graph_contains_system_fallback_text(scene_graph: &SceneGraph) -> bool {
+    let display_list = SceneDisplayList::from_scene_graph(scene_graph);
+    display_list.ordered_items().iter().any(|item| {
+        let SceneDisplayMark::Borrowed(SceneMark::Text(mark)) = &item.mark else {
+            return false;
+        };
+        mark.text_iter()
+            .any(|text| text_needs_system_font_fallback(text))
+    })
+}
+
+fn text_needs_system_font_fallback(text: &str) -> bool {
+    text.contains("#emoji.")
+        || text
+            .chars()
+            .any(|ch| !ch.is_ascii() || is_color_emoji_char(ch))
+}
+
+fn is_color_emoji_char(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x1F000..=0x1FAFF
+            | 0x2600..=0x27BF
+            | 0x2300..=0x23FF
+            | 0xFE0F
+            | 0x200D
+    )
+}
+
 fn validate_scene_graph_text_fonts(
     scene_graph: &SceneGraph,
     fontdb: &fontdb::Database,
@@ -1399,6 +1437,10 @@ mod tests {
     }
 
     fn text_scene_graph(text: &str) -> SceneGraph {
+        text_scene_graph_with_font(text, "sans-serif")
+    }
+
+    fn text_scene_graph_with_font(text: &str, font: &str) -> SceneGraph {
         SceneGraph {
             width: 240.0,
             height: 80.0,
@@ -1407,6 +1449,7 @@ mod tests {
                 text: ScalarOrArray::new_scalar(text.to_string()),
                 x: ScalarOrArray::new_scalar(12.0),
                 y: ScalarOrArray::new_scalar(36.0),
+                font: ScalarOrArray::new_scalar(font.to_string()),
                 align: ScalarOrArray::new_scalar(TextAlign::Left),
                 baseline: ScalarOrArray::new_scalar(TextBaseline::Alphabetic),
                 font_size: ScalarOrArray::new_scalar(18.0),
@@ -1414,6 +1457,14 @@ mod tests {
                 ..Default::default()
             }
             .into()],
+        }
+    }
+
+    fn caveat_font_resolution() -> FontResolutionOptions {
+        FontResolutionOptions {
+            extra_font_dirs: vec![PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../avenger-vega-test-data/fonts/Caveat/static")],
+            ..Default::default()
         }
     }
 
@@ -1652,6 +1703,22 @@ mod tests {
             .unwrap();
 
         assert!(pdf.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn extra_font_dirs_are_used_for_pdf_text_rendering() {
+        let pdf = PdfRenderer::new()
+            .with_options(PdfRenderOptions {
+                compress: false,
+                font_resolution: caveat_font_resolution(),
+                ..Default::default()
+            })
+            .render_scene_graph(&text_scene_graph_with_font("Caveat", "Caveat"))
+            .unwrap();
+        let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
+
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(extracted.contains("Caveat"), "{extracted:?}");
     }
 
     #[test]

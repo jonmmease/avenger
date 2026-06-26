@@ -1,4 +1,5 @@
 use crate::api::TypstEngineConfig;
+use crate::engine::font::build_text_fontdb;
 use crate::error::{MathTypesetError, TypstInitError};
 use crate::paths::MathPathArtifact;
 use crate::pdf::MathPdfTextLayer;
@@ -16,6 +17,7 @@ use crate::engine::syntax::parse_line;
 #[derive(Clone)]
 pub(crate) struct TypstEngineCore {
     config: TypstEngineConfig,
+    text_fontdb: std::sync::Arc<fontdb::Database>,
 }
 
 impl std::fmt::Debug for TypstEngineCore {
@@ -28,6 +30,7 @@ impl TypstEngineCore {
     pub(crate) fn new(config: &TypstEngineConfig) -> Result<Self, TypstInitError> {
         Ok(Self {
             config: config.clone(),
+            text_fontdb: std::sync::Arc::new(build_text_fontdb(config)),
         })
     }
 
@@ -60,7 +63,13 @@ impl TypstEngineCore {
             }
             MathSyntaxMode::PlainText => plain_text_line(source),
         };
-        if let Some(artifact) = try_typeset_text_line(source, &line, options, &self.config)? {
+        if let Some(artifact) = try_typeset_text_line(
+            source,
+            &line,
+            options,
+            &self.config,
+            self.text_fontdb.as_ref(),
+        )? {
             return Ok(artifact);
         }
         if line_contains_static_markup(&line) {

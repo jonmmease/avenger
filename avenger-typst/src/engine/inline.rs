@@ -27,6 +27,7 @@ pub(crate) fn try_typeset_text_line(
     line: &ParsedLine,
     options: &TextLineOptions,
     config: &TypstEngineConfig,
+    fontdb: &fontdb::Database,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
     let Some(line) = line_with_rendered_static_markup(line) else {
         return Ok(None);
@@ -43,10 +44,10 @@ pub(crate) fn try_typeset_text_line(
             )
     }) || line.nodes.len() > 1
     {
-        return try_typeset_mixed_metrics_text_line(source, &line, options, config);
+        return try_typeset_mixed_metrics_text_line(source, &line, options, config, fontdb);
     }
 
-    try_typeset_plain_text_line(source, &line, options)
+    try_typeset_plain_text_line(source, &line, options, fontdb)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,14 +176,16 @@ fn shape_plain_text_for_style(
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
+    fontdb: &fontdb::Database,
 ) -> Result<Option<SegmentedText>, MathTypesetError> {
-    shape_plain_text_with_fallback(style, text, font_size, features)
+    shape_plain_text_with_fallback(fontdb, style, text, font_size, features)
 }
 
 fn try_typeset_plain_text_line(
     source: &str,
     line: &RenderLine,
     options: &TextLineOptions,
+    fontdb: &fontdb::Database,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
     #[cfg(not(feature = "raster"))]
     if options.outputs.raster.is_some() {
@@ -200,6 +203,7 @@ fn try_typeset_plain_text_line(
                 &plain.text,
                 options.text_style.font_size.max(1.0),
                 &[],
+                fontdb,
             )?
             else {
                 return Ok(None);
@@ -208,7 +212,7 @@ fn try_typeset_plain_text_line(
         }
         RenderNode::DecoratedText(decorated) => {
             let Some(face) =
-                TextFace::for_plain_style_and_text(&options.text_style, &decorated.text)?
+                TextFace::for_plain_style_and_text(&options.text_style, &decorated.text, fontdb)?
             else {
                 return Ok(None);
             };
@@ -232,6 +236,7 @@ fn try_typeset_mixed_metrics_text_line(
     line: &RenderLine,
     options: &TextLineOptions,
     config: &TypstEngineConfig,
+    fontdb: &fontdb::Database,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
     #[cfg(not(feature = "raster"))]
     if options.outputs.raster.is_some() {
@@ -267,6 +272,7 @@ fn try_typeset_mixed_metrics_text_line(
                     &plain.text,
                     text_font_size,
                     &[],
+                    fontdb,
                 )?
                 else {
                     return Ok(None);
@@ -324,8 +330,11 @@ fn try_typeset_mixed_metrics_text_line(
                     continue;
                 }
                 let script = text_script_for_kind(decorated.kind);
-                let Some(text_face) =
-                    TextFace::for_plain_style_and_text(&options.text_style, &decorated.text)?
+                let Some(text_face) = TextFace::for_plain_style_and_text(
+                    &options.text_style,
+                    &decorated.text,
+                    fontdb,
+                )?
                 else {
                     return Ok(None);
                 };
@@ -1365,9 +1374,15 @@ fn typeset_segmented_plain_text_line(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::TypstEngineConfig;
     use crate::delimiter::MathDelimiterOptions;
+    use crate::engine::font::build_text_fontdb;
     use crate::engine::syntax::parse_line;
     use crate::types::TextLineOutputRequest;
+
+    fn test_fontdb() -> fontdb::Database {
+        build_text_fontdb(&TypstEngineConfig::default())
+    }
 
     fn render_line(source: &str) -> RenderLine {
         let line = parse_line(source, &MathDelimiterOptions::default()).unwrap();
@@ -1376,6 +1391,7 @@ mod tests {
 
     #[test]
     fn plain_line_fast_path_returns_positioned_plain_run() {
+        let fontdb = test_fontdb();
         let line = render_line("Hello");
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
@@ -1385,7 +1401,7 @@ mod tests {
             positioned_runs: true,
         };
 
-        let artifact = try_typeset_plain_text_line("Hello", &line, &options)
+        let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
             .expect("plain Atkinson text should use fast path");
 
@@ -1401,11 +1417,12 @@ mod tests {
 
     #[test]
     fn plain_line_fast_path_can_emit_paths() {
+        let fontdb = test_fontdb();
         let line = render_line("Hello");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
-        let artifact = try_typeset_plain_text_line("Hello", &line, &options)
+        let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
             .expect("plain Atkinson text should use fast path");
 
@@ -1416,24 +1433,28 @@ mod tests {
     #[cfg(not(feature = "raster"))]
     #[test]
     fn plain_line_fast_path_declines_raster_without_raster_feature() {
+        let fontdb = test_fontdb();
         let line = render_line("Hello");
         let mut options = TextLineOptions::default();
         options.outputs.raster = Some(crate::raster::RasterRequest::default());
 
-        assert!(try_typeset_plain_text_line("Hello", &line, &options)
-            .unwrap()
-            .is_none());
+        assert!(
+            try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[cfg(feature = "raster")]
     #[test]
     fn plain_line_fast_path_can_emit_raster() {
+        let fontdb = test_fontdb();
         let line = render_line("Hello");
         let mut options = TextLineOptions::default();
         options.outputs.paths = false;
         options.outputs.raster = Some(crate::raster::RasterRequest { scale: 2.0 });
 
-        let artifact = try_typeset_plain_text_line("Hello", &line, &options)
+        let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
             .expect("plain Atkinson text should use fast path");
 
@@ -1446,11 +1467,12 @@ mod tests {
 
     #[test]
     fn plain_line_fast_path_can_emit_non_rtl_missing_glyphs() {
+        let fontdb = test_fontdb();
         let line = render_line("Revenue 🚀");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
-        let artifact = try_typeset_plain_text_line("Revenue 🚀", &line, &options)
+        let artifact = try_typeset_plain_text_line("Revenue 🚀", &line, &options, &fontdb)
             .unwrap()
             .expect("non-RTL missing glyphs should stay on the Typst path");
 
@@ -1460,11 +1482,14 @@ mod tests {
 
     #[test]
     fn plain_line_fast_path_handles_rtl_with_fallback_when_available() {
+        let fontdb = test_fontdb();
         let line = render_line("שלום");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
-        if let Some(artifact) = try_typeset_plain_text_line("שלום", &line, &options).unwrap() {
+        if let Some(artifact) =
+            try_typeset_plain_text_line("שלום", &line, &options, &fontdb).unwrap()
+        {
             assert!(artifact.metrics.width > 0.0);
             assert!(artifact.paths.is_some());
         }
@@ -1472,11 +1497,13 @@ mod tests {
 
     #[test]
     fn plain_line_fast_path_handles_zwj_with_fallback_when_available() {
+        let fontdb = test_fontdb();
         let line = render_line("Family 👨‍👩‍👧‍👦");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
-        if let Some(artifact) = try_typeset_plain_text_line("Family 👨‍👩‍👧‍👦", &line, &options).unwrap()
+        if let Some(artifact) =
+            try_typeset_plain_text_line("Family 👨‍👩‍👧‍👦", &line, &options, &fontdb).unwrap()
         {
             assert!(artifact.metrics.width > 0.0);
             assert!(artifact.paths.is_some());
@@ -1485,6 +1512,7 @@ mod tests {
 
     #[test]
     fn plain_line_fast_path_can_emit_pdf_glyph_metadata() {
+        let fontdb = test_fontdb();
         let line = render_line("Hello");
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
@@ -1494,7 +1522,7 @@ mod tests {
             positioned_runs: true,
         };
 
-        let artifact = try_typeset_plain_text_line("Hello", &line, &options)
+        let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
             .expect("plain Atkinson text should use fast path");
 
@@ -1509,6 +1537,7 @@ mod tests {
 
     #[test]
     fn decorated_plain_line_emits_text_and_decoration_paths() {
+        let fontdb = test_fontdb();
         let line = render_line("#underline[important]");
         let mut options = TextLineOptions::default();
         options.outputs = TextLineOutputRequest {
@@ -1518,9 +1547,10 @@ mod tests {
             positioned_runs: true,
         };
 
-        let artifact = try_typeset_plain_text_line("#underline[important]", &line, &options)
-            .unwrap()
-            .expect("supported static decoration should use fast path");
+        let artifact =
+            try_typeset_plain_text_line("#underline[important]", &line, &options, &fontdb)
+                .unwrap()
+                .expect("supported static decoration should use fast path");
 
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.positioned_runs[0].text, "important");
@@ -1539,11 +1569,12 @@ mod tests {
 
     #[test]
     fn highlighted_plain_line_emits_background_before_glyphs() {
+        let fontdb = test_fontdb();
         let line = render_line("#highlight[warning]");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
-        let artifact = try_typeset_plain_text_line("#highlight[warning]", &line, &options)
+        let artifact = try_typeset_plain_text_line("#highlight[warning]", &line, &options, &fontdb)
             .unwrap()
             .expect("supported static highlight should use fast path");
         let paths = artifact.paths.expect("highlight paths should exist");

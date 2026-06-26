@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::OnceLock};
 
 use crate::{
     error::AvengerTextError,
+    font_resolver::FontResolutionOptions,
     math::TextMarkupConfig,
     measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
     path::{TextPathBuffer, TextPathExtractionConfig, TextPathExtractorImpl},
@@ -22,14 +23,33 @@ impl TextEngine {
     }
 
     pub fn with_config(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Ok(Self::new(
-            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default())?,
+        Self::with_config_and_font_resolution(
             math,
-        ))
+            &FontResolutionOptions {
+                load_system_fonts: true,
+                ..Default::default()
+            },
+        )
+    }
+
+    pub fn with_config_and_font_resolution(
+        math: TextMarkupConfig,
+        font_resolution: &FontResolutionOptions,
+    ) -> Result<Self, avenger_typst::TypstInitError> {
+        let mut config = avenger_typst::TypstEngineConfig::default();
+        config.font_config.load_system_fonts = font_resolution.load_system_fonts;
+        config.font_config.extra_font_dirs = font_resolution.extra_font_dirs.clone();
+        Ok(Self::new(avenger_typst::AvengerTypst::new(config)?, math))
     }
 
     pub fn with_default_config() -> Result<Self, avenger_typst::TypstInitError> {
         Self::with_config(TextMarkupConfig::default())
+    }
+
+    pub fn with_font_resolution(
+        font_resolution: &FontResolutionOptions,
+    ) -> Result<Self, avenger_typst::TypstInitError> {
+        Self::with_config_and_font_resolution(TextMarkupConfig::default(), font_resolution)
     }
 
     pub fn measure_bounds(
