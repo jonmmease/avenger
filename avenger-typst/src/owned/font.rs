@@ -6,6 +6,7 @@ use crate::fonts::{EmbeddedFontFace, ATKINSON_FACES};
 use crate::paths::MathPathData;
 use crate::pdf::{MathFontResource, MathFontResourceId};
 use crate::style::{FontStyle, FontWeight, PlainTextStyle};
+use unicode_bidi::BidiInfo;
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Clone)]
@@ -371,34 +372,42 @@ fn shape_plain_text_with_fallback_mode(
     }
 
     let mut spans = Vec::<OwnedTextSpan>::new();
-    for (start, grapheme) in text.grapheme_indices(true) {
-        let end = start + grapheme.len();
-        let face = if !primary
-            .shaped_text_with_features(grapheme, font_size, features)
-            .has_missing_glyph
-        {
-            primary.clone()
-        } else if mode == OwnedFallbackMode::PreserveColorEmojiTofu
-            && grapheme_contains_color_emoji(grapheme)
-        {
-            primary.clone()
-        } else {
-            fontdb_face_for_style_and_text(style, grapheme).unwrap_or_else(|| primary.clone())
-        };
+    for visual_range in bidi_visual_ranges(text) {
+        for (relative_start, grapheme) in text[visual_range.clone()].grapheme_indices(true) {
+            let start = visual_range.start + relative_start;
+            let end = start + grapheme.len();
+            let face = if !primary
+                .shaped_text_with_features(grapheme, font_size, features)
+                .has_missing_glyph
+            {
+                primary.clone()
+            } else if mode == OwnedFallbackMode::PreserveColorEmojiTofu
+                && grapheme_contains_color_emoji(grapheme)
+            {
+                primary.clone()
+            } else {
+                fontdb_face_for_style_and_text(style, grapheme).unwrap_or_else(|| primary.clone())
+            };
 
-        if let Some(span) = spans.last_mut() {
-            if span.face.same_font(&face) && span.byte_range.end == start {
-                span.byte_range.end = end;
-                span.text.push_str(grapheme);
-                continue;
+            if let Some(span) = spans.last_mut() {
+                if span.face.same_font(&face)
+                    && span.byte_range.end == start
+                    && span.visual_range.end == start
+                {
+                    span.byte_range.end = end;
+                    span.visual_range.end = end;
+                    span.text.push_str(grapheme);
+                    continue;
+                }
             }
-        }
 
-        spans.push(OwnedTextSpan {
-            face,
-            text: grapheme.to_string(),
-            byte_range: start..end,
-        });
+            spans.push(OwnedTextSpan {
+                face,
+                text: grapheme.to_string(),
+                byte_range: start..end,
+                visual_range: start..end,
+            });
+        }
     }
 
     let mut x = 0.0f32;
@@ -441,6 +450,21 @@ struct OwnedTextSpan {
     face: OwnedTextFace,
     text: String,
     byte_range: Range<usize>,
+    visual_range: Range<usize>,
+}
+
+fn bidi_visual_ranges(text: &str) -> Vec<Range<usize>> {
+    let bidi = BidiInfo::new(text, None);
+    if !bidi.has_rtl() {
+        return vec![0..text.len()];
+    }
+
+    let mut ranges = Vec::new();
+    for paragraph in &bidi.paragraphs {
+        let (_, runs) = bidi.visual_runs(paragraph, paragraph.range.clone());
+        ranges.extend(runs);
+    }
+    ranges
 }
 
 fn grapheme_contains_color_emoji(grapheme: &str) -> bool {
@@ -714,6 +738,30 @@ mod tests {
         assert_eq!(segmented.runs[0].byte_range, 0..6);
         assert_eq!(segmented.runs[1].byte_range, 6.."Hello 温度".len());
         assert!(segmented.runs[1].x > segmented.runs[0].x);
+    }
+
+    #[test]
+    fn segmented_fallback_orders_bidi_runs_visually_when_fonts_are_available() {
+        let style = PlainTextStyle {
+            font_family: "Atkinson Hyperlegible Next".to_string(),
+            ..PlainTextStyle::default()
+        };
+
+        let Some(segmented) =
+            shape_plain_text_with_non_emoji_fallback(&style, "אבג ABC", style.font_size, &[])
+                .unwrap()
+        else {
+            return;
+        };
+
+        if segmented.has_missing_glyph {
+            return;
+        }
+
+        assert!(segmented.runs.len() >= 2);
+        assert_eq!(segmented.runs[0].text, "ABC");
+        assert!(segmented.runs[0].x == 0.0);
+        assert!(segmented.runs.iter().any(|run| run.text.contains("אבג")));
     }
 
     #[test]
