@@ -293,6 +293,9 @@ fn layout_simple_node(
         if call.name == "sqrt" {
             return layout_simple_sqrt(font, call, font_size, script_level);
         }
+        if call.name == "root" {
+            return layout_simple_root(font, call, font_size, script_level);
+        }
     }
 
     Ok(None)
@@ -307,8 +310,36 @@ fn layout_simple_sqrt(
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
+    layout_simple_radical(font, &arg.nodes, None, font_size, script_level)
+}
+
+fn layout_simple_root(
+    font: &OwnedMathFont,
+    call: &super::ast::OwnedMathCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let [index, radicand] = &call.args[..] else {
+        return Ok(None);
+    };
+    layout_simple_radical(
+        font,
+        &radicand.nodes,
+        Some(index.nodes.as_slice()),
+        font_size,
+        script_level,
+    )
+}
+
+fn layout_simple_radical(
+    font: &OwnedMathFont,
+    radicand_nodes: &[OwnedMathNode],
+    index_nodes: Option<&[OwnedMathNode]>,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
     let Some(mut radicand) =
-        layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+        layout_simple_nodes_as_atom(font, radicand_nodes, font_size, script_level)?
     else {
         return Ok(None);
     };
@@ -329,6 +360,26 @@ fn layout_simple_sqrt(
     let mut gap = math_constant(font, font_size, |constants| {
         constants.radical_vertical_gap().value
     })?;
+    let kern_before = math_constant(font, font_size, |constants| {
+        constants.radical_kern_before_degree().value
+    })?;
+    let kern_after = math_constant(font, font_size, |constants| {
+        constants.radical_kern_after_degree().value
+    })?;
+    let raise_factor = math_percent(font, |constants| {
+        constants.radical_degree_bottom_raise_percent()
+    })?;
+    let index = index_nodes
+        .map(|nodes| {
+            let script_size = script_font_size(font, font_size, script_level)?;
+            let script_script_size = script_font_size(font, script_size, script_level + 1)?;
+            layout_simple_nodes_as_atom(font, nodes, script_script_size, script_level + 2)
+        })
+        .transpose()?
+        .flatten();
+    if index_nodes.is_some() && index.is_none() {
+        return Ok(None);
+    }
 
     let radicand_height = radicand.ink_ascent + radicand.ink_descent;
     let sqrt_height = sqrt.ink_ascent + sqrt.ink_descent;
@@ -336,10 +387,19 @@ fn layout_simple_sqrt(
 
     let sqrt_ascent = radicand.ink_ascent + gap + thickness;
     let descent = sqrt_height - sqrt_ascent;
-    let ascent = sqrt_ascent + extra_ascender;
+    let inner_ascent = sqrt_ascent + extra_ascender;
+    let mut sqrt_offset = 0.0;
+    let mut shift_up = 0.0;
+    let mut ascent = inner_ascent;
+    if let Some(index) = &index {
+        sqrt_offset = kern_before + index.metrics.width + kern_after;
+        shift_up = raise_factor * (inner_ascent - descent) + index.metrics.descent;
+        ascent = ascent.max(shift_up + index.metrics.ascent);
+    }
     let sqrt_width = sqrt.metrics.width;
     let line_width = radicand.metrics.width;
-    let radicand_x = sqrt_width;
+    let sqrt_x = sqrt_offset.max(0.0);
+    let radicand_x = sqrt_x + sqrt_width;
     let radicand_y = ascent - radicand.ink_ascent;
     let sqrt_y = radicand_y - gap - thickness;
     let line_y = radicand_y - gap - thickness / 2.0;
@@ -348,12 +408,18 @@ fn layout_simple_sqrt(
 
     let sqrt_dy = sqrt_y + sqrt.ink_ascent - sqrt.metrics.baseline;
     let radicand_dy = radicand_y + radicand.ink_ascent - radicand.metrics.baseline;
-    offset_atom(&mut sqrt, 0.0, sqrt_dy);
+    offset_atom(&mut sqrt, sqrt_x, sqrt_dy);
     offset_atom(&mut radicand, radicand_x, radicand_dy);
 
     let mut glyphs = Vec::new();
     let mut shapes = Vec::new();
     let mut draw_order = Vec::new();
+    if let Some(mut index) = index {
+        let index_x = -sqrt_offset.min(0.0) + kern_before;
+        let index_y = ascent - index.metrics.ascent - shift_up;
+        offset_atom(&mut index, index_x, index_y);
+        append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, index);
+    }
     append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, sqrt);
     shapes.push(LaidOutShape {
         path: MathPathData {
@@ -833,6 +899,20 @@ fn math_constant(
         .map(constant)
         .unwrap_or_default();
     Ok(value as f32 * font_size / face.units_per_em() as f32)
+}
+
+fn math_percent(
+    font: &OwnedMathFont,
+    constant: impl FnOnce(ttf_parser::math::Constants<'_>) -> i16,
+) -> Result<f32, MathTypesetError> {
+    let face = parse_math_face(font, "math percentage constant")?;
+    let value = face
+        .tables()
+        .math
+        .and_then(|math| math.constants)
+        .map(constant)
+        .unwrap_or_default();
+    Ok(value as f32 / 100.0)
 }
 
 fn font_cap_height(font: &OwnedMathFont, font_size: f32) -> Result<f32, MathTypesetError> {
@@ -1517,6 +1597,28 @@ mod tests {
         assert!(matches!(paths.items[1].kind, MathPathKind::MathShape));
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 2);
+    }
+
+    #[test]
+    fn simple_row_can_emit_indexed_root_paths() {
+        let math = parse_owned_math("root(3, x)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("simple indexed root should be handled by owned row path");
+        let paths = artifact.paths.expect("root paths should exist");
+        assert_eq!(paths.items.len(), 4);
+        assert!(matches!(paths.items[2].kind, MathPathKind::MathShape));
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        assert_eq!(pdf.glyph_runs.len(), 3);
+        assert!(pdf.glyph_runs[0].font_size < pdf.glyph_runs[1].font_size);
     }
 
     #[test]
