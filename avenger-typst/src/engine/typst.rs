@@ -39,8 +39,8 @@ use typst_library::layout::{
     Abs, Frame, FrameItem, InlineElem, InlineItem, Point, Size, Transform,
 };
 use typst_library::math::{
-    AlignPointElem, AttachElem, EquationElem, FracElem, LrElem, MatElem, MathSize, PrimesElem,
-    RootElem,
+    AlignPointElem, AttachElem, EquationElem, FracElem, LrElem, MatElem, MathSize, OpElem,
+    PrimesElem, RootElem,
 };
 use typst_library::routines::{Arenas, Pair, RealizationKind, Routines, SpanMode};
 use typst_library::text::{
@@ -1664,6 +1664,10 @@ fn lower_math_call(call: ast::MathCall<'_>) -> Result<Content, MathTypesetError>
         "floor" => lower_delimited_call(call, '⌊', '⌋'),
         "ceil" => lower_delimited_call(call, '⌈', '⌉'),
         "round" => lower_delimited_call(call, '⌊', '⌉'),
+        "op" => lower_op_call(call),
+        "sin" | "cos" | "tan" | "log" | "ln" | "lim" | "max" | "min" => {
+            lower_operator_call(call, callee.as_str())
+        }
         "mat" => lower_matrix_call(call),
         _ => Err(unsupported(
             0,
@@ -1691,6 +1695,38 @@ fn lower_delimited_call(
     lower_one_arg_call(call, |body| {
         LrElem::new(SymbolElem::packed(left) + body + SymbolElem::packed(right)).pack()
     })
+}
+
+fn lower_operator_call(
+    call: ast::MathCall<'_>,
+    operator: &str,
+) -> Result<Content, MathTypesetError> {
+    lower_one_arg_call(call, |body| {
+        operator_content(operator)
+            + LrElem::new(SymbolElem::packed('(') + body + SymbolElem::packed(')')).pack()
+    })
+}
+
+fn lower_op_call(call: ast::MathCall<'_>) -> Result<Content, MathTypesetError> {
+    let mut items = call.args().arg_items();
+    let Some(item) = items.next() else {
+        return Err(unsupported(0, "op expects exactly one string argument"));
+    };
+    if items.next().is_some() {
+        return Err(unsupported(0, "op expects exactly one string argument"));
+    }
+    match item.arg {
+        Arg::Pos(ast::Expr::Str(text)) => Ok(operator_content(&text.get())),
+        Arg::Pos(_) => Err(unsupported(0, "op expects exactly one string argument")),
+        Arg::Named(_) => Err(unsupported(
+            0,
+            "named math arguments are not supported in strict Avenger subset",
+        )),
+        Arg::Spread(_) => Err(unsupported(
+            0,
+            "spread math arguments are not supported in strict Avenger subset",
+        )),
+    }
 }
 
 fn lower_two_arg_call(
@@ -1745,10 +1781,31 @@ fn lower_matrix_call(call: ast::MathCall<'_>) -> Result<Content, MathTypesetErro
 }
 
 fn symbol_or_identifier(name: &str) -> Content {
+    if let Some(operator) = operator_identifier_text(name) {
+        return operator_content(operator);
+    }
     SymbolElem::packed(match named_math_symbol(name) {
         Some(symbol) => symbol,
         None => name,
     })
+}
+
+fn operator_content(text: &str) -> Content {
+    OpElem::new(TextElem::packed(text.to_string()).into()).pack()
+}
+
+fn operator_identifier_text(name: &str) -> Option<&'static str> {
+    match name {
+        "sin" => Some("sin"),
+        "cos" => Some("cos"),
+        "tan" => Some("tan"),
+        "log" => Some("log"),
+        "ln" => Some("ln"),
+        "lim" => Some("lim"),
+        "max" => Some("max"),
+        "min" => Some("min"),
+        _ => None,
+    }
 }
 
 fn named_math_symbol(name: &str) -> Option<&'static str> {
@@ -1805,7 +1862,7 @@ fn unsupported(position: usize, message: &'static str) -> MathTypesetError {
 mod tests {
     use super::*;
     use std::collections::HashSet;
-    use typst_library::math::{AttachElem, FracElem, LrElem, MatElem, RootElem};
+    use typst_library::math::{AttachElem, FracElem, LrElem, MatElem, OpElem, RootElem};
 
     #[test]
     fn typst_font_loader_embeds_atkinson_weight_style_faces() {
@@ -1865,6 +1922,19 @@ mod tests {
 
             assert!(content.is::<LrElem>(), "{source}");
         }
+    }
+
+    #[test]
+    fn lowers_operator_identifiers_and_calls() {
+        let bare = lower_math_source("lim").unwrap();
+        assert!(bare.is::<OpElem>());
+
+        let called = lower_math_source("sin(x)").unwrap();
+        assert!(contains_sequence_child::<OpElem>(&called));
+        assert!(contains_sequence_child::<LrElem>(&called));
+
+        let custom = lower_math_source("op(\"custom\")").unwrap();
+        assert!(custom.is::<OpElem>());
     }
 
     #[test]

@@ -522,6 +522,54 @@ mod tests {
         assert!(!engine.delegate.lock().unwrap().is_some());
     }
 
+    #[test]
+    fn simple_operator_call_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact = engine.typeset_fragment("sin(x)", &options).unwrap();
+
+        assert!(artifact
+            .paths
+            .as_ref()
+            .is_some_and(|paths| paths.items.len() == 6));
+        assert!(artifact
+            .pdf_text
+            .as_ref()
+            .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn operator_identifier_script_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact = engine
+            .typeset_fragment("lim_(x -> oo) f(x)", &options)
+            .unwrap();
+
+        assert!(artifact
+            .paths
+            .as_ref()
+            .is_some_and(|paths| !paths.items.is_empty()));
+        assert!(artifact
+            .pdf_text
+            .as_ref()
+            .is_some_and(|pdf| pdf.glyph_runs.len() > 6));
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
     #[cfg(feature = "raster")]
     #[test]
     fn simple_row_math_fragment_raster_uses_owned_fast_path_without_initializing_delegate() {

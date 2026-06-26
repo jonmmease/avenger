@@ -84,6 +84,7 @@ pub(crate) fn try_typeset_simple_row_fragment(
 struct SimpleMathAtom {
     styled_text: String,
     class: SimpleMathClass,
+    text_operator: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +100,7 @@ struct LaidOutMathAtom {
     ink_descent: f32,
     class: SimpleMathClass,
     italic_correction: f32,
+    script_kernable: bool,
     glyphs: Vec<LaidOutGlyph>,
     shapes: Vec<LaidOutShape>,
     draw_order: Vec<LaidOutDrawItem>,
@@ -112,6 +114,7 @@ struct LaidOutGlyph {
     y: f32,
     x_advance: f32,
     font_size: f32,
+    pdf_run_group: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -264,6 +267,7 @@ fn layout_simple_nodes_as_atom(
         ink_descent,
         class: SimpleMathClass::Normal,
         italic_correction: 0.0,
+        script_kernable: true,
         glyphs,
         shapes,
         draw_order,
@@ -289,6 +293,16 @@ fn append_atom_items(
 ) {
     let glyph_offset = glyphs.len();
     let shape_offset = shapes.len();
+    let pdf_group_offset = glyphs
+        .iter()
+        .filter_map(|glyph| glyph.pdf_run_group)
+        .max()
+        .map_or(0, |group| group + 1);
+    for glyph in &mut atom.glyphs {
+        if let Some(group) = &mut glyph.pdf_run_group {
+            *group += pdf_group_offset;
+        }
+    }
     draw_order.extend(atom.draw_order.iter().map(|item| match *item {
         LaidOutDrawItem::Glyph(index) => LaidOutDrawItem::Glyph(glyph_offset + index),
         LaidOutDrawItem::Shape(index) => LaidOutDrawItem::Shape(shape_offset + index),
@@ -304,13 +318,17 @@ fn layout_simple_node(
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
     if let Some(atom) = simple_atom(node) {
-        let layout = layout_styled_atom_with_class(
-            font,
-            &atom.styled_text,
-            font_size,
-            script_style_feature(script_level),
-            atom.class,
-        )?;
+        let layout = if atom.text_operator {
+            layout_operator_atom(font, &atom.styled_text, font_size, script_level)?
+        } else {
+            layout_styled_atom_with_class(
+                font,
+                &atom.styled_text,
+                font_size,
+                script_style_feature(script_level),
+                atom.class,
+            )?
+        };
         return Ok(Some(layout));
     }
 
@@ -327,6 +345,9 @@ fn layout_simple_node(
     }
 
     if let OwnedMathNode::Call(call) = node {
+        if let Some(atom) = layout_simple_operator_call(font, call, font_size, script_level)? {
+            return Ok(Some(atom));
+        }
         if call.name == "frac" {
             return layout_simple_fraction_call(font, call, font_size, script_level);
         }
@@ -342,6 +363,44 @@ fn layout_simple_node(
     }
 
     Ok(None)
+}
+
+fn layout_simple_operator_call(
+    font: &OwnedMathFont,
+    call: &super::ast::OwnedMathCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    if call.name == "op" {
+        let [arg] = &call.args[..] else {
+            return Ok(None);
+        };
+        let [OwnedMathNode::StringLiteral(text)] = &arg.nodes[..] else {
+            return Ok(None);
+        };
+        return layout_operator_atom(font, &text.text, font_size, script_level).map(Some);
+    }
+
+    let Some(text) = operator_identifier_text(&call.name) else {
+        return Ok(None);
+    };
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let nodes = [
+        OwnedMathNode::Identifier(super::ast::OwnedMathIdentifier {
+            name: text.to_string(),
+            symbol: None,
+            byte_range: call.byte_range.start..call.byte_range.start + call.name.len(),
+        }),
+        OwnedMathNode::Group(super::ast::OwnedMathGroup {
+            left: '(',
+            right: ')',
+            body: arg.nodes.clone(),
+            byte_range: arg.byte_range.clone(),
+        }),
+    ];
+    layout_simple_nodes_as_atom(font, &nodes, font_size, script_level)
 }
 
 fn layout_simple_group(
@@ -450,6 +509,7 @@ fn layout_simple_delimited_nodes(
         ink_descent,
         class: SimpleMathClass::Closing,
         italic_correction: 0.0,
+        script_kernable: true,
         glyphs,
         shapes,
         draw_order,
@@ -762,6 +822,7 @@ fn finalize_inline_frame_atom(
         ink_descent: height - baseline,
         class: SimpleMathClass::Normal,
         italic_correction: 0.0,
+        script_kernable: true,
         glyphs,
         shapes,
         draw_order,
@@ -909,6 +970,7 @@ fn layout_simple_attach_parts(
     let base_metrics = base.metrics;
     let base_class = base.class;
     let base_italic_correction = base.italic_correction;
+    let base_script_kernable = base.script_kernable;
     let width = base_width + top_post_width.max(bottom_post_width);
     let baseline = base.metrics.baseline;
     let ink_ascent = base
@@ -954,6 +1016,7 @@ fn layout_simple_attach_parts(
         ink_descent,
         class: base_class,
         italic_correction: base_italic_correction,
+        script_kernable: base_script_kernable,
         glyphs,
         shapes,
         draw_order,
@@ -1080,6 +1143,10 @@ fn math_kern(
     shift: f32,
     corner: ScriptCorner,
 ) -> Result<f32, MathTypesetError> {
+    if !base.script_kernable || !script.script_kernable {
+        return Ok(0.0);
+    }
+
     let (corr_height_top, corr_height_bot) = match corner {
         ScriptCorner::TopLeft | ScriptCorner::TopRight => {
             (base.ink_ascent - shift, shift - script.ink_descent)
@@ -1214,13 +1281,21 @@ fn simple_atom(node: &OwnedMathNode) -> Option<SimpleMathAtom> {
                 OwnedMathTextKind::Grapheme => SimpleMathClass::Alphabetic,
                 OwnedMathTextKind::Number => SimpleMathClass::Normal,
             },
+            text_operator: false,
         }),
         OwnedMathNode::Identifier(identifier) => {
             let text = identifier.symbol.unwrap_or(&identifier.name);
-            if identifier.symbol.is_some() || text.chars().count() == 1 {
+            if let Some(operator) = operator_identifier_text(text) {
+                Some(SimpleMathAtom {
+                    styled_text: operator.to_string(),
+                    class: SimpleMathClass::Large,
+                    text_operator: true,
+                })
+            } else if identifier.symbol.is_some() || text.chars().count() == 1 {
                 Some(SimpleMathAtom {
                     styled_text: style_default_math_text(text),
                     class: identifier_class(text),
+                    text_operator: false,
                 })
             } else {
                 None
@@ -1229,13 +1304,134 @@ fn simple_atom(node: &OwnedMathNode) -> Option<SimpleMathAtom> {
         OwnedMathNode::Operator(operator) => Some(SimpleMathAtom {
             styled_text: operator_text(operator),
             class: operator_class(&operator.operator),
+            text_operator: false,
         }),
         OwnedMathNode::Shorthand(shorthand) => Some(SimpleMathAtom {
             styled_text: shorthand_text(shorthand),
             class: symbol_class(shorthand.replacement),
+            text_operator: false,
         }),
         _ => None,
     }
+}
+
+fn layout_operator_atom(
+    font: &OwnedMathFont,
+    text: &str,
+    font_size: f32,
+    script_level: u8,
+) -> Result<LaidOutMathAtom, MathTypesetError> {
+    let face = ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| {
+        MathTypesetError::Engine {
+            start: 0,
+            end: text.len(),
+            message: "failed to parse owned math font".to_string(),
+        }
+    })?;
+    let Some(rusty) = rustybuzz::Face::from_slice(&font.data, font.face_index) else {
+        return Err(MathTypesetError::Engine {
+            start: 0,
+            end: text.len(),
+            message: "failed to shape owned math font".to_string(),
+        });
+    };
+
+    let features = if let Some(script_style) = script_style_feature(script_level) {
+        vec![rustybuzz::Feature::new(
+            rustybuzz::ttf_parser::Tag::from_bytes(b"ssty"),
+            script_style,
+            ..,
+        )]
+    } else {
+        Vec::new()
+    };
+    let mut buffer = rustybuzz::UnicodeBuffer::new();
+    buffer.push_str(text);
+    buffer.set_direction(rustybuzz::Direction::LeftToRight);
+    buffer.set_flags(rustybuzz::BufferFlags::REMOVE_DEFAULT_IGNORABLES);
+
+    let scale = font_size / face.units_per_em() as f32;
+    let shaped = rustybuzz::shape(&rusty, &features, buffer);
+    let mut cursor_x = 0i32;
+    let mut cursor_y = 0i32;
+    let mut width = 0i32;
+    let mut glyph_ascent = 0i16;
+    let mut glyph_descent = 0i16;
+    let mut glyphs = Vec::new();
+    for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
+        let glyph_id = ttf_parser::GlyphId(info.glyph_id as u16);
+        let x = cursor_x + position.x_offset;
+        let y = cursor_y + position.y_offset;
+        cursor_x += position.x_advance;
+        cursor_y += position.y_advance;
+        width += position.x_advance;
+        glyphs.push(LaidOutGlyph {
+            glyph_id,
+            unicode: glyph_unicode_for_cluster(text, info.cluster),
+            x: x as f32 * scale,
+            y: -(y as f32) * scale,
+            x_advance: position.x_advance as f32 * scale,
+            font_size,
+            pdf_run_group: Some(0),
+        });
+        if let Some(bounds) = face.glyph_bounding_box(glyph_id) {
+            glyph_ascent = glyph_ascent.max(bounds.y_max);
+            glyph_descent = glyph_descent.max(-bounds.y_min);
+        }
+    }
+
+    let ascent = face.capital_height().unwrap_or(glyph_ascent);
+    let ascent = ascent.max(0) as f32 * scale;
+    let descent = 0.0;
+    let mut atom = LaidOutMathAtom {
+        metrics: TypesetMetrics {
+            width: width as f32 * scale,
+            height: ascent + descent,
+            baseline: ascent,
+            ascent,
+            descent,
+        },
+        ink_ascent: glyph_ascent.max(0) as f32 * scale,
+        ink_descent: glyph_descent.max(0) as f32 * scale,
+        class: SimpleMathClass::Large,
+        italic_correction: 0.0,
+        script_kernable: false,
+        glyphs,
+        shapes: Vec::new(),
+        draw_order: Vec::new(),
+    };
+    for glyph in &mut atom.glyphs {
+        glyph.y += atom.metrics.baseline;
+    }
+    atom.draw_order
+        .extend((0..atom.glyphs.len()).map(LaidOutDrawItem::Glyph));
+    Ok(atom)
+}
+
+fn operator_identifier_text(name: &str) -> Option<&'static str> {
+    match name {
+        "sin" => Some("sin"),
+        "cos" => Some("cos"),
+        "tan" => Some("tan"),
+        "log" => Some("log"),
+        "ln" => Some("ln"),
+        "lim" => Some("lim"),
+        "max" => Some("max"),
+        "min" => Some("min"),
+        _ => None,
+    }
+}
+
+fn glyph_unicode_for_cluster(text: &str, cluster: u32) -> String {
+    let cluster = cluster as usize;
+    let Some((start, _)) = text.char_indices().find(|(start, _)| *start == cluster) else {
+        return String::new();
+    };
+    let end = text[start..]
+        .char_indices()
+        .nth(1)
+        .map_or(text.len(), |(next, _)| start + next);
+    text[start..end].to_string()
 }
 
 fn style_text_atom(text: &OwnedMathText) -> String {
@@ -1484,6 +1680,7 @@ fn layout_styled_atom_with_class(
             y: 0.0,
             x_advance: advance as f32 * scale,
             font_size,
+            pdf_run_group: None,
         });
         if let Some(bounds) = face.glyph_bounding_box(glyph_id) {
             glyph_ascent = glyph_ascent.max(bounds.y_max);
@@ -1509,6 +1706,7 @@ fn layout_styled_atom_with_class(
         ink_descent: glyph_descent.max(0) as f32 * scale,
         class,
         italic_correction: atom_italic_correction,
+        script_kernable: true,
         glyphs,
         shapes: Vec::new(),
         draw_order: Vec::new(),
@@ -1552,26 +1750,35 @@ fn pdf_text_from_simple_row(
 
     let mut glyph_runs = Vec::new();
     for atom in &layout.atoms {
-        for glyph in &atom.glyphs {
-            glyph_runs.push(MathPdfGlyphRun {
-                font: font_id,
-                font_size: glyph.font_size,
-                fill,
-                stroke: None,
-                glyphs: vec![MathPdfGlyph {
-                    glyph_id: glyph.glyph_id.0,
-                    unicode: glyph.unicode.clone(),
-                    x: 0.0,
-                    y: 0.0,
-                    x_advance: glyph.x_advance,
-                    y_advance: 0.0,
-                    transform: MathTransform {
-                        dx: glyph.x,
-                        dy: glyph.y,
-                        ..MathTransform::IDENTITY
-                    },
-                }],
-            });
+        let mut index = 0;
+        while index < atom.glyphs.len() {
+            let glyph = &atom.glyphs[index];
+            if let Some(group) = glyph.pdf_run_group {
+                let start = index;
+                index += 1;
+                while index < atom.glyphs.len()
+                    && atom.glyphs[index].pdf_run_group == Some(group)
+                    && atom.glyphs[index].font_size == glyph.font_size
+                {
+                    index += 1;
+                }
+                push_pdf_glyph_run(
+                    &mut glyph_runs,
+                    font_id,
+                    glyph.font_size,
+                    fill,
+                    &atom.glyphs[start..index],
+                );
+            } else {
+                push_pdf_glyph_run(
+                    &mut glyph_runs,
+                    font_id,
+                    glyph.font_size,
+                    fill,
+                    std::slice::from_ref(glyph),
+                );
+                index += 1;
+            }
         }
     }
 
@@ -1584,6 +1791,37 @@ fn pdf_text_from_simple_row(
         },
         font_resources,
     })
+}
+
+fn push_pdf_glyph_run(
+    glyph_runs: &mut Vec<MathPdfGlyphRun>,
+    font: MathFontResourceId,
+    font_size: f32,
+    fill: crate::style::Color,
+    glyphs: &[LaidOutGlyph],
+) {
+    glyph_runs.push(MathPdfGlyphRun {
+        font,
+        font_size,
+        fill,
+        stroke: None,
+        glyphs: glyphs
+            .iter()
+            .map(|glyph| MathPdfGlyph {
+                glyph_id: glyph.glyph_id.0,
+                unicode: glyph.unicode.clone(),
+                x: 0.0,
+                y: 0.0,
+                x_advance: glyph.x_advance,
+                y_advance: 0.0,
+                transform: MathTransform {
+                    dx: glyph.x,
+                    dy: glyph.y,
+                    ..MathTransform::IDENTITY
+                },
+            })
+            .collect(),
+    });
 }
 
 fn font_name(face: &ttf_parser::Face<'_>, name_id: u16) -> Option<String> {
@@ -2019,6 +2257,61 @@ mod tests {
                 .collect();
             assert_eq!(text, expected, "{source}");
         }
+    }
+
+    #[test]
+    fn simple_row_can_emit_operator_calls() {
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        for (source, expected) in [
+            ("sin(x)", "sin(𝑥)"),
+            ("cos(theta)", "cos(𝜃)"),
+            ("op(\"custom\")", "custom"),
+        ] {
+            let math = parse_owned_math(source, 0).unwrap();
+            let artifact =
+                try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("operator call should be handled: {source}"));
+            let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+            let text: String = pdf
+                .glyph_runs
+                .iter()
+                .flat_map(|run| &run.glyphs)
+                .map(|glyph| glyph.unicode.as_str())
+                .collect();
+            assert_eq!(text, expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn simple_row_can_emit_operator_identifier_with_script() {
+        let math = parse_owned_math("lim_(x -> oo) f(x)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("operator identifier with script should be handled by owned row path");
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let text: String = pdf
+            .glyph_runs
+            .iter()
+            .flat_map(|run| &run.glyphs)
+            .map(|glyph| glyph.unicode.as_str())
+            .collect();
+        assert!(text.starts_with("lim"));
+        assert!(text.contains("∞"));
     }
 
     #[test]

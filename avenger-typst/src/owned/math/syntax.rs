@@ -585,6 +585,8 @@ mod tests {
             "J_n(x)",
             "sum_(i=0)^n i",
             "lim_(x -> oo) f(x)",
+            "sin(x)",
+            "op(\"custom\")",
             "abs(x)",
             "norm(v)",
             "floor(x)",

@@ -56,6 +56,8 @@ fn owned_backend_matches_vendor_for_fragment_metrics_and_artifacts() {
         "J_n(x)",
         "sum_(i=0)^n i",
         "lim_(x -> oo) f(x)",
+        "sin(x)",
+        "op(\"custom\")",
         "abs(x)",
         "norm(v)",
         "floor(x)",
