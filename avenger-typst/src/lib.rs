@@ -9,6 +9,8 @@ mod delimiter;
 mod engine;
 mod error;
 mod limits;
+#[cfg(feature = "vendor-typst")]
+mod owned;
 mod paths;
 mod pdf;
 mod raster;

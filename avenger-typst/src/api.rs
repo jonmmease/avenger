@@ -63,7 +63,7 @@ enum EngineInner {
     #[cfg(feature = "vendor-typst")]
     Typst(crate::engine::typst::TypstMathEngine),
     #[cfg(feature = "vendor-typst")]
-    Owned(crate::engine::owned::OwnedTypstEngine),
+    Owned(crate::owned::engine::OwnedTypstEngine),
 }
 
 impl AvengerTypst {
@@ -197,7 +197,7 @@ fn new_vendor_typst_engine(_config: TypstEngineConfig) -> Result<AvengerTypst, T
 #[cfg(feature = "vendor-typst")]
 fn new_owned_typst_engine(config: TypstEngineConfig) -> Result<AvengerTypst, TypstInitError> {
     Ok(AvengerTypst {
-        engine: EngineInner::Owned(crate::engine::owned::OwnedTypstEngine::new(&config)?),
+        engine: EngineInner::Owned(crate::owned::engine::OwnedTypstEngine::new(&config)?),
     })
 }
 

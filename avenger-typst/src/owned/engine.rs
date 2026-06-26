@@ -2,7 +2,7 @@ use crate::api::TypstEngineConfig;
 use crate::error::{MathTypesetError, TypstInitError};
 use crate::types::{MathFragmentOptions, MathRunArtifact, TextLineArtifact, TextLineOptions};
 
-use super::typst::TypstMathEngine;
+use crate::engine::typst::TypstMathEngine;
 
 #[derive(Clone)]
 pub(crate) struct OwnedTypstEngine {
