@@ -46,9 +46,9 @@ measurement propagation that existed only to choose between text engines.
     browser text path.
 - [ ] Rename `avenger-text/src/typst_text.rs` to a backend-neutral name such as
   `engine.rs` or `text_engine.rs`.
-- [ ] Make `avenger-text/src/math.rs` either:
+- [x] Make `avenger-text/src/math.rs` either:
   - [ ] disappear into the concrete engine config; or
-  - [ ] become a smaller `TextMarkupConfig` with delimiter and error-policy
+  - [x] become a smaller `TextMarkupConfig` with delimiter and error-policy
     settings only.
 - [x] Ensure default behavior treats `$...$` as active math.
 
@@ -98,7 +98,7 @@ measurement propagation that existed only to choose between text engines.
 - [x] Remove `text_measurer` arguments in facet and container guide code.
 - [x] Remove pointer-based text-measurer cache keys from container band guide
   height caches.
-- [ ] Replace those cache keys with either:
+- [x] Replace those cache keys with either:
   - [x] no text-engine identity because there is only one engine; or
   - [ ] an explicit markup/config version if delimiter/error policy remains
     configurable.
@@ -158,9 +158,9 @@ measurement propagation that existed only to choose between text engines.
 - [x] Remove renderer crate feature flags that only selected the text backend.
 - [x] Remove public `TextMathConfig` from renderer options and chart evaluation
   options.
-- [ ] Decide whether any public delimiter configuration remains.
+- [x] Decide whether any public delimiter configuration remains.
   - [ ] If no, hard-code default Typst-style delimiters.
-  - [ ] If yes, expose a small `TextMarkupConfig` but do not allow disabling the
+  - [x] If yes, expose a small `TextMarkupConfig` but do not allow disabling the
     Typst engine.
 - [ ] Update `avenger-chart/src/prelude.rs` if public types are removed or
   renamed.
@@ -236,8 +236,8 @@ Run release mode throughout.
 - [x] Keep each slice compiling in release mode before moving on.
 - [x] Prefer deleting compatibility layers quickly once all workspace call sites
   are updated.
-- [ ] Do not preserve cosmic behavior as a hidden fallback.
-- [ ] Do not preserve HTML canvas behavior as a hidden fallback.
+- [x] Do not preserve cosmic behavior as a hidden fallback.
+- [x] Do not preserve HTML canvas behavior as a hidden fallback.
 - [ ] If a platform issue appears, fix the owned Typst path for that platform
   instead of reintroducing backend selection.
 

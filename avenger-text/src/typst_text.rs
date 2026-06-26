@@ -11,22 +11,22 @@ use crate::{
     types::{FontStyle, FontWeight, FontWeightNameSpec},
 };
 
-use crate::math::{MathMarkupErrorPolicy, TextMarkupMode, TextMathConfig};
+use crate::math::{TextMarkupConfig, TextMarkupErrorPolicy};
 
-const TYPST_LINE_LEADING_FACTOR: f32 = crate::math::DEFAULT_MATH_LINE_LEADING_FACTOR;
+const TYPST_LINE_LEADING_FACTOR: f32 = crate::math::DEFAULT_MARKUP_LINE_LEADING_FACTOR;
 
 #[derive(Debug, Clone)]
 pub struct TypstTextMeasurer {
     typst: avenger_typst::AvengerTypst,
-    math: TextMathConfig,
+    math: TextMarkupConfig,
 }
 
 impl TypstTextMeasurer {
-    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMathConfig) -> Self {
+    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self { typst, math }
     }
 
-    pub fn with_config(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
+    pub fn with_config(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Ok(Self::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
                 backend: avenger_typst::TypstEngineBackend::OwnedTypst,
@@ -36,7 +36,7 @@ impl TypstTextMeasurer {
         ))
     }
 
-    pub fn with_owned_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
+    pub fn with_owned_typst(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Self::with_config(math)
     }
     pub fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
@@ -79,18 +79,18 @@ pub struct TypstTextRasterCacheKey {
     pub font_style: String,
     pub fill: [u8; 4],
     pub scale: OrderedFloat<f32>,
-    pub math: String,
+    pub markup: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct TypstTextRasterizer<CacheValue> {
     typst: avenger_typst::AvengerTypst,
-    math: TextMathConfig,
+    math: TextMarkupConfig,
     _cache_value: PhantomData<CacheValue>,
 }
 
 impl<CacheValue> TypstTextRasterizer<CacheValue> {
-    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMathConfig) -> Self {
+    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self {
             typst,
             math,
@@ -98,7 +98,7 @@ impl<CacheValue> TypstTextRasterizer<CacheValue> {
         }
     }
 
-    pub fn with_config(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
+    pub fn with_config(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Ok(Self::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
                 backend: avenger_typst::TypstEngineBackend::OwnedTypst,
@@ -108,7 +108,7 @@ impl<CacheValue> TypstTextRasterizer<CacheValue> {
         ))
     }
 
-    pub fn with_owned_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
+    pub fn with_owned_typst(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Self::with_config(math)
     }
     pub fn rasterize(
@@ -185,7 +185,7 @@ impl<CacheValue> TypstTextRasterizer<CacheValue> {
             font_style: format!("{:?}", config.font_style),
             fill,
             scale: OrderedFloat(scale),
-            math: format!("{:?}", self.math),
+            markup: format!("{:?}", self.math),
         };
         let image = if cached_glyphs.contains_key(&cache_key) {
             None
@@ -231,7 +231,7 @@ impl<CacheValue> TypstTextRasterizer<CacheValue> {
 
 fn measure_text_width_with_typst(
     typst: &avenger_typst::AvengerTypst,
-    math: &TextMathConfig,
+    math: &TextMarkupConfig,
     text: &str,
     font: &str,
     font_size: f32,
@@ -265,7 +265,7 @@ pub(crate) struct TypesetLineResult {
 
 pub(crate) fn typeset_line(
     typst: &avenger_typst::AvengerTypst,
-    math: &TextMathConfig,
+    math: &TextMarkupConfig,
     text: &str,
     font: &str,
     font_size: f32,
@@ -292,10 +292,7 @@ pub(crate) fn typeset_line(
             has_math_spans,
         }),
         Err(err) if should_retry_as_plain(math) => {
-            let mut plain_math = math.clone();
-            plain_math.mode = TextMarkupMode::Plain;
-            let plain_options = text_line_options(
-                &plain_math,
+            let plain_options = plain_text_line_options(
                 text,
                 font,
                 font_size,
@@ -316,13 +313,12 @@ pub(crate) fn typeset_line(
     }
 }
 
-fn should_retry_as_plain(math: &TextMathConfig) -> bool {
-    !matches!(math.mode, TextMarkupMode::Plain)
-        && matches!(
-            math.error_policy,
-            MathMarkupErrorPolicy::TreatInvalidMathAsLiteral
-                | MathMarkupErrorPolicy::ErrorOnPathExtraction
-        )
+fn should_retry_as_plain(math: &TextMarkupConfig) -> bool {
+    matches!(
+        math.error_policy,
+        TextMarkupErrorPolicy::TreatInvalidMathAsLiteral
+            | TextMarkupErrorPolicy::ErrorOnPathExtraction
+    )
 }
 
 fn truncate_raster_text(
@@ -337,7 +333,7 @@ fn truncate_raster_text(
 }
 
 pub(crate) fn text_line_options(
-    math: &TextMathConfig,
+    math: &TextMarkupConfig,
     text: &str,
     font: &str,
     font_size: f32,
@@ -346,15 +342,66 @@ pub(crate) fn text_line_options(
     color: [f32; 4],
     outputs: avenger_typst::TextLineOutputRequest,
 ) -> avenger_typst::TextLineOptions {
-    let (delimiters, math_style, syntax, limits) = match math_mode_parts(math) {
-        Some(parts) => parts,
-        None => (
-            plain_text_delimiters(),
-            avenger_typst::MathStyle::default(),
-            avenger_typst::MathSyntaxMode::default(),
-            avenger_typst::MathLimits::default(),
-        ),
-    };
+    text_line_options_inner(
+        Some(math),
+        text,
+        font,
+        font_size,
+        font_weight,
+        font_style,
+        color,
+        outputs,
+    )
+}
+
+fn plain_text_line_options(
+    text: &str,
+    font: &str,
+    font_size: f32,
+    font_weight: &FontWeight,
+    font_style: &FontStyle,
+    color: [f32; 4],
+    outputs: avenger_typst::TextLineOutputRequest,
+) -> avenger_typst::TextLineOptions {
+    text_line_options_inner(
+        None,
+        text,
+        font,
+        font_size,
+        font_weight,
+        font_style,
+        color,
+        outputs,
+    )
+}
+
+fn text_line_options_inner(
+    math: Option<&TextMarkupConfig>,
+    text: &str,
+    font: &str,
+    font_size: f32,
+    font_weight: &FontWeight,
+    font_style: &FontStyle,
+    color: [f32; 4],
+    outputs: avenger_typst::TextLineOutputRequest,
+) -> avenger_typst::TextLineOptions {
+    let (delimiters, math_style, syntax, limits) = math
+        .map(|math| {
+            (
+                math.delimiters.clone(),
+                math.math_style.clone(),
+                math.syntax,
+                math.limits,
+            )
+        })
+        .unwrap_or_else(|| {
+            (
+                plain_text_delimiters(),
+                avenger_typst::MathStyle::default(),
+                avenger_typst::MathSyntaxMode::default(),
+                avenger_typst::MathLimits::default(),
+            )
+        });
 
     let mut math_style = math_style;
     math_style.font_size = font_size;
@@ -378,25 +425,6 @@ pub(crate) fn text_line_options(
         delimiters,
         syntax,
         limits: limits_for_text(text, limits),
-    }
-}
-
-fn math_mode_parts(
-    math: &TextMathConfig,
-) -> Option<(
-    avenger_typst::MathDelimiterOptions,
-    avenger_typst::MathStyle,
-    avenger_typst::MathSyntaxMode,
-    avenger_typst::MathLimits,
-)> {
-    match &math.mode {
-        TextMarkupMode::Plain => None,
-        TextMarkupMode::TypstMathDelimited(delimiters) => Some((
-            delimiters.clone(),
-            math.math_style.clone(),
-            math.syntax,
-            math.limits,
-        )),
     }
 }
 
@@ -544,11 +572,8 @@ fn metrics_from_ttf_face(face: &ttf_parser::Face<'_>, font_size: f32) -> FontMet
     }
 }
 
-fn contains_active_math_span(math: &TextMathConfig, text: &str) -> bool {
-    match &math.mode {
-        TextMarkupMode::Plain => false,
-        TextMarkupMode::TypstMathDelimited(delimiters) => contains_delimited_span(text, delimiters),
-    }
+fn contains_active_math_span(math: &TextMarkupConfig, text: &str) -> bool {
+    contains_delimited_span(text, &math.delimiters)
 }
 
 fn contains_delimited_span(text: &str, delimiters: &avenger_typst::MathDelimiterOptions) -> bool {
@@ -657,13 +682,8 @@ mod tests {
     static STYLE: FontStyle = FontStyle::Normal;
 
     #[test]
-    fn plain_mode_uses_literal_dollars() {
-        let math = TextMathConfig {
-            mode: TextMarkupMode::Plain,
-            ..Default::default()
-        };
-        let options = text_line_options(
-            &math,
+    fn private_plain_retry_options_use_literal_dollars() {
+        let options = plain_text_line_options(
             "Cost $5",
             "sans-serif",
             12.0,
@@ -677,9 +697,9 @@ mod tests {
     }
 
     #[test]
-    fn default_mode_uses_dollar_math_delimiters() {
+    fn default_markup_uses_dollar_math_delimiters() {
         let options = text_line_options(
-            &TextMathConfig::default(),
+            &TextMarkupConfig::default(),
             "Cost $5",
             "sans-serif",
             12.0,
@@ -694,10 +714,7 @@ mod tests {
 
     #[test]
     fn active_math_spans_ignore_escaped_dollars() {
-        let math = TextMathConfig {
-            mode: TextMarkupMode::TypstMathDelimited(Default::default()),
-            ..Default::default()
-        };
+        let math = TextMarkupConfig::default();
 
         assert!(!contains_active_math_span(&math, r"Cost is \$5"));
         assert!(contains_active_math_span(&math, r"Cost is \$5 and $x$"));
@@ -746,7 +763,7 @@ mod tests {
     fn typst_rasterizer_reports_one_line_entry_with_mock_engine() {
         let rasterizer = TypstTextRasterizer::<()>::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap(),
-            TextMathConfig::default(),
+            TextMarkupConfig::default(),
         );
         let text = "Price $7".to_string();
         let font = "sans-serif".to_string();
@@ -776,7 +793,7 @@ mod tests {
     fn typst_rasterizer_accepts_empty_text() {
         let rasterizer = TypstTextRasterizer::<()>::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap(),
-            TextMathConfig::default(),
+            TextMarkupConfig::default(),
         );
         let text = String::new();
         let font = "sans-serif".to_string();

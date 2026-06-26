@@ -10,7 +10,7 @@ use crate::{
 
 use lyon_path::geom::point;
 
-use crate::math::TextMathConfig;
+use crate::math::TextMarkupConfig;
 
 use crate::typst_text::{
     bounds_from_metrics, tight_bounds_from_metrics, typeset_line, TypstTextMeasurer,
@@ -109,15 +109,15 @@ pub trait TextPathExtractor: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct TypstTextPathExtractor {
     typst: avenger_typst::AvengerTypst,
-    math: TextMathConfig,
+    math: TextMarkupConfig,
 }
 
 impl TypstTextPathExtractor {
-    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMathConfig) -> Self {
+    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self { typst, math }
     }
 
-    pub fn with_config(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
+    pub fn with_config(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Ok(Self::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
                 backend: avenger_typst::TypstEngineBackend::OwnedTypst,
@@ -127,7 +127,7 @@ impl TypstTextPathExtractor {
         ))
     }
 
-    pub fn with_owned_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
+    pub fn with_owned_typst(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Self::with_config(math)
     }
 }
@@ -395,8 +395,8 @@ mod tests {
         }
     }
 
-    fn math_config() -> crate::math::TextMathConfig {
-        crate::math::TextMathConfig::default()
+    fn math_config() -> crate::math::TextMarkupConfig {
+        crate::math::TextMarkupConfig::default()
     }
 
     fn owned_typst() -> avenger_typst::AvengerTypst {

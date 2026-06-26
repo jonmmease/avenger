@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::OnceLock};
 
 use crate::{
     error::AvengerTextError,
-    math::TextMathConfig,
+    math::TextMarkupConfig,
     measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
     path::{TextPathBuffer, TextPathExtractionConfig, TextPathExtractor, TypstTextPathExtractor},
     rasterization::{TextRasterizationBuffer, TextRasterizationConfig},
@@ -12,15 +12,15 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct TextEngine {
     typst: avenger_typst::AvengerTypst,
-    math: TextMathConfig,
+    math: TextMarkupConfig,
 }
 
 impl TextEngine {
-    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMathConfig) -> Self {
+    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self { typst, math }
     }
 
-    pub fn with_config(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
+    pub fn with_config(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Ok(Self::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
                 backend: avenger_typst::TypstEngineBackend::OwnedTypst,
@@ -31,7 +31,7 @@ impl TextEngine {
     }
 
     pub fn with_default_config() -> Result<Self, avenger_typst::TypstInitError> {
-        Self::with_config(TextMathConfig::default())
+        Self::with_config(TextMarkupConfig::default())
     }
 
     pub fn measure_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
