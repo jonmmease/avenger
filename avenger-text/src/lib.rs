@@ -6,8 +6,8 @@ pub mod math;
 pub mod measurement;
 pub mod path;
 pub mod rasterization;
+mod text_line;
 pub mod types;
-pub mod typst_text;
 
 pub use engine::{default_text_engine, TextEngine};
 pub use font_resolver::{FontResolutionOptions, FontResolver, MissingFontPolicy};

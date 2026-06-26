@@ -4,9 +4,9 @@ use crate::{
     error::AvengerTextError,
     math::TextMarkupConfig,
     measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
-    path::{TextPathBuffer, TextPathExtractionConfig, TextPathExtractor, TypstTextPathExtractor},
-    rasterization::{TextRasterizationBuffer, TextRasterizationConfig},
-    typst_text::{TypstTextMeasurer, TypstTextRasterCacheKey, TypstTextRasterizer},
+    path::{TextPathBuffer, TextPathExtractionConfig, TextPathExtractorImpl},
+    rasterization::{TextRasterCacheKey, TextRasterizationBuffer, TextRasterizationConfig},
+    text_line::{TextLineMeasurer, TextLineRasterizer},
 };
 
 #[derive(Debug, Clone)]
@@ -35,23 +35,23 @@ impl TextEngine {
     }
 
     pub fn measure_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
-        TypstTextMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
+        TextLineMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
     }
 
     pub fn font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
-        TypstTextMeasurer::new(self.typst.clone(), self.math.clone()).measure_font_metrics(config)
+        TextLineMeasurer::new(self.typst.clone(), self.math.clone()).measure_font_metrics(config)
     }
 
     pub fn rasterize<CacheValue>(
         &self,
         config: &TextRasterizationConfig,
         scale: f32,
-        cached_entries: &HashMap<TypstTextRasterCacheKey, CacheValue>,
-    ) -> Result<TextRasterizationBuffer<TypstTextRasterCacheKey>, AvengerTextError>
+        cached_entries: &HashMap<TextRasterCacheKey, CacheValue>,
+    ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError>
     where
         CacheValue: Clone,
     {
-        TypstTextRasterizer::<CacheValue>::new(self.typst.clone(), self.math.clone()).rasterize(
+        TextLineRasterizer::<CacheValue>::new(self.typst.clone(), self.math.clone()).rasterize(
             config,
             scale,
             cached_entries,
@@ -62,8 +62,7 @@ impl TextEngine {
         &self,
         config: &TextPathExtractionConfig,
     ) -> Result<TextPathBuffer, AvengerTextError> {
-        TypstTextPathExtractor::new(self.typst.clone(), self.math.clone())
-            .extract_text_paths(config)
+        TextPathExtractorImpl::new(self.typst.clone(), self.math.clone()).extract_text_paths(config)
     }
 }
 

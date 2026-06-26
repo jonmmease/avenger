@@ -44,7 +44,7 @@ measurement propagation that existed only to choose between text engines.
   - [x] Delete `avenger-text/src/rasterization/html_canvas.rs`.
   - [x] Delete `avenger-text/src/font_resolver/wasm.rs` if it only supports the
     browser text path.
-- [ ] Rename `avenger-text/src/typst_text.rs` to a backend-neutral name such as
+- [x] Rename `avenger-text/src/typst_text.rs` to a backend-neutral name such as
   `engine.rs` or `text_engine.rs`.
 - [x] Make `avenger-text/src/math.rs` either:
   - [ ] disappear into the concrete engine config; or

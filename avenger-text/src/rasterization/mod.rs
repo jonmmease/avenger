@@ -1,5 +1,7 @@
 use std::hash::Hash;
 
+use ordered_float::OrderedFloat;
+
 use crate::{
     measurement::{TextBounds, TextMeasurementConfig},
     types::{FontStyle, FontWeight},
@@ -59,6 +61,18 @@ pub struct TextRasterizationConfig<'a> {
     pub font_weight: &'a FontWeight,
     pub font_style: &'a FontStyle,
     pub limit: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TextRasterCacheKey {
+    pub text: String,
+    pub font: String,
+    pub font_size: OrderedFloat<f32>,
+    pub font_weight: String,
+    pub font_style: String,
+    pub fill: [u8; 4],
+    pub scale: OrderedFloat<f32>,
+    pub markup: String,
 }
 
 impl<'a> TextRasterizationConfig<'a> {

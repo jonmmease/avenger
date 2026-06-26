@@ -3,9 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 use avenger_common::{canvas::CanvasDimensions, types::PathTransform};
 use avenger_text::{
     engine::TextEngine,
-    rasterization::{GlyphBBox, TextRasterizationConfig},
+    rasterization::{GlyphBBox, TextRasterCacheKey, TextRasterizationConfig},
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
-    typst_text::TypstTextRasterCacheKey,
 };
 use etagere::euclid::{Angle, Point2D, Vector2D};
 use image::DynamicImage;
@@ -74,7 +73,7 @@ pub struct TextAtlasBuilder {
     text_engine: Arc<TextEngine>,
     extent: Extent3d,
     next_atlas: image::RgbaImage,
-    next_cache: HashMap<TypstTextRasterCacheKey, GlyphBBoxAndAtlasCoords>,
+    next_cache: HashMap<TextRasterCacheKey, GlyphBBoxAndAtlasCoords>,
     atlases: Vec<DynamicImage>,
     initialized: bool,
     allocator: etagere::AtlasAllocator,

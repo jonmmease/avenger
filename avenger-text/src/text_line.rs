@@ -6,7 +6,8 @@ use crate::{
     error::AvengerTextError,
     measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
     rasterization::{
-        GlyphBBox, GlyphData, GlyphPosition, TextRasterizationBuffer, TextRasterizationConfig,
+        GlyphBBox, GlyphData, GlyphPosition, TextRasterCacheKey, TextRasterizationBuffer,
+        TextRasterizationConfig,
     },
     types::{FontStyle, FontWeight, FontWeightNameSpec},
 };
@@ -16,30 +17,16 @@ use crate::math::{TextMarkupConfig, TextMarkupErrorPolicy};
 const TYPST_LINE_LEADING_FACTOR: f32 = crate::math::DEFAULT_MARKUP_LINE_LEADING_FACTOR;
 
 #[derive(Debug, Clone)]
-pub struct TypstTextMeasurer {
+pub(crate) struct TextLineMeasurer {
     typst: avenger_typst::AvengerTypst,
     math: TextMarkupConfig,
 }
 
-impl TypstTextMeasurer {
-    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
+impl TextLineMeasurer {
+    pub(crate) fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self { typst, math }
     }
-
-    pub fn with_config(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Ok(Self::new(
-            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
-                backend: avenger_typst::TypstEngineBackend::OwnedTypst,
-                ..avenger_typst::TypstEngineConfig::default()
-            })?,
-            math,
-        ))
-    }
-
-    pub fn with_owned_typst(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Self::with_config(math)
-    }
-    pub fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
+    pub(crate) fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
         match typeset_line(
             &self.typst,
             &self.math,
@@ -65,58 +52,32 @@ impl TypstTextMeasurer {
         }
     }
 
-    pub fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
+    pub(crate) fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
         typst_font_metrics(config)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TypstTextRasterCacheKey {
-    pub text: String,
-    pub font: String,
-    pub font_size: OrderedFloat<f32>,
-    pub font_weight: String,
-    pub font_style: String,
-    pub fill: [u8; 4],
-    pub scale: OrderedFloat<f32>,
-    pub markup: String,
-}
-
 #[derive(Debug, Clone)]
-pub struct TypstTextRasterizer<CacheValue> {
+pub(crate) struct TextLineRasterizer<CacheValue> {
     typst: avenger_typst::AvengerTypst,
     math: TextMarkupConfig,
     _cache_value: PhantomData<CacheValue>,
 }
 
-impl<CacheValue> TypstTextRasterizer<CacheValue> {
-    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
+impl<CacheValue> TextLineRasterizer<CacheValue> {
+    pub(crate) fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self {
             typst,
             math,
             _cache_value: PhantomData,
         }
     }
-
-    pub fn with_config(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Ok(Self::new(
-            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
-                backend: avenger_typst::TypstEngineBackend::OwnedTypst,
-                ..avenger_typst::TypstEngineConfig::default()
-            })?,
-            math,
-        ))
-    }
-
-    pub fn with_owned_typst(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Self::with_config(math)
-    }
-    pub fn rasterize(
+    pub(crate) fn rasterize(
         &self,
         config: &TextRasterizationConfig,
         scale: f32,
-        cached_glyphs: &HashMap<TypstTextRasterCacheKey, CacheValue>,
-    ) -> Result<TextRasterizationBuffer<TypstTextRasterCacheKey>, AvengerTextError>
+        cached_glyphs: &HashMap<TextRasterCacheKey, CacheValue>,
+    ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError>
     where
         CacheValue: Clone,
     {
@@ -177,7 +138,7 @@ impl<CacheValue> TypstTextRasterizer<CacheValue> {
                 "Typst text raster output was requested but missing".to_string(),
             )
         })?;
-        let cache_key = TypstTextRasterCacheKey {
+        let cache_key = TextRasterCacheKey {
             text: raster_text,
             font: config.font.clone(),
             font_size: OrderedFloat(config.font_size),
@@ -761,7 +722,7 @@ mod tests {
 
     #[test]
     fn typst_rasterizer_reports_one_line_entry_with_mock_engine() {
-        let rasterizer = TypstTextRasterizer::<()>::new(
+        let rasterizer = TextLineRasterizer::<()>::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap(),
             TextMarkupConfig::default(),
         );
@@ -791,7 +752,7 @@ mod tests {
 
     #[test]
     fn typst_rasterizer_accepts_empty_text() {
-        let rasterizer = TypstTextRasterizer::<()>::new(
+        let rasterizer = TextLineRasterizer::<()>::new(
             avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap(),
             TextMarkupConfig::default(),
         );

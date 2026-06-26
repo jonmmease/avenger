@@ -1,12 +1,11 @@
 use std::hint::black_box;
 
 #[cfg(feature = "typst")]
-fn run_typst_text() {
+fn run_text_line() {
     use std::collections::HashMap;
 
     use avenger_text::measurement::TextMeasurementConfig;
-    use avenger_text::rasterization::TextRasterizationConfig;
-    use avenger_text::typst_text::TypstTextRasterCacheKey;
+    use avenger_text::rasterization::{TextRasterCacheKey, TextRasterizationConfig};
     use avenger_text::types::{FontStyle, FontWeight};
     use avenger_text::default_text_engine;
 
@@ -36,7 +35,7 @@ fn run_typst_text() {
         limit: f32::INFINITY,
     };
 
-    let cached_entries = HashMap::<TypstTextRasterCacheKey, ()>::new();
+    let cached_entries = HashMap::<TextRasterCacheKey, ()>::new();
     black_box(
         text_engine
             .rasterize(&config, 2.0, &cached_entries)
@@ -46,7 +45,7 @@ fn run_typst_text() {
 
 fn main() {
     #[cfg(feature = "typst")]
-    run_typst_text();
+    run_text_line();
 
     #[cfg(not(feature = "typst"))]
     black_box("baseline");

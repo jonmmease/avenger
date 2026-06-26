@@ -12,8 +12,8 @@ use lyon_path::geom::point;
 
 use crate::math::TextMarkupConfig;
 
-use crate::typst_text::{
-    bounds_from_metrics, tight_bounds_from_metrics, typeset_line, TypstTextMeasurer,
+use crate::text_line::{
+    bounds_from_metrics, tight_bounds_from_metrics, typeset_line, TextLineMeasurer,
 };
 
 #[derive(Debug, Clone)]
@@ -99,47 +99,22 @@ impl TextPathBuffer {
     }
 }
 
-pub trait TextPathExtractor: Send + Sync {
-    fn extract_text_paths(
-        &self,
-        config: &TextPathExtractionConfig,
-    ) -> Result<TextPathBuffer, AvengerTextError>;
-}
-
 #[derive(Debug, Clone)]
-pub struct TypstTextPathExtractor {
+pub(crate) struct TextPathExtractorImpl {
     typst: avenger_typst::AvengerTypst,
     math: TextMarkupConfig,
 }
 
-impl TypstTextPathExtractor {
-    pub fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
+impl TextPathExtractorImpl {
+    pub(crate) fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self { typst, math }
     }
 
-    pub fn with_config(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Ok(Self::new(
-            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig {
-                backend: avenger_typst::TypstEngineBackend::OwnedTypst,
-                ..avenger_typst::TypstEngineConfig::default()
-            })?,
-            math,
-        ))
-    }
-
-    pub fn with_owned_typst(math: TextMarkupConfig) -> Result<Self, avenger_typst::TypstInitError> {
-        Self::with_config(math)
-    }
-}
-
-impl TypstTextPathExtractor {
     fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
-        TypstTextMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
+        TextLineMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
     }
-}
 
-impl TextPathExtractor for TypstTextPathExtractor {
-    fn extract_text_paths(
+    pub(crate) fn extract_text_paths(
         &self,
         config: &TextPathExtractionConfig,
     ) -> Result<TextPathBuffer, AvengerTextError> {
@@ -408,9 +383,9 @@ mod tests {
     }
 
     #[test]
-    fn typst_text_extractor_returns_plain_runs_and_math_paths() {
+    fn text_line_extractor_returns_plain_runs_and_math_paths() {
         let typst = owned_typst();
-        let extractor = TypstTextPathExtractor::new(typst, math_config());
+        let extractor = TextPathExtractorImpl::new(typst, math_config());
         let text = "speed $v^2$".to_string();
         let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
 
@@ -430,9 +405,9 @@ mod tests {
     }
 
     #[test]
-    fn typst_text_extractor_returns_plain_runs_and_static_decoration_paths() {
+    fn text_line_extractor_returns_plain_runs_and_static_decoration_paths() {
         let typst = owned_typst();
-        let extractor = TypstTextPathExtractor::new(typst, math_config());
+        let extractor = TextPathExtractorImpl::new(typst, math_config());
         let text = "#underline[important]".to_string();
         let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
 
@@ -448,9 +423,9 @@ mod tests {
     }
 
     #[test]
-    fn typst_text_extractor_returns_script_runs_with_smaller_style() {
+    fn text_line_extractor_returns_script_runs_with_smaller_style() {
         let typst = owned_typst();
-        let extractor = TypstTextPathExtractor::new(typst, math_config());
+        let extractor = TextPathExtractorImpl::new(typst, math_config());
         let text = "H#sub[2]O #super[*]".to_string();
         let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
 

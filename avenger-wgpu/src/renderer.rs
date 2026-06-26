@@ -662,35 +662,35 @@ impl AvengerRendererCore {
 /// Construct a text atlas builder, shared by a single canvas across all of its
 /// multi-renderers. This mirrors the construction logic that previously lived in
 /// `MultiMarkRenderer::new`: honor a caller-supplied `text_builder_ctor`,
-/// otherwise use the owned Typst text rasterizer.
+/// otherwise use the default text rasterizer.
 pub(crate) fn make_text_atlas_builder(
     text_builder_ctor: &Option<TextBuildCtor>,
 ) -> Box<dyn TextAtlasBuilderTrait> {
     if let Some(text_builder_ctor) = text_builder_ctor {
         text_builder_ctor()
     } else {
-        make_typst_text_atlas_builder()
+        make_default_text_atlas_builder()
     }
 }
 
-fn make_typst_text_atlas_builder() -> Box<dyn TextAtlasBuilderTrait> {
+fn make_default_text_atlas_builder() -> Box<dyn TextAtlasBuilderTrait> {
     use crate::marks::text::TextAtlasBuilder;
     use std::sync::Arc;
 
-    let text_engine = avenger_text::TextEngine::with_default_config()
-        .expect("failed to initialize Typst text engine");
+    let text_engine =
+        avenger_text::TextEngine::with_default_config().expect("failed to initialize text engine");
     Box::new(TextAtlasBuilder::new(Arc::new(text_engine)))
 }
 
 #[cfg(test)]
-mod typst_text_raster_tests {
+mod text_raster_tests {
     use avenger_common::canvas::CanvasDimensions;
     use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
     use crate::{marks::text::TextInstance, renderer::make_text_atlas_builder};
 
     #[test]
-    fn typst_text_atlas_builder_registers_whole_mixed_label() {
+    fn text_atlas_builder_registers_whole_mixed_label() {
         let mut builder = make_text_atlas_builder(&None);
 
         let text = "speed $v^2$".to_string();
