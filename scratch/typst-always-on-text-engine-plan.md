@@ -54,8 +54,8 @@ measurement propagation that existed only to choose between text engines.
 
 ## Phase 2: Replace Text Traits With Concrete APIs
 
-- [ ] Delete the `TextMeasurer` trait.
-- [ ] Delete the `TextRasterizer` trait.
+- [x] Delete the `TextMeasurer` trait.
+- [x] Delete the `TextRasterizer` trait.
 - [x] Introduce a concrete `TextEngine` type, or module-level functions if no
   cache/state ownership is needed.
 - [x] Provide concrete measurement APIs:
@@ -75,8 +75,8 @@ measurement propagation that existed only to choose between text engines.
   - [x] `TextPathConfig`
   - [x] `TextBounds`
   - [x] `TextPathBuffer`
-- [ ] Remove `default_text_measurer()` and `default_rasterizer()`.
-- [ ] Add compatibility wrappers only if required for downstream crates, and
+- [x] Remove `default_text_measurer()` and `default_rasterizer()`.
+- [x] Add compatibility wrappers only if required for downstream crates, and
   mark them as temporary.
 
 ## Phase 3: Remove Measurer Propagation From Chart/Layout/Guides
@@ -196,6 +196,8 @@ measurement propagation that existed only to choose between text engines.
   - [ ] Review Vega-derived baselines for font/line-height changes.
   - [ ] Read every generated failure/baseline image before accepting.
   - [ ] Accept baselines only after judging that changes are correct.
+  - [x] Reviewed and accepted treemap baselines after moving treemap guide/label
+    measurement onto `TextEngine`.
 
 ## Phase 8: Validation Commands
 
@@ -213,22 +215,26 @@ Run release mode throughout.
   - [ ] Full WGPU package run currently fails image baseline tests, including
     broad non-text baseline drift and one SVG-resource feature case.
 - [x] `cargo test --release -p avenger-chart -- --nocapture`
+- [x] `cargo check --release --workspace`
+- [x] `cargo test --release -p avenger-chart-webmercator -- --nocapture`
+- [x] `cargo test --release -p avenger-chart-treemap --test visual_regression -- --nocapture`
 - [ ] `cargo test --release -p avenger-chart --features visual-tests --test visual_regression -- --nocapture`
 - [ ] Run SVG/PDF sidecar validation used by chart visual tests.
 - [ ] Run wasm build checks for browser targets that previously relied on HTML
   canvas text measurement.
 - [ ] Run text-size and text-render probes and record current numbers.
+  - [x] `cargo build --release --manifest-path tools/text-size-probe/Cargo.toml --features typst`
 
 ## Migration Notes
 
 - [ ] Commit in small slices:
   - [x] avenger-text backend removal.
-  - [ ] trait removal and concrete API.
+  - [x] trait removal and concrete API.
   - [x] geometry/guides/chart propagation removal.
   - [x] renderer feature cleanup.
   - [ ] baseline updates.
-- [ ] Keep each slice compiling in release mode before moving on.
-- [ ] Prefer deleting compatibility layers quickly once all workspace call sites
+- [x] Keep each slice compiling in release mode before moving on.
+- [x] Prefer deleting compatibility layers quickly once all workspace call sites
   are updated.
 - [ ] Do not preserve cosmic behavior as a hidden fallback.
 - [ ] Do not preserve HTML canvas behavior as a hidden fallback.

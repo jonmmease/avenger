@@ -3,11 +3,9 @@ use std::{collections::HashMap, sync::OnceLock};
 use crate::{
     error::AvengerTextError,
     math::TextMathConfig,
-    measurement::{
-        FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig, TextMeasurer,
-    },
+    measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
     path::{TextPathBuffer, TextPathExtractionConfig, TextPathExtractor, TypstTextPathExtractor},
-    rasterization::{TextRasterizationBuffer, TextRasterizationConfig, TextRasterizer},
+    rasterization::{TextRasterizationBuffer, TextRasterizationConfig},
     typst_text::{TypstTextMeasurer, TypstTextRasterCacheKey, TypstTextRasterizer},
 };
 
@@ -51,7 +49,7 @@ impl TextEngine {
         cached_entries: &HashMap<TypstTextRasterCacheKey, CacheValue>,
     ) -> Result<TextRasterizationBuffer<TypstTextRasterCacheKey>, AvengerTextError>
     where
-        CacheValue: Clone + 'static,
+        CacheValue: Clone,
     {
         TypstTextRasterizer::<CacheValue>::new(self.typst.clone(), self.math.clone()).rasterize(
             config,
@@ -66,16 +64,6 @@ impl TextEngine {
     ) -> Result<TextPathBuffer, AvengerTextError> {
         TypstTextPathExtractor::new(self.typst.clone(), self.math.clone())
             .extract_text_paths(config)
-    }
-}
-
-impl TextMeasurer for TextEngine {
-    fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
-        self.measure_bounds(config)
-    }
-
-    fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
-        self.font_metrics(config)
     }
 }
 

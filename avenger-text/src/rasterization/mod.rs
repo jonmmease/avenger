@@ -1,7 +1,6 @@
-use std::{collections::HashMap, hash::Hash};
+use std::hash::Hash;
 
 use crate::{
-    error::AvengerTextError,
     measurement::{TextBounds, TextMeasurementConfig},
     types::{FontStyle, FontWeight},
 };
@@ -103,21 +102,4 @@ impl<CacheKey: Hash + Eq + Clone> GlyphData<CacheKey> {
 pub struct TextRasterizationBuffer<CacheKey: Hash + Eq + Clone> {
     pub glyphs: Vec<(GlyphData<CacheKey>, GlyphPosition)>,
     pub text_bounds: TextBounds,
-}
-
-pub trait TextRasterizer: 'static {
-    type CacheKey: Hash + Eq + Clone;
-    type CacheValue: Clone;
-
-    fn rasterize(
-        &self,
-        config: &TextRasterizationConfig,
-        scale: f32,
-        cached_glyphs: &HashMap<Self::CacheKey, Self::CacheValue>,
-    ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerTextError>;
-}
-
-pub fn default_rasterizer() -> impl TextRasterizer<CacheValue = ()> {
-    crate::typst_text::TypstTextRasterizer::<()>::with_config(crate::math::TextMathConfig::default())
-        .expect("failed to initialize Typst text rasterizer")
 }

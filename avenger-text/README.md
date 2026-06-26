@@ -16,12 +16,6 @@ This crate provides:
 The active backend is the owned Typst-style text engine in `avenger-typst`.
 It supports regular text and `$...$` math fragments by default.
 
-Temporary traits remain while chart, guide, and geometry callers are being
-simplified:
-
-- `TextMeasurer`: Measures text dimensions.
-- `TextRasterizer`: Rasterizes text-line atlas entries.
-
 ## Usage by Other Crates
 
 - `avenger-scenegraph`: Uses font types in the scene graph text mark

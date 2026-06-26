@@ -22,10 +22,9 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_text::{
-    measurement::{
-        default_text_measurer, truncate_text_to_limit_with, TextMeasurementConfig, TextMeasurer,
-    },
-    FontResolutionOptions,
+    default_text_engine,
+    measurement::{truncate_text_to_limit_with, TextMeasurementConfig},
+    FontResolutionOptions, TextEngine,
 };
 use itertools::izip;
 use wgpu::{
@@ -84,7 +83,7 @@ fn truncate_text_to_limit(
     font_size: f32,
     font_weight: &avenger_text::types::FontWeight,
     font_style: &avenger_text::types::FontStyle,
-    measurer: &impl TextMeasurer,
+    text_engine: &TextEngine,
 ) -> String {
     truncate_text_to_limit_with(text, limit, |candidate| {
         let config = TextMeasurementConfig {
@@ -94,7 +93,7 @@ fn truncate_text_to_limit(
             font_weight,
             font_style,
         };
-        measurer.measure_text_bounds(&config).width
+        text_engine.measure_bounds(&config).width
     })
 }
 
@@ -284,7 +283,7 @@ pub trait Canvas {
         // only the location of the call moved (the register_text math is unchanged), so
         // glyph bitmaps and baked UVs — and therefore rendered pixels — are identical.
         let dimensions = self.dimensions();
-        let text_measurer = default_text_measurer();
+        let text_engine = default_text_engine();
         let leader_stroke_dash_values = mark
             .leader_stroke_dash
             .as_ref()
@@ -378,9 +377,9 @@ pub trait Canvas {
                         *font_size,
                         font_weight,
                         font_style,
-                        &text_measurer,
+                        &text_engine,
                     );
-                    let text_bounds = text_measurer.measure_text_bounds(&TextMeasurementConfig {
+                    let text_bounds = text_engine.measure_bounds(&TextMeasurementConfig {
                         text: &rendered_text,
                         font,
                         font_size: *font_size,

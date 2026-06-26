@@ -4,7 +4,7 @@ use lyon_path::Path;
 
 use crate::{
     error::AvengerTextError,
-    measurement::{TextBounds, TextMeasurementConfig, TextMeasurer},
+    measurement::{TextBounds, TextMeasurementConfig},
     types::{FontStyle, FontWeight},
 };
 
@@ -132,16 +132,9 @@ impl TypstTextPathExtractor {
     }
 }
 
-impl TextMeasurer for TypstTextPathExtractor {
+impl TypstTextPathExtractor {
     fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
         TypstTextMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
-    }
-
-    fn measure_font_metrics(
-        &self,
-        config: &crate::measurement::FontMetricsConfig,
-    ) -> crate::measurement::FontMetrics {
-        TypstTextMeasurer::new(self.typst.clone(), self.math.clone()).measure_font_metrics(config)
     }
 }
 

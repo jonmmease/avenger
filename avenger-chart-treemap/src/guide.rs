@@ -13,7 +13,8 @@ use avenger_scenegraph::marks::{
     group::Clip, mark::SceneMark, rect::SceneRectMark, text::SceneTextMark,
 };
 use avenger_text::{
-    measurement::{TextMeasurementConfig, TextMeasurer, truncate_text_to_limit_with},
+    default_text_engine,
+    measurement::{TextMeasurementConfig, truncate_text_to_limit_with},
     types::{FontStyle, FontWeight, FontWeightNameSpec},
 };
 use datafusion::{
@@ -113,7 +114,6 @@ impl CompiledGuide for TreemapGuide {
         _ctx: &SessionContext,
         _sharing_context: GuideSharingContext<'_>,
         _coord_measurement: Option<&dyn CoordMeasurement>,
-        _text_measurer: &dyn TextMeasurer,
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         Ok(OverflowSpaceRequirement {
             top: if self.breadcrumbs {
@@ -139,7 +139,6 @@ impl CompiledGuide for TreemapGuide {
         _sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn CoordMeasurement,
         _render_context: GuideRenderContext<'_>,
-        text_measurer: &dyn TextMeasurer,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let measurement = coord_measurement
             .as_any()
@@ -160,18 +159,14 @@ impl CompiledGuide for TreemapGuide {
             let header_nodes = header_nodes(measurement);
             if !header_nodes.is_empty() {
                 marks.push(make_header_hit_rect(plot_bounds, &header_nodes));
-                marks.push(make_header_text(plot_bounds, &header_nodes, text_measurer));
+                marks.push(make_header_text(plot_bounds, &header_nodes));
             }
         }
         if self.breadcrumbs {
             let breadcrumbs = measurement.breadcrumbs();
             if !breadcrumbs.is_empty() {
                 marks.push(make_breadcrumb_hit_rect(plot_bounds, breadcrumbs));
-                marks.push(make_breadcrumb_text(
-                    plot_bounds,
-                    breadcrumbs,
-                    text_measurer,
-                ));
+                marks.push(make_breadcrumb_text(plot_bounds, breadcrumbs));
             }
         }
         Ok(marks)
@@ -360,20 +355,13 @@ fn make_header_hit_rect(plot_bounds: &LayoutBounds, nodes: &[&VisibleTreemapNode
     })
 }
 
-fn make_header_text(
-    plot_bounds: &LayoutBounds,
-    nodes: &[&VisibleTreemapNode],
-    text_measurer: &dyn TextMeasurer,
-) -> SceneMark {
-    let labels = truncate_labels(
-        nodes.iter().map(|node| {
-            (
-                node.node.label.as_str(),
-                guide_text_limit(guide_header_rect(node).width),
-            )
-        }),
-        text_measurer,
-    );
+fn make_header_text(plot_bounds: &LayoutBounds, nodes: &[&VisibleTreemapNode]) -> SceneMark {
+    let labels = truncate_labels(nodes.iter().map(|node| {
+        (
+            node.node.label.as_str(),
+            guide_text_limit(guide_header_rect(node).width),
+        )
+    }));
     let mut mark = SceneTextMark {
         name: "treemap_header".to_string(),
         interactive: true,
@@ -442,23 +430,16 @@ fn make_breadcrumb_hit_rect(plot_bounds: &LayoutBounds, nodes: &[TreemapNode]) -
     })
 }
 
-fn make_breadcrumb_text(
-    plot_bounds: &LayoutBounds,
-    nodes: &[TreemapNode],
-    text_measurer: &dyn TextMeasurer,
-) -> SceneMark {
+fn make_breadcrumb_text(plot_bounds: &LayoutBounds, nodes: &[TreemapNode]) -> SceneMark {
     let (x, width) = breadcrumb_positions(plot_bounds, nodes);
-    let text = truncate_labels(
-        nodes.iter().zip(width.iter()).map(|(node, width)| {
-            let label = if node.path_id == ROOT_PATH_ID {
-                "All"
-            } else {
-                node.label.as_str()
-            };
-            (label, guide_text_limit(*width))
-        }),
-        text_measurer,
-    );
+    let text = truncate_labels(nodes.iter().zip(width.iter()).map(|(node, width)| {
+        let label = if node.path_id == ROOT_PATH_ID {
+            "All"
+        } else {
+            node.label.as_str()
+        };
+        (label, guide_text_limit(*width))
+    }));
     let mut mark = SceneTextMark {
         name: "treemap_breadcrumb".to_string(),
         interactive: true,
@@ -484,18 +465,16 @@ fn guide_text_limit(width: f32) -> f32 {
     (width - GUIDE_TEXT_INSET * 2.0).max(0.0)
 }
 
-fn truncate_labels<'a>(
-    labels: impl IntoIterator<Item = (&'a str, f32)>,
-    text_measurer: &dyn TextMeasurer,
-) -> Vec<String> {
+fn truncate_labels<'a>(labels: impl IntoIterator<Item = (&'a str, f32)>) -> Vec<String> {
+    let text_engine = default_text_engine();
     let font_weight = FontWeight::Name(FontWeightNameSpec::Normal);
     let font_style = FontStyle::Normal;
     labels
         .into_iter()
         .map(|(label, limit)| {
             truncate_text_to_limit_with(label, limit, |candidate| {
-                text_measurer
-                    .measure_text_bounds(&TextMeasurementConfig {
+                text_engine
+                    .measure_bounds(&TextMeasurementConfig {
                         text: candidate,
                         font: "sans-serif",
                         font_size: GUIDE_TEXT_FONT_SIZE,

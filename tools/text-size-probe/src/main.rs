@@ -4,13 +4,11 @@ use std::hint::black_box;
 fn run_typst_text() {
     use std::collections::HashMap;
 
-    use avenger_text::measurement::{
-        default_text_measurer, TextMeasurementConfig, TextMeasurer,
-    };
-    use avenger_text::rasterization::{
-        default_rasterizer, TextRasterizationConfig, TextRasterizer,
-    };
+    use avenger_text::measurement::TextMeasurementConfig;
+    use avenger_text::rasterization::TextRasterizationConfig;
+    use avenger_text::typst_text::TypstTextRasterCacheKey;
     use avenger_text::types::{FontStyle, FontWeight};
+    use avenger_text::default_text_engine;
 
     let font = "sans-serif".to_string();
     let weight = FontWeight::default();
@@ -23,10 +21,9 @@ fn run_typst_text() {
         font_style: &style,
     };
 
-    let measurer = default_text_measurer();
-    black_box(measurer.measure_text_bounds(&measurement));
+    let text_engine = default_text_engine();
+    black_box(text_engine.measure_bounds(&measurement));
 
-    let rasterizer = default_rasterizer();
     let text = measurement.text.to_string();
     let color = [0.1, 0.2, 0.3, 1.0];
     let config = TextRasterizationConfig {
@@ -39,9 +36,10 @@ fn run_typst_text() {
         limit: f32::INFINITY,
     };
 
+    let cached_entries = HashMap::<TypstTextRasterCacheKey, ()>::new();
     black_box(
-        rasterizer
-            .rasterize(&config, 2.0, &HashMap::new())
+        text_engine
+            .rasterize(&config, 2.0, &cached_entries)
             .expect("rasterize mixed Typst math text"),
     );
 }

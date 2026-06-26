@@ -2,15 +2,6 @@ use std::convert::Infallible;
 
 use crate::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 
-/// Core trait for text measurement functionality
-pub trait TextMeasurer: Send + Sync {
-    /// Measures the bounding dimensions for a text string with given configuration
-    fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds;
-
-    /// Measures font-level vertical metrics without depending on a specific glyph outline.
-    fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics;
-}
-
 pub fn truncate_text_to_limit_with(
     text: &str,
     limit: f32,
@@ -172,10 +163,6 @@ impl TextBounds {
             line_height: 10.0 * 1.2,
         }
     }
-}
-
-pub fn default_text_measurer() -> impl TextMeasurer {
-    crate::engine::default_text_engine()
 }
 
 #[cfg(test)]

@@ -18,9 +18,8 @@ use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark, text::SceneTextMark};
 use avenger_text::{
-    measurement::{
-        TextMeasurementConfig, TextMeasurer, default_text_measurer, truncate_text_to_limit_with,
-    },
+    default_text_engine,
+    measurement::{TextMeasurementConfig, truncate_text_to_limit_with},
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
 };
 use datafusion::{
@@ -2333,9 +2332,7 @@ fn fit_tree_label(
     {
         return String::new();
     }
-    let plain_measurer = text_measurement_service
-        .is_none()
-        .then(default_text_measurer);
+    let text_engine = text_measurement_service.is_none().then(default_text_engine);
     let measure_width = |candidate: &str| {
         let config = TextMeasurementConfig {
             text: candidate,
@@ -2347,10 +2344,10 @@ fn fit_tree_label(
         if let Some(service) = text_measurement_service {
             service.measure_text_bounds(&config).width
         } else {
-            plain_measurer
+            text_engine
                 .as_ref()
-                .expect("plain text measurer fallback")
-                .measure_text_bounds(&config)
+                .expect("default text engine fallback")
+                .measure_bounds(&config)
                 .width
         }
     };

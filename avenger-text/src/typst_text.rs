@@ -4,12 +4,9 @@ use ordered_float::OrderedFloat;
 
 use crate::{
     error::AvengerTextError,
-    measurement::{
-        FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig, TextMeasurer,
-    },
+    measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
     rasterization::{
         GlyphBBox, GlyphData, GlyphPosition, TextRasterizationBuffer, TextRasterizationConfig,
-        TextRasterizer,
     },
     types::{FontStyle, FontWeight, FontWeightNameSpec},
 };
@@ -42,10 +39,7 @@ impl TypstTextMeasurer {
     pub fn with_owned_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Self::with_config(math)
     }
-}
-
-impl TextMeasurer for TypstTextMeasurer {
-    fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
+    pub fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
         match typeset_line(
             &self.typst,
             &self.math,
@@ -71,7 +65,7 @@ impl TextMeasurer for TypstTextMeasurer {
         }
     }
 
-    fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
+    pub fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
         typst_font_metrics(config)
     }
 }
@@ -117,21 +111,15 @@ impl<CacheValue> TypstTextRasterizer<CacheValue> {
     pub fn with_owned_typst(math: TextMathConfig) -> Result<Self, avenger_typst::TypstInitError> {
         Self::with_config(math)
     }
-}
-
-impl<CacheValue> TextRasterizer for TypstTextRasterizer<CacheValue>
-where
-    CacheValue: Clone + 'static,
-{
-    type CacheKey = TypstTextRasterCacheKey;
-    type CacheValue = CacheValue;
-
-    fn rasterize(
+    pub fn rasterize(
         &self,
         config: &TextRasterizationConfig,
         scale: f32,
-        cached_glyphs: &HashMap<Self::CacheKey, Self::CacheValue>,
-    ) -> Result<TextRasterizationBuffer<Self::CacheKey>, AvengerTextError> {
+        cached_glyphs: &HashMap<TypstTextRasterCacheKey, CacheValue>,
+    ) -> Result<TextRasterizationBuffer<TypstTextRasterCacheKey>, AvengerTextError>
+    where
+        CacheValue: Clone,
+    {
         let raster_text = truncate_raster_text(config, |candidate| {
             measure_text_width_with_typst(
                 &self.typst,
@@ -345,19 +333,6 @@ fn truncate_raster_text(
         crate::measurement::truncate_text_to_limit_with(config.text, config.limit, measure_width)
     } else {
         config.text.to_string()
-    }
-}
-
-impl<CacheValue> TextMeasurer for TypstTextRasterizer<CacheValue>
-where
-    CacheValue: Clone + Send + Sync + 'static,
-{
-    fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
-        TypstTextMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
-    }
-
-    fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
-        typst_font_metrics(config)
     }
 }
 
