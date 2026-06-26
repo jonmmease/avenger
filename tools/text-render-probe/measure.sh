@@ -2,6 +2,7 @@
 set -euo pipefail
 
 target_dir="target/text-render-probe-results"
+cargo_target_dir="${CARGO_TARGET_DIR:-target}"
 binary_name="text-render-probe"
 mkdir -p "$target_dir"
 
@@ -20,7 +21,7 @@ build_one() {
     local png="$target_dir/hello-$name.png"
 
     cargo build --release -p "$binary_name" --no-default-features --features "$feature"
-    cp "target/release/$binary_name" "$binary"
+    cp "$cargo_target_dir/release/$binary_name" "$binary"
     "$binary" "$png" >/dev/null
     printf '%s,%s,%s\n' "$name" "$(size_bytes "$binary")" "$(size_bytes "$png")"
 }
