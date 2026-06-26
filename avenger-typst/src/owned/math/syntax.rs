@@ -578,6 +578,7 @@ mod tests {
             "x_1^2",
             "sqrt(x) / (1 + x^2)",
             "root(3, x)",
+            "frac(x + y, z)",
             "a / b",
             "a / (b + c)",
             "J_0(x)",

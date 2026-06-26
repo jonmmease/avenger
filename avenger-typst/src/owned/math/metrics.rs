@@ -327,6 +327,9 @@ fn layout_simple_node(
     }
 
     if let OwnedMathNode::Call(call) = node {
+        if call.name == "frac" {
+            return layout_simple_fraction_call(font, call, font_size, script_level);
+        }
         if call.name == "sqrt" {
             return layout_simple_sqrt(font, call, font_size, script_level);
         }
@@ -566,18 +569,48 @@ fn layout_simple_fraction(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    layout_simple_fraction_nodes(
+        font,
+        std::slice::from_ref(fraction.numerator.as_ref()),
+        std::slice::from_ref(fraction.denominator.as_ref()),
+        font_size,
+        script_level,
+    )
+}
+
+fn layout_simple_fraction_call(
+    font: &OwnedMathFont,
+    call: &super::ast::OwnedMathCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let [numerator, denominator] = &call.args[..] else {
+        return Ok(None);
+    };
+    layout_simple_fraction_nodes(
+        font,
+        &numerator.nodes,
+        &denominator.nodes,
+        font_size,
+        script_level,
+    )
+}
+
+fn layout_simple_fraction_nodes(
+    font: &OwnedMathFont,
+    numerator_nodes: &[OwnedMathNode],
+    denominator_nodes: &[OwnedMathNode],
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
     let child_font_size = script_font_size(font, font_size, script_level)?;
     let Some(mut numerator) =
-        layout_fraction_child(font, &fraction.numerator, child_font_size, script_level + 1)?
+        layout_fraction_child_nodes(font, numerator_nodes, child_font_size, script_level + 1)?
     else {
         return Ok(None);
     };
-    let Some(mut denominator) = layout_fraction_child(
-        font,
-        &fraction.denominator,
-        child_font_size,
-        script_level + 1,
-    )?
+    let Some(mut denominator) =
+        layout_fraction_child_nodes(font, denominator_nodes, child_font_size, script_level + 1)?
     else {
         return Ok(None);
     };
@@ -699,6 +732,18 @@ fn layout_fraction_child(
         return layout_simple_nodes_as_atom(font, &group.body, font_size, script_level);
     }
     layout_simple_node(font, node, font_size, script_level)
+}
+
+fn layout_fraction_child_nodes(
+    font: &OwnedMathFont,
+    nodes: &[OwnedMathNode],
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    if let [node] = nodes {
+        return layout_fraction_child(font, node, font_size, script_level);
+    }
+    layout_simple_nodes_as_atom(font, nodes, font_size, script_level)
 }
 
 const FRACTION_PADDING_EM: f32 = 0.1;
@@ -1751,6 +1796,29 @@ mod tests {
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
                 .expect("simple fraction should be handled by owned row path");
+        let paths = artifact.paths.expect("fraction paths should exist");
+        assert!(paths
+            .items
+            .iter()
+            .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some()));
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        assert_eq!(pdf.glyph_runs.len(), 4);
+    }
+
+    #[test]
+    fn simple_row_can_emit_frac_call_rule_paths() {
+        let math = parse_owned_math("frac(x + y, z)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("simple frac call should be handled by owned row path");
         let paths = artifact.paths.expect("fraction paths should exist");
         assert!(paths
             .items
