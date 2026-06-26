@@ -1913,6 +1913,8 @@ fn shorthand_text(shorthand: &OwnedMathShorthand) -> String {
 fn identifier_class(text: &str) -> SimpleMathClass {
     if matches!(text, "∑" | "∏" | "∫") {
         SimpleMathClass::Large
+    } else if let Some(ch) = single_char(text) {
+        simple_math_class_for_char(ch)
     } else {
         SimpleMathClass::Alphabetic
     }
@@ -1931,9 +1933,43 @@ fn operator_class(text: &str) -> SimpleMathClass {
 }
 
 fn symbol_class(text: &str) -> SimpleMathClass {
-    match text {
-        "≤" | "≥" | "≠" | "⇒" | "→" | "←" | "≔" => SimpleMathClass::Relation,
-        "∑" | "∏" | "∫" => SimpleMathClass::Large,
+    single_char(text)
+        .map(simple_math_class_for_char)
+        .unwrap_or(SimpleMathClass::Normal)
+}
+
+fn single_char(text: &str) -> Option<char> {
+    let mut chars = text.chars();
+    let ch = chars.next()?;
+    chars.next().is_none().then_some(ch)
+}
+
+fn simple_math_class_for_char(ch: char) -> SimpleMathClass {
+    use unicode_math_class::MathClass;
+
+    let class = match ch {
+        ':' => Some(MathClass::Relation),
+        '⋯' | '⋱' | '⋰' | '⋮' => Some(MathClass::Normal),
+        '.' | '/' => Some(MathClass::Normal),
+        '\u{22A5}' => Some(MathClass::Normal),
+        '⅋' => Some(MathClass::Binary),
+        '⎰' | '⟅' => Some(MathClass::Opening),
+        '⎱' | '⟆' => Some(MathClass::Closing),
+        '⟇' => Some(MathClass::Binary),
+        '،' => Some(MathClass::Punctuation),
+        c => unicode_math_class::class(c),
+    };
+
+    match class {
+        Some(MathClass::Alphabetic) => SimpleMathClass::Alphabetic,
+        Some(MathClass::Binary) => SimpleMathClass::Binary,
+        Some(MathClass::Closing) => SimpleMathClass::Closing,
+        Some(MathClass::Fence) => SimpleMathClass::Fence,
+        Some(MathClass::Large) => SimpleMathClass::Large,
+        Some(MathClass::Opening) => SimpleMathClass::Opening,
+        Some(MathClass::Punctuation) => SimpleMathClass::Punctuation,
+        Some(MathClass::Relation) => SimpleMathClass::Relation,
+        Some(MathClass::Vary) => SimpleMathClass::Vary,
         _ => SimpleMathClass::Normal,
     }
 }

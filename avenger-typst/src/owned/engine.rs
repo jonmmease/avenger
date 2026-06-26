@@ -867,6 +867,43 @@ mod tests {
         assert!(!engine.delegate_initialized());
     }
 
+    #[test]
+    fn common_named_symbols_use_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact = engine
+            .typeset_fragment("forall x in RR + A subset.eq B + arrow.r.double", &options)
+            .unwrap();
+
+        assert!(artifact.metrics.width > 0.0);
+        assert!(artifact
+            .paths
+            .as_ref()
+            .is_some_and(|paths| !paths.items.is_empty()));
+        let glyph_text = artifact
+            .pdf_text
+            .as_ref()
+            .map(|pdf| {
+                pdf.glyph_runs
+                    .iter()
+                    .flat_map(|run| run.glyphs.iter())
+                    .map(|glyph| glyph.unicode.as_str())
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
+        assert!(glyph_text.contains('∀'));
+        assert!(glyph_text.contains('∈'));
+        assert!(glyph_text.contains('⊆'));
+        assert!(glyph_text.contains('⇒'));
+        assert!(!engine.delegate_initialized());
+    }
+
     #[cfg(feature = "raster")]
     #[test]
     fn simple_row_math_fragment_raster_uses_owned_fast_path_without_initializing_delegate() {

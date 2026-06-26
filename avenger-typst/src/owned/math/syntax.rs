@@ -262,6 +262,7 @@ impl Parser<'_> {
                 break;
             }
         }
+        self.consume_known_dotted_symbol_suffixes(start);
 
         let name = &self.source[start..self.pos];
         if matches!(self.peek_char(), Some((_, '('))) && (is_math_call_name(name) || name == "mat")
@@ -274,6 +275,25 @@ impl Parser<'_> {
             symbol: named_math_symbol(name),
             byte_range: self.absolute(start)..self.absolute(self.pos),
         }))
+    }
+
+    fn consume_known_dotted_symbol_suffixes(&mut self, start: usize) {
+        loop {
+            let Some((dot_idx, '.')) = self.peek_char() else {
+                break;
+            };
+            let segment_start = dot_idx + 1;
+            let segment_end = read_symbol_modifier_end(self.source, segment_start);
+            if segment_end == segment_start {
+                break;
+            }
+
+            let candidate = &self.source[start..segment_end];
+            if named_math_symbol(candidate).is_none() {
+                break;
+            }
+            self.pos = segment_end;
+        }
     }
 
     fn parse_call(
@@ -446,6 +466,18 @@ fn is_identifier_continue(ch: char) -> bool {
     ch.is_alphanumeric()
 }
 
+fn read_symbol_modifier_end(source: &str, start: usize) -> usize {
+    let mut end = start;
+    while let Some((idx, ch)) = next_char(source, end) {
+        if ch.is_ascii_alphabetic() {
+            end = idx + ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    end
+}
+
 fn is_operator_char(ch: char) -> bool {
     matches!(
         ch,
@@ -544,17 +576,90 @@ fn named_math_symbol(name: &str) -> Option<&'static str> {
         "Phi" => Some("Φ"),
         "Psi" => Some("Ψ"),
         "Omega" => Some("Ω"),
+        "dot" | "dot.op" => Some("⋅"),
+        "dot.c" => Some("·"),
+        "dots" | "dots.h" => Some("…"),
+        "dots.h.c" => Some("⋯"),
+        "dots.v" => Some("⋮"),
         "sum" => Some("∑"),
-        "prod" => Some("∏"),
+        "prod" | "product" => Some("∏"),
         "integral" => Some("∫"),
         "oo" | "infinity" => Some("∞"),
         "partial" => Some("∂"),
-        "nabla" => Some("∇"),
+        "gradient" | "nabla" => Some("∇"),
         "RR" => Some("ℝ"),
         "NN" => Some("ℕ"),
         "ZZ" => Some("ℤ"),
         "QQ" => Some("ℚ"),
         "CC" => Some("ℂ"),
+        "plus" => Some("+"),
+        "plus.minus" => Some("±"),
+        "minus" => Some("−"),
+        "minus.plus" => Some("∓"),
+        "times" => Some("×"),
+        "times.big" => Some("⨉"),
+        "div" => Some("÷"),
+        "eq" => Some("="),
+        "eq.not" => Some("≠"),
+        "eq.triple" | "equiv" => Some("≡"),
+        "eq.triple.not" | "equiv.not" => Some("≢"),
+        "lt" => Some("<"),
+        "lt.eq" => Some("≤"),
+        "lt.eq.not" => Some("≰"),
+        "lt.not" => Some("≮"),
+        "gt" => Some(">"),
+        "gt.eq" => Some("≥"),
+        "gt.eq.not" => Some("≱"),
+        "gt.not" => Some("≯"),
+        "approx" => Some("≈"),
+        "approx.not" => Some("≉"),
+        "prop" => Some("∝"),
+        "emptyset" | "nothing" => Some("∅"),
+        "in" => Some("∈"),
+        "in.not" => Some("∉"),
+        "in.rev" => Some("∋"),
+        "in.rev.not" => Some("∌"),
+        "subset" => Some("⊂"),
+        "subset.eq" => Some("⊆"),
+        "subset.eq.not" => Some("⊈"),
+        "subset.neq" => Some("⊊"),
+        "subset.not" => Some("⊄"),
+        "supset" => Some("⊃"),
+        "supset.eq" => Some("⊇"),
+        "supset.eq.not" => Some("⊉"),
+        "supset.neq" => Some("⊋"),
+        "supset.not" => Some("⊅"),
+        "union" => Some("∪"),
+        "union.big" => Some("⋃"),
+        "union.plus" => Some("⊎"),
+        "inter" => Some("∩"),
+        "inter.big" => Some("⋂"),
+        "forall" => Some("∀"),
+        "exists" => Some("∃"),
+        "angle" => Some("∠"),
+        "parallel" => Some("∥"),
+        "perp" => Some("⟂"),
+        "degree" => Some("°"),
+        "aleph" => Some("א"),
+        "ell" => Some("ℓ"),
+        "arrow.r" => Some("→"),
+        "arrow.r.long" => Some("⟶"),
+        "arrow.r.bar" => Some("↦"),
+        "arrow.r.double" => Some("⇒"),
+        "arrow.r.double.long" => Some("⟹"),
+        "arrow.r.not" => Some("↛"),
+        "arrow.l" => Some("←"),
+        "arrow.l.long" => Some("⟵"),
+        "arrow.l.bar" => Some("↤"),
+        "arrow.l.double" => Some("⇐"),
+        "arrow.l.double.long" => Some("⟸"),
+        "arrow.l.not" => Some("↚"),
+        "arrow.l.r" => Some("↔"),
+        "arrow.l.r.long" => Some("⟷"),
+        "arrow.l.r.double" => Some("⇔"),
+        "arrow.l.r.double.long" => Some("⟺"),
+        "arrow.t" => Some("↑"),
+        "arrow.b" => Some("↓"),
         _ => None,
     }
 }
@@ -643,7 +748,7 @@ mod tests {
 
     #[test]
     fn parses_symbols_and_shorthands() {
-        let math = parse("alpha -> RR");
+        let math = parse("alpha -> RR + in.not + subset.eq + arrow.r.double");
 
         assert!(matches!(
             &math.nodes[0],
@@ -658,6 +763,38 @@ mod tests {
         assert!(matches!(
             &math.nodes[4],
             OwnedMathNode::Identifier(ident) if ident.symbol == Some("ℝ")
+        ));
+        assert!(matches!(
+            &math.nodes[8],
+            OwnedMathNode::Identifier(ident)
+                if ident.name == "in.not" && ident.symbol == Some("∉")
+        ));
+        assert!(matches!(
+            &math.nodes[12],
+            OwnedMathNode::Identifier(ident)
+                if ident.name == "subset.eq" && ident.symbol == Some("⊆")
+        ));
+        assert!(matches!(
+            &math.nodes[16],
+            OwnedMathNode::Identifier(ident)
+                if ident.name == "arrow.r.double" && ident.symbol == Some("⇒")
+        ));
+    }
+
+    #[test]
+    fn dotted_symbol_suffixes_only_consume_known_symbols() {
+        let math = parse("arrow.unknown");
+
+        assert!(matches!(
+            &math.nodes[..],
+            [
+                OwnedMathNode::Identifier(identifier),
+                OwnedMathNode::Operator(operator),
+                OwnedMathNode::Identifier(suffix),
+            ] if identifier.name == "arrow"
+                && identifier.symbol.is_none()
+                && operator.operator == "."
+                && suffix.name == "unknown"
         ));
     }
 

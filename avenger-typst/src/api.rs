@@ -360,7 +360,6 @@ fn unsupported_typst_math_kind(kind: typst_syntax::SyntaxKind) -> Option<&'stati
         | SyntaxKind::Keyed
         | SyntaxKind::Unary
         | SyntaxKind::Binary
-        | SyntaxKind::FieldAccess
         | SyntaxKind::FuncCall
         | SyntaxKind::Args
         | SyntaxKind::Closure
