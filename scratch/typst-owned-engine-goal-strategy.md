@@ -267,6 +267,7 @@ Progress:
 - [x] Add owned `sqrt(...)` layout for simple radicand rows, including radical glyph styling, overbar shape ordering, nested script-script sizing, paths, raster output, and PDF glyph metadata for labels such as `sqrt(x) / (1 + x^2)`.
 - [x] Add owned indexed `root(index, radicand)` layout for simple index and radicand rows, including script-script index sizing, radical index placement, paths, raster output, and PDF glyph metadata for labels such as `root(3, x)`.
 - [x] Add owned visible parenthesized group layout for current core labels, including normal function-like groups such as `x(t)`, Typst-compatible identifier-subscript continuation such as `J_n(x)`, invisible script/fraction grouping where parentheses are only syntax, paths, raster output, and PDF glyph metadata.
+- [x] Add owned simple delimiter helper calls `abs(...)`, `norm(...)`, `floor(...)`, `ceil(...)`, and `round(...)` for non-stretched single-line bodies, with strict vendor lowering and oracle coverage.
 - [ ] Extend the owned plain text line path to path extraction, raster output, PDF text metadata, fallback fonts, bidi, emoji, and complex-script segmentation.
 - [ ] Extend the owned math fragment path from simple-row metrics/paths/raster/PDF metadata to scripts, fractions, roots, delimiters, and grouped expressions.
 

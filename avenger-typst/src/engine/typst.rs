@@ -1659,6 +1659,11 @@ fn lower_math_call(call: ast::MathCall<'_>) -> Result<Content, MathTypesetError>
         "root" => lower_two_arg_call(call, |index, radicand| {
             RootElem::new(radicand).with_index(Some(index)).pack()
         }),
+        "abs" => lower_delimited_call(call, '|', '|'),
+        "norm" => lower_delimited_call(call, '‖', '‖'),
+        "floor" => lower_delimited_call(call, '⌊', '⌋'),
+        "ceil" => lower_delimited_call(call, '⌈', '⌉'),
+        "round" => lower_delimited_call(call, '⌊', '⌉'),
         "mat" => lower_matrix_call(call),
         _ => Err(unsupported(
             0,
@@ -1676,6 +1681,16 @@ fn lower_one_arg_call(
         .try_into()
         .map_err(|_| unsupported(0, "math function expects exactly one positional argument"))?;
     Ok(build(arg))
+}
+
+fn lower_delimited_call(
+    call: ast::MathCall<'_>,
+    left: char,
+    right: char,
+) -> Result<Content, MathTypesetError> {
+    lower_one_arg_call(call, |body| {
+        LrElem::new(SymbolElem::packed(left) + body + SymbolElem::packed(right)).pack()
+    })
 }
 
 fn lower_two_arg_call(
@@ -1790,7 +1805,7 @@ fn unsupported(position: usize, message: &'static str) -> MathTypesetError {
 mod tests {
     use super::*;
     use std::collections::HashSet;
-    use typst_library::math::{AttachElem, FracElem, MatElem, RootElem};
+    use typst_library::math::{AttachElem, FracElem, LrElem, MatElem, RootElem};
 
     #[test]
     fn typst_font_loader_embeds_atkinson_weight_style_faces() {
@@ -1841,6 +1856,15 @@ mod tests {
         let content = lower_math_source("sqrt(x^2 + y^2)").unwrap();
 
         assert!(content.is::<RootElem>());
+    }
+
+    #[test]
+    fn lowers_delimiter_helper_calls() {
+        for source in ["abs(x)", "norm(v)", "floor(x)", "ceil(x)", "round(x)"] {
+            let content = lower_math_source(source).unwrap();
+
+            assert!(content.is::<LrElem>(), "{source}");
+        }
     }
 
     #[test]

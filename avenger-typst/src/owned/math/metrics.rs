@@ -330,6 +330,9 @@ fn layout_simple_node(
         if call.name == "frac" {
             return layout_simple_fraction_call(font, call, font_size, script_level);
         }
+        if let Some((left, right)) = delimiter_call_chars(&call.name) {
+            return layout_simple_delimited_call(font, call, left, right, font_size, script_level);
+        }
         if call.name == "sqrt" {
             return layout_simple_sqrt(font, call, font_size, script_level);
         }
@@ -347,20 +350,52 @@ fn layout_simple_group(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    layout_simple_delimited_nodes(
+        font,
+        group.left,
+        &group.body,
+        group.right,
+        font_size,
+        script_level,
+    )
+}
+
+fn layout_simple_delimited_call(
+    font: &OwnedMathFont,
+    call: &super::ast::OwnedMathCall,
+    left: char,
+    right: char,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    layout_simple_delimited_nodes(font, left, &arg.nodes, right, font_size, script_level)
+}
+
+fn layout_simple_delimited_nodes(
+    font: &OwnedMathFont,
+    left: char,
+    body_nodes: &[OwnedMathNode],
+    right: char,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
     let mut left = layout_styled_atom_with_class(
         font,
-        &group.left.to_string(),
+        &left.to_string(),
         font_size,
         script_style_feature(script_level),
         SimpleMathClass::Opening,
     )?;
-    let Some(mut body) = layout_simple_nodes_as_atom(font, &group.body, font_size, script_level)?
+    let Some(mut body) = layout_simple_nodes_as_atom(font, body_nodes, font_size, script_level)?
     else {
         return Ok(None);
     };
     let mut right = layout_styled_atom_with_class(
         font,
-        &group.right.to_string(),
+        &right.to_string(),
         font_size,
         script_style_feature(script_level),
         SimpleMathClass::Closing,
@@ -419,6 +454,17 @@ fn layout_simple_group(
         shapes,
         draw_order,
     }))
+}
+
+fn delimiter_call_chars(name: &str) -> Option<(char, char)> {
+    match name {
+        "abs" => Some(('|', '|')),
+        "norm" => Some(('‖', '‖')),
+        "floor" => Some(('⌊', '⌋')),
+        "ceil" => Some(('⌈', '⌉')),
+        "round" => Some(('⌊', '⌉')),
+        _ => None,
+    }
 }
 
 fn layout_simple_sqrt(
@@ -1939,6 +1985,40 @@ mod tests {
         assert!(pdf.glyph_runs[1..]
             .iter()
             .all(|run| run.font_size < pdf.glyph_runs[0].font_size));
+    }
+
+    #[test]
+    fn simple_row_can_emit_delimiter_helper_calls() {
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        for (source, expected) in [
+            ("abs(x)", "|𝑥|"),
+            ("norm(v)", "‖𝑣‖"),
+            ("floor(x)", "⌊𝑥⌋"),
+            ("ceil(x)", "⌈𝑥⌉"),
+            ("round(x)", "⌊𝑥⌉"),
+        ] {
+            let math = parse_owned_math(source, 0).unwrap();
+            let artifact =
+                try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("simple delimiter call should be handled: {source}"));
+            let paths = artifact.paths.expect("delimiter call paths should exist");
+            assert_eq!(paths.items.len(), 3, "{source}");
+            let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+            let text: String = pdf
+                .glyph_runs
+                .iter()
+                .flat_map(|run| &run.glyphs)
+                .map(|glyph| glyph.unicode.as_str())
+                .collect();
+            assert_eq!(text, expected, "{source}");
+        }
     }
 
     #[test]
