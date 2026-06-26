@@ -375,6 +375,9 @@ fn layout_simple_node(
         if call.name == "cancel" {
             return layout_simple_cancel_call(font, call, font_size, script_level);
         }
+        if let Some(accent) = accent_call_char(&call.name) {
+            return layout_simple_accent_call(font, call, accent, font_size, script_level);
+        }
     }
 
     Ok(None)
@@ -727,6 +730,70 @@ fn layout_simple_cancel_call(
     }
 
     Ok(Some(body))
+}
+
+fn layout_simple_accent_call(
+    font: &OwnedMathFont,
+    call: &super::ast::OwnedMathCall,
+    accent: char,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let Some(mut base) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    else {
+        return Ok(None);
+    };
+    let width = base.metrics.width;
+    let height = base.metrics.height;
+    let baseline = base.metrics.baseline;
+    let mut accent = layout_accent_atom(font, accent, font_size, script_level)?;
+    let base_attach = atom_top_accent_attachment(font, &base)?;
+    let accent_attach = atom_top_accent_attachment(font, &accent)?;
+    let accent_x = base_attach - accent_attach;
+    let accent_y = baseline - accent.metrics.baseline;
+
+    offset_atom(&mut base, 0.0, 0.0);
+    offset_atom(&mut accent, accent_x, accent_y);
+
+    let mut glyphs = Vec::new();
+    let mut shapes = Vec::new();
+    let mut draw_order = Vec::new();
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, base);
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, accent);
+
+    Ok(Some(LaidOutMathAtom {
+        metrics: TypesetMetrics {
+            width,
+            height,
+            baseline,
+            ascent: baseline,
+            descent: height - baseline,
+        },
+        ink_ascent: baseline,
+        ink_descent: height - baseline,
+        left_class: SimpleMathClass::Alphabetic,
+        right_class: SimpleMathClass::Alphabetic,
+        italic_correction: 0.0,
+        script_kernable: false,
+        glyphs,
+        shapes,
+        draw_order,
+    }))
+}
+
+fn accent_call_char(name: &str) -> Option<char> {
+    match name {
+        "hat" => Some('\u{0302}'),
+        "tilde" => Some('\u{0303}'),
+        "dot" => Some('\u{0307}'),
+        "ddot" => Some('\u{0308}'),
+        "bar" => Some('\u{0304}'),
+        "arrow" => Some('\u{20d7}'),
+        _ => None,
+    }
 }
 
 fn layout_simple_radical(
@@ -2504,6 +2571,54 @@ fn layout_styled_atom_with_class(
     Ok(atom)
 }
 
+fn layout_accent_atom(
+    font: &OwnedMathFont,
+    accent: char,
+    font_size: f32,
+    script_level: u8,
+) -> Result<LaidOutMathAtom, MathTypesetError> {
+    layout_styled_atom_with_class(
+        font,
+        &accent.to_string(),
+        font_size,
+        script_style_feature(script_level),
+        SimpleMathClass::Normal,
+    )
+}
+
+fn atom_top_accent_attachment(
+    font: &OwnedMathFont,
+    atom: &LaidOutMathAtom,
+) -> Result<f32, MathTypesetError> {
+    if atom.glyphs.len() == 1 && atom.shapes.is_empty() {
+        let glyph = &atom.glyphs[0];
+        if let Some(attachment) = top_accent_attachment(font, glyph)? {
+            return Ok(attachment);
+        }
+    }
+    Ok((atom.metrics.width + atom.italic_correction) / 2.0)
+}
+
+fn top_accent_attachment(
+    font: &OwnedMathFont,
+    glyph: &LaidOutGlyph,
+) -> Result<Option<f32>, MathTypesetError> {
+    let face = parse_math_face(font, "top accent attachment")?;
+    let Some(value) = face
+        .tables()
+        .math
+        .and_then(|math| math.glyph_info)
+        .and_then(|glyph_info| glyph_info.top_accent_attachments)
+        .and_then(|attachments| attachments.get(glyph.glyph_id))
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(
+        value.value as f32 * glyph.font_size / face.units_per_em() as f32,
+    ))
+}
+
 fn script_style_feature(script_level: u8) -> Option<u32> {
     (script_level > 0).then_some(u32::from(script_level.min(2)))
 }
@@ -3126,6 +3241,41 @@ mod tests {
                 try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                     .unwrap()
                     .unwrap_or_else(|| panic!("math variant call should be handled: {source}"));
+            let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+            let text: String = pdf
+                .glyph_runs
+                .iter()
+                .flat_map(|run| &run.glyphs)
+                .map(|glyph| glyph.unicode.as_str())
+                .collect();
+            assert_eq!(text, expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn simple_row_can_emit_math_accent_calls() {
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        for (source, expected) in [
+            ("hat(x)", "𝑥\u{0302}"),
+            ("tilde(x)", "𝑥\u{0303}"),
+            ("dot(x)", "𝑥\u{0307}"),
+            ("ddot(x)", "𝑥\u{0308}"),
+            ("bar(x)", "𝑥\u{0304}"),
+            ("arrow(v)", "𝑣\u{20d7}"),
+        ] {
+            let math = parse_owned_math(source, 0).unwrap();
+            let artifact =
+                try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("math accent call should be handled: {source}"));
+            let paths = artifact.paths.expect("accent paths should exist");
+            assert_eq!(paths.items.len(), 2, "{source}");
             let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
             let text: String = pdf
                 .glyph_runs

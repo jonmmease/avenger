@@ -39,8 +39,8 @@ use typst_library::layout::{
     Abs, Frame, FrameItem, InlineElem, InlineItem, Point, Size, Transform,
 };
 use typst_library::math::{
-    AlignPointElem, AttachElem, BinomElem, CancelElem, EquationElem, FracElem, LrElem, MatElem,
-    MathSize, OpElem, PrimesElem, RootElem,
+    Accent, AccentElem, AlignPointElem, AttachElem, BinomElem, CancelElem, EquationElem, FracElem,
+    LrElem, MatElem, MathSize, OpElem, PrimesElem, RootElem,
 };
 use typst_library::routines::{Arenas, Pair, RealizationKind, Routines, SpanMode};
 use typst_library::text::{
@@ -1673,6 +1673,12 @@ fn lower_math_call(call: ast::MathCall<'_>) -> Result<Content, MathTypesetError>
         "ceil" => lower_delimited_call(call, '⌈', '⌉'),
         "round" => lower_delimited_call(call, '⌊', '⌉'),
         "cancel" => lower_one_arg_call(call, |body| CancelElem::new(body).pack()),
+        "hat" => lower_accent_call(call, '\u{0302}'),
+        "tilde" => lower_accent_call(call, '\u{0303}'),
+        "dot" => lower_accent_call(call, '\u{0307}'),
+        "ddot" => lower_accent_call(call, '\u{0308}'),
+        "bar" => lower_accent_call(call, '\u{0304}'),
+        "arrow" => lower_accent_call(call, '\u{20d7}'),
         "bold" => lower_one_arg_call(call, typst_library::math::bold),
         "upright" => lower_one_arg_call(call, typst_library::math::upright),
         "italic" => lower_one_arg_call(call, typst_library::math::italic),
@@ -1693,6 +1699,10 @@ fn lower_math_call(call: ast::MathCall<'_>) -> Result<Content, MathTypesetError>
             "unsupported math function in strict Avenger subset",
         )),
     }
+}
+
+fn lower_accent_call(call: ast::MathCall<'_>, accent: char) -> Result<Content, MathTypesetError> {
+    lower_one_arg_call(call, |body| AccentElem::new(body, Accent(accent)).pack())
 }
 
 fn lower_one_arg_call(
