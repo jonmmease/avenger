@@ -1,10 +1,12 @@
 #![cfg(feature = "vendor-typst")]
 
 use avenger_typst::{
-    AvengerTypst, MathFragmentOptions, MathOutputRequest, MathPathArtifact, MathPdfTextLayer,
-    MathRunArtifact, PositionedTextLineRun, TextLineArtifact, TextLineOptions,
-    TextLineOutputRequest, TypesetMetrics, TypstEngineBackend, TypstEngineConfig,
+    AvengerTypst, MathFontResource, MathFragmentOptions, MathOutputRequest, MathPathArtifact,
+    MathPathCommand, MathPdfGlyphRun, MathPdfTextLayer, MathRunArtifact, PositionedTextLineRun,
+    TextLineArtifact, TextLineOptions, TextLineOutputRequest, TypesetMetrics, TypstEngineBackend,
+    TypstEngineConfig,
 };
+use std::fmt::Write;
 
 const TOLERANCE: f32 = 0.01;
 
@@ -51,6 +53,7 @@ fn owned_backend_matches_vendor_for_fragment_metrics_and_artifacts() {
             .typeset_math_fragment(source, &options)
             .unwrap_or_else(|err| panic!("owned failed for {source:?}: {err:?}"));
 
+        maybe_write_math_snapshot(source, &vendor_artifact, &owned_artifact);
         assert_math_artifact_matches(source, &vendor_artifact, &owned_artifact);
     }
 }
@@ -86,6 +89,7 @@ fn owned_backend_matches_vendor_for_text_line_metrics_and_runs() {
             .typeset_text_line(source, &options)
             .unwrap_or_else(|err| panic!("owned failed for {source:?}: {err:?}"));
 
+        maybe_write_text_line_snapshot(source, &vendor_artifact, &owned_artifact);
         assert_text_line_matches(source, &vendor_artifact, &owned_artifact);
     }
 }
@@ -318,4 +322,262 @@ fn assert_close(source: &str, label: &str, expected: f32, actual: f32) {
         difference <= TOLERANCE,
         "{source:?} {label}: expected {expected}, got {actual}, diff {difference}"
     );
+}
+
+fn maybe_write_math_snapshot(source: &str, vendor: &MathRunArtifact, owned: &MathRunArtifact) {
+    if !oracle_snapshots_enabled() {
+        return;
+    }
+
+    let mut output = String::new();
+    writeln!(&mut output, "source: {source:?}").unwrap();
+    append_math_artifact_snapshot(&mut output, "vendor", vendor);
+    append_math_artifact_snapshot(&mut output, "owned", owned);
+    write_snapshot_file("fragment", source, output);
+}
+
+fn maybe_write_text_line_snapshot(
+    source: &str,
+    vendor: &TextLineArtifact,
+    owned: &TextLineArtifact,
+) {
+    if !oracle_snapshots_enabled() {
+        return;
+    }
+
+    let mut output = String::new();
+    writeln!(&mut output, "source: {source:?}").unwrap();
+    append_text_line_snapshot(&mut output, "vendor", vendor);
+    append_text_line_snapshot(&mut output, "owned", owned);
+    write_snapshot_file("text-line", source, output);
+}
+
+fn oracle_snapshots_enabled() -> bool {
+    std::env::var_os("AVENGER_TYPST_ORACLE_SNAPSHOTS").is_some()
+}
+
+fn write_snapshot_file(kind: &str, source: &str, output: String) {
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("..")
+                .join("target")
+        });
+    let dir = target_dir.join("avenger-typst-owned-oracle").join(kind);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!("{}.txt", snapshot_name(source)));
+    std::fs::write(path, output).unwrap();
+}
+
+fn snapshot_name(source: &str) -> String {
+    let mut name = String::new();
+    for ch in source.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            name.push(ch);
+        } else if !name.ends_with('_') {
+            name.push('_');
+        }
+    }
+    name.trim_matches('_').chars().take(80).collect()
+}
+
+fn append_text_line_snapshot(output: &mut String, label: &str, artifact: &TextLineArtifact) {
+    writeln!(output, "\n[{label}]").unwrap();
+    append_metrics_snapshot(output, "metrics", artifact.metrics);
+    append_path_snapshot(output, "paths", artifact.paths.as_ref());
+    append_pdf_snapshot(output, "pdf_text", artifact.pdf_text.as_ref());
+    append_font_resources_snapshot(output, "font_resources", &artifact.font_resources);
+    writeln!(
+        output,
+        "positioned_runs: {}",
+        artifact.positioned_runs.len()
+    )
+    .unwrap();
+    for (index, run) in artifact.positioned_runs.iter().enumerate() {
+        writeln!(
+            output,
+            "  run {index}: kind={:?} text={:?} range={:?} x={:.4} y={:.4}",
+            run.kind, run.text, run.byte_range, run.x, run.y
+        )
+        .unwrap();
+        append_metrics_snapshot(output, "    metrics", run.metrics);
+        append_path_snapshot(output, "    paths", run.paths.as_ref());
+        append_pdf_snapshot(output, "    pdf_text", run.pdf_text.as_ref());
+        append_font_resources_snapshot(output, "    font_resources", &run.font_resources);
+    }
+}
+
+fn append_math_artifact_snapshot(output: &mut String, label: &str, artifact: &MathRunArtifact) {
+    writeln!(output, "\n[{label}]").unwrap();
+    append_metrics_snapshot(output, "metrics", artifact.metrics);
+    append_path_snapshot(output, "paths", artifact.paths.as_ref());
+    append_pdf_snapshot(output, "pdf_text", artifact.pdf_text.as_ref());
+    append_font_resources_snapshot(output, "font_resources", &artifact.font_resources);
+}
+
+fn append_metrics_snapshot(output: &mut String, label: &str, metrics: TypesetMetrics) {
+    writeln!(
+        output,
+        "{label}: width={:.4} height={:.4} baseline={:.4} ascent={:.4} descent={:.4}",
+        metrics.width, metrics.height, metrics.baseline, metrics.ascent, metrics.descent
+    )
+    .unwrap();
+}
+
+fn append_path_snapshot(output: &mut String, label: &str, paths: Option<&MathPathArtifact>) {
+    let Some(paths) = paths else {
+        writeln!(output, "{label}: none").unwrap();
+        return;
+    };
+
+    let command_count = paths
+        .items
+        .iter()
+        .map(|item| item.path.commands.len())
+        .sum::<usize>();
+    writeln!(
+        output,
+        "{label}: logical_width={:.4} logical_height={:.4} items={} commands={}",
+        paths.logical_width,
+        paths.logical_height,
+        paths.items.len(),
+        command_count
+    )
+    .unwrap();
+
+    if let Some(bounds) = path_bounds(paths) {
+        writeln!(
+            output,
+            "{label}_bounds: min_x={:.4} min_y={:.4} max_x={:.4} max_y={:.4}",
+            bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y
+        )
+        .unwrap();
+    }
+}
+
+fn append_pdf_snapshot(output: &mut String, label: &str, pdf: Option<&MathPdfTextLayer>) {
+    let Some(pdf) = pdf else {
+        writeln!(output, "{label}: none").unwrap();
+        return;
+    };
+
+    writeln!(
+        output,
+        "{label}: semantic={:?} logical_width={:.4} logical_height={:.4} glyph_runs={}",
+        pdf.semantic_text,
+        pdf.logical_width,
+        pdf.logical_height,
+        pdf.glyph_runs.len()
+    )
+    .unwrap();
+    for (index, run) in pdf.glyph_runs.iter().enumerate() {
+        append_pdf_glyph_run_snapshot(output, index, run);
+    }
+}
+
+fn append_pdf_glyph_run_snapshot(output: &mut String, index: usize, run: &MathPdfGlyphRun) {
+    let glyph_ids = run
+        .glyphs
+        .iter()
+        .map(|glyph| glyph.glyph_id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let unicode = run
+        .glyphs
+        .iter()
+        .map(|glyph| glyph.unicode.as_str())
+        .collect::<String>();
+    writeln!(
+        output,
+        "  glyph_run {index}: font={:?} font_size={:.4} glyphs={} glyph_ids=[{}] unicode={:?}",
+        run.font,
+        run.font_size,
+        run.glyphs.len(),
+        glyph_ids,
+        unicode
+    )
+    .unwrap();
+}
+
+fn append_font_resources_snapshot(
+    output: &mut String,
+    label: &str,
+    resources: &[MathFontResource],
+) {
+    writeln!(output, "{label}: {}", resources.len()).unwrap();
+    for resource in resources {
+        writeln!(
+            output,
+            "  font {:?}: family={:?} postscript={:?} face_index={} units_per_em={:.1} bytes={}",
+            resource.id,
+            resource.family,
+            resource.postscript_name,
+            resource.face_index,
+            resource.units_per_em,
+            resource.data.len()
+        )
+        .unwrap();
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PathBounds {
+    min_x: f32,
+    min_y: f32,
+    max_x: f32,
+    max_y: f32,
+}
+
+impl PathBounds {
+    fn new(x: f32, y: f32) -> Self {
+        Self {
+            min_x: x,
+            min_y: y,
+            max_x: x,
+            max_y: y,
+        }
+    }
+
+    fn include(&mut self, x: f32, y: f32) {
+        self.min_x = self.min_x.min(x);
+        self.min_y = self.min_y.min(y);
+        self.max_x = self.max_x.max(x);
+        self.max_y = self.max_y.max(y);
+    }
+}
+
+fn path_bounds(paths: &MathPathArtifact) -> Option<PathBounds> {
+    let mut bounds: Option<PathBounds> = None;
+    for item in &paths.items {
+        for command in &item.path.commands {
+            for (x, y) in command_points(command) {
+                let transformed_x =
+                    item.transform.xx * x + item.transform.xy * y + item.transform.dx;
+                let transformed_y =
+                    item.transform.yx * x + item.transform.yy * y + item.transform.dy;
+                match &mut bounds {
+                    Some(bounds) => bounds.include(transformed_x, transformed_y),
+                    None => bounds = Some(PathBounds::new(transformed_x, transformed_y)),
+                }
+            }
+        }
+    }
+    bounds
+}
+
+fn command_points(command: &MathPathCommand) -> Vec<(f32, f32)> {
+    match *command {
+        MathPathCommand::MoveTo { x, y } | MathPathCommand::LineTo { x, y } => vec![(x, y)],
+        MathPathCommand::QuadTo { x1, y1, x, y } => vec![(x1, y1), (x, y)],
+        MathPathCommand::CubicTo {
+            x1,
+            y1,
+            x2,
+            y2,
+            x,
+            y,
+        } => vec![(x1, y1), (x2, y2), (x, y)],
+        MathPathCommand::Close => Vec::new(),
+    }
 }
