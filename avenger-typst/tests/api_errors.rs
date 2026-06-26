@@ -97,11 +97,47 @@ fn explicit_vendor_typst_backend_reports_unavailable_until_wired() {
     );
 }
 
+#[cfg(not(feature = "vendor-typst"))]
+#[test]
+fn explicit_owned_typst_backend_reports_unavailable_during_vendor_bootstrap() {
+    let err = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::OwnedTypst,
+        ..Default::default()
+    })
+    .unwrap_err();
+
+    assert_eq!(
+        err,
+        TypstInitError::BackendUnavailable(
+            "owned Typst backend is currently bootstrapped by the vendor-typst feature"
+        )
+    );
+}
+
 #[cfg(feature = "vendor-typst")]
 #[test]
 fn explicit_vendor_typst_backend_produces_paths_by_default() {
     let engine = AvengerTypst::new(TypstEngineConfig {
         backend: TypstEngineBackend::VendorTypst,
+        ..Default::default()
+    })
+    .unwrap();
+
+    let artifact = engine
+        .typeset_math_fragment("x^2 + y^2", &Default::default())
+        .unwrap();
+
+    assert!(artifact
+        .paths
+        .as_ref()
+        .is_some_and(|paths| !paths.items.is_empty()));
+}
+
+#[cfg(feature = "vendor-typst")]
+#[test]
+fn explicit_owned_typst_backend_delegates_to_vendor_bootstrap() {
+    let engine = AvengerTypst::new(TypstEngineConfig {
+        backend: TypstEngineBackend::OwnedTypst,
         ..Default::default()
     })
     .unwrap();

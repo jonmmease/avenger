@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 pub enum TypstEngineBackend {
     DeterministicMock,
     VendorTypst,
+    OwnedTypst,
 }
 
 impl Default for TypstEngineBackend {
@@ -61,6 +62,8 @@ enum EngineInner {
     Mock(MockMathEngine),
     #[cfg(feature = "vendor-typst")]
     Typst(crate::engine::typst::TypstMathEngine),
+    #[cfg(feature = "vendor-typst")]
+    Owned(crate::engine::owned::OwnedTypstEngine),
 }
 
 impl AvengerTypst {
@@ -70,6 +73,7 @@ impl AvengerTypst {
                 engine: EngineInner::Mock(MockMathEngine),
             }),
             TypstEngineBackend::VendorTypst => new_vendor_typst_engine(config),
+            TypstEngineBackend::OwnedTypst => new_owned_typst_engine(config),
         }
     }
 
@@ -84,6 +88,8 @@ impl AvengerTypst {
             EngineInner::Mock(engine) => engine.typeset_fragment(source, options),
             #[cfg(feature = "vendor-typst")]
             EngineInner::Typst(engine) => engine.typeset_fragment(source, options),
+            #[cfg(feature = "vendor-typst")]
+            EngineInner::Owned(engine) => engine.typeset_fragment(source, options),
         }
     }
 
@@ -168,6 +174,8 @@ impl AvengerTypst {
             EngineInner::Mock(engine) => engine.typeset_text_line(source, options),
             #[cfg(feature = "vendor-typst")]
             EngineInner::Typst(engine) => engine.typeset_text_line(source, options),
+            #[cfg(feature = "vendor-typst")]
+            EngineInner::Owned(engine) => engine.typeset_text_line(source, options),
         }
     }
 }
@@ -183,6 +191,20 @@ fn new_vendor_typst_engine(config: TypstEngineConfig) -> Result<AvengerTypst, Ty
 fn new_vendor_typst_engine(_config: TypstEngineConfig) -> Result<AvengerTypst, TypstInitError> {
     Err(TypstInitError::BackendUnavailable(
         "vendor-typst feature is not enabled",
+    ))
+}
+
+#[cfg(feature = "vendor-typst")]
+fn new_owned_typst_engine(config: TypstEngineConfig) -> Result<AvengerTypst, TypstInitError> {
+    Ok(AvengerTypst {
+        engine: EngineInner::Owned(crate::engine::owned::OwnedTypstEngine::new(&config)?),
+    })
+}
+
+#[cfg(not(feature = "vendor-typst"))]
+fn new_owned_typst_engine(_config: TypstEngineConfig) -> Result<AvengerTypst, TypstInitError> {
+    Err(TypstInitError::BackendUnavailable(
+        "owned Typst backend is currently bootstrapped by the vendor-typst feature",
     ))
 }
 
