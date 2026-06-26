@@ -456,15 +456,15 @@ impl SvgRenderer {
 
         let config = TextPathExtractionConfig {
             text,
-            color: &path_color,
+            color: path_color,
             font,
             font_size,
-            font_weight,
-            font_style,
+            font_weight: *font_weight,
+            font_style: *font_style,
             limit: f32::INFINITY,
         };
         let buffer = text_engine
-            .extract_paths(&config)
+            .extract_paths_with_plain_fallback(&config)
             .map_err(|err| AvengerSvgError::Text(err.to_string()))?;
         if matches!(color, ColorOrGradient::GradientIndex(_)) && !buffer.items.is_empty() {
             return Err(AvengerSvgError::UnsupportedPaint(
@@ -1207,16 +1207,25 @@ fn truncate_text_to_limit(
     font_style: &FontStyle,
     text_engine: &TextEngine,
 ) -> String {
+    if !limit.is_finite() {
+        return text.to_string();
+    }
+
     truncate_text_to_limit_with(text, limit, |candidate| {
         let config = TextMeasurementConfig {
             text: candidate,
             font,
             font_size,
-            font_weight,
-            font_style,
+            font_weight: *font_weight,
+            font_style: *font_style,
         };
-        text_engine.measure_bounds(&config).width
+        Ok::<_, std::convert::Infallible>(
+            text_engine
+                .measure_bounds_with_plain_fallback_or_approx(&config)
+                .width,
+        )
     })
+    .unwrap_or_else(|_| text.to_string())
 }
 
 struct PathStyle<'a> {

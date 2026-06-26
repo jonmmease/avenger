@@ -18,25 +18,13 @@ use crate::text_line::{
 
 #[derive(Debug, Clone)]
 pub struct TextPathExtractionConfig<'a> {
-    pub text: &'a String,
-    pub color: &'a [f32; 4],
-    pub font: &'a String,
+    pub text: &'a str,
+    pub color: [f32; 4],
+    pub font: &'a str,
     pub font_size: f32,
-    pub font_weight: &'a FontWeight,
-    pub font_style: &'a FontStyle,
+    pub font_weight: FontWeight,
+    pub font_style: FontStyle,
     pub limit: f32,
-}
-
-impl<'a> TextPathExtractionConfig<'a> {
-    pub fn to_measurement_config(&self) -> TextMeasurementConfig<'a> {
-        TextMeasurementConfig {
-            text: self.text,
-            font: self.font,
-            font_size: self.font_size,
-            font_weight: self.font_weight,
-            font_style: self.font_style,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -110,7 +98,10 @@ impl TextPathExtractorImpl {
         Self { typst, math }
     }
 
-    fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
+    fn measure_text_bounds(
+        &self,
+        config: &TextMeasurementConfig,
+    ) -> Result<TextBounds, AvengerTextError> {
         TextLineMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
     }
 
@@ -118,7 +109,7 @@ impl TextPathExtractorImpl {
         &self,
         config: &TextPathExtractionConfig,
     ) -> Result<TextPathBuffer, AvengerTextError> {
-        let text = crate::measurement::try_truncate_text_to_limit_with(
+        let text = crate::measurement::truncate_text_to_limit_with(
             config.text,
             config.limit,
             |candidate| {
@@ -129,7 +120,8 @@ impl TextPathExtractorImpl {
                     font_weight: config.font_weight,
                     font_style: config.font_style,
                 };
-                Ok::<f32, AvengerTextError>(self.measure_text_bounds(&measurement).width)
+                self.measure_text_bounds(&measurement)
+                    .map(|bounds| bounds.width)
             },
         )?;
         let result = typeset_line(
@@ -140,17 +132,14 @@ impl TextPathExtractorImpl {
             config.font_size,
             config.font_weight,
             config.font_style,
-            *config.color,
+            config.color,
             avenger_typst::TextLineOutputRequest {
                 paths: false,
                 raster: None,
                 pdf_text_layer: false,
                 positioned_runs: true,
             },
-        )
-        .map_err(|err| {
-            AvengerTextError::InternalError(format!("Typst text path extraction failed: {err}"))
-        })?;
+        )?;
         let tight_bounds = tight_bounds_from_metrics(result.artifact.metrics);
         let bounds = bounds_from_metrics(
             result.artifact.metrics,
@@ -193,7 +182,7 @@ impl TextPathExtractorImpl {
                             .text_style
                             .as_ref()
                             .map(|style| style.font_family.clone())
-                            .unwrap_or_else(|| config.font.clone()),
+                            .unwrap_or_else(|| config.font.to_string()),
                         font_size: run
                             .text_style
                             .as_ref()
@@ -203,12 +192,12 @@ impl TextPathExtractorImpl {
                             .text_style
                             .as_ref()
                             .map(|style| typst_font_weight(&style.font_weight))
-                            .unwrap_or(*config.font_weight),
+                            .unwrap_or(config.font_weight),
                         font_style: run
                             .text_style
                             .as_ref()
                             .map(|style| typst_font_style(style.font_style))
-                            .unwrap_or(*config.font_style),
+                            .unwrap_or(config.font_style),
                         x: run.x,
                         y_offset: y_offset + run.y - run_bounds.ascent,
                         bounds: run_bounds,
@@ -353,19 +342,18 @@ mod tests {
     use super::*;
     use crate::types::{FontStyle, FontWeight, FontWeightNameSpec};
 
-    fn config(text: &String) -> TextPathExtractionConfig<'_> {
+    fn config(text: &str) -> TextPathExtractionConfig<'_> {
         static COLOR: [f32; 4] = [0.1, 0.2, 0.3, 1.0];
-        static FONT: String = String::new();
         static WEIGHT: FontWeight = FontWeight::Name(FontWeightNameSpec::Normal);
         static STYLE: FontStyle = FontStyle::Normal;
 
         TextPathExtractionConfig {
             text,
-            color: &COLOR,
-            font: &FONT,
+            color: COLOR,
+            font: "",
             font_size: 10.0,
-            font_weight: &WEIGHT,
-            font_style: &STYLE,
+            font_weight: WEIGHT,
+            font_style: STYLE,
             limit: f32::INFINITY,
         }
     }

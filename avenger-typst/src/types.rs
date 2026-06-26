@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum MathSyntaxMode {
     TypstFragmentStrict,
+    PlainText,
 }
 
 impl Default for MathSyntaxMode {

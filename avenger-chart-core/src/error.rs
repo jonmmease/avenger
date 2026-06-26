@@ -2,6 +2,7 @@ use avenger_color::ColorParseError;
 use avenger_guides::error::AvengerGuidesError;
 use avenger_scales::error::AvengerScaleError;
 use avenger_scenegraph::error::AvengerSceneGraphError;
+use avenger_text::error::AvengerTextError;
 use datafusion::{arrow::error::ArrowError, error::DataFusionError};
 use thiserror::Error;
 
@@ -47,6 +48,9 @@ pub enum AvengerChartError {
 
     #[error("Coordinate guide error: `{0}`")]
     GuideError(#[from] AvengerGuidesError),
+
+    #[error("Text error: `{0}`")]
+    TextError(#[from] AvengerTextError),
 
     #[error("DataFusion error: `{0}`")]
     DataFusionError(#[from] DataFusionError),

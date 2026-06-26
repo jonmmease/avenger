@@ -473,16 +473,19 @@ fn truncate_labels<'a>(labels: impl IntoIterator<Item = (&'a str, f32)>) -> Vec<
         .into_iter()
         .map(|(label, limit)| {
             truncate_text_to_limit_with(label, limit, |candidate| {
-                text_engine
-                    .measure_bounds(&TextMeasurementConfig {
-                        text: candidate,
-                        font: "sans-serif",
-                        font_size: GUIDE_TEXT_FONT_SIZE,
-                        font_weight: &font_weight,
-                        font_style: &font_style,
-                    })
-                    .width
+                Ok::<_, std::convert::Infallible>(
+                    text_engine
+                        .measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
+                            text: candidate,
+                            font: "sans-serif",
+                            font_size: GUIDE_TEXT_FONT_SIZE,
+                            font_weight,
+                            font_style,
+                        })
+                        .width,
+                )
             })
+            .unwrap_or_else(|_| label.to_string())
         })
         .collect()
 }

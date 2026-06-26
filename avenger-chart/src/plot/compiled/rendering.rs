@@ -263,7 +263,8 @@ struct CachedAdjustmentTextMeasurementService<'a> {
 
 impl TextMeasurementService for CachedAdjustmentTextMeasurementService<'_> {
     fn measure_text_bounds(&self, config: &TextMeasurementConfig<'_>) -> TextBounds {
-        self.eval_ctx.measure_text_bounds(config)
+        self.eval_ctx
+            .measure_text_bounds_with_plain_fallback(config)
     }
 }
 
@@ -5705,7 +5706,11 @@ impl CompiledPlot {
             origin: [0.0, 0.0],
         };
 
-        let rtree = build_scene_rtree.then(|| SceneGraphRTree::from_scene_graph(&scene_graph));
+        let rtree = if build_scene_rtree {
+            Some(SceneGraphRTree::from_scene_graph(&scene_graph))
+        } else {
+            None
+        };
         let mut event_datum_rows =
             prefix_event_datum_rows(components.event_datums, &[0, data_group_index]);
         event_datum_rows.extend(prefix_event_datum_rows(

@@ -137,8 +137,8 @@ impl CompiledMarkAdjustmentTransform for CompiledFixedLabelPlacement {
                 text: &text[index],
                 font: &font[index],
                 font_size: font_size[index],
-                font_weight: &weight,
-                font_style: &style,
+                font_weight: weight,
+                font_style: style,
             };
             let text_bounds = context.measure_text_bounds(&config);
             let [left, top] =

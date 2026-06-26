@@ -82,20 +82,22 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
             };
 
             // Measure both labels and take the maximum width
-            let min_bounds = text_engine.measure_bounds(&TextMeasurementConfig {
-                text: &min_label,
-                font: label_font_family,
-                font_size: label_font_size,
-                font_weight: label_font_weight,
-                font_style: &FontStyle::Normal,
-            });
-            let max_bounds = text_engine.measure_bounds(&TextMeasurementConfig {
-                text: &max_label,
-                font: label_font_family,
-                font_size: label_font_size,
-                font_weight: label_font_weight,
-                font_style: &FontStyle::Normal,
-            });
+            let min_bounds =
+                text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
+                    text: &min_label,
+                    font: label_font_family,
+                    font_size: label_font_size,
+                    font_weight: *label_font_weight,
+                    font_style: FontStyle::Normal,
+                });
+            let max_bounds =
+                text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
+                    text: &max_label,
+                    font: label_font_family,
+                    font_size: label_font_size,
+                    font_weight: *label_font_weight,
+                    font_style: FontStyle::Normal,
+                });
 
             // Calculate how much the labels might overflow beyond gradient edges
             let text_overflow = (min_bounds.width.max(max_bounds.width) / 2.0).round();
@@ -292,20 +294,22 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
             };
 
             // Measure both labels and take the maximum width
-            let min_bounds = text_engine.measure_bounds(&TextMeasurementConfig {
-                text: &min_label,
-                font: label_font_family,
-                font_size: label_font_size,
-                font_weight: label_font_weight,
-                font_style: &FontStyle::Normal,
-            });
-            let max_bounds = text_engine.measure_bounds(&TextMeasurementConfig {
-                text: &max_label,
-                font: label_font_family,
-                font_size: label_font_size,
-                font_weight: label_font_weight,
-                font_style: &FontStyle::Normal,
-            });
+            let min_bounds =
+                text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
+                    text: &min_label,
+                    font: label_font_family,
+                    font_size: label_font_size,
+                    font_weight: *label_font_weight,
+                    font_style: FontStyle::Normal,
+                });
+            let max_bounds =
+                text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
+                    text: &max_label,
+                    font: label_font_family,
+                    font_size: label_font_size,
+                    font_weight: *label_font_weight,
+                    font_style: FontStyle::Normal,
+                });
 
             // Calculate how much the labels might overflow beyond gradient edges
             let text_overflow = (min_bounds.width.max(max_bounds.width) / 2.0).round();
@@ -481,13 +485,14 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 .unwrap_or(&FontWeight::Number(400.0));
             let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
-            let text_bounds = text_engine.measure_bounds(&TextMeasurementConfig {
-                text: "0",
-                font: label_font_family,
-                font_size: label_font_size,
-                font_weight: label_font_weight,
-                font_style: &FontStyle::Normal,
-            });
+            let text_bounds =
+                text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
+                    text: "0",
+                    font: label_font_family,
+                    font_size: label_font_size,
+                    font_weight: *label_font_weight,
+                    font_style: FontStyle::Normal,
+                });
 
             // Calculate how much the labels might overflow beyond gradient edges
             let text_overflow = (text_bounds.line_height / 2.0).round();
@@ -683,13 +688,14 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 .unwrap_or(&FontWeight::Number(400.0));
             let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
-            let text_bounds = text_engine.measure_bounds(&TextMeasurementConfig {
-                text: "0",
-                font: label_font_family,
-                font_size: label_font_size,
-                font_weight: label_font_weight,
-                font_style: &FontStyle::Normal,
-            });
+            let text_bounds =
+                text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
+                    text: "0",
+                    font: label_font_family,
+                    font_size: label_font_size,
+                    font_weight: *label_font_weight,
+                    font_style: FontStyle::Normal,
+                });
 
             // Calculate how much the labels might overflow beyond gradient edges
             let text_overflow = (text_bounds.line_height / 2.0).round();

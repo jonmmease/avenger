@@ -520,10 +520,12 @@ fn measure_text_height(
         text,
         font: font_family,
         font_size: font_size_px,
-        font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-        font_style: &FontStyle::Normal,
+        font_weight: FontWeight::Name(FontWeightNameSpec::Normal),
+        font_style: FontStyle::Normal,
     };
-    text_engine.measure_bounds(&text_config).height
+    text_engine
+        .measure_bounds_with_plain_fallback_or_approx(&text_config)
+        .height
 }
 
 #[cfg(test)]

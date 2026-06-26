@@ -112,6 +112,8 @@ pub(crate) use self::mark_data_runtime::{
     BaseDataRequest, LogicalMarkDataRequest, MarkDataRequest, PreparedBaseData, PreparedMarkData,
     prepare_base_data, prepare_logical_mark_data, prepare_mark_data as prepare_mark_data_runtime,
 };
+#[cfg(test)]
+pub(crate) use self::session::TextMeasurementCache;
 pub use self::session::{
     EvaluationRequest, PlotSession, PlotSessionOptions, ScopedParamAssignment,
     ScopedParamStoreSnapshot, ScopedStoreAssignment, SelectionAssignment, SelectionStateUpdate,

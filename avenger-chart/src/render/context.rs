@@ -23,9 +23,9 @@ use datafusion::{
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    BasePlotAreaScene, EvaluationContext as CoreEvaluationContext, EvaluationDiagnostics,
-    MarkRenderContext as CoreMarkRenderContext, MarkRuntimeContext, TextMeasurementService,
-    TimeContext,
+    AvengerChartError, BasePlotAreaScene, EvaluationContext as CoreEvaluationContext,
+    EvaluationDiagnostics, MarkRenderContext as CoreMarkRenderContext, MarkRuntimeContext,
+    TextMeasurementService, TimeContext,
 };
 
 use crate::{
@@ -56,6 +56,7 @@ pub use avenger_chart_core::{
 };
 
 pub(crate) const TEXT_MEASUREMENT_CACHE_TAG: &str = "typst-text";
+pub(crate) const TEXT_MARK_MEASUREMENT_CACHE_TAG: &str = "typst-text-mark-fallback";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PhysicalDimension {
@@ -1104,15 +1105,27 @@ impl EvaluationContext {
         self.text_measurement_cache.as_ref()
     }
 
-    pub(crate) fn measure_text_bounds(&self, config: &TextMeasurementConfig<'_>) -> TextBounds {
+    pub(crate) fn measure_text_bounds(
+        &self,
+        config: &TextMeasurementConfig<'_>,
+    ) -> Result<TextBounds, AvengerChartError> {
+        self.measure_text_bounds_cached(config, TEXT_MEASUREMENT_CACHE_TAG, |config| {
+            default_text_engine().measure_bounds(config)
+        })
+    }
+
+    pub(crate) fn measure_text_bounds_with_plain_fallback(
+        &self,
+        config: &TextMeasurementConfig<'_>,
+    ) -> TextBounds {
         if let Some(cache) = self.text_measurement_cache() {
             let key = TextMeasurementCacheKey::new(
                 config.text,
                 config.font,
                 config.font_size,
-                config.font_weight,
-                config.font_style,
-                TEXT_MEASUREMENT_CACHE_TAG,
+                &config.font_weight,
+                &config.font_style,
+                TEXT_MARK_MEASUREMENT_CACHE_TAG,
             );
             let cached = {
                 cache
@@ -1125,7 +1138,8 @@ impl EvaluationContext {
                 bounds
             } else {
                 self.record_text_measurement_cache_miss();
-                let bounds = default_text_engine().measure_bounds(config);
+                let bounds =
+                    default_text_engine().measure_bounds_with_plain_fallback_or_approx(config);
                 cache
                     .lock()
                     .expect("text measurement cache lock poisoned")
@@ -1133,7 +1147,47 @@ impl EvaluationContext {
                 bounds
             }
         } else {
-            default_text_engine().measure_bounds(config)
+            default_text_engine().measure_bounds_with_plain_fallback_or_approx(config)
+        }
+    }
+
+    fn measure_text_bounds_cached(
+        &self,
+        config: &TextMeasurementConfig<'_>,
+        measurement_tag: &str,
+        measure: impl FnOnce(
+            &TextMeasurementConfig<'_>,
+        ) -> Result<TextBounds, avenger_text::error::AvengerTextError>,
+    ) -> Result<TextBounds, AvengerChartError> {
+        if let Some(cache) = self.text_measurement_cache() {
+            let key = TextMeasurementCacheKey::new(
+                config.text,
+                config.font,
+                config.font_size,
+                &config.font_weight,
+                &config.font_style,
+                measurement_tag,
+            );
+            let cached = {
+                cache
+                    .lock()
+                    .expect("text measurement cache lock poisoned")
+                    .get(&key)
+            };
+            if let Some(bounds) = cached {
+                self.record_text_measurement_cache_hit();
+                Ok(bounds)
+            } else {
+                self.record_text_measurement_cache_miss();
+                let bounds = measure(config)?;
+                cache
+                    .lock()
+                    .expect("text measurement cache lock poisoned")
+                    .insert(key, bounds.clone());
+                Ok(bounds)
+            }
+        } else {
+            Ok(measure(config)?)
         }
     }
 
@@ -1968,17 +2022,61 @@ mod tests {
             IndexMap::new(),
             Arc::new(EvaluatedFacetTree::empty()),
         );
-        let bounds = ctx.measure_text_bounds(&avenger_text::measurement::TextMeasurementConfig {
-            text: "value $x^2$",
-            font: "sans-serif",
-            font_size: 12.0,
-            font_weight: &avenger_text::types::FontWeight::Name(
-                avenger_text::types::FontWeightNameSpec::Normal,
-            ),
-            font_style: &avenger_text::types::FontStyle::Normal,
-        });
+        let bounds = ctx
+            .measure_text_bounds(&avenger_text::measurement::TextMeasurementConfig {
+                text: "value $x^2$",
+                font: "sans-serif",
+                font_size: 12.0,
+                font_weight: avenger_text::types::FontWeight::Name(
+                    avenger_text::types::FontWeightNameSpec::Normal,
+                ),
+                font_style: avenger_text::types::FontStyle::Normal,
+            })
+            .unwrap();
 
         assert!(bounds.width > 0.0);
         assert!(bounds.height > 0.0);
+    }
+
+    #[test]
+    fn strict_text_measurement_errors_do_not_populate_cache() {
+        let cache = Arc::new(Mutex::new(
+            crate::plot::compiled::TextMeasurementCache::default(),
+        ));
+        let ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(SessionContext::new()),
+            IndexMap::new(),
+            Arc::new(EvaluatedFacetTree::empty()),
+        )
+        .with_text_measurement_cache(cache.clone());
+        let config = avenger_text::measurement::TextMeasurementConfig {
+            text: "bad $x^$ math",
+            font: "sans-serif",
+            font_size: 12.0,
+            font_weight: avenger_text::types::FontWeight::Name(
+                avenger_text::types::FontWeightNameSpec::Normal,
+            ),
+            font_style: avenger_text::types::FontStyle::Normal,
+        };
+
+        assert!(ctx.measure_text_bounds(&config).is_err());
+        assert_eq!(
+            cache
+                .lock()
+                .expect("text measurement cache lock poisoned")
+                .len(),
+            0
+        );
+
+        let fallback_bounds = ctx.measure_text_bounds_with_plain_fallback(&config);
+        assert!(fallback_bounds.width > 0.0);
+        assert_eq!(
+            cache
+                .lock()
+                .expect("text measurement cache lock poisoned")
+                .len(),
+            1
+        );
     }
 }

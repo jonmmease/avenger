@@ -156,6 +156,36 @@ fn occlusion_rect_dataframe(ctx: &SessionContext) -> DataFrame {
         .expect("typst math occlusion rect dataframe")
 }
 
+fn static_text_markup_data(ctx: &SessionContext) -> DataFrame {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("group", DataType::Utf8, false),
+        Field::new("label", DataType::Utf8, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0])) as ArrayRef,
+            Arc::new(Float64Array::from(vec![2.4, 3.6, 2.9])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "#overline[baseline]",
+                "#underline[checked]",
+                "#strike[old] + current",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "#overline[mean]",
+                "#underline[underlined]",
+                "H#sub[2]O #super[*]",
+            ])) as ArrayRef,
+        ],
+    )
+    .expect("typst static text markup batch");
+
+    ctx.read_batch(batch)
+        .expect("typst static text markup dataframe")
+}
+
 async fn assert_typst_math_wgpu(compiled: CompiledPlot, ctx: &SessionContext, baseline_name: &str) {
     assert_visual_match_with_canvas_config_and_sidecars(
         Arc::new(compiled),
@@ -167,6 +197,52 @@ async fn assert_typst_math_wgpu(compiled: CompiledPlot, ctx: &SessionContext, ba
         CanvasConfig::default(),
     )
     .await;
+}
+
+#[tokio::test]
+async fn static_text_markup_showcase() {
+    let ctx = SessionContext::new();
+    let df = static_text_markup_data(&ctx);
+
+    let plot = Plot::<Cartesian>::new()
+        .title("Typst text #underline[markup]")
+        .subtitle("Decorations: #strike[removed], #overline[mean], H#sub[2]O")
+        .data(df.clone())
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.5, 3.5)))
+                        .axis(|axis| axis.title("Index #super[*]").grid(true))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 4.2)))
+                        .axis(|axis| axis.title("#overline[value]").grid(true))
+                })
+                .fill_with(col("group"), |c| {
+                    c.scale_with::<Ordinal>(|s| s)
+                        .legend(|legend| legend.title("Legend #underline[group]"))
+                })
+                .stroke("#111827")
+                .stroke_width(1.0)
+                .size(180.0),
+        )
+        .mark(
+            Text::new()
+                .data(df)
+                .x(col("x"))
+                .y(col("y"))
+                .text(col("label"))
+                .align("center")
+                .baseline("bottom")
+                .font_size(13.0)
+                .color("#111827"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile static Typst text markup plot");
+    assert_typst_math_wgpu(compiled, &ctx, "static_text_markup_showcase").await;
 }
 
 #[tokio::test]

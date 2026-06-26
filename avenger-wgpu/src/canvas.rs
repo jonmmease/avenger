@@ -85,16 +85,25 @@ fn truncate_text_to_limit(
     font_style: &avenger_text::types::FontStyle,
     text_engine: &TextEngine,
 ) -> String {
+    if !limit.is_finite() {
+        return text.to_string();
+    }
+
     truncate_text_to_limit_with(text, limit, |candidate| {
         let config = TextMeasurementConfig {
             text: candidate,
             font,
             font_size,
-            font_weight,
-            font_style,
+            font_weight: *font_weight,
+            font_style: *font_style,
         };
-        text_engine.measure_bounds(&config).width
+        Ok::<_, std::convert::Infallible>(
+            text_engine
+                .measure_bounds_with_plain_fallback_or_approx(&config)
+                .width,
+        )
     })
+    .unwrap_or_else(|_| text.to_string())
 }
 
 #[derive(Clone, Default)]
@@ -379,13 +388,15 @@ pub trait Canvas {
                         font_style,
                         &text_engine,
                     );
-                    let text_bounds = text_engine.measure_bounds(&TextMeasurementConfig {
-                        text: &rendered_text,
-                        font,
-                        font_size: *font_size,
-                        font_weight,
-                        font_style,
-                    });
+                    let text_bounds = text_engine.measure_bounds_with_plain_fallback_or_approx(
+                        &TextMeasurementConfig {
+                            text: &rendered_text,
+                            font,
+                            font_size: *font_size,
+                            font_weight: *font_weight,
+                            font_style: *font_style,
+                        },
+                    );
                     if let Some(geometry) = compute_text_leader_geometry(TextLeaderGeometryInput {
                         target: [target[0] + origin[0], target[1] + origin[1]],
                         label_anchor: label,

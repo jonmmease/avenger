@@ -231,12 +231,12 @@ fn measured_container_labels<'a>(
                 text: &item.text,
                 font: &style.font_family,
                 font_size: style.font_size,
-                font_weight: &style.font_weight,
-                font_style: &FontStyle::Normal,
+                font_weight: style.font_weight,
+                font_style: FontStyle::Normal,
             };
             MeasuredContainerLabel {
                 item,
-                bounds: text_engine.measure_bounds(&config),
+                bounds: text_engine.measure_bounds_with_plain_fallback_or_approx(&config),
             }
         })
         .collect()

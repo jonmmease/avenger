@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use avenger_common::{canvas::CanvasDimensions, types::PathTransform};
 use avenger_text::{
     engine::TextEngine,
-    rasterization::{GlyphBBox, TextRasterCacheKey, TextRasterizationConfig},
+    rasterization::{TextRasterBBox, TextRasterCacheKey, TextRasterizationConfig},
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
 };
 use etagere::euclid::{Angle, Point2D, Vector2D};
@@ -18,12 +18,12 @@ use crate::{
 const DEFAULT_TEXT_ATLAS_EDGE: u32 = 1024;
 
 #[derive(Clone)]
-pub struct GlyphBBoxAndAtlasCoords {
-    pub bbox: GlyphBBox,
+pub struct TextRasterBBoxAndAtlasCoords {
+    pub bbox: TextRasterBBox,
     pub tex_coords: TextAtlasCoords,
 }
 
-// Position of glyph in text atlas
+// Position of a text raster entry in the text atlas.
 #[derive(Copy, Clone)]
 pub struct TextAtlasCoords {
     pub x0: f32,
@@ -73,7 +73,7 @@ pub struct TextAtlasBuilder {
     text_engine: Arc<TextEngine>,
     extent: Extent3d,
     next_atlas: image::RgbaImage,
-    next_cache: HashMap<TextRasterCacheKey, GlyphBBoxAndAtlasCoords>,
+    next_cache: HashMap<TextRasterCacheKey, TextRasterBBoxAndAtlasCoords>,
     atlases: Vec<DynamicImage>,
     initialized: bool,
     allocator: etagere::AtlasAllocator,
@@ -133,14 +133,14 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
         let angle = text.angle;
         let use_nearest_filter = text.use_nearest_filter;
 
-        let buffer = self.text_engine.rasterize(
+        let buffer = self.text_engine.rasterize_with_plain_fallback(
             &TextRasterizationConfig {
                 text: text.text,
-                color: text.color,
+                color: *text.color,
                 font: text.font,
                 font_size: text.font_size,
-                font_weight: text.font_weight,
-                font_style: text.font_style,
+                font_weight: *text.font_weight,
+                font_style: *text.font_style,
                 limit: text.limit,
             },
             dimensions.scale,
@@ -164,17 +164,17 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
         let mut verts: Vec<MultiVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
 
-        for (glyph_data, glyph_pos) in &buffer.glyphs {
-            let glyph_bbox_and_atlas_coords =
-                if let Some(glyph_position) = self.next_cache.get(&glyph_data.cache_key) {
-                    // Glyph has already been written to atlas
-                    glyph_position
+        for (entry, entry_pos) in &buffer.entries {
+            let entry_bbox_and_atlas_coords =
+                if let Some(entry_position) = self.next_cache.get(&entry.cache_key) {
+                    // Text raster entry has already been written to atlas.
+                    entry_position
                 } else {
                     // Allocate space in active atlas image, leaving space for 1 pixel empty border
                     let allocation = if let Some(allocation) =
                         self.allocator.allocate(etagere::Size::new(
-                            (glyph_data.bbox.width + 2) as i32,
-                            (glyph_data.bbox.height + 2) as i32,
+                            (entry.bbox.width + 2) as i32,
+                            (entry.bbox.height + 2) as i32,
                         )) {
                         // Successfully allocated space in the active atlas
                         allocation
@@ -211,13 +211,13 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
 
                         // Try allocation again
                         if let Some(allocation) = self.allocator.allocate(etagere::Size::new(
-                            (glyph_data.bbox.width + 2) as i32,
-                            (glyph_data.bbox.height + 2) as i32,
+                            (entry.bbox.width + 2) as i32,
+                            (entry.bbox.height + 2) as i32,
                         )) {
                             allocation
                         } else {
                             return Err(AvengerWgpuError::ImageAllocationError(
-                                "Failed to allocate space for glyph".to_string(),
+                                "Failed to allocate space for text raster entry".to_string(),
                             ));
                         }
                     };
@@ -226,13 +226,13 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
                     // Use one pixel offset to avoid aliasing artifacts in linear interpolation
                     let p0 = allocation.rectangle.min;
                     let atlas_x0 = p0.x + 1;
-                    let atlas_x1 = atlas_x0 + glyph_data.bbox.width as i32;
+                    let atlas_x1 = atlas_x0 + entry.bbox.width as i32;
                     let atlas_y0 = p0.y + 1;
-                    let atlas_y1 = atlas_y0 + glyph_data.bbox.height as i32;
+                    let atlas_y1 = atlas_y0 + entry.bbox.height as i32;
 
-                    let Some(img) = glyph_data.image.as_ref() else {
+                    let Some(img) = entry.image.as_ref() else {
                         return Err(AvengerWgpuError::TextError(
-                            "Expected glyph image to be available on first use".to_string(),
+                            "Expected text raster image to be available on first use".to_string(),
                         ));
                     };
 
@@ -247,9 +247,9 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
                     }
 
                     self.next_cache.insert(
-                        glyph_data.cache_key.clone(),
-                        GlyphBBoxAndAtlasCoords {
-                            bbox: glyph_data.bbox,
+                        entry.cache_key.clone(),
+                        TextRasterBBoxAndAtlasCoords {
+                            bbox: entry.bbox,
                             tex_coords: TextAtlasCoords {
                                 x0: (atlas_x0 as f32) / self.extent.width as f32,
                                 y0: (atlas_y0 as f32) / self.extent.height as f32,
@@ -258,19 +258,17 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
                             },
                         },
                     );
-                    self.next_cache.get(&glyph_data.cache_key).unwrap()
+                    self.next_cache.get(&entry.cache_key).unwrap()
                 };
 
-            // Create verts for rectangle around glyph
-            let bbox = &glyph_bbox_and_atlas_coords.bbox;
+            // Create verts for rectangle around the text raster entry.
+            let bbox = &entry_bbox_and_atlas_coords.bbox;
             let x0 = if angle == 0.0 {
-                // Swash rasterizes horizontal glyph bitmaps at a quarter-pixel binned x origin.
-                // Place them on the same origin so spacing matches the bitmap's subpixel offset.
-                (glyph_pos.physical_x + bbox.left as f32) / dimensions.scale + buffer_left
+                (entry_pos.physical_x + bbox.left as f32) / dimensions.scale + buffer_left
             } else {
-                glyph_pos.x + bbox.left as f32 / dimensions.scale + buffer_left
+                entry_pos.x + bbox.left as f32 / dimensions.scale + buffer_left
             };
-            let y0 = buffer.text_bounds.ascent + glyph_pos.y - bbox.top as f32 / dimensions.scale
+            let y0 = buffer.text_bounds.ascent + entry_pos.y - bbox.top as f32 / dimensions.scale
                 + buffer_top;
             let x1 = x0 + bbox.width as f32 / dimensions.scale;
             let y1 = y0 + bbox.height as f32 / dimensions.scale;
@@ -288,7 +286,7 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
                 .transform_point(Point2D::new(x1, y0))
                 .to_array();
 
-            let tex_coords = glyph_bbox_and_atlas_coords.tex_coords;
+            let tex_coords = entry_bbox_and_atlas_coords.tex_coords;
             let tex_x0 = tex_coords.x0;
             let tex_y0 = tex_coords.y0;
             let tex_x1 = tex_coords.x1;

@@ -3,11 +3,11 @@ use std::hash::Hash;
 use ordered_float::OrderedFloat;
 
 use crate::{
-    measurement::{TextBounds, TextMeasurementConfig},
+    measurement::TextBounds,
     types::{FontStyle, FontWeight},
 };
 
-/// Glyph origin in text layout coordinates.
+/// Rasterized text-line origin in text layout coordinates.
 ///
 /// `x` and `y` are floating-point logical positions. `physical_x` and
 /// `physical_y` are the pixel-aligned physical positions for the rasterized
@@ -15,51 +15,30 @@ use crate::{
 /// transformed/vector text and physical positions for crisp, untransformed
 /// bitmap placement.
 #[derive(Debug, Clone)]
-pub struct GlyphPosition {
+pub struct TextRasterPosition {
     pub x: f32,
     pub y: f32,
     pub physical_x: f32,
     pub physical_y: f32,
 }
 
-#[deprecated(note = "use GlyphPosition")]
-pub type PhysicalGlyphPosition = GlyphPosition;
-
-// Glyph bounding box relative to glyph origin
+/// Text raster bounding box relative to the text raster origin.
 #[derive(Clone, Copy, Debug)]
-pub struct GlyphBBox {
+pub struct TextRasterBBox {
     pub top: i32,
     pub left: i32,
     pub width: u32,
     pub height: u32,
 }
 
-#[derive(Clone)]
-pub struct GlyphImage<CacheKey: Hash + Eq + Clone> {
-    pub cache_key: CacheKey,
-    // None if image for same CacheKey was already included
-    pub image: Option<image::RgbaImage>,
-    pub bbox: GlyphBBox,
-}
-
-impl<CacheKey: Hash + Eq + Clone> GlyphImage<CacheKey> {
-    pub fn without_image(&self) -> Self {
-        Self {
-            cache_key: self.cache_key.clone(),
-            image: None,
-            bbox: self.bbox,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct TextRasterizationConfig<'a> {
-    pub text: &'a String,
-    pub color: &'a [f32; 4],
-    pub font: &'a String,
+    pub text: &'a str,
+    pub color: [f32; 4],
+    pub font: &'a str,
     pub font_size: f32,
-    pub font_weight: &'a FontWeight,
-    pub font_style: &'a FontStyle,
+    pub font_weight: FontWeight,
+    pub font_style: FontStyle,
     pub limit: f32,
 }
 
@@ -75,45 +54,16 @@ pub struct TextRasterCacheKey {
     pub markup: String,
 }
 
-impl<'a> TextRasterizationConfig<'a> {
-    pub fn to_measurement_config(&self) -> TextMeasurementConfig<'a> {
-        TextMeasurementConfig {
-            text: self.text,
-            font: self.font,
-            font_size: self.font_size,
-            font_weight: self.font_weight,
-            font_style: self.font_style,
-        }
-    }
-}
-
 #[derive(Clone)]
-pub struct GlyphData<CacheKey: Hash + Eq + Clone> {
+pub struct TextRasterEntry<CacheKey: Hash + Eq + Clone> {
     pub cache_key: CacheKey,
-    // image and path are None if the CacheKey was already included
+    /// None if an image for the same cache key was already included.
     pub image: Option<image::RgbaImage>,
-    pub path: Option<lyon_path::Path>,
-    pub bbox: GlyphBBox,
-}
-
-impl<CacheKey: Hash + Eq + Clone> GlyphData<CacheKey> {
-    pub fn without_image(self) -> Self {
-        Self {
-            image: None,
-            ..self
-        }
-    }
-
-    pub fn with_bbox(self, bbox: GlyphBBox) -> Self {
-        Self {
-            bbox,
-            ..self.clone()
-        }
-    }
+    pub bbox: TextRasterBBox,
 }
 
 #[derive(Clone)]
 pub struct TextRasterizationBuffer<CacheKey: Hash + Eq + Clone> {
-    pub glyphs: Vec<(GlyphData<CacheKey>, GlyphPosition)>,
+    pub entries: Vec<(TextRasterEntry<CacheKey>, TextRasterPosition)>,
     pub text_bounds: TextBounds,
 }

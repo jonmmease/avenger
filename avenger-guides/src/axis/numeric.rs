@@ -11,7 +11,8 @@ use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::{
-    measurement::FontMetricsConfig,
+    default_text_engine,
+    measurement::{FontMetricsConfig, TextMeasurementConfig},
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
     TextEngine,
 };
@@ -278,8 +279,8 @@ fn vertical_min_tick_spacing_px(config: &AxisConfig, text_engine: &TextEngine) -
     let font_metrics = text_engine.font_metrics(&FontMetricsConfig {
         font: font_family,
         font_size,
-        font_weight: &font_weight,
-        font_style: &FontStyle::Normal,
+        font_weight: font_weight,
+        font_style: FontStyle::Normal,
     });
 
     (font_metrics.height * VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR).max(1.0)
@@ -555,6 +556,19 @@ fn make_title(
 ) -> Result<SceneTextMark, AvengerGuidesError> {
     let range = scale.numeric_interval_range()?;
     let mid = (range.0 + range.1) / 2.0;
+    let title_font_size = config.title_font_size.unwrap_or(DEFAULT_TITLE_FONT_SIZE);
+    let title_font_weight = FontWeight::Number(config.title_font_weight.unwrap_or(400.0));
+    let title_font_family = config
+        .title_font_family
+        .clone()
+        .unwrap_or_else(|| "sans-serif".to_string());
+    default_text_engine().measure_bounds(&TextMeasurementConfig {
+        text: title,
+        font: &title_font_family,
+        font_size: title_font_size,
+        font_weight: title_font_weight,
+        font_style: FontStyle::Normal,
+    })?;
 
     // Now the envelope is in the group's local coordinate system (origin = [0, 0])
     // For left/top axes, labels extend into negative coordinates
@@ -617,16 +631,9 @@ fn make_title(
         baseline: baseline.into(),
         angle: angle.into(),
         color: ColorOrGradient::Color(config.title_color.unwrap_or([0.0, 0.0, 0.0, 1.0])).into(), // Default: black
-        font_size: config
-            .title_font_size
-            .unwrap_or(DEFAULT_TITLE_FONT_SIZE)
-            .into(),
-        font_weight: FontWeight::Number(config.title_font_weight.unwrap_or(400.0)).into(),
-        font: config
-            .title_font_family
-            .clone()
-            .unwrap_or_else(|| "sans-serif".to_string())
-            .into(),
+        font_size: title_font_size.into(),
+        font_weight: title_font_weight.into(),
+        font: title_font_family.into(),
         ..Default::default()
     })
 }

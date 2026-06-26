@@ -5,10 +5,10 @@ use web_sys::{js_sys::Object, wasm_bindgen::JsValue};
 
 #[derive(Error, Debug)]
 pub enum AvengerTextError {
-    #[error("Internal error: `{0}`")]
-    TextMeasurementError(String),
+    #[error("Typst text typesetting failed: {0}")]
+    Typesetting(#[from] avenger_typst::MathTypesetError),
 
-    #[error("Failed to allocate image")]
+    #[error("Failed to allocate image: {0}")]
     ImageAllocationError(String),
 
     #[error("Internal error: `{0}`")]

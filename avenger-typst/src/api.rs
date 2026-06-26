@@ -6,7 +6,7 @@ use crate::pdf::{MathFontResource, MathFontResourceId};
 use crate::style::{MathFontConfig, MathStrictness};
 use crate::types::{
     MathFragmentOptions, MathRun, MathRunArtifact, MathStringArtifact, MathStringOptions,
-    MathStringRun, PlainTextRun, TextLineArtifact, TextLineOptions,
+    MathStringRun, MathSyntaxMode, PlainTextRun, TextLineArtifact, TextLineOptions,
 };
 
 #[cfg(feature = "serde")]
@@ -132,8 +132,10 @@ impl AvengerTypst {
         options: &TextLineOptions,
     ) -> Result<TextLineArtifact, MathTypesetError> {
         validate_source_limits(source, options.limits)?;
-        let segments = parse_segments(source, &options.delimiters)?;
-        validate_math_segments(&segments, options.limits)?;
+        if matches!(options.syntax, MathSyntaxMode::TypstFragmentStrict) {
+            let segments = parse_segments(source, &options.delimiters)?;
+            validate_math_segments(&segments, options.limits)?;
+        }
 
         self.engine.typeset_text_line(source, options)
     }

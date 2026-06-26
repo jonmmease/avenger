@@ -250,10 +250,10 @@ pub fn make_symbol_legend_itemized(
             text: title_text,
             font: &title_font,
             font_size: title_font_size,
-            font_weight: &title_font_weight,
-            font_style: &FontStyle::Normal,
+            font_weight: title_font_weight,
+            font_style: FontStyle::Normal,
         };
-        let title_bounds = text_engine.measure_bounds(&title_config);
+        let title_bounds = text_engine.measure_bounds(&title_config)?;
 
         // Use Top baseline and position title at vertical padding from top
         let title_y = vertical_padding;
@@ -296,7 +296,7 @@ pub fn make_symbol_legend_itemized(
             config.label_font_family.as_deref(),
             config.label_font_size,
             config.label_font_weight.as_ref(),
-        );
+        )?;
         let height = group.bounding_box().height();
         if i == 0 {
             tracing::debug!(height = height, "First symbol group height");
@@ -382,7 +382,7 @@ fn make_symbol_group(
     label_font_family: Option<&str>,
     label_font_size: Option<f32>,
     label_font_weight: Option<&FontWeight>,
-) -> SceneGroup {
+) -> Result<SceneGroup, AvengerGuidesError> {
     //
     let mut single_symbol_mark = symbols_mark.single_symbol_mark(index);
     single_symbol_mark.x = center_x.into();
@@ -436,7 +436,7 @@ fn make_symbol_group(
     let hit_x1 = content_bbox.upper()[0];
     let hit_y1 = content_bbox.upper()[1].max(reserved_row_height);
 
-    SceneGroup {
+    Ok(SceneGroup {
         origin,
         marks: std::iter::once(
             // Transparent hit rect for interactions. Its row height preserves the
@@ -457,5 +457,5 @@ fn make_symbol_group(
 
         stroke_width: Some(1.0),
         ..Default::default()
-    }
+    })
 }

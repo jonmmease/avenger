@@ -245,6 +245,11 @@ impl TextMeasurementCache {
     pub(crate) fn insert(&mut self, key: TextMeasurementCacheKey, measurement: TextBounds) {
         self.measurements.insert(key, measurement);
     }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.measurements.len()
+    }
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]

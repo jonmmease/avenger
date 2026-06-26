@@ -3,10 +3,11 @@ use crate::error::{MathTypesetError, TypstInitError};
 use crate::paths::MathPathArtifact;
 use crate::pdf::MathPdfTextLayer;
 use crate::types::{
-    MathFragmentOptions, MathRunArtifact, TextLineArtifact, TextLineOptions, TypesetMetrics,
+    MathFragmentOptions, MathRunArtifact, MathSyntaxMode, TextLineArtifact, TextLineOptions,
+    TypesetMetrics,
 };
 
-use crate::engine::ast::{LineNode, ParsedLine};
+use crate::engine::ast::{LineNode, ParsedLine, PlainTextNode};
 use crate::engine::inline::try_typeset_text_line;
 use crate::engine::math::metrics::try_typeset_simple_row_fragment;
 use crate::engine::math::syntax::parse_math;
@@ -51,8 +52,14 @@ impl TypstEngineCore {
             return Ok(empty_text_line_artifact(source, options));
         }
 
-        let line = parse_line(source, &options.delimiters)?;
-        validate_line_math(&line)?;
+        let line = match options.syntax {
+            MathSyntaxMode::TypstFragmentStrict => {
+                let line = parse_line(source, &options.delimiters)?;
+                validate_line_math(&line)?;
+                line
+            }
+            MathSyntaxMode::PlainText => plain_text_line(source),
+        };
         if let Some(artifact) = try_typeset_text_line(source, &line, options, &self.config)? {
             return Ok(artifact);
         }
@@ -76,6 +83,20 @@ fn unsupported_text_line() -> Result<TextLineArtifact, MathTypesetError> {
     Err(MathTypesetError::UnsupportedOutput(
         "this Typst text-line subset is not supported yet",
     ))
+}
+
+fn plain_text_line(source: &str) -> ParsedLine {
+    ParsedLine {
+        source: source.to_string(),
+        nodes: if source.is_empty() {
+            Vec::new()
+        } else {
+            vec![LineNode::Plain(PlainTextNode {
+                text: source.to_string(),
+                byte_range: 0..source.len(),
+            })]
+        },
+    }
 }
 
 fn line_contains_static_markup(line: &ParsedLine) -> bool {
@@ -282,6 +303,19 @@ mod tests {
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
         assert_eq!(artifact.positioned_runs.len(), 1);
+    }
+
+    #[test]
+    fn plain_text_syntax_treats_invalid_math_as_literal_text() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.syntax = MathSyntaxMode::PlainText;
+
+        let artifact = engine
+            .typeset_text_line("before $x^$ after", &options)
+            .unwrap();
+
+        assert!(artifact.metrics.width > 0.0);
     }
 
     #[test]

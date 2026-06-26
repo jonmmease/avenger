@@ -2338,8 +2338,8 @@ fn fit_tree_label(
             text: candidate,
             font,
             font_size,
-            font_weight,
-            font_style,
+            font_weight: *font_weight,
+            font_style: *font_style,
         };
         if let Some(service) = text_measurement_service {
             service.measure_text_bounds(&config).width
@@ -2347,7 +2347,7 @@ fn fit_tree_label(
             text_engine
                 .as_ref()
                 .expect("default text engine fallback")
-                .measure_bounds(&config)
+                .measure_bounds_with_plain_fallback_or_approx(&config)
                 .width
         }
     };
@@ -2360,7 +2360,10 @@ fn fit_tree_label(
                 String::new()
             }
         }
-        TreeLabelFit::Ellipsis => truncate_text_to_limit_with(label, limit, measure_width),
+        TreeLabelFit::Ellipsis => truncate_text_to_limit_with(label, limit, |candidate| {
+            Ok::<_, std::convert::Infallible>(measure_width(candidate))
+        })
+        .unwrap_or_else(|_| label.to_string()),
     }
 }
 

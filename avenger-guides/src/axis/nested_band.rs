@@ -16,6 +16,7 @@ use avenger_scales::scales::{
 };
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::{
+    default_text_engine,
     measurement::TextMeasurementConfig,
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
     TextEngine,
@@ -477,6 +478,19 @@ fn make_title(
 ) -> Result<SceneTextMark, AvengerGuidesError> {
     let range = scale.numeric_interval_range()?;
     let mid = (range.0 + range.1) / 2.0;
+    let title_font_size = config.title_font_size.unwrap_or(TITLE_FONT_SIZE);
+    let title_font_weight = FontWeight::Number(config.title_font_weight.unwrap_or(400.0));
+    let title_font_family = config
+        .title_font_family
+        .clone()
+        .unwrap_or_else(|| "sans-serif".to_string());
+    default_text_engine().measure_bounds(&TextMeasurementConfig {
+        text: title,
+        font: &title_font_family,
+        font_size: title_font_size,
+        font_weight: title_font_weight,
+        font_style: FontStyle::Normal,
+    })?;
     let (x, y, align, baseline, angle) = match config.orientation {
         AxisOrientation::Left => (
             (lower[0] - TITLE_MARGIN).into(),
@@ -518,13 +532,9 @@ fn make_title(
         baseline: baseline.into(),
         angle: angle.into(),
         color: ColorOrGradient::Color(config.title_color.unwrap_or([0.0, 0.0, 0.0, 1.0])).into(),
-        font_size: config.title_font_size.unwrap_or(TITLE_FONT_SIZE).into(),
-        font_weight: FontWeight::Number(config.title_font_weight.unwrap_or(400.0)).into(),
-        font: config
-            .title_font_family
-            .clone()
-            .unwrap_or_else(|| "sans-serif".to_string())
-            .into(),
+        font_size: title_font_size.into(),
+        font_weight: title_font_weight.into(),
+        font: title_font_family.into(),
         ..Default::default()
     })
 }
@@ -611,13 +621,14 @@ fn level_label_cross_extent(
     let (max_width, max_height) = bands
         .iter()
         .map(|band| {
-            let bounds = text_engine.measure_bounds(&TextMeasurementConfig {
-                text: &band.label,
-                font: font_family,
-                font_size,
-                font_weight,
-                font_style: &FontStyle::Normal,
-            });
+            let bounds =
+                text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
+                    text: &band.label,
+                    font: font_family,
+                    font_size,
+                    font_weight: *font_weight,
+                    font_style: FontStyle::Normal,
+                });
             (bounds.width, bounds.height)
         })
         .fold(

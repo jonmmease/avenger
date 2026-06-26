@@ -620,7 +620,7 @@ async fn measure_parallel_guide_overflow(
         &mut min_y,
         &mut max_y,
         &text_engine,
-    );
+    )?;
 
     Ok(OverflowSpaceRequirement {
         top: (0.0 - min_y).max(MIN_TITLE_OVERFLOW_TOP),
@@ -662,13 +662,14 @@ fn measure_parallel_categorical_tick_labels(
         if label.trim().is_empty() {
             continue;
         }
-        let bounds = text_engine.measure_bounds(&TextMeasurementConfig {
-            text: &label,
-            font: font_family,
-            font_size,
-            font_weight: &font_weight,
-            font_style: &FontStyle::Normal,
-        });
+        let bounds =
+            text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
+                text: &label,
+                font: font_family,
+                font_size,
+                font_weight,
+                font_style: FontStyle::Normal,
+            });
         let origin =
             bounds.calculate_origin([text_x, 0.0], &TextAlign::Right, &TextBaseline::Middle);
         *min_x = (*min_x).min(origin[0]);
@@ -686,7 +687,7 @@ fn measure_parallel_axis_titles(
     min_y: &mut f32,
     max_y: &mut f32,
     text_engine: &TextEngine,
-) {
+) -> Result<(), AvengerChartError> {
     for datum in datums {
         if !datum.visible || !datum.title_visible || datum.title.trim().is_empty() {
             continue;
@@ -695,9 +696,9 @@ fn measure_parallel_axis_titles(
             text: &datum.title,
             font: &datum.title_font_family,
             font_size: datum.title_font_size,
-            font_weight: &datum.title_font_weight,
-            font_style: &FontStyle::Normal,
-        });
+            font_weight: datum.title_font_weight,
+            font_style: FontStyle::Normal,
+        })?;
         let origin = bounds.calculate_origin(
             [datum.datum.display_x, TITLE_Y_OFFSET],
             &TextAlign::Center,
@@ -708,6 +709,7 @@ fn measure_parallel_axis_titles(
         *min_y = (*min_y).min(origin[1]);
         *max_y = (*max_y).max(origin[1] + bounds.height);
     }
+    Ok(())
 }
 
 fn make_axis_mark(

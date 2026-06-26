@@ -10,7 +10,11 @@ use avenger_scenegraph::marks::{
     group::SceneGroup, line::SceneLineMark, mark::SceneMark, rect::SceneRectMark,
     text::SceneTextMark,
 };
-use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
+use avenger_text::{
+    default_text_engine,
+    measurement::TextMeasurementConfig,
+    types::{FontStyle, FontWeight, TextAlign, TextBaseline},
+};
 
 use crate::{
     error::AvengerGuidesError,
@@ -212,6 +216,13 @@ pub fn make_line_legend_itemized(
         let title_font_weight = config
             .title_font_weight
             .unwrap_or(FontWeight::Number(400.0));
+        let title_bounds = default_text_engine().measure_bounds(&TextMeasurementConfig {
+            text: title_text,
+            font: &title_font,
+            font_size: title_font_size,
+            font_weight: title_font_weight,
+            font_style: FontStyle::Normal,
+        })?;
 
         let title_mark = SceneTextMark {
             clip: false,
@@ -229,7 +240,7 @@ pub fn make_line_legend_itemized(
         };
         groups.push(SceneMark::Text(Arc::new(title_mark)).with_interactive(false));
 
-        let title_space = title_font_size + 4.0;
+        let title_space = title_bounds.line_height + 4.0;
         line_group_y += title_space;
         title_space
     } else {
@@ -265,7 +276,7 @@ pub fn make_line_legend_itemized(
             config.label_font_family.as_deref(),
             config.label_font_size,
             config.label_font_weight.as_ref(),
-        );
+        )?;
         groups.push(SceneMark::Group(group));
         items.push(GuideLegendItem {
             index: i,
@@ -351,7 +362,7 @@ fn make_line_group(
     label_font_family: Option<&str>,
     label_font_size: Option<f32>,
     label_font_weight: Option<&FontWeight>,
-) -> SceneGroup {
+) -> Result<SceneGroup, AvengerGuidesError> {
     // Line and text should be positioned relative to the group's local origin
     let x0 = 0.0;
     let x1 = line_length;
@@ -414,7 +425,7 @@ fn make_line_group(
     }
     .bounding_box();
 
-    SceneGroup {
+    Ok(SceneGroup {
         origin: [x_offset, y],
         marks: std::iter::once(SceneMark::Rect(SceneRectMark {
             x: content_bbox.lower()[0].into(),
@@ -429,5 +440,5 @@ fn make_line_group(
         .chain(content_marks)
         .collect(),
         ..Default::default()
-    }
+    })
 }

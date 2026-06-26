@@ -1093,9 +1093,11 @@ impl<'a> AdjustmentTransformContext<'a> {
     }
 
     pub fn measure_text_bounds(&self, config: &TextMeasurementConfig<'_>) -> TextBounds {
-        self.text_measurement
-            .map(|text_measurement| text_measurement.measure_text_bounds(config))
-            .unwrap_or_else(|| avenger_text::default_text_engine().measure_bounds(config))
+        if let Some(text_measurement) = self.text_measurement {
+            text_measurement.measure_text_bounds(config)
+        } else {
+            avenger_text::default_text_engine().measure_bounds_with_plain_fallback_or_approx(config)
+        }
     }
 }
 

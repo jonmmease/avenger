@@ -3,7 +3,11 @@ use avenger_common::value::ScalarOrArray;
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::{error::AvengerScaleError, scales::ConfiguredScale};
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
-use avenger_text::types::{FontWeight, TextAlign, TextBaseline};
+use avenger_text::{
+    default_text_engine,
+    measurement::TextMeasurementConfig,
+    types::{FontStyle, FontWeight, TextAlign, TextBaseline},
+};
 use rstar::AABB;
 
 use super::opts::{AxisConfig, AxisOrientation};
@@ -325,9 +329,22 @@ fn make_title(
     scale: &ConfiguredScale,
     envelope: &AABB<[f32; 2]>,
     config: &AxisConfig,
-) -> Result<SceneTextMark, AvengerScaleError> {
+) -> Result<SceneTextMark, AvengerGuidesError> {
     let range = scale.numeric_interval_range()?;
     let mid = (range.0 + range.1) / 2.0;
+    let title_font_size = config.title_font_size.unwrap_or(TITLE_FONT_SIZE);
+    let title_font_weight = FontWeight::Number(config.title_font_weight.unwrap_or(400.0));
+    let title_font_family = config
+        .title_font_family
+        .clone()
+        .unwrap_or_else(|| "sans-serif".to_string());
+    default_text_engine().measure_bounds(&TextMeasurementConfig {
+        text: title,
+        font: &title_font_family,
+        font_size: title_font_size,
+        font_weight: title_font_weight,
+        font_style: FontStyle::Normal,
+    })?;
 
     // Now the envelope is in the group's local coordinate system (origin = [0, 0])
     // For left/top axes, labels extend into negative coordinates
@@ -390,13 +407,9 @@ fn make_title(
         baseline: baseline.into(),
         angle: angle.into(),
         color: ColorOrGradient::Color(config.title_color.unwrap_or([0.0, 0.0, 0.0, 1.0])).into(), // Default: black
-        font_size: config.title_font_size.unwrap_or(TITLE_FONT_SIZE).into(),
-        font_weight: FontWeight::Number(config.title_font_weight.unwrap_or(400.0)).into(),
-        font: config
-            .title_font_family
-            .clone()
-            .unwrap_or_else(|| "sans-serif".to_string())
-            .into(),
+        font_size: title_font_size.into(),
+        font_weight: title_font_weight.into(),
+        font: title_font_family.into(),
         ..Default::default()
     })
 }

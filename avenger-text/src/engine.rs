@@ -31,8 +31,29 @@ impl TextEngine {
         Self::with_config(TextMarkupConfig::default())
     }
 
-    pub fn measure_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
+    pub fn measure_bounds(
+        &self,
+        config: &TextMeasurementConfig,
+    ) -> Result<TextBounds, AvengerTextError> {
         TextLineMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
+    }
+
+    pub fn measure_bounds_with_plain_fallback(
+        &self,
+        config: &TextMeasurementConfig,
+    ) -> Result<TextBounds, AvengerTextError> {
+        self.measure_bounds(config).or_else(|_| {
+            TextLineMeasurer::new(self.typst.clone(), self.math.plain_text())
+                .measure_text_bounds(config)
+        })
+    }
+
+    pub fn measure_bounds_with_plain_fallback_or_approx(
+        &self,
+        config: &TextMeasurementConfig,
+    ) -> TextBounds {
+        self.measure_bounds_with_plain_fallback(config)
+            .unwrap_or_else(|_| approximate_text_bounds(config.text, config.font_size))
     }
 
     pub fn font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
@@ -55,11 +76,49 @@ impl TextEngine {
         )
     }
 
+    pub fn rasterize_with_plain_fallback<CacheValue>(
+        &self,
+        config: &TextRasterizationConfig,
+        scale: f32,
+        cached_entries: &HashMap<TextRasterCacheKey, CacheValue>,
+    ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError>
+    where
+        CacheValue: Clone,
+    {
+        self.rasterize(config, scale, cached_entries).or_else(|_| {
+            TextLineRasterizer::<CacheValue>::new(self.typst.clone(), self.math.plain_text())
+                .rasterize(config, scale, cached_entries)
+        })
+    }
+
     pub fn extract_paths(
         &self,
         config: &TextPathExtractionConfig,
     ) -> Result<TextPathBuffer, AvengerTextError> {
         TextPathExtractorImpl::new(self.typst.clone(), self.math.clone()).extract_text_paths(config)
+    }
+
+    pub fn extract_paths_with_plain_fallback(
+        &self,
+        config: &TextPathExtractionConfig,
+    ) -> Result<TextPathBuffer, AvengerTextError> {
+        self.extract_paths(config).or_else(|_| {
+            TextPathExtractorImpl::new(self.typst.clone(), self.math.plain_text())
+                .extract_text_paths(config)
+        })
+    }
+}
+
+fn approximate_text_bounds(text: &str, font_size: f32) -> TextBounds {
+    let height = font_size.max(1.0);
+    let ascent = height * 0.8;
+    let descent = height - ascent;
+    TextBounds {
+        width: text.chars().count() as f32 * height * 0.6,
+        height,
+        ascent,
+        descent,
+        line_height: height,
     }
 }
 
@@ -94,19 +153,19 @@ mod tests {
             text,
             font,
             font_size: 14.0,
-            font_weight: &WEIGHT,
-            font_style: &STYLE,
+            font_weight: WEIGHT,
+            font_style: STYLE,
         }
     }
 
     fn paths<'a>(text: &'a String, font: &'a String) -> TextPathExtractionConfig<'a> {
         TextPathExtractionConfig {
             text,
-            color: &COLOR,
+            color: COLOR,
             font,
             font_size: 14.0,
-            font_weight: &WEIGHT,
-            font_style: &STYLE,
+            font_weight: WEIGHT,
+            font_style: STYLE,
             limit: f32::INFINITY,
         }
     }
@@ -114,11 +173,11 @@ mod tests {
     fn raster<'a>(text: &'a String, font: &'a String) -> TextRasterizationConfig<'a> {
         TextRasterizationConfig {
             text,
-            color: &COLOR,
+            color: COLOR,
             font,
             font_size: 14.0,
-            font_weight: &WEIGHT,
-            font_style: &STYLE,
+            font_weight: WEIGHT,
+            font_style: STYLE,
             limit: f32::INFINITY,
         }
     }
@@ -129,7 +188,7 @@ mod tests {
         let font = "sans-serif".to_string();
         let text = "Revenue #emoji.face $x^2$".to_string();
 
-        let bounds = engine.measure_bounds(&measure(&text, &font));
+        let bounds = engine.measure_bounds(&measure(&text, &font)).unwrap();
         assert!(bounds.width > 0.0);
         assert!(bounds.height >= 14.0);
 
@@ -157,7 +216,7 @@ mod tests {
 
         for (sample, expected_text) in samples {
             let text = sample.to_string();
-            let bounds = engine.measure_bounds(&measure(&text, &font));
+            let bounds = engine.measure_bounds(&measure(&text, &font)).unwrap();
             assert!(bounds.width > 0.0, "{sample} should have positive width");
             assert!(bounds.height >= 14.0, "{sample} should have line height");
 
@@ -185,9 +244,66 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(buffer.glyphs.len(), 1);
+        assert_eq!(buffer.entries.len(), 1);
         assert!(buffer.text_bounds.width > 0.0);
-        assert_eq!(buffer.glyphs[0].0.cache_key.text, text);
-        assert!(buffer.glyphs[0].0.image.is_some());
+        assert_eq!(buffer.entries[0].0.cache_key.text, text);
+        assert!(buffer.entries[0].0.image.is_some());
+    }
+
+    #[test]
+    fn top_level_engine_errors_on_invalid_math() {
+        let engine = engine();
+        let font = "sans-serif".to_string();
+        let text = "before $x^$ after".to_string();
+
+        assert!(engine.measure_bounds(&measure(&text, &font)).is_err());
+        assert!(engine.extract_paths(&paths(&text, &font)).is_err());
+        assert!(engine
+            .rasterize(
+                &raster(&text, &font),
+                2.0,
+                &std::collections::HashMap::<_, ()>::new(),
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn top_level_engine_plain_fallback_displays_invalid_math_as_text() {
+        let engine = engine();
+        let font = "sans-serif".to_string();
+        let text = "before $x^$ after".to_string();
+
+        let bounds = engine
+            .measure_bounds_with_plain_fallback(&measure(&text, &font))
+            .unwrap();
+        assert!(bounds.width > 0.0);
+
+        let buffer = engine
+            .extract_paths_with_plain_fallback(&paths(&text, &font))
+            .unwrap();
+        assert!(buffer.items.is_empty());
+        assert_eq!(buffer.plain_runs.len(), 1);
+        assert_eq!(buffer.plain_runs[0].text, text);
+
+        let raster = engine
+            .rasterize_with_plain_fallback(
+                &raster(&text, &font),
+                2.0,
+                &std::collections::HashMap::<_, ()>::new(),
+            )
+            .unwrap();
+        assert_eq!(raster.entries.len(), 1);
+    }
+
+    #[test]
+    fn top_level_engine_accepts_literal_dollars() {
+        let engine = engine();
+        let font = "sans-serif".to_string();
+
+        for text in ["cost \\$5", "cost $5"] {
+            let text = text.to_string();
+            let bounds = engine.measure_bounds(&measure(&text, &font)).unwrap();
+            assert!(bounds.width > 0.0);
+        }
     }
 }

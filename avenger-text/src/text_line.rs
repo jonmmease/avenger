@@ -6,13 +6,13 @@ use crate::{
     error::AvengerTextError,
     measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
     rasterization::{
-        GlyphBBox, GlyphData, GlyphPosition, TextRasterCacheKey, TextRasterizationBuffer,
-        TextRasterizationConfig,
+        TextRasterBBox, TextRasterCacheKey, TextRasterEntry, TextRasterPosition,
+        TextRasterizationBuffer, TextRasterizationConfig,
     },
     types::{FontStyle, FontWeight, FontWeightNameSpec},
 };
 
-use crate::math::{TextMarkupConfig, TextMarkupErrorPolicy};
+use crate::math::TextMarkupConfig;
 
 const TYPST_LINE_LEADING_FACTOR: f32 = crate::math::DEFAULT_MARKUP_LINE_LEADING_FACTOR;
 
@@ -26,8 +26,11 @@ impl TextLineMeasurer {
     pub(crate) fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self { typst, math }
     }
-    pub(crate) fn measure_text_bounds(&self, config: &TextMeasurementConfig) -> TextBounds {
-        match typeset_line(
+    pub(crate) fn measure_text_bounds(
+        &self,
+        config: &TextMeasurementConfig,
+    ) -> Result<TextBounds, AvengerTextError> {
+        let result = typeset_line(
             &self.typst,
             &self.math,
             config.text,
@@ -42,14 +45,12 @@ impl TextLineMeasurer {
                 pdf_text_layer: false,
                 positioned_runs: false,
             },
-        ) {
-            Ok(result) => bounds_from_metrics(
-                result.artifact.metrics,
-                config.font_size,
-                result.has_math_spans,
-            ),
-            Err(_) => fallback_text_bounds(config.text, config.font_size),
-        }
+        )?;
+        Ok(bounds_from_metrics(
+            result.artifact.metrics,
+            config.font_size,
+            result.has_math_spans,
+        ))
     }
 
     pub(crate) fn measure_font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
@@ -76,7 +77,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
         &self,
         config: &TextRasterizationConfig,
         scale: f32,
-        cached_glyphs: &HashMap<TextRasterCacheKey, CacheValue>,
+        cached_entries: &HashMap<TextRasterCacheKey, CacheValue>,
     ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError>
     where
         CacheValue: Clone,
@@ -91,7 +92,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
                 config.font_weight,
                 config.font_style,
             )
-        });
+        })?;
         if raster_text.is_empty() {
             return Ok(TextRasterizationBuffer {
                 text_bounds: bounds_from_metrics(
@@ -105,11 +106,11 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
                     config.font_size,
                     false,
                 ),
-                glyphs: Vec::new(),
+                entries: Vec::new(),
             });
         }
 
-        let fill = color_key(config.color);
+        let fill = color_key(&config.color);
         let result = typeset_line(
             &self.typst,
             &self.math,
@@ -118,15 +119,14 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             config.font_size,
             config.font_weight,
             config.font_style,
-            *config.color,
+            config.color,
             avenger_typst::TextLineOutputRequest {
                 paths: false,
                 raster: Some(avenger_typst::RasterRequest { scale }),
                 pdf_text_layer: false,
                 positioned_runs: false,
             },
-        )
-        .map_err(|err| AvengerTextError::TextMeasurementError(err.to_string()))?;
+        )?;
         let tight_bounds = tight_bounds_from_metrics(result.artifact.metrics);
         let bounds = bounds_from_metrics(
             result.artifact.metrics,
@@ -140,7 +140,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
         })?;
         let cache_key = TextRasterCacheKey {
             text: raster_text,
-            font: config.font.clone(),
+            font: config.font.to_string(),
             font_size: OrderedFloat(config.font_size),
             font_weight: format!("{:?}", config.font_weight),
             font_style: format!("{:?}", config.font_style),
@@ -148,7 +148,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             scale: OrderedFloat(scale),
             markup: format!("{:?}", self.math),
         };
-        let image = if cached_glyphs.contains_key(&cache_key) {
+        let image = if cached_entries.contains_key(&cache_key) {
             None
         } else {
             Some(
@@ -167,19 +167,18 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
 
         Ok(TextRasterizationBuffer {
             text_bounds: bounds.clone(),
-            glyphs: vec![(
-                GlyphData {
+            entries: vec![(
+                TextRasterEntry {
                     cache_key,
                     image,
-                    path: None,
-                    bbox: GlyphBBox {
+                    bbox: TextRasterBBox {
                         top: 0,
                         left: 0,
                         width: raster.image.width,
                         height: raster.image.height,
                     },
                 },
-                GlyphPosition {
+                TextRasterPosition {
                     x: raster.origin_x,
                     y: raster.origin_y - tight_bounds.ascent,
                     physical_x: (raster.origin_x * scale).round(),
@@ -196,10 +195,10 @@ fn measure_text_width_with_typst(
     text: &str,
     font: &str,
     font_size: f32,
-    font_weight: &FontWeight,
-    font_style: &FontStyle,
-) -> f32 {
-    typeset_line(
+    font_weight: FontWeight,
+    font_style: FontStyle,
+) -> Result<f32, AvengerTextError> {
+    Ok(typeset_line(
         typst,
         math,
         text,
@@ -215,8 +214,7 @@ fn measure_text_width_with_typst(
             positioned_runs: false,
         },
     )
-    .map(|result| result.artifact.metrics.width)
-    .unwrap_or_else(|_| fallback_text_bounds(text, font_size).width)
+    .map(|result| result.artifact.metrics.width)?)
 }
 
 pub(crate) struct TypesetLineResult {
@@ -230,8 +228,8 @@ pub(crate) fn typeset_line(
     text: &str,
     font: &str,
     font_size: f32,
-    font_weight: &FontWeight,
-    font_style: &FontStyle,
+    font_weight: FontWeight,
+    font_style: FontStyle,
     color: [f32; 4],
     outputs: avenger_typst::TextLineOutputRequest,
 ) -> Result<TypesetLineResult, avenger_typst::MathTypesetError> {
@@ -246,50 +244,22 @@ pub(crate) fn typeset_line(
         outputs.clone(),
     );
     let has_math_spans = contains_active_math_span(math, text);
-
-    match typst.typeset_text_line(text, &options) {
-        Ok(artifact) => Ok(TypesetLineResult {
+    typst
+        .typeset_text_line(text, &options)
+        .map(|artifact| TypesetLineResult {
             artifact,
             has_math_spans,
-        }),
-        Err(err) if should_retry_as_plain(math) => {
-            let plain_options = plain_text_line_options(
-                text,
-                font,
-                font_size,
-                font_weight,
-                font_style,
-                color,
-                outputs,
-            );
-            typst
-                .typeset_text_line(text, &plain_options)
-                .map(|artifact| TypesetLineResult {
-                    artifact,
-                    has_math_spans: false,
-                })
-                .map_err(|_| err)
-        }
-        Err(err) => Err(err),
-    }
-}
-
-fn should_retry_as_plain(math: &TextMarkupConfig) -> bool {
-    matches!(
-        math.error_policy,
-        TextMarkupErrorPolicy::TreatInvalidMathAsLiteral
-            | TextMarkupErrorPolicy::ErrorOnPathExtraction
-    )
+        })
 }
 
 fn truncate_raster_text(
     config: &TextRasterizationConfig,
-    measure_width: impl FnMut(&str) -> f32,
-) -> String {
+    measure_width: impl FnMut(&str) -> Result<f32, AvengerTextError>,
+) -> Result<String, AvengerTextError> {
     if config.limit.is_finite() {
         crate::measurement::truncate_text_to_limit_with(config.text, config.limit, measure_width)
     } else {
-        config.text.to_string()
+        Ok(config.text.to_string())
     }
 }
 
@@ -298,73 +268,12 @@ pub(crate) fn text_line_options(
     text: &str,
     font: &str,
     font_size: f32,
-    font_weight: &FontWeight,
-    font_style: &FontStyle,
+    font_weight: FontWeight,
+    font_style: FontStyle,
     color: [f32; 4],
     outputs: avenger_typst::TextLineOutputRequest,
 ) -> avenger_typst::TextLineOptions {
-    text_line_options_inner(
-        Some(math),
-        text,
-        font,
-        font_size,
-        font_weight,
-        font_style,
-        color,
-        outputs,
-    )
-}
-
-fn plain_text_line_options(
-    text: &str,
-    font: &str,
-    font_size: f32,
-    font_weight: &FontWeight,
-    font_style: &FontStyle,
-    color: [f32; 4],
-    outputs: avenger_typst::TextLineOutputRequest,
-) -> avenger_typst::TextLineOptions {
-    text_line_options_inner(
-        None,
-        text,
-        font,
-        font_size,
-        font_weight,
-        font_style,
-        color,
-        outputs,
-    )
-}
-
-fn text_line_options_inner(
-    math: Option<&TextMarkupConfig>,
-    text: &str,
-    font: &str,
-    font_size: f32,
-    font_weight: &FontWeight,
-    font_style: &FontStyle,
-    color: [f32; 4],
-    outputs: avenger_typst::TextLineOutputRequest,
-) -> avenger_typst::TextLineOptions {
-    let (delimiters, math_style, syntax, limits) = math
-        .map(|math| {
-            (
-                math.delimiters.clone(),
-                math.math_style.clone(),
-                math.syntax,
-                math.limits,
-            )
-        })
-        .unwrap_or_else(|| {
-            (
-                plain_text_delimiters(),
-                avenger_typst::MathStyle::default(),
-                avenger_typst::MathSyntaxMode::default(),
-                avenger_typst::MathLimits::default(),
-            )
-        });
-
-    let mut math_style = math_style;
+    let mut math_style = math.math_style.clone();
     math_style.font_size = font_size;
     math_style.fill = avenger_typst::Color::rgba(color[0], color[1], color[2], color[3]);
     let font_family = if font.trim().is_empty() {
@@ -379,22 +288,13 @@ fn text_line_options_inner(
             font_size,
             fill: avenger_typst::Color::rgba(color[0], color[1], color[2], color[3]),
             font_weight: typst_font_weight(font_weight),
-            font_style: typst_font_style(*font_style),
+            font_style: typst_font_style(font_style),
         },
         math_style,
         outputs,
-        delimiters,
-        syntax,
-        limits: limits_for_text(text, limits),
-    }
-}
-
-fn plain_text_delimiters() -> avenger_typst::MathDelimiterOptions {
-    avenger_typst::MathDelimiterOptions {
-        delimiter: '\0',
-        escape: None,
-        unmatched: avenger_typst::UnmatchedDelimiterPolicy::TreatAsLiteral,
-        allow_display_style: false,
+        delimiters: math.delimiters.clone(),
+        syntax: math.syntax,
+        limits: limits_for_text(text, math.limits),
     }
 }
 
@@ -462,13 +362,13 @@ fn typst_font_metrics(config: &FontMetricsConfig) -> FontMetrics {
 }
 
 fn embedded_atkinson_font_metrics(config: &FontMetricsConfig) -> Option<FontMetrics> {
-    let data = embedded_atkinson_face_data(config.font_weight, *config.font_style)?;
+    let data = embedded_atkinson_face_data(config.font_weight, config.font_style)?;
     let face = ttf_parser::Face::parse(data, 0).ok()?;
     Some(metrics_from_ttf_face(&face, config.font_size))
 }
 
 fn embedded_atkinson_face_data(
-    font_weight: &FontWeight,
+    font_weight: FontWeight,
     font_style: FontStyle,
 ) -> Option<&'static [u8]> {
     let target_weight = font_weight_number(font_weight);
@@ -508,7 +408,7 @@ fn atkinson_face_info(name: &str) -> Option<(u16, FontStyle)> {
     Some((weight, style))
 }
 
-fn font_weight_number(weight: &FontWeight) -> u16 {
+fn font_weight_number(weight: FontWeight) -> u16 {
     match weight {
         FontWeight::Name(FontWeightNameSpec::Normal) => 400,
         FontWeight::Name(FontWeightNameSpec::Bold) => 700,
@@ -534,6 +434,9 @@ fn metrics_from_ttf_face(face: &ttf_parser::Face<'_>, font_size: f32) -> FontMet
 }
 
 fn contains_active_math_span(math: &TextMarkupConfig, text: &str) -> bool {
+    if math.syntax == avenger_typst::MathSyntaxMode::PlainText {
+        return false;
+    }
     contains_delimited_span(text, &math.delimiters)
 }
 
@@ -594,18 +497,7 @@ fn next_char(text: &str, start: usize) -> Option<(usize, char)> {
         .map(|(offset, ch)| (start + offset, ch))
 }
 
-fn fallback_text_bounds(text: &str, font_size: f32) -> TextBounds {
-    let metrics = FontMetrics::fallback(font_size);
-    TextBounds {
-        width: text.chars().count() as f32 * font_size.max(1.0) * 0.6,
-        height: metrics.height,
-        ascent: metrics.ascent,
-        descent: metrics.descent,
-        line_height: metrics.line_height,
-    }
-}
-
-fn typst_font_weight(weight: &FontWeight) -> avenger_typst::FontWeight {
+fn typst_font_weight(weight: FontWeight) -> avenger_typst::FontWeight {
     match weight {
         FontWeight::Name(FontWeightNameSpec::Normal) => avenger_typst::FontWeight::Normal,
         FontWeight::Name(FontWeightNameSpec::Bold) => avenger_typst::FontWeight::Bold,
@@ -643,29 +535,14 @@ mod tests {
     static STYLE: FontStyle = FontStyle::Normal;
 
     #[test]
-    fn private_plain_retry_options_use_literal_dollars() {
-        let options = plain_text_line_options(
-            "Cost $5",
-            "sans-serif",
-            12.0,
-            &WEIGHT,
-            &STYLE,
-            [0.0, 0.0, 0.0, 1.0],
-            avenger_typst::TextLineOutputRequest::default(),
-        );
-
-        assert_eq!(options.delimiters.delimiter, '\0');
-    }
-
-    #[test]
     fn default_markup_uses_dollar_math_delimiters() {
         let options = text_line_options(
             &TextMarkupConfig::default(),
             "Cost $5",
             "sans-serif",
             12.0,
-            &WEIGHT,
-            &STYLE,
+            WEIGHT,
+            STYLE,
             [0.0, 0.0, 0.0, 1.0],
             avenger_typst::TextLineOutputRequest::default(),
         );
@@ -706,12 +583,30 @@ mod tests {
     }
 
     #[test]
+    fn plain_text_markup_measures_invalid_math_literal() {
+        let typst =
+            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap();
+        let measurer = TextLineMeasurer::new(typst, TextMarkupConfig::default().plain_text());
+        let bounds = measurer
+            .measure_text_bounds(&TextMeasurementConfig {
+                text: "before $x^$ after",
+                font: "sans-serif",
+                font_size: 14.0,
+                font_weight: WEIGHT,
+                font_style: STYLE,
+            })
+            .unwrap();
+
+        assert!(bounds.width > 0.0);
+    }
+
+    #[test]
     fn typst_font_metrics_use_embedded_face_metrics() {
         let metrics = typst_font_metrics(&FontMetricsConfig {
             font: "sans-serif",
             font_size: 16.0,
-            font_weight: &WEIGHT,
-            font_style: &STYLE,
+            font_weight: WEIGHT,
+            font_style: STYLE,
         });
 
         assert!(metrics.ascent > 0.0);
@@ -733,11 +628,11 @@ mod tests {
             .rasterize(
                 &TextRasterizationConfig {
                     text: &text,
-                    color: &color,
+                    color,
                     font: &font,
                     font_size: 12.0,
-                    font_weight: &WEIGHT,
-                    font_style: &STYLE,
+                    font_weight: WEIGHT,
+                    font_style: STYLE,
                     limit: f32::INFINITY,
                 },
                 1.0,
@@ -745,10 +640,10 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(buffer.glyphs.len(), 1);
-        assert!(buffer.glyphs[0].0.bbox.width > 1);
-        assert!(buffer.glyphs[0].0.bbox.height > 1);
-        assert!(buffer.glyphs[0].0.image.is_some());
+        assert_eq!(buffer.entries.len(), 1);
+        assert!(buffer.entries[0].0.bbox.width > 1);
+        assert!(buffer.entries[0].0.bbox.height > 1);
+        assert!(buffer.entries[0].0.image.is_some());
     }
 
     #[test]
@@ -764,11 +659,11 @@ mod tests {
             .rasterize(
                 &TextRasterizationConfig {
                     text: &text,
-                    color: &color,
+                    color,
                     font: &font,
                     font_size: 12.0,
-                    font_weight: &WEIGHT,
-                    font_style: &STYLE,
+                    font_weight: WEIGHT,
+                    font_style: STYLE,
                     limit: f32::INFINITY,
                 },
                 1.0,
@@ -776,7 +671,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(buffer.glyphs.is_empty());
+        assert!(buffer.entries.is_empty());
         assert_eq!(buffer.text_bounds.width, 0.0);
         assert_eq!(buffer.text_bounds.height, 12.0);
     }

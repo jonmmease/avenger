@@ -145,10 +145,10 @@ async fn measure_text_bounds(
         text: &text_value,
         font: &font_family,
         font_size,
-        font_weight: &FontWeight::Name(FontWeightNameSpec::Normal),
-        font_style: &FontStyle::Normal,
+        font_weight: FontWeight::Name(FontWeightNameSpec::Normal),
+        font_style: FontStyle::Normal,
     };
-    let bounds = eval_ctx.measure_text_bounds(&config);
+    let bounds = eval_ctx.measure_text_bounds(&config)?;
 
     Ok(bounds)
 }

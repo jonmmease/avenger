@@ -371,140 +371,137 @@ impl MarkGeometryUtils for SceneTextMark {
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
         let name = self.name.clone();
         let text_engine = avenger_text::default_text_engine();
-        Box::new(
-            izip!(
-                self.indices_iter(),
-                self.text_iter(),
-                self.target_position_iter(),
-                self.label_position_iter(),
-                self.defined_iter(),
-                self.angle_iter(),
-                self.font_iter(),
-                self.font_size_iter(),
-                self.font_weight_iter(),
-                self.font_style_iter(),
-                self.align_iter(),
-                self.baseline_iter(),
-                self.limit_iter(),
-                self.leader_iter(),
-                self.leader_stroke_width_iter(),
-                self.leader_label_padding_iter(),
-                self.leader_target_radius_iter(),
-                self.leader_min_length_iter(),
-                self.leader_shape_iter(),
-                self.leader_arrow_iter(),
-                self.leader_arrow_length_iter(),
-                self.leader_arrow_width_iter()
-            )
-            .enumerate()
-            .filter_map(
-                move |(
-                    z_index,
-                    (
-                        id,
-                        text,
+        let mut instances = Vec::new();
+        for (
+            z_index,
+            (
+                id,
+                text,
+                target,
+                label,
+                defined,
+                angle,
+                font,
+                font_size,
+                font_weight,
+                font_style,
+                align,
+                baseline,
+                limit,
+                leader,
+                leader_stroke_width,
+                leader_label_padding,
+                leader_target_radius,
+                leader_min_length,
+                leader_shape,
+                leader_arrow,
+                leader_arrow_length,
+                leader_arrow_width,
+            ),
+        ) in izip!(
+            self.indices_iter(),
+            self.text_iter(),
+            self.target_position_iter(),
+            self.label_position_iter(),
+            self.defined_iter(),
+            self.angle_iter(),
+            self.font_iter(),
+            self.font_size_iter(),
+            self.font_weight_iter(),
+            self.font_style_iter(),
+            self.align_iter(),
+            self.baseline_iter(),
+            self.limit_iter(),
+            self.leader_iter(),
+            self.leader_stroke_width_iter(),
+            self.leader_label_padding_iter(),
+            self.leader_target_radius_iter(),
+            self.leader_min_length_iter(),
+            self.leader_shape_iter(),
+            self.leader_arrow_iter(),
+            self.leader_arrow_length_iter(),
+            self.leader_arrow_width_iter()
+        )
+        .enumerate()
+        {
+            if !*defined {
+                continue;
+            }
+
+            let text = truncate_text_to_limit(
+                text,
+                *limit,
+                font,
+                *font_size,
+                font_weight,
+                font_style,
+                &text_engine,
+            );
+            let config = TextMeasurementConfig {
+                text: &text,
+                font,
+                font_size: *font_size,
+                font_weight: *font_weight,
+                font_style: *font_style,
+            };
+
+            let target = [target[0] + origin[0], target[1] + origin[1]];
+            let label = [label[0] + origin[0], label[1] + origin[1]];
+            let text_bounds = text_engine.measure_bounds_with_plain_fallback_or_approx(&config);
+            let local_origin = text_bounds.calculate_origin(label, align, baseline);
+
+            let bounds = Rect::new(
+                coord!(x: local_origin[0], y: local_origin[1]),
+                coord!(x: local_origin[0] + text_bounds.width, y: local_origin[1] + text_bounds.height),
+            );
+
+            let mut geometries = vec![Geometry::Rect(bounds)
+                .rotate_around_point(*angle, geo::Point::new(label[0], label[1]))];
+            let mut half_stroke_width: f32 = 1.0;
+
+            if *leader {
+                if let Some(leader_geometry) =
+                    compute_text_leader_geometry(TextLeaderGeometryInput {
                         target,
-                        label,
-                        defined,
-                        angle,
-                        font,
-                        font_size,
-                        font_weight,
-                        font_style,
+                        label_anchor: label,
+                        angle_degrees: *angle,
+                        text_bounds: &text_bounds,
                         align,
                         baseline,
-                        limit,
-                        leader,
-                        leader_stroke_width,
-                        leader_label_padding,
-                        leader_target_radius,
-                        leader_min_length,
-                        leader_shape,
-                        leader_arrow,
-                        leader_arrow_length,
-                        leader_arrow_width,
-                    ),
-                )| {
-                    if !*defined {
-                        return None;
-                    }
-
-                    let text = truncate_text_to_limit(
-                        text,
-                        *limit,
-                        font,
-                        *font_size,
-                        font_weight,
-                        font_style,
-                        &text_engine,
-                    );
-                    let config = TextMeasurementConfig {
-                        text: &text,
-                        font,
-                        font_size: *font_size,
-                        font_weight,
-                        font_style,
-                    };
-
-                    let target = [target[0] + origin[0], target[1] + origin[1]];
-                    let label = [label[0] + origin[0], label[1] + origin[1]];
-                    let text_bounds = text_engine.measure_bounds(&config);
-                    let local_origin = text_bounds.calculate_origin(label, align, baseline);
-
-                    let bounds = Rect::new(
-                        coord!(x: local_origin[0], y: local_origin[1]),
-                        coord!(x: local_origin[0] + text_bounds.width, y: local_origin[1] + text_bounds.height),
-                    );
-
-                    let mut geometries = vec![
-                        Geometry::Rect(bounds)
-                            .rotate_around_point(*angle, geo::Point::new(label[0], label[1])),
-                    ];
-                    let mut half_stroke_width: f32 = 1.0;
-
-                    if *leader {
-                        if let Some(leader_geometry) =
-                            compute_text_leader_geometry(TextLeaderGeometryInput {
-                                target,
-                                label_anchor: label,
-                                angle_degrees: *angle,
-                                text_bounds: &text_bounds,
-                                align,
-                                baseline,
-                                label_padding: *leader_label_padding,
-                                target_radius: *leader_target_radius,
-                                min_length: *leader_min_length,
-                                shape: *leader_shape,
-                                arrow: *leader_arrow,
-                                arrow_length: *leader_arrow_length,
-                                arrow_width: *leader_arrow_width,
-                            })
-                        {
-                            geometries.extend(text_leader_geometry_to_geo(&leader_geometry));
-                            half_stroke_width = half_stroke_width.max(*leader_stroke_width / 2.0);
-                        }
-                    }
-
-                    let geometry = if geometries.len() == 1 {
-                        geometries.pop().unwrap()
-                    } else {
-                        Geometry::GeometryCollection(GeometryCollection(geometries))
-                    };
-
-                    Some(GeometryInstance {
-                        mark_instance: MarkInstance {
-                            name: name.clone(),
-                        mark_path: mark_path.clone(),
-                        instance_index: Some(id),
-                    },
-                        interactive: self.interactive,
-                        z_index,
-                        geometry,
-                        half_stroke_width,
+                        label_padding: *leader_label_padding,
+                        target_radius: *leader_target_radius,
+                        min_length: *leader_min_length,
+                        shape: *leader_shape,
+                        arrow: *leader_arrow,
+                        arrow_length: *leader_arrow_length,
+                        arrow_width: *leader_arrow_width,
                     })
+                {
+                    geometries.extend(text_leader_geometry_to_geo(&leader_geometry));
+                    half_stroke_width = half_stroke_width.max(*leader_stroke_width / 2.0);
+                }
+            }
+
+            let geometry = if geometries.len() == 1 {
+                geometries.pop().unwrap()
+            } else {
+                Geometry::GeometryCollection(GeometryCollection(geometries))
+            };
+
+            instances.push(GeometryInstance {
+                mark_instance: MarkInstance {
+                    name: name.clone(),
+                    mark_path: mark_path.clone(),
+                    instance_index: Some(id),
                 },
-            ),
-        )
+                interactive: self.interactive,
+                z_index,
+                geometry,
+                half_stroke_width,
+            });
+        }
+
+        Box::new(instances.into_iter())
     }
 }
 
@@ -517,16 +514,25 @@ fn truncate_text_to_limit(
     font_style: &avenger_text::types::FontStyle,
     text_engine: &TextEngine,
 ) -> String {
+    if !limit.is_finite() {
+        return text.to_string();
+    }
+
     truncate_text_to_limit_with(text, limit, |candidate| {
         let config = TextMeasurementConfig {
             text: candidate,
             font,
             font_size,
-            font_weight,
-            font_style,
+            font_weight: *font_weight,
+            font_style: *font_style,
         };
-        text_engine.measure_bounds(&config).width
+        Ok::<_, std::convert::Infallible>(
+            text_engine
+                .measure_bounds_with_plain_fallback_or_approx(&config)
+                .width,
+        )
     })
+    .unwrap_or_else(|_| text.to_string())
 }
 
 fn text_leader_geometry_to_geo(geometry: &TextLeaderGeometry) -> Vec<Geometry<f32>> {
@@ -610,20 +616,14 @@ impl MarkGeometryUtils for SceneGroup {
         mark_path: Vec<usize>,
         origin: [f32; 2],
     ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
-        Box::new(
-            self.marks
-                .iter()
-                .enumerate()
-                .flat_map(move |(mark_index, mark)| {
-                    // Build up the mark path
-                    let mut mark_path = mark_path.clone();
-                    mark_path.push(mark_index);
-
-                    // Compute absolute origin for group
-                    let origin = [origin[0] + self.origin[0], origin[1] + self.origin[1]];
-                    mark.geometry_iter(mark_path, origin)
-                }),
-        )
+        let mut instances = Vec::new();
+        for (mark_index, mark) in self.marks.iter().enumerate() {
+            let mut mark_path = mark_path.clone();
+            mark_path.push(mark_index);
+            let origin = [origin[0] + self.origin[0], origin[1] + self.origin[1]];
+            instances.extend(mark.geometry_iter(mark_path, origin));
+        }
+        Box::new(instances.into_iter())
     }
 
     fn bounding_box(&self) -> AABB<[f32; 2]> {
