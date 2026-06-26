@@ -39,5 +39,14 @@ default-features = false
 [dev-dependencies.pdf-extract]
 version = "0.10.0"
 
+[dev-dependencies.avenger-pdf]
+path = "../avenger-pdf"
+
+[dev-dependencies.image]
+workspace = true
+
+[dev-dependencies.pdfium-render]
+workspace = true
+
 [dev-dependencies.tempfile]
 version = "3.14"

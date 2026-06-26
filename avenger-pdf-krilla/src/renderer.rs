@@ -1271,19 +1271,37 @@ fn text_leader_arrowhead_path(arrowhead: &TextLeaderArrowhead) -> LyonPath {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        path::{Path, PathBuf},
+        sync::Mutex,
+    };
+
     use avenger_color::{ColorOrGradient, Gradient, GradientStop, LinearGradient};
     use avenger_common::{
-        types::{ImageAlign, ImageBaseline},
+        types::{
+            ImageAlign, ImageBaseline, SceneTextLeaderArrow, SceneTextLeaderShape, StrokeCap,
+            StrokeJoin, SymbolShape,
+        },
         value::ScalarOrArray,
     };
     use avenger_image::RgbaImage;
+    use avenger_scenegraph::marks::rule::SceneRuleMark;
     use avenger_scenegraph::marks::{
         group::{Clip, SceneGroup},
         image::{SceneImageMark, SceneImageSource},
         rect::SceneRectMark,
+        symbol::SceneSymbolMark,
         text::SceneTextMark,
     };
     use avenger_text::types::{TextAlign, TextBaseline};
+    use avenger_text::{FontResolutionOptions, MissingFontPolicy};
+    use pdfium_render::prelude::{PdfRenderConfig, Pdfium, PdfiumError};
+
+    const PARITY_ENV: &str = "AVENGER_PDF_KRILLA_PARITY";
+    const PDFIUM_LIBRARY_PATH_ENV: &str = "AVENGER_PDF_KRILLA_PDFIUM_LIBRARY_PATH";
+    const CHART_PDFIUM_LIBRARY_PATH_ENV: &str = "AVENGER_CHART_PDFIUM_LIBRARY_PATH";
+    const PARITY_SCALE: f32 = 2.0;
+    static PDFIUM_RENDER_LOCK: Mutex<()> = Mutex::new(());
 
     fn empty_scene_graph(width: f32, height: f32) -> SceneGraph {
         SceneGraph {
@@ -1500,5 +1518,596 @@ mod tests {
 
         assert!(extracted.contains("שלום"), "{extracted:?}");
         assert!(extracted.contains("नमस्ते"), "{extracted:?}");
+    }
+
+    #[test]
+    fn side_by_side_pdfium_parity_fixtures_when_enabled() {
+        if !parity_enabled() {
+            eprintln!("skipping PDF krilla parity fixtures; set {PARITY_ENV}=1 to run");
+            return;
+        }
+
+        let fixtures = parity_fixtures();
+        for fixture in fixtures {
+            let direct_pdf = PdfRenderer::new()
+                .with_options(fixture.direct_options())
+                .render_scene_graph(&fixture.scene_graph)
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "direct krilla PDF render failed for {}: {err}",
+                        fixture.name
+                    )
+                });
+            let legacy_pdf = avenger_pdf::PdfRenderer::new()
+                .with_options(fixture.legacy_options())
+                .render_scene_graph(&fixture.scene_graph)
+                .unwrap_or_else(|err| {
+                    panic!("legacy svg2pdf render failed for {}: {err}", fixture.name)
+                });
+
+            assert_pdf_extracts(fixture.name, "direct", &direct_pdf, fixture.direct_text);
+            assert_pdf_extracts(fixture.name, "legacy", &legacy_pdf, fixture.legacy_text);
+
+            let direct_image = rasterize_pdf_with_pdfium(
+                &direct_pdf,
+                fixture.scene_graph.width,
+                fixture.scene_graph.height,
+            )
+            .unwrap_or_else(|err| {
+                panic!("direct PDFium raster failed for {}: {err}", fixture.name)
+            });
+            let legacy_image = rasterize_pdf_with_pdfium(
+                &legacy_pdf,
+                fixture.scene_graph.width,
+                fixture.scene_graph.height,
+            )
+            .unwrap_or_else(|err| {
+                panic!("legacy PDFium raster failed for {}: {err}", fixture.name)
+            });
+
+            let diff = image_diff_summary(&direct_image, &legacy_image);
+            if !diff.within(fixture.tolerance) {
+                save_parity_artifacts(
+                    fixture.name,
+                    &direct_pdf,
+                    &legacy_pdf,
+                    &direct_image,
+                    &legacy_image,
+                )
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "failed to save parity failure artifacts for {}: {err}",
+                        fixture.name
+                    )
+                });
+                panic!(
+                    "PDF krilla parity fixture '{}' exceeded tolerance: {:?}, tolerance {:?}. Artifacts saved under {}",
+                    fixture.name,
+                    diff,
+                    fixture.tolerance,
+                    parity_output_dir(fixture.name).display()
+                );
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct ParityFixture {
+        name: &'static str,
+        scene_graph: SceneGraph,
+        tolerance: DiffTolerance,
+        direct_text: &'static [&'static str],
+        legacy_text: &'static [&'static str],
+    }
+
+    impl ParityFixture {
+        fn direct_options(&self) -> PdfRenderOptions {
+            PdfRenderOptions {
+                compress: false,
+                font_resolution: parity_font_resolution(),
+                ..Default::default()
+            }
+        }
+
+        fn legacy_options(&self) -> avenger_pdf::PdfRenderOptions {
+            avenger_pdf::PdfRenderOptions {
+                compress: false,
+                font_resolution: parity_font_resolution(),
+                ..Default::default()
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct DiffTolerance {
+        max_mean_channel_abs_diff: f64,
+        max_changed_pixel_fraction: f64,
+        max_channel_abs_diff: u8,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct ImageDiffSummary {
+        mean_channel_abs_diff: f64,
+        changed_pixel_fraction: f64,
+        max_channel_abs_diff: u8,
+    }
+
+    impl ImageDiffSummary {
+        fn within(self, tolerance: DiffTolerance) -> bool {
+            self.mean_channel_abs_diff <= tolerance.max_mean_channel_abs_diff
+                && self.changed_pixel_fraction <= tolerance.max_changed_pixel_fraction
+                && self.max_channel_abs_diff <= tolerance.max_channel_abs_diff
+        }
+    }
+
+    fn parity_enabled() -> bool {
+        std::env::var(PARITY_ENV)
+            .map(|value| {
+                matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false)
+    }
+
+    fn parity_font_resolution() -> FontResolutionOptions {
+        FontResolutionOptions {
+            load_system_fonts: true,
+            missing_font: MissingFontPolicy::Fallback,
+            ..Default::default()
+        }
+    }
+
+    fn parity_fixtures() -> Vec<ParityFixture> {
+        vec![
+            ParityFixture {
+                name: "vector_gradient_clip_image",
+                scene_graph: vector_gradient_clip_image_scene_graph(),
+                tolerance: DiffTolerance {
+                    max_mean_channel_abs_diff: 4.0,
+                    max_changed_pixel_fraction: 0.25,
+                    max_channel_abs_diff: 255,
+                },
+                direct_text: &[],
+                legacy_text: &[],
+            },
+            ParityFixture {
+                name: "mixed_text_math_emoji_markup",
+                scene_graph: mixed_text_math_emoji_markup_scene_graph(),
+                tolerance: DiffTolerance {
+                    max_mean_channel_abs_diff: 10.0,
+                    max_changed_pixel_fraction: 0.22,
+                    max_channel_abs_diff: 255,
+                },
+                direct_text: &["Price", "0.94", "😀"],
+                legacy_text: &["Price", "0.94"],
+            },
+            ParityFixture {
+                name: "rotated_leader_zorder",
+                scene_graph: rotated_leader_zorder_scene_graph(),
+                tolerance: DiffTolerance {
+                    max_mean_channel_abs_diff: 10.0,
+                    max_changed_pixel_fraction: 0.22,
+                    max_channel_abs_diff: 255,
+                },
+                direct_text: &["covered"],
+                legacy_text: &["covered"],
+            },
+        ]
+    }
+
+    fn vector_gradient_clip_image_scene_graph() -> SceneGraph {
+        let gradient = Gradient::LinearGradient(LinearGradient {
+            x0: 0.0,
+            y0: 0.0,
+            x1: 1.0,
+            y1: 1.0,
+            stops: vec![
+                GradientStop {
+                    offset: 0.0,
+                    color: [0.1, 0.45, 0.9, 1.0],
+                },
+                GradientStop {
+                    offset: 1.0,
+                    color: [0.9, 0.35, 0.1, 1.0],
+                },
+            ],
+        });
+        let image = RgbaImage {
+            width: 3,
+            height: 3,
+            data: vec![
+                20, 60, 160, 255, 80, 190, 120, 255, 250, 220, 80, 255, 210, 45, 45, 255, 245, 245,
+                245, 255, 45, 130, 210, 255, 80, 190, 120, 255, 35, 35, 35, 255, 220, 90, 160, 255,
+            ],
+        };
+        let clipped_rect = SceneRectMark {
+            x: ScalarOrArray::new_scalar(12.0),
+            y: ScalarOrArray::new_scalar(12.0),
+            width: Some(ScalarOrArray::new_scalar(92.0)),
+            height: Some(ScalarOrArray::new_scalar(54.0)),
+            gradients: vec![gradient],
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::GradientIndex(0)),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.05, 0.05, 0.05, 0.9])),
+            stroke_width: ScalarOrArray::new_scalar(1.5),
+            ..Default::default()
+        };
+        let image_mark = SceneImageMark {
+            image: ScalarOrArray::new_scalar(SceneImageSource::inline(image)),
+            x: ScalarOrArray::new_scalar(116.0),
+            y: ScalarOrArray::new_scalar(16.0),
+            width: ScalarOrArray::new_scalar(42.0),
+            height: ScalarOrArray::new_scalar(42.0),
+            align: ScalarOrArray::new_scalar(ImageAlign::Left),
+            baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+            ..Default::default()
+        };
+
+        SceneGraph {
+            width: 180.0,
+            height: 90.0,
+            origin: [0.0, 0.0],
+            marks: vec![
+                SceneGroup {
+                    clip: Clip::Rect {
+                        x: 8.0,
+                        y: 8.0,
+                        width: 100.0,
+                        height: 62.0,
+                    },
+                    marks: vec![clipped_rect.into()],
+                    ..Default::default()
+                }
+                .into(),
+                SceneRuleMark {
+                    x: ScalarOrArray::new_scalar(10.0),
+                    y: ScalarOrArray::new_scalar(76.0),
+                    x2: ScalarOrArray::new_scalar(166.0),
+                    y2: ScalarOrArray::new_scalar(76.0),
+                    stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.1, 0.1, 0.1, 1.0])),
+                    stroke_width: ScalarOrArray::new_scalar(2.0),
+                    stroke_cap: ScalarOrArray::new_scalar(StrokeCap::Round),
+                    ..Default::default()
+                }
+                .into(),
+                SceneSymbolMark {
+                    shapes: vec![SymbolShape::Circle],
+                    x: ScalarOrArray::new_scalar(88.0),
+                    y: ScalarOrArray::new_scalar(76.0),
+                    size: ScalarOrArray::new_scalar(160.0),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([
+                        0.05, 0.65, 0.45, 1.0,
+                    ])),
+                    stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0])),
+                    stroke_width: Some(1.2),
+                    ..Default::default()
+                }
+                .into(),
+                image_mark.into(),
+            ],
+        }
+    }
+
+    fn mixed_text_math_emoji_markup_scene_graph() -> SceneGraph {
+        SceneGraph {
+            width: 320.0,
+            height: 92.0,
+            origin: [0.0, 0.0],
+            marks: vec![
+                SceneTextMark {
+                    text: ScalarOrArray::new_scalar(
+                        "Price \\$7, score $R^2$ = 0.94 #emoji.face".to_string(),
+                    ),
+                    x: ScalarOrArray::new_scalar(12.0),
+                    y: ScalarOrArray::new_scalar(32.0),
+                    font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                    font_size: ScalarOrArray::new_scalar(18.0),
+                    limit: ScalarOrArray::new_scalar(f32::INFINITY),
+                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color([
+                        0.02, 0.04, 0.09, 1.0,
+                    ])),
+                    ..Default::default()
+                }
+                .into(),
+                SceneTextMark {
+                    text: ScalarOrArray::new_scalar(
+                        "#underline[important] #strike[old] H#sub[2]O".to_string(),
+                    ),
+                    x: ScalarOrArray::new_scalar(12.0),
+                    y: ScalarOrArray::new_scalar(66.0),
+                    font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                    font_size: ScalarOrArray::new_scalar(16.0),
+                    limit: ScalarOrArray::new_scalar(f32::INFINITY),
+                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.1, 0.1, 0.1, 1.0])),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+        }
+    }
+
+    fn rotated_leader_zorder_scene_graph() -> SceneGraph {
+        SceneGraph {
+            width: 190.0,
+            height: 120.0,
+            origin: [0.0, 0.0],
+            marks: vec![
+                SceneRectMark {
+                    x: ScalarOrArray::new_scalar(6.0),
+                    y: ScalarOrArray::new_scalar(6.0),
+                    width: Some(ScalarOrArray::new_scalar(178.0)),
+                    height: Some(ScalarOrArray::new_scalar(108.0)),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([
+                        0.98, 0.98, 0.96, 1.0,
+                    ])),
+                    stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([
+                        0.78, 0.78, 0.72, 1.0,
+                    ])),
+                    stroke_width: ScalarOrArray::new_scalar(1.0),
+                    ..Default::default()
+                }
+                .into(),
+                SceneTextMark {
+                    text: ScalarOrArray::new_scalar("covered label".to_string()),
+                    x: ScalarOrArray::new_scalar(30.0),
+                    y: ScalarOrArray::new_scalar(86.0),
+                    dx: ScalarOrArray::new_scalar(70.0),
+                    dy: ScalarOrArray::new_scalar(-44.0),
+                    font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                    font_size: ScalarOrArray::new_scalar(15.0),
+                    limit: ScalarOrArray::new_scalar(f32::INFINITY),
+                    angle: ScalarOrArray::new_scalar(-18.0),
+                    leader: ScalarOrArray::new_scalar(true),
+                    leader_stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([
+                        0.0, 0.25, 0.7, 1.0,
+                    ])),
+                    leader_stroke_width: ScalarOrArray::new_scalar(1.4),
+                    leader_stroke_cap: ScalarOrArray::new_scalar(StrokeCap::Round),
+                    leader_stroke_join: ScalarOrArray::new_scalar(StrokeJoin::Round),
+                    leader_shape: ScalarOrArray::new_scalar(SceneTextLeaderShape::Curved),
+                    leader_arrow: ScalarOrArray::new_scalar(SceneTextLeaderArrow::Triangle),
+                    color: ScalarOrArray::new_scalar(ColorOrGradient::Color([
+                        0.03, 0.03, 0.04, 1.0,
+                    ])),
+                    zindex: Some(1),
+                    ..Default::default()
+                }
+                .into(),
+                SceneRectMark {
+                    x: ScalarOrArray::new_scalar(104.0),
+                    y: ScalarOrArray::new_scalar(30.0),
+                    width: Some(ScalarOrArray::new_scalar(54.0)),
+                    height: Some(ScalarOrArray::new_scalar(20.0)),
+                    fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([
+                        0.85, 0.12, 0.12, 0.86,
+                    ])),
+                    stroke_width: ScalarOrArray::new_scalar(0.0),
+                    zindex: Some(2),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+        }
+    }
+
+    fn assert_pdf_extracts(
+        fixture: &str,
+        renderer: &str,
+        pdf: &[u8],
+        expected_substrings: &[&str],
+    ) {
+        if expected_substrings.is_empty() {
+            return;
+        }
+
+        let extracted = pdf_extract::extract_text_from_mem(pdf).unwrap_or_else(|err| {
+            panic!("{renderer} text extraction failed for {fixture}: {err}");
+        });
+        let compact_extracted = extracted
+            .chars()
+            .filter(|ch| !ch.is_whitespace())
+            .collect::<String>();
+        for expected in expected_substrings {
+            let compact_expected = expected
+                .chars()
+                .filter(|ch| !ch.is_whitespace())
+                .collect::<String>();
+            assert!(
+                extracted.contains(expected) || compact_extracted.contains(&compact_expected),
+                "{renderer} PDF extraction for {fixture} missing {expected:?}; extracted {extracted:?}"
+            );
+        }
+    }
+
+    fn bind_pdfium() -> Result<Pdfium, String> {
+        for env_var in [PDFIUM_LIBRARY_PATH_ENV, CHART_PDFIUM_LIBRARY_PATH_ENV] {
+            if let Some(path) = std::env::var_os(env_var) {
+                return bind_pdfium_path(absolute_pdfium_path(PathBuf::from(path)), env_var);
+            }
+        }
+
+        let scratch_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("scratch/pdfium/lib/libpdfium.dylib");
+        if scratch_path.exists() {
+            return bind_pdfium_path(scratch_path, "scratch/pdfium");
+        }
+
+        match Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./")) {
+            Ok(bindings) => Ok(Pdfium::new(bindings)),
+            Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Ok(Pdfium::default()),
+            Err(local_err) => match Pdfium::bind_to_system_library() {
+                Ok(bindings) => Ok(Pdfium::new(bindings)),
+                Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Ok(Pdfium::default()),
+                Err(system_err) => Err(format!(
+                    "failed to bind PDFium beside the test binary: {local_err}; failed to bind system PDFium: {system_err}; set {PDFIUM_LIBRARY_PATH_ENV}=/path/to/libpdfium.dylib"
+                )),
+            },
+        }
+    }
+
+    fn bind_pdfium_path(path: PathBuf, source: &str) -> Result<Pdfium, String> {
+        match Pdfium::bind_to_library(&path) {
+            Ok(bindings) => Ok(Pdfium::new(bindings)),
+            Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Ok(Pdfium::default()),
+            Err(err) => Err(format!(
+                "failed to bind PDFium from {source} path {}: {err}",
+                path.display()
+            )),
+        }
+    }
+
+    fn absolute_pdfium_path(path: PathBuf) -> PathBuf {
+        if path.is_absolute() {
+            return path;
+        }
+        let workspace_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(&path);
+        if workspace_path.exists() {
+            return workspace_path;
+        }
+        std::env::current_dir()
+            .map(|cwd| cwd.join(&path))
+            .unwrap_or(path)
+    }
+
+    fn scaled_pdf_dimension(value: f32, axis: &str) -> Result<i32, String> {
+        if !value.is_finite() || value <= 0.0 {
+            return Err(format!("invalid PDF {axis} dimension: {value}"));
+        }
+
+        let pixels = (value * PARITY_SCALE).ceil();
+        if pixels > i32::MAX as f32 {
+            return Err(format!(
+                "PDF {axis} dimension {pixels} exceeds PDFium limits"
+            ));
+        }
+
+        Ok(pixels as i32)
+    }
+
+    fn rasterize_pdf_with_pdfium(
+        pdf: &[u8],
+        scene_width: f32,
+        scene_height: f32,
+    ) -> Result<image::RgbaImage, String> {
+        let width = scaled_pdf_dimension(scene_width, "width")?;
+        let height = scaled_pdf_dimension(scene_height, "height")?;
+        let _guard = PDFIUM_RENDER_LOCK
+            .lock()
+            .map_err(|_| "PDFium render lock was poisoned".to_string())?;
+        let pdfium = bind_pdfium()?;
+        let document = pdfium
+            .load_pdf_from_byte_vec(pdf.to_vec(), None)
+            .map_err(|err| format!("failed to load generated PDF with PDFium: {err}"))?;
+        let page_count = document.pages().len();
+        if page_count != 1 {
+            return Err(format!(
+                "expected generated PDF to contain one page, found {page_count}"
+            ));
+        }
+        let page = document
+            .pages()
+            .get(0)
+            .map_err(|err| format!("failed to access generated PDF page: {err}"))?;
+        let bitmap = page
+            .render_with_config(&PdfRenderConfig::new().set_fixed_size(width, height))
+            .map_err(|err| format!("failed to rasterize generated PDF with PDFium: {err}"))?;
+        if bitmap.width() != width || bitmap.height() != height {
+            return Err(format!(
+                "PDFium raster dimensions differ. Expected ({width}, {height}), got ({}, {}).",
+                bitmap.width(),
+                bitmap.height()
+            ));
+        }
+        Ok(bitmap
+            .as_image()
+            .map_err(|err| format!("failed to convert PDFium bitmap to image: {err}"))?
+            .into_rgba8())
+    }
+
+    fn image_diff_summary(a: &image::RgbaImage, b: &image::RgbaImage) -> ImageDiffSummary {
+        assert_eq!(a.dimensions(), b.dimensions(), "PDFium raster dimensions");
+
+        let mut total_abs_diff = 0u64;
+        let mut changed_pixels = 0u64;
+        let mut max_channel_abs_diff = 0u8;
+        for (a_pixel, b_pixel) in a.as_raw().chunks_exact(4).zip(b.as_raw().chunks_exact(4)) {
+            let mut pixel_changed = false;
+            for (a_channel, b_channel) in a_pixel.iter().zip(b_pixel.iter()) {
+                let diff = a_channel.abs_diff(*b_channel);
+                total_abs_diff += u64::from(diff);
+                max_channel_abs_diff = max_channel_abs_diff.max(diff);
+                if diff > 8 {
+                    pixel_changed = true;
+                }
+            }
+            if pixel_changed {
+                changed_pixels += 1;
+            }
+        }
+
+        let total_pixels = u64::from(a.width()) * u64::from(a.height());
+        let total_channels = total_pixels * 4;
+        ImageDiffSummary {
+            mean_channel_abs_diff: total_abs_diff as f64 / total_channels as f64,
+            changed_pixel_fraction: changed_pixels as f64 / total_pixels as f64,
+            max_channel_abs_diff,
+        }
+    }
+
+    fn save_parity_artifacts(
+        fixture: &str,
+        direct_pdf: &[u8],
+        legacy_pdf: &[u8],
+        direct_image: &image::RgbaImage,
+        legacy_image: &image::RgbaImage,
+    ) -> Result<(), String> {
+        let output_dir = parity_output_dir(fixture);
+        std::fs::create_dir_all(&output_dir)
+            .map_err(|err| format!("failed to create {}: {err}", output_dir.display()))?;
+        std::fs::write(output_dir.join("direct-krilla.pdf"), direct_pdf)
+            .map_err(|err| format!("failed to write direct PDF: {err}"))?;
+        std::fs::write(output_dir.join("legacy-svg2pdf.pdf"), legacy_pdf)
+            .map_err(|err| format!("failed to write legacy PDF: {err}"))?;
+        direct_image
+            .save(output_dir.join("direct-krilla.png"))
+            .map_err(|err| format!("failed to write direct PNG: {err}"))?;
+        legacy_image
+            .save(output_dir.join("legacy-svg2pdf.png"))
+            .map_err(|err| format!("failed to write legacy PNG: {err}"))?;
+        diff_image(direct_image, legacy_image)
+            .save(output_dir.join("diff.png"))
+            .map_err(|err| format!("failed to write diff PNG: {err}"))?;
+        Ok(())
+    }
+
+    fn parity_output_dir(fixture: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("target/tests/pdf_krilla_parity")
+            .join(fixture)
+    }
+
+    fn diff_image(a: &image::RgbaImage, b: &image::RgbaImage) -> image::RgbaImage {
+        assert_eq!(a.dimensions(), b.dimensions(), "PDFium raster dimensions");
+        let mut output = image::RgbaImage::new(a.width(), a.height());
+        for ((out, a_pixel), b_pixel) in output
+            .as_mut()
+            .chunks_exact_mut(4)
+            .zip(a.as_raw().chunks_exact(4))
+            .zip(b.as_raw().chunks_exact(4))
+        {
+            out[0] = a_pixel[0].abs_diff(b_pixel[0]).saturating_mul(4);
+            out[1] = a_pixel[1].abs_diff(b_pixel[1]).saturating_mul(4);
+            out[2] = a_pixel[2].abs_diff(b_pixel[2]).saturating_mul(4);
+            out[3] = 255;
+        }
+        output
     }
 }
