@@ -101,6 +101,7 @@ struct LaidOutMathAtom {
     italic_correction: f32,
     glyphs: Vec<LaidOutGlyph>,
     shapes: Vec<LaidOutShape>,
+    draw_order: Vec<LaidOutDrawItem>,
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +120,12 @@ struct LaidOutShape {
     x: f32,
     y: f32,
     stroke_width: f32,
+}
+
+#[derive(Debug, Clone)]
+enum LaidOutDrawItem {
+    Glyph(usize),
+    Shape(usize),
 }
 
 struct OwnedPdfArtifact {
@@ -213,9 +220,9 @@ fn layout_simple_nodes_as_atom(
         .fold(0.0, f32::max);
     let mut glyphs = Vec::new();
     let mut shapes = Vec::new();
-    for mut atom in laid_out_atoms {
-        glyphs.append(&mut atom.glyphs);
-        shapes.append(&mut atom.shapes);
+    let mut draw_order = Vec::new();
+    for atom in laid_out_atoms {
+        append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, atom);
     }
 
     Ok(Some(LaidOutMathAtom {
@@ -226,6 +233,7 @@ fn layout_simple_nodes_as_atom(
         italic_correction: 0.0,
         glyphs,
         shapes,
+        draw_order,
     }))
 }
 
@@ -240,6 +248,22 @@ fn offset_atom(atom: &mut LaidOutMathAtom, dx: f32, dy: f32) {
     }
 }
 
+fn append_atom_items(
+    glyphs: &mut Vec<LaidOutGlyph>,
+    shapes: &mut Vec<LaidOutShape>,
+    draw_order: &mut Vec<LaidOutDrawItem>,
+    mut atom: LaidOutMathAtom,
+) {
+    let glyph_offset = glyphs.len();
+    let shape_offset = shapes.len();
+    draw_order.extend(atom.draw_order.iter().map(|item| match *item {
+        LaidOutDrawItem::Glyph(index) => LaidOutDrawItem::Glyph(glyph_offset + index),
+        LaidOutDrawItem::Shape(index) => LaidOutDrawItem::Shape(shape_offset + index),
+    }));
+    glyphs.append(&mut atom.glyphs);
+    shapes.append(&mut atom.shapes);
+}
+
 fn layout_simple_node(
     font: &OwnedMathFont,
     node: &OwnedMathNode,
@@ -251,7 +275,7 @@ fn layout_simple_node(
             font,
             &atom.styled_text,
             font_size,
-            script_level > 0,
+            script_style_feature(script_level),
             atom.class,
         )?;
         return Ok(Some(layout));
@@ -265,7 +289,92 @@ fn layout_simple_node(
         return layout_simple_fraction(font, fraction, font_size, script_level);
     }
 
+    if let OwnedMathNode::Call(call) = node {
+        if call.name == "sqrt" {
+            return layout_simple_sqrt(font, call, font_size, script_level);
+        }
+    }
+
     Ok(None)
+}
+
+fn layout_simple_sqrt(
+    font: &OwnedMathFont,
+    call: &super::ast::OwnedMathCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let Some(mut radicand) =
+        layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    else {
+        return Ok(None);
+    };
+    let mut sqrt = layout_styled_atom_with_class(
+        font,
+        "√",
+        font_size,
+        script_style_feature(script_level),
+        SimpleMathClass::Opening,
+    )?;
+
+    let thickness = math_constant(font, font_size, |constants| {
+        constants.radical_rule_thickness().value
+    })?;
+    let extra_ascender = math_constant(font, font_size, |constants| {
+        constants.radical_extra_ascender().value
+    })?;
+    let mut gap = math_constant(font, font_size, |constants| {
+        constants.radical_vertical_gap().value
+    })?;
+
+    let radicand_height = radicand.ink_ascent + radicand.ink_descent;
+    let sqrt_height = sqrt.ink_ascent + sqrt.ink_descent;
+    gap = gap.max((sqrt_height - thickness - radicand_height + gap) / 2.0);
+
+    let sqrt_ascent = radicand.ink_ascent + gap + thickness;
+    let descent = sqrt_height - sqrt_ascent;
+    let ascent = sqrt_ascent + extra_ascender;
+    let sqrt_width = sqrt.metrics.width;
+    let line_width = radicand.metrics.width;
+    let radicand_x = sqrt_width;
+    let radicand_y = ascent - radicand.ink_ascent;
+    let sqrt_y = radicand_y - gap - thickness;
+    let line_y = radicand_y - gap - thickness / 2.0;
+    let width = radicand_x + line_width;
+    let height = ascent + descent;
+
+    let sqrt_dy = sqrt_y + sqrt.ink_ascent - sqrt.metrics.baseline;
+    let radicand_dy = radicand_y + radicand.ink_ascent - radicand.metrics.baseline;
+    offset_atom(&mut sqrt, 0.0, sqrt_dy);
+    offset_atom(&mut radicand, radicand_x, radicand_dy);
+
+    let mut glyphs = Vec::new();
+    let mut shapes = Vec::new();
+    let mut draw_order = Vec::new();
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, sqrt);
+    shapes.push(LaidOutShape {
+        path: MathPathData {
+            commands: vec![
+                MathPathCommand::MoveTo { x: 0.0, y: 0.0 },
+                MathPathCommand::LineTo {
+                    x: line_width,
+                    y: 0.0,
+                },
+            ],
+        },
+        x: radicand_x,
+        y: line_y,
+        stroke_width: thickness,
+    });
+    draw_order.push(LaidOutDrawItem::Shape(shapes.len() - 1));
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, radicand);
+
+    finalize_inline_frame_atom(
+        width, height, ascent, glyphs, shapes, draw_order, font, font_size,
+    )
 }
 
 fn layout_simple_fraction(
@@ -333,11 +442,10 @@ fn layout_simple_fraction(
     offset_atom(&mut denominator, denominator_x, denominator_dy);
 
     let mut glyphs = Vec::new();
-    glyphs.append(&mut numerator.glyphs);
-    glyphs.append(&mut denominator.glyphs);
     let mut shapes = Vec::new();
-    shapes.append(&mut numerator.shapes);
-    shapes.append(&mut denominator.shapes);
+    let mut draw_order = Vec::new();
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, numerator);
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, denominator);
     shapes.push(LaidOutShape {
         path: MathPathData {
             commands: vec![
@@ -352,7 +460,23 @@ fn layout_simple_fraction(
         y: line_y,
         stroke_width: thickness,
     });
+    draw_order.push(LaidOutDrawItem::Shape(shapes.len() - 1));
 
+    finalize_inline_frame_atom(
+        width, height, baseline, glyphs, shapes, draw_order, font, font_size,
+    )
+}
+
+fn finalize_inline_frame_atom(
+    width: f32,
+    height: f32,
+    baseline: f32,
+    mut glyphs: Vec<LaidOutGlyph>,
+    mut shapes: Vec<LaidOutShape>,
+    draw_order: Vec<LaidOutDrawItem>,
+    font: &OwnedMathFont,
+    font_size: f32,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
     let final_ascent =
         font_cap_height(font, font_size)?.max(baseline - INLINE_MATH_LEADING_SLACK_EM * font_size);
     let final_descent = (height - baseline - INLINE_MATH_LEADING_SLACK_EM * font_size).max(0.0);
@@ -378,6 +502,7 @@ fn layout_simple_fraction(
         italic_correction: 0.0,
         glyphs,
         shapes,
+        draw_order,
     }))
 }
 
@@ -406,7 +531,7 @@ fn layout_simple_attach(
         return Ok(None);
     }
 
-    let Some(mut base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
+    let Some(base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
         return Ok(None);
     };
     let script_font_size = script_font_size(font, font_size, script_level)?;
@@ -453,7 +578,11 @@ fn layout_simple_attach(
         .as_ref()
         .map(|bottom| space_after_script + bottom.metrics.width + bottom_kern)
         .unwrap_or_default();
-    let width = base.metrics.width + top_post_width.max(bottom_post_width);
+    let base_width = base.metrics.width;
+    let base_metrics = base.metrics;
+    let base_class = base.class;
+    let base_italic_correction = base.italic_correction;
+    let width = base_width + top_post_width.max(bottom_post_width);
     let baseline = base.metrics.baseline;
     let ink_ascent = base
         .ink_ascent
@@ -473,35 +602,34 @@ fn layout_simple_attach(
         );
     let mut glyphs = Vec::new();
     let mut shapes = Vec::new();
-    glyphs.append(&mut base.glyphs);
-    shapes.append(&mut base.shapes);
+    let mut draw_order = Vec::new();
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, base);
 
     if let Some(mut top) = top {
-        let dx = base.metrics.width + top_kern;
+        let dx = base_width + top_kern;
         let dy = baseline - shift_up - top.metrics.baseline;
         offset_atom(&mut top, dx, dy);
-        glyphs.append(&mut top.glyphs);
-        shapes.append(&mut top.shapes);
+        append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, top);
     }
     if let Some(mut bottom) = bottom {
-        let dx = base.metrics.width + bottom_kern;
+        let dx = base_width + bottom_kern;
         let dy = baseline + shift_down - bottom.metrics.baseline;
         offset_atom(&mut bottom, dx, dy);
-        glyphs.append(&mut bottom.glyphs);
-        shapes.append(&mut bottom.shapes);
+        append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, bottom);
     }
 
     Ok(Some(LaidOutMathAtom {
         metrics: TypesetMetrics {
             width,
-            ..base.metrics
+            ..base_metrics
         },
         ink_ascent,
         ink_descent,
-        class: base.class,
-        italic_correction: base.italic_correction,
+        class: base_class,
+        italic_correction: base_italic_correction,
         glyphs,
         shapes,
+        draw_order,
     }))
 }
 
@@ -511,20 +639,24 @@ fn script_font_size(
     script_level: u8,
 ) -> Result<f32, MathTypesetError> {
     let face = parse_math_face(font, "math script constants")?;
-    let percent = face
+    let (script_percent, script_script_percent) = face
         .tables()
         .math
         .and_then(|math| math.constants)
         .map(|constants| {
-            if script_level == 0 {
-                constants.script_percent_scale_down()
-            } else {
-                constants.script_script_percent_scale_down()
-            }
+            (
+                constants.script_percent_scale_down(),
+                constants.script_script_percent_scale_down(),
+            )
         })
-        .filter(|percent| *percent > 0)
-        .unwrap_or(if script_level == 0 { 70 } else { 50 });
-    Ok(font_size * percent as f32 / 100.0)
+        .unwrap_or((70, 50));
+    let script_percent = script_percent.max(1) as f32;
+    let script_script_percent = script_script_percent.max(1) as f32;
+    if script_level == 0 {
+        Ok(font_size * script_percent / 100.0)
+    } else {
+        Ok(font_size * script_script_percent / script_percent)
+    }
 }
 
 fn compute_script_shifts(
@@ -931,7 +1063,7 @@ fn layout_styled_atom_with_class(
     font: &OwnedMathFont,
     text: &str,
     font_size: f32,
-    script_style: bool,
+    script_style: Option<u32>,
     class: SimpleMathClass,
 ) -> Result<LaidOutMathAtom, MathTypesetError> {
     let face = ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| {
@@ -955,10 +1087,10 @@ fn layout_styled_atom_with_class(
     let mut glyph_descent = 0i16;
     let mut atom_italic_correction = 0.0;
     let mut glyphs = Vec::new();
-    let features = if script_style {
+    let features = if let Some(script_style) = script_style {
         vec![rustybuzz::Feature::new(
             rustybuzz::ttf_parser::Tag::from_bytes(b"ssty"),
-            1,
+            script_style,
             ..,
         )]
     } else {
@@ -1026,11 +1158,18 @@ fn layout_styled_atom_with_class(
         italic_correction: atom_italic_correction,
         glyphs,
         shapes: Vec::new(),
+        draw_order: Vec::new(),
     };
     for glyph in &mut atom.glyphs {
         glyph.y = atom.metrics.baseline;
     }
+    atom.draw_order
+        .extend((0..atom.glyphs.len()).map(LaidOutDrawItem::Glyph));
     Ok(atom)
+}
+
+fn script_style_feature(script_level: u8) -> Option<u32> {
+    (script_level > 0).then_some(u32::from(script_level.min(2)))
 }
 
 fn pdf_text_from_simple_row(
@@ -1135,45 +1274,55 @@ fn path_artifact_from_simple_row(
     let mut glyph_run = 0usize;
 
     for atom in &layout.atoms {
-        for glyph in &atom.glyphs {
-            let mut builder = OwnedGlyphPathBuilder {
-                path: MathPathData::default(),
-                scale: glyph.font_size / face.units_per_em() as f32,
-                x_offset: glyph.x,
-                y_offset: glyph.y,
-            };
-            face.outline_glyph(glyph.glyph_id, &mut builder);
-            if !builder.path.commands.is_empty() {
-                items.push(MathPathItem {
-                    path: builder.path,
-                    kind: MathPathKind::GlyphOutline {
-                        glyph_run,
-                        glyph_index: 0,
-                    },
-                    fill: Some(fill),
-                    stroke: None,
-                    transform: MathTransform::IDENTITY,
-                    clip: None,
-                });
+        for item in &atom.draw_order {
+            match *item {
+                LaidOutDrawItem::Glyph(index) => {
+                    let Some(glyph) = atom.glyphs.get(index) else {
+                        continue;
+                    };
+                    let mut builder = OwnedGlyphPathBuilder {
+                        path: MathPathData::default(),
+                        scale: glyph.font_size / face.units_per_em() as f32,
+                        x_offset: glyph.x,
+                        y_offset: glyph.y,
+                    };
+                    face.outline_glyph(glyph.glyph_id, &mut builder);
+                    if !builder.path.commands.is_empty() {
+                        items.push(MathPathItem {
+                            path: builder.path,
+                            kind: MathPathKind::GlyphOutline {
+                                glyph_run,
+                                glyph_index: 0,
+                            },
+                            fill: Some(fill),
+                            stroke: None,
+                            transform: MathTransform::IDENTITY,
+                            clip: None,
+                        });
+                    }
+                    glyph_run += 1;
+                }
+                LaidOutDrawItem::Shape(index) => {
+                    let Some(shape) = atom.shapes.get(index) else {
+                        continue;
+                    };
+                    items.push(MathPathItem {
+                        path: shape.path.clone(),
+                        kind: MathPathKind::MathShape,
+                        fill: None,
+                        stroke: Some(MathStroke {
+                            color: fill,
+                            width: shape.stroke_width,
+                        }),
+                        transform: MathTransform {
+                            dx: shape.x,
+                            dy: shape.y,
+                            ..MathTransform::IDENTITY
+                        },
+                        clip: None,
+                    });
+                }
             }
-            glyph_run += 1;
-        }
-        for shape in &atom.shapes {
-            items.push(MathPathItem {
-                path: shape.path.clone(),
-                kind: MathPathKind::MathShape,
-                fill: None,
-                stroke: Some(MathStroke {
-                    color: fill,
-                    width: shape.stroke_width,
-                }),
-                transform: MathTransform {
-                    dx: shape.x,
-                    dy: shape.y,
-                    ..MathTransform::IDENTITY
-                },
-                clip: None,
-            });
         }
     }
 
@@ -1347,6 +1496,27 @@ mod tests {
             .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some()));
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 4);
+    }
+
+    #[test]
+    fn simple_row_can_emit_sqrt_overbar_paths() {
+        let math = parse_owned_math("sqrt(x)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact =
+            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                .unwrap()
+                .expect("simple sqrt should be handled by owned row path");
+        let paths = artifact.paths.expect("sqrt paths should exist");
+        assert_eq!(paths.items.len(), 3);
+        assert!(matches!(paths.items[1].kind, MathPathKind::MathShape));
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        assert_eq!(pdf.glyph_runs.len(), 2);
     }
 
     #[test]

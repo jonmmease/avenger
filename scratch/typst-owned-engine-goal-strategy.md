@@ -263,6 +263,7 @@ Progress:
 - [x] Add owned PDF glyph metadata for simple math rows, including semantic text, glyph IDs, advances, transforms, and embedded math font resource bytes.
 - [x] Add owned post-superscript/subscript layout for simple math atoms, including OpenType `ssty` script glyph alternates, MATH script shifts, MATH kerning, paths, raster output, and PDF glyph metadata for labels such as `R^2`, `x_i^2`, and `J_0(x)`.
 - [x] Add owned vertical slash-fraction layout for simple numerator/denominator atoms and grouped simple denominator rows, including script-style child sizing, suppressed script-style binary spacing, fraction rule path output, raster output, and PDF glyph metadata for labels such as `a / b` and `a / (b + c)`.
+- [x] Add owned `sqrt(...)` layout for simple radicand rows, including radical glyph styling, overbar shape ordering, nested script-script sizing, paths, raster output, and PDF glyph metadata for labels such as `sqrt(x) / (1 + x^2)`.
 - [ ] Extend the owned plain text line path to path extraction, raster output, PDF text metadata, fallback fonts, bidi, emoji, and complex-script segmentation.
 - [ ] Extend the owned math fragment path from simple-row metrics/paths/raster/PDF metadata to scripts, fractions, roots, delimiters, and grouped expressions.
 
