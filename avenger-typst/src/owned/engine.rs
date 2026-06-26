@@ -338,6 +338,27 @@ mod tests {
         assert!(!engine.delegate.lock().unwrap().is_some());
     }
 
+    #[test]
+    fn simple_script_math_fragment_pdf_uses_owned_fast_path_without_initializing_delegate() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact = engine.typeset_fragment("R^2 = 0.94", &options).unwrap();
+
+        let pdf = artifact
+            .pdf_text
+            .as_ref()
+            .expect("owned script path should emit PDF glyph metadata");
+        assert!(pdf.glyph_runs.iter().any(|run| run.font_size < 12.0));
+        assert_eq!(artifact.font_resources.len(), 1);
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
     #[cfg(feature = "raster")]
     #[test]
     fn simple_row_math_fragment_raster_uses_owned_fast_path_without_initializing_delegate() {

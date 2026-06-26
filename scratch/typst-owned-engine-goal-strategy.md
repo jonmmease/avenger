@@ -261,6 +261,7 @@ Progress:
 - [x] Add owned path extraction for simple math rows by outlining shaped math glyphs with `ttf-parser`, preserving vendor-compatible path item topology for paths-only requests.
 - [x] Add owned raster output for simple math rows behind the `raster` feature by feeding the owned path artifact through the existing tiny-skia rasterizer.
 - [x] Add owned PDF glyph metadata for simple math rows, including semantic text, glyph IDs, advances, transforms, and embedded math font resource bytes.
+- [x] Add owned post-superscript/subscript layout for simple math atoms, including OpenType `ssty` script glyph alternates, MATH script shifts, MATH kerning, paths, raster output, and PDF glyph metadata for labels such as `R^2`, `x_i^2`, and `J_0(x)`.
 - [ ] Extend the owned plain text line path to path extraction, raster output, PDF text metadata, fallback fonts, bidi, emoji, and complex-script segmentation.
 - [ ] Extend the owned math fragment path from simple-row metrics/paths/raster/PDF metadata to scripts, fractions, roots, delimiters, and grouped expressions.
 

@@ -88,12 +88,16 @@ struct SimpleMathAtom {
 #[derive(Debug, Clone)]
 struct SimpleRowLayout {
     metrics: TypesetMetrics,
-    atoms: Vec<LaidOutSimpleAtom>,
+    atoms: Vec<LaidOutMathAtom>,
 }
 
 #[derive(Debug, Clone)]
-struct LaidOutSimpleAtom {
-    x: f32,
+struct LaidOutMathAtom {
+    metrics: TypesetMetrics,
+    ink_ascent: f32,
+    ink_descent: f32,
+    class: SimpleMathClass,
+    italic_correction: f32,
     glyphs: Vec<LaidOutGlyph>,
 }
 
@@ -102,7 +106,9 @@ struct LaidOutGlyph {
     glyph_id: ttf_parser::GlyphId,
     unicode: String,
     x: f32,
+    y: f32,
     x_advance: f32,
+    font_size: f32,
 }
 
 struct OwnedPdfArtifact {
@@ -134,7 +140,7 @@ fn layout_simple_row(
         match node {
             OwnedMathNode::Space(_) => {}
             _ => {
-                let Some(atom) = simple_atom(node) else {
+                let Some(atom) = layout_simple_node(font, node, font_size, 0)? else {
                     return Ok(None);
                 };
                 atoms.push(atom);
@@ -142,39 +148,357 @@ fn layout_simple_row(
         }
     }
 
-    let Some(first) = atoms.first() else {
+    if atoms.is_empty() {
         return Ok(None);
+    }
+
+    let mut metrics = TypesetMetrics {
+        width: 0.0,
+        height: 0.0,
+        baseline: 0.0,
+        ascent: 0.0,
+        descent: 0.0,
     };
+    let mut laid_out_atoms = Vec::with_capacity(atoms.len());
+    let mut previous = None;
 
-    let first_layout = layout_styled_atom(font, &first.styled_text, font_size)?;
-    let mut metrics = first_layout.metrics;
-    let mut laid_out_atoms = vec![LaidOutSimpleAtom {
-        x: 0.0,
-        glyphs: first_layout.glyphs,
-    }];
-    let mut previous = resolved_left_class(None, first.class);
-
-    for atom in atoms.iter().skip(1) {
-        let class = resolved_left_class(Some(previous), atom.class);
-        let atom_layout = layout_styled_atom(font, &atom.styled_text, font_size)?;
-        metrics.width += math_spacing(previous, class, font_size);
-        let x = metrics.width;
-        metrics.width += atom_layout.metrics.width;
-        metrics.ascent = metrics.ascent.max(atom_layout.metrics.ascent);
-        metrics.descent = metrics.descent.max(atom_layout.metrics.descent);
+    for mut atom in atoms {
+        let class = resolved_left_class(previous, atom.class);
+        if let Some(previous) = previous {
+            metrics.width += math_spacing(previous, class, font_size);
+        }
+        atom.class = class;
+        offset_atom(&mut atom, metrics.width, 0.0);
+        metrics.width += atom.metrics.width;
+        metrics.ascent = metrics.ascent.max(atom.metrics.ascent);
+        metrics.descent = metrics.descent.max(atom.metrics.descent);
         metrics.height = metrics.ascent + metrics.descent;
         metrics.baseline = metrics.ascent;
-        laid_out_atoms.push(LaidOutSimpleAtom {
-            x,
-            glyphs: atom_layout.glyphs,
-        });
-        previous = class;
+        laid_out_atoms.push(atom);
+        previous = Some(class);
     }
 
     Ok(Some(SimpleRowLayout {
         metrics,
         atoms: laid_out_atoms,
     }))
+}
+
+fn offset_atom(atom: &mut LaidOutMathAtom, dx: f32, dy: f32) {
+    for glyph in &mut atom.glyphs {
+        glyph.x += dx;
+        glyph.y += dy;
+    }
+}
+
+fn layout_simple_node(
+    font: &OwnedMathFont,
+    node: &OwnedMathNode,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    if let Some(atom) = simple_atom(node) {
+        let layout = layout_styled_atom_with_class(
+            font,
+            &atom.styled_text,
+            font_size,
+            script_level > 0,
+            atom.class,
+        )?;
+        return Ok(Some(layout));
+    }
+
+    if let OwnedMathNode::Attach(attach) = node {
+        return layout_simple_attach(font, attach, font_size, script_level);
+    }
+
+    Ok(None)
+}
+
+fn layout_simple_attach(
+    font: &OwnedMathFont,
+    attach: &super::ast::OwnedMathAttach,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+    if attach.primes > 0 {
+        return Ok(None);
+    }
+
+    let Some(mut base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
+        return Ok(None);
+    };
+    let script_font_size = script_font_size(font, font_size, script_level)?;
+    let top = attach
+        .top
+        .as_deref()
+        .map(|node| layout_simple_node(font, node, script_font_size, script_level + 1))
+        .transpose()?
+        .flatten();
+    let bottom = attach
+        .bottom
+        .as_deref()
+        .map(|node| layout_simple_node(font, node, script_font_size, script_level + 1))
+        .transpose()?
+        .flatten();
+    if (attach.top.is_some() && top.is_none()) || (attach.bottom.is_some() && bottom.is_none()) {
+        return Ok(None);
+    }
+
+    let (shift_up, shift_down) =
+        compute_script_shifts(font, font_size, &base, top.as_ref(), bottom.as_ref())?;
+    let space_after_script = math_constant(font, font_size, |constants| {
+        constants.space_after_script().value
+    })?;
+    let top_kern = top
+        .as_ref()
+        .map(|top| math_kern(font, &base, top, shift_up, ScriptCorner::TopRight))
+        .transpose()?
+        .unwrap_or_default();
+    let bottom_kern = bottom
+        .as_ref()
+        .map(|bottom| {
+            math_kern(font, &base, bottom, shift_down, ScriptCorner::BottomRight)
+                .map(|kern| kern - base.italic_correction)
+        })
+        .transpose()?
+        .unwrap_or_default();
+
+    let top_post_width = top
+        .as_ref()
+        .map(|top| space_after_script + top.metrics.width + top_kern)
+        .unwrap_or_default();
+    let bottom_post_width = bottom
+        .as_ref()
+        .map(|bottom| space_after_script + bottom.metrics.width + bottom_kern)
+        .unwrap_or_default();
+    let width = base.metrics.width + top_post_width.max(bottom_post_width);
+    let baseline = base.metrics.baseline;
+    let mut glyphs = Vec::new();
+    glyphs.append(&mut base.glyphs);
+
+    if let Some(mut top) = top {
+        let dx = base.metrics.width + top_kern;
+        let dy = baseline - shift_up - top.metrics.baseline;
+        offset_atom(&mut top, dx, dy);
+        glyphs.append(&mut top.glyphs);
+    }
+    if let Some(mut bottom) = bottom {
+        let dx = base.metrics.width + bottom_kern;
+        let dy = baseline + shift_down - bottom.metrics.baseline;
+        offset_atom(&mut bottom, dx, dy);
+        glyphs.append(&mut bottom.glyphs);
+    }
+
+    Ok(Some(LaidOutMathAtom {
+        metrics: TypesetMetrics {
+            width,
+            ..base.metrics
+        },
+        ink_ascent: base.ink_ascent,
+        ink_descent: base.ink_descent,
+        class: base.class,
+        italic_correction: base.italic_correction,
+        glyphs,
+    }))
+}
+
+fn script_font_size(
+    font: &OwnedMathFont,
+    font_size: f32,
+    script_level: u8,
+) -> Result<f32, MathTypesetError> {
+    let face = parse_math_face(font, "math script constants")?;
+    let percent = face
+        .tables()
+        .math
+        .and_then(|math| math.constants)
+        .map(|constants| {
+            if script_level == 0 {
+                constants.script_percent_scale_down()
+            } else {
+                constants.script_script_percent_scale_down()
+            }
+        })
+        .filter(|percent| *percent > 0)
+        .unwrap_or(if script_level == 0 { 70 } else { 50 });
+    Ok(font_size * percent as f32 / 100.0)
+}
+
+fn compute_script_shifts(
+    font: &OwnedMathFont,
+    font_size: f32,
+    base: &LaidOutMathAtom,
+    top: Option<&LaidOutMathAtom>,
+    bottom: Option<&LaidOutMathAtom>,
+) -> Result<(f32, f32), MathTypesetError> {
+    let sup_shift_up = math_constant(font, font_size, |constants| {
+        constants.superscript_shift_up().value
+    })?;
+    let sup_bottom_min = math_constant(font, font_size, |constants| {
+        constants.superscript_bottom_min().value
+    })?;
+    let sup_bottom_max_with_sub = math_constant(font, font_size, |constants| {
+        constants.superscript_bottom_max_with_subscript().value
+    })?;
+    let gap_min = math_constant(font, font_size, |constants| {
+        constants.sub_superscript_gap_min().value
+    })?;
+    let sub_shift_down = math_constant(font, font_size, |constants| {
+        constants.subscript_shift_down().value
+    })?;
+    let sub_top_max = math_constant(font, font_size, |constants| {
+        constants.subscript_top_max().value
+    })?;
+
+    let mut shift_up = 0.0;
+    let mut shift_down = 0.0;
+    if let Some(top) = top {
+        shift_up = f32::max(sup_shift_up, sup_bottom_min + top.ink_descent);
+    }
+    if let Some(bottom) = bottom {
+        shift_down = f32::max(sub_shift_down, bottom.ink_ascent - sub_top_max);
+    }
+
+    if let (Some(top), Some(bottom)) = (top, bottom) {
+        let sup_bottom = shift_up - top.ink_descent;
+        let sub_top = bottom.ink_ascent - shift_down;
+        let gap = sup_bottom - sub_top;
+        if gap < gap_min {
+            let increase = gap_min - gap;
+            let sup_only = (sup_bottom_max_with_sub - sup_bottom).clamp(0.0, increase);
+            let rest = (increase - sup_only) / 2.0;
+            shift_up += sup_only + rest;
+            shift_down += rest;
+        }
+    }
+
+    // Text-like bases intentionally do not apply Typst's base ascent/descent
+    // drop rules. Keep `base` in the signature because non-text-like boxes will
+    // need those fields when fractions and radicals become owned.
+    let _ = base;
+
+    Ok((shift_up, shift_down))
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ScriptCorner {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl ScriptCorner {
+    fn inverse(self) -> Self {
+        match self {
+            Self::TopLeft => Self::TopRight,
+            Self::TopRight => Self::TopLeft,
+            Self::BottomLeft => Self::BottomRight,
+            Self::BottomRight => Self::BottomLeft,
+        }
+    }
+}
+
+fn math_kern(
+    font: &OwnedMathFont,
+    base: &LaidOutMathAtom,
+    script: &LaidOutMathAtom,
+    shift: f32,
+    corner: ScriptCorner,
+) -> Result<f32, MathTypesetError> {
+    let (corr_height_top, corr_height_bot) = match corner {
+        ScriptCorner::TopLeft | ScriptCorner::TopRight => {
+            (base.ink_ascent - shift, shift - script.ink_descent)
+        }
+        ScriptCorner::BottomLeft | ScriptCorner::BottomRight => {
+            (script.ink_ascent - shift, shift - base.ink_descent)
+        }
+    };
+
+    let summed_kern = |height| {
+        Ok(
+            kern_at_height(font, edge_glyph(base, corner), corner, height)?
+                + kern_at_height(
+                    font,
+                    edge_glyph(script, corner.inverse()),
+                    corner.inverse(),
+                    height,
+                )?,
+        )
+    };
+    Ok(f32::max(
+        summed_kern(corr_height_top)?,
+        summed_kern(corr_height_bot)?,
+    ))
+}
+
+fn edge_glyph(atom: &LaidOutMathAtom, corner: ScriptCorner) -> Option<&LaidOutGlyph> {
+    match corner {
+        ScriptCorner::TopRight | ScriptCorner::BottomRight => atom.glyphs.last(),
+        ScriptCorner::TopLeft | ScriptCorner::BottomLeft => atom.glyphs.first(),
+    }
+}
+
+fn kern_at_height(
+    font: &OwnedMathFont,
+    glyph: Option<&LaidOutGlyph>,
+    corner: ScriptCorner,
+    height: f32,
+) -> Result<f32, MathTypesetError> {
+    let Some(glyph) = glyph else {
+        return Ok(0.0);
+    };
+    let face = parse_math_face(font, "math kern")?;
+    let Some(kerns) = face
+        .tables()
+        .math
+        .and_then(|math| math.glyph_info)
+        .and_then(|glyph_info| glyph_info.kern_infos)
+        .and_then(|kern_infos| kern_infos.get(glyph.glyph_id))
+    else {
+        return Ok(0.0);
+    };
+    let Some(kern) = (match corner {
+        ScriptCorner::TopLeft => kerns.top_left,
+        ScriptCorner::TopRight => kerns.top_right,
+        ScriptCorner::BottomRight => kerns.bottom_right,
+        ScriptCorner::BottomLeft => kerns.bottom_left,
+    }) else {
+        return Ok(0.0);
+    };
+
+    let units_per_em = face.units_per_em() as f32;
+    let height_em = height / glyph.font_size;
+    let mut index = 0;
+    while index < kern.count()
+        && height_em
+            > kern
+                .height(index)
+                .map(|value| value.value as f32 / units_per_em)
+                .unwrap_or_default()
+    {
+        index += 1;
+    }
+    Ok(kern
+        .kern(index)
+        .map(|value| value.value as f32 / units_per_em * glyph.font_size)
+        .unwrap_or_default())
+}
+
+fn math_constant(
+    font: &OwnedMathFont,
+    font_size: f32,
+    constant: impl FnOnce(ttf_parser::math::Constants<'_>) -> i16,
+) -> Result<f32, MathTypesetError> {
+    let face = parse_math_face(font, "math constants")?;
+    let value = face
+        .tables()
+        .math
+        .and_then(|math| math.constants)
+        .map(constant)
+        .unwrap_or_default();
+    Ok(value as f32 * font_size / face.units_per_em() as f32)
 }
 
 #[cfg(test)]
@@ -366,17 +690,24 @@ fn load_default_math_font(config: &TypstEngineConfig) -> Option<OwnedMathFont> {
     None
 }
 
-#[derive(Debug, Clone)]
-struct StyledAtomLayout {
-    metrics: TypesetMetrics,
-    glyphs: Vec<LaidOutGlyph>,
+fn parse_math_face<'a>(
+    font: &'a OwnedMathFont,
+    context: &str,
+) -> Result<ttf_parser::Face<'a>, MathTypesetError> {
+    ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| MathTypesetError::Engine {
+        start: 0,
+        end: 0,
+        message: format!("failed to parse owned math font for {context}"),
+    })
 }
 
-fn layout_styled_atom(
+fn layout_styled_atom_with_class(
     font: &OwnedMathFont,
     text: &str,
     font_size: f32,
-) -> Result<StyledAtomLayout, MathTypesetError> {
+    script_style: bool,
+    class: SimpleMathClass,
+) -> Result<LaidOutMathAtom, MathTypesetError> {
     let face = ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| {
         MathTypesetError::Engine {
             start: 0,
@@ -395,7 +726,18 @@ fn layout_styled_atom(
     let scale = font_size / face.units_per_em() as f32;
     let mut width = 0i32;
     let mut glyph_ascent = 0i16;
+    let mut glyph_descent = 0i16;
+    let mut atom_italic_correction = 0.0;
     let mut glyphs = Vec::new();
+    let features = if script_style {
+        vec![rustybuzz::Feature::new(
+            rustybuzz::ttf_parser::Tag::from_bytes(b"ssty"),
+            1,
+            ..,
+        )]
+    } else {
+        Vec::new()
+    };
 
     for ch in text.chars() {
         let glyph_x = width as f32 * scale;
@@ -408,7 +750,7 @@ fn layout_styled_atom(
         }
         buffer.set_direction(rustybuzz::Direction::LeftToRight);
         buffer.set_flags(rustybuzz::BufferFlags::REMOVE_DEFAULT_IGNORABLES);
-        let shaped = rustybuzz::shape(&rusty, &[], buffer);
+        let shaped = rustybuzz::shape(&rusty, &features, buffer);
         let Some((info, position)) = shaped
             .glyph_infos()
             .first()
@@ -418,19 +760,25 @@ fn layout_styled_atom(
         };
         let glyph_id = ttf_parser::GlyphId(info.glyph_id as u16);
         let mut advance = position.x_advance;
+        let mut glyph_italic_correction = 0;
         if !is_extended_shape(&face, glyph_id) {
-            advance += italic_correction(&face, glyph_id).unwrap_or_default() as i32;
+            glyph_italic_correction = italic_correction(&face, glyph_id).unwrap_or_default();
+            advance += glyph_italic_correction as i32;
         }
         width += advance;
         glyphs.push(LaidOutGlyph {
             glyph_id,
             unicode: ch.to_string(),
             x: glyph_x,
+            y: 0.0,
             x_advance: advance as f32 * scale,
+            font_size,
         });
         if let Some(bounds) = face.glyph_bounding_box(glyph_id) {
             glyph_ascent = glyph_ascent.max(bounds.y_max);
+            glyph_descent = glyph_descent.max(-bounds.y_min);
         }
+        atom_italic_correction = glyph_italic_correction as f32 * scale;
     }
 
     // Typst wraps standalone math atoms as text-like fragments. The logical
@@ -438,7 +786,7 @@ fn layout_styled_atom(
     let ascent = face.capital_height().unwrap_or(glyph_ascent);
     let ascent = ascent.max(0) as f32 * scale;
     let descent = 0.0;
-    Ok(StyledAtomLayout {
+    let mut atom = LaidOutMathAtom {
         metrics: TypesetMetrics {
             width: width as f32 * scale,
             height: ascent + descent,
@@ -446,8 +794,16 @@ fn layout_styled_atom(
             ascent,
             descent,
         },
+        ink_ascent: glyph_ascent.max(0) as f32 * scale,
+        ink_descent: glyph_descent.max(0) as f32 * scale,
+        class,
+        italic_correction: atom_italic_correction,
         glyphs,
-    })
+    };
+    for glyph in &mut atom.glyphs {
+        glyph.y = atom.metrics.baseline;
+    }
+    Ok(atom)
 }
 
 fn pdf_text_from_simple_row(
@@ -480,8 +836,7 @@ fn pdf_text_from_simple_row(
         for glyph in &atom.glyphs {
             glyph_runs.push(MathPdfGlyphRun {
                 font: font_id,
-                font_size: layout.metrics.ascent / face.capital_height().unwrap_or(1).max(1) as f32
-                    * face.units_per_em() as f32,
+                font_size: glyph.font_size,
                 fill,
                 stroke: None,
                 glyphs: vec![MathPdfGlyph {
@@ -492,8 +847,8 @@ fn pdf_text_from_simple_row(
                     x_advance: glyph.x_advance,
                     y_advance: 0.0,
                     transform: MathTransform {
-                        dx: atom.x + glyph.x,
-                        dy: layout.metrics.baseline,
+                        dx: glyph.x,
+                        dy: glyph.y,
                         ..MathTransform::IDENTITY
                     },
                 }],
@@ -549,7 +904,6 @@ fn path_artifact_from_simple_row(
             items: Vec::new(),
         };
     };
-    let scale = layout.metrics.ascent / face.capital_height().unwrap_or(1).max(1) as f32;
     let mut items = Vec::new();
     let mut glyph_run = 0usize;
 
@@ -557,9 +911,9 @@ fn path_artifact_from_simple_row(
         for glyph in &atom.glyphs {
             let mut builder = OwnedGlyphPathBuilder {
                 path: MathPathData::default(),
-                scale,
-                x_offset: atom.x + glyph.x,
-                y_offset: layout.metrics.baseline,
+                scale: glyph.font_size / face.units_per_em() as f32,
+                x_offset: glyph.x,
+                y_offset: glyph.y,
             };
             face.outline_glyph(glyph.glyph_id, &mut builder);
             if !builder.path.commands.is_empty() {
@@ -710,16 +1064,22 @@ mod tests {
     }
 
     #[test]
-    fn simple_row_declines_scripts() {
+    fn simple_row_can_emit_script_glyph_metadata() {
         let math = parse_owned_math("x^2", 0).unwrap();
         let mut options = MathFragmentOptions::default();
-        options.outputs.paths = false;
+        options.outputs = MathOutputRequest {
+            paths: false,
+            raster: None,
+            pdf_text_layer: true,
+        };
 
-        assert!(
+        let artifact =
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
-                .is_none()
-        );
+                .expect("simple superscript should be handled by owned row path");
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        assert_eq!(pdf.glyph_runs.len(), 2);
+        assert!(pdf.glyph_runs[1].font_size < pdf.glyph_runs[0].font_size);
     }
 
     #[test]
