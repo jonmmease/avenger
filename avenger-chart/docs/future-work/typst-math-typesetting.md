@@ -598,7 +598,7 @@ vendored Typst crates:
 | Backend | Binary bytes | PNG bytes | Notes |
 | --- | ---: | ---: | --- |
 | `cosmic` | 8,998,848 | 56,378 | Existing WGPU text path. |
-| `typst` | 8,333,472 | 42,692 | Owned Typst-style text/math path, no `cosmic-text`. |
+| `typst` | 8,332,624 | 42,692 | Owned Typst-style text/math path, no `cosmic-text`. |
 
 In this low-level probe the owned Typst path is about 665 KB smaller than the
 cosmic path while also supporting math syntax. Re-run the probe before making

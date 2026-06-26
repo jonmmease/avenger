@@ -226,8 +226,12 @@ Run release mode throughout.
 - [ ] Run SVG/PDF sidecar validation used by chart visual tests.
 - [ ] Run wasm build checks for browser targets that previously relied on HTML
   canvas text measurement.
-- [ ] Run text-size and text-render probes and record current numbers.
+- [x] Run text-size and text-render probes and record current numbers.
   - [x] `cargo build --release --manifest-path tools/text-size-probe/Cargo.toml --features typst`
+  - [x] `tools/text-render-probe/measure.sh`: `typst` binary 8,332,624 B,
+    PNG 42,692 B; script confirmed `cosmic-text` is absent.
+  - [x] `tools/text-size-probe/measure.sh`: baseline 404,928 B raw /
+    336,128 B stripped; `typst` 2,688,352 B raw / 2,433,584 B stripped.
 
 ## Migration Notes
 
