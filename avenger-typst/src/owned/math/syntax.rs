@@ -37,6 +37,13 @@ impl Parser<'_> {
                 return Err(self.unsupported(idx, "unexpected closing math delimiter"));
             }
 
+            if ch == '\n' || ch == '\r' {
+                return Err(self.unsupported(
+                    idx,
+                    "multi-line math is not supported in owned Typst subset",
+                ));
+            }
+
             if ch.is_whitespace() {
                 nodes.push(self.parse_space());
                 continue;
@@ -164,6 +171,20 @@ impl Parser<'_> {
 
         if is_identifier_start(ch) {
             return self.parse_identifier_or_call();
+        }
+
+        if ch == '&' {
+            return Err(self.unsupported(
+                idx,
+                "math alignment markers are not supported in owned Typst subset",
+            ));
+        }
+
+        if ch == ';' {
+            return Err(self.unsupported(
+                idx,
+                "semicolon math arguments are not supported in owned Typst subset",
+            ));
         }
 
         if is_operator_char(ch) {
@@ -321,6 +342,12 @@ impl Parser<'_> {
             }
 
             let nodes = self.parse_sequence(&[',', ';', ')'])?;
+            if let Some(position) = named_argument_colon_position(&nodes) {
+                return Err(MathTypesetError::UnsupportedSyntax {
+                    position,
+                    message: "named math arguments are not supported in owned Typst subset",
+                });
+            }
             let arg_end = self.pos;
             args.push(OwnedMathArg {
                 nodes,
@@ -436,6 +463,17 @@ fn take_fraction_numerator(
         position: slash_position,
         message: "fraction slash expects a numerator",
     })
+}
+
+fn named_argument_colon_position(nodes: &[OwnedMathNode]) -> Option<usize> {
+    match nodes {
+        [OwnedMathNode::Identifier(_), OwnedMathNode::Operator(operator), ..]
+            if operator.operator == ":" =>
+        {
+            Some(operator.byte_range.start)
+        }
+        _ => None,
+    }
 }
 
 fn next_char(source: &str, start: usize) -> Option<(usize, char)> {
@@ -852,6 +890,58 @@ mod tests {
             MathTypesetError::UnsupportedSyntax {
                 position: 6,
                 message: "semicolon math arguments are not supported in owned Typst subset"
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_top_level_semicolon_math() {
+        let err = parse_owned_math("x; y", 5).unwrap_err();
+
+        assert_eq!(
+            err,
+            MathTypesetError::UnsupportedSyntax {
+                position: 6,
+                message: "semicolon math arguments are not supported in owned Typst subset"
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_multiline_math() {
+        let err = parse_owned_math("x\n+ y", 5).unwrap_err();
+
+        assert_eq!(
+            err,
+            MathTypesetError::UnsupportedSyntax {
+                position: 6,
+                message: "multi-line math is not supported in owned Typst subset"
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_alignment_markers() {
+        let err = parse_owned_math("x &= y", 5).unwrap_err();
+
+        assert_eq!(
+            err,
+            MathTypesetError::UnsupportedSyntax {
+                position: 7,
+                message: "math alignment markers are not supported in owned Typst subset"
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_named_call_arguments() {
+        let err = parse_owned_math("frac(num: x, denom: y)", 5).unwrap_err();
+
+        assert_eq!(
+            err,
+            MathTypesetError::UnsupportedSyntax {
+                position: 13,
+                message: "named math arguments are not supported in owned Typst subset"
             }
         );
     }

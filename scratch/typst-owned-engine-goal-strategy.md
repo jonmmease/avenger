@@ -377,6 +377,7 @@ Progress:
 - [x] Add an initial owned math AST/parser for the current core label corpus: identifiers, numbers, symbols, shorthands, groups, scripts, primes, slash fractions, whitelisted calls, string arguments, and explicit matrix rejection.
 - [x] Extend the owned math parser symbol subset with common Typst-style set, relation, arithmetic, quantifier, and dotted arrow symbol names, while keeping unknown dotted names out of the symbol fast path.
 - [x] Route API-level strict math validation through the owned parser when the owned feature is available, so public validation no longer depends on `typst-syntax` and matrix syntax is rejected before backend dispatch.
+- [x] Tighten the owned math parser to reject unsupported multi-line math, alignment markers, top-level semicolon/grid separators, and Typst-style named call arguments with explicit subset errors.
 - [ ] Add the owned math parser for the strict supported subset.
 
 Keep:
