@@ -10,6 +10,7 @@ use crate::types::{
 
 use crate::engine::typst::TypstMathEngine;
 use crate::owned::ast::{OwnedLine, OwnedLineNode};
+use crate::owned::math::syntax::parse_owned_math;
 use crate::owned::syntax::parse_owned_line;
 
 #[derive(Clone)]
@@ -46,6 +47,7 @@ impl OwnedTypstEngine {
         source: &str,
         options: &MathFragmentOptions,
     ) -> Result<MathRunArtifact, MathTypesetError> {
+        parse_owned_math(source, 0)?;
         self.with_delegate(|delegate| delegate.typeset_fragment(source, options))
     }
 
@@ -59,6 +61,7 @@ impl OwnedTypstEngine {
         }
 
         let line = parse_owned_line(source, &options.delimiters)?;
+        validate_owned_line_math(&line)?;
         if line_contains_static_markup(&line) {
             return Err(MathTypesetError::UnsupportedOutput(
                 "owned static text markup is parsed but not rendered yet",
@@ -96,6 +99,15 @@ impl OwnedTypstEngine {
 
 fn line_contains_static_markup(line: &OwnedLine) -> bool {
     nodes_contain_static_markup(&line.nodes)
+}
+
+fn validate_owned_line_math(line: &OwnedLine) -> Result<(), MathTypesetError> {
+    for node in &line.nodes {
+        if let OwnedLineNode::Math(math) = node {
+            parse_owned_math(&math.source, math.source_range.start)?;
+        }
+    }
+    Ok(())
 }
 
 fn nodes_contain_static_markup(nodes: &[OwnedLineNode]) -> bool {
@@ -237,6 +249,44 @@ mod tests {
             MathTypesetError::UnsupportedOutput(
                 "owned static text markup is parsed but not rendered yet"
             )
+        );
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn matrix_math_fragment_errors_before_delegate_initialization() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+
+        let err = engine
+            .typeset_fragment("mat(1, 2; 3, 4)", &MathFragmentOptions::default())
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            MathTypesetError::UnsupportedSyntax {
+                position: 0,
+                message: "matrix/table math is not supported in owned Typst subset"
+            }
+        );
+        assert!(!engine.delegate.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn matrix_text_line_span_reports_source_offset_before_delegate_initialization() {
+        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = false;
+
+        let err = engine
+            .typeset_text_line("before $mat(1, 2; 3, 4)$ after", &options)
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            MathTypesetError::UnsupportedSyntax {
+                position: 8,
+                message: "matrix/table math is not supported in owned Typst subset"
+            }
         );
         assert!(!engine.delegate.lock().unwrap().is_some());
     }

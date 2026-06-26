@@ -341,6 +341,7 @@ Progress:
 - [x] Add an initial owned line AST and static Typst-shaped parser for plain text, `$...$` math spans, exact text commands, nested static text spans, and named emoji aliases.
 - [x] Route the owned parser into the owned backend for non-empty text lines.
 - [ ] Render static text commands and named emoji aliases from the owned AST instead of rejecting them after parse.
+- [x] Add an initial owned math AST/parser for the current core label corpus: identifiers, numbers, symbols, shorthands, groups, scripts, primes, slash fractions, whitelisted calls, string arguments, and explicit matrix rejection.
 - [ ] Add the owned math parser for the strict supported subset.
 
 Keep:

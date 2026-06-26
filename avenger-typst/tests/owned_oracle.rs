@@ -60,7 +60,6 @@ fn owned_backend_matches_vendor_for_fragment_metrics_and_artifacts() {
         "x(t) = A r^t",
         "R^2 = 0.94",
         "y = sqrt(x) / (1 + x^2)",
-        "mat(1, 2; 3, 4)",
     ] {
         let vendor_artifact = vendor
             .typeset_math_fragment(source, &options)
@@ -143,6 +142,28 @@ fn owned_backend_matches_vendor_for_errors() {
         .typeset_text_line(source, &TextLineOptions::default())
         .unwrap_err();
     assert_eq!(owned_err, vendor_err, "{source:?}");
+}
+
+#[test]
+fn owned_backend_rejects_matrix_math_as_unsupported_subset() {
+    let vendor = vendor();
+    let owned = owned();
+    let source = "mat(1, 2; 3, 4)";
+
+    assert!(vendor
+        .typeset_math_fragment(source, &MathFragmentOptions::default())
+        .is_ok());
+
+    let owned_err = owned
+        .typeset_math_fragment(source, &MathFragmentOptions::default())
+        .unwrap_err();
+    assert_eq!(
+        owned_err,
+        avenger_typst::MathTypesetError::UnsupportedSyntax {
+            position: 0,
+            message: "matrix/table math is not supported in owned Typst subset"
+        }
+    );
 }
 
 fn assert_text_line_matches(source: &str, vendor: &TextLineArtifact, owned: &TextLineArtifact) {
