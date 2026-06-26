@@ -216,9 +216,14 @@ impl OwnedTextFace {
             });
         }
 
+        let mut width = advance_width as f32 * scale;
+        if should_preserve_color_emoji_joiner_tofu(text) {
+            width = preserve_color_emoji_joiner_tofu(&face, scale, &mut shaped_glyphs, width);
+        }
+
         OwnedShapedText {
             metrics: OwnedShapedMetrics {
-                width: advance_width as f32 * scale,
+                width,
                 ascent: edge_metrics.ascent,
                 descent: edge_metrics.descent,
                 height: edge_metrics.height,
@@ -493,6 +498,42 @@ fn is_color_emoji_char(ch: char) -> bool {
             | '\u{FE0F}'
             | '\u{200D}'
     )
+}
+
+fn should_preserve_color_emoji_joiner_tofu(text: &str) -> bool {
+    text.contains('\u{200D}') && grapheme_contains_color_emoji(text)
+}
+
+fn preserve_color_emoji_joiner_tofu(
+    face: &ttf_parser::Face<'_>,
+    scale: f32,
+    glyphs: &mut [OwnedShapedGlyph],
+    width: f32,
+) -> f32 {
+    let missing_advance = face
+        .glyph_hor_advance(ttf_parser::GlyphId(0))
+        .filter(|advance| *advance > 0)
+        .map(|advance| advance as f32 * scale)
+        .unwrap_or(0.0);
+    if missing_advance <= 0.0 {
+        return width;
+    }
+
+    let mut extra_advance = 0.0;
+    for glyph in glyphs {
+        glyph.x += extra_advance;
+        if glyph.glyph_id.0 != 0
+            && glyph.x_advance.abs() <= f32::EPSILON
+            && glyph.unicode.contains('\u{200D}')
+        {
+            glyph.glyph_id = ttf_parser::GlyphId(0);
+            glyph.unicode.clear();
+            glyph.x_advance = missing_advance;
+            extra_advance += missing_advance;
+        }
+    }
+
+    width + extra_advance
 }
 
 fn script_for_grapheme(grapheme: &str) -> Script {

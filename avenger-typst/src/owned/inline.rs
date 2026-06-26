@@ -276,11 +276,6 @@ fn try_typeset_mixed_metrics_text_line(
                 else {
                     return Ok(None);
                 };
-                if segmented.has_missing_glyph
-                    && requires_delegate_for_missing_glyph_text(&plain.text)
-                {
-                    return Ok(None);
-                }
                 let metrics = metrics_from_segmented_text(&segmented, 0.0);
                 let paths =
                     (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
@@ -340,11 +335,6 @@ fn try_typeset_mixed_metrics_text_line(
                     .unwrap_or(0.0);
                 let shaped =
                     shape_text_for_static_run(&text_face, &decorated.text, run_font_size, script);
-                if shaped.has_missing_glyph
-                    && requires_delegate_for_missing_glyph_text(&decorated.text)
-                {
-                    return Ok(None);
-                }
                 let metrics = shifted_text_metrics(&shaped, baseline_shift);
                 let glyph_baseline_y = metrics.baseline + baseline_shift;
                 let paths =
@@ -1057,9 +1047,6 @@ fn typeset_plain_text_line(
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
     let font_size = options.text_style.font_size.max(1.0);
     let shaped = face.shaped_text(&plain.text, font_size);
-    if shaped.has_missing_glyph && requires_delegate_for_missing_glyph_text(&plain.text) {
-        return Ok(None);
-    }
     let metrics = TypesetMetrics {
         width: shaped.metrics.width,
         height: shaped.metrics.height,
@@ -1146,10 +1133,6 @@ fn typeset_segmented_plain_text_line(
     options: &TextLineOptions,
     segmented: OwnedSegmentedText,
 ) -> Result<Option<TextLineArtifact>, MathTypesetError> {
-    if segmented.has_missing_glyph && requires_delegate_for_missing_glyph_text(&plain.text) {
-        return Ok(None);
-    }
-
     let font_size = options.text_style.font_size.max(1.0);
     let metrics = metrics_from_segmented_text(&segmented, 0.0);
     let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
@@ -1217,26 +1200,6 @@ fn typeset_segmented_plain_text_line(
         font_resources,
         warnings: Vec::<MathTypesetWarning>::new(),
     }))
-}
-
-fn requires_delegate_for_missing_glyph_text(text: &str) -> bool {
-    text.chars()
-        .any(|ch| is_rtl_char(ch) || is_zero_width_joiner(ch))
-}
-
-fn is_rtl_char(ch: char) -> bool {
-    matches!(
-        ch,
-        '\u{0590}'..='\u{08FF}'
-            | '\u{FB1D}'..='\u{FDFF}'
-            | '\u{FE70}'..='\u{FEFF}'
-            | '\u{10800}'..='\u{10FFF}'
-            | '\u{1E800}'..='\u{1EFFF}'
-    )
-}
-
-fn is_zero_width_joiner(ch: char) -> bool {
-    ch == '\u{200D}'
 }
 
 #[cfg(test)]

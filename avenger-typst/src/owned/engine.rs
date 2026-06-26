@@ -352,45 +352,43 @@ mod tests {
     }
 
     #[test]
-    fn plain_text_line_with_rtl_text_uses_owned_fallback_or_delegate() {
+    fn plain_text_line_with_rtl_text_uses_owned_fallback_without_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
-        options.outputs.paths = true;
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
 
         let artifact = engine.typeset_text_line("שלום", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
+        assert!(artifact.pdf_text.is_some());
+        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert!(!engine.delegate_initialized());
     }
 
-    #[cfg(feature = "vendor-typst")]
     #[test]
-    fn plain_text_line_with_zwj_emoji_uses_owned_fallback_or_delegate() {
+    fn plain_text_line_with_zwj_emoji_uses_owned_missing_glyph_path_without_delegate() {
         let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
         let mut options = TextLineOptions::default();
-        options.outputs.paths = true;
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
 
         let artifact = engine.typeset_text_line("Family 👨‍👩‍👧‍👦", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
-    }
-
-    #[cfg(not(feature = "vendor-typst"))]
-    #[test]
-    fn plain_text_line_with_zwj_emoji_reports_unsupported_without_delegate() {
-        let engine = OwnedTypstEngine::new(&TypstEngineConfig::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs.paths = true;
-
-        let err = engine.typeset_text_line("Family 👨‍👩‍👧‍👦", &options).unwrap_err();
-
-        assert_eq!(
-            err,
-            MathTypesetError::UnsupportedOutput(
-                "owned Typst backend does not support this text-line subset yet"
-            )
-        );
+        assert!(artifact.pdf_text.is_some());
+        assert_eq!(artifact.positioned_runs.len(), 1);
+        assert!(!engine.delegate_initialized());
     }
 
     #[test]
