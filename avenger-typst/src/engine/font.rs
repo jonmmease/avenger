@@ -117,6 +117,42 @@ pub(crate) struct TextFontMetrics {
     pub(crate) height: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct TextDecorationMetrics {
+    pub(crate) underline: TextDecorationLineMetrics,
+    pub(crate) strikethrough: TextDecorationLineMetrics,
+    pub(crate) overline: TextDecorationLineMetrics,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct TextDecorationLineMetrics {
+    /// Position relative to the baseline. Positive values are above the
+    /// baseline, matching Typst and font-table conventions.
+    pub(crate) position: f32,
+    pub(crate) thickness: f32,
+}
+
+impl TextDecorationMetrics {
+    pub(crate) fn fallback(font_size: f32) -> Self {
+        let font_size = font_size.max(1.0);
+        let thickness = font_size * 0.06;
+        Self {
+            underline: TextDecorationLineMetrics {
+                position: -font_size * 0.2,
+                thickness,
+            },
+            strikethrough: TextDecorationLineMetrics {
+                position: font_size * 0.25,
+                thickness,
+            },
+            overline: TextDecorationLineMetrics {
+                position: font_size * 0.9,
+                thickness,
+            },
+        }
+    }
+}
+
 impl TextFace {
     pub(crate) fn for_plain_style(
         style: &PlainTextStyle,
@@ -167,6 +203,57 @@ impl TextFace {
             ascent: cap_height,
             descent: 0.0,
             height: cap_height,
+        }
+    }
+
+    pub(crate) fn decoration_metrics(&self, font_size: f32) -> TextDecorationMetrics {
+        let font_size = font_size.max(1.0);
+        let Some(face) = self.parsed_face() else {
+            return TextDecorationMetrics::fallback(font_size);
+        };
+        let scale = font_scale(&face, font_size);
+        let to_px = |units: i16| units as f32 * scale;
+        let thickness_to_px = |units: i16| (units as f32 * scale).abs().max(f32::EPSILON);
+        let strikeout = face.strikeout_metrics();
+        let underline = face.underline_metrics();
+
+        let strikethrough = TextDecorationLineMetrics {
+            position: strikeout
+                .map(|metrics| to_px(metrics.position))
+                .unwrap_or(font_size * 0.25),
+            thickness: strikeout
+                .or(underline)
+                .map(|metrics| thickness_to_px(metrics.thickness))
+                .unwrap_or(font_size * 0.06),
+        };
+
+        let underline = TextDecorationLineMetrics {
+            position: underline
+                .map(|metrics| to_px(metrics.position))
+                .unwrap_or(-font_size * 0.2),
+            thickness: underline
+                .or(strikeout)
+                .map(|metrics| thickness_to_px(metrics.thickness))
+                .unwrap_or(font_size * 0.06),
+        };
+
+        let cap_height = face
+            .capital_height()
+            .filter(|height| *height > 0)
+            .unwrap_or_else(|| {
+                face.typographic_ascender()
+                    .unwrap_or_else(|| face.ascender())
+            })
+            .max(0) as f32
+            * scale;
+
+        TextDecorationMetrics {
+            underline,
+            strikethrough,
+            overline: TextDecorationLineMetrics {
+                position: cap_height + font_size * 0.1,
+                thickness: underline.thickness,
+            },
         }
     }
 
