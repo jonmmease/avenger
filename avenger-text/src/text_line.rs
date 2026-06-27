@@ -276,6 +276,7 @@ pub(crate) fn text_line_options(
     let mut math_style = math.math_style.clone();
     math_style.font_size = font_size;
     math_style.fill = avenger_typst::Color::rgba(color[0], color[1], color[2], color[3]);
+    math_style.font_weight = typst_font_weight(font_weight);
     let font_family = if font.trim().is_empty() {
         avenger_typst::PlainTextStyle::default().font_family
     } else {

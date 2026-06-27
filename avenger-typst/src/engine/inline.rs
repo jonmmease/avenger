@@ -1403,7 +1403,7 @@ mod tests {
 
         let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
-            .expect("plain Atkinson text should use fast path");
+            .expect("plain embedded text should use fast path");
 
         assert_eq!(artifact.source, "Hello");
         assert!(artifact.metrics.width > 0.0);
@@ -1424,7 +1424,7 @@ mod tests {
 
         let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
-            .expect("plain Atkinson text should use fast path");
+            .expect("plain embedded text should use fast path");
 
         let paths = artifact.paths.expect("plain paths should exist");
         assert_eq!(paths.items.len(), 5);
@@ -1456,7 +1456,7 @@ mod tests {
 
         let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
-            .expect("plain Atkinson text should use fast path");
+            .expect("plain embedded text should use fast path");
 
         assert!(artifact.paths.is_none());
         assert!(artifact
@@ -1524,7 +1524,7 @@ mod tests {
 
         let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
-            .expect("plain Atkinson text should use fast path");
+            .expect("plain embedded text should use fast path");
 
         assert_eq!(artifact.font_resources.len(), 1);
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");

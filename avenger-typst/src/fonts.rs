@@ -10,6 +10,50 @@ pub(crate) struct EmbeddedFontFace {
     pub(crate) data: &'static [u8],
 }
 
+pub(crate) struct EmbeddedMathFontFace {
+    pub(crate) weight: u16,
+    pub(crate) data: &'static [u8],
+}
+
+pub(crate) const LATO_FACES: &[EmbeddedFontFace] = &[
+    EmbeddedFontFace {
+        name: "Lato-Light",
+        weight: 300,
+        style: FontStyle::Normal,
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-Light.ttf"),
+    },
+    EmbeddedFontFace {
+        name: "Lato-LightItalic",
+        weight: 300,
+        style: FontStyle::Italic,
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-LightItalic.ttf"),
+    },
+    EmbeddedFontFace {
+        name: "Lato-Medium",
+        weight: 500,
+        style: FontStyle::Normal,
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-Medium.ttf"),
+    },
+    EmbeddedFontFace {
+        name: "Lato-MediumItalic",
+        weight: 500,
+        style: FontStyle::Italic,
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-MediumItalic.ttf"),
+    },
+    EmbeddedFontFace {
+        name: "Lato-Bold",
+        weight: 700,
+        style: FontStyle::Normal,
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-Bold.ttf"),
+    },
+    EmbeddedFontFace {
+        name: "Lato-BoldItalic",
+        weight: 700,
+        style: FontStyle::Italic,
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-BoldItalic.ttf"),
+    },
+];
+
 pub(crate) const ATKINSON_FACES: &[EmbeddedFontFace] = &[
     EmbeddedFontFace {
         name: "AtkinsonHyperlegibleNext-Regular",
@@ -124,6 +168,19 @@ pub(crate) const ATKINSON_FACES: &[EmbeddedFontFace] = &[
         ),
     },
 ];
+
+pub(crate) fn bundled_math_fonts() -> &'static [EmbeddedMathFontFace] {
+    &[
+        EmbeddedMathFontFace {
+            weight: 400,
+            data: include_bytes!("../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath.otf"),
+        },
+        EmbeddedMathFontFace {
+            weight: 700,
+            data: include_bytes!("../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf"),
+        },
+    ]
+}
 
 pub(crate) fn candidate_math_font_paths(config: &TypstEngineConfig) -> Vec<PathBuf> {
     let mut paths = Vec::new();

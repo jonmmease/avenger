@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::api::TypstEngineConfig;
 use crate::error::MathTypesetError;
-use crate::fonts::{EmbeddedFontFace, ATKINSON_FACES};
+use crate::fonts::{EmbeddedFontFace, ATKINSON_FACES, LATO_FACES};
 use crate::paths::{MathImageFormat, MathImageItem, MathPathData, MathTransform};
 use crate::pdf::{MathFontResource, MathFontResourceId};
 use crate::style::{FontStyle, FontWeight, PlainTextStyle};
@@ -125,8 +125,8 @@ impl TextFace {
         style: &PlainTextStyle,
         fontdb: &fontdb::Database,
     ) -> Result<Option<Self>, MathTypesetError> {
-        if resolves_to_embedded_atkinson(&style.font_family) {
-            return embedded_atkinson_face(style);
+        if let Some((family, faces)) = embedded_text_family(&style.font_family) {
+            return embedded_text_face(style, family, faces);
         }
 
         Ok(fontdb_face_for_style_and_text(fontdb, style, ""))
@@ -514,10 +514,13 @@ pub(crate) enum TextScript {
 
 pub(crate) fn build_text_fontdb(config: &TypstEngineConfig) -> fontdb::Database {
     let mut db = fontdb::Database::new();
+    for face in LATO_FACES {
+        db.load_font_data(face.data.to_vec());
+    }
     for face in ATKINSON_FACES {
         db.load_font_data(face.data.to_vec());
     }
-    db.set_sans_serif_family("Atkinson Hyperlegible Next");
+    db.set_sans_serif_family("Lato");
     if config.font_config.load_system_fonts {
         db.load_system_fonts();
     }
@@ -527,9 +530,13 @@ pub(crate) fn build_text_fontdb(config: &TypstEngineConfig) -> fontdb::Database 
     db
 }
 
-fn embedded_atkinson_face(style: &PlainTextStyle) -> Result<Option<TextFace>, MathTypesetError> {
-    let face = select_atkinson_face(&style.font_weight, style.font_style).ok_or(
-        MathTypesetError::UnsupportedOutput("plain text requires an embedded Atkinson face"),
+fn embedded_text_face(
+    style: &PlainTextStyle,
+    family: &'static str,
+    faces: &'static [EmbeddedFontFace],
+) -> Result<Option<TextFace>, MathTypesetError> {
+    let face = select_embedded_face(faces, &style.font_weight, style.font_style).ok_or(
+        MathTypesetError::UnsupportedOutput("plain text requires an embedded font face"),
     )?;
     ttf_parser::Face::parse(face.data, 0).map_err(|_| MathTypesetError::Engine {
         start: 0,
@@ -540,7 +547,7 @@ fn embedded_atkinson_face(style: &PlainTextStyle) -> Result<Option<TextFace>, Ma
     Ok(Some(TextFace {
         data: TextFontData::Static(face.data),
         face_index: 0,
-        family_name: Some("Atkinson Hyperlegible Next".to_string()),
+        family_name: Some(family.to_string()),
         postscript_name: None,
     }))
 }
@@ -745,15 +752,21 @@ fn font_family_name(face: &ttf_parser::Face<'_>) -> Option<String> {
         .or_else(|| font_name(face, ttf_parser::name_id::FAMILY))
 }
 
-fn select_atkinson_face(
+fn select_embedded_face(
+    faces: &'static [EmbeddedFontFace],
     weight: &FontWeight,
     style: FontStyle,
 ) -> Option<&'static EmbeddedFontFace> {
     let target_weight = font_weight_number(weight);
-    ATKINSON_FACES
+    faces
         .iter()
         .filter(|face| face.style == style)
-        .min_by_key(|face| face.weight.abs_diff(target_weight))
+        .min_by_key(|face| {
+            (
+                face.weight.abs_diff(target_weight),
+                face.weight < target_weight,
+            )
+        })
 }
 
 fn font_weight_number(weight: &FontWeight) -> u16 {
@@ -764,11 +777,16 @@ fn font_weight_number(weight: &FontWeight) -> u16 {
     }
 }
 
-fn resolves_to_embedded_atkinson(font_family: &str) -> bool {
-    font_family.split(',').any(|family| {
+fn embedded_text_family(font_family: &str) -> Option<(&'static str, &'static [EmbeddedFontFace])> {
+    font_family.split(',').find_map(|family| {
         let family = family.trim().trim_matches('"').trim_matches('\'');
-        family.eq_ignore_ascii_case("sans-serif")
-            || family.eq_ignore_ascii_case("Atkinson Hyperlegible Next")
+        if family.eq_ignore_ascii_case("sans-serif") || family.eq_ignore_ascii_case("Lato") {
+            Some(("Lato", LATO_FACES))
+        } else if family.eq_ignore_ascii_case("Atkinson Hyperlegible Next") {
+            Some(("Atkinson Hyperlegible Next", ATKINSON_FACES))
+        } else {
+            None
+        }
     })
 }
 
@@ -805,7 +823,23 @@ mod tests {
     }
 
     #[test]
-    fn can_resolve_fontdb_fallback_for_non_atkinson_family() {
+    fn normal_lato_prefers_medium_when_regular_is_not_bundled() {
+        let fontdb = test_fontdb();
+        let style = PlainTextStyle {
+            font_weight: FontWeight::Normal,
+            ..PlainTextStyle::default()
+        };
+
+        let face = TextFace::for_plain_style(&style, &fontdb)
+            .unwrap()
+            .expect("default sans-serif should resolve");
+        let resource = face.font_resource(MathFontResourceId(0));
+
+        assert_eq!(resource.postscript_name.as_deref(), Some("Lato-Medium"));
+    }
+
+    #[test]
+    fn can_resolve_fontdb_fallback_for_non_embedded_family() {
         let fontdb = test_fontdb();
         let style = PlainTextStyle {
             font_family: "serif".to_string(),
@@ -963,16 +997,13 @@ mod tests {
     }
 
     #[test]
-    fn keeps_atkinson_fast_path_for_default_sans_serif() {
+    fn keeps_lato_fast_path_for_default_sans_serif() {
         let fontdb = test_fontdb();
         let style = PlainTextStyle::default();
         let face = TextFace::for_plain_style_and_text(&style, "Hello", &fontdb)
             .unwrap()
             .expect("default sans-serif should resolve");
 
-        assert_eq!(
-            face.font_resource(MathFontResourceId(0)).family,
-            "Atkinson Hyperlegible Next"
-        );
+        assert_eq!(face.font_resource(MathFontResourceId(0)).family, "Lato");
     }
 }

@@ -12,7 +12,7 @@ use crate::pdf::{
 };
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
-use crate::style::MathFontSpec;
+use crate::style::{FontWeight, MathFontSpec};
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
 use super::ast::{MathAst, MathNode, MathOperator, MathShorthand, MathText, MathTextKind};
@@ -26,14 +26,19 @@ pub(crate) fn try_typeset_simple_row_fragment(
     if options.outputs.raster.is_some() {
         return Ok(None);
     }
-    if !matches!(options.style.font, MathFontSpec::NewComputerModernMath) {
+    if !matches!(
+        options.style.font,
+        MathFontSpec::LeteSansMath | MathFontSpec::NewComputerModernMath
+    ) {
         return Ok(None);
     }
     if !config.font_config.extra_font_families.is_empty() {
         return Ok(None);
     }
 
-    let Some(font) = load_default_math_font(config) else {
+    let Some(font) =
+        load_default_math_font(config, &options.style.font, &options.style.font_weight)
+    else {
         return Ok(None);
     };
     let Some(layout) = layout_simple_row(&font, math, options.style.font_size.max(1.0))? else {
@@ -2525,19 +2530,56 @@ struct MathFont {
     face_index: u32,
 }
 
-fn load_default_math_font(config: &TypstEngineConfig) -> Option<MathFont> {
+fn load_default_math_font(
+    config: &TypstEngineConfig,
+    spec: &MathFontSpec,
+    weight: &FontWeight,
+) -> Option<MathFont> {
+    if matches!(spec, MathFontSpec::LeteSansMath) {
+        let target_weight = font_weight_number(weight);
+        let mut bundled = crate::fonts::bundled_math_fonts()
+            .iter()
+            .collect::<Vec<_>>();
+        bundled.sort_by_key(|face| {
+            (
+                face.weight.abs_diff(target_weight),
+                face.weight < target_weight,
+            )
+        });
+        for face in bundled {
+            if let Some(font) = math_font_from_data(face.data.to_vec()) {
+                return Some(font);
+            }
+        }
+    }
+
     for path in crate::fonts::candidate_math_font_paths(config) {
         let Ok(data) = std::fs::read(path) else {
             continue;
         };
-        let face_count = ttf_parser::fonts_in_collection(&data).unwrap_or(1);
-        for face_index in 0..face_count {
-            let Ok(face) = ttf_parser::Face::parse(&data, face_index) else {
-                continue;
-            };
-            if face.tables().math.is_some() {
-                return Some(MathFont { data, face_index });
-            }
+        if let Some(font) = math_font_from_data(data) {
+            return Some(font);
+        }
+    }
+    None
+}
+
+fn font_weight_number(weight: &FontWeight) -> u16 {
+    match weight {
+        FontWeight::Normal => 400,
+        FontWeight::Bold => 700,
+        FontWeight::Number(value) => (*value).clamp(1, 1000),
+    }
+}
+
+fn math_font_from_data(data: Vec<u8>) -> Option<MathFont> {
+    let face_count = ttf_parser::fonts_in_collection(&data).unwrap_or(1);
+    for face_index in 0..face_count {
+        let Ok(face) = ttf_parser::Face::parse(&data, face_index) else {
+            continue;
+        };
+        if face.tables().math.is_some() {
+            return Some(MathFont { data, face_index });
         }
     }
     None

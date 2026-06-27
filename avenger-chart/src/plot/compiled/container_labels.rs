@@ -275,7 +275,7 @@ fn label_style(theme: &Theme, params: &IndexMap<String, ScalarValue>) -> Contain
     ContainerLabelStyle {
         font_family: theme
             .font_family(&ctx)
-            .unwrap_or_else(|| "Atkinson Hyperlegible Next".to_string()),
+            .unwrap_or_else(|| "Lato".to_string()),
         font_size: theme.font_size(&ctx).unwrap_or(DEFAULT_FONT_SIZE),
         font_weight: FontWeight::Number(theme.font_weight(&ctx).unwrap_or(DEFAULT_FONT_WEIGHT)),
         color: theme.text_color(&ctx).unwrap_or(DEFAULT_TEXT_COLOR),

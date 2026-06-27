@@ -83,6 +83,7 @@ pub struct MathFontBytesId(pub u64);
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum MathFontSpec {
+    LeteSansMath,
     NewComputerModernMath,
     Family(String),
     FontBytes(MathFontBytesId),
@@ -90,7 +91,7 @@ pub enum MathFontSpec {
 
 impl Default for MathFontSpec {
     fn default() -> Self {
-        Self::NewComputerModernMath
+        Self::LeteSansMath
     }
 }
 
@@ -114,15 +115,17 @@ pub struct MathStyle {
     pub font: MathFontSpec,
     pub font_size: f32,
     pub fill: Color,
+    pub font_weight: FontWeight,
     pub display_style: MathDisplayStyle,
 }
 
 impl Default for MathStyle {
     fn default() -> Self {
         Self {
-            font: MathFontSpec::NewComputerModernMath,
+            font: MathFontSpec::LeteSansMath,
             font_size: 12.0,
             fill: Color::BLACK,
+            font_weight: FontWeight::Normal,
             display_style: MathDisplayStyle::Inline,
         }
     }

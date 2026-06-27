@@ -164,6 +164,7 @@ fn empty_text_line_artifact(source: &str, options: &TextLineOptions) -> TextLine
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::style::FontWeight;
     use crate::types::{MathOutputRequest, TextLineOutputRequest};
 
     #[test]
@@ -911,6 +912,25 @@ mod tests {
         assert!(glyph_text.contains('∈'));
         assert!(glyph_text.contains('⊆'));
         assert!(glyph_text.contains('⇒'));
+    }
+
+    #[test]
+    fn bold_math_fragment_uses_bundled_bold_math_font() {
+        let engine = TypstEngineCore::new(&TypstEngineConfig::default()).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.style.font_weight = FontWeight::Bold;
+        options.outputs = MathOutputRequest {
+            paths: false,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact = engine.typeset_fragment("R^2 + beta", &options).unwrap();
+
+        assert_eq!(
+            artifact.font_resources[0].postscript_name.as_deref(),
+            Some("LeteSansMath-Bold")
+        );
     }
 
     #[cfg(feature = "raster")]

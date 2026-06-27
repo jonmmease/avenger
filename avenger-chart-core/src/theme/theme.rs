@@ -79,7 +79,7 @@ impl Theme {
         let css = r#"
             /* Base configuration */
             :root {
-                font-family: "Atkinson Hyperlegible Next";
+                font-family: "Lato";
                 --base-font-size: 12px;  /* Can be overridden via parameter */
                 font-size: var(--base-font-size);  /* Base font size for rem calculations */
 
@@ -132,7 +132,7 @@ impl Theme {
             /* === Chart Titles === */
             chart-title {
                 color: var(--text-color);
-                font-weight: 500;
+                font-weight: 700;
                 font-size: 1.5rem; /* 18px @ 12px base */
                 text-align: left;
                 width: canvas;  /* or plot-area */
@@ -140,7 +140,7 @@ impl Theme {
 
             chart-subtitle {
                 color: var(--text-tertiary);
-                font-weight: 200;
+                font-weight: 300;
                 font-size: 1.167rem; /* 14px @ 12px base */
                 text-align: left;
                 width: canvas;  /* or plot-area */
@@ -159,14 +159,14 @@ impl Theme {
 
             axis title {
                 color: var(--text-color);
-                font-weight: 400;
+                font-weight: 500;
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 
             /* Facet title should match axis title typography */
             facet title {
                 color: var(--text-color);
-                font-weight: 400;
+                font-weight: 500;
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 
@@ -219,7 +219,7 @@ impl Theme {
 
             legend title {
                 color: var(--text-color);
-                font-weight: 400;
+                font-weight: 500;
                 font-size: 1.0rem; /* 12px @ 12px base */
             }
 

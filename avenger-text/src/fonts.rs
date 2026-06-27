@@ -1,6 +1,5 @@
-// Embedded font data for Atkinson Hyperlegible Next
-// This font is designed for improved readability and legibility
-// Include the font files at compile time
+// Embedded font data for Avenger's bundled chart text faces.
+// Include the font files at compile time.
 const ATKINSON_HYPERLEGIBLE_REGULAR: &[u8] = include_bytes!(
     "../../avenger-chart/fonts/Atkinson_Hyperlegible_Next/AtkinsonHyperlegibleNext-Regular.ttf"
 );
@@ -51,6 +50,30 @@ pub struct EmbeddedFont {
 }
 
 const EMBEDDED_FONTS: &[EmbeddedFont] = &[
+    EmbeddedFont {
+        name: "Lato-Light",
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-Light.ttf"),
+    },
+    EmbeddedFont {
+        name: "Lato-LightItalic",
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-LightItalic.ttf"),
+    },
+    EmbeddedFont {
+        name: "Lato-Medium",
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-Medium.ttf"),
+    },
+    EmbeddedFont {
+        name: "Lato-MediumItalic",
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-MediumItalic.ttf"),
+    },
+    EmbeddedFont {
+        name: "Lato-Bold",
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-Bold.ttf"),
+    },
+    EmbeddedFont {
+        name: "Lato-BoldItalic",
+        data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-BoldItalic.ttf"),
+    },
     EmbeddedFont {
         name: "AtkinsonHyperlegibleNext-Regular",
         data: ATKINSON_HYPERLEGIBLE_REGULAR,
@@ -122,7 +145,7 @@ pub fn load_embedded_fonts_into_fontdb(fontdb: &mut fontdb::Database) {
 pub fn build_fontdb(options: &crate::FontResolutionOptions) -> fontdb::Database {
     let mut fontdb = fontdb::Database::new();
     load_embedded_fonts_into_fontdb(&mut fontdb);
-    fontdb.set_sans_serif_family("Atkinson Hyperlegible Next");
+    fontdb.set_sans_serif_family("Lato");
 
     if options.load_system_fonts {
         fontdb.load_system_fonts();
@@ -140,13 +163,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn embedded_font_registry_contains_all_bundled_atkinson_faces() {
+    fn embedded_font_registry_contains_bundled_default_and_legacy_faces() {
         let names = embedded_fonts()
             .iter()
             .map(|font| font.name)
             .collect::<Vec<_>>();
 
-        assert_eq!(names.len(), 14);
+        assert_eq!(names.len(), 20);
+        assert!(names.contains(&"Lato-Light"));
+        assert!(names.contains(&"Lato-LightItalic"));
+        assert!(names.contains(&"Lato-Medium"));
+        assert!(names.contains(&"Lato-MediumItalic"));
+        assert!(names.contains(&"Lato-Bold"));
+        assert!(names.contains(&"Lato-BoldItalic"));
         assert!(names.contains(&"AtkinsonHyperlegibleNext-Regular"));
         assert!(names.contains(&"AtkinsonHyperlegibleNext-Italic"));
         assert!(names.contains(&"AtkinsonHyperlegibleNext-Bold"));
@@ -164,24 +193,25 @@ mod tests {
     }
 
     #[test]
-    fn build_fontdb_loads_atkinson_family_and_weight_style_faces() {
-        use std::collections::HashSet;
-
+    fn build_fontdb_loads_default_lato_family_and_weight_style_faces() {
         let options = crate::FontResolutionOptions::default();
         let fontdb = build_fontdb(&options);
-        let faces = fontdb
-            .faces()
-            .filter(|face| {
-                face.families
-                    .iter()
-                    .any(|(family, _)| family == "Atkinson Hyperlegible Next")
-            })
-            .map(|face| (face.weight.0, face.style))
-            .collect::<HashSet<_>>();
 
-        for weight in [250, 300, 400, 500, 600, 700, 800] {
-            assert!(faces.contains(&(weight, fontdb::Style::Normal)));
-            assert!(faces.contains(&(weight, fontdb::Style::Italic)));
+        for weight in [300, 500, 700] {
+            for style in [fontdb::Style::Normal, fontdb::Style::Italic] {
+                let families = [fontdb::Family::Name("Lato")];
+                let query = fontdb::Query {
+                    families: &families,
+                    weight: fontdb::Weight(weight),
+                    stretch: fontdb::Stretch::Normal,
+                    style,
+                };
+                let id = fontdb
+                    .query(&query)
+                    .unwrap_or_else(|| panic!("Lato {weight} {style:?} should resolve"));
+                let face = fontdb.face(id).expect("resolved Lato face should exist");
+                assert!(face.families.iter().any(|(family, _)| family == "Lato"));
+            }
         }
 
         let families = [fontdb::Family::SansSerif];
@@ -196,6 +226,6 @@ mod tests {
         assert!(sans_face
             .families
             .iter()
-            .any(|(family, _)| family == "Atkinson Hyperlegible Next"));
+            .any(|(family, _)| family == "Lato"));
     }
 }

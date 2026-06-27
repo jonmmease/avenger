@@ -92,7 +92,7 @@ impl FontResolver for FontdbFontResolver {
         self.generic_families
             .get("sans-serif")
             .cloned()
-            .unwrap_or_else(|| "Atkinson Hyperlegible Next".to_string())
+            .unwrap_or_else(|| "Lato".to_string())
     }
 
     fn resolve_generic_family(&self, generic: &str) -> Option<String> {
@@ -163,20 +163,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn option_resolver_uses_bundled_sans_serif_when_system_fonts_are_disabled() {
+    fn option_resolver_uses_bundled_lato_sans_serif_when_system_fonts_are_disabled() {
         let resolver = FontdbFontResolver::with_font_resolution(&FontResolutionOptions::default());
 
         assert_eq!(
             resolver.resolve_generic_family("sans-serif").as_deref(),
-            Some("Atkinson Hyperlegible Next")
+            Some("Lato")
         );
         assert_eq!(
             resolver.select_available_font(vec!["sans-serif".to_string()]),
-            "Atkinson Hyperlegible Next"
+            "Lato"
         );
         assert_eq!(
             resolver.select_available_font(vec!["Missing Font".to_string()]),
-            "Atkinson Hyperlegible Next"
+            "Lato"
         );
     }
 

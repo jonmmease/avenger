@@ -215,6 +215,48 @@ fn emoji_text_data(ctx: &SessionContext) -> DataFrame {
     ctx.read_batch(batch).expect("typst emoji text dataframe")
 }
 
+fn math_font_weight_data(ctx: &SessionContext) -> DataFrame {
+    let weights = [
+        ("300 Light", "300", 2.8),
+        ("500 Medium", "500", 1.8),
+        ("700 Bold", "700", 0.8),
+    ];
+    let label_template = " Lato text + $R^2 = alpha x^2 + beta$ + $sqrt(x)/(1+x^2)$";
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Float64, false),
+        Field::new("y", DataType::Float64, false),
+        Field::new("weight", DataType::Utf8, false),
+        Field::new("label", DataType::Utf8, false),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Float64Array::from(vec![0.05; weights.len()])) as ArrayRef,
+            Arc::new(Float64Array::from(
+                weights.iter().map(|(_, _, y)| *y).collect::<Vec<_>>(),
+            )) as ArrayRef,
+            Arc::new(StringArray::from(
+                weights
+                    .iter()
+                    .map(|(_, weight, _)| *weight)
+                    .collect::<Vec<_>>(),
+            )) as ArrayRef,
+            Arc::new(StringArray::from(
+                weights
+                    .iter()
+                    .map(|(name, _, _)| format!("{name}:{label_template}"))
+                    .collect::<Vec<_>>(),
+            )) as ArrayRef,
+        ],
+    )
+    .expect("typst math font weight batch");
+
+    ctx.read_batch(batch)
+        .expect("typst math font weight dataframe")
+}
+
 async fn assert_typst_math_wgpu(compiled: CompiledPlot, ctx: &SessionContext, baseline_name: &str) {
     assert_visual_match_with_canvas_config_and_sidecars(
         Arc::new(compiled),
@@ -226,6 +268,41 @@ async fn assert_typst_math_wgpu(compiled: CompiledPlot, ctx: &SessionContext, ba
         CanvasConfig::default(),
     )
     .await;
+}
+
+#[tokio::test]
+async fn mixed_text_math_font_weights() {
+    let ctx = SessionContext::new();
+    let df = math_font_weight_data(&ctx);
+
+    let plot = Plot::<Cartesian>::new()
+        .title("Mixed Lato + Lete Sans Math weights")
+        .subtitle("Math selects the nearest bundled Lete Sans Math face")
+        .canvas_size(760.0, 300.0)
+        .mark(
+            Text::new()
+                .data(df)
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 1.0)))
+                        .axis(|axis| axis.visible(false))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 3.3)))
+                        .axis(|axis| axis.visible(false))
+                })
+                .text(col("label"))
+                .align("left")
+                .baseline("middle")
+                .font_size(20.0)
+                .font_weight(ChannelValue::from(col("weight")).no_scale())
+                .color("#111827"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile mixed text math font weights plot");
+    assert_typst_math_wgpu(compiled, &ctx, "mixed_text_math_font_weights").await;
 }
 
 #[tokio::test]
