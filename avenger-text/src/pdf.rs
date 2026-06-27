@@ -116,7 +116,10 @@ impl TextPdfExtractorImpl {
 
         if let Some(pdf_text) = result.artifact.pdf_text {
             output.semantic_text = pdf_text.semantic_text;
-            for run in pdf_text.glyph_runs {
+            for mut run in pdf_text.glyph_runs {
+                for glyph in &mut run.glyphs {
+                    glyph.transform.dy += y_offset;
+                }
                 let index = output.glyph_runs.len();
                 output.glyph_runs.push(run);
                 output.draw_items.push(TextPdfDrawItem::GlyphRun(index));
@@ -206,6 +209,18 @@ mod tests {
             .draw_items
             .iter()
             .any(|item| matches!(item, TextPdfDrawItem::GlyphRun(_))));
+    }
+
+    #[test]
+    fn pdf_glyph_baseline_is_offset_into_padded_line_bounds() {
+        let buffer = engine().extract_pdf(&pdf_config("X Position")).unwrap();
+        let first_glyph_y = buffer.glyph_runs[0].glyphs[0].transform.dy;
+
+        assert!(
+            (first_glyph_y - buffer.bounds.ascent).abs() < 0.001,
+            "first glyph baseline {first_glyph_y} should match padded ascent {}",
+            buffer.bounds.ascent
+        );
     }
 
     #[test]
