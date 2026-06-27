@@ -1192,8 +1192,8 @@ fn krilla_glyphs_from_run(run: &MathPdfGlyphRun) -> Result<Vec<KrillaGlyph>, Ave
             GlyphId::new(glyph.glyph_id as u32),
             glyph.x_advance / font_size,
             (glyph_x - cursor_x) / font_size,
-            (glyph_y - cursor_y) / font_size,
-            glyph.y_advance / font_size,
+            (cursor_y - glyph_y) / font_size,
+            -glyph.y_advance / font_size,
             if use_run_actual_text {
                 0..run.text.len()
             } else {
@@ -1624,6 +1624,37 @@ mod tests {
         let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
 
         assert!(extracted.contains("Hello PDF"), "{extracted:?}");
+    }
+
+    #[test]
+    fn converts_pdf_glyph_y_offsets_to_krilla_coordinates() {
+        let run = MathPdfGlyphRun {
+            font: MathFontResourceId(0),
+            font_size: 10.0,
+            fill: avenger_typst::Color::BLACK,
+            stroke: None,
+            text: "A".to_string(),
+            glyphs: vec![avenger_typst::MathPdfGlyph {
+                glyph_id: 1,
+                unicode: "A".to_string(),
+                text_range: 0..1,
+                x: 0.0,
+                y: 0.0,
+                x_advance: 10.0,
+                y_advance: 0.0,
+                transform: avenger_typst::MathTransform {
+                    dx: 3.0,
+                    dy: 12.0,
+                    ..avenger_typst::MathTransform::IDENTITY
+                },
+            }],
+        };
+
+        let glyphs = krilla_glyphs_from_run(&run).unwrap();
+
+        assert_eq!(glyphs.len(), 1);
+        assert_eq!(glyphs[0].x_offset, 0.3);
+        assert_eq!(glyphs[0].y_offset, -1.2);
     }
 
     #[test]
