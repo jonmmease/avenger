@@ -105,7 +105,7 @@ impl PdfRenderer {
             .map_err(|err| AvengerChartError::InternalError(err.to_string()))
     }
 
-    /// Render a compiled plot directly to a PDF file.
+    /// Write a compiled plot to a PDF file.
     ///
     /// ```rust,ignore
     /// use avenger_chart::render::PdfRenderer;
@@ -126,7 +126,7 @@ impl PdfRenderer {
             .await
     }
 
-    /// Render a compiled plot directly to a PDF file with explicit evaluation options.
+    /// Write a compiled plot to a PDF file with explicit evaluation options.
     pub async fn write_pdf_with_options<P: AsRef<Path>>(
         &self,
         compiled: &CompiledPlot,

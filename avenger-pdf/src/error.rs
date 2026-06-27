@@ -16,8 +16,6 @@ pub enum AvengerPdfError {
     Text(#[from] avenger_text::error::AvengerTextError),
     #[error("invalid PDF text buffer: {0}")]
     TextBuffer(String),
-    #[error("PDF conversion error: {0}")]
-    Conversion(String),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }

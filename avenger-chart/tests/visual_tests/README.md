@@ -159,16 +159,6 @@ AVENGER_CHART_PDF_BASELINES=1 \
   cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 ```
 
-PDF visual baselines use the direct `krilla` renderer by default. To make the
-choice explicit while debugging:
-
-```bash
-AVENGER_CHART_PDF_RENDERER=krilla \
-AVENGER_CHART_PDF_BASELINES=only \
-AVENGER_CHART_PDFIUM_LIBRARY_PATH="$PWD/target/pdfium/lib/libpdfium.dylib" \
-  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
-```
-
 To measure PDFium-vs-WGPU scores while auditing renderer parity:
 
 ```bash
@@ -180,8 +170,8 @@ AVENGER_CHART_PDF_SCORE_REPORT=target/tests/pdf-wgpu-scores.csv \
 Failures are written to `tests/failures_pdf/{category}/` with the generated
 PDF, the PDFium PNG, and diffs against the PDFium PNG baseline and WGPU PNG
 baseline. The PDF-to-WGPU comparison uses a global `0.95` threshold. This leaves
-room for the direct `krilla` renderer's different text/vector rasterization
-while still catching larger parity regressions.
+room for PDFium's text/vector rasterization differences while still catching
+larger parity regressions.
 
 The committed PDF is kept as a first-class export artifact for review, but the
 suite does not compare PDF bytes directly. Embedded font resources and subsets

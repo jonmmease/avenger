@@ -80,8 +80,10 @@ impl PdfRenderer {
             validate_scene_graph_text_fonts(scene_graph, &fontdb)?;
         }
 
-        let mut settings = SerializeSettings::default();
-        settings.compress_content_streams = self.options.compress;
+        let settings = SerializeSettings {
+            compress_content_streams: self.options.compress,
+            ..Default::default()
+        };
 
         let mut document = Document::new_with(settings);
         let mut page = document.start_page_with(page_settings);
@@ -544,19 +546,29 @@ impl PdfRenderer {
                     self.draw_text_leader(
                         surface,
                         &geometry,
-                        leader_stroke,
-                        *leader_stroke_width,
-                        *leader_stroke_cap,
-                        *leader_stroke_join,
-                        leader_stroke_dash_values
-                            .as_ref()
-                            .and_then(|values| values.get(index).map(Vec::as_slice)),
+                        LeaderStrokeStyle {
+                            paint: leader_stroke,
+                            width: *leader_stroke_width,
+                            cap: *leader_stroke_cap,
+                            join: *leader_stroke_join,
+                            dash: leader_stroke_dash_values
+                                .as_ref()
+                                .and_then(|values| values.get(index).map(Vec::as_slice)),
+                        },
                     )?;
                 }
             }
 
             self.draw_text_pdf_buffer(
-                surface, &buffer, label, align, baseline, *angle, font_cache,
+                surface,
+                &buffer,
+                TextPdfPlacement {
+                    label,
+                    align,
+                    baseline,
+                    angle: *angle,
+                },
+                font_cache,
             )?;
         }
 
@@ -567,15 +579,19 @@ impl PdfRenderer {
         &self,
         surface: &mut Surface<'_>,
         buffer: &TextPdfBuffer,
-        label: [f32; 2],
-        align: &TextAlign,
-        baseline: &TextBaseline,
-        angle: f32,
+        placement: TextPdfPlacement<'_>,
         font_cache: &mut PdfFontCache,
     ) -> Result<(), AvengerPdfError> {
-        let [x, text_top] = buffer.bounds.calculate_origin(label, align, baseline);
-        if angle != 0.0 {
-            surface.push_transform(&Transform::from_rotate_at(angle, label[0], label[1]));
+        let [x, text_top] =
+            buffer
+                .bounds
+                .calculate_origin(placement.label, placement.align, placement.baseline);
+        if placement.angle != 0.0 {
+            surface.push_transform(&Transform::from_rotate_at(
+                placement.angle,
+                placement.label[0],
+                placement.label[1],
+            ));
         }
 
         let result = (|| {
@@ -602,7 +618,7 @@ impl PdfRenderer {
             Ok(())
         })();
 
-        if angle != 0.0 {
+        if placement.angle != 0.0 {
             surface.pop();
         }
         result
@@ -685,11 +701,7 @@ impl PdfRenderer {
         &self,
         surface: &mut Surface<'_>,
         geometry: &TextLeaderGeometry,
-        stroke: &ColorOrGradient,
-        stroke_width: f32,
-        stroke_cap: StrokeCap,
-        stroke_join: StrokeJoin,
-        stroke_dash: Option<&[f32]>,
+        style: LeaderStrokeStyle<'_>,
     ) -> Result<(), AvengerPdfError> {
         let spine = text_leader_path(&geometry.spine);
         self.draw_path_with_style(
@@ -697,11 +709,11 @@ impl PdfRenderer {
             &spine,
             PathStyle {
                 fill: None,
-                stroke: Some(stroke),
-                stroke_width: Some(stroke_width.max(0.0)),
-                stroke_cap: Some(stroke_cap),
-                stroke_join: Some(stroke_join),
-                stroke_dash,
+                stroke: Some(style.paint),
+                stroke_width: Some(style.width.max(0.0)),
+                stroke_cap: Some(style.cap),
+                stroke_join: Some(style.join),
+                stroke_dash: style.dash,
                 gradients: &[],
             },
         )?;
@@ -714,10 +726,10 @@ impl PdfRenderer {
                     &path,
                     PathStyle {
                         fill: None,
-                        stroke: Some(stroke),
-                        stroke_width: Some(stroke_width.max(0.0)),
-                        stroke_cap: Some(stroke_cap),
-                        stroke_join: Some(stroke_join),
+                        stroke: Some(style.paint),
+                        stroke_width: Some(style.width.max(0.0)),
+                        stroke_cap: Some(style.cap),
+                        stroke_join: Some(style.join),
                         stroke_dash: None,
                         gradients: &[],
                     },
@@ -726,7 +738,7 @@ impl PdfRenderer {
                     surface,
                     &path,
                     PathStyle {
-                        fill: Some(stroke),
+                        fill: Some(style.paint),
                         stroke: None,
                         stroke_width: None,
                         stroke_cap: None,
@@ -814,6 +826,21 @@ struct PathStyle<'a> {
     stroke_join: Option<StrokeJoin>,
     stroke_dash: Option<&'a [f32]>,
     gradients: &'a [Gradient],
+}
+
+struct TextPdfPlacement<'a> {
+    label: [f32; 2],
+    align: &'a TextAlign,
+    baseline: &'a TextBaseline,
+    angle: f32,
+}
+
+struct LeaderStrokeStyle<'a> {
+    paint: &'a ColorOrGradient,
+    width: f32,
+    cap: StrokeCap,
+    join: StrokeJoin,
+    dash: Option<&'a [f32]>,
 }
 
 #[derive(Default)]
@@ -1336,7 +1363,7 @@ fn font_resource(
 
 fn krilla_glyphs_from_run(run: &MathPdfGlyphRun) -> Result<Vec<KrillaGlyph>, AvengerPdfError> {
     let font_size = run.font_size.max(0.0001);
-    let use_run_actual_text = run.text.chars().any(|ch| !ch.is_ascii());
+    let use_run_actual_text = !run.text.is_ascii();
     let mut cursor_x = 0.0;
     let mut cursor_y = 0.0;
     let mut glyphs = Vec::with_capacity(run.glyphs.len());
@@ -1670,7 +1697,7 @@ mod tests {
     }
 
     #[test]
-    fn renders_rect_marks_directly() {
+    fn renders_rect_marks() {
         let scene_graph = SceneGraph {
             width: 80.0,
             height: 40.0,

@@ -4,8 +4,6 @@ use avenger_text::FontResolutionOptions;
 pub struct PdfRenderOptions {
     /// Background fill for the generated PDF page.
     pub background: PdfBackground,
-    /// Decimal precision retained for API parity with `avenger-pdf`.
-    pub precision: usize,
     /// Font sources used for selectable PDF text.
     ///
     /// Avenger embeds its bundled fonts by default. When `load_system_fonts` or
@@ -14,18 +12,14 @@ pub struct PdfRenderOptions {
     pub font_resolution: FontResolutionOptions,
     /// Compress PDF streams where supported by the writer.
     pub compress: bool,
-    /// Retained for API parity with `avenger-pdf`; unused by the direct path.
-    pub raster_scale: f32,
 }
 
 impl Default for PdfRenderOptions {
     fn default() -> Self {
         Self {
             background: PdfBackground::White,
-            precision: 3,
             font_resolution: FontResolutionOptions::default(),
             compress: true,
-            raster_scale: 1.5,
         }
     }
 }

@@ -60,7 +60,7 @@ async fn renders_serialized_compiled_chart_to_pdf_bytes() {
     let serialized = serde_json::to_string(&compiled).unwrap();
     let deserialized: CompiledPlot = serde_json::from_str(&serialized).unwrap();
 
-    let direct_pdf = PdfRenderer::new()
+    let original_pdf = PdfRenderer::new()
         .render(&compiled, &ctx, None)
         .await
         .unwrap();
@@ -69,7 +69,7 @@ async fn renders_serialized_compiled_chart_to_pdf_bytes() {
         .await
         .unwrap();
 
-    assert!(direct_pdf.starts_with(b"%PDF-"));
+    assert!(original_pdf.starts_with(b"%PDF-"));
     assert!(roundtrip_pdf.starts_with(b"%PDF-"));
 }
 
@@ -86,7 +86,7 @@ fn render_evaluated_plot_loads_resource_images_for_pdf() {
 }
 
 #[test]
-fn render_evaluated_plot_errors_before_pdf_conversion_when_resource_load_fails() {
+fn render_evaluated_plot_errors_before_pdf_rendering_when_resource_load_fails() {
     let evaluated = resource_evaluated_plot(ResourceSource::Opaque {
         provider: "test".to_string(),
         id: "bad".to_string(),

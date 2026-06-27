@@ -1,8 +1,8 @@
-//! Direct PDF export for Avenger scene graphs using `krilla`.
+//! PDF export for Avenger scene graphs using `krilla`.
 //!
-//! This renderer writes PDF pages directly instead of converting through SVG,
-//! so regular text, math glyphs, and emoji flow through `krilla`'s font
-//! embedding machinery.
+//! The renderer writes scene marks, images, and selectable text into PDF pages.
+//! Regular text, math glyphs, and emoji flow through `krilla`'s font embedding
+//! machinery.
 
 pub mod error;
 pub mod options;

@@ -38,7 +38,6 @@ const BLESS_WGPU_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_WGPU_BASELINES";
 const BLESS_SVG_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_SVG_BASELINES";
 const BLESS_PDF_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_PDF_BASELINES";
 const PDF_SCORE_REPORT_ENV: &str = "AVENGER_CHART_PDF_SCORE_REPORT";
-const PDF_RENDERER_ENV: &str = "AVENGER_CHART_PDF_RENDERER";
 const PDFIUM_LIBRARY_PATH_ENV: &str = "AVENGER_CHART_PDFIUM_LIBRARY_PATH";
 const SVG_BASELINE_RESVG_THRESHOLD: f64 = 0.99999;
 const SVG_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
@@ -790,13 +789,10 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
         return;
     }
 
-    let renderer = selected_pdf_renderer();
-    let pdf = render_scene_graph_pdf(scene_graph, renderer)
-        .unwrap_or_else(|err| panic!("Failed to render {renderer} PDF visual baseline: {err}"));
+    let pdf = render_scene_graph_pdf(scene_graph)
+        .unwrap_or_else(|err| panic!("Failed to render PDF visual baseline: {err}"));
     let pdf_image = rasterize_pdf_with_pdfium(&pdf, scene_graph.width, scene_graph.height)
-        .unwrap_or_else(|err| {
-            panic!("Failed to rasterize {renderer} PDF visual baseline with PDFium: {err}")
-        });
+        .unwrap_or_else(|err| panic!("Failed to rasterize PDF visual baseline with PDFium: {err}"));
 
     let pdf_path = pdf_baseline_path(category, baseline_name, "pdf");
     let pdf_png_path = pdf_baseline_path(category, baseline_name, "png");
@@ -837,7 +833,7 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
             save_pdf_failures(category, baseline_name, &pdf, &pdf_image)
                 .expect("Failed to save invalid generated PDF failure");
             panic!(
-                "Generated {renderer} PDF for '{}' does not start with a PDF header. Generated PDF saved to '{}'.",
+                "Generated PDF for '{}' does not start with a PDF header. Generated PDF saved to '{}'.",
                 baseline_name,
                 pdf_failure.display()
             );
@@ -868,46 +864,14 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
         .expect("Failed to append PDF score report");
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum VisualPdfRenderer {
-    DirectKrilla,
-}
-
-impl std::fmt::Display for VisualPdfRenderer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::DirectKrilla => f.write_str("krilla"),
-        }
-    }
-}
-
-fn selected_pdf_renderer() -> VisualPdfRenderer {
-    match std::env::var(PDF_RENDERER_ENV) {
-        Ok(value)
-            if value.eq_ignore_ascii_case("krilla") || value.eq_ignore_ascii_case("direct") =>
-        {
-            VisualPdfRenderer::DirectKrilla
-        }
-        Ok(value) if !value.is_empty() => {
-            panic!("unsupported {PDF_RENDERER_ENV}={value:?}; expected `krilla` or `direct`");
-        }
-        _ => VisualPdfRenderer::DirectKrilla,
-    }
-}
-
-fn render_scene_graph_pdf(
-    scene_graph: &SceneGraph,
-    renderer: VisualPdfRenderer,
-) -> Result<Vec<u8>, String> {
-    match renderer {
-        VisualPdfRenderer::DirectKrilla => avenger_pdf::PdfRenderer::new()
-            .with_options(avenger_pdf::PdfRenderOptions {
-                font_resolution: pdf_visual_font_resolution(),
-                ..Default::default()
-            })
-            .render_scene_graph(scene_graph)
-            .map_err(|err| err.to_string()),
-    }
+fn render_scene_graph_pdf(scene_graph: &SceneGraph) -> Result<Vec<u8>, String> {
+    avenger_pdf::PdfRenderer::new()
+        .with_options(avenger_pdf::PdfRenderOptions {
+            font_resolution: pdf_visual_font_resolution(),
+            ..Default::default()
+        })
+        .render_scene_graph(scene_graph)
+        .map_err(|err| err.to_string())
 }
 
 fn svg_visual_font_resolution() -> FontResolutionOptions {
@@ -1566,10 +1530,8 @@ mod tests {
             height: 12.0,
             origin: [0.0, 0.0],
         };
-        let renderer = selected_pdf_renderer();
-        let pdf = render_scene_graph_pdf(&scene_graph, renderer).unwrap_or_else(|err| {
-            panic!("empty scene graph should render to {renderer} PDF: {err}")
-        });
+        let pdf = render_scene_graph_pdf(&scene_graph)
+            .unwrap_or_else(|err| panic!("empty scene graph should render to PDF: {err}"));
 
         let image = rasterize_pdf_with_pdfium(&pdf, scene_graph.width, scene_graph.height)
             .expect("generated PDF should rasterize with PDFium");
