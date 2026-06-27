@@ -43,7 +43,6 @@ const PDFIUM_LIBRARY_PATH_ENV: &str = "AVENGER_CHART_PDFIUM_LIBRARY_PATH";
 const SVG_BASELINE_RESVG_THRESHOLD: f64 = 0.99999;
 const SVG_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
 const PDF_BASELINE_PDFIUM_THRESHOLD: f64 = 0.998;
-const PDF_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
 
 static PDFIUM_RENDER_LOCK: Mutex<()> = Mutex::new(());
 static PDF_SCORE_REPORT_LOCK: Mutex<()> = Mutex::new(());
@@ -842,7 +841,6 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
     let pdf_failure = pdf_failure_path(category, baseline_name, ".pdf");
     let pdf_png_failure = pdf_failure_path(category, baseline_name, ".png");
     let pdf_diff_failure = pdf_failure_path(category, baseline_name, "_vs_pdf_baseline_diff.png");
-    let wgpu_diff_failure = pdf_failure_path(category, baseline_name, "_vs_wgpu_baseline_diff.png");
     let wgpu_baseline_path = PathBuf::from(get_baseline_path(category, baseline_name));
 
     let mut pdf_baseline_score = 1.0;
@@ -893,25 +891,13 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
         .unwrap_or_else(|msg| panic!("PDF baseline '{}' failed: {msg}", baseline_name));
     }
 
-    let pdf_wgpu_score = if pdf_score_report_path().is_some() || bless_pdf_baselines_enabled() {
-        image_similarity_score_with_named_failures(
-            &wgpu_baseline_path,
-            &pdf_image,
-            &pdf_png_failure,
-            "PDF/WGPU",
-        )
-        .unwrap_or_else(|msg| panic!("PDF/WGPU baseline '{}' failed: {msg}", baseline_name))
-    } else {
-        compare_image_with_named_failures(
-            &wgpu_baseline_path,
-            &pdf_image,
-            &pdf_png_failure,
-            &wgpu_diff_failure,
-            PDF_WGPU_BASELINE_THRESHOLD,
-            "PDF/WGPU",
-        )
-        .unwrap_or_else(|msg| panic!("PDF/WGPU baseline '{}' failed: {msg}", baseline_name))
-    };
+    let pdf_wgpu_score = image_similarity_score_with_named_failures(
+        &wgpu_baseline_path,
+        &pdf_image,
+        &pdf_png_failure,
+        "PDF/WGPU",
+    )
+    .unwrap_or_else(|msg| panic!("PDF/WGPU baseline '{}' failed: {msg}", baseline_name));
 
     append_pdf_score_report(category, baseline_name, pdf_baseline_score, pdf_wgpu_score)
         .expect("Failed to append PDF score report");

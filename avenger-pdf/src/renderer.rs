@@ -420,7 +420,7 @@ impl PdfRenderer {
     ) -> Result<(), AvengerPdfError> {
         self.draw_path_with_style(
             surface,
-            &mark.transformed_path(origin),
+            &trail_outline_path(mark, origin),
             PathStyle {
                 fill: Some(&mark.stroke),
                 stroke: None,
@@ -1160,6 +1160,167 @@ fn close_single_point_subpath(
     }
 }
 
+fn trail_outline_path(mark: &SceneTrailMark, origin: [f32; 2]) -> LyonPath {
+    let mut builder = LyonPath::builder();
+    let mut prev = None;
+    let mut run_len = 0usize;
+
+    for (x, y, size, defined) in izip!(
+        mark.x_iter(),
+        mark.y_iter(),
+        mark.size_iter(),
+        mark.defined_iter()
+    ) {
+        if *defined {
+            let point = [*x + origin[0], *y + origin[1]];
+            let radius = (*size).max(0.0) / 2.0;
+            if let Some((prev_point, prev_radius)) = prev {
+                push_trail_segment_path(&mut builder, prev_point, prev_radius, point, radius);
+            }
+            prev = Some((point, radius));
+            run_len += 1;
+        } else {
+            if run_len == 1 {
+                if let Some((point, radius)) = prev {
+                    push_trail_circle_path(&mut builder, point, radius);
+                }
+            }
+            prev = None;
+            run_len = 0;
+        }
+    }
+
+    if run_len == 1 {
+        if let Some((point, radius)) = prev {
+            push_trail_circle_path(&mut builder, point, radius);
+        }
+    }
+
+    builder.build()
+}
+
+fn push_trail_segment_path(
+    builder: &mut lyon_path::path::Builder,
+    p0: [f32; 2],
+    r0: f32,
+    p1: [f32; 2],
+    r1: f32,
+) {
+    let dx = p1[0] - p0[0];
+    let dy = p1[1] - p0[1];
+    let len = (dx * dx + dy * dy).sqrt();
+
+    if len <= f32::EPSILON {
+        push_trail_circle_path(builder, p0, r0.max(r1));
+        return;
+    }
+
+    if r0 <= 0.0 && r1 <= 0.0 {
+        return;
+    }
+
+    let nx = -dy / len;
+    let ny = dx / len;
+    let normal_angle = ny.atan2(nx);
+    let p0_left = [p0[0] + nx * r0, p0[1] + ny * r0];
+    let p1_left = [p1[0] + nx * r1, p1[1] + ny * r1];
+    let p0_right = [p0[0] - nx * r0, p0[1] - ny * r0];
+
+    builder.begin(lyon_path::math::point(p0_left[0], p0_left[1]));
+    builder.line_to(lyon_path::math::point(p1_left[0], p1_left[1]));
+    push_circular_arc_path(
+        builder,
+        p1,
+        r1,
+        normal_angle,
+        normal_angle - std::f32::consts::PI,
+    );
+    builder.line_to(lyon_path::math::point(p0_right[0], p0_right[1]));
+    push_circular_arc_path(
+        builder,
+        p0,
+        r0,
+        normal_angle - std::f32::consts::PI,
+        normal_angle - 2.0 * std::f32::consts::PI,
+    );
+    builder.end(true);
+}
+
+fn push_trail_circle_path(builder: &mut lyon_path::path::Builder, point: [f32; 2], radius: f32) {
+    if radius <= 0.0 {
+        return;
+    }
+
+    builder.begin(lyon_path::math::point(point[0] + radius, point[1]));
+    push_circular_arc_path(builder, point, radius, 0.0, -std::f32::consts::FRAC_PI_2);
+    push_circular_arc_path(
+        builder,
+        point,
+        radius,
+        -std::f32::consts::FRAC_PI_2,
+        -std::f32::consts::PI,
+    );
+    push_circular_arc_path(
+        builder,
+        point,
+        radius,
+        -std::f32::consts::PI,
+        -3.0 * std::f32::consts::FRAC_PI_2,
+    );
+    push_circular_arc_path(
+        builder,
+        point,
+        radius,
+        -3.0 * std::f32::consts::FRAC_PI_2,
+        -2.0 * std::f32::consts::PI,
+    );
+    builder.end(true);
+}
+
+fn push_circular_arc_path(
+    builder: &mut lyon_path::path::Builder,
+    center: [f32; 2],
+    radius: f32,
+    start_angle: f32,
+    end_angle: f32,
+) {
+    if radius <= 0.0 {
+        return;
+    }
+
+    let sweep = end_angle - start_angle;
+    let segments = (sweep.abs() / std::f32::consts::FRAC_PI_2).ceil().max(1.0) as usize;
+    let step = sweep / segments as f32;
+    let mut angle0 = start_angle;
+
+    for _ in 0..segments {
+        let angle1 = angle0 + step;
+        let k = 4.0 / 3.0 * (step / 4.0).tan();
+        let p0 = [
+            center[0] + radius * angle0.cos(),
+            center[1] + radius * angle0.sin(),
+        ];
+        let p1 = [
+            center[0] + radius * angle1.cos(),
+            center[1] + radius * angle1.sin(),
+        ];
+        let c0 = [
+            p0[0] - k * radius * angle0.sin(),
+            p0[1] + k * radius * angle0.cos(),
+        ];
+        let c1 = [
+            p1[0] + k * radius * angle1.sin(),
+            p1[1] - k * radius * angle1.cos(),
+        ];
+        builder.cubic_bezier_to(
+            lyon_path::math::point(c0[0], c0[1]),
+            lyon_path::math::point(c1[0], c1[1]),
+            lyon_path::math::point(p1[0], p1[1]),
+        );
+        angle0 = angle1;
+    }
+}
+
 fn font_resource(
     buffer: &TextPdfBuffer,
     id: MathFontResourceId,
@@ -1408,6 +1569,7 @@ mod tests {
         image::{SceneImageMark, SceneImageSource},
         rect::SceneRectMark,
         text::SceneTextMark,
+        trail::SceneTrailMark,
     };
     use avenger_text::types::{TextAlign, TextBaseline};
     use avenger_text::{FontResolutionOptions, MissingFontPolicy};
@@ -1614,6 +1776,26 @@ mod tests {
 
         assert!(pdf.starts_with(b"%PDF-"));
         assert!(pdf.len() > 1000);
+    }
+
+    #[test]
+    fn trail_outline_path_uses_size_as_geometry() {
+        let path = trail_outline_path(
+            &SceneTrailMark {
+                len: 2,
+                x: ScalarOrArray::new_array(vec![10.0, 30.0]),
+                y: ScalarOrArray::new_array(vec![20.0, 20.0]),
+                size: ScalarOrArray::new_array(vec![10.0, 20.0]),
+                ..Default::default()
+            },
+            [0.0, 0.0],
+        );
+        let bbox = bounding_box(&path);
+
+        assert!((bbox.min.x - 5.0).abs() < 0.001, "{bbox:?}");
+        assert!((bbox.min.y - 10.0).abs() < 0.001, "{bbox:?}");
+        assert!((bbox.max.x - 40.0).abs() < 0.001, "{bbox:?}");
+        assert!((bbox.max.y - 30.0).abs() < 0.001, "{bbox:?}");
     }
 
     #[test]
