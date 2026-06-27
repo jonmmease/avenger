@@ -574,7 +574,6 @@ dependencies = [
  "avenger-image",
  "avenger-layout",
  "avenger-pdf",
- "avenger-pdf-krilla",
  "avenger-resource",
  "avenger-scales",
  "avenger-scenegraph",
@@ -1116,22 +1115,6 @@ dependencies = [
  "avenger-color",
  "avenger-common",
  "avenger-image",
- "avenger-scenegraph",
- "avenger-svg",
- "avenger-text",
- "pdf-extract",
- "svg2pdf",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "avenger-pdf-krilla"
-version = "0.0.8"
-dependencies = [
- "avenger-color",
- "avenger-common",
- "avenger-image",
- "avenger-pdf",
  "avenger-scenegraph",
  "avenger-text",
  "avenger-typst",
@@ -4352,8 +4335,6 @@ checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
- "color_quant",
- "gif 0.14.2",
  "moxcms",
  "num-traits",
  "png 0.18.1",
@@ -4730,7 +4711,7 @@ dependencies = [
  "image-webp",
  "imagesize 0.14.0",
  "indexmap 2.14.0",
- "pdf-writer 0.15.0",
+ "pdf-writer",
  "png 0.18.1",
  "rustc-hash 2.1.2",
  "siphasher 1.0.1",
@@ -6048,18 +6029,6 @@ dependencies = [
  "postscript",
  "type1-encoding-parser",
  "unicode-normalization",
-]
-
-[[package]]
-name = "pdf-writer"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5df03c7d216de06f93f398ef06f1385a60f2c597bb96f8195c8d98e08a26b1d5"
-dependencies = [
- "bitflags 2.13.0",
- "itoa",
- "memchr",
- "ryu",
 ]
 
 [[package]]
@@ -7695,26 +7664,6 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
-
-[[package]]
-name = "svg2pdf"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e50dc062439cc1a396181059c80932a6e6bd731b130e674c597c0c8874b6df22"
-dependencies = [
- "fontdb",
- "image",
- "log",
- "miniz_oxide",
- "once_cell",
- "pdf-writer 0.12.1",
- "resvg",
- "siphasher 1.0.1",
- "subsetter",
- "tiny-skia",
- "ttf-parser",
- "usvg",
-]
 
 [[package]]
 name = "svg_fmt"

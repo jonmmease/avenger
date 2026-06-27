@@ -1,9 +1,8 @@
-//! PDF export for Avenger scene graphs.
+//! Direct PDF export for Avenger scene graphs using `krilla`.
 //!
-//! `PdfRenderer` preserves text as PDF text and embeds the fonts that are used
-//! by text marks. The default font set is Avenger's bundled fonts. If callers
-//! enable system font loading or pass extra font directories, they are
-//! responsible for ensuring those font licenses permit PDF embedding.
+//! This renderer writes PDF pages directly instead of converting through SVG,
+//! so regular text, math glyphs, and emoji flow through `krilla`'s font
+//! embedding machinery.
 
 pub mod error;
 pub mod options;

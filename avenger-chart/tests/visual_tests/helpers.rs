@@ -919,46 +919,28 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum VisualPdfRenderer {
-    LegacySvg2Pdf,
-    #[cfg(feature = "pdf-krilla-visual-tests")]
-    KrillaDirect,
+    DirectKrilla,
 }
 
 impl std::fmt::Display for VisualPdfRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::LegacySvg2Pdf => f.write_str("svg2pdf"),
-            #[cfg(feature = "pdf-krilla-visual-tests")]
-            Self::KrillaDirect => f.write_str("krilla"),
+            Self::DirectKrilla => f.write_str("krilla"),
         }
     }
 }
 
 fn selected_pdf_renderer() -> VisualPdfRenderer {
     match std::env::var(PDF_RENDERER_ENV) {
-        Ok(value) if value.eq_ignore_ascii_case("krilla") => {
-            #[cfg(feature = "pdf-krilla-visual-tests")]
-            {
-                VisualPdfRenderer::KrillaDirect
-            }
-            #[cfg(not(feature = "pdf-krilla-visual-tests"))]
-            {
-                panic!(
-                    "{PDF_RENDERER_ENV}=krilla requires cargo feature `pdf-krilla-visual-tests`"
-                );
-            }
-        }
         Ok(value)
-            if value.eq_ignore_ascii_case("svg2pdf") || value.eq_ignore_ascii_case("legacy") =>
+            if value.eq_ignore_ascii_case("krilla") || value.eq_ignore_ascii_case("direct") =>
         {
-            VisualPdfRenderer::LegacySvg2Pdf
+            VisualPdfRenderer::DirectKrilla
         }
         Ok(value) if !value.is_empty() => {
-            panic!(
-                "unsupported {PDF_RENDERER_ENV}={value:?}; expected `svg2pdf`, `legacy`, or `krilla`"
-            );
+            panic!("unsupported {PDF_RENDERER_ENV}={value:?}; expected `krilla` or `direct`");
         }
-        _ => VisualPdfRenderer::LegacySvg2Pdf,
+        _ => VisualPdfRenderer::DirectKrilla,
     }
 }
 
@@ -967,27 +949,14 @@ fn render_scene_graph_pdf(
     renderer: VisualPdfRenderer,
 ) -> Result<Vec<u8>, String> {
     match renderer {
-        VisualPdfRenderer::LegacySvg2Pdf => avenger_pdf::PdfRenderer::new()
+        VisualPdfRenderer::DirectKrilla => avenger_pdf::PdfRenderer::new()
             .with_options(avenger_pdf::PdfRenderOptions {
                 font_resolution: pdf_visual_font_resolution(),
                 ..Default::default()
             })
             .render_scene_graph(scene_graph)
             .map_err(|err| err.to_string()),
-        #[cfg(feature = "pdf-krilla-visual-tests")]
-        VisualPdfRenderer::KrillaDirect => render_scene_graph_pdf_krilla(scene_graph),
     }
-}
-
-#[cfg(feature = "pdf-krilla-visual-tests")]
-fn render_scene_graph_pdf_krilla(scene_graph: &SceneGraph) -> Result<Vec<u8>, String> {
-    avenger_pdf_krilla::PdfRenderer::new()
-        .with_options(avenger_pdf_krilla::PdfRenderOptions {
-            font_resolution: pdf_visual_font_resolution(),
-            ..Default::default()
-        })
-        .render_scene_graph(scene_graph)
-        .map_err(|err| err.to_string())
 }
 
 fn svg_visual_font_resolution() -> FontResolutionOptions {

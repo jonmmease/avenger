@@ -4,7 +4,7 @@ use avenger_text::FontResolutionOptions;
 pub struct PdfRenderOptions {
     /// Background fill for the generated PDF page.
     pub background: PdfBackground,
-    /// Decimal precision used when generating the internal vector document.
+    /// Decimal precision retained for API parity with `avenger-pdf`.
     pub precision: usize,
     /// Font sources used for selectable PDF text.
     ///
@@ -12,9 +12,9 @@ pub struct PdfRenderOptions {
     /// `extra_font_dirs` are enabled, callers are responsible for ensuring the
     /// selected font licenses permit PDF embedding.
     pub font_resolution: FontResolutionOptions,
-    /// Compress PDF streams where supported by the converter.
+    /// Compress PDF streams where supported by the writer.
     pub compress: bool,
-    /// Scale used when the converter must rasterize unsupported SVG features.
+    /// Retained for API parity with `avenger-pdf`; unused by the direct path.
     pub raster_scale: f32,
 }
 

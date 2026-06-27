@@ -159,16 +159,14 @@ AVENGER_CHART_PDF_BASELINES=1 \
   cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 ```
 
-To route the PDF visual baseline path through the temporary direct `krilla`
-renderer instead of the default SVG-to-`svg2pdf` renderer:
+PDF visual baselines use the direct `krilla` renderer by default. To make the
+choice explicit while debugging:
 
 ```bash
 AVENGER_CHART_PDF_RENDERER=krilla \
 AVENGER_CHART_PDF_BASELINES=only \
 AVENGER_CHART_PDFIUM_LIBRARY_PATH="$PWD/target/pdfium/lib/libpdfium.dylib" \
-  cargo test --release -p avenger-chart \
-    --features pdf-krilla-visual-tests \
-    --test visual_regression -- --nocapture
+  cargo test --release -p avenger-chart --test visual_regression -- --nocapture
 ```
 
 To measure PDFium-vs-WGPU scores before changing the global threshold:
@@ -185,12 +183,12 @@ baseline. The PDF-to-WGPU comparison uses one global 95% threshold; treat
 failures as parity bugs before relaxing it.
 
 The committed PDF is kept as a first-class export artifact for review, but the
-suite does not compare PDF bytes directly. The embedded font resources emitted
-by `svg2pdf` can be ordered differently across processes while producing the
-same PDFium raster. Deterministic validation therefore comes from the PDFium PNG
-baseline and the PDFium-vs-WGPU comparison. The PDFium PNG baseline threshold is
-`0.998`, which is tight enough to catch visible PDF output changes while allowing
-tiny PDFium raster variance observed in a few text-heavy charts.
+suite does not compare PDF bytes directly. Embedded font resources and subsets
+can be ordered differently across processes while producing the same PDFium
+raster. Deterministic validation therefore comes from the PDFium PNG baseline
+and the PDFium-vs-WGPU comparison. The PDFium PNG baseline threshold is `0.998`,
+which is tight enough to catch visible PDF output changes while allowing tiny
+PDFium raster variance observed in a few text-heavy charts.
 
 ## Directory Structure
 
