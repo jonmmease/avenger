@@ -43,6 +43,7 @@ const PDFIUM_LIBRARY_PATH_ENV: &str = "AVENGER_CHART_PDFIUM_LIBRARY_PATH";
 const SVG_BASELINE_RESVG_THRESHOLD: f64 = 0.99999;
 const SVG_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
 const PDF_BASELINE_PDFIUM_THRESHOLD: f64 = 0.998;
+const PDF_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
 
 static PDFIUM_RENDER_LOCK: Mutex<()> = Mutex::new(());
 static PDF_SCORE_REPORT_LOCK: Mutex<()> = Mutex::new(());
@@ -647,45 +648,6 @@ fn compare_image_with_named_failures(
     Ok(result.score)
 }
 
-fn image_similarity_score_with_named_failures(
-    baseline_path: &Path,
-    actual: &RgbaImage,
-    actual_failure_path: &Path,
-    label: &str,
-) -> Result<f64, String> {
-    if !baseline_path.exists() {
-        save_image_to_path(actual, actual_failure_path)?;
-        return Err(format!(
-            "No {label} baseline found at '{}'. Actual saved to '{}'.",
-            baseline_path.display(),
-            actual_failure_path.display()
-        ));
-    }
-
-    let expected = image::open(baseline_path)
-        .map_err(|e| {
-            format!(
-                "Failed to load {label} baseline '{}': {e}",
-                baseline_path.display()
-            )
-        })?
-        .into_rgba8();
-
-    if expected.dimensions() != actual.dimensions() {
-        save_image_to_path(actual, actual_failure_path)?;
-        return Err(format!(
-            "{label} dimensions differ. Expected {:?}, actual {:?}. Actual saved to '{}'.",
-            expected.dimensions(),
-            actual.dimensions(),
-            actual_failure_path.display()
-        ));
-    }
-
-    image_compare::rgba_hybrid_compare(&expected, actual)
-        .map(|result| result.score)
-        .map_err(|e| format!("{label} image comparison failed: {e}"))
-}
-
 fn append_pdf_score_report(
     category: &str,
     baseline_name: &str,
@@ -841,6 +803,7 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
     let pdf_failure = pdf_failure_path(category, baseline_name, ".pdf");
     let pdf_png_failure = pdf_failure_path(category, baseline_name, ".png");
     let pdf_diff_failure = pdf_failure_path(category, baseline_name, "_vs_pdf_baseline_diff.png");
+    let wgpu_diff_failure = pdf_failure_path(category, baseline_name, "_vs_wgpu_baseline_diff.png");
     let wgpu_baseline_path = PathBuf::from(get_baseline_path(category, baseline_name));
 
     let mut pdf_baseline_score = 1.0;
@@ -891,10 +854,12 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
         .unwrap_or_else(|msg| panic!("PDF baseline '{}' failed: {msg}", baseline_name));
     }
 
-    let pdf_wgpu_score = image_similarity_score_with_named_failures(
+    let pdf_wgpu_score = compare_image_with_named_failures(
         &wgpu_baseline_path,
         &pdf_image,
         &pdf_png_failure,
+        &wgpu_diff_failure,
+        PDF_WGPU_BASELINE_THRESHOLD,
         "PDF/WGPU",
     )
     .unwrap_or_else(|msg| panic!("PDF/WGPU baseline '{}' failed: {msg}", baseline_name));
