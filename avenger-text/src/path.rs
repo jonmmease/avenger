@@ -487,7 +487,7 @@ mod tests {
     fn text_line_extractor_returns_script_runs_with_smaller_style() {
         let typst = typst();
         let extractor = TextPathExtractorImpl::new(typst, math_config());
-        let text = "H#sub[2]O #super[*]".to_string();
+        let text = "H#sub[2]O #super[\\*]".to_string();
         let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
 
         assert_eq!(buffer.plain_runs.len(), 4);

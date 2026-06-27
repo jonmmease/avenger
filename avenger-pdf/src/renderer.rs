@@ -1584,6 +1584,7 @@ fn scene_font_style(font_style: &FontStyle) -> fontdb::Style {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use avenger_text::types::TextSyntaxMode;
     use std::path::PathBuf;
 
     use avenger_color::{ColorOrGradient, Gradient, GradientStop, LinearGradient};
@@ -1616,6 +1617,18 @@ mod tests {
     }
 
     fn text_scene_graph_with_font(text: &str, font: &str) -> SceneGraph {
+        text_scene_graph_with_font_and_syntax(text, font, TextSyntaxMode::Plain)
+    }
+
+    fn typst_text_scene_graph(text: &str) -> SceneGraph {
+        text_scene_graph_with_font_and_syntax(text, "sans-serif", TextSyntaxMode::TypstMarkup)
+    }
+
+    fn text_scene_graph_with_font_and_syntax(
+        text: &str,
+        font: &str,
+        text_syntax: TextSyntaxMode,
+    ) -> SceneGraph {
         SceneGraph {
             width: 240.0,
             height: 80.0,
@@ -1629,6 +1642,7 @@ mod tests {
                 baseline: ScalarOrArray::new_scalar(TextBaseline::Alphabetic),
                 font_size: ScalarOrArray::new_scalar(18.0),
                 limit: ScalarOrArray::new_scalar(f32::INFINITY),
+                text_syntax,
                 ..Default::default()
             }
             .into()],
@@ -1870,7 +1884,7 @@ mod tests {
     #[test]
     fn renders_math_text_as_extractable_pdf_text() {
         let pdf = PdfRenderer::new()
-            .render_scene_graph(&text_scene_graph("score $R^2$ = 0.94"))
+            .render_scene_graph(&typst_text_scene_graph("score $R^2$ = 0.94"))
             .unwrap();
         let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
 
@@ -1882,7 +1896,7 @@ mod tests {
     #[test]
     fn renders_named_emoji_as_extractable_pdf_text() {
         let pdf = PdfRenderer::new()
-            .render_scene_graph(&text_scene_graph("Mood #emoji.face"))
+            .render_scene_graph(&typst_text_scene_graph("Mood #emoji.face"))
             .unwrap();
         let extracted = pdf_extract::extract_text_from_mem(&pdf).unwrap();
 

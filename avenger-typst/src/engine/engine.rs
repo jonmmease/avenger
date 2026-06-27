@@ -496,7 +496,7 @@ mod tests {
         };
 
         let artifact = engine
-            .typeset_text_line("H#sub[2]O #super[*]", &options)
+            .typeset_text_line("H#sub[2]O #super[\\*]", &options)
             .unwrap();
 
         assert_eq!(artifact.positioned_runs.len(), 4);

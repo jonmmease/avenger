@@ -5,518 +5,649 @@ use super::ast::{
     MathOperator, MathShorthand, MathSpace, MathStringLiteral, MathText, MathTextKind,
 };
 
+use typst_syntax::ast::{self as typst_ast, AstNode};
+use typst_syntax::{
+    RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
+};
+
 pub(crate) fn parse_math(source: &str, offset: usize) -> Result<MathAst, MathTypesetError> {
-    let mut parser = Parser {
-        source,
-        offset,
-        pos: 0,
-    };
-    let nodes = parser.parse_sequence(&[])?;
+    if let Some((idx, _)) = source
+        .char_indices()
+        .find(|(_, ch)| matches!(ch, '\n' | '\r'))
+    {
+        return Err(unsupported(
+            offset + idx,
+            "multi-line math is not supported in Avenger Typst subset",
+        ));
+    }
+    let mut root = typst_syntax::parse_math(source);
+    synthesize_ranges(&mut root, source.len(), offset)?;
+    reject_syntax_errors(&root, offset)?;
+    let math = root
+        .cast::<typst_ast::Math>()
+        .ok_or_else(|| MathTypesetError::Engine {
+            start: offset,
+            end: offset + source.len(),
+            message: "Typst parser did not return a math root".to_string(),
+        })?;
+    let nodes = lower_math(math, source, offset)?;
     Ok(MathAst {
         source: source.to_string(),
         nodes,
     })
 }
 
-struct Parser<'a> {
-    source: &'a str,
+fn lower_math(
+    math: typst_ast::Math<'_>,
+    source: &str,
     offset: usize,
-    pos: usize,
+) -> Result<Vec<MathNode>, MathTypesetError> {
+    let mut nodes = Vec::new();
+    for expr in math.exprs() {
+        nodes.extend(lower_math_expr(expr, source, offset)?);
+    }
+    Ok(nodes)
 }
 
-impl Parser<'_> {
-    fn parse_sequence(&mut self, stop: &[char]) -> Result<Vec<MathNode>, MathTypesetError> {
-        let mut nodes = Vec::new();
-
-        while let Some((idx, ch)) = self.peek_char() {
-            if stop.contains(&ch) {
-                break;
-            }
-            if is_closing_delimiter(ch) {
-                return Err(self.unsupported(idx, "unexpected closing math delimiter"));
-            }
-
-            if ch == '\n' || ch == '\r' {
-                return Err(self.unsupported(
-                    idx,
-                    "multi-line math is not supported in Avenger Typst subset",
-                ));
-            }
-
-            if ch.is_whitespace() {
-                nodes.push(self.parse_space());
-                continue;
-            }
-
-            if ch == '/' {
-                let numerator = take_fraction_numerator(&mut nodes, self.absolute(idx))?;
-                self.consume_char();
-                let slash_range = self.absolute(idx)..self.absolute(idx + ch.len_utf8());
-                self.consume_spaces();
-                let denominator = self.parse_postfix_atom().map_err(|err| match err {
-                    MathTypesetError::UnsupportedSyntax { position, .. } => {
-                        MathTypesetError::UnsupportedSyntax {
-                            position,
-                            message: "fraction slash expects a denominator",
-                        }
-                    }
-                    other => other,
-                })?;
-                let byte_range = numerator.byte_range().start..denominator.byte_range().end;
-                nodes.push(MathNode::Fraction(MathFraction {
-                    numerator: Box::new(numerator),
-                    denominator: Box::new(denominator),
-                    slash_range,
-                    byte_range,
-                }));
-                continue;
-            }
-
-            nodes.push(self.parse_postfix_atom()?);
-        }
-
-        Ok(nodes)
-    }
-
-    fn parse_postfix_atom(&mut self) -> Result<MathNode, MathTypesetError> {
-        let base = self.parse_atom()?;
-        let mut top = None;
-        let mut bottom = None;
-        let mut primes = 0usize;
-        let mut byte_range = base.byte_range();
-
-        while let Some((idx, ch)) = self.peek_char() {
-            match ch {
-                '^' | '_' => {
-                    self.consume_char();
-                    let script = self.parse_script_arg()?;
-                    byte_range.end = script.byte_range().end;
-                    let slot = if ch == '^' { &mut top } else { &mut bottom };
-                    if slot.is_some() {
-                        return Err(self.unsupported(idx, "duplicate math script attachment"));
-                    }
-                    *slot = Some(Box::new(script));
+fn lower_math_expr(
+    expr: typst_ast::Expr<'_>,
+    source: &str,
+    offset: usize,
+) -> Result<Vec<MathNode>, MathTypesetError> {
+    let range = expr.to_untyped().range();
+    match expr {
+        typst_ast::Expr::Math(math) => lower_math(math, source, offset),
+        typst_ast::Expr::Space(space) => Ok(vec![MathNode::Space(MathSpace {
+            byte_range: offset_range(space.to_untyped().range(), offset),
+        })]),
+        typst_ast::Expr::MathText(text) => {
+            let range = offset_range(text.to_untyped().range(), offset);
+            match text.get() {
+                typst_ast::MathTextKind::Number(value) => Ok(vec![MathNode::Text(MathText {
+                    text: value.to_string(),
+                    kind: MathTextKind::Number,
+                    byte_range: range,
+                })]),
+                typst_ast::MathTextKind::Grapheme(value) if value == ";" => Err(unsupported(
+                    range.start,
+                    "semicolon math arguments are not supported in Avenger Typst subset",
+                )),
+                typst_ast::MathTextKind::Grapheme(value) if is_identifier_text(value) => {
+                    Ok(vec![MathNode::Identifier(MathIdentifier {
+                        name: value.to_string(),
+                        symbol: named_math_symbol(value),
+                        byte_range: range,
+                    })])
                 }
-                '\'' => {
-                    while matches!(self.peek_char(), Some((_, '\''))) {
-                        let (_, prime) = self.consume_char().expect("prime should exist");
-                        primes += 1;
-                        byte_range.end =
-                            self.absolute(self.pos - prime.len_utf8()) + prime.len_utf8();
-                    }
+                typst_ast::MathTextKind::Grapheme(value) if is_operator_text(value) => {
+                    Ok(vec![MathNode::Operator(MathOperator {
+                        operator: value.to_string(),
+                        byte_range: range,
+                    })])
                 }
-                _ => break,
+                typst_ast::MathTextKind::Grapheme(value) => Ok(vec![MathNode::Text(MathText {
+                    text: value.to_string(),
+                    kind: MathTextKind::Grapheme,
+                    byte_range: range,
+                })]),
             }
         }
+        typst_ast::Expr::MathIdent(ident) => {
+            let name = ident.as_str().to_string();
+            Ok(vec![MathNode::Identifier(MathIdentifier {
+                symbol: named_math_symbol(&name),
+                name,
+                byte_range: offset_range(ident.to_untyped().range(), offset),
+            })])
+        }
+        typst_ast::Expr::MathFieldAccess(access) => lower_math_access_as_nodes(
+            typst_ast::MathAccess::MathFieldAccess(access),
+            source,
+            offset,
+        ),
+        typst_ast::Expr::MathShorthand(shorthand) => {
+            let source_text = shorthand.to_untyped().leaf_text().to_string();
+            let range = offset_range(shorthand.to_untyped().range(), offset);
+            if let Some(replacement) = shorthand_replacement(&source_text) {
+                Ok(vec![MathNode::Shorthand(MathShorthand {
+                    source: source_text,
+                    replacement,
+                    byte_range: range,
+                })])
+            } else {
+                let replacement = shorthand.get().to_string();
+                Ok(vec![MathNode::Operator(MathOperator {
+                    operator: replacement,
+                    byte_range: range,
+                })])
+            }
+        }
+        typst_ast::Expr::MathDelimited(delimited) => {
+            let open = delimited.open();
+            let close = delimited.close();
+            let open_range = open.to_untyped().range();
+            let close_range = close.to_untyped().range();
+            let left = delimiter_char(open, source)?;
+            let right = delimiter_char(close, source)?;
+            let body_range = open_range.end..close_range.start;
+            let body = if body_range.start <= body_range.end {
+                parse_math(&source[body_range.clone()], offset + body_range.start)?.nodes
+            } else {
+                Vec::new()
+            };
+            Ok(vec![MathNode::Group(MathGroup {
+                left,
+                right,
+                body,
+                byte_range: offset_range(delimited.to_untyped().range(), offset),
+            })])
+        }
+        typst_ast::Expr::MathAttach(attach) => {
+            let base = lower_math_expr_as_single(attach.base(), source, offset)?;
+            let (top, mut continuation) = attach
+                .top()
+                .map(|expr| lower_script_expr(expr, source, offset))
+                .transpose()?
+                .map(|(script, continuation)| (Some(Box::new(script)), continuation))
+                .unwrap_or((None, Vec::new()));
+            let (bottom, bottom_continuation) = attach
+                .bottom()
+                .map(|expr| lower_script_expr(expr, source, offset))
+                .transpose()?
+                .map(|(script, continuation)| (Some(Box::new(script)), continuation))
+                .unwrap_or((None, Vec::new()));
+            continuation.extend(bottom_continuation);
+            let primes = attach.primes().map_or(0, |primes| primes.count());
+            let mut byte_range = base.byte_range().start..base.byte_range().end;
+            if let Some(top) = top.as_deref() {
+                byte_range.end = byte_range.end.max(top.byte_range().end);
+            }
+            if let Some(bottom) = bottom.as_deref() {
+                byte_range.end = byte_range.end.max(bottom.byte_range().end);
+            }
+            if primes > 0 {
+                byte_range.end = offset_range(attach.to_untyped().range(), offset).end;
+            }
 
-        if top.is_none() && bottom.is_none() && primes == 0 {
-            Ok(base)
-        } else {
-            Ok(MathNode::Attach(MathAttach {
+            let mut nodes = vec![MathNode::Attach(MathAttach {
                 base: Box::new(base),
                 top,
                 bottom,
                 primes,
                 byte_range,
-            }))
+            })];
+            nodes.extend(continuation);
+            Ok(nodes)
         }
-    }
-
-    fn parse_script_arg(&mut self) -> Result<MathNode, MathTypesetError> {
-        self.consume_spaces();
-        if self.peek_char().is_none() {
-            return Err(self.unsupported(self.pos, "math script expects an expression"));
-        }
-        self.parse_atom()
-    }
-
-    fn parse_atom(&mut self) -> Result<MathNode, MathTypesetError> {
-        let Some((idx, ch)) = self.peek_char() else {
-            return Err(self.unsupported(self.pos, "expected math expression"));
-        };
-
-        if ch == '#' {
-            return Err(
-                self.unsupported(idx, "embedded Typst code is not allowed in math fragments")
+        typst_ast::Expr::MathPrimes(primes) => Ok(vec![MathNode::Attach(MathAttach {
+            base: Box::new(MathNode::Text(MathText {
+                text: String::new(),
+                kind: MathTextKind::Grapheme,
+                byte_range: offset_range(primes.to_untyped().range(), offset),
+            })),
+            top: None,
+            bottom: None,
+            primes: primes.count(),
+            byte_range: offset_range(primes.to_untyped().range(), offset),
+        })]),
+        typst_ast::Expr::MathFrac(frac) => {
+            let numerator = lower_math_expr_as_single(frac.num(), source, offset)?;
+            let denominator = lower_math_expr_as_single(frac.denom(), source, offset)?;
+            let slash_range = slash_range_between(
+                source,
+                frac.num().to_untyped().range().end,
+                frac.denom().to_untyped().range().start,
+                offset,
             );
+            let byte_range = numerator.byte_range().start..denominator.byte_range().end;
+            Ok(vec![MathNode::Fraction(MathFraction {
+                numerator: Box::new(numerator),
+                denominator: Box::new(denominator),
+                slash_range,
+                byte_range,
+            })])
         }
-
-        if let Some(right) = matching_closing_delimiter(ch) {
-            return self.parse_group(ch, right);
-        }
-
-        if ch == '"' {
-            return self.parse_string_literal();
-        }
-
-        if let Some((source, replacement)) = self.peek_shorthand() {
-            let start = idx;
-            self.pos += source.len();
-            return Ok(MathNode::Shorthand(MathShorthand {
-                source: source.to_string(),
-                replacement,
-                byte_range: self.absolute(start)..self.absolute(self.pos),
-            }));
-        }
-
-        if ch.is_ascii_digit()
-            || (ch == '.'
-                && self
-                    .peek_next_char()
-                    .is_some_and(|next| next.1.is_ascii_digit()))
-        {
-            return Ok(self.parse_number());
-        }
-
-        if is_identifier_start(ch) {
-            return self.parse_identifier_or_call();
-        }
-
-        if ch == '&' {
-            return Err(self.unsupported(
-                idx,
-                "math alignment markers are not supported in Avenger Typst subset",
-            ));
-        }
-
-        if ch == ';' {
-            return Err(self.unsupported(
-                idx,
-                "semicolon math arguments are not supported in Avenger Typst subset",
-            ));
-        }
-
-        if is_operator_char(ch) {
-            self.consume_char();
-            return Ok(MathNode::Operator(MathOperator {
-                operator: ch.to_string(),
-                byte_range: self.absolute(idx)..self.absolute(idx + ch.len_utf8()),
-            }));
-        }
-
-        self.consume_char();
-        Ok(MathNode::Text(MathText {
-            text: ch.to_string(),
-            kind: MathTextKind::Grapheme,
-            byte_range: self.absolute(idx)..self.absolute(idx + ch.len_utf8()),
-        }))
+        typst_ast::Expr::MathRoot(root) => lower_math_root(root, source, offset),
+        typst_ast::Expr::MathCall(call) => lower_math_call(call, source, offset),
+        typst_ast::Expr::Str(string) => Ok(vec![MathNode::StringLiteral(MathStringLiteral {
+            text: string.get().to_string(),
+            byte_range: offset_range(string.to_untyped().range(), offset),
+        })]),
+        typst_ast::Expr::MathAlignPoint(_) => Err(unsupported(
+            range.start + offset,
+            "math alignment markers are not supported in Avenger Typst subset",
+        )),
+        other => Err(unsupported_expr(
+            other,
+            offset,
+            "this Typst math construct is not supported in Avenger Typst subset",
+        )),
     }
+}
 
-    fn parse_group(&mut self, left: char, right: char) -> Result<MathNode, MathTypesetError> {
-        let start = self.pos;
-        self.consume_char();
-        let body = self.parse_sequence(&[right])?;
-        let Some((close_idx, close)) = self.peek_char() else {
-            return Err(self.unsupported(start, "unterminated math group"));
-        };
-        if close != right {
-            return Err(self.unsupported(close_idx, "mismatched math delimiter"));
-        }
-        self.consume_char();
+fn lower_math_expr_as_single(
+    expr: typst_ast::Expr<'_>,
+    source: &str,
+    offset: usize,
+) -> Result<MathNode, MathTypesetError> {
+    let range = expr.to_untyped().range();
+    let mut nodes = lower_math_expr(expr, source, offset)?;
+    if nodes.len() == 1 {
+        Ok(nodes.remove(0))
+    } else if let Some(index) = single_non_space_node_index(&nodes) {
+        Ok(nodes.remove(index))
+    } else if let Some((left, right)) = surrounding_delimiters(&source[range.clone()]) {
         Ok(MathNode::Group(MathGroup {
             left,
             right,
-            body,
-            byte_range: self.absolute(start)..self.absolute(self.pos),
+            body: nodes,
+            byte_range: offset_range(range, offset),
         }))
+    } else {
+        Err(unsupported(
+            range.start + offset,
+            "math attachment expects a single atom",
+        ))
+    }
+}
+
+fn lower_script_expr(
+    expr: typst_ast::Expr<'_>,
+    source: &str,
+    offset: usize,
+) -> Result<(MathNode, Vec<MathNode>), MathTypesetError> {
+    let range = expr.to_untyped().range();
+    let mut nodes = lower_math_expr(expr, source, offset)?;
+    nodes.retain(|node| !matches!(node, MathNode::Space(_)));
+    if nodes.is_empty() {
+        return Err(unsupported(
+            range.start + offset,
+            "math script expects an expression",
+        ));
+    }
+    let script = nodes.remove(0);
+    Ok((script, nodes))
+}
+
+fn lower_math_root(
+    root: typst_ast::MathRoot<'_>,
+    source: &str,
+    offset: usize,
+) -> Result<Vec<MathNode>, MathTypesetError> {
+    let radicand = lower_math_expr_as_single(root.radicand(), source, offset)?;
+    let radicand_range = radicand.byte_range();
+    let mut args = Vec::new();
+    let name = if let Some(index) = root.index() {
+        let root_range = offset_range(root.to_untyped().range(), offset);
+        args.push(MathArg {
+            nodes: vec![MathNode::Text(MathText {
+                text: index.to_string(),
+                kind: MathTextKind::Number,
+                byte_range: root_range.start..root_range.start + 1,
+            })],
+            byte_range: root_range.start..root_range.start + 1,
+        });
+        "root"
+    } else {
+        "sqrt"
+    };
+    args.push(MathArg {
+        nodes: vec![radicand],
+        byte_range: radicand_range,
+    });
+    Ok(vec![MathNode::Call(MathCall {
+        name: name.to_string(),
+        args,
+        byte_range: offset_range(root.to_untyped().range(), offset),
+    })])
+}
+
+fn lower_math_call(
+    call: typst_ast::MathCall<'_>,
+    source: &str,
+    offset: usize,
+) -> Result<Vec<MathNode>, MathTypesetError> {
+    let name = math_access_name(call.callee());
+    let range = offset_range(call.to_untyped().range(), offset);
+    if is_unsupported_math_table_call_name(&name) {
+        return Err(unsupported(
+            range.start,
+            "matrix/table math is not supported in Avenger Typst subset",
+        ));
     }
 
-    fn parse_string_literal(&mut self) -> Result<MathNode, MathTypesetError> {
-        let start = self.pos;
-        self.consume_char();
-        let mut text = String::new();
-
-        while let Some((idx, ch)) = self.peek_char() {
-            self.consume_char();
-            match ch {
-                '"' => {
-                    return Ok(MathNode::StringLiteral(MathStringLiteral {
-                        text,
-                        byte_range: self.absolute(start)..self.absolute(self.pos),
-                    }));
-                }
-                '\\' => {
-                    if let Some((_, escaped)) = self.consume_char() {
-                        text.push(escaped);
-                    } else {
-                        return Err(self.unsupported(idx, "unterminated math string literal"));
-                    }
-                }
-                _ => text.push(ch),
-            }
-        }
-
-        Err(self.unsupported(start, "unterminated math string literal"))
-    }
-
-    fn parse_number(&mut self) -> MathNode {
-        let start = self.pos;
-        let mut seen_dot = false;
-
-        while let Some((_, ch)) = self.peek_char() {
-            if ch.is_ascii_digit() {
-                self.consume_char();
-            } else if ch == '.' && !seen_dot {
-                seen_dot = true;
-                self.consume_char();
-            } else {
-                break;
-            }
-        }
-
-        MathNode::Text(MathText {
-            text: self.source[start..self.pos].to_string(),
-            kind: MathTextKind::Number,
-            byte_range: self.absolute(start)..self.absolute(self.pos),
-        })
-    }
-
-    fn parse_identifier_or_call(&mut self) -> Result<MathNode, MathTypesetError> {
-        let start = self.pos;
-        self.consume_char();
-
-        while let Some((_, ch)) = self.peek_char() {
-            if is_identifier_continue(ch) {
-                self.consume_char();
-            } else {
-                break;
-            }
-        }
-        self.consume_known_dotted_symbol_suffixes(start);
-
-        let name = &self.source[start..self.pos];
-        if matches!(self.peek_char(), Some((_, '('))) && is_unsupported_math_table_call_name(name) {
-            return Err(self.unsupported(
-                start,
-                "matrix/table math is not supported in Avenger Typst subset",
-            ));
-        }
-
-        if matches!(self.peek_char(), Some((_, '('))) && is_math_call_name(name) {
-            return self.parse_call(start, name.to_string());
-        }
-
-        Ok(MathNode::Identifier(MathIdentifier {
-            name: name.to_string(),
-            symbol: named_math_symbol(name),
-            byte_range: self.absolute(start)..self.absolute(self.pos),
-        }))
-    }
-
-    fn consume_known_dotted_symbol_suffixes(&mut self, start: usize) {
-        loop {
-            let Some((dot_idx, '.')) = self.peek_char() else {
-                break;
-            };
-            let segment_start = dot_idx + 1;
-            let segment_end = read_symbol_modifier_end(self.source, segment_start);
-            if segment_end == segment_start {
-                break;
-            }
-
-            let candidate = &self.source[start..segment_end];
-            if named_math_symbol(candidate).is_none() {
-                break;
-            }
-            self.pos = segment_end;
-        }
-    }
-
-    fn parse_call(
-        &mut self,
-        name_start: usize,
-        name: String,
-    ) -> Result<MathNode, MathTypesetError> {
-        self.expect_char('(')?;
-        let mut args = Vec::new();
-
-        loop {
-            self.consume_spaces();
-            let arg_start = self.pos;
-
-            if matches!(self.peek_char(), Some((_, ')'))) {
-                self.consume_char();
-                break;
-            }
-
-            let nodes = self.parse_sequence(&[',', ';', ')'])?;
-            if let Some(position) = named_argument_colon_position(&nodes) {
-                return Err(MathTypesetError::UnsupportedSyntax {
-                    position,
-                    message: "named math arguments are not supported in Avenger Typst subset",
-                });
-            }
-            let arg_end = self.pos;
-            args.push(MathArg {
-                nodes,
-                byte_range: self.absolute(arg_start)..self.absolute(arg_end),
-            });
-
-            match self.peek_char() {
-                Some((_, ',')) => {
-                    self.consume_char();
-                }
-                Some((semi_idx, ';')) => {
-                    return Err(self.unsupported(
-                        semi_idx,
-                        "semicolon math arguments are not supported in Avenger Typst subset",
-                    ));
-                }
-                Some((_, ')')) => {
-                    self.consume_char();
-                    break;
-                }
-                Some((idx, _)) => {
-                    return Err(self.unsupported(idx, "expected math call argument separator"));
-                }
-                None => {
-                    return Err(self.unsupported(name_start, "unterminated math call"));
-                }
-            }
-        }
-
-        Ok(MathNode::Call(MathCall {
+    if is_math_call_name(&name) {
+        let args = lower_math_call_args(call.args(), source, offset)?;
+        return Ok(vec![MathNode::Call(MathCall {
             name,
             args,
-            byte_range: self.absolute(name_start)..self.absolute(self.pos),
-        }))
+            byte_range: range,
+        })]);
     }
 
-    fn parse_space(&mut self) -> MathNode {
-        let start = self.pos;
-        while let Some((_, ch)) = self.peek_char() {
-            if ch.is_whitespace() {
-                self.consume_char();
-            } else {
-                break;
+    let mut nodes = vec![MathNode::Identifier(MathIdentifier {
+        symbol: named_math_symbol(&name),
+        name,
+        byte_range: offset_range(call.callee().to_untyped().range(), offset),
+    })];
+    let args_range = offset_range(call.args().to_untyped().range(), offset);
+    let body = lower_math_args_as_group_body(call.args(), source, offset)?;
+    nodes.push(MathNode::Group(MathGroup {
+        left: '(',
+        right: ')',
+        body,
+        byte_range: args_range,
+    }));
+    Ok(nodes)
+}
+
+fn lower_math_call_args(
+    args: typst_ast::MathArgs<'_>,
+    source: &str,
+    offset: usize,
+) -> Result<Vec<MathArg>, MathTypesetError> {
+    let mut lowered = Vec::new();
+    for item in args.arg_items() {
+        if item.ends_in_semicolon {
+            return Err(unsupported(
+                item.arg.to_untyped().range().end + offset,
+                "semicolon math arguments are not supported in Avenger Typst subset",
+            ));
+        }
+        match item.arg {
+            typst_ast::Arg::Pos(expr) => {
+                let byte_range = offset_range(expr.to_untyped().range(), offset);
+                lowered.push(MathArg {
+                    nodes: lower_math_expr(expr, source, offset)?,
+                    byte_range,
+                });
+            }
+            typst_ast::Arg::Named(named) => {
+                return Err(unsupported(
+                    named_argument_position(named, source, offset),
+                    "named math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+            typst_ast::Arg::Spread(spread) => {
+                return Err(unsupported(
+                    spread.to_untyped().range().start + offset,
+                    "spread math arguments are not supported in Avenger Typst subset",
+                ));
             }
         }
-        MathNode::Space(MathSpace {
-            byte_range: self.absolute(start)..self.absolute(self.pos),
-        })
     }
+    Ok(lowered)
+}
 
-    fn consume_spaces(&mut self) {
-        while let Some((_, ch)) = self.peek_char() {
-            if ch.is_whitespace() {
-                self.consume_char();
-            } else {
-                break;
+fn lower_math_args_as_group_body(
+    args: typst_ast::MathArgs<'_>,
+    source: &str,
+    offset: usize,
+) -> Result<Vec<MathNode>, MathTypesetError> {
+    let mut body = Vec::new();
+    for item in args.content_items() {
+        match item {
+            typst_ast::MathArgItem::Arg(typst_ast::Arg::Pos(expr)) => {
+                body.extend(lower_math_expr(expr, source, offset)?);
             }
-        }
-    }
-
-    fn expect_char(&mut self, expected: char) -> Result<(), MathTypesetError> {
-        match self.consume_char() {
-            Some((_, ch)) if ch == expected => Ok(()),
-            Some((idx, _)) => Err(self.unsupported(idx, "unexpected math character")),
-            None => Err(self.unsupported(self.pos, "unexpected end of math source")),
-        }
-    }
-
-    fn peek_char(&self) -> Option<(usize, char)> {
-        next_char(self.source, self.pos)
-    }
-
-    fn peek_next_char(&self) -> Option<(usize, char)> {
-        let (_, ch) = self.peek_char()?;
-        next_char(self.source, self.pos + ch.len_utf8())
-    }
-
-    fn consume_char(&mut self) -> Option<(usize, char)> {
-        let (idx, ch) = self.peek_char()?;
-        self.pos = idx + ch.len_utf8();
-        Some((idx, ch))
-    }
-
-    fn peek_shorthand(&self) -> Option<(&'static str, &'static str)> {
-        for (source, replacement) in SHORTHANDS {
-            if self.source[self.pos..].starts_with(source) {
-                return Some((*source, *replacement));
+            typst_ast::MathArgItem::Arg(typst_ast::Arg::Named(named)) => {
+                return Err(unsupported(
+                    named_argument_position(named, source, offset),
+                    "named math arguments are not supported in Avenger Typst subset",
+                ));
             }
+            typst_ast::MathArgItem::Arg(typst_ast::Arg::Spread(spread)) => {
+                return Err(unsupported(
+                    spread.to_untyped().range().start + offset,
+                    "spread math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+            typst_ast::MathArgItem::Space(space) => {
+                body.push(MathNode::Space(MathSpace {
+                    byte_range: offset_range(space.to_untyped().range(), offset),
+                }));
+            }
+            typst_ast::MathArgItem::Comma(_, node) => {
+                body.push(MathNode::Operator(MathOperator {
+                    operator: ",".to_string(),
+                    byte_range: offset_range(node.range(), offset),
+                }));
+            }
+            typst_ast::MathArgItem::Semicolon(_, node) => {
+                return Err(unsupported(
+                    node.range().start + offset,
+                    "semicolon math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+            typst_ast::MathArgItem::LeftParen(_, _) | typst_ast::MathArgItem::RightParen(_, _) => {}
         }
-        None
     }
+    Ok(body)
+}
 
-    fn absolute(&self, position: usize) -> usize {
-        self.offset + position
+fn math_access_name(access: typst_ast::MathAccess<'_>) -> String {
+    match access {
+        typst_ast::MathAccess::MathIdent(ident) => ident.as_str().to_string(),
+        typst_ast::MathAccess::MathFieldAccess(access) => math_field_access_name(access),
     }
+}
 
-    fn unsupported(&self, position: usize, message: &'static str) -> MathTypesetError {
-        MathTypesetError::UnsupportedSyntax {
-            position: self.absolute(position),
-            message,
+fn math_field_access_name(access: typst_ast::MathFieldAccess<'_>) -> String {
+    let mut name = math_access_name(access.target());
+    name.push('.');
+    name.push_str(access.field().as_str());
+    name
+}
+
+fn lower_math_access_as_nodes(
+    access: typst_ast::MathAccess<'_>,
+    source: &str,
+    offset: usize,
+) -> Result<Vec<MathNode>, MathTypesetError> {
+    match access {
+        typst_ast::MathAccess::MathIdent(ident) => {
+            let name = ident.as_str().to_string();
+            Ok(vec![MathNode::Identifier(MathIdentifier {
+                symbol: named_math_symbol(&name),
+                name,
+                byte_range: offset_range(ident.to_untyped().range(), offset),
+            })])
+        }
+        typst_ast::MathAccess::MathFieldAccess(access) => {
+            let full_name = math_field_access_name(access);
+            if named_math_symbol(&full_name).is_some() {
+                return Ok(vec![MathNode::Identifier(MathIdentifier {
+                    symbol: named_math_symbol(&full_name),
+                    name: full_name,
+                    byte_range: offset_range(access.to_untyped().range(), offset),
+                })]);
+            }
+
+            let mut nodes = lower_math_access_as_nodes(access.target(), source, offset)?;
+            let target_range = access.target().to_untyped().range();
+            let field = access.field();
+            let field_range = field.to_untyped().range();
+            let dot_start = source[target_range.end..field_range.start]
+                .find('.')
+                .map(|idx| target_range.end + idx)
+                .unwrap_or(target_range.end);
+            nodes.push(MathNode::Operator(MathOperator {
+                operator: ".".to_string(),
+                byte_range: offset + dot_start..offset + dot_start + 1,
+            }));
+            let field_name = field.as_str().to_string();
+            nodes.push(MathNode::Identifier(MathIdentifier {
+                symbol: named_math_symbol(&field_name),
+                name: field_name,
+                byte_range: offset_range(field_range, offset),
+            }));
+            Ok(nodes)
         }
     }
 }
 
-fn take_fraction_numerator(
-    nodes: &mut Vec<MathNode>,
-    slash_position: usize,
-) -> Result<MathNode, MathTypesetError> {
-    while matches!(nodes.last(), Some(MathNode::Space(_))) {
-        nodes.pop();
-    }
-    nodes.pop().ok_or(MathTypesetError::UnsupportedSyntax {
-        position: slash_position,
-        message: "fraction slash expects a numerator",
-    })
-}
-
-fn named_argument_colon_position(nodes: &[MathNode]) -> Option<usize> {
-    match nodes {
-        [MathNode::Identifier(_), MathNode::Operator(operator), ..] if operator.operator == ":" => {
-            Some(operator.byte_range.start)
-        }
-        _ => None,
-    }
-}
-
-fn next_char(source: &str, start: usize) -> Option<(usize, char)> {
-    source[start..]
-        .char_indices()
+fn delimiter_char(expr: typst_ast::Expr<'_>, source: &str) -> Result<char, MathTypesetError> {
+    let range = expr.to_untyped().range();
+    source[range.clone()]
+        .chars()
         .next()
-        .map(|(offset, ch)| (start + offset, ch))
+        .ok_or_else(|| unsupported(range.start, "empty math delimiter"))
 }
 
-fn matching_closing_delimiter(ch: char) -> Option<char> {
-    match ch {
-        '(' => Some(')'),
-        '[' => Some(']'),
-        '{' => Some('}'),
-        _ => None,
+fn offset_range(range: std::ops::Range<usize>, offset: usize) -> std::ops::Range<usize> {
+    offset + range.start..offset + range.end
+}
+
+fn single_non_space_node_index(nodes: &[MathNode]) -> Option<usize> {
+    let mut matches = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| !matches!(node, MathNode::Space(_)));
+    let (index, _) = matches.next()?;
+    matches.next().is_none().then_some(index)
+}
+
+fn surrounding_delimiters(source: &str) -> Option<(char, char)> {
+    let mut chars = source.chars();
+    let left = chars.next()?;
+    let right = source.chars().next_back()?;
+    matches!(
+        (left, right),
+        ('(', ')') | ('[', ']') | ('{', '}') | ('|', '|')
+    )
+    .then_some((left, right))
+}
+
+fn slash_range_between(
+    source: &str,
+    start: usize,
+    end: usize,
+    offset: usize,
+) -> std::ops::Range<usize> {
+    let slash = source[start..end]
+        .find('/')
+        .map(|idx| start + idx)
+        .unwrap_or(start);
+    offset + slash..offset + slash + 1
+}
+
+fn shorthand_replacement(source: &str) -> Option<&'static str> {
+    SHORTHANDS
+        .iter()
+        .find(|(candidate, _)| *candidate == source)
+        .map(|(_, replacement)| *replacement)
+}
+
+fn named_argument_position(named: typst_ast::Named<'_>, source: &str, offset: usize) -> usize {
+    let range = named.to_untyped().range();
+    source[range.clone()]
+        .find(':')
+        .map(|idx| offset + range.start + idx)
+        .unwrap_or(offset + range.start)
+}
+
+fn is_operator_text(text: &str) -> bool {
+    matches!(
+        text,
+        "+" | "-"
+            | "−"
+            | "*"
+            | "∗"
+            | "="
+            | "<"
+            | ">"
+            | "!"
+            | ":"
+            | ","
+            | "."
+            | "|"
+            | "&"
+            | "≤"
+            | "≥"
+            | "≠"
+            | "→"
+            | "←"
+            | "⇒"
+            | "↔"
+            | "≔"
+    )
+}
+
+fn is_identifier_text(text: &str) -> bool {
+    !text.is_empty() && text.chars().all(char::is_alphabetic)
+}
+
+fn reject_syntax_errors(root: &SyntaxNode, offset: usize) -> Result<(), MathTypesetError> {
+    if !root.diagnosis().errors {
+        return Ok(());
     }
+    let (errors, _) = root.errors_and_warnings();
+    let message = errors
+        .first()
+        .map(|error| error.message.to_string())
+        .unwrap_or_else(|| "invalid Typst math syntax".to_string());
+    let position = first_error_range(root)
+        .map(|range| offset + range.start)
+        .unwrap_or(offset);
+    Err(MathTypesetError::Syntax { position, message })
 }
 
-fn is_closing_delimiter(ch: char) -> bool {
-    matches!(ch, ')' | ']' | '}')
+fn first_error_range(node: &SyntaxNode) -> Option<std::ops::Range<usize>> {
+    if node.kind() == SyntaxKind::Error {
+        return Some(node.range());
+    }
+    node.children().find_map(first_error_range)
 }
 
-fn is_identifier_start(ch: char) -> bool {
-    ch == '\\' || ch.is_alphabetic()
+fn unsupported_expr(
+    expr: typst_ast::Expr<'_>,
+    offset: usize,
+    message: &'static str,
+) -> MathTypesetError {
+    unsupported(expr.to_untyped().range().start + offset, message)
 }
 
-fn is_identifier_continue(ch: char) -> bool {
-    ch.is_alphanumeric()
+fn unsupported(position: usize, message: &'static str) -> MathTypesetError {
+    MathTypesetError::UnsupportedSyntax { position, message }
 }
 
-fn read_symbol_modifier_end(source: &str, start: usize) -> usize {
-    let mut end = start;
-    while let Some((idx, ch)) = next_char(source, end) {
-        if ch.is_ascii_alphabetic() {
-            end = idx + ch.len_utf8();
-        } else {
-            break;
+trait SyntaxNodeRange {
+    fn range(&self) -> std::ops::Range<usize>;
+}
+
+impl SyntaxNodeRange for SyntaxNode {
+    fn range(&self) -> std::ops::Range<usize> {
+        match self.span().get() {
+            SpanKind::Range { range, .. } => range,
+            _ => 0..self.len(),
         }
     }
-    end
 }
 
-fn is_operator_char(ch: char) -> bool {
-    matches!(
-        ch,
-        '+' | '-' | '*' | '=' | '<' | '>' | '!' | ':' | ',' | '.' | '|' | '&'
+fn synthesize_ranges(
+    root: &mut SyntaxNode,
+    source_len: usize,
+    offset: usize,
+) -> Result<(), MathTypesetError> {
+    let mapper = RangeMapper::new([0..source_len]).map_err(|message| MathTypesetError::Engine {
+        start: offset,
+        end: offset + source_len,
+        message: message.to_string(),
+    })?;
+    root.synthesize_mapped(scratch_file_id(), &mapper)
+        .map_err(|message| MathTypesetError::Engine {
+            start: offset,
+            end: offset + source_len,
+            message: message.to_string(),
+        })
+}
+
+fn scratch_file_id() -> typst_syntax::FileId {
+    RootedPath::new(
+        VirtualRoot::Project,
+        VirtualPath::new("avenger-typst-math.typ").expect("static virtual path is valid"),
     )
+    .intern()
 }
 
 const SHORTHANDS: &[(&str, &str)] = &[
@@ -956,12 +1087,6 @@ mod tests {
     fn rejects_unterminated_groups() {
         let err = parse_math("sqrt(x", 0).unwrap_err();
 
-        assert_eq!(
-            err,
-            MathTypesetError::UnsupportedSyntax {
-                position: 0,
-                message: "unterminated math call"
-            }
-        );
+        assert!(matches!(err, MathTypesetError::Syntax { .. }));
     }
 }

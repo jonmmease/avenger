@@ -29,6 +29,9 @@ pub enum MathTypesetError {
         message: &'static str,
     },
 
+    #[error("Typst syntax error at byte {position}: {message}")]
+    Syntax { position: usize, message: String },
+
     #[error("requested output is not supported yet: {0}")]
     UnsupportedOutput(&'static str),
 

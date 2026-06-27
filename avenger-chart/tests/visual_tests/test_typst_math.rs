@@ -176,7 +176,7 @@ fn static_text_markup_data(ctx: &SessionContext) -> DataFrame {
             Arc::new(StringArray::from(vec![
                 "#overline[mean]",
                 "#underline[underlined]",
-                "H#sub[2]O #super[*]",
+                "H#sub[2]O #super[\\*]",
             ])) as ArrayRef,
         ],
     )
@@ -322,7 +322,7 @@ async fn static_text_markup_showcase() {
             Symbol::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.5, 3.5)))
-                        .axis(|axis| axis.title("Index #super[*]").typst().grid(true))
+                        .axis(|axis| axis.title("Index #super[\\*]").typst().grid(true))
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 4.2)))

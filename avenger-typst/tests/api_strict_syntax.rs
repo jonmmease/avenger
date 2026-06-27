@@ -97,11 +97,5 @@ fn rejects_real_typst_parse_error() {
         .typeset_math_string("before $x^$ after", &Default::default())
         .unwrap_err();
 
-    assert_eq!(
-        err,
-        MathTypesetError::UnsupportedSyntax {
-            position: 10,
-            message: "math script expects an expression"
-        }
-    );
+    assert!(matches!(err, MathTypesetError::Syntax { position: 10, .. }));
 }

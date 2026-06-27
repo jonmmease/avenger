@@ -1,246 +1,207 @@
-use crate::delimiter::{parse_segments, MathDelimiterOptions, ParsedSegment};
+use std::ops::Range;
+
+use crate::delimiter::{MathDelimiterInfo, MathDelimiterOptions, MathDisplayHint};
 use crate::error::MathTypesetError;
 
 use super::ast::{
     EmojiAlias, LineNode, MathSpan, ParsedLine, PlainTextNode, TextMarkupKind, TextMarkupSpan,
 };
 
+use typst_syntax::ast::{self as typst_ast, AstNode};
+use typst_syntax::{
+    RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
+};
+
 pub(crate) fn parse_line(
     source: &str,
-    delimiters: &MathDelimiterOptions,
+    _delimiters: &MathDelimiterOptions,
 ) -> Result<ParsedLine, MathTypesetError> {
+    let mut root = typst_syntax::parse(source);
+    synthesize_ranges(&mut root, source.len())?;
+    reject_syntax_errors(&root)?;
+    let markup = root
+        .cast::<typst_ast::Markup>()
+        .ok_or_else(|| MathTypesetError::Engine {
+            start: 0,
+            end: source.len(),
+            message: "Typst parser did not return a markup root".to_string(),
+        })?;
+
     let mut nodes = Vec::new();
-
-    for segment in parse_segments(source, delimiters)? {
-        match segment {
-            ParsedSegment::Plain { text, range } => {
-                if !text.contains(['#', '\\']) {
-                    nodes.push(LineNode::Plain(PlainTextNode {
-                        text,
-                        byte_range: range,
-                    }));
-                } else {
-                    parse_plain_markup(&text, range.start, &mut nodes)?;
-                }
-            }
-            ParsedSegment::Math {
-                source,
-                source_range,
-                delimiter,
-            } => {
-                nodes.push(LineNode::Math(MathSpan {
-                    source,
-                    source_range,
-                    delimiter,
-                }));
-            }
-        }
-    }
-
+    lower_markup(markup, source, &mut nodes)?;
     Ok(ParsedLine {
         source: source.to_string(),
         nodes,
     })
 }
 
-fn parse_plain_markup(
+fn lower_markup(
+    markup: typst_ast::Markup<'_>,
     source: &str,
-    offset: usize,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), MathTypesetError> {
-    let mut plain = String::new();
-    let mut plain_start = offset;
-    let mut pos = 0usize;
-
-    while let Some((idx, ch)) = next_char(source, pos) {
-        if ch == '\\' {
-            let next_pos = idx + ch.len_utf8();
-            if let Some((_, next)) = next_char(source, next_pos) {
-                if next == '#' || next == '\\' {
-                    plain.push(next);
-                    pos = next_pos + next.len_utf8();
-                    continue;
-                }
-            }
-        }
-
-        if ch == '#' {
-            push_plain(nodes, &mut plain, plain_start, offset + idx);
-            let command = read_hash_command(source, offset, idx)?;
-            pos = command.end;
-            plain_start = offset + pos;
-            nodes.push(command.node);
-            continue;
-        }
-
-        plain.push(ch);
-        pos = idx + ch.len_utf8();
+    for expr in markup.exprs() {
+        lower_markup_expr(expr, source, nodes)?;
     }
-
-    push_plain(nodes, &mut plain, plain_start, offset + source.len());
     Ok(())
 }
 
-struct ParsedCommand {
-    node: LineNode,
-    end: usize,
+fn lower_markup_expr(
+    expr: typst_ast::Expr<'_>,
+    source: &str,
+    nodes: &mut Vec<LineNode>,
+) -> Result<(), MathTypesetError> {
+    match expr {
+        typst_ast::Expr::Text(text) => {
+            push_plain(nodes, text.get().as_str(), text.to_untyped().range());
+        }
+        typst_ast::Expr::Space(space) => {
+            let node = space.to_untyped();
+            push_plain(nodes, node.full_text().as_str(), node.range());
+        }
+        typst_ast::Expr::Escape(escape) => {
+            let text = escape.get().to_string();
+            push_plain(nodes, &text, escape.to_untyped().range());
+        }
+        typst_ast::Expr::Shorthand(shorthand) => {
+            let text = shorthand.get().to_string();
+            push_plain(nodes, &text, shorthand.to_untyped().range());
+        }
+        typst_ast::Expr::SmartQuote(quote) => {
+            let node = quote.to_untyped();
+            push_plain(nodes, node.full_text().as_str(), node.range());
+        }
+        typst_ast::Expr::Equation(equation) => {
+            if equation.block() {
+                return Err(unsupported(
+                    equation.to_untyped().range().start,
+                    "display math is not supported in Avenger text lines",
+                ));
+            }
+            let body = equation.body();
+            let source_range = body.to_untyped().range();
+            let full_range = equation.to_untyped().range();
+            let source_text = source[source_range.clone()].to_string();
+            nodes.push(LineNode::Math(MathSpan {
+                source: source_text,
+                source_range,
+                delimiter: math_delimiter_info(full_range),
+            }));
+        }
+        typst_ast::Expr::FuncCall(call) => {
+            lower_static_call(call, source, nodes)?;
+        }
+        typst_ast::Expr::FieldAccess(access) => {
+            lower_static_field_access(access, source, nodes)?;
+        }
+        other => {
+            return Err(unsupported_markup_expr(source, other));
+        }
+    }
+    Ok(())
 }
 
-fn read_hash_command(
+fn lower_static_call(
+    call: typst_ast::FuncCall<'_>,
     source: &str,
-    offset: usize,
-    hash_idx: usize,
-) -> Result<ParsedCommand, MathTypesetError> {
-    let name_start = hash_idx + 1;
-    let Some((name_end, name)) = read_command_name(source, name_start) else {
-        return Err(unsupported(
-            offset + hash_idx,
-            "expected static Typst-shaped command after #",
-        ));
+    nodes: &mut Vec<LineNode>,
+) -> Result<(), MathTypesetError> {
+    let range = expand_hash_range(source, call.to_untyped().range());
+    let Some(name) = code_expr_name(call.callee()) else {
+        return Err(unsupported(range.start, "unsupported static text command"));
+    };
+    let Some(kind) = text_span_kind(&name) else {
+        return Err(unsupported(range.start, "unsupported static text command"));
     };
 
-    if name == "emoji" {
-        return read_emoji_alias(source, offset, hash_idx, name_end);
+    let mut body = None;
+    for arg in call.args().items() {
+        match arg {
+            typst_ast::Arg::Pos(typst_ast::Expr::ContentBlock(block)) => {
+                if body.replace(block).is_some() {
+                    return Err(unsupported(
+                        range.start,
+                        "static text command expects one bracketed content block",
+                    ));
+                }
+            }
+            typst_ast::Arg::Named(_) => {
+                return Err(unsupported(
+                    range.start,
+                    "static text commands do not support Typst-style options",
+                ));
+            }
+            typst_ast::Arg::Spread(_) => {
+                return Err(unsupported(
+                    range.start,
+                    "static text commands do not support spread arguments",
+                ));
+            }
+            typst_ast::Arg::Pos(_) => {
+                return Err(unsupported(
+                    range.start,
+                    "static text command expects bracketed content",
+                ));
+            }
+        }
     }
 
-    let Some(kind) = text_span_kind(name) else {
+    let Some(body) = body else {
         return Err(unsupported(
-            offset + hash_idx,
-            "unsupported static text command",
-        ));
-    };
-
-    match next_char(source, name_end) {
-        Some((idx, '[')) => {
-            let (body, close_idx) = read_bracket_body(source, idx)?;
-            let mut body_nodes = Vec::new();
-            parse_plain_markup(&body, offset + idx + 1, &mut body_nodes)?;
-            Ok(ParsedCommand {
-                node: LineNode::TextSpan(TextMarkupSpan {
-                    kind,
-                    body: body_nodes,
-                    byte_range: offset + hash_idx..offset + close_idx + 1,
-                    body_range: offset + idx + 1..offset + close_idx,
-                }),
-                end: close_idx + 1,
-            })
-        }
-        Some((_, '(')) => Err(unsupported(
-            offset + hash_idx,
-            "static text commands do not support Typst-style options",
-        )),
-        _ => Err(unsupported(
-            offset + hash_idx,
+            range.start,
             "static text command expects bracketed content",
-        )),
-    }
+        ));
+    };
+
+    let body_markup = body.body();
+    let body_range = body_markup.to_untyped().range();
+    let mut body_nodes = Vec::new();
+    lower_markup(body_markup, source, &mut body_nodes)?;
+    nodes.push(LineNode::TextSpan(TextMarkupSpan {
+        kind,
+        body: body_nodes,
+        byte_range: range,
+        body_range,
+    }));
+    Ok(())
 }
 
-fn read_emoji_alias(
+fn lower_static_field_access(
+    access: typst_ast::FieldAccess<'_>,
     source: &str,
-    offset: usize,
-    hash_idx: usize,
-    emoji_name_end: usize,
-) -> Result<ParsedCommand, MathTypesetError> {
-    let Some((dot_idx, '.')) = next_char(source, emoji_name_end) else {
-        return Err(unsupported(
-            offset + hash_idx,
-            "emoji alias expects a dotted name",
-        ));
+    nodes: &mut Vec<LineNode>,
+) -> Result<(), MathTypesetError> {
+    let range = expand_hash_range(source, access.to_untyped().range());
+    let Some(name) = code_field_access_name(access) else {
+        return Err(unsupported(range.start, "unsupported static text command"));
     };
-
-    let alias_start = dot_idx + 1;
-    let alias_end = read_dotted_name_end(source, alias_start);
-    if alias_end == alias_start {
-        return Err(unsupported(
-            offset + hash_idx,
-            "emoji alias expects a dotted name",
-        ));
-    }
-
-    let name = &source[alias_start..alias_end];
-    let Some(emoji) = emoji_alias(name) else {
-        return Err(unsupported(offset + hash_idx, "unknown emoji alias"));
+    let Some(alias) = name.strip_prefix("emoji.") else {
+        return Err(unsupported(range.start, "unsupported static text command"));
     };
-
-    Ok(ParsedCommand {
-        node: LineNode::Emoji(EmojiAlias {
-            name: name.to_string(),
-            emoji,
-            byte_range: offset + hash_idx..offset + alias_end,
-        }),
-        end: alias_end,
-    })
+    let Some(emoji) = emoji_alias(alias) else {
+        return Err(unsupported(range.start, "unknown emoji alias"));
+    };
+    nodes.push(LineNode::Emoji(EmojiAlias {
+        name: alias.to_string(),
+        emoji,
+        byte_range: range,
+    }));
+    Ok(())
 }
 
-fn read_command_name(source: &str, start: usize) -> Option<(usize, &str)> {
-    let end = read_identifier_end(source, start);
-    (end > start).then(|| (end, &source[start..end]))
-}
-
-fn read_identifier_end(source: &str, start: usize) -> usize {
-    let mut end = start;
-    while let Some((idx, ch)) = next_char(source, end) {
-        if ch == '_' || ch == '-' || ch.is_ascii_alphanumeric() {
-            end = idx + ch.len_utf8();
-        } else {
-            break;
-        }
+fn code_expr_name(expr: typst_ast::Expr<'_>) -> Option<String> {
+    match expr {
+        typst_ast::Expr::Ident(ident) => Some(ident.as_str().to_string()),
+        typst_ast::Expr::FieldAccess(access) => code_field_access_name(access),
+        _ => None,
     }
-    end
 }
 
-fn read_dotted_name_end(source: &str, start: usize) -> usize {
-    let mut end = start;
-    while let Some((idx, ch)) = next_char(source, end) {
-        if ch == '.' || ch == '_' || ch == '-' || ch.is_ascii_alphanumeric() {
-            end = idx + ch.len_utf8();
-        } else {
-            break;
-        }
-    }
-    end
-}
-
-fn read_bracket_body(source: &str, open_idx: usize) -> Result<(String, usize), MathTypesetError> {
-    let mut body = String::new();
-    let mut depth = 0usize;
-    let mut pos = open_idx;
-
-    while let Some((idx, ch)) = next_char(source, pos) {
-        if ch == '\\' {
-            let next_pos = idx + ch.len_utf8();
-            if let Some((_, next)) = next_char(source, next_pos) {
-                body.push(next);
-                pos = next_pos + next.len_utf8();
-                continue;
-            }
-        }
-
-        match ch {
-            '[' => {
-                if depth > 0 {
-                    body.push(ch);
-                }
-                depth += 1;
-            }
-            ']' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Ok((body, idx));
-                }
-                body.push(ch);
-            }
-            _ => body.push(ch),
-        }
-
-        pos = idx + ch.len_utf8();
-    }
-
-    Err(unsupported(
-        open_idx,
-        "static text command has unterminated bracketed content",
-    ))
+fn code_field_access_name(access: typst_ast::FieldAccess<'_>) -> Option<String> {
+    let mut name = code_expr_name(access.target())?;
+    name.push('.');
+    name.push_str(access.field().as_str());
+    Some(name)
 }
 
 fn text_span_kind(name: &str) -> Option<TextMarkupKind> {
@@ -264,24 +225,110 @@ fn emoji_alias(name: &str) -> Option<&'static str> {
     }
 }
 
-fn push_plain(nodes: &mut Vec<LineNode>, plain: &mut String, start: usize, end: usize) {
-    if !plain.is_empty() {
-        nodes.push(LineNode::Plain(PlainTextNode {
-            text: std::mem::take(plain),
-            byte_range: start..end,
-        }));
+fn push_plain(nodes: &mut Vec<LineNode>, text: &str, range: Range<usize>) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(LineNode::Plain(previous)) = nodes.last_mut() {
+        previous.text.push_str(text);
+        previous.byte_range.end = range.end;
+        return;
+    }
+    nodes.push(LineNode::Plain(PlainTextNode {
+        text: text.to_string(),
+        byte_range: range,
+    }));
+}
+
+fn math_delimiter_info(full_range: Range<usize>) -> MathDelimiterInfo {
+    MathDelimiterInfo {
+        opening_range: full_range.start..full_range.start + 1,
+        closing_range: full_range.end.saturating_sub(1)..full_range.end,
+        full_range,
+        display_hint: MathDisplayHint::Inline,
     }
 }
 
-fn next_char(source: &str, start: usize) -> Option<(usize, char)> {
-    source[start..]
-        .char_indices()
-        .next()
-        .map(|(offset, ch)| (start + offset, ch))
+fn expand_hash_range(source: &str, range: Range<usize>) -> Range<usize> {
+    if range.start > 0 && source.as_bytes().get(range.start - 1) == Some(&b'#') {
+        range.start - 1..range.end
+    } else {
+        range
+    }
+}
+
+fn reject_syntax_errors(root: &SyntaxNode) -> Result<(), MathTypesetError> {
+    if !root.diagnosis().errors {
+        return Ok(());
+    }
+    let (errors, _) = root.errors_and_warnings();
+    let message = errors
+        .first()
+        .map(|error| error.message.to_string())
+        .unwrap_or_else(|| "invalid Typst syntax".to_string());
+    let position = first_error_range(root)
+        .map(|range| range.start)
+        .unwrap_or_default();
+    Err(MathTypesetError::Syntax { position, message })
+}
+
+fn first_error_range(node: &SyntaxNode) -> Option<Range<usize>> {
+    if node.kind() == SyntaxKind::Error {
+        return Some(node.range());
+    }
+    node.children().find_map(first_error_range)
+}
+
+fn unsupported_markup_expr(source: &str, expr: typst_ast::Expr<'_>) -> MathTypesetError {
+    let range = expr.to_untyped().range();
+    let expanded = expand_hash_range(source, range.clone());
+    if expanded.start != range.start {
+        unsupported(expanded.start, "unsupported static text command")
+    } else {
+        unsupported(
+            range.start,
+            "this Typst markup construct is not supported in Avenger text lines",
+        )
+    }
 }
 
 fn unsupported(position: usize, message: &'static str) -> MathTypesetError {
     MathTypesetError::UnsupportedSyntax { position, message }
+}
+
+trait SyntaxNodeRange {
+    fn range(&self) -> Range<usize>;
+}
+
+impl SyntaxNodeRange for SyntaxNode {
+    fn range(&self) -> Range<usize> {
+        match self.span().get() {
+            SpanKind::Range { range, .. } => range,
+            _ => 0..self.len(),
+        }
+    }
+}
+
+fn synthesize_ranges(root: &mut SyntaxNode, source_len: usize) -> Result<(), MathTypesetError> {
+    let mapper = RangeMapper::new([0..source_len]).map_err(|message| MathTypesetError::Engine {
+        start: 0,
+        end: source_len,
+        message: message.to_string(),
+    })?;
+    root.synthesize_mapped(scratch_file_id(), &mapper)
+        .map_err(|message| MathTypesetError::Engine {
+            start: 0,
+            end: source_len,
+            message: message.to_string(),
+        })
+}
+
+fn scratch_file_id() -> typst_syntax::FileId {
+    RootedPath::new(
+        VirtualRoot::Project,
+        VirtualPath::new("avenger-typst-line.typ").expect("static virtual path is valid"),
+    )
+    .intern()
 }
 
 #[cfg(test)]
@@ -302,6 +349,12 @@ mod tests {
         );
         assert!(matches!(&line.nodes[1], LineNode::Math(math) if math.source == "R^2"));
         assert!(matches!(&line.nodes[2], LineNode::Plain(plain) if plain.text == " = 0.94"));
+    }
+
+    #[test]
+    fn canonical_typst_unmatched_dollar_errors() {
+        let err = parse_line("cost $5", &MathDelimiterOptions::default()).unwrap_err();
+        assert!(matches!(err, MathTypesetError::Syntax { .. }));
     }
 
     #[test]
@@ -371,13 +424,13 @@ mod tests {
     fn rejects_unknown_hash_commands() {
         let err = parse_line("#let x = 1", &MathDelimiterOptions::default()).unwrap_err();
 
-        assert_eq!(
+        assert!(matches!(
             err,
             MathTypesetError::UnsupportedSyntax {
                 position: 0,
                 message: "unsupported static text command"
             }
-        );
+        ));
     }
 
     #[test]

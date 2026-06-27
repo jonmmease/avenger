@@ -1964,6 +1964,7 @@ mod tests {
                 color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.25, 1.0, 0.75])),
                 font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
+                text_syntax: TextSyntaxMode::TypstMarkup,
                 ..Default::default()
             }
             .into()],
@@ -1991,6 +1992,7 @@ mod tests {
                 y: ScalarOrArray::new_scalar(18.0),
                 font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
+                text_syntax: TextSyntaxMode::TypstMarkup,
                 ..Default::default()
             }
             .into()],
@@ -2017,6 +2019,7 @@ mod tests {
                 y: ScalarOrArray::new_scalar(18.0),
                 font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
+                text_syntax: TextSyntaxMode::TypstMarkup,
                 ..Default::default()
             }
             .into()],
@@ -2044,11 +2047,12 @@ mod tests {
             height: 30.0,
             origin: [0.0, 0.0],
             marks: vec![SceneTextMark {
-                text: ScalarOrArray::new_scalar("H#sub[2]O #super[*]".to_string()),
+                text: ScalarOrArray::new_scalar("H#sub[2]O #super[\\*]".to_string()),
                 x: ScalarOrArray::new_scalar(6.0),
                 y: ScalarOrArray::new_scalar(18.0),
                 font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
+                text_syntax: TextSyntaxMode::TypstMarkup,
                 ..Default::default()
             }
             .into()],
