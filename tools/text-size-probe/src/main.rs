@@ -22,7 +22,11 @@ fn run_text_line() {
     };
 
     let text_engine = default_text_engine();
-    black_box(text_engine.measure_bounds(&measurement));
+    black_box(
+        text_engine
+            .measure_bounds(&measurement)
+            .expect("measure mixed Typst math text"),
+    );
 
     let text = measurement.text.to_string();
     let color = [0.1, 0.2, 0.3, 1.0];

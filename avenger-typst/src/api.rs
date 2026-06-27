@@ -1,4 +1,4 @@
-use crate::delimiter::{parse_segments, ParsedSegment};
+use crate::delimiter::{ParsedSegment, parse_segments};
 use crate::engine::engine::TypstEngineCore;
 use crate::error::{MathTypesetError, TypstInitError};
 use crate::limits::MathLimits;

@@ -87,8 +87,10 @@ fn default_engine_produces_paths() {
         .typeset_math_fragment("x^2 + y^2", &Default::default())
         .unwrap();
 
-    assert!(artifact
-        .paths
-        .as_ref()
-        .is_some_and(|paths| !paths.items.is_empty()));
+    assert!(
+        artifact
+            .paths
+            .as_ref()
+            .is_some_and(|paths| !paths.items.is_empty())
+    );
 }

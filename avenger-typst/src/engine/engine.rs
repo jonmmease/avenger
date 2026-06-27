@@ -181,14 +181,18 @@ mod tests {
         let artifact = engine.typeset_text_line("", &options).unwrap();
 
         assert_eq!(artifact.metrics.width, 0.0);
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.is_empty()));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf_text| pdf_text.glyph_runs.is_empty()));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.is_empty())
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf_text| pdf_text.glyph_runs.is_empty())
+        );
         assert!(artifact.positioned_runs.is_empty());
     }
 
@@ -201,10 +205,12 @@ mod tests {
         let artifact = engine.typeset_text_line("Hello", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 5));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 5)
+        );
     }
 
     #[test]
@@ -506,14 +512,18 @@ mod tests {
         assert_eq!(artifact.positioned_runs[3].text, "*");
         assert!(artifact.positioned_runs[1].y > artifact.positioned_runs[0].y);
         assert!(artifact.positioned_runs[3].y < artifact.positioned_runs[0].y);
-        assert!(artifact.positioned_runs[1]
-            .text_style
-            .as_ref()
-            .is_some_and(|style| style.font_size < options.text_style.font_size));
-        assert!(artifact.positioned_runs[3]
-            .text_style
-            .as_ref()
-            .is_some_and(|style| style.font_size < options.text_style.font_size));
+        assert!(
+            artifact.positioned_runs[1]
+                .text_style
+                .as_ref()
+                .is_some_and(|style| style.font_size < options.text_style.font_size)
+        );
+        assert!(
+            artifact.positioned_runs[3]
+                .text_style
+                .as_ref()
+                .is_some_and(|style| style.font_size < options.text_style.font_size)
+        );
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
     }
@@ -566,10 +576,12 @@ mod tests {
             .typeset_fragment("alpha + beta -> gamma", &options)
             .unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| !paths.items.is_empty()));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| !paths.items.is_empty())
+        );
     }
 
     #[test]
@@ -622,14 +634,18 @@ mod tests {
 
         let artifact = engine.typeset_fragment("a / (b + c)", &options).unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 5));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 5)
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 4)
+        );
     }
 
     #[test]
@@ -644,14 +660,18 @@ mod tests {
 
         let artifact = engine.typeset_fragment("frac(x + y, z)", &options).unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 5));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 5)
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 4)
+        );
     }
 
     #[test]
@@ -666,14 +686,18 @@ mod tests {
 
         let artifact = engine.typeset_fragment("binom(n, k)", &options).unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 4));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 4)
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 4)
+        );
     }
 
     #[test]
@@ -688,14 +712,18 @@ mod tests {
 
         let artifact = engine.typeset_fragment("cancel(x)", &options).unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 2));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 1));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 2)
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 1)
+        );
     }
 
     #[test]
@@ -712,14 +740,18 @@ mod tests {
             .typeset_fragment("sqrt(x) / (1 + x^2)", &options)
             .unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 8));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 6));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 8)
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 6)
+        );
     }
 
     #[test]
@@ -734,14 +766,18 @@ mod tests {
 
         let artifact = engine.typeset_fragment("root(3, x)", &options).unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 4));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 3));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 4)
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 3)
+        );
     }
 
     #[test]
@@ -756,14 +792,18 @@ mod tests {
 
         let artifact = engine.typeset_fragment("x(t)", &options).unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 4));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 4)
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 4)
+        );
     }
 
     #[test]
@@ -778,14 +818,18 @@ mod tests {
 
         let artifact = engine.typeset_fragment("J_n(x)", &options).unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 5));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 5));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 5)
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 5)
+        );
     }
 
     #[test]
@@ -800,14 +844,18 @@ mod tests {
 
         let artifact = engine.typeset_fragment("abs(x)", &options).unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 3));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 3));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 3)
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 3)
+        );
     }
 
     #[test]
@@ -822,14 +870,18 @@ mod tests {
 
         let artifact = engine.typeset_fragment("lr(|x + y|)", &options).unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 5));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 5));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 5)
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 5)
+        );
     }
 
     #[test]
@@ -844,14 +896,18 @@ mod tests {
 
         let artifact = engine.typeset_fragment("sin(x)", &options).unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 6));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 4));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 6)
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 4)
+        );
     }
 
     #[test]
@@ -868,14 +924,18 @@ mod tests {
             .typeset_fragment("lim_(x -> oo) f(x)", &options)
             .unwrap();
 
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| !paths.items.is_empty()));
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() > 6));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| !paths.items.is_empty())
+        );
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() > 6)
+        );
     }
 
     #[test]
@@ -893,10 +953,12 @@ mod tests {
             .unwrap();
 
         assert!(artifact.metrics.width > 0.0);
-        assert!(artifact
-            .paths
-            .as_ref()
-            .is_some_and(|paths| !paths.items.is_empty()));
+        assert!(
+            artifact
+                .paths
+                .as_ref()
+                .is_some_and(|paths| !paths.items.is_empty())
+        );
         let glyph_text = artifact
             .pdf_text
             .as_ref()
@@ -1003,10 +1065,12 @@ mod tests {
 
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.font_resources.len(), 1);
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| pdf.glyph_runs.len() == 1));
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.len() == 1)
+        );
     }
 
     #[test]
@@ -1063,10 +1127,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(artifact.font_resources.len(), 2);
-        assert!(artifact
-            .pdf_text
-            .as_ref()
-            .is_some_and(|pdf| !pdf.glyph_runs.is_empty()));
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| !pdf.glyph_runs.is_empty())
+        );
         assert_eq!(artifact.positioned_runs.len(), 3);
         assert!(artifact.positioned_runs[0].pdf_text.is_none());
         assert!(artifact.positioned_runs[1].pdf_text.is_some());
@@ -1090,9 +1156,11 @@ mod tests {
             .unwrap();
 
         assert!(artifact.paths.is_none());
-        assert!(artifact
-            .raster
-            .as_ref()
-            .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0));
+        assert!(
+            artifact
+                .raster
+                .as_ref()
+                .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0)
+        );
     }
 }

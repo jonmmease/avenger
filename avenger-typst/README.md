@@ -4,10 +4,12 @@
 engine. It implements the subset of Typst behavior needed by Avenger chart
 labels, titles, legends, guides, SVG/PDF export, and raster/WGPU text atlases.
 
-This crate is **not** a mechanically vendored or trimmed copy of Typst. It began
-from an investigation and vendoring experiment against the upstream Typst
-project, but the current code is an Avenger-owned implementation that keeps a
-small, tested subset of Typst's text/math semantics.
+The text and math layout engine is Avenger-owned, but the parser front end and
+small parser support modules are currently copied from upstream Typst into
+private `src/syntax`, `src/timing`, and `src/utils` modules. Those copied modules
+are intentionally treated as an intermediate extraction point: Avenger lowers
+their AST into its own compact IR and does not expose Typst parser types in the
+public API.
 
 ## Kept Functionality
 
@@ -38,7 +40,7 @@ The crate intentionally excludes full Typst document features:
 
 - No Typst evaluator, `#let`, imports, dynamic code execution, content blocks, or
   package loading.
-- No full Typst `SyntaxNode`, content, element, style-chain, or frame tree.
+- No public Typst `SyntaxNode`, content, element, style-chain, or frame tree.
 - No page layout, paragraphs, wrapping, justification, tables, matrices, or
   multiline math.
 - No general Typst SVG/PDF/render backends.
@@ -67,10 +69,13 @@ source-level fork. The closest upstream source areas are:
 
 | Avenger module | Typst source area | Relationship |
 | --- | --- | --- |
+| `src/syntax/*` | `crates/typst-syntax/src/*` | Private copied parser/AST module, pending trim to Avenger's single-line subset |
+| `src/timing/*` | `crates/typst-timing/src/*` | Private copied timing support used by parser macros; expected to shrink to no-op or minimal hooks |
+| `src/utils/*` | `crates/typst-utils/src/*` | Private copied parser support utilities; expected to shrink to only parser-required helpers |
 | `src/delimiter.rs` | Typst markup/math delimiter behavior | Avenger-specific delimiter scanner for chart labels |
-| `src/engine/syntax.rs` | `typst-syntax` markup/code parsing | Small static text-markup parser; no Typst evaluator |
-| `src/engine/math/syntax.rs` | `crates/typst-syntax/src/parser.rs` math parsing | Hand-written parser for the supported fragment subset |
-| `src/engine/math/ast.rs` | `typst-syntax` math AST and `typst-library/src/math/ir` | Avenger-owned compact AST |
+| `src/engine/syntax.rs` | `crates/typst-syntax/src/parser.rs` markup/code parsing | Lowers copied Typst parser AST into Avenger's static text-markup IR; no Typst evaluator |
+| `src/engine/math/syntax.rs` | `crates/typst-syntax/src/parser.rs` math parsing | Lowers copied Typst parser AST into Avenger's supported math fragment IR |
+| `src/engine/math/ast.rs` | `crates/typst-syntax/src/ast.rs` and `typst-library/src/math/ir` | Avenger-owned compact AST |
 | `src/engine/math/metrics.rs` | `typst-library/src/math/ir/*` and `typst-layout/src/math/*` | Consolidated subset of Typst math layout behavior |
 | `src/engine/font.rs` | `typst-layout/src/inline/shaping.rs` and Typst text/font modules | Avenger-owned font fallback and shaping pipeline |
 | `src/engine/inline.rs` | `typst-layout/src/inline/*` | Single-line inline layout for Avenger labels |
@@ -79,11 +84,12 @@ source-level fork. The closest upstream source areas are:
 | `src/raster.rs` | `typst-render` | Avenger `tiny-skia` path rasterization |
 | `src/pdf.rs` | `typst-pdf` text/glyph embedding concepts | Metadata for Avenger's PDF path; not Typst's PDF backend |
 
-Most file names are therefore Avenger names, not preserved Typst names. The
-largest difference is that Typst separates parsing, evaluation, math IR,
-frame-based layout, rendering, SVG, and PDF export into separate crates, while
-`avenger-typst` folds the small supported path into one crate with Avenger
-artifact types.
+Most layout file names are therefore Avenger names, not preserved Typst names.
+The copied parser/support modules are the exception. The largest architectural
+difference is that Typst separates parsing, evaluation, math IR, frame-based
+layout, rendering, SVG, and PDF export into separate crates, while
+`avenger-typst` folds the small supported rendering path into one crate with
+Avenger artifact types.
 
 ## Extraction Process
 
@@ -102,10 +108,10 @@ The current crate came from a staged extraction:
    sufficient.
 6. Add release-mode unit and visual tests to lock down the subset Avenger uses.
 
-This means future traceability should rely on behavior and tests, not mechanical
-re-vendoring. When changing math behavior, compare against upstream Typst for
-representative supported examples, but keep the implementation small and local
-to Avenger.
+This means future traceability should rely on both source notes for the copied
+parser modules and behavior tests for the Avenger-owned layout engine. When
+changing math behavior, compare against upstream Typst for representative
+supported examples, but keep the implementation small and local to Avenger.
 
 ## Traceability Guidelines
 
@@ -120,4 +126,3 @@ When adding or changing functionality:
   return `MathTypesetError::UnsupportedSyntax` for unsupported constructs.
 - Avoid reintroducing Typst evaluator, document, page-layout, or renderer
   dependencies unless Avenger explicitly needs them.
-

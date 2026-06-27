@@ -14,7 +14,16 @@ mod paths;
 mod pdf;
 mod raster;
 mod style;
+#[allow(dead_code, unused_imports, unused_macros)]
+#[path = "syntax/lib.rs"]
+mod syntax;
+#[allow(dead_code, unused_imports, unused_macros)]
+#[path = "timing/lib.rs"]
+mod timing;
 mod types;
+#[allow(dead_code, unused_imports, unused_macros)]
+#[path = "utils/lib.rs"]
+mod utils;
 mod warnings;
 
 pub use api::{AvengerTypst, TypstCacheConfig, TypstEngineConfig};

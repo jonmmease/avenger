@@ -63,17 +63,32 @@ name = "avenger-typst"
 version = "0.1.0"
 dependencies = [
  "brotli",
+ "ecow",
  "fontdb",
  "image",
+ "libm",
+ "once_cell",
+ "parking_lot",
+ "portable-atomic",
+ "rayon",
+ "rustc-hash",
  "rustybuzz",
+ "semver",
+ "serde",
+ "serde_json",
+ "siphasher",
+ "smallvec",
+ "thin-vec",
  "thiserror",
  "tiny-skia",
+ "toml",
  "ttf-parser",
- "typst-syntax",
  "unicode-bidi",
+ "unicode-ident",
  "unicode-math-class",
  "unicode-script",
  "unicode-segmentation",
+ "unscanny",
 ]
 
 [[package]]
@@ -791,54 +806,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 dependencies = [
  "core_maths",
-]
-
-[[package]]
-name = "typst-syntax"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22bf7f87450e5841debd4986b0f912b0f7a2251e600c08aca406305ff52c67b4"
-dependencies = [
- "ecow",
- "rustc-hash",
- "serde",
- "toml",
- "typst-timing",
- "typst-utils",
- "unicode-ident",
- "unicode-math-class",
- "unicode-script",
- "unicode-segmentation",
- "unscanny",
-]
-
-[[package]]
-name = "typst-timing"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cc0c78ece2ade6ef73d00a13f9c474e02efc3bcfdb770e16d7c4d24e7492773"
-dependencies = [
- "parking_lot",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "typst-utils"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40215eb2541102ecfb4cf3bef29da53033a82e22dbc2308c43bdb855701bf8d2"
-dependencies = [
- "libm",
- "once_cell",
- "portable-atomic",
- "rayon",
- "rustc-hash",
- "semver",
- "siphasher",
- "smallvec",
- "thin-vec",
- "unicode-math-class",
 ]
 
 [[package]]

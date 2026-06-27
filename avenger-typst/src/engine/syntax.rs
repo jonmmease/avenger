@@ -7,8 +7,8 @@ use super::ast::{
     EmojiAlias, LineNode, MathSpan, ParsedLine, PlainTextNode, TextMarkupKind, TextMarkupSpan,
 };
 
-use typst_syntax::ast::{self as typst_ast, AstNode};
-use typst_syntax::{
+use crate::syntax::ast::{self as typst_ast, AstNode};
+use crate::syntax::{
     RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
 };
 
@@ -16,7 +16,7 @@ pub(crate) fn parse_line(
     source: &str,
     _delimiters: &MathDelimiterOptions,
 ) -> Result<ParsedLine, MathTypesetError> {
-    let mut root = typst_syntax::parse(source);
+    let mut root = crate::syntax::parse(source);
     synthesize_ranges(&mut root, source.len())?;
     reject_syntax_errors(&root)?;
     let markup = root
@@ -323,7 +323,7 @@ fn synthesize_ranges(root: &mut SyntaxNode, source_len: usize) -> Result<(), Mat
         })
 }
 
-fn scratch_file_id() -> typst_syntax::FileId {
+fn scratch_file_id() -> crate::syntax::FileId {
     RootedPath::new(
         VirtualRoot::Project,
         VirtualPath::new("avenger-typst-line.typ").expect("static virtual path is valid"),

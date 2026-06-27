@@ -2,8 +2,8 @@ use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
-use crate::style::FontStyle;
 use crate::TypstEngineConfig;
+use crate::style::FontStyle;
 
 pub(crate) struct EmbeddedFontFace {
     pub(crate) name: &'static str,

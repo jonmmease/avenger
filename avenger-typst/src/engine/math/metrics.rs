@@ -3038,10 +3038,12 @@ mod tests {
                 .expect("simple row should rasterize through Typst paths");
 
         assert!(artifact.paths.is_none());
-        assert!(artifact
-            .raster
-            .as_ref()
-            .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0));
+        assert!(
+            artifact
+                .raster
+                .as_ref()
+                .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0)
+        );
     }
 
     #[test]
@@ -3078,10 +3080,12 @@ mod tests {
                 .unwrap()
                 .expect("simple fraction should be handled by Typst row path");
         let paths = artifact.paths.expect("fraction paths should exist");
-        assert!(paths
-            .items
-            .iter()
-            .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some()));
+        assert!(
+            paths
+                .items
+                .iter()
+                .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some())
+        );
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 4);
     }
@@ -3101,10 +3105,12 @@ mod tests {
                 .unwrap()
                 .expect("simple frac call should be handled by Typst row path");
         let paths = artifact.paths.expect("fraction paths should exist");
-        assert!(paths
-            .items
-            .iter()
-            .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some()));
+        assert!(
+            paths
+                .items
+                .iter()
+                .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some())
+        );
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 4);
     }
@@ -3125,10 +3131,12 @@ mod tests {
                 .expect("simple binom call should be handled by Typst row path");
         let paths = artifact.paths.expect("binom paths should exist");
         assert_eq!(paths.items.len(), 4);
-        assert!(paths
-            .items
-            .iter()
-            .all(|item| !matches!(item.kind, MathPathKind::MathShape)));
+        assert!(
+            paths
+                .items
+                .iter()
+                .all(|item| !matches!(item.kind, MathPathKind::MathShape))
+        );
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         let text: String = pdf
             .glyph_runs
@@ -3249,10 +3257,12 @@ mod tests {
             try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
                 .unwrap()
                 .expect("simple visible group should rasterize through Typst paths");
-        assert!(artifact
-            .raster
-            .as_ref()
-            .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0));
+        assert!(
+            artifact
+                .raster
+                .as_ref()
+                .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0)
+        );
     }
 
     #[test]
@@ -3273,9 +3283,11 @@ mod tests {
         assert_eq!(paths.items.len(), 5);
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 5);
-        assert!(pdf.glyph_runs[1..]
-            .iter()
-            .all(|run| run.font_size < pdf.glyph_runs[0].font_size));
+        assert!(
+            pdf.glyph_runs[1..]
+                .iter()
+                .all(|run| run.font_size < pdf.glyph_runs[0].font_size)
+        );
     }
 
     #[test]

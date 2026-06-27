@@ -17,8 +17,8 @@ use crate::warnings::MathTypesetWarning;
 
 use super::ast::{LineNode, MathSpan, ParsedLine, PlainTextNode, TextMarkupKind};
 use super::font::{
-    shape_plain_text_with_fallback, SegmentedText, ShapedText, TextDecorationLineMetrics,
-    TextDecorationMetrics, TextFace, TextScript,
+    SegmentedText, ShapedText, TextDecorationLineMetrics, TextDecorationMetrics, TextFace,
+    TextScript, shape_plain_text_with_fallback,
 };
 use super::math::metrics::try_typeset_simple_row_fragment;
 use super::math::syntax::parse_math;
@@ -1501,10 +1501,12 @@ mod tests {
             .expect("plain embedded text should use fast path");
 
         assert!(artifact.paths.is_none());
-        assert!(artifact
-            .raster
-            .as_ref()
-            .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0));
+        assert!(
+            artifact
+                .raster
+                .as_ref()
+                .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0)
+        );
     }
 
     #[test]
@@ -1596,10 +1598,12 @@ mod tests {
 
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.positioned_runs[0].text, "important");
-        assert!(artifact.positioned_runs[0]
-            .paths
-            .as_ref()
-            .is_some_and(|paths| paths.items.len() == 1 && paths.items[0].stroke.is_some()));
+        assert!(
+            artifact.positioned_runs[0]
+                .paths
+                .as_ref()
+                .is_some_and(|paths| paths.items.len() == 1 && paths.items[0].stroke.is_some())
+        );
         assert!(artifact.paths.as_ref().is_some_and(|paths| {
             paths
                 .items

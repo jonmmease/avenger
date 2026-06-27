@@ -109,14 +109,18 @@ fn text_line_outputs_can_be_requested() {
     assert!(artifact.paths.is_some());
     assert!(artifact.raster.is_some());
     assert!(artifact.pdf_text.is_some());
-    assert!(artifact
-        .positioned_runs
-        .iter()
-        .any(|run| run.kind == PositionedTextLineRunKind::Plain));
-    assert!(artifact
-        .positioned_runs
-        .iter()
-        .any(|run| run.kind == PositionedTextLineRunKind::Math));
+    assert!(
+        artifact
+            .positioned_runs
+            .iter()
+            .any(|run| run.kind == PositionedTextLineRunKind::Plain)
+    );
+    assert!(
+        artifact
+            .positioned_runs
+            .iter()
+            .any(|run| run.kind == PositionedTextLineRunKind::Math)
+    );
     assert!(!artifact.font_resources.is_empty());
 }
 
