@@ -13,7 +13,7 @@ use avenger_scenegraph::marks::{
 use avenger_text::{
     default_text_engine,
     measurement::TextMeasurementConfig,
-    types::{FontStyle, FontWeight, TextAlign, TextBaseline},
+    types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode},
 };
 
 use crate::{
@@ -67,11 +67,13 @@ pub struct LineLegendConfig {
     pub title_font_family: Option<String>,
     pub title_font_size: Option<f32>,
     pub title_font_weight: Option<FontWeight>,
+    pub title_syntax_mode: TextSyntaxMode,
 
     /// Typography configuration for labels
     pub label_font_family: Option<String>,
     pub label_font_size: Option<f32>,
     pub label_font_weight: Option<FontWeight>,
+    pub label_syntax_mode: TextSyntaxMode,
 }
 
 impl Default for LineLegendConfig {
@@ -101,9 +103,11 @@ impl Default for LineLegendConfig {
             title_font_family: None,
             title_font_size: None,
             title_font_weight: None,
+            title_syntax_mode: TextSyntaxMode::Plain,
             label_font_family: None,
             label_font_size: None,
             label_font_weight: None,
+            label_syntax_mode: TextSyntaxMode::Plain,
         }
     }
 }
@@ -140,6 +144,58 @@ mod tests {
         };
         assert!(hit_rect.width.is_some());
         assert!(hit_rect.height.is_some());
+    }
+
+    #[test]
+    fn line_legend_row_advance_uses_label_syntax_mode() {
+        let labels = vec![
+            "$y = sqrt(x) / (1 + x^2)$".to_string(),
+            "$J_0(x)$".to_string(),
+        ];
+        let output = make_line_legend_itemized(&LineLegendConfig {
+            text: ScalarOrArray::new_array(labels.clone()),
+            stroke: ScalarOrArray::new_array(vec![
+                ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0]),
+                ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]),
+            ]),
+            label_syntax_mode: TextSyntaxMode::TypstMarkup,
+            ..Default::default()
+        })
+        .expect("line legend renders");
+
+        let SceneMark::Group(first_group) = &output.group.marks[1] else {
+            panic!("first legend item should be a group");
+        };
+        let SceneMark::Group(second_group) = &output.group.marks[2] else {
+            panic!("second legend item should be a group");
+        };
+        let actual_row_advance = second_group.origin[1] - first_group.origin[1];
+
+        let typst_text_bbox = SceneTextMark {
+            text: labels.clone().into(),
+            font: "sans-serif".to_string().into(),
+            font_size: 10.0.into(),
+            font_weight: FontWeight::Number(300.0).into(),
+            text_syntax: TextSyntaxMode::TypstMarkup,
+            ..Default::default()
+        }
+        .bounding_box();
+        let plain_text_bbox = SceneTextMark {
+            text: labels.into(),
+            font: "sans-serif".to_string().into(),
+            font_size: 10.0.into(),
+            font_weight: FontWeight::Number(300.0).into(),
+            text_syntax: TextSyntaxMode::Plain,
+            ..Default::default()
+        }
+        .bounding_box();
+
+        assert!(typst_text_bbox.height() > plain_text_bbox.height() + 1.0);
+        assert!(
+            actual_row_advance >= typst_text_bbox.height().floor(),
+            "row advance should use Typst label height, got {actual_row_advance} for {:?}",
+            typst_text_bbox.height()
+        );
     }
 }
 
@@ -186,11 +242,12 @@ pub fn make_line_legend_itemized(
 
     let all_text_mark = SceneTextMark {
         text: text_strs.into(),
-        font: measure_font.into(),
+        font: measure_font.clone().into(),
         font_size: measure_font_size.into(),
         font_weight: measure_font_weight.into(),
         x: 0.0.into(),
         y: 0.0.into(),
+        text_syntax: config.label_syntax_mode,
         ..Default::default()
     };
     let all_text_bbox = all_text_mark.bounding_box();
@@ -222,6 +279,7 @@ pub fn make_line_legend_itemized(
             font_size: title_font_size,
             font_weight: title_font_weight,
             font_style: FontStyle::Normal,
+            syntax_mode: config.title_syntax_mode,
         })?;
 
         let title_mark = SceneTextMark {
@@ -236,6 +294,7 @@ pub fn make_line_legend_itemized(
                 .into(),
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Middle.into(),
+            text_syntax: config.title_syntax_mode,
             ..Default::default()
         };
         groups.push(SceneMark::Text(Arc::new(title_mark)).with_interactive(false));
@@ -273,9 +332,10 @@ pub fn make_line_legend_itemized(
             max_line_length,
             config.text_padding,
             config.label_color,
-            config.label_font_family.as_deref(),
-            config.label_font_size,
-            config.label_font_weight.as_ref(),
+            Some(measure_font.as_str()),
+            Some(measure_font_size),
+            Some(&measure_font_weight),
+            config.label_syntax_mode,
         )?;
         groups.push(SceneMark::Group(group));
         items.push(GuideLegendItem {
@@ -362,6 +422,7 @@ fn make_line_group(
     label_font_family: Option<&str>,
     label_font_size: Option<f32>,
     label_font_weight: Option<&FontWeight>,
+    label_syntax_mode: TextSyntaxMode,
 ) -> Result<SceneGroup, AvengerGuidesError> {
     // Line and text should be positioned relative to the group's local origin
     let x0 = 0.0;
@@ -413,6 +474,7 @@ fn make_line_group(
             .unwrap_or(FontWeight::Number(300.0))
             .into(),
         color: ColorOrGradient::Color(label_color.unwrap_or([0.235, 0.235, 0.235, 1.0])).into(),
+        text_syntax: label_syntax_mode,
         ..Default::default()
     };
     let content_marks = vec![

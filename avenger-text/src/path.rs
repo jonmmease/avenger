@@ -5,7 +5,7 @@ use lyon_path::Path;
 use crate::{
     error::AvengerTextError,
     measurement::{TextBounds, TextMeasurementConfig},
-    types::{FontStyle, FontWeight},
+    types::{FontStyle, FontWeight, TextSyntaxMode},
 };
 
 use lyon_path::geom::point;
@@ -25,6 +25,7 @@ pub struct TextPathExtractionConfig<'a> {
     pub font_weight: FontWeight,
     pub font_style: FontStyle,
     pub limit: f32,
+    pub syntax_mode: TextSyntaxMode,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -127,6 +128,7 @@ impl TextPathExtractorImpl {
         &self,
         config: &TextPathExtractionConfig,
     ) -> Result<TextPathBuffer, AvengerTextError> {
+        let math = self.math.with_syntax_mode(config.syntax_mode);
         let text = crate::measurement::truncate_text_to_limit_with(
             config.text,
             config.limit,
@@ -137,6 +139,7 @@ impl TextPathExtractorImpl {
                     font_size: config.font_size,
                     font_weight: config.font_weight,
                     font_style: config.font_style,
+                    syntax_mode: config.syntax_mode,
                 };
                 self.measure_text_bounds(&measurement)
                     .map(|bounds| bounds.width)
@@ -144,7 +147,7 @@ impl TextPathExtractorImpl {
         )?;
         let result = typeset_line(
             &self.typst,
-            &self.math,
+            &math,
             &text,
             config.font,
             config.font_size,
@@ -428,6 +431,7 @@ mod tests {
             font_weight: WEIGHT,
             font_style: STYLE,
             limit: f32::INFINITY,
+            syntax_mode: TextSyntaxMode::TypstMarkup,
         }
     }
 

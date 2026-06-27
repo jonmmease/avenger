@@ -16,7 +16,9 @@ use avenger_scenegraph::marks::{
     path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark,
     text::SceneTextMark, trail::SceneTrailMark,
 };
-use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+use avenger_text::types::{
+    FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextSyntaxMode,
+};
 use datafusion::{
     arrow::{
         array::{Array, ArrayRef, BooleanArray, Float32Array, Float64Array, StringArray},
@@ -2550,6 +2552,31 @@ async fn text_expression_adjustment_updates_position_defined_text_and_source_dat
         text.text.as_vec(text.len as usize, None),
         vec!["a".to_string(), "b".to_string()]
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn text_expression_adjustment_preserves_typst_syntax_mode() -> Result<(), AvengerChartError> {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+        Text::new()
+            .unit_data()
+            .x(10.0)
+            .y(20.0)
+            .text("$R^2$")
+            .typst()
+            .adjust(|text| text.x(text.channel("x") + lit(1.0))),
+    );
+
+    let compiled = plot.compile(&ctx).await?;
+    let evaluated = compiled.evaluate(&ctx, None).await?;
+    let mut texts = Vec::new();
+    for mark in evaluated.scene_graph.children() {
+        collect_texts(mark, &mut texts);
+    }
+
+    assert_eq!(texts.len(), 1);
+    assert_eq!(texts[0].text_syntax, TextSyntaxMode::TypstMarkup);
     Ok(())
 }
 

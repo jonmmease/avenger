@@ -8,6 +8,7 @@ use avenger_chart_core::{
     IntoExpr,
     maybe::{Maybe, MaybeOptionalExpr},
 };
+use avenger_text::types::TextSyntaxMode;
 
 use crate::{
     coords::CoordinateSystem,
@@ -29,6 +30,8 @@ pub struct PlotTitle {
     pub span: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub align: Maybe<Option<LogicalExprNode>>,
+    #[serde(default)]
+    pub syntax_mode: TextSyntaxMode,
 }
 
 /// Minimal plot subtitle configuration
@@ -45,6 +48,8 @@ pub struct PlotSubtitle {
     pub span: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub align: Maybe<Option<LogicalExprNode>>,
+    #[serde(default)]
+    pub syntax_mode: TextSyntaxMode,
 }
 
 /// Title and subtitle configuration methods for Plot
@@ -59,6 +64,7 @@ impl<C: CoordinateSystem> Plot<C> {
             font_family: Maybe::Unset,
             span: Maybe::Unset,
             align: Maybe::Unset,
+            syntax_mode: TextSyntaxMode::Plain,
         });
         self
     }
@@ -75,6 +81,7 @@ impl<C: CoordinateSystem> Plot<C> {
             font_family: Maybe::Unset,
             span: Maybe::Unset,
             align: Maybe::Unset,
+            syntax_mode: TextSyntaxMode::Plain,
         };
         self.title = Some(f(title));
         self
@@ -90,6 +97,7 @@ impl<C: CoordinateSystem> Plot<C> {
             font_family: Maybe::Unset,
             span: Maybe::Unset,
             align: Maybe::Unset,
+            syntax_mode: TextSyntaxMode::Plain,
         });
         self
     }
@@ -106,6 +114,7 @@ impl<C: CoordinateSystem> Plot<C> {
             font_family: Maybe::Unset,
             span: Maybe::Unset,
             align: Maybe::Unset,
+            syntax_mode: TextSyntaxMode::Plain,
         };
         self.subtitle = Some(f(subtitle));
         self
@@ -158,6 +167,24 @@ impl PlotTitle {
         ));
         self
     }
+
+    /// Interpret this title as Typst markup.
+    pub fn typst(mut self) -> Self {
+        self.syntax_mode = TextSyntaxMode::TypstMarkup;
+        self
+    }
+
+    /// Interpret this title as literal plain text.
+    pub fn plain_text(mut self) -> Self {
+        self.syntax_mode = TextSyntaxMode::Plain;
+        self
+    }
+
+    /// Set the title text syntax mode explicitly.
+    pub fn syntax_mode(mut self, mode: TextSyntaxMode) -> Self {
+        self.syntax_mode = mode;
+        self
+    }
 }
 
 impl PlotSubtitle {
@@ -195,5 +222,136 @@ impl PlotSubtitle {
             LogicalExprNode::from_expr(expr).expect("Failed to serialize align expr"),
         ));
         self
+    }
+
+    /// Interpret this subtitle as Typst markup.
+    pub fn typst(mut self) -> Self {
+        self.syntax_mode = TextSyntaxMode::TypstMarkup;
+        self
+    }
+
+    /// Interpret this subtitle as literal plain text.
+    pub fn plain_text(mut self) -> Self {
+        self.syntax_mode = TextSyntaxMode::Plain;
+        self
+    }
+
+    /// Set the subtitle text syntax mode explicitly.
+    pub fn syntax_mode(mut self, mode: TextSyntaxMode) -> Self {
+        self.syntax_mode = mode;
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cartesian::Cartesian;
+    use avenger_scenegraph::marks::mark::SceneMark;
+    use datafusion::prelude::SessionContext;
+
+    #[test]
+    fn title_and_subtitle_default_to_plain_text() {
+        let plot = Plot::<Cartesian>::new()
+            .title("cost $5")
+            .subtitle("#underline[raw]");
+
+        assert_eq!(plot.get_title().unwrap().syntax_mode, TextSyntaxMode::Plain);
+        assert_eq!(
+            plot.get_subtitle().unwrap().syntax_mode,
+            TextSyntaxMode::Plain
+        );
+    }
+
+    #[test]
+    fn title_and_subtitle_opt_into_typst_markup() {
+        let plot = Plot::<Cartesian>::new()
+            .configure_title("Price $R^2$", |t| t.typst())
+            .configure_subtitle("cost \\$5", |s| s.typst());
+
+        assert_eq!(
+            plot.get_title().unwrap().syntax_mode,
+            TextSyntaxMode::TypstMarkup
+        );
+        assert_eq!(
+            plot.get_subtitle().unwrap().syntax_mode,
+            TextSyntaxMode::TypstMarkup
+        );
+    }
+
+    #[test]
+    fn plain_text_overrides_typst_markup() {
+        let plot = Plot::<Cartesian>::new().configure_title("cost $5", |t| t.typst().plain_text());
+
+        assert_eq!(plot.get_title().unwrap().syntax_mode, TextSyntaxMode::Plain);
+    }
+
+    #[tokio::test]
+    async fn plain_title_with_literal_dollar_evaluates() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .title("cost $5")
+            .compile(&ctx)
+            .await
+            .unwrap();
+
+        compiled.evaluate(&ctx, None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn typst_title_with_unmatched_dollar_errors() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .configure_title("cost $5", |t| t.typst())
+            .compile(&ctx)
+            .await
+            .unwrap();
+
+        assert!(compiled.evaluate(&ctx, None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn typst_title_with_escaped_dollar_evaluates() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .configure_title("cost \\$5", |t| t.typst())
+            .compile(&ctx)
+            .await
+            .unwrap();
+
+        compiled.evaluate(&ctx, None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn typst_title_and_subtitle_scene_marks_keep_syntax_mode() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .configure_title("Price $R^2$", |t| t.typst())
+            .configure_subtitle("cost \\$5", |s| s.typst())
+            .compile(&ctx)
+            .await
+            .unwrap();
+
+        let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
+        let mut modes = Vec::new();
+        collect_text_syntax_modes(&evaluated.scene_graph.marks, &mut modes);
+
+        assert_eq!(
+            modes
+                .iter()
+                .filter(|mode| **mode == TextSyntaxMode::TypstMarkup)
+                .count(),
+            2
+        );
+    }
+
+    fn collect_text_syntax_modes(marks: &[SceneMark], modes: &mut Vec<TextSyntaxMode>) {
+        for mark in marks {
+            match mark {
+                SceneMark::Group(group) => collect_text_syntax_modes(&group.marks, modes),
+                SceneMark::Text(text) => modes.push(text.text_syntax),
+                _ => {}
+            }
+        }
     }
 }

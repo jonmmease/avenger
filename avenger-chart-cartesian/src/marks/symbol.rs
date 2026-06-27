@@ -790,6 +790,7 @@ impl CompiledCartesianSymbol {
         let text_defaults = CompiledCartesianText {
             state: self.state.clone(),
             effects: spec.effects.clone(),
+            syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
         };
         let x = coerce_numeric_channel_with_renderer(
             &text_defaults,

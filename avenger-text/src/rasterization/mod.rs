@@ -4,7 +4,7 @@ use ordered_float::OrderedFloat;
 
 use crate::{
     measurement::TextBounds,
-    types::{FontStyle, FontWeight},
+    types::{FontStyle, FontWeight, TextSyntaxMode},
 };
 
 /// Rasterized text-line origin in text layout coordinates.
@@ -40,6 +40,7 @@ pub struct TextRasterizationConfig<'a> {
     pub font_weight: FontWeight,
     pub font_style: FontStyle,
     pub limit: f32,
+    pub syntax_mode: TextSyntaxMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

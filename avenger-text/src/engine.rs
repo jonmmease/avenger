@@ -9,6 +9,7 @@ use crate::{
     pdf::{TextPdfBuffer, TextPdfExtractionConfig, TextPdfExtractorImpl},
     rasterization::{TextRasterCacheKey, TextRasterizationBuffer, TextRasterizationConfig},
     text_line::{TextLineMeasurer, TextLineRasterizer},
+    types::TextSyntaxMode,
 };
 
 #[derive(Debug, Clone)]
@@ -64,8 +65,10 @@ impl TextEngine {
         config: &TextMeasurementConfig,
     ) -> Result<TextBounds, AvengerTextError> {
         self.measure_bounds(config).or_else(|_| {
+            let mut plain_config = config.clone();
+            plain_config.syntax_mode = TextSyntaxMode::Plain;
             TextLineMeasurer::new(self.typst.clone(), self.math.plain_text())
-                .measure_text_bounds(config)
+                .measure_text_bounds(&plain_config)
         })
     }
 
@@ -107,8 +110,10 @@ impl TextEngine {
         CacheValue: Clone,
     {
         self.rasterize(config, scale, cached_entries).or_else(|_| {
+            let mut plain_config = config.clone();
+            plain_config.syntax_mode = TextSyntaxMode::Plain;
             TextLineRasterizer::<CacheValue>::new(self.typst.clone(), self.math.plain_text())
-                .rasterize(config, scale, cached_entries)
+                .rasterize(&plain_config, scale, cached_entries)
         })
     }
 
@@ -124,8 +129,10 @@ impl TextEngine {
         config: &TextPathExtractionConfig,
     ) -> Result<TextPathBuffer, AvengerTextError> {
         self.extract_paths(config).or_else(|_| {
+            let mut plain_config = config.clone();
+            plain_config.syntax_mode = TextSyntaxMode::Plain;
             TextPathExtractorImpl::new(self.typst.clone(), self.math.plain_text())
-                .extract_text_paths(config)
+                .extract_text_paths(&plain_config)
         })
     }
 
@@ -141,8 +148,10 @@ impl TextEngine {
         config: &TextPdfExtractionConfig,
     ) -> Result<TextPdfBuffer, AvengerTextError> {
         self.extract_pdf(config).or_else(|_| {
+            let mut plain_config = config.clone();
+            plain_config.syntax_mode = TextSyntaxMode::Plain;
             TextPdfExtractorImpl::new(self.typst.clone(), self.math.plain_text())
-                .extract_pdf(config)
+                .extract_pdf(&plain_config)
         })
     }
 }
@@ -175,7 +184,7 @@ mod tests {
     use crate::{
         path::{TextPathExtractionConfig, TextPathKind},
         rasterization::TextRasterizationConfig,
-        types::{FontStyle, FontWeight, FontWeightNameSpec},
+        types::{FontStyle, FontWeight, FontWeightNameSpec, TextSyntaxMode},
     };
 
     static WEIGHT: FontWeight = FontWeight::Name(FontWeightNameSpec::Normal);
@@ -186,6 +195,11 @@ mod tests {
         TextEngine::with_default_config().unwrap()
     }
 
+    #[test]
+    fn text_syntax_mode_defaults_to_plain() {
+        assert_eq!(TextSyntaxMode::default(), TextSyntaxMode::Plain);
+    }
+
     fn measure<'a>(text: &'a String, font: &'a String) -> TextMeasurementConfig<'a> {
         TextMeasurementConfig {
             text,
@@ -193,6 +207,7 @@ mod tests {
             font_size: 14.0,
             font_weight: WEIGHT,
             font_style: STYLE,
+            syntax_mode: TextSyntaxMode::TypstMarkup,
         }
     }
 
@@ -205,6 +220,7 @@ mod tests {
             font_weight: WEIGHT,
             font_style: STYLE,
             limit: f32::INFINITY,
+            syntax_mode: TextSyntaxMode::TypstMarkup,
         }
     }
 
@@ -217,6 +233,7 @@ mod tests {
             font_weight: WEIGHT,
             font_style: STYLE,
             limit: f32::INFINITY,
+            syntax_mode: TextSyntaxMode::TypstMarkup,
         }
     }
 
@@ -321,6 +338,30 @@ mod tests {
     }
 
     #[test]
+    fn top_level_engine_errors_on_unmatched_typst_dollar() {
+        let engine = engine();
+        let font = "sans-serif".to_string();
+        let text = "cost $5".to_string();
+
+        assert!(engine.measure_bounds(&measure(&text, &font)).is_err());
+        assert!(engine.extract_paths(&paths(&text, &font)).is_err());
+    }
+
+    #[test]
+    fn top_level_engine_typst_escaped_dollar_succeeds() {
+        let engine = engine();
+        let font = "sans-serif".to_string();
+        let text = r"cost \$5".to_string();
+
+        let bounds = engine.measure_bounds(&measure(&text, &font)).unwrap();
+        assert!(bounds.width > 0.0);
+
+        let buffer = engine.extract_paths(&paths(&text, &font)).unwrap();
+        assert_eq!(buffer.plain_runs.len(), 1);
+        assert_eq!(buffer.plain_runs[0].text, "cost $5");
+    }
+
+    #[test]
     fn top_level_engine_plain_fallback_displays_invalid_math_as_text() {
         let engine = engine();
         let font = "sans-serif".to_string();
@@ -355,7 +396,9 @@ mod tests {
 
         for text in ["cost \\$5", "cost $5"] {
             let text = text.to_string();
-            let bounds = engine.measure_bounds(&measure(&text, &font)).unwrap();
+            let mut config = measure(&text, &font);
+            config.syntax_mode = TextSyntaxMode::Plain;
+            let bounds = engine.measure_bounds(&config).unwrap();
             assert!(bounds.width > 0.0);
         }
     }

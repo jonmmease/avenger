@@ -685,7 +685,7 @@ fn make_default_text_atlas_builder() -> Box<dyn TextAtlasBuilderTrait> {
 #[cfg(test)]
 mod text_raster_tests {
     use avenger_common::canvas::CanvasDimensions;
-    use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+    use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 
     use crate::{marks::text::TextInstance, renderer::make_text_atlas_builder};
 
@@ -715,6 +715,7 @@ mod text_raster_tests {
                     font_weight: &font_weight,
                     font_style: &font_style,
                     limit: f32::INFINITY,
+                    syntax_mode: TextSyntaxMode::TypstMarkup,
                     use_nearest_filter: false,
                 },
                 CanvasDimensions {

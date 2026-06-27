@@ -77,6 +77,7 @@ pub use avenger_chart_transforms::{
     TimeLevelKey, TimeLevelKeys, TimeLevelLabel, TimeLevels, TimeLevelsOutput, TimeUnit,
     TimeUnitOutput, TimeUnitPart, Window,
 };
+pub use avenger_text::types::TextSyntaxMode;
 
 // Re-export theme types
 pub use avenger_chart_core::Theme;

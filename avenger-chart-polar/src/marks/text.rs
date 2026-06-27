@@ -14,6 +14,7 @@ use avenger_chart_marks::{Text, text_channel_defaults};
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_text::types::TextSyntaxMode;
 use datafusion::{
     arrow::{array::RecordBatch, datatypes::DataType as ArrowDataType},
     common::ScalarValue,
@@ -35,6 +36,7 @@ impl Mark<Polar> for Text<Polar> {
         Ok(Arc::new(CompiledPolarText {
             state: compiled_state,
             effects: self.mark_effects().clone(),
+            syntax_mode: self.text_syntax_mode(),
         }))
     }
 }
@@ -44,6 +46,8 @@ pub struct CompiledPolarText {
     pub(crate) state: CompiledMarkState,
     #[serde(default)]
     pub(crate) effects: avenger_chart_core::PrimitiveMarkEffects,
+    #[serde(default)]
+    pub(crate) syntax_mode: TextSyntaxMode,
 }
 
 impl CompiledMarkCore for CompiledPolarText {
@@ -359,7 +363,7 @@ impl CompiledMark for CompiledPolarText {
             context.plot_height(),
         )?;
 
-        let mark = match self.state.geometry_space_or(GeometrySpace::Coordinate) {
+        let mut mark = match self.state.geometry_space_or(GeometrySpace::Coordinate) {
             GeometrySpace::Display => build_scene_text_mark(
                 self,
                 data,
@@ -395,6 +399,7 @@ impl CompiledMark for CompiledPolarText {
                 )?
             }
         };
+        mark.text_syntax = self.syntax_mode;
 
         let mark = apply_text_adjustments(
             self,

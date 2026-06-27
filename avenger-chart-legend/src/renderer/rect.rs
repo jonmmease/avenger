@@ -133,6 +133,8 @@ impl LegendRenderer for CompiledRectLegend {
         let mut legend_config = SymbolLegendConfig {
             title,
             text: ScalarOrArray::new_scalar("".to_string()), // Will be set later
+            title_syntax_mode: config.title_syntax_mode,
+            label_syntax_mode: config.label_syntax_mode,
             shape: ScalarOrArray::new_scalar(
                 SymbolShape::from_vega_str("square").unwrap_or_default(),
             ), // Always use square for rect marks

@@ -1125,6 +1125,7 @@ impl EvaluationContext {
                 config.font_size,
                 &config.font_weight,
                 &config.font_style,
+                config.syntax_mode,
                 TEXT_MARK_MEASUREMENT_CACHE_TAG,
             );
             let cached = {
@@ -1166,6 +1167,7 @@ impl EvaluationContext {
                 config.font_size,
                 &config.font_weight,
                 &config.font_style,
+                config.syntax_mode,
                 measurement_tag,
             );
             let cached = {
@@ -2031,6 +2033,7 @@ mod tests {
                     avenger_text::types::FontWeightNameSpec::Normal,
                 ),
                 font_style: avenger_text::types::FontStyle::Normal,
+                syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
             })
             .unwrap();
 
@@ -2058,6 +2061,7 @@ mod tests {
                 avenger_text::types::FontWeightNameSpec::Normal,
             ),
             font_style: avenger_text::types::FontStyle::Normal,
+            syntax_mode: avenger_text::types::TextSyntaxMode::TypstMarkup,
         };
 
         assert!(ctx.measure_text_bounds(&config).is_err());

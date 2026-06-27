@@ -4,7 +4,7 @@ use avenger_common::{canvas::CanvasDimensions, types::PathTransform};
 use avenger_text::{
     engine::TextEngine,
     rasterization::{TextRasterBBox, TextRasterCacheKey, TextRasterizationConfig},
-    types::{FontStyle, FontWeight, TextAlign, TextBaseline},
+    types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode},
 };
 use etagere::euclid::{Angle, Point2D, Vector2D};
 use image::DynamicImage;
@@ -142,6 +142,7 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
                 font_weight: *text.font_weight,
                 font_style: *text.font_style,
                 limit: text.limit,
+                syntax_mode: text.syntax_mode,
             },
             dimensions.scale,
             &self.next_cache,
@@ -372,5 +373,6 @@ pub struct TextInstance<'a> {
     pub font_weight: &'a FontWeight,
     pub font_style: &'a FontStyle,
     pub limit: f32,
+    pub syntax_mode: TextSyntaxMode,
     pub use_nearest_filter: bool,
 }

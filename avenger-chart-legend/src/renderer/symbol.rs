@@ -252,6 +252,8 @@ impl LegendRenderer for CompiledSymbolLegend {
         let mut legend_config = SymbolLegendConfig {
             title,
             text: ScalarOrArray::new_array(text_values.clone()),
+            title_syntax_mode: config.title_syntax_mode,
+            label_syntax_mode: config.label_syntax_mode,
             inner_width: 0.0, // Don't offset internally, we'll position the whole group
             inner_height: 100.0, // Will be calculated by legend
             outer_margin: 0.0, // Don't offset legend entries

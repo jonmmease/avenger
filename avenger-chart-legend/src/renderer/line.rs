@@ -230,6 +230,8 @@ impl LegendRenderer for CompiledLineLegend {
         let mut legend_config = LineLegendConfig {
             title,
             text: ScalarOrArray::new_array(text_values),
+            title_syntax_mode: config.title_syntax_mode,
+            label_syntax_mode: config.label_syntax_mode,
             stroke_cap: self.stroke_cap,
             stroke_join: Some(self.stroke_join), // Add stroke_join to config
             inner_width: 0.0,

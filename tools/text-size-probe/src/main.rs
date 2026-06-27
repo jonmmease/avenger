@@ -6,7 +6,7 @@ fn run_text_line() {
 
     use avenger_text::measurement::TextMeasurementConfig;
     use avenger_text::rasterization::{TextRasterCacheKey, TextRasterizationConfig};
-    use avenger_text::types::{FontStyle, FontWeight};
+    use avenger_text::types::{FontStyle, FontWeight, TextSyntaxMode};
     use avenger_text::default_text_engine;
 
     let font = "sans-serif".to_string();
@@ -16,8 +16,9 @@ fn run_text_line() {
         text: "energy $E = mc^2$",
         font: &font,
         font_size: 12.0,
-        font_weight: &weight,
-        font_style: &style,
+        font_weight: weight,
+        font_style: style,
+        syntax_mode: TextSyntaxMode::TypstMarkup,
     };
 
     let text_engine = default_text_engine();
@@ -27,12 +28,13 @@ fn run_text_line() {
     let color = [0.1, 0.2, 0.3, 1.0];
     let config = TextRasterizationConfig {
         text: &text,
-        color: &color,
+        color,
         font: &font,
         font_size: 12.0,
-        font_weight: &weight,
-        font_style: &style,
+        font_weight: weight,
+        font_style: style,
         limit: f32::INFINITY,
+        syntax_mode: TextSyntaxMode::TypstMarkup,
     };
 
     let cached_entries = HashMap::<TextRasterCacheKey, ()>::new();

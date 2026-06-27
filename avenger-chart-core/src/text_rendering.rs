@@ -6,7 +6,9 @@ use avenger_common::{
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use avenger_scenegraph::marks::text::SceneTextMark;
-use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+use avenger_text::types::{
+    FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextSyntaxMode,
+};
 use datafusion::arrow::{
     array::{ArrayRef, BooleanArray, Float32Array, RecordBatch, StringArray},
     datatypes::{DataType, Field, Schema},
@@ -228,6 +230,7 @@ where
         clip: true,
         len,
         text,
+        text_syntax: TextSyntaxMode::Plain,
         x,
         y,
         defined,
@@ -350,7 +353,7 @@ where
         &mark_context,
         0.0,
     )?;
-    build_scene_text_mark(
+    let mut adjusted_mark = build_scene_text_mark(
         mark,
         None,
         &adjusted_channels,
@@ -360,7 +363,9 @@ where
         len as u32,
         zindex,
         true,
-    )
+    )?;
+    adjusted_mark.text_syntax = text_mark.text_syntax;
+    Ok(adjusted_mark)
 }
 
 fn build_text_item_frame(

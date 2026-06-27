@@ -41,6 +41,30 @@ pub trait LegendBuilder: Sized {
         *self.legend_mut() = legend.colorbar_overlay_any(Arc::new(overlay));
         self
     }
+
+    fn typst(mut self) -> Self {
+        let legend = self.legend_mut().clone();
+        *self.legend_mut() = legend.typst();
+        self
+    }
+
+    fn plain_text(mut self) -> Self {
+        let legend = self.legend_mut().clone();
+        *self.legend_mut() = legend.plain_text();
+        self
+    }
+
+    fn title_typst(mut self) -> Self {
+        let legend = self.legend_mut().clone();
+        *self.legend_mut() = legend.title_typst();
+        self
+    }
+
+    fn labels_typst(mut self) -> Self {
+        let legend = self.legend_mut().clone();
+        *self.legend_mut() = legend.labels_typst();
+        self
+    }
 }
 
 // Concrete builder for color channels (fill, stroke)

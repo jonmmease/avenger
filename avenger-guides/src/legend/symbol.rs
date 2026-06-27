@@ -10,7 +10,7 @@ use avenger_scenegraph::marks::{
 use avenger_text::{
     default_text_engine,
     measurement::TextMeasurementConfig,
-    types::{FontStyle, FontWeight, TextAlign, TextBaseline},
+    types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode},
 };
 
 use crate::{
@@ -56,11 +56,13 @@ pub struct SymbolLegendConfig {
     pub title_font_family: Option<String>,
     pub title_font_size: Option<f32>,
     pub title_font_weight: Option<FontWeight>,
+    pub title_syntax_mode: TextSyntaxMode,
 
     /// Typography configuration for labels
     pub label_font_family: Option<String>,
     pub label_font_size: Option<f32>,
     pub label_font_weight: Option<FontWeight>,
+    pub label_syntax_mode: TextSyntaxMode,
 }
 
 impl Default for SymbolLegendConfig {
@@ -88,9 +90,11 @@ impl Default for SymbolLegendConfig {
             title_font_family: None,
             title_font_size: None,
             title_font_weight: None,
+            title_syntax_mode: TextSyntaxMode::Plain,
             label_font_family: None,
             label_font_size: None,
             label_font_weight: None,
+            label_syntax_mode: TextSyntaxMode::Plain,
         }
     }
 }
@@ -252,6 +256,7 @@ pub fn make_symbol_legend_itemized(
             font_size: title_font_size,
             font_weight: title_font_weight,
             font_style: FontStyle::Normal,
+            syntax_mode: config.title_syntax_mode,
         };
         let title_bounds = text_engine.measure_bounds(&title_config)?;
 
@@ -269,6 +274,7 @@ pub fn make_symbol_legend_itemized(
                 .into(),
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Top.into(),
+            text_syntax: config.title_syntax_mode,
             ..Default::default()
         };
         groups.push(SceneMark::Text(Arc::new(title_mark)).with_interactive(false));
@@ -296,6 +302,7 @@ pub fn make_symbol_legend_itemized(
             config.label_font_family.as_deref(),
             config.label_font_size,
             config.label_font_weight.as_ref(),
+            config.label_syntax_mode,
         )?;
         let height = group.bounding_box().height();
         if i == 0 {
@@ -382,6 +389,7 @@ fn make_symbol_group(
     label_font_family: Option<&str>,
     label_font_size: Option<f32>,
     label_font_weight: Option<&FontWeight>,
+    label_syntax_mode: TextSyntaxMode,
 ) -> Result<SceneGroup, AvengerGuidesError> {
     //
     let mut single_symbol_mark = symbols_mark.single_symbol_mark(index);
@@ -419,6 +427,7 @@ fn make_symbol_group(
             .unwrap_or(FontWeight::Number(300.0))
             .into(),
         color: ColorOrGradient::Color(label_color.unwrap_or([0.235, 0.235, 0.235, 1.0])).into(),
+        text_syntax: label_syntax_mode,
         ..Default::default()
     };
     let content_marks = vec![

@@ -20,6 +20,7 @@ use avenger_scenegraph::marks::{
 };
 use avenger_text::{
     measurement::{truncate_text_to_limit_with, TextMeasurementConfig},
+    types::TextSyntaxMode,
     TextEngine,
 };
 use geo::{Rotate, Scale, Translate};
@@ -435,6 +436,7 @@ impl MarkGeometryUtils for SceneTextMark {
                 *font_size,
                 font_weight,
                 font_style,
+                self.text_syntax,
                 &text_engine,
             );
             let config = TextMeasurementConfig {
@@ -443,6 +445,7 @@ impl MarkGeometryUtils for SceneTextMark {
                 font_size: *font_size,
                 font_weight: *font_weight,
                 font_style: *font_style,
+                syntax_mode: self.text_syntax,
             };
 
             let target = [target[0] + origin[0], target[1] + origin[1]];
@@ -512,6 +515,7 @@ fn truncate_text_to_limit(
     font_size: f32,
     font_weight: &avenger_text::types::FontWeight,
     font_style: &avenger_text::types::FontStyle,
+    syntax_mode: TextSyntaxMode,
     text_engine: &TextEngine,
 ) -> String {
     if !limit.is_finite() {
@@ -525,6 +529,7 @@ fn truncate_text_to_limit(
             font_size,
             font_weight: *font_weight,
             font_style: *font_style,
+            syntax_mode,
         };
         Ok::<_, std::convert::Infallible>(
             text_engine

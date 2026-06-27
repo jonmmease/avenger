@@ -1,3 +1,5 @@
+use avenger_text::types::TextSyntaxMode;
+
 #[derive(Debug, Clone, Copy)]
 pub enum AxisOrientation {
     Top,
@@ -27,6 +29,7 @@ pub struct AxisConfig {
     pub title_font_weight: Option<f32>,
     pub label_font_family: Option<String>,
     pub title_font_family: Option<String>,
+    pub title_syntax_mode: TextSyntaxMode,
     pub title_visible: Option<bool>,
     pub labels_visible: Option<bool>,
     pub tick_count: Option<f32>,
@@ -68,6 +71,7 @@ impl Default for AxisConfig {
             title_font_weight: None,
             label_font_family: None,
             title_font_family: None,
+            title_syntax_mode: TextSyntaxMode::Plain,
             title_visible: None,
             labels_visible: None,
             tick_count: None,

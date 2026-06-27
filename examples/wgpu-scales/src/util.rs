@@ -349,6 +349,7 @@ pub async fn run() {
             title_font_size: None,
             title_font_weight: None,
             title_color: None,
+            title_syntax_mode: Default::default(),
             label_font_family: None,
             label_font_size: None,
             label_font_weight: None,

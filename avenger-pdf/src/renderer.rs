@@ -525,6 +525,7 @@ impl PdfRenderer {
                 font_weight: *font_weight,
                 font_style: *font_style,
                 limit: *limit,
+                syntax_mode: mark.text_syntax,
             })?;
 
             if *leader {

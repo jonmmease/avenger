@@ -6,7 +6,7 @@ use avenger_scenegraph::{
     marks::{mark::SceneMark, text::SceneTextMark},
     scene_graph::SceneGraph,
 };
-use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -54,6 +54,7 @@ fn hello_text_scene() -> SceneGraph {
                 "Typst math: $E = mc^2$".to_string(),
                 "Fraction: $sqrt(x) / (1 + x^2)$".to_string(),
             ]),
+            text_syntax: TextSyntaxMode::TypstMarkup,
             x: ScalarOrArray::new_array(vec![36.0, 36.0, 36.0]),
             y: ScalarOrArray::new_array(vec![48.0, 104.0, 160.0]),
             defined: ScalarOrArray::new_scalar(true),

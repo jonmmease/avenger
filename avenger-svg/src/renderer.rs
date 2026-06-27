@@ -31,7 +31,7 @@ use avenger_text::{
         TextPathBuffer, TextPathDrawItem, TextPathExtractionConfig, TextPathImageFormat,
         TextPathImageItem, TextPathItem,
     },
-    types::{FontStyle, FontWeight, FontWeightNameSpec},
+    types::{FontStyle, FontWeight, FontWeightNameSpec, TextSyntaxMode},
     TextEngine,
 };
 use base64::{prelude::BASE64_STANDARD, Engine};
@@ -362,6 +362,7 @@ impl SvgRenderer {
                 *font_size,
                 font_weight,
                 font_style,
+                mark.text_syntax,
                 &text_engine,
             );
             let target = [target[0] + origin[0], target[1] + origin[1]];
@@ -374,6 +375,7 @@ impl SvgRenderer {
                 *font_size,
                 font_weight,
                 font_style,
+                mark.text_syntax,
             )?;
             let text_bounds = typst_text_path_buffer.bounds.clone();
             if self.options.font_embedding == crate::options::SvgFontEmbedding::EmbedSubsetWoff2 {
@@ -451,6 +453,7 @@ impl SvgRenderer {
         font_size: f32,
         font_weight: &FontWeight,
         font_style: &FontStyle,
+        syntax_mode: TextSyntaxMode,
     ) -> Result<TextPathBuffer, AvengerSvgError> {
         let path_color = match color {
             ColorOrGradient::Color(color) => *color,
@@ -465,6 +468,7 @@ impl SvgRenderer {
             font_weight: *font_weight,
             font_style: *font_style,
             limit: f32::INFINITY,
+            syntax_mode,
         };
         let buffer = text_engine
             .extract_paths_with_plain_fallback(&config)
@@ -1263,6 +1267,7 @@ fn truncate_text_to_limit(
     font_size: f32,
     font_weight: &FontWeight,
     font_style: &FontStyle,
+    syntax_mode: TextSyntaxMode,
     text_engine: &TextEngine,
 ) -> String {
     if !limit.is_finite() {
@@ -1276,6 +1281,7 @@ fn truncate_text_to_limit(
             font_size,
             font_weight: *font_weight,
             font_style: *font_style,
+            syntax_mode,
         };
         Ok::<_, std::convert::Infallible>(
             text_engine

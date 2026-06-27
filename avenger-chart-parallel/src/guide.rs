@@ -669,6 +669,7 @@ fn measure_parallel_categorical_tick_labels(
                 font_size,
                 font_weight,
                 font_style: FontStyle::Normal,
+                syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
             });
         let origin =
             bounds.calculate_origin([text_x, 0.0], &TextAlign::Right, &TextBaseline::Middle);
@@ -698,6 +699,7 @@ fn measure_parallel_axis_titles(
             font_size: datum.title_font_size,
             font_weight: datum.title_font_weight,
             font_style: FontStyle::Normal,
+            syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
         })?;
         let origin = bounds.calculate_origin(
             [datum.datum.display_x, TITLE_Y_OFFSET],

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use avenger_text::{
     measurement::{TextBounds, TextMeasurementConfig},
-    types::{FontStyle, FontWeight, FontWeightNameSpec},
+    types::{FontStyle, FontWeight, TextSyntaxMode},
 };
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalExprNode;
@@ -73,6 +73,7 @@ const SUBTITLE_ROW_HEIGHT_MULTIPLIER: f32 = 1.1;
 /// Default font sizes for title and subtitle when not specified
 const DEFAULT_TITLE_FONT_SIZE: f32 = 16.0;
 const DEFAULT_SUBTITLE_FONT_SIZE: f32 = 14.0;
+const DEFAULT_FONT_WEIGHT: f32 = 400.0;
 
 /// Default font family when not specified in theme or expression
 const DEFAULT_FONT_FAMILY: &str = "sans-serif";
@@ -110,6 +111,7 @@ async fn measure_text_bounds(
     text_expr: &LogicalExprNode,
     font_size_field: &Maybe<Option<LogicalExprNode>>,
     font_family_field: &Maybe<Option<LogicalExprNode>>,
+    syntax_mode: TextSyntaxMode,
     theme_context: &ThemeContext,
     theme: &Theme,
     default_font_size: f32,
@@ -136,6 +138,11 @@ async fn measure_text_bounds(
             .font_family(theme_context)
             .unwrap_or_else(|| DEFAULT_FONT_FAMILY.to_string()),
     };
+    let font_weight = FontWeight::Number(
+        theme
+            .font_weight(theme_context)
+            .unwrap_or(DEFAULT_FONT_WEIGHT),
+    );
 
     // Evaluate the text expression to get the actual text
     let text_expr_df = text_expr.to_expr(ctx)?;
@@ -145,8 +152,9 @@ async fn measure_text_bounds(
         text: &text_value,
         font: &font_family,
         font_size,
-        font_weight: FontWeight::Name(FontWeightNameSpec::Normal),
+        font_weight,
         font_style: FontStyle::Normal,
+        syntax_mode,
     };
     let bounds = eval_ctx.measure_text_bounds(&config)?;
 
@@ -229,6 +237,7 @@ impl FrameChromeBuilder {
                 &text_node,
                 &t.font_size,
                 &t.font_family,
+                t.syntax_mode,
                 &title_ctx,
                 theme,
                 DEFAULT_TITLE_FONT_SIZE,
@@ -251,6 +260,7 @@ impl FrameChromeBuilder {
                 &text_node,
                 &s.font_size,
                 &s.font_family,
+                s.syntax_mode,
                 &subtitle_ctx,
                 theme,
                 DEFAULT_SUBTITLE_FONT_SIZE,

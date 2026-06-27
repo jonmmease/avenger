@@ -24,6 +24,7 @@ use avenger_scenegraph::{
 use avenger_text::{
     default_text_engine,
     measurement::{truncate_text_to_limit_with, TextMeasurementConfig},
+    types::TextSyntaxMode,
     FontResolutionOptions, TextEngine,
 };
 use itertools::izip;
@@ -83,6 +84,7 @@ fn truncate_text_to_limit(
     font_size: f32,
     font_weight: &avenger_text::types::FontWeight,
     font_style: &avenger_text::types::FontStyle,
+    syntax_mode: TextSyntaxMode,
     text_engine: &TextEngine,
 ) -> String {
     if !limit.is_finite() {
@@ -96,6 +98,7 @@ fn truncate_text_to_limit(
             font_size,
             font_weight: *font_weight,
             font_style: *font_style,
+            syntax_mode,
         };
         Ok::<_, std::convert::Infallible>(
             text_engine
@@ -375,6 +378,7 @@ pub trait Canvas {
                     font_size: *font_size,
                     font_weight,
                     font_style,
+                    syntax_mode: mark.text_syntax,
                     limit: *limit,
                     use_nearest_filter,
                 };
@@ -386,6 +390,7 @@ pub trait Canvas {
                         *font_size,
                         font_weight,
                         font_style,
+                        mark.text_syntax,
                         &text_engine,
                     );
                     let text_bounds = text_engine.measure_bounds_with_plain_fallback_or_approx(
@@ -395,6 +400,7 @@ pub trait Canvas {
                             font_size: *font_size,
                             font_weight: *font_weight,
                             font_style: *font_style,
+                            syntax_mode: mark.text_syntax,
                         },
                     );
                     if let Some(geometry) = compute_text_leader_geometry(TextLeaderGeometryInput {

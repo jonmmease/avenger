@@ -10,6 +10,7 @@ use avenger_chart_core::{
 use avenger_chart_marks::{Text, text_channel_defaults};
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
 use avenger_scenegraph::marks::{mark::SceneMark, text::SceneTextMark};
+use avenger_text::types::TextSyntaxMode;
 use datafusion::{
     arrow::{array::RecordBatch, datatypes::DataType},
     common::ScalarValue,
@@ -31,6 +32,7 @@ impl Mark<Cartesian> for Text<Cartesian> {
         Ok(Arc::new(CompiledCartesianText {
             state: compiled_state,
             effects: self.mark_effects().clone(),
+            syntax_mode: self.text_syntax_mode(),
         }))
     }
 }
@@ -40,6 +42,8 @@ pub struct CompiledCartesianText {
     pub(crate) state: CompiledMarkState,
     #[serde(default)]
     pub(crate) effects: PrimitiveMarkEffects,
+    #[serde(default)]
+    pub(crate) syntax_mode: TextSyntaxMode,
 }
 
 impl CompiledMarkCore for CompiledCartesianText {
@@ -350,7 +354,7 @@ impl CompiledCartesianText {
             self, data, scalars, context, coord, "x", "y",
         )?;
 
-        let mark = build_scene_text_mark(
+        let mut mark = build_scene_text_mark(
             self,
             data,
             scalars,
@@ -361,6 +365,7 @@ impl CompiledCartesianText {
             self.state.zindex,
             true,
         )?;
+        mark.text_syntax = self.syntax_mode;
         apply_text_adjustments(
             self,
             mark,

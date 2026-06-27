@@ -5,7 +5,9 @@ use avenger_common::{
     types::{SceneTextLeaderArrow, SceneTextLeaderShape, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
 };
-use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+use avenger_text::types::{
+    FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextSyntaxMode,
+};
 use serde::{Deserialize, Serialize};
 
 use super::mark::{default_interactive, SceneMark};
@@ -19,6 +21,8 @@ pub struct SceneTextMark {
     pub clip: bool,
     pub len: u32,
     pub text: ScalarOrArray<String>,
+    #[serde(default)]
+    pub text_syntax: TextSyntaxMode,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
     #[serde(default = "default_true_bool_channel")]
@@ -256,6 +260,7 @@ impl Default for SceneTextMark {
             clip: true,
             len: 1,
             text: ScalarOrArray::new_scalar(String::new()),
+            text_syntax: TextSyntaxMode::Plain,
             x: ScalarOrArray::new_scalar(0.0),
             y: ScalarOrArray::new_scalar(0.0),
             defined: ScalarOrArray::new_scalar(true),
@@ -293,5 +298,33 @@ impl Default for SceneTextMark {
 impl From<SceneTextMark> for SceneMark {
     fn from(mark: SceneTextMark) -> Self {
         SceneMark::Text(Arc::new(mark))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_syntax_defaults_to_plain() {
+        assert_eq!(SceneTextMark::default().text_syntax, TextSyntaxMode::Plain);
+    }
+
+    #[test]
+    fn text_syntax_deserializes_missing_field_as_plain() {
+        let mut value = serde_json::to_value(SceneTextMark::default()).unwrap();
+        value.as_object_mut().unwrap().remove("text-syntax");
+
+        let mark: SceneTextMark = serde_json::from_value(value).unwrap();
+        assert_eq!(mark.text_syntax, TextSyntaxMode::Plain);
+    }
+
+    #[test]
+    fn text_syntax_serializes_typst_markup_as_kebab_case() {
+        let mut mark = SceneTextMark::default();
+        mark.text_syntax = TextSyntaxMode::TypstMarkup;
+
+        let value = serde_json::to_value(mark).unwrap();
+        assert_eq!(value["text-syntax"], "typst-markup");
     }
 }

@@ -233,6 +233,7 @@ fn measured_container_labels<'a>(
                 font_size: style.font_size,
                 font_weight: style.font_weight,
                 font_style: FontStyle::Normal,
+                syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
             };
             MeasuredContainerLabel {
                 item,

@@ -11,7 +11,7 @@ use avenger_chart_core::{
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_text::{
     measurement::TextMeasurementConfig,
-    types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
+    types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextSyntaxMode},
 };
 use datafusion::{
     arrow::array::{BooleanArray, Float32Array},
@@ -139,6 +139,7 @@ impl CompiledMarkAdjustmentTransform for CompiledFixedLabelPlacement {
                 font_size: font_size[index],
                 font_weight: weight,
                 font_style: style,
+                syntax_mode: TextSyntaxMode::Plain,
             };
             let text_bounds = context.measure_text_bounds(&config);
             let [left, top] =

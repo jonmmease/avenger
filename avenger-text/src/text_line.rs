@@ -30,9 +30,10 @@ impl TextLineMeasurer {
         &self,
         config: &TextMeasurementConfig,
     ) -> Result<TextBounds, AvengerTextError> {
+        let math = self.math.with_syntax_mode(config.syntax_mode);
         let result = typeset_line(
             &self.typst,
-            &self.math,
+            &math,
             config.text,
             config.font,
             config.font_size,
@@ -82,10 +83,11 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
     where
         CacheValue: Clone,
     {
+        let math = self.math.with_syntax_mode(config.syntax_mode);
         let raster_text = truncate_raster_text(config, |candidate| {
             measure_text_width_with_typst(
                 &self.typst,
-                &self.math,
+                &math,
                 candidate,
                 config.font,
                 config.font_size,
@@ -113,7 +115,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
         let fill = color_key(&config.color);
         let result = typeset_line(
             &self.typst,
-            &self.math,
+            &math,
             &raster_text,
             config.font,
             config.font_size,
@@ -146,7 +148,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             font_style: format!("{:?}", config.font_style),
             fill,
             scale: OrderedFloat(scale),
-            markup: format!("{:?}", self.math),
+            markup: format!("{:?}", math),
         };
         let image = if cached_entries.contains_key(&cache_key) {
             None
@@ -525,6 +527,7 @@ fn channel(value: f32) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::TextSyntaxMode;
 
     static WEIGHT: FontWeight = FontWeight::Name(FontWeightNameSpec::Normal);
     static STYLE: FontStyle = FontStyle::Normal;
@@ -547,7 +550,7 @@ mod tests {
 
     #[test]
     fn active_math_spans_ignore_escaped_dollars() {
-        let math = TextMarkupConfig::default();
+        let math = TextMarkupConfig::default().with_syntax_mode(TextSyntaxMode::TypstMarkup);
 
         assert!(!contains_active_math_span(&math, r"Cost is \$5"));
         assert!(contains_active_math_span(&math, r"Cost is \$5 and $x$"));
@@ -589,6 +592,7 @@ mod tests {
                 font_size: 14.0,
                 font_weight: WEIGHT,
                 font_style: STYLE,
+                syntax_mode: TextSyntaxMode::Plain,
             })
             .unwrap();
 
@@ -629,6 +633,7 @@ mod tests {
                     font_weight: WEIGHT,
                     font_style: STYLE,
                     limit: f32::INFINITY,
+                    syntax_mode: TextSyntaxMode::Plain,
                 },
                 1.0,
                 &HashMap::new(),
@@ -660,6 +665,7 @@ mod tests {
                     font_weight: WEIGHT,
                     font_style: STYLE,
                     limit: f32::INFINITY,
+                    syntax_mode: TextSyntaxMode::Plain,
                 },
                 1.0,
                 &HashMap::new(),

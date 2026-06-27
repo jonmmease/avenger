@@ -1,4 +1,4 @@
-use crate::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
+use crate::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 
 pub fn truncate_text_to_limit_with<E>(
     text: &str,
@@ -53,6 +53,8 @@ pub struct TextMeasurementConfig<'a> {
     pub font_weight: FontWeight,
     /// Font style (normal or italic)
     pub font_style: FontStyle,
+    /// Whether to interpret the source string as plain text or Typst markup.
+    pub syntax_mode: TextSyntaxMode,
 }
 
 /// Configuration needed for font-level metrics.

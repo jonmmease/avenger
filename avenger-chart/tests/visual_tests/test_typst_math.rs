@@ -291,6 +291,7 @@ async fn mixed_text_math_font_weights() {
                         .axis(|axis| axis.visible(false))
                 })
                 .text(col("label"))
+                .typst()
                 .align("left")
                 .baseline("middle")
                 .font_size(20.0)
@@ -311,22 +312,25 @@ async fn static_text_markup_showcase() {
     let df = static_text_markup_data(&ctx);
 
     let plot = Plot::<Cartesian>::new()
-        .title("Typst text #underline[markup]")
-        .subtitle("Decorations: #strike[removed], #overline[mean], H#sub[2]O")
+        .configure_title("Typst text #underline[markup]", |t| t.typst())
+        .configure_subtitle(
+            "Decorations: #strike[removed], #overline[mean], H#sub[2]O",
+            |s| s.typst(),
+        )
         .data(df.clone())
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.5, 3.5)))
-                        .axis(|axis| axis.title("Index #super[*]").grid(true))
+                        .axis(|axis| axis.title("Index #super[*]").typst().grid(true))
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 4.2)))
-                        .axis(|axis| axis.title("#overline[value]").grid(true))
+                        .axis(|axis| axis.title("#overline[value]").typst().grid(true))
                 })
                 .fill_with(col("group"), |c| {
                     c.scale_with::<Ordinal>(|s| s)
-                        .legend(|legend| legend.title("Legend #underline[group]"))
+                        .legend(|legend| legend.title("Legend #underline[group]").typst())
                 })
                 .stroke("#111827")
                 .stroke_width(1.0)
@@ -338,6 +342,7 @@ async fn static_text_markup_showcase() {
                 .x(col("x"))
                 .y(col("y"))
                 .text(col("label"))
+                .typst()
                 .align("center")
                 .baseline("bottom")
                 .font_size(13.0)
@@ -357,22 +362,24 @@ async fn emoji_text_showcase() {
     let df = emoji_text_data(&ctx);
 
     let plot = Plot::<Cartesian>::new()
-        .title("Emoji text #emoji.face + literal 🚀")
-        .subtitle("Aliases and system color emoji #emoji.chart.up")
+        .configure_title("Emoji text #emoji.face + literal 🚀", |t| t.typst())
+        .configure_subtitle("Aliases and system color emoji #emoji.chart.up", |s| {
+            s.typst()
+        })
         .data(df.clone())
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.5, 3.5)))
-                        .axis(|axis| axis.title("Step #emoji.rocket").grid(true))
+                        .axis(|axis| axis.title("Step #emoji.rocket").typst().grid(true))
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 4.2)))
-                        .axis(|axis| axis.title("Score #emoji.chart.up").grid(true))
+                        .axis(|axis| axis.title("Score #emoji.chart.up").typst().grid(true))
                 })
                 .fill_with(col("group"), |c| {
                     c.scale_with::<Ordinal>(|s| s)
-                        .legend(|legend| legend.title("Legend #emoji.face"))
+                        .legend(|legend| legend.title("Legend #emoji.face").typst())
                 })
                 .stroke("#111827")
                 .stroke_width(1.0)
@@ -384,6 +391,7 @@ async fn emoji_text_showcase() {
                 .x(col("x"))
                 .y(col("y"))
                 .text(col("label"))
+                .typst()
                 .align("center")
                 .baseline("bottom")
                 .font_size(13.0)
@@ -400,21 +408,21 @@ async fn bessel_family_legend() {
     let df = bessel_family_data(&ctx);
 
     let plot = Plot::<Cartesian>::new()
-        .title("Bessel functions $J_n(x)$")
+        .configure_title("Bessel functions $J_n(x)$", |t| t.typst())
         .data(df)
         .mark(
             Line::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.0, 12.0)))
-                        .axis(|axis| axis.title("$x$").grid(true))
+                        .axis(|axis| axis.title("$x$").typst().grid(true))
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((-1.05, 1.05)))
-                        .axis(|axis| axis.title("$J_n(x)$").grid(true))
+                        .axis(|axis| axis.title("$J_n(x)$").typst().grid(true))
                 })
                 .stroke_with(col("series"), |c| {
                     c.scale_with::<Ordinal>(|s| s)
-                        .legend(|legend| legend.title("Order $n$"))
+                        .legend(|legend| legend.title("Order $n$").typst())
                 })
                 .stroke_width(2.0)
                 .order(col("order")),
@@ -430,21 +438,21 @@ async fn damped_oscillator_labels() {
     let df = damped_oscillator_data(&ctx);
 
     let plot = Plot::<Cartesian>::new()
-        .title("Damped oscillator $x(t) = A r^t$")
+        .configure_title("Damped oscillator $x(t) = A r^t$", |t| t.typst())
         .data(df)
         .mark(
             Line::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.0, 8.0)))
-                        .axis(|axis| axis.title("$t$").grid(true))
+                        .axis(|axis| axis.title("$t$").typst().grid(true))
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((-1.05, 1.05)))
-                        .axis(|axis| axis.title("$x(t)$").grid(true))
+                        .axis(|axis| axis.title("$x(t)$").typst().grid(true))
                 })
                 .stroke_with(col("series"), |c| {
                     c.scale_with::<Ordinal>(|s| s)
-                        .legend(|legend| legend.title("Frequency $omega$"))
+                        .legend(|legend| legend.title("Frequency $omega$").typst())
                 })
                 .stroke_width(2.0)
                 .order(col("order")),
@@ -460,17 +468,17 @@ async fn root_fraction_title() {
     let df = root_fraction_data(&ctx);
 
     let plot = Plot::<Cartesian>::new()
-        .title("Root fraction $y = sqrt(x) / (1 + x^2)$")
+        .configure_title("Root fraction $y = sqrt(x) / (1 + x^2)$", |t| t.typst())
         .data(df)
         .mark(
             Line::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.0, 4.0)))
-                        .axis(|axis| axis.title("$x$").grid(true))
+                        .axis(|axis| axis.title("$x$").typst().grid(true))
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 0.75)))
-                        .axis(|axis| axis.title("$sqrt(x) / (1 + x^2)$").grid(true))
+                        .axis(|axis| axis.title("$sqrt(x) / (1 + x^2)$").typst().grid(true))
                 })
                 .stroke("#0072b2")
                 .stroke_width(2.5)
@@ -498,17 +506,17 @@ async fn bessel_equation_annotation() {
     );
 
     let plot = Plot::<Cartesian>::new()
-        .title("Annotated Bessel-like curve $J_n(x)$")
+        .configure_title("Annotated Bessel-like curve $J_n(x)$", |t| t.typst())
         .data(line_df)
         .mark(
             Line::new()
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.0, 12.0)))
-                        .axis(|axis| axis.title("$x$").grid(true))
+                        .axis(|axis| axis.title("$x$").typst().grid(true))
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((-1.05, 1.05)))
-                        .axis(|axis| axis.title("$J_n(x)$").grid(true))
+                        .axis(|axis| axis.title("$J_n(x)$").typst().grid(true))
                 })
                 .stroke_with(col("series"), |c| c.legend(|legend| legend.visible(false)))
                 .stroke_width(2.0)
@@ -520,6 +528,7 @@ async fn bessel_equation_annotation() {
                 .x(col("x"))
                 .y(col("y"))
                 .text(col("label"))
+                .typst()
                 .align("center")
                 .baseline("middle")
                 .font_size(13.0)
@@ -539,19 +548,20 @@ async fn escaped_dollar_plain_text() {
     let df = label_dataframe(&ctx, vec![(0.52, 0.52, "Price \\$7, score $R^2 = 0.94$")]);
 
     let plot = Plot::<Cartesian>::new()
-        .title("Cost is \\$5, score is $R^2$")
+        .configure_title("Cost is \\$5, score is $R^2$", |t| t.typst())
         .mark(
             Text::new()
                 .data(df)
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.0, 1.0)))
-                        .axis(|axis| axis.title("$x$"))
+                        .axis(|axis| axis.title("$x$").typst())
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 1.0)))
-                        .axis(|axis| axis.title("$y$"))
+                        .axis(|axis| axis.title("$y$").typst())
                 })
                 .text(col("label"))
+                .typst()
                 .align("center")
                 .baseline("middle")
                 .font_size(17.0)
@@ -572,19 +582,20 @@ async fn mark_occlusion_math_label() {
     let rect_df = occlusion_rect_dataframe(&ctx);
 
     let plot = Plot::<Cartesian>::new()
-        .title("Math z-order $x_i^2$")
+        .configure_title("Math z-order $x_i^2$", |t| t.typst())
         .mark(
             Text::new()
                 .data(label_df)
                 .x_with(col("x"), |c| {
                     c.scale(|s| s.domain((0.0, 1.0)))
-                        .axis(|axis| axis.title("$x$"))
+                        .axis(|axis| axis.title("$x$").typst())
                 })
                 .y_with(col("y"), |c| {
                     c.scale(|s| s.domain((0.0, 1.0)))
-                        .axis(|axis| axis.title("$y$"))
+                        .axis(|axis| axis.title("$y$").typst())
                 })
                 .text(col("label"))
+                .typst()
                 .align("center")
                 .baseline("middle")
                 .font_size(28.0)

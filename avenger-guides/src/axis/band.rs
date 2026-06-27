@@ -344,6 +344,7 @@ fn make_title(
         font_size: title_font_size,
         font_weight: title_font_weight,
         font_style: FontStyle::Normal,
+        syntax_mode: config.title_syntax_mode,
     })?;
 
     // Now the envelope is in the group's local coordinate system (origin = [0, 0])
@@ -410,6 +411,7 @@ fn make_title(
         font_size: title_font_size.into(),
         font_weight: title_font_weight.into(),
         font: title_font_family.into(),
+        text_syntax: config.title_syntax_mode,
         ..Default::default()
     })
 }

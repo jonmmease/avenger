@@ -8,15 +8,18 @@ use avenger_chart_core::{
     StrokeWidthChannelConfig, TextAdjustmentChannels, TransformMarkAdjustmentSpec,
     define_common_mark_channels, extract_adjustment_assignments, impl_mark_base_with_extra_fields,
 };
+use avenger_text::types::TextSyntaxMode;
 
 pub struct Text<C> {
     pub(crate) state: MarkState,
     pub(crate) effects: PrimitiveMarkEffects,
+    pub(crate) syntax_mode: TextSyntaxMode,
     pub(crate) _phantom: std::marker::PhantomData<C>,
 }
 
 impl_mark_base_with_extra_fields!(Text {
     effects: PrimitiveMarkEffects::default(),
+    syntax_mode: TextSyntaxMode::Plain,
 });
 
 impl<C> AngleAdjustmentChannel for Text<C> {}
@@ -69,6 +72,26 @@ impl<C> Text<C> {
     #[doc(hidden)]
     pub fn mark_effects(&self) -> &PrimitiveMarkEffects {
         &self.effects
+    }
+
+    #[doc(hidden)]
+    pub fn text_syntax_mode(&self) -> TextSyntaxMode {
+        self.syntax_mode
+    }
+
+    pub fn typst(mut self) -> Self {
+        self.syntax_mode = TextSyntaxMode::TypstMarkup;
+        self
+    }
+
+    pub fn plain_text(mut self) -> Self {
+        self.syntax_mode = TextSyntaxMode::Plain;
+        self
+    }
+
+    pub fn syntax_mode(mut self, mode: TextSyntaxMode) -> Self {
+        self.syntax_mode = mode;
+        self
     }
 }
 

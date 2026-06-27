@@ -19,6 +19,7 @@ use avenger_guides::axis::{
 };
 use avenger_scales::scales::{DomainKind, band::BandScale};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
+use avenger_text::types::TextSyntaxMode;
 use datafusion::{
     arrow::array::{Array, StructArray},
     common::ScalarValue,
@@ -59,6 +60,8 @@ pub struct CartesianAxis {
     pub label_font_family: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub show_title: Maybe<Option<LogicalExprNode>>,
+    #[serde(default)]
+    pub title_syntax_mode: TextSyntaxMode,
 }
 
 impl CartesianAxis {
@@ -87,6 +90,21 @@ impl CartesianAxis {
         self.title = Maybe::Set(Some(
             LogicalExprNode::from_default_expr(expr).expect("Failed to serialize title expr"),
         ));
+        self
+    }
+
+    pub fn typst(mut self) -> Self {
+        self.title_syntax_mode = TextSyntaxMode::TypstMarkup;
+        self
+    }
+
+    pub fn plain_text(mut self) -> Self {
+        self.title_syntax_mode = TextSyntaxMode::Plain;
+        self
+    }
+
+    pub fn syntax_mode(mut self, mode: TextSyntaxMode) -> Self {
+        self.title_syntax_mode = mode;
         self
     }
 
@@ -205,6 +223,9 @@ impl CartesianAxis {
         if other.show_title.is_set() {
             self.show_title = other.show_title;
         }
+        if other.title_syntax_mode != TextSyntaxMode::Plain {
+            self.title_syntax_mode = other.title_syntax_mode;
+        }
         self
     }
 }
@@ -289,6 +310,7 @@ impl Axis for CartesianAxis {
             title_font_family: map_maybe_expr(self.title_font_family.clone(), f)?,
             label_font_family: map_maybe_expr(self.label_font_family.clone(), f)?,
             show_title: map_maybe_expr(self.show_title.clone(), f)?,
+            title_syntax_mode: self.title_syntax_mode,
         }))
     }
 }
@@ -697,6 +719,7 @@ pub async fn evaluate_cartesian_axis(
         title_font_weight: theme.font_weight(&title_ctx),
         label_font_family,
         title_font_family,
+        title_syntax_mode: axis.title_syntax_mode,
         title_visible: Some(show_title),
         labels_visible,
         tick_count,

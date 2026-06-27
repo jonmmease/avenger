@@ -13,6 +13,8 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
+use avenger_text::types::TextSyntaxMode;
+
 use crate::{
     ChartEventBinding, IntoExpr, Maybe, MaybeOptionalExpr, SerializableNestedScalarMap,
     validate_structural_id,
@@ -72,6 +74,10 @@ pub struct Legend {
     #[doc(hidden)]
     #[serde(default)]
     pub explicit_title: bool,
+    #[serde(default)]
+    pub title_syntax_mode: TextSyntaxMode,
+    #[serde(default)]
+    pub label_syntax_mode: TextSyntaxMode,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub position: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
@@ -145,6 +151,8 @@ impl std::fmt::Debug for Legend {
             .field("visible", &self.visible)
             .field("title", &self.title)
             .field("explicit_title", &self.explicit_title)
+            .field("title_syntax_mode", &self.title_syntax_mode)
+            .field("label_syntax_mode", &self.label_syntax_mode)
             .field("position", &self.position)
             .field("orientation", &self.orientation)
             .field("symbol_size", &self.symbol_size)
@@ -190,6 +198,8 @@ impl Legend {
             position: Maybe::Unset,
             title: Maybe::Unset,
             explicit_title: false,
+            title_syntax_mode: TextSyntaxMode::Plain,
+            label_syntax_mode: TextSyntaxMode::Plain,
             orientation: Maybe::Unset,
             symbol_size: Maybe::Unset,
             gradient_thickness: Maybe::Unset,
@@ -234,6 +244,13 @@ impl Legend {
         if other.title.is_set() && (!self.explicit_title || other.explicit_title) {
             self.title = other.title;
             self.explicit_title = other.explicit_title;
+            self.title_syntax_mode = other.title_syntax_mode;
+        }
+        if other.title_syntax_mode != TextSyntaxMode::Plain {
+            self.title_syntax_mode = other.title_syntax_mode;
+        }
+        if other.label_syntax_mode != TextSyntaxMode::Plain {
+            self.label_syntax_mode = other.label_syntax_mode;
         }
         if other.position.is_set() {
             self.position = other.position;
@@ -416,6 +433,38 @@ impl Legend {
             LogicalExprNode::from_expr(expr).expect("Failed to serialize title expr"),
         ));
         self.explicit_title = true;
+        self
+    }
+
+    pub fn typst(mut self) -> Self {
+        self.title_syntax_mode = TextSyntaxMode::TypstMarkup;
+        self.label_syntax_mode = TextSyntaxMode::TypstMarkup;
+        self
+    }
+
+    pub fn plain_text(mut self) -> Self {
+        self.title_syntax_mode = TextSyntaxMode::Plain;
+        self.label_syntax_mode = TextSyntaxMode::Plain;
+        self
+    }
+
+    pub fn title_typst(mut self) -> Self {
+        self.title_syntax_mode = TextSyntaxMode::TypstMarkup;
+        self
+    }
+
+    pub fn labels_typst(mut self) -> Self {
+        self.label_syntax_mode = TextSyntaxMode::TypstMarkup;
+        self
+    }
+
+    pub fn title_syntax_mode(mut self, mode: TextSyntaxMode) -> Self {
+        self.title_syntax_mode = mode;
+        self
+    }
+
+    pub fn label_syntax_mode(mut self, mode: TextSyntaxMode) -> Self {
+        self.label_syntax_mode = mode;
         self
     }
 

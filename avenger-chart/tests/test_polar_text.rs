@@ -12,6 +12,7 @@ use avenger_scenegraph::marks::{
     mark::{MarkInstance, SceneMark},
     text::SceneTextMark,
 };
+use avenger_text::types::TextSyntaxMode;
 use datafusion::{
     arrow::{
         array::{ArrayRef, Float32Array, Float64Array, StringArray},
@@ -110,6 +111,26 @@ fn event_datum_rows_with_id(rows: &[EvaluatedEventDatumRows]) -> Vec<&EvaluatedE
     rows.iter()
         .filter(|rows| rows.rows.column_by_name("id").is_some())
         .collect()
+}
+
+#[tokio::test]
+async fn polar_text_typst_mode_reaches_scene_mark() -> Result<(), AvengerChartError> {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Polar>::new()
+        .plot_size(200.0, 200.0)
+        .data(theta_data(vec![FRAC_PI_2]))
+        .mark(
+            Text::<Polar>::new()
+                .r(50.0)
+                .theta_with(col("theta"), |c| c.no_scale())
+                .text("$R^2$")
+                .typst(),
+        );
+
+    let compiled = plot.compile(&ctx).await?;
+    let text = rendered_texts(&compiled, &ctx).await.remove(0);
+    assert_eq!(text.text_syntax, TextSyntaxMode::TypstMarkup);
+    Ok(())
 }
 
 #[tokio::test]

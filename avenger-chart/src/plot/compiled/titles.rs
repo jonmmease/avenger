@@ -109,6 +109,7 @@ impl CompiledPlot {
         let text_mark = SceneTextMark {
             clip: false,
             text: text_value.into(),
+            text_syntax: title.syntax_mode,
             x: x.into(),
             y: y.into(),
             color: ColorOrGradient::Color(
@@ -222,6 +223,7 @@ impl CompiledPlot {
         let text_mark = SceneTextMark {
             clip: false,
             text: text_value.into(),
+            text_syntax: subtitle.syntax_mode,
             x: x.into(),
             y: y.into(),
             color: ColorOrGradient::Color(

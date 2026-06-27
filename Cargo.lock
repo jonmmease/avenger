@@ -783,6 +783,7 @@ dependencies = [
  "avenger-common",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-text",
  "datafusion",
  "datafusion-common",
  "datafusion-proto",

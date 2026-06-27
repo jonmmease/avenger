@@ -490,6 +490,7 @@ fn make_title(
         font_size: title_font_size,
         font_weight: title_font_weight,
         font_style: FontStyle::Normal,
+        syntax_mode: config.title_syntax_mode,
     })?;
     let (x, y, align, baseline, angle) = match config.orientation {
         AxisOrientation::Left => (
@@ -535,6 +536,7 @@ fn make_title(
         font_size: title_font_size.into(),
         font_weight: title_font_weight.into(),
         font: title_font_family.into(),
+        text_syntax: config.title_syntax_mode,
         ..Default::default()
     })
 }
@@ -628,6 +630,7 @@ fn level_label_cross_extent(
                     font_size,
                     font_weight: *font_weight,
                     font_style: FontStyle::Normal,
+                    syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
                 });
             (bounds.width, bounds.height)
         })

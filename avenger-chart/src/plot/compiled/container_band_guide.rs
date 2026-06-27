@@ -522,6 +522,7 @@ fn measure_text_height(
         font_size: font_size_px,
         font_weight: FontWeight::Name(FontWeightNameSpec::Normal),
         font_style: FontStyle::Normal,
+        syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
     };
     text_engine
         .measure_bounds_with_plain_fallback_or_approx(&text_config)

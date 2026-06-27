@@ -17,7 +17,7 @@ use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_text::{
     measurement::TextBounds,
-    types::{FontStyle, FontWeight},
+    types::{FontStyle, FontWeight, TextSyntaxMode},
 };
 use datafusion::{
     arrow::{
@@ -259,6 +259,7 @@ pub(crate) struct TextMeasurementCacheKey {
     font_size: u32,
     font_weight: String,
     font_style: String,
+    syntax_mode: TextSyntaxMode,
     measurement: String,
 }
 
@@ -269,6 +270,7 @@ impl TextMeasurementCacheKey {
         font_size: f32,
         font_weight: &FontWeight,
         font_style: &FontStyle,
+        syntax_mode: TextSyntaxMode,
         measurement: &str,
     ) -> Self {
         Self {
@@ -277,6 +279,7 @@ impl TextMeasurementCacheKey {
             font_size: font_size.to_bits(),
             font_weight: format!("{font_weight:?}"),
             font_style: format!("{font_style:?}"),
+            syntax_mode,
             measurement: measurement.to_string(),
         }
     }
@@ -2620,6 +2623,30 @@ mod tests {
             collect_from_mark(mark, &mut fills);
         }
         fills
+    }
+
+    #[test]
+    fn text_measurement_cache_key_includes_syntax_mode() {
+        let plain = TextMeasurementCacheKey::new(
+            "value $x$",
+            "sans-serif",
+            12.0,
+            &FontWeight::default(),
+            &FontStyle::default(),
+            TextSyntaxMode::Plain,
+            "measurement",
+        );
+        let typst = TextMeasurementCacheKey::new(
+            "value $x$",
+            "sans-serif",
+            12.0,
+            &FontWeight::default(),
+            &FontStyle::default(),
+            TextSyntaxMode::TypstMarkup,
+            "measurement",
+        );
+
+        assert_ne!(plain, typst);
     }
 
     fn assert_symbol_positions_close(actual: &SceneGraph, expected: &SceneGraph) {

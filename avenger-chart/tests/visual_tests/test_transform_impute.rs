@@ -1,4 +1,4 @@
-use super::helpers::assert_visual_match_default;
+use super::helpers::assert_visual_match;
 use avenger_chart::prelude::*;
 use datafusion::arrow::{
     array::{Float64Array, Int64Array, StringArray},
@@ -52,12 +52,13 @@ async fn line_missing_months() {
         }));
 
     let compiled = plot.compile(&ctx).await.expect("compile impute plot");
-    assert_visual_match_default(
+    assert_visual_match(
         &compiled,
         &ctx,
         None,
         "transform_impute",
         "line_missing_months",
+        0.9998,
     )
     .await;
 }
