@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::api::TypstEngineConfig;
 use crate::error::MathTypesetError;
-use crate::fonts::{EmbeddedFontFace, ATKINSON_FACES, LATO_FACES};
+use crate::fonts::{EmbeddedFontFace, LATO_FACES};
 use crate::paths::{MathImageFormat, MathImageItem, MathPathData, MathTransform};
 use crate::pdf::{MathFontResource, MathFontResourceId};
 use crate::style::{FontStyle, FontWeight, PlainTextStyle};
@@ -21,21 +21,18 @@ pub(crate) struct TextFace {
 
 #[derive(Clone)]
 enum TextFontData {
-    Static(&'static [u8]),
     Shared(Arc<[u8]>),
 }
 
 impl TextFontData {
     fn as_slice(&self) -> &[u8] {
         match self {
-            Self::Static(data) => data,
             Self::Shared(data) => data.as_ref(),
         }
     }
 
     fn resource_data(&self) -> Arc<[u8]> {
         match self {
-            Self::Static(data) => Arc::<[u8]>::from(*data),
             Self::Shared(data) => data.clone(),
         }
     }
@@ -515,10 +512,7 @@ pub(crate) enum TextScript {
 pub(crate) fn build_text_fontdb(config: &TypstEngineConfig) -> fontdb::Database {
     let mut db = fontdb::Database::new();
     for face in LATO_FACES {
-        db.load_font_data(face.data.to_vec());
-    }
-    for face in ATKINSON_FACES {
-        db.load_font_data(face.data.to_vec());
+        db.load_font_data(face.decompressed_data().to_vec());
     }
     db.set_sans_serif_family("Lato");
     if config.font_config.load_system_fonts {
@@ -538,14 +532,15 @@ fn embedded_text_face(
     let face = select_embedded_face(faces, &style.font_weight, style.font_style).ok_or(
         MathTypesetError::UnsupportedOutput("plain text requires an embedded font face"),
     )?;
-    ttf_parser::Face::parse(face.data, 0).map_err(|_| MathTypesetError::Engine {
+    let data = face.decompressed_data();
+    ttf_parser::Face::parse(&data, 0).map_err(|_| MathTypesetError::Engine {
         start: 0,
         end: 0,
         message: format!("failed to parse embedded font {}", face.name),
     })?;
 
     Ok(Some(TextFace {
-        data: TextFontData::Static(face.data),
+        data: TextFontData::Shared(data),
         face_index: 0,
         family_name: Some(family.to_string()),
         postscript_name: None,
@@ -782,8 +777,6 @@ fn embedded_text_family(font_family: &str) -> Option<(&'static str, &'static [Em
         let family = family.trim().trim_matches('"').trim_matches('\'');
         if family.eq_ignore_ascii_case("sans-serif") || family.eq_ignore_ascii_case("Lato") {
             Some(("Lato", LATO_FACES))
-        } else if family.eq_ignore_ascii_case("Atkinson Hyperlegible Next") {
-            Some(("Atkinson Hyperlegible Next", ATKINSON_FACES))
         } else {
             None
         }
@@ -858,7 +851,7 @@ mod tests {
     fn segmented_fallback_preserves_grapheme_runs_when_fonts_are_available() {
         let fontdb = test_fontdb();
         let style = PlainTextStyle {
-            font_family: "Atkinson Hyperlegible Next".to_string(),
+            font_family: "Lato".to_string(),
             ..PlainTextStyle::default()
         };
 
@@ -900,7 +893,7 @@ mod tests {
     fn segmented_fallback_breaks_at_script_boundaries_when_fonts_are_available() {
         let fontdb = test_fontdb();
         let style = PlainTextStyle {
-            font_family: "Atkinson Hyperlegible Next".to_string(),
+            font_family: "Lato".to_string(),
             ..PlainTextStyle::default()
         };
 
@@ -926,7 +919,7 @@ mod tests {
     fn segmented_fallback_orders_bidi_runs_visually_when_fonts_are_available() {
         let fontdb = test_fontdb();
         let style = PlainTextStyle {
-            font_family: "Atkinson Hyperlegible Next".to_string(),
+            font_family: "Lato".to_string(),
             ..PlainTextStyle::default()
         };
 
@@ -959,7 +952,7 @@ mod tests {
     fn segmented_fallback_uses_apple_color_emoji_png_glyphs_on_macos() {
         let fontdb = test_fontdb();
         let style = PlainTextStyle {
-            font_family: "Atkinson Hyperlegible Next".to_string(),
+            font_family: "Lato".to_string(),
             ..PlainTextStyle::default()
         };
 

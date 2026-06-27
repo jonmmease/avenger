@@ -81,11 +81,7 @@ async fn renders_serialized_compiled_chart_to_same_svg_string() {
 #[tokio::test]
 async fn embeds_bundled_font_for_text_chart_svg() {
     let ctx = SessionContext::new();
-    let compiled = text_plot(&ctx, "Atkinson Hyperlegible Next")
-        .await
-        .compile(&ctx)
-        .await
-        .unwrap();
+    let compiled = text_plot(&ctx, "Lato").await.compile(&ctx).await.unwrap();
 
     let svg = SvgRenderer::new()
         .render(&compiled, &ctx, None)
@@ -93,7 +89,7 @@ async fn embeds_bundled_font_for_text_chart_svg() {
         .unwrap();
 
     assert!(svg.contains("<style><![CDATA[\n@font-face"));
-    assert!(svg.contains(r#"font-family: "Atkinson Hyperlegible Next";"#));
+    assert!(svg.contains(r#"font-family: "Lato";"#));
     assert!(svg.contains("data:font/woff2;base64,"));
     assert!(svg.contains("<text "));
     assert!(svg.contains("SVG text</text>"));
@@ -250,7 +246,7 @@ async fn limited_text_plot(ctx: &SessionContext) -> Plot<Cartesian> {
                 .x(col("x"))
                 .y(col("y"))
                 .text(col("label"))
-                .font("Atkinson Hyperlegible Next")
+                .font("Lato")
                 .font_size(10.0)
                 .limit(35.0),
         )

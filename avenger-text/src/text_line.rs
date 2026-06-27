@@ -358,50 +358,44 @@ fn plain_line_bounds(tight: TextBounds, font_size: f32) -> TextBounds {
 }
 
 fn typst_font_metrics(config: &FontMetricsConfig) -> FontMetrics {
-    embedded_atkinson_font_metrics(config)
-        .unwrap_or_else(|| FontMetrics::fallback(config.font_size))
+    embedded_lato_font_metrics(config).unwrap_or_else(|| FontMetrics::fallback(config.font_size))
 }
 
-fn embedded_atkinson_font_metrics(config: &FontMetricsConfig) -> Option<FontMetrics> {
-    let data = embedded_atkinson_face_data(config.font_weight, config.font_style)?;
-    let face = ttf_parser::Face::parse(data, 0).ok()?;
+fn embedded_lato_font_metrics(config: &FontMetricsConfig) -> Option<FontMetrics> {
+    let data = embedded_lato_face_data(config.font_weight, config.font_style)?;
+    let face = ttf_parser::Face::parse(&data, 0).ok()?;
     Some(metrics_from_ttf_face(&face, config.font_size))
 }
 
-fn embedded_atkinson_face_data(
-    font_weight: FontWeight,
-    font_style: FontStyle,
-) -> Option<&'static [u8]> {
+fn embedded_lato_face_data(font_weight: FontWeight, font_style: FontStyle) -> Option<Vec<u8>> {
     let target_weight = font_weight_number(font_weight);
     crate::fonts::embedded_fonts()
         .iter()
         .filter_map(|font| {
-            let (weight, style) = atkinson_face_info(font.name)?;
-            (style == font_style).then_some((font.data, weight.abs_diff(target_weight)))
+            let (weight, style) = lato_face_info(font.name)?;
+            if style != font_style {
+                return None;
+            }
+            let data = font.decompressed_data();
+            Some((data, weight.abs_diff(target_weight), weight < target_weight))
         })
-        .min_by_key(|(_, distance)| *distance)
-        .map(|(data, _)| data)
+        .min_by_key(|(_, distance, lighter_than_target)| (*distance, *lighter_than_target))
+        .map(|(data, _, _)| data.to_vec())
 }
 
-fn atkinson_face_info(name: &str) -> Option<(u16, FontStyle)> {
+fn lato_face_info(name: &str) -> Option<(u16, FontStyle)> {
     let style = if name.ends_with("Italic") {
         FontStyle::Italic
     } else {
         FontStyle::Normal
     };
-    let weight = if name.contains("ExtraBold") {
-        800
-    } else if name.contains("ExtraLight") {
-        250
-    } else if name.contains("SemiBold") {
-        600
-    } else if name.contains("Light") {
+    let weight = if name.contains("Light") {
         300
     } else if name.contains("Medium") {
         500
     } else if name.contains("Bold") {
         700
-    } else if name.contains("Regular") || name.ends_with("-Italic") {
+    } else if name.ends_with("Italic") {
         400
     } else {
         return None;

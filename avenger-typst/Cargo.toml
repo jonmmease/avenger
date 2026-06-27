@@ -16,6 +16,7 @@ image = { workspace = true, optional = true }
 rustybuzz = { workspace = true }
 ttf-parser = { workspace = true }
 tiny-skia = { workspace = true, optional = true }
+brotli = { workspace = true }
 unicode-bidi = "0.3.18"
 unicode-math-class = "0.1"
 unicode-script = "0.5.7"

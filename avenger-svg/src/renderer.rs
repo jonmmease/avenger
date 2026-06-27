@@ -1921,7 +1921,7 @@ mod tests {
                 baseline: ScalarOrArray::new_scalar(TextBaseline::Middle),
                 angle: ScalarOrArray::new_scalar(45.0),
                 color: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 0.5])),
-                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
                 font_weight: ScalarOrArray::new_scalar(FontWeight::Name(FontWeightNameSpec::Bold)),
                 font_style: ScalarOrArray::new_scalar(FontStyle::Italic),
@@ -1934,9 +1934,9 @@ mod tests {
 
         assert!(svg.contains(r##" fill="#ff0000" fill-opacity="0.5" text-anchor="start" dominant-baseline="alphabetic""##));
         assert!(svg.contains("<style><![CDATA[\n@font-face"));
-        assert!(svg.contains(r#"font-family: "Atkinson Hyperlegible Next";"#));
+        assert!(svg.contains(r#"font-family: "Lato";"#));
         assert!(svg.contains("data:font/woff2;base64,"));
-        assert!(svg.contains(r#"font-family="Atkinson Hyperlegible Next""#));
+        assert!(svg.contains(r#"font-family="Lato""#));
         assert!(svg.contains(r#"font-size="12""#));
         assert!(svg.contains(r#"font-weight="bold""#));
         assert!(svg.contains(r#"font-style="italic""#));
@@ -1956,7 +1956,7 @@ mod tests {
                 x: ScalarOrArray::new_scalar(6.0),
                 y: ScalarOrArray::new_scalar(18.0),
                 color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.25, 1.0, 0.75])),
-                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
                 ..Default::default()
             }
@@ -1983,7 +1983,7 @@ mod tests {
                 text: ScalarOrArray::new_scalar("Mood #emoji.face".to_string()),
                 x: ScalarOrArray::new_scalar(6.0),
                 y: ScalarOrArray::new_scalar(18.0),
-                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
                 ..Default::default()
             }
@@ -2009,7 +2009,7 @@ mod tests {
                 text: ScalarOrArray::new_scalar("Mood #emoji.face".to_string()),
                 x: ScalarOrArray::new_scalar(6.0),
                 y: ScalarOrArray::new_scalar(18.0),
-                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
                 ..Default::default()
             }
@@ -2041,7 +2041,7 @@ mod tests {
                 text: ScalarOrArray::new_scalar("H#sub[2]O #super[*]".to_string()),
                 x: ScalarOrArray::new_scalar(6.0),
                 y: ScalarOrArray::new_scalar(18.0),
-                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(12.0),
                 ..Default::default()
             }
@@ -2091,9 +2091,9 @@ mod tests {
             .render_scene_graph(&scene_graph)
             .unwrap();
 
-        assert!(svg.contains(r#"font-family="Atkinson Hyperlegible Next""#));
+        assert!(svg.contains(r#"font-family="Lato""#));
         assert!(!svg.contains(r#"font-family="Definitely Missing Font""#));
-        assert!(svg.contains(r#"font-family: "Atkinson Hyperlegible Next";"#));
+        assert!(svg.contains(r#"font-family: "Lato";"#));
     }
 
     #[test]
@@ -2107,7 +2107,7 @@ mod tests {
                 text: ScalarOrArray::new_scalar(source_text.to_string()),
                 x: ScalarOrArray::new_scalar(4.0),
                 y: ScalarOrArray::new_scalar(12.0),
-                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(10.0),
                 limit: ScalarOrArray::new_scalar(35.0),
                 ..Default::default()

@@ -105,7 +105,7 @@ async fn svg_parity_native_text() {
                 text: ScalarOrArray::new_scalar("Native text".to_string()),
                 x: ScalarOrArray::new_scalar(8.0),
                 y: ScalarOrArray::new_scalar(28.0),
-                font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+                font: ScalarOrArray::new_scalar("Lato".to_string()),
                 font_size: ScalarOrArray::new_scalar(20.0),
                 color: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
                 ..Default::default()

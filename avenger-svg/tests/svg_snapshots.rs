@@ -391,7 +391,7 @@ fn text_limit_snapshot_uses_default_ellipsis() {
             text: ScalarOrArray::new_scalar("Long label text".to_string()),
             x: ScalarOrArray::new_scalar(4.0),
             y: ScalarOrArray::new_scalar(12.0),
-            font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+            font: ScalarOrArray::new_scalar("Lato".to_string()),
             font_size: ScalarOrArray::new_scalar(10.0),
             limit: ScalarOrArray::new_scalar(35.0),
             ..Default::default()
@@ -416,7 +416,7 @@ fn native_text_rasterizes_with_controlled_avenger_fontdb() {
             text: ScalarOrArray::new_scalar("Embedded".to_string()),
             x: ScalarOrArray::new_scalar(4.0),
             y: ScalarOrArray::new_scalar(16.0),
-            font: ScalarOrArray::new_scalar("Atkinson Hyperlegible Next".to_string()),
+            font: ScalarOrArray::new_scalar("Lato".to_string()),
             font_size: ScalarOrArray::new_scalar(14.0),
             ..Default::default()
         }

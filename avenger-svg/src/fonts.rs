@@ -424,27 +424,20 @@ mod tests {
     fn parses_named_font_family_before_generic_fallbacks() {
         let options = FontResolutionOptions::default();
 
-        let families =
-            parse_named_font_families("\"Atkinson Hyperlegible Next\", sans-serif", &options)
-                .unwrap();
+        let families = parse_named_font_families("\"Lato\", sans-serif", &options).unwrap();
 
-        assert_eq!(families, vec!["Atkinson Hyperlegible Next"]);
+        assert_eq!(families, vec!["Lato"]);
     }
 
     #[test]
     fn parses_multiple_named_font_family_fallbacks() {
         let options = FontResolutionOptions::default();
 
-        let families = parse_named_font_families(
-            "\"Missing Display Face\", \"Atkinson Hyperlegible Next\", sans-serif",
-            &options,
-        )
-        .unwrap();
+        let families =
+            parse_named_font_families("\"Missing Display Face\", \"Lato\", sans-serif", &options)
+                .unwrap();
 
-        assert_eq!(
-            families,
-            vec!["Missing Display Face", "Atkinson Hyperlegible Next"]
-        );
+        assert_eq!(families, vec!["Missing Display Face", "Lato"]);
     }
 
     #[test]
@@ -462,7 +455,7 @@ mod tests {
         let options = FontResolutionOptions::default();
         collector
             .collect_text(
-                "Atkinson Hyperlegible Next",
+                "Lato",
                 &FontWeight::Name(FontWeightNameSpec::Bold),
                 &FontStyle::Italic,
                 "Axis",
@@ -473,7 +466,7 @@ mod tests {
         let css = collector.font_face_css(&options).unwrap();
 
         assert!(css.contains("@font-face"));
-        assert!(css.contains("font-family: \"Atkinson Hyperlegible Next\";"));
+        assert!(css.contains("font-family: \"Lato\";"));
         assert!(css.contains("font-style: italic;"));
         assert!(css.contains("font-weight: 700;"));
         assert!(css.contains("data:font/woff2;base64,"));
@@ -485,7 +478,7 @@ mod tests {
         let options = FontResolutionOptions::default();
         collector
             .collect_text(
-                "\"Missing Display Face\", \"Atkinson Hyperlegible Next\", sans-serif",
+                "\"Missing Display Face\", \"Lato\", sans-serif",
                 &FontWeight::Name(FontWeightNameSpec::Normal),
                 &FontStyle::Normal,
                 "Axis",
@@ -495,7 +488,7 @@ mod tests {
 
         let css = collector.font_face_css(&options).unwrap();
 
-        assert!(css.contains("font-family: \"Atkinson Hyperlegible Next\";"));
+        assert!(css.contains("font-family: \"Lato\";"));
         assert!(!css.contains("font-family: \"Missing Display Face\";"));
     }
 
@@ -522,13 +515,7 @@ mod tests {
             ),
         ] {
             collector
-                .collect_text(
-                    "Atkinson Hyperlegible Next",
-                    &weight,
-                    &style,
-                    "Axis",
-                    &options,
-                )
+                .collect_text("Lato", &weight, &style, "Axis", &options)
                 .unwrap();
         }
 
@@ -558,7 +545,7 @@ mod tests {
         let options = FontResolutionOptions::default();
         collector
             .collect_text(
-                "Atkinson Hyperlegible Next",
+                "Lato",
                 &FontWeight::Name(FontWeightNameSpec::Normal),
                 &FontStyle::Normal,
                 "Axis",
@@ -568,12 +555,13 @@ mod tests {
 
         let css = collector.font_face_css(&options).unwrap();
         let subset = first_woff2_payload(&css);
-        let regular_font = avenger_text::fonts::embedded_fonts()
+        let medium_font = avenger_text::fonts::embedded_fonts()
             .iter()
-            .find(|font| font.name == "AtkinsonHyperlegibleNext-Regular")
-            .expect("regular Atkinson face should be embedded");
+            .find(|font| font.name == "Lato-Medium")
+            .expect("medium Lato face should be embedded");
+        let medium_font_data = medium_font.decompressed_data();
 
-        assert!(subset.len() < regular_font.data.len() / 2);
+        assert!(subset.len() < medium_font_data.len() / 2);
     }
 
     #[test]

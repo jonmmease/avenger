@@ -101,11 +101,7 @@ fn render_evaluated_plot_errors_before_pdf_rendering_when_resource_load_fails() 
 #[tokio::test]
 async fn embeds_bundled_font_for_text_chart_pdf() {
     let ctx = SessionContext::new();
-    let compiled = text_plot(&ctx, "Atkinson Hyperlegible Next")
-        .await
-        .compile(&ctx)
-        .await
-        .unwrap();
+    let compiled = text_plot(&ctx, "Lato").await.compile(&ctx).await.unwrap();
 
     let pdf = PdfRenderer::new()
         .with_options(avenger_pdf::PdfRenderOptions {
@@ -122,11 +118,7 @@ async fn embeds_bundled_font_for_text_chart_pdf() {
 #[tokio::test]
 async fn pdf_font_embedding_is_independent_of_svg_font_subset_embedding() {
     let ctx = SessionContext::new();
-    let compiled = text_plot(&ctx, "Atkinson Hyperlegible Next")
-        .await
-        .compile(&ctx)
-        .await
-        .unwrap();
+    let compiled = text_plot(&ctx, "Lato").await.compile(&ctx).await.unwrap();
 
     let svg = SvgRenderer::new()
         .render(&compiled, &ctx, None)

@@ -2547,7 +2547,7 @@ fn load_default_math_font(
             )
         });
         for face in bundled {
-            if let Some(font) = math_font_from_data(face.data.to_vec()) {
+            if let Some(font) = math_font_from_data(face.decompressed_data().to_vec()) {
                 return Some(font);
             }
         }
