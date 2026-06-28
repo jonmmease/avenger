@@ -140,6 +140,7 @@ enum SimpleMathClass {
     Normal,
     Alphabetic,
     Binary,
+    Unary,
     Vary,
     Relation,
     Opening,
@@ -357,6 +358,9 @@ fn layout_simple_node(
         if call.name == "binom" {
             return layout_simple_binom_call(font, call, font_size, script_level);
         }
+        if call.name == "class" {
+            return layout_simple_class_call(font, call, font_size, script_level);
+        }
         if let Some(selection) = MathStyleSelection::from_call_name(&call.name) {
             return layout_simple_variant_call(font, call, selection, font_size, script_level);
         }
@@ -381,6 +385,31 @@ fn layout_simple_node(
     }
 
     Ok(None)
+}
+
+fn layout_simple_class_call(
+    font: &MathFont,
+    call: &super::ast::MathCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let [class_arg, body_arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let [MathNode::StringLiteral(class)] = &class_arg.nodes[..] else {
+        return Ok(None);
+    };
+    let Some(mut atom) =
+        layout_simple_nodes_as_atom(font, &body_arg.nodes, font_size, script_level)?
+    else {
+        return Ok(None);
+    };
+    let Some(class) = simple_math_class_from_name(&class.text) else {
+        return Ok(None);
+    };
+    atom.left_class = class;
+    atom.right_class = class;
+    Ok(Some(atom))
 }
 
 fn layout_simple_variant_call(
@@ -2031,8 +2060,26 @@ fn simple_math_class_for_char(ch: char) -> SimpleMathClass {
         Some(MathClass::Opening) => SimpleMathClass::Opening,
         Some(MathClass::Punctuation) => SimpleMathClass::Punctuation,
         Some(MathClass::Relation) => SimpleMathClass::Relation,
+        Some(MathClass::Unary) => SimpleMathClass::Unary,
         Some(MathClass::Vary) => SimpleMathClass::Vary,
         _ => SimpleMathClass::Normal,
+    }
+}
+
+fn simple_math_class_from_name(name: &str) -> Option<SimpleMathClass> {
+    match name {
+        "normal" => Some(SimpleMathClass::Normal),
+        "alphabetic" => Some(SimpleMathClass::Alphabetic),
+        "binary" => Some(SimpleMathClass::Binary),
+        "unary" => Some(SimpleMathClass::Unary),
+        "vary" => Some(SimpleMathClass::Vary),
+        "relation" => Some(SimpleMathClass::Relation),
+        "opening" => Some(SimpleMathClass::Opening),
+        "closing" => Some(SimpleMathClass::Closing),
+        "fence" => Some(SimpleMathClass::Fence),
+        "punctuation" => Some(SimpleMathClass::Punctuation),
+        "large" => Some(SimpleMathClass::Large),
+        _ => None,
     }
 }
 
@@ -3507,6 +3554,33 @@ mod tests {
                 font_size
             ),
             THICK_EM * font_size
+        );
+    }
+
+    #[test]
+    fn simple_row_class_call_overrides_spacing_class() {
+        let config = EngineOptions::default();
+        let font =
+            load_default_math_font(&config, &MathFontSpec::LeteSansMath, &FontWeight::Normal)
+                .expect("default math font should load");
+        let font_size = 20.0;
+        let normal = parse_math("a ! b", 0).unwrap();
+        let relation = parse_math("a class(\"relation\", !) b", 0).unwrap();
+
+        let normal_width = layout_simple_row(&font, &normal, font_size)
+            .unwrap()
+            .expect("normal row should layout")
+            .metrics
+            .width;
+        let relation_width = layout_simple_row(&font, &relation, font_size)
+            .unwrap()
+            .expect("class row should layout")
+            .metrics
+            .width;
+
+        assert!(
+            relation_width > normal_width + font_size * 0.1,
+            "relation class should add more spacing than the default binary-vary operator"
         );
     }
 }

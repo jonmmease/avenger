@@ -318,6 +318,9 @@ fn lower_math_call(
 
     if is_math_call_name(&name) {
         let args = lower_math_call_args(call.args(), source, offset)?;
+        if name == "class" {
+            validate_math_class_call_args(&args, range.start)?;
+        }
         return Ok(vec![MathNode::Call(MathCall {
             name,
             args,
@@ -377,6 +380,34 @@ fn lower_math_call_args(
         }
     }
     Ok(lowered)
+}
+
+fn validate_math_class_call_args(args: &[MathArg], position: usize) -> Result<(), LabelError> {
+    let [class_arg, body_arg] = args else {
+        return Err(unsupported(
+            position,
+            "class math expects a class name and body",
+        ));
+    };
+    let [MathNode::StringLiteral(class)] = &class_arg.nodes[..] else {
+        return Err(unsupported(
+            class_arg.byte_range.start,
+            "math class name must be a string literal",
+        ));
+    };
+    if !is_supported_math_class_name(&class.text) {
+        return Err(unsupported(
+            class.byte_range.start,
+            "unsupported math class name",
+        ));
+    }
+    if body_arg.nodes.is_empty() {
+        return Err(unsupported(
+            body_arg.byte_range.start,
+            "class math body must not be empty",
+        ));
+    }
+    Ok(())
 }
 
 fn lower_math_args_as_group_body(
@@ -672,6 +703,7 @@ fn is_math_call_name(name: &str) -> bool {
             | "lr"
             | "mid"
             | "cancel"
+            | "class"
             | "op"
             | "sin"
             | "cos"
@@ -702,6 +734,23 @@ fn is_math_call_name(name: &str) -> bool {
 
 fn is_unsupported_math_table_call_name(name: &str) -> bool {
     matches!(name, "mat" | "vec" | "cases")
+}
+
+fn is_supported_math_class_name(name: &str) -> bool {
+    matches!(
+        name,
+        "normal"
+            | "alphabetic"
+            | "binary"
+            | "unary"
+            | "vary"
+            | "relation"
+            | "opening"
+            | "closing"
+            | "fence"
+            | "punctuation"
+            | "large"
+    )
 }
 
 pub(crate) fn named_math_symbol(name: &str) -> Option<&'static str> {
@@ -964,7 +1013,7 @@ mod tests {
 
     #[test]
     fn parses_whitelisted_function_calls() {
-        let math = parse("frac(x, y) + op(\"custom\") + bb(R) + scr(P)");
+        let math = parse("frac(x, y) + op(\"custom\") + bb(R) + scr(P) + class(\"relation\", !)");
 
         assert!(matches!(
             &math.nodes[0],
@@ -982,6 +1031,30 @@ mod tests {
             &math.nodes[12],
             MathNode::Call(call) if call.name == "scr" && call.args.len() == 1
         ));
+        assert!(matches!(
+            &math.nodes[16],
+            MathNode::Call(call) if call.name == "class" && call.args.len() == 2
+        ));
+    }
+
+    #[test]
+    fn rejects_invalid_class_calls() {
+        for (source, position, message) in [
+            (
+                "class(relation, !)",
+                6,
+                "math class name must be a string literal",
+            ),
+            ("class(\"unknown\", !)", 6, "unsupported math class name"),
+            (
+                "class(\"relation\")",
+                0,
+                "class math expects a class name and body",
+            ),
+        ] {
+            let err = parse_math(source, 0).unwrap_err();
+            assert_eq!(err, LabelError::UnsupportedSyntax { position, message });
+        }
     }
 
     #[test]

@@ -61,6 +61,7 @@ fn allows_common_typst_math_fragments() {
         "$sum_(i=1)^n x_i$",
         "$binom(n, k)$",
         "$cancel(x)$",
+        "$a class(\"relation\", !) b$",
     ];
 
     for sample in samples {
