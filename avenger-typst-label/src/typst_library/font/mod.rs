@@ -1,3 +1,11 @@
+//! Retained Typst font model.
+//!
+//! Upstream Typst stores `FontWeight` as a numeric newtype in
+//! `crates/typst-library/src/text/font/variant.rs`. Avenger labels keep
+//! `Normal` and `Bold` variants in the public API for ergonomic chart theme
+//! plumbing, then normalize to numeric weights at layout/font-selection
+//! boundaries.
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 

@@ -127,7 +127,8 @@ content that escaped plain text would produce.
 ## Relationship To Upstream Typst
 
 `avenger-typst-label` should be treated as a behavioral subset of Typst, not as a
-source-level fork. The closest upstream source areas are:
+source-level fork. See `UPSTREAM.md` for the detailed file-by-file provenance
+map. The closest upstream source areas are:
 
 | Module | Typst source area | Relationship |
 | --- | --- | --- |

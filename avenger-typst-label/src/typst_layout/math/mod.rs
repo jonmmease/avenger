@@ -4,6 +4,11 @@
 //! math directory while staying in one Rust module namespace. Keeping one
 //! namespace makes this split traceable without changing behavior or adding a
 //! large visibility refactor.
+//!
+//! Upstream comparison points:
+//! `crates/typst-layout/src/math/{mod,line,shaping,text}.rs`,
+//! `fraction.rs`, `scripts.rs`, `fenced.rs`, `radical.rs`, `accent.rs`, and
+//! `cancel.rs`.
 
 include!("run.rs");
 include!("row.rs");
