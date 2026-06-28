@@ -4,7 +4,7 @@ use crate::paths::{PathArtifact, PathCommand, PathData, PathItem, PathKind, Stro
 use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
-use crate::style::{Color, PlainTextStyle};
+use crate::style::{Color, FontStyle, FontWeight, PlainTextStyle};
 use crate::types::{
     MathFragmentOptions, MathOutputRequest, PositionedTextLineRun, PositionedTextLineRunKind,
     TextLineArtifact, TextLineOptions, TypesetMetrics,
@@ -198,7 +198,9 @@ fn supported_decoration_kind(kind: TextMarkupKind) -> Option<TextMarkupKind> {
         | TextMarkupKind::Highlight
         | TextMarkupKind::Lower
         | TextMarkupKind::Upper
-        | TextMarkupKind::Smallcaps => Some(kind),
+        | TextMarkupKind::Smallcaps
+        | TextMarkupKind::Emph
+        | TextMarkupKind::Strong => Some(kind),
     }
 }
 
@@ -212,7 +214,9 @@ fn transform_static_text(kind: TextMarkupKind, text: &str) -> String {
         | TextMarkupKind::Subscript
         | TextMarkupKind::Superscript
         | TextMarkupKind::Highlight
-        | TextMarkupKind::Smallcaps => text.to_string(),
+        | TextMarkupKind::Smallcaps
+        | TextMarkupKind::Emph
+        | TextMarkupKind::Strong => text.to_string(),
     }
 }
 
@@ -270,8 +274,10 @@ fn try_typeset_plain_text_line(
         }
         RenderNode::DecoratedText(decorated) => {
             let decoration = TextDecoration::from_markup(decorated.kind, decorated.options.clone());
+            let run_style =
+                text_style_for_static_run(&options.text_style, decorated.kind, &decorated.options);
             let Some(face) =
-                TextFace::for_plain_style_and_text(&options.text_style, &decorated.text, fontdb)?
+                TextFace::for_plain_style_and_text(&run_style, &decorated.text, fontdb)?
             else {
                 return Ok(None);
             };
@@ -284,6 +290,7 @@ fn try_typeset_plain_text_line(
                 },
                 Some(decoration),
                 &features,
+                &run_style,
                 options,
                 face,
             )
@@ -392,16 +399,19 @@ fn try_typeset_mixed_metrics_text_line(
                 let decoration =
                     TextDecoration::from_markup(decorated.kind, decorated.options.clone());
                 let script = text_script_for_kind(decorated.kind);
-                let Some(text_face) = TextFace::for_plain_style_and_text(
+                let base_run_style = text_style_for_static_run(
                     &options.text_style,
-                    &decorated.text,
-                    fontdb,
-                )?
+                    decorated.kind,
+                    &decorated.options,
+                );
+                let Some(text_face) =
+                    TextFace::for_plain_style_and_text(&base_run_style, &decorated.text, fontdb)?
                 else {
                     return Ok(None);
                 };
-                let run_style =
-                    text_style_for_decorated_run(&text_face, &options.text_style, decorated.kind);
+                let run_style = script
+                    .map(|script| text_face.script_style(&base_run_style, script))
+                    .unwrap_or(base_run_style);
                 let run_font_size = run_style.font_size.max(1.0);
                 let baseline_shift = script
                     .map(|script| text_face.script_baseline_shift(text_font_size, script))
@@ -424,7 +434,7 @@ fn try_typeset_mixed_metrics_text_line(
                             metrics,
                             glyph_baseline_y,
                             run_font_size,
-                            options.text_style.fill,
+                            run_style.fill,
                             Some(decoration.clone()),
                         )
                     });
@@ -442,7 +452,7 @@ fn try_typeset_mixed_metrics_text_line(
                             decoration,
                             metrics,
                             run_font_size,
-                            options.text_style.fill,
+                            run_style.fill,
                             Some(&text_face),
                             &glyph_paths,
                         )
@@ -457,7 +467,7 @@ fn try_typeset_mixed_metrics_text_line(
                             metrics,
                             glyph_baseline_y,
                             run_font_size,
-                            options.text_style.fill,
+                            run_style.fill,
                             font_id,
                         )),
                         vec![text_face.font_resource(font_id)],
@@ -668,18 +678,61 @@ fn text_script_for_kind(kind: TextMarkupKind) -> Option<TextScript> {
         | TextMarkupKind::Highlight
         | TextMarkupKind::Lower
         | TextMarkupKind::Upper
-        | TextMarkupKind::Smallcaps => None,
+        | TextMarkupKind::Smallcaps
+        | TextMarkupKind::Emph
+        | TextMarkupKind::Strong => None,
     }
 }
 
-fn text_style_for_decorated_run(
-    face: &TextFace,
+fn text_style_for_static_run(
     style: &PlainTextStyle,
     kind: TextMarkupKind,
+    options: &TextMarkupOptions,
 ) -> PlainTextStyle {
-    text_script_for_kind(kind)
-        .map(|script| face.script_style(style, script))
-        .unwrap_or_else(|| style.clone())
+    let mut run_style = style.clone();
+    match kind {
+        TextMarkupKind::Emph => {
+            run_style.font_style = match run_style.font_style {
+                FontStyle::Normal => FontStyle::Italic,
+                FontStyle::Italic | FontStyle::Oblique => FontStyle::Normal,
+            };
+        }
+        TextMarkupKind::Strong => {
+            run_style.font_weight =
+                thicken_font_weight(&run_style.font_weight, options.strong.delta);
+        }
+        TextMarkupKind::Underline
+        | TextMarkupKind::Strike
+        | TextMarkupKind::Overline
+        | TextMarkupKind::Subscript
+        | TextMarkupKind::Superscript
+        | TextMarkupKind::Highlight
+        | TextMarkupKind::Lower
+        | TextMarkupKind::Upper
+        | TextMarkupKind::Smallcaps => {}
+    }
+    run_style
+}
+
+fn thicken_font_weight(weight: &FontWeight, delta: i64) -> FontWeight {
+    let number = (font_weight_number(weight) as i64 + delta).clamp(1, 1000) as u16;
+    font_weight_from_number(number)
+}
+
+fn font_weight_number(weight: &FontWeight) -> u16 {
+    match weight {
+        FontWeight::Normal => 400,
+        FontWeight::Bold => 700,
+        FontWeight::Number(value) => (*value).clamp(1, 1000),
+    }
+}
+
+fn font_weight_from_number(number: u16) -> FontWeight {
+    match number {
+        400 => FontWeight::Normal,
+        700 => FontWeight::Bold,
+        other => FontWeight::Number(other),
+    }
 }
 
 fn shape_text_for_static_run(
@@ -729,7 +782,9 @@ fn text_features_for_static_run(
         | TextMarkupKind::Overline
         | TextMarkupKind::Highlight
         | TextMarkupKind::Lower
-        | TextMarkupKind::Upper => {}
+        | TextMarkupKind::Upper
+        | TextMarkupKind::Emph
+        | TextMarkupKind::Strong => {}
     }
 
     features
@@ -1159,7 +1214,9 @@ fn decoration_path_item(
         | TextMarkupKind::Superscript
         | TextMarkupKind::Lower
         | TextMarkupKind::Upper
-        | TextMarkupKind::Smallcaps => return None,
+        | TextMarkupKind::Smallcaps
+        | TextMarkupKind::Emph
+        | TextMarkupKind::Strong => return None,
     };
     Some(item)
 }
@@ -1181,7 +1238,9 @@ fn decoration_line(
         | TextMarkupKind::Superscript
         | TextMarkupKind::Lower
         | TextMarkupKind::Upper
-        | TextMarkupKind::Smallcaps => TextDecorationMetrics::fallback(font_size).underline,
+        | TextMarkupKind::Smallcaps
+        | TextMarkupKind::Emph
+        | TextMarkupKind::Strong => TextDecorationMetrics::fallback(font_size).underline,
     }
 }
 
@@ -1677,10 +1736,11 @@ fn typeset_plain_text_line(
     plain: &PlainTextNode,
     decoration: Option<TextDecoration>,
     features: &[rustybuzz::Feature],
+    text_style: &PlainTextStyle,
     options: &TextLineOptions,
     face: TextFace,
 ) -> Result<Option<TextLineArtifact>, LabelError> {
-    let font_size = options.text_style.font_size.max(1.0);
+    let font_size = text_style.font_size.max(1.0);
     let shaped = face.shaped_text_with_features(&plain.text, font_size, features);
     let metrics = TypesetMetrics {
         width: shaped.metrics.width,
@@ -1702,7 +1762,7 @@ fn typeset_plain_text_line(
             metrics,
             metrics.baseline,
             font_size,
-            options.text_style.fill,
+            text_style.fill,
             font_id,
         )
     });
@@ -1713,7 +1773,7 @@ fn typeset_plain_text_line(
             metrics,
             metrics.baseline,
             font_size,
-            options.text_style.fill,
+            text_style.fill,
             decoration.clone(),
         )
     });
@@ -1739,7 +1799,7 @@ fn typeset_plain_text_line(
                 decoration?,
                 metrics,
                 font_size,
-                options.text_style.fill,
+                text_style.fill,
                 Some(&face),
                 &glyph_paths,
             )
@@ -1750,7 +1810,7 @@ fn typeset_plain_text_line(
             kind: PositionedTextLineRunKind::Plain,
             text: plain.text.clone(),
             byte_range: plain.byte_range.clone(),
-            text_style: Some(options.text_style.clone()),
+            text_style: Some(text_style.clone()),
             x: 0.0,
             y: metrics.baseline,
             metrics,

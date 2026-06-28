@@ -96,6 +96,26 @@ fn lower_markup_expr(
         typst_ast::Expr::FieldAccess(access) => {
             lower_static_field_access(access, source, nodes)?;
         }
+        typst_ast::Expr::Strong(strong) => {
+            lower_markup_span(
+                TextMarkupKind::Strong,
+                TextMarkupOptions::default(),
+                strong.body(),
+                strong.to_untyped().range(),
+                source,
+                nodes,
+            )?;
+        }
+        typst_ast::Expr::Emph(emph) => {
+            lower_markup_span(
+                TextMarkupKind::Emph,
+                TextMarkupOptions::default(),
+                emph.body(),
+                emph.to_untyped().range(),
+                source,
+                nodes,
+            )?;
+        }
         other => {
             return Err(unsupported_markup_expr(source, other));
         }
@@ -181,6 +201,27 @@ fn lower_static_call(
     Ok(())
 }
 
+fn lower_markup_span(
+    kind: TextMarkupKind,
+    options: TextMarkupOptions,
+    body_markup: typst_ast::Markup<'_>,
+    byte_range: Range<usize>,
+    source: &str,
+    nodes: &mut Vec<LineNode>,
+) -> Result<(), LabelError> {
+    let body_range = body_markup.to_untyped().range();
+    let mut body = Vec::new();
+    lower_markup(body_markup, source, &mut body)?;
+    nodes.push(LineNode::TextSpan(TextMarkupSpan {
+        kind,
+        options,
+        body,
+        byte_range,
+        body_range,
+    }));
+    Ok(())
+}
+
 fn lower_static_field_access(
     access: typst_ast::FieldAccess<'_>,
     source: &str,
@@ -243,6 +284,8 @@ fn text_span_kind(name: &str) -> Option<TextMarkupKind> {
         "lower" => Some(TextMarkupKind::Lower),
         "upper" => Some(TextMarkupKind::Upper),
         "smallcaps" => Some(TextMarkupKind::Smallcaps),
+        "emph" => Some(TextMarkupKind::Emph),
+        "strong" => Some(TextMarkupKind::Strong),
         _ => None,
     }
 }
@@ -263,6 +306,20 @@ fn parse_text_markup_option(
                 )?;
             }
             _ => return Err(unsupported(position, "unsupported smallcaps option")),
+        }
+        return Ok(());
+    }
+
+    if kind == TextMarkupKind::Strong {
+        match named.name().as_str() {
+            "delta" => {
+                options.strong.delta = parse_i64_with_message(
+                    named.expr(),
+                    position,
+                    "unsupported strong delta value",
+                )?;
+            }
+            _ => return Err(unsupported(position, "unsupported strong option")),
         }
         return Ok(());
     }
@@ -531,6 +588,25 @@ fn parse_bool_with_message(
 ) -> Result<bool, LabelError> {
     match expr {
         typst_ast::Expr::Bool(value) => Ok(value.get()),
+        _ => Err(unsupported(position, message)),
+    }
+}
+
+fn parse_i64_with_message(
+    expr: typst_ast::Expr<'_>,
+    position: usize,
+    message: &'static str,
+) -> Result<i64, LabelError> {
+    match expr {
+        typst_ast::Expr::Int(value) => Ok(value.get()),
+        typst_ast::Expr::Unary(unary) => {
+            let sign = match unary.op() {
+                typst_ast::UnOp::Pos => 1,
+                typst_ast::UnOp::Neg => -1,
+                typst_ast::UnOp::Not => return Err(unsupported(position, message)),
+            };
+            parse_i64_with_message(unary.expr(), position, message).map(|value| sign * value)
+        }
         _ => Err(unsupported(position, message)),
     }
 }
@@ -854,6 +930,31 @@ mod tests {
             if span.kind == TextMarkupKind::Smallcaps
                 && span.options.smallcaps.all
                 && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "UNICEF")
+        ));
+    }
+
+    #[test]
+    fn parses_emph_and_strong_static_text() {
+        let line = parse("_Emph_ *Strong* #emph[call] #strong(delta: 150)[mild]");
+
+        assert_eq!(line.nodes.len(), 7);
+        assert!(matches!(&line.nodes[0], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Emph
+                && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "Emph")
+        ));
+        assert!(matches!(&line.nodes[2], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Strong
+                && span.options.strong.delta == 300
+                && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "Strong")
+        ));
+        assert!(matches!(&line.nodes[4], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Emph
+                && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "call")
+        ));
+        assert!(matches!(&line.nodes[6], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Strong
+                && span.options.strong.delta == 150
+                && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "mild")
         ));
     }
 

@@ -258,7 +258,7 @@ fn empty_text_line_artifact(source: &str, options: &TextLineOptions) -> TextLine
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style::FontWeight;
+    use crate::style::{FontStyle, FontWeight};
     use crate::types::{MathOutputRequest, TextLineOutputRequest};
 
     #[test]
@@ -690,6 +690,79 @@ mod tests {
                 .as_ref()
                 .is_some_and(|pdf| pdf.glyph_runs.iter().any(|run| run.text == "Smallcaps")),
             "smallcaps text should remain PDF text rather than path-only output"
+        );
+    }
+
+    #[test]
+    fn static_emph_and_strong_use_typst_engine() {
+        let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let artifact = engine
+            .typeset_markup_line(
+                "_Emph_ *Strong* #emph[call] #strong(delta: 150)[mild]",
+                &options,
+            )
+            .unwrap();
+
+        assert_eq!(
+            artifact
+                .positioned_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Emph", " ", "Strong", " ", "call", " ", "mild"]
+        );
+        assert_eq!(
+            artifact.positioned_runs[0]
+                .text_style
+                .as_ref()
+                .map(|style| style.font_style),
+            Some(FontStyle::Italic)
+        );
+        assert_eq!(
+            artifact.positioned_runs[2]
+                .text_style
+                .as_ref()
+                .map(|style| &style.font_weight),
+            Some(&FontWeight::Bold)
+        );
+        assert_eq!(
+            artifact.positioned_runs[4]
+                .text_style
+                .as_ref()
+                .map(|style| style.font_style),
+            Some(FontStyle::Italic)
+        );
+        assert_eq!(
+            artifact.positioned_runs[6]
+                .text_style
+                .as_ref()
+                .map(|style| &style.font_weight),
+            Some(&FontWeight::Number(550))
+        );
+        assert!(artifact.paths.is_some());
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.iter().any(|run| run.text == "Strong"))
+        );
+
+        let solo = engine.typeset_markup_line("#emph[solo]", &options).unwrap();
+        assert_eq!(solo.positioned_runs.len(), 1);
+        assert_eq!(
+            solo.positioned_runs[0]
+                .text_style
+                .as_ref()
+                .map(|style| style.font_style),
+            Some(FontStyle::Italic)
         );
     }
 
