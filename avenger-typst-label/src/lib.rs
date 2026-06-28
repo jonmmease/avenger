@@ -8,7 +8,6 @@ mod delimiter;
 mod error;
 mod fonts;
 mod label;
-mod types;
 mod typst_eval;
 mod typst_layout;
 mod typst_library;

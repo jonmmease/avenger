@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::error::LabelError;
 use crate::label::EngineOptions;
-use crate::types::{MathLayoutOptions, MathRunArtifact, TypesetMetrics};
+use crate::typst_layout::frame::{MathLayoutOptions, MathRunArtifact, TypesetMetrics};
 use crate::typst_layout::glyph_path::outline_glyph_path;
 use crate::typst_library::math::item as ast;
 use crate::typst_library::text::content::DecorationStroke;
@@ -4223,8 +4223,8 @@ fn path_artifact_from_simple_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::MathOutputOptions;
     use crate::typst_eval::math::parse_math;
+    use crate::typst_layout::frame::MathOutputOptions;
 
     type LineSegment = ((f32, f32), (f32, f32));
 

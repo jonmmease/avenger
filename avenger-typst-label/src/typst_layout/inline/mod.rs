@@ -1,6 +1,6 @@
 use crate::error::LabelError;
 use crate::label::{EngineOptions, LabelParamValue, LabelParams};
-use crate::types::{
+use crate::typst_layout::frame::{
     LineLayoutArtifact, LineLayoutOptions, MathLayoutOptions, MathOutputOptions,
     PositionedTextLineRun, PositionedTextLineRunKind, TypesetMetrics,
 };
@@ -2014,8 +2014,8 @@ fn typeset_segmented_plain_text_line(
 mod tests {
     use super::*;
     use crate::label::EngineOptions;
-    use crate::types::LineOutputOptions;
     use crate::typst_eval::markup::parse_line;
+    use crate::typst_layout::frame::LineOutputOptions;
     use crate::typst_layout::inline::font::build_text_fontdb;
 
     fn test_fontdb() -> fontdb::Database {

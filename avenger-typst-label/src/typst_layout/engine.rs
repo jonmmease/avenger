@@ -1,9 +1,9 @@
 use crate::error::{LabelError, LabelInitError};
 use crate::label::EngineOptions;
-use crate::types::{LineLayoutArtifact, LineLayoutOptions, TypesetMetrics};
-#[cfg(test)]
-use crate::types::{MathLayoutOptions, MathRunArtifact};
 use crate::typst_eval::LabelLimits;
+use crate::typst_layout::frame::{LineLayoutArtifact, LineLayoutOptions, TypesetMetrics};
+#[cfg(test)]
+use crate::typst_layout::frame::{MathLayoutOptions, MathRunArtifact};
 use crate::typst_pdf::PdfTextLayer;
 use crate::typst_svg::PathArtifact;
 
@@ -352,7 +352,7 @@ fn empty_line_layout_artifact(source: &str, options: &LineLayoutOptions) -> Line
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{LineOutputOptions, MathOutputOptions};
+    use crate::typst_layout::frame::{LineOutputOptions, MathOutputOptions};
     use crate::typst_library::{FontStyle, FontWeight};
 
     #[test]

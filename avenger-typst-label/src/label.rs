@@ -2,13 +2,13 @@ use std::{ops::Range, path::PathBuf};
 
 use indexmap::IndexMap;
 
-use crate::types::{
-    LineLayoutArtifact, LineLayoutOptions, LineOutputOptions, PositionedTextLineRun,
-    PositionedTextLineRunKind, TypesetMetrics,
-};
 use crate::typst_eval::markup::is_retained_markup_name;
 use crate::typst_eval::math::is_retained_math_name;
 use crate::typst_layout::engine::TypstEngineCore;
+use crate::typst_layout::frame::{
+    LineLayoutArtifact, LineLayoutOptions, LineOutputOptions, PositionedTextLineRun,
+    PositionedTextLineRunKind, TypesetMetrics,
+};
 use crate::typst_library::{MathStyle, PlainTextStyle};
 use crate::typst_pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 pub use crate::typst_render::RasterImage;
