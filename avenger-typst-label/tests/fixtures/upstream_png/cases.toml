@@ -1,0 +1,23 @@
+[[case]]
+id = "text-underline-strike"
+upstream_file = "../../typst/tests/suite/text/deco.typ"
+upstream_test = "underline-strike-smoke"
+source = "text-underline-strike.typ"
+font_size = 20.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+pixel_tolerance = 4
+min_similarity = 0.70
+
+[[case]]
+id = "math-frac-root"
+upstream_file = "../../typst/tests/suite/math/root.typ"
+upstream_test = "frac-root-smoke"
+source = "math-frac-root.typ"
+font_size = 20.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+pixel_tolerance = 14
+min_similarity = 0.70
