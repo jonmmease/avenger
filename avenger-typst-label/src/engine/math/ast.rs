@@ -1,12 +1,12 @@
 use std::ops::Range;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MathAst {
     pub(crate) source: String,
     pub(crate) nodes: Vec<MathNode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum MathNode {
     Space(MathSpace),
     Text(MathText),
@@ -17,6 +17,7 @@ pub(crate) enum MathNode {
     Group(MathGroup),
     Attach(MathAttach),
     Fraction(MathFraction),
+    Cancel(MathCancel),
     Call(MathCall),
 }
 
@@ -32,6 +33,7 @@ impl MathNode {
             Self::Group(node) => node.byte_range.clone(),
             Self::Attach(node) => node.byte_range.clone(),
             Self::Fraction(node) => node.byte_range.clone(),
+            Self::Cancel(node) => node.byte_range.clone(),
             Self::Call(node) => node.byte_range.clone(),
         }
     }
@@ -81,7 +83,7 @@ pub(crate) struct MathStringLiteral {
     pub(crate) byte_range: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MathGroup {
     pub(crate) left: char,
     pub(crate) right: char,
@@ -89,7 +91,7 @@ pub(crate) struct MathGroup {
     pub(crate) byte_range: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MathAttach {
     pub(crate) base: Box<MathNode>,
     pub(crate) top: Option<Vec<MathNode>>,
@@ -102,7 +104,7 @@ pub(crate) struct MathAttach {
     pub(crate) byte_range: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MathFraction {
     pub(crate) numerator: Box<MathNode>,
     pub(crate) denominator: Box<MathNode>,
@@ -110,14 +112,61 @@ pub(crate) struct MathFraction {
     pub(crate) byte_range: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MathCancel {
+    pub(crate) body: Vec<MathNode>,
+    pub(crate) options: MathCancelOptions,
+    pub(crate) byte_range: Range<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct MathCancelOptions {
+    pub(crate) length: MathCancelLength,
+    pub(crate) inverted: bool,
+    pub(crate) cross: bool,
+    pub(crate) angle: MathCancelAngle,
+}
+
+impl Default for MathCancelOptions {
+    fn default() -> Self {
+        Self {
+            length: MathCancelLength::default(),
+            inverted: false,
+            cross: false,
+            angle: MathCancelAngle::Auto,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct MathCancelLength {
+    pub(crate) relative: f32,
+    pub(crate) absolute_em: f32,
+}
+
+impl Default for MathCancelLength {
+    fn default() -> Self {
+        Self {
+            relative: 1.0,
+            absolute_em: 0.3,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum MathCancelAngle {
+    Auto,
+    Degrees(f32),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MathCall {
     pub(crate) name: String,
     pub(crate) args: Vec<MathArg>,
     pub(crate) byte_range: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MathArg {
     pub(crate) nodes: Vec<MathNode>,
     pub(crate) byte_range: Range<usize>,

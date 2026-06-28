@@ -180,7 +180,7 @@ fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), LabelError> {
             escaped = true;
             continue;
         }
-        if ch == '#' && !is_embedded_bool_literal(source, idx) {
+        if ch == '#' && !is_embedded_literal_allowed_in_math(source, idx) {
             return Err(LabelError::UnsupportedSyntax {
                 position: offset + idx,
                 message: "embedded Typst code is not allowed in math fragments",
@@ -190,8 +190,53 @@ fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), LabelError> {
     Ok(())
 }
 
-fn is_embedded_bool_literal(source: &str, idx: usize) -> bool {
-    source[idx..].starts_with("#true") || source[idx..].starts_with("#false")
+fn is_embedded_literal_allowed_in_math(source: &str, idx: usize) -> bool {
+    let Some(rest) = source.get(idx + 1..) else {
+        return false;
+    };
+    rest.starts_with("true")
+        || rest.starts_with("false")
+        || rest.starts_with("auto")
+        || starts_with_math_numeric_literal(rest)
+}
+
+fn starts_with_math_numeric_literal(rest: &str) -> bool {
+    let mut chars = rest.char_indices().peekable();
+    if matches!(chars.peek(), Some((_, '+' | '-'))) {
+        chars.next();
+    }
+
+    let mut saw_digit = false;
+    let mut saw_dot = false;
+    while let Some((_, ch)) = chars.peek().copied() {
+        if ch.is_ascii_digit() {
+            saw_digit = true;
+            chars.next();
+        } else if ch == '.' && !saw_dot {
+            saw_dot = true;
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if !saw_digit {
+        return false;
+    }
+
+    let unit_start = chars.peek().map_or(rest.len(), |(idx, _)| *idx);
+    let unit = &rest[unit_start..];
+    ["%", "em", "pt", "deg", "rad"]
+        .iter()
+        .any(|suffix| starts_with_literal_unit(unit, suffix))
+}
+
+fn starts_with_literal_unit(unit_and_tail: &str, unit: &str) -> bool {
+    let Some(tail) = unit_and_tail.strip_prefix(unit) else {
+        return false;
+    };
+    tail.chars()
+        .next()
+        .is_none_or(|ch| !matches!(ch, '_' | 'a'..='z' | 'A'..='Z' | '0'..='9'))
 }
 
 fn max_grouping_depth(source: &str) -> usize {

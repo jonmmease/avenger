@@ -10,7 +10,10 @@ use crate::raster::rasterize_path_artifact;
 use crate::style::{FontWeight, MathFontSpec};
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
-use super::ast::{MathAst, MathNode, MathOperator, MathShorthand, MathText, MathTextKind};
+use super::ast::{
+    MathAst, MathCancel, MathCancelAngle, MathNode, MathOperator, MathShorthand, MathText,
+    MathTextKind,
+};
 use super::syntax::predefined_operator_text;
 
 pub(crate) fn try_typeset_simple_row_fragment(
@@ -345,6 +348,10 @@ fn layout_simple_node(
         return layout_simple_fraction(font, fraction, font_size, script_level);
     }
 
+    if let MathNode::Cancel(cancel) = node {
+        return layout_simple_cancel(font, cancel, font_size, script_level);
+    }
+
     if let MathNode::Group(group) = node {
         return layout_simple_group(font, group, font_size, script_level);
     }
@@ -385,9 +392,6 @@ fn layout_simple_node(
         }
         if call.name == "root" {
             return layout_simple_root(font, call, font_size, script_level);
-        }
-        if call.name == "cancel" {
-            return layout_simple_cancel_call(font, call, font_size, script_level);
         }
         if let Some(accent) = accent_call_char(&call.name) {
             return layout_simple_accent_call(font, call, accent, font_size, script_level);
@@ -930,16 +934,13 @@ fn layout_simple_root(
     )
 }
 
-fn layout_simple_cancel_call(
+fn layout_simple_cancel(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    cancel: &MathCancel,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let [arg] = &call.args[..] else {
-        return Ok(None);
-    };
-    let Some(mut body) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    let Some(mut body) = layout_simple_nodes_as_atom(font, &cancel.body, font_size, script_level)?
     else {
         return Ok(None);
     };
@@ -948,34 +949,66 @@ fn layout_simple_cancel_call(
     let height = body.metrics.height;
     let diagonal = width.hypot(height);
     if diagonal > 0.0 {
-        let length = diagonal + CANCEL_LENGTH_EXTRA_EM * font_size;
-        let half_scale = 0.5 * length / diagonal;
-        let center_x = width / 2.0;
-        let center_y = height / 2.0;
-        let delta_x = width * half_scale;
-        let delta_y = height * half_scale;
-        body.shapes.push(LaidOutShape {
-            path: PathData {
-                commands: vec![
-                    PathCommand::MoveTo {
-                        x: center_x - delta_x,
-                        y: center_y + delta_y,
-                    },
-                    PathCommand::LineTo {
-                        x: center_x + delta_x,
-                        y: center_y - delta_y,
-                    },
-                ],
-            },
-            x: 0.0,
-            y: 0.0,
-            stroke_width: CANCEL_STROKE_EM * font_size,
-        });
-        body.draw_order
-            .push(LaidOutDrawItem::Shape(body.shapes.len() - 1));
+        let default_length = diagonal;
+        let length = cancel.options.length.relative * default_length
+            + cancel.options.length.absolute_em * font_size;
+        let length = length.max(0.0);
+        let angle = match cancel.options.angle {
+            MathCancelAngle::Auto => width.atan2(height),
+            MathCancelAngle::Degrees(degrees) => degrees.to_radians(),
+        };
+        let invert_first_line = !cancel.options.cross && cancel.options.inverted;
+        push_cancel_line(
+            &mut body,
+            width,
+            height,
+            length,
+            angle,
+            invert_first_line,
+            font_size,
+        );
+        if cancel.options.cross {
+            push_cancel_line(&mut body, width, height, length, angle, true, font_size);
+        }
     }
 
     Ok(Some(body))
+}
+
+fn push_cancel_line(
+    body: &mut LaidOutMathAtom,
+    width: f32,
+    height: f32,
+    length: f32,
+    angle: f32,
+    inverted: bool,
+    font_size: f32,
+) {
+    let angle = if inverted { -angle } else { angle };
+    let center_x = width / 2.0;
+    let center_y = height / 2.0;
+    let half_length = length / 2.0;
+    let delta_x = angle.sin() * half_length;
+    let delta_y = angle.cos() * half_length;
+    body.shapes.push(LaidOutShape {
+        path: PathData {
+            commands: vec![
+                PathCommand::MoveTo {
+                    x: center_x - delta_x,
+                    y: center_y + delta_y,
+                },
+                PathCommand::LineTo {
+                    x: center_x + delta_x,
+                    y: center_y - delta_y,
+                },
+            ],
+        },
+        x: 0.0,
+        y: 0.0,
+        stroke_width: CANCEL_STROKE_EM * font_size,
+    });
+    body.draw_order
+        .push(LaidOutDrawItem::Shape(body.shapes.len() - 1));
 }
 
 fn layout_simple_accent_call(
@@ -1442,7 +1475,6 @@ fn layout_fraction_child_nodes(
 const FRACTION_PADDING_EM: f32 = 0.1;
 const INLINE_MATH_LEADING_SLACK_EM: f32 = 0.65 * 0.7;
 const CANCEL_STROKE_EM: f32 = 0.05;
-const CANCEL_LENGTH_EXTRA_EM: f32 = 0.3;
 const SCRIPT_SLOT_PAIR_GAP_EM: f32 = 0.08;
 const PRIME_CHAR: char = '′';
 
@@ -2467,6 +2499,11 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
                 byte_range: fraction.byte_range.clone(),
             })]
         }
+        MathNode::Cancel(cancel) => vec![MathNode::Cancel(super::ast::MathCancel {
+            body: style_math_nodes(&cancel.body, selection),
+            options: cancel.options,
+            byte_range: cancel.byte_range.clone(),
+        })],
         MathNode::Call(call) => {
             if let Some(nested) = MathStyleSelection::from_call_name(&call.name) {
                 let combined = selection.compose(nested);
@@ -3586,6 +3623,41 @@ mod tests {
     use crate::engine::math::syntax::parse_math;
     use crate::types::MathOutputRequest;
 
+    type LineSegment = ((f32, f32), (f32, f32));
+
+    fn cancel_shape_lines(source: &str, options: &MathFragmentOptions) -> Vec<LineSegment> {
+        let math = parse_math(source, 0).unwrap();
+        let artifact = try_typeset_simple_row_fragment(&math, options, &EngineOptions::default())
+            .unwrap()
+            .unwrap_or_else(|| panic!("cancel call should be handled: {source}"));
+        artifact
+            .paths
+            .expect("cancel paths should exist")
+            .items
+            .into_iter()
+            .filter(|item| matches!(item.kind, PathKind::MathShape))
+            .filter_map(|item| match &item.path.commands[..] {
+                [
+                    PathCommand::MoveTo { x: x0, y: y0 },
+                    PathCommand::LineTo { x: x1, y: y1 },
+                ] => Some((
+                    (x0 + item.transform.dx, y0 + item.transform.dy),
+                    (x1 + item.transform.dx, y1 + item.transform.dy),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn line_delta(line: LineSegment) -> (f32, f32) {
+        (line.1.0 - line.0.0, line.1.1 - line.0.1)
+    }
+
+    fn line_length(line: LineSegment) -> f32 {
+        let (dx, dy) = line_delta(line);
+        dx.hypot(dy)
+    }
+
     #[test]
     #[cfg(not(feature = "raster"))]
     fn atom_fragment_declines_raster_without_raster_feature() {
@@ -3912,6 +3984,51 @@ mod tests {
         assert!(paths.items[1].stroke.is_some());
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 1);
+    }
+
+    #[test]
+    fn simple_row_cancel_honors_literal_geometry_options() {
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let default_line = cancel_shape_lines("cancel(x)", &options);
+        let long_line = cancel_shape_lines("cancel(x, length: #200%)", &options);
+        let horizontal_line = cancel_shape_lines("cancel(x, angle: #90deg)", &options);
+        let vertical_line = cancel_shape_lines("cancel(x, angle: #0deg)", &options);
+        let inverted_line = cancel_shape_lines("cancel(x, inverted: #true)", &options);
+        let cross_lines = cancel_shape_lines("cancel(x, cross: #true)", &options);
+
+        assert_eq!(default_line.len(), 1);
+        assert_eq!(long_line.len(), 1);
+        assert_eq!(horizontal_line.len(), 1);
+        assert_eq!(vertical_line.len(), 1);
+        assert_eq!(inverted_line.len(), 1);
+        assert_eq!(cross_lines.len(), 2);
+
+        assert!(
+            line_length(long_line[0]) > line_length(default_line[0]) * 1.4,
+            "length option should lengthen the cancel line"
+        );
+        assert!(
+            line_delta(horizontal_line[0]).1.abs() < line_delta(horizontal_line[0]).0.abs() * 0.05,
+            "90deg should make the cancel line nearly horizontal"
+        );
+        assert!(
+            line_delta(vertical_line[0]).0.abs() < line_delta(vertical_line[0]).1.abs() * 0.05,
+            "0deg should make the cancel line nearly vertical"
+        );
+        assert!(
+            line_delta(default_line[0]).0.signum() != line_delta(inverted_line[0]).0.signum(),
+            "inverted cancel should flip the horizontal direction"
+        );
+        assert!(
+            line_delta(cross_lines[0]).0.signum() != line_delta(cross_lines[1]).0.signum(),
+            "cross cancel should draw opposing lines"
+        );
     }
 
     #[test]

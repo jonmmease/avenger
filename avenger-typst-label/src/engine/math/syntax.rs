@@ -1,11 +1,12 @@
 use crate::error::LabelError;
 
 use super::ast::{
-    MathArg, MathAst, MathAttach, MathCall, MathFraction, MathGroup, MathIdentifier, MathNode,
-    MathOperator, MathShorthand, MathSpace, MathStringLiteral, MathText, MathTextKind,
+    MathArg, MathAst, MathAttach, MathCall, MathCancel, MathCancelAngle, MathCancelLength,
+    MathCancelOptions, MathFraction, MathGroup, MathIdentifier, MathNode, MathOperator,
+    MathShorthand, MathSpace, MathStringLiteral, MathText, MathTextKind,
 };
 
-use crate::syntax::ast::{self as typst_ast, AstNode};
+use crate::syntax::ast::{self as typst_ast, AstNode, Unit};
 use crate::syntax::{
     RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
 };
@@ -341,6 +342,10 @@ fn lower_math_call(
         return lower_math_attach_call(call.args(), source, offset, range);
     }
 
+    if name == "cancel" {
+        return lower_math_cancel_call(call.args(), source, offset, range);
+    }
+
     if name == "scripts" || name == "limits" {
         let (name, args) =
             lower_math_attachment_mode_call_args(&name, call.args(), source, offset, range.start)?;
@@ -548,6 +553,88 @@ fn lower_math_attachment_mode_call_args(
     Ok((lowered_name, vec![body]))
 }
 
+fn lower_math_cancel_call(
+    args: typst_ast::MathArgs<'_>,
+    source: &str,
+    offset: usize,
+    range: std::ops::Range<usize>,
+) -> Result<Vec<MathNode>, LabelError> {
+    let mut body = None;
+    let mut options = MathCancelOptions::default();
+    for item in args.arg_items() {
+        if item.ends_in_semicolon {
+            return Err(unsupported(
+                item.arg.to_untyped().range().end + offset,
+                "semicolon math arguments are not supported in Avenger Typst subset",
+            ));
+        }
+        match item.arg {
+            typst_ast::Arg::Pos(expr) => {
+                if body.is_some() {
+                    return Err(unsupported(
+                        expr.to_untyped().range().start + offset,
+                        "cancel math expects one body argument",
+                    ));
+                }
+                body = Some(lower_math_expr(expr, source, offset)?);
+            }
+            typst_ast::Arg::Named(named) => {
+                let position = named_argument_position(named, source, offset);
+                match named.name().as_str() {
+                    "length" => {
+                        options.length = parse_math_cancel_length(named.expr(), source, position)?;
+                    }
+                    "inverted" => {
+                        options.inverted = parse_math_bool_literal_with_message(
+                            named.expr(),
+                            position,
+                            "unsupported cancel inverted value",
+                        )?;
+                    }
+                    "cross" => {
+                        options.cross = parse_math_bool_literal_with_message(
+                            named.expr(),
+                            position,
+                            "unsupported cancel cross value",
+                        )?;
+                    }
+                    "angle" => {
+                        options.angle = parse_math_cancel_angle(named.expr(), source, position)?;
+                    }
+                    "stroke" => {
+                        return Err(unsupported(
+                            position,
+                            "cancel stroke option is not supported yet",
+                        ));
+                    }
+                    _ => {
+                        return Err(unsupported(position, "unsupported cancel option"));
+                    }
+                }
+            }
+            typst_ast::Arg::Spread(spread) => {
+                return Err(unsupported(
+                    spread.to_untyped().range().start + offset,
+                    "spread math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+        }
+    }
+    let body =
+        body.ok_or_else(|| unsupported(range.start, "cancel math expects one body argument"))?;
+    if body.is_empty() {
+        return Err(unsupported(
+            range.start,
+            "cancel math body must not be empty",
+        ));
+    }
+    Ok(vec![MathNode::Cancel(MathCancel {
+        body,
+        options,
+        byte_range: range,
+    })])
+}
+
 fn lower_math_op_call_args(
     args: typst_ast::MathArgs<'_>,
     source: &str,
@@ -602,6 +689,102 @@ fn lower_math_op_call_args(
     let body = body.ok_or_else(|| unsupported(position, "op math expects one text argument"))?;
     let name = if limits { "op_limits" } else { "op" }.to_string();
     Ok((name, vec![body]))
+}
+
+fn parse_math_cancel_length(
+    expr: typst_ast::Expr<'_>,
+    source: &str,
+    position: usize,
+) -> Result<MathCancelLength, LabelError> {
+    let (value, unit) =
+        parse_math_numeric_literal(expr, source, position, "unsupported cancel length value")?;
+    let value = value as f32;
+    match unit {
+        Unit::Percent => Ok(MathCancelLength {
+            relative: value / 100.0,
+            absolute_em: 0.0,
+        }),
+        Unit::Em => Ok(MathCancelLength {
+            relative: 0.0,
+            absolute_em: value,
+        }),
+        _ => Err(unsupported(position, "unsupported cancel length value")),
+    }
+}
+
+fn parse_math_cancel_angle(
+    expr: typst_ast::Expr<'_>,
+    source: &str,
+    position: usize,
+) -> Result<MathCancelAngle, LabelError> {
+    if is_math_auto_literal(expr, source) {
+        return Ok(MathCancelAngle::Auto);
+    }
+    let (value, unit) =
+        parse_math_numeric_literal(expr, source, position, "unsupported cancel angle value")?;
+    match unit {
+        Unit::Deg => Ok(MathCancelAngle::Degrees(value as f32)),
+        Unit::Rad => Ok(MathCancelAngle::Degrees((value as f32).to_degrees())),
+        _ => Err(unsupported(position, "unsupported cancel angle value")),
+    }
+}
+
+fn parse_math_numeric_literal(
+    expr: typst_ast::Expr<'_>,
+    source: &str,
+    position: usize,
+    message: &'static str,
+) -> Result<(f64, Unit), LabelError> {
+    let raw = source
+        .get(expr.to_untyped().range())
+        .unwrap_or_default()
+        .trim();
+    match expr {
+        typst_ast::Expr::Numeric(value) => Ok(value.get()),
+        typst_ast::Expr::CodeBlock(block) => {
+            let exprs = block.body().exprs().collect::<Vec<_>>();
+            if let [typst_ast::Expr::Numeric(value)] = &exprs[..] {
+                Ok(value.get())
+            } else {
+                parse_raw_math_numeric_literal(raw).ok_or_else(|| unsupported(position, message))
+            }
+        }
+        _ => parse_raw_math_numeric_literal(raw).ok_or_else(|| unsupported(position, message)),
+    }
+}
+
+fn is_math_auto_literal(expr: typst_ast::Expr<'_>, source: &str) -> bool {
+    let raw = source
+        .get(expr.to_untyped().range())
+        .unwrap_or_default()
+        .trim()
+        .trim_start_matches('#');
+    match expr {
+        typst_ast::Expr::Ident(ident) => ident.as_str() == "auto",
+        typst_ast::Expr::CodeBlock(block) => {
+            let exprs = block.body().exprs().collect::<Vec<_>>();
+            matches!(&exprs[..], [typst_ast::Expr::Ident(ident)] if ident.as_str() == "auto")
+                || raw == "auto"
+        }
+        _ => raw == "auto",
+    }
+}
+
+fn parse_raw_math_numeric_literal(raw: &str) -> Option<(f64, Unit)> {
+    let raw = raw.trim().trim_start_matches('#');
+    let unit = ["deg", "rad", "em", "pt", "%"]
+        .iter()
+        .find(|unit| raw.ends_with(**unit))?;
+    let value = raw[..raw.len() - unit.len()].trim().parse().ok()?;
+    let unit = match *unit {
+        "deg" => Unit::Deg,
+        "rad" => Unit::Rad,
+        "em" => Unit::Em,
+        "pt" => Unit::Pt,
+        "%" => Unit::Percent,
+        _ => return None,
+    };
+    Some((value, unit))
 }
 
 fn lower_math_call_args(
@@ -1376,6 +1559,58 @@ mod tests {
 
         let err = parse_math("scripts(A, inline: #true)", 0).unwrap_err();
         assert!(format!("{err}").contains("unsupported scripts option"));
+    }
+
+    #[test]
+    fn parses_cancel_options() {
+        let math = parse("cancel(x, length: #200%, inverted: #true, cross: #true, angle: #45deg)");
+        let [MathNode::Cancel(cancel)] = &math.nodes[..] else {
+            panic!("cancel call should lower to typed cancel node");
+        };
+        assert_eq!(cancel.body.len(), 1);
+        assert!((cancel.options.length.relative - 2.0).abs() < f32::EPSILON);
+        assert!((cancel.options.length.absolute_em - 0.0).abs() < f32::EPSILON);
+        assert!(cancel.options.inverted);
+        assert!(cancel.options.cross);
+        assert!(matches!(
+            cancel.options.angle,
+            MathCancelAngle::Degrees(value) if (value - 45.0).abs() < f32::EPSILON
+        ));
+
+        let em_length = parse("cancel(x, length: #1.5em, angle: #auto)");
+        let [MathNode::Cancel(cancel)] = &em_length.nodes[..] else {
+            panic!("cancel call should lower to typed cancel node");
+        };
+        assert!((cancel.options.length.relative - 0.0).abs() < f32::EPSILON);
+        assert!((cancel.options.length.absolute_em - 1.5).abs() < f32::EPSILON);
+        assert_eq!(cancel.options.angle, MathCancelAngle::Auto);
+    }
+
+    #[test]
+    fn rejects_invalid_cancel_options() {
+        for (source, message) in [
+            ("cancel(x, foo: #true)", "unsupported cancel option"),
+            (
+                "cancel(x, length: #12pt)",
+                "unsupported cancel length value",
+            ),
+            (
+                "cancel(x, inverted: #auto)",
+                "unsupported cancel inverted value",
+            ),
+            ("cancel(x, cross: #auto)", "unsupported cancel cross value"),
+            ("cancel(x, angle: #50%)", "unsupported cancel angle value"),
+            (
+                "cancel(x, stroke: #red)",
+                "cancel stroke option is not supported yet",
+            ),
+        ] {
+            let err = parse_math(source, 0).unwrap_err();
+            assert!(
+                format!("{err}").contains(message),
+                "{source}: expected {message}, got {err}"
+            );
+        }
     }
 
     #[test]
