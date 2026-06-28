@@ -1203,8 +1203,13 @@ fn layout_simple_delimited_nodes(
     let Some(body) = layout_simple_nodes_as_atom(font, body_nodes, font_size, script_level)? else {
         return Ok(None);
     };
-    let delimiter_target_height =
-        delimiter_target_height_for_body(&body, DelimiterTarget::Ink, explicit_size, font_size);
+    let delimiter_target_height = delimiter_target_height_for_body(
+        font,
+        &body,
+        DelimiterTarget::Balanced,
+        explicit_size,
+        font_size,
+    )?;
     let body = if contains_mid_call(body_nodes) {
         layout_simple_nodes_as_atom_with_mid_target(
             font,
@@ -1224,26 +1229,30 @@ fn layout_simple_delimited_nodes(
         right,
         font_size,
         script_level,
-        DelimiterTarget::Ink,
+        DelimiterTarget::Balanced,
         delimiter_target_height,
     )
     .map(Some)
 }
 
 fn delimiter_target_height_for_body(
+    font: &MathFont,
     body: &LaidOutMathAtom,
     target: DelimiterTarget,
     explicit_size: Option<ast::MathDelimitedSize>,
     font_size: f32,
-) -> f32 {
+) -> Result<f32, LabelError> {
     let natural_target_height = match target {
-        DelimiterTarget::Ink => body.ink_ascent + body.ink_descent,
+        DelimiterTarget::Balanced => {
+            let axis = math_constant(font, font_size, |constants| constants.axis_height().value)?;
+            2.0 * (body.metrics.ascent - axis).max(body.metrics.descent + axis)
+        }
         DelimiterTarget::Frame => body.metrics.height,
     };
-    explicit_size
+    Ok(explicit_size
         .map(|size| resolve_relative_math_size(size, natural_target_height, font_size))
         .unwrap_or(natural_target_height)
-        .max(0.0)
+        .max(0.0))
 }
 
 fn layout_simple_delimited_atom(
@@ -1257,7 +1266,7 @@ fn layout_simple_delimited_atom(
     explicit_size: Option<ast::MathDelimitedSize>,
 ) -> Result<LaidOutMathAtom, LabelError> {
     let delimiter_target_height =
-        delimiter_target_height_for_body(&body, target, explicit_size, font_size);
+        delimiter_target_height_for_body(font, &body, target, explicit_size, font_size)?;
     layout_simple_delimited_atom_with_target_height(
         font,
         left,
@@ -1366,7 +1375,7 @@ fn resolve_relative_math_size(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DelimiterTarget {
-    Ink,
+    Balanced,
     Frame,
 }
 
@@ -5432,8 +5441,8 @@ mod tests {
     fn simple_row_stretches_mid_delimiter_inside_lr() {
         let options = MathLayoutOptions::default();
 
-        let raw = parse_math("lr(| A | frac(1, 2) |)", 0).unwrap();
-        let mid = parse_math("lr(| A mid(|) frac(1, 2) |)", 0).unwrap();
+        let raw = parse_math("lr(| A | frac(frac(1, 2), frac(1, 2)) |)", 0).unwrap();
+        let mid = parse_math("lr(| A mid(|) frac(frac(1, 2), frac(1, 2)) |)", 0).unwrap();
         let raw_artifact =
             try_typeset_simple_row_fragment(&raw, &options, &EngineOptions::default())
                 .unwrap()
@@ -5463,7 +5472,7 @@ mod tests {
             .map(|glyph| glyph.unicode.as_str())
             .collect();
         assert!(text.starts_with("|𝐴|1"));
-        assert!(text.ends_with("2|"));
+        assert!(text.ends_with("|"));
     }
 
     #[test]
@@ -5472,13 +5481,13 @@ mod tests {
 
         for (raw_source, mid_source, expected) in [
             (
-                "lr(| A slash frac(1, 2) |)",
-                "lr(| A mid(slash) frac(1, 2) |)",
+                "lr(| A slash frac(frac(1, 2), frac(1, 2)) |)",
+                "lr(| A mid(slash) frac(frac(1, 2), frac(1, 2)) |)",
                 "/",
             ),
             (
-                "lr(| A bar.v.double frac(1, 2) |)",
-                "lr(| A mid(bar.v.double) frac(1, 2) |)",
+                "lr(| A bar.v.double frac(frac(1, 2), frac(1, 2)) |)",
+                "lr(| A mid(bar.v.double) frac(frac(1, 2), frac(1, 2)) |)",
                 "‖",
             ),
         ] {
