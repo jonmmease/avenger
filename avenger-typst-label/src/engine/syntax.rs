@@ -424,12 +424,19 @@ fn parse_text_markup_option(
     Ok(())
 }
 
-fn parse_decoration_stroke(
+pub(crate) fn parse_decoration_stroke(
     expr: typst_ast::Expr<'_>,
     position: usize,
 ) -> Result<DecorationStroke, LabelError> {
     match expr {
         typst_ast::Expr::Auto(_) => Ok(DecorationStroke::default()),
+        typst_ast::Expr::CodeBlock(block) => {
+            let exprs = block.body().exprs().collect::<Vec<_>>();
+            let [expr] = &exprs[..] else {
+                return Err(unsupported(position, "unsupported decoration stroke value"));
+            };
+            parse_decoration_stroke(*expr, position)
+        }
         typst_ast::Expr::Dict(dict) => parse_stroke_dict(dict, position),
         typst_ast::Expr::Binary(binary) if binary.op() == typst_ast::BinOp::Add => {
             let mut stroke = parse_stroke_part(binary.lhs(), position)?;

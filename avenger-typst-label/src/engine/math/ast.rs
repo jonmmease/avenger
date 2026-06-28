@@ -1,5 +1,7 @@
 use std::ops::Range;
 
+use crate::engine::ast::DecorationStroke;
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MathAst {
     pub(crate) source: String,
@@ -121,12 +123,13 @@ pub(crate) struct MathCancel {
     pub(crate) byte_range: Range<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MathCancelOptions {
     pub(crate) length: MathCancelLength,
     pub(crate) inverted: bool,
     pub(crate) cross: bool,
     pub(crate) angle: MathCancelAngle,
+    pub(crate) stroke: DecorationStroke,
 }
 
 impl Default for MathCancelOptions {
@@ -136,6 +139,7 @@ impl Default for MathCancelOptions {
             inverted: false,
             cross: false,
             angle: MathCancelAngle::Auto,
+            stroke: DecorationStroke::default(),
         }
     }
 }

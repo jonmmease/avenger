@@ -197,6 +197,7 @@ fn is_embedded_literal_allowed_in_math(source: &str, idx: usize) -> bool {
     rest.starts_with("true")
         || rest.starts_with("false")
         || rest.starts_with("auto")
+        || rest.starts_with('(')
         || starts_with_math_numeric_literal(rest)
 }
 

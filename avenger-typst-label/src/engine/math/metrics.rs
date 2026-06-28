@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::engine::ast::DecorationStroke;
 use crate::engine::glyph_path::outline_glyph_path;
 use crate::error::LabelError;
 use crate::label::EngineOptions;
@@ -7,7 +8,7 @@ use crate::paths::{PathArtifact, PathCommand, PathData, PathItem, PathKind, Stro
 use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
-use crate::style::{FontWeight, MathFontSpec};
+use crate::style::{Color, FontWeight, MathFontSpec};
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
 use super::ast::{
@@ -125,7 +126,45 @@ struct LaidOutShape {
     path: PathData,
     x: f32,
     y: f32,
-    stroke_width: f32,
+    stroke: LaidOutStroke,
+}
+
+#[derive(Debug, Clone)]
+struct LaidOutStroke {
+    paint: Option<Color>,
+    width: f32,
+    line_cap: crate::paths::StrokeCap,
+    line_join: crate::paths::StrokeJoin,
+    dash: Option<Vec<f32>>,
+}
+
+impl LaidOutStroke {
+    fn new(width: f32) -> Self {
+        Self {
+            paint: None,
+            width,
+            line_cap: crate::paths::StrokeCap::Butt,
+            line_join: crate::paths::StrokeJoin::Miter,
+            dash: None,
+        }
+    }
+
+    fn from_decoration(stroke: &DecorationStroke, default_width: f32, font_size: f32) -> Self {
+        let width = stroke
+            .thickness
+            .map(|thickness| thickness.resolve(font_size))
+            .unwrap_or(default_width);
+        Self {
+            paint: stroke.paint,
+            width,
+            line_cap: stroke.line_cap.unwrap_or_default(),
+            line_join: stroke.line_join.unwrap_or_default(),
+            dash: stroke
+                .dash
+                .as_ref()
+                .and_then(|dash| dash.resolve(width, font_size)),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -529,7 +568,7 @@ fn layout_simple_line_call(
         },
         x: 0.0,
         y: line_y,
-        stroke_width: thickness,
+        stroke: LaidOutStroke::new(thickness),
     });
     draw_order.push(LaidOutDrawItem::Shape(shapes.len() - 1));
 
@@ -967,9 +1006,19 @@ fn layout_simple_cancel(
             angle,
             invert_first_line,
             font_size,
+            &cancel.options.stroke,
         );
         if cancel.options.cross {
-            push_cancel_line(&mut body, width, height, length, angle, true, font_size);
+            push_cancel_line(
+                &mut body,
+                width,
+                height,
+                length,
+                angle,
+                true,
+                font_size,
+                &cancel.options.stroke,
+            );
         }
     }
 
@@ -984,6 +1033,7 @@ fn push_cancel_line(
     angle: f32,
     inverted: bool,
     font_size: f32,
+    stroke: &DecorationStroke,
 ) {
     let angle = if inverted { -angle } else { angle };
     let center_x = width / 2.0;
@@ -1006,7 +1056,7 @@ fn push_cancel_line(
         },
         x: 0.0,
         y: 0.0,
-        stroke_width: CANCEL_STROKE_EM * font_size,
+        stroke: LaidOutStroke::from_decoration(stroke, CANCEL_STROKE_EM * font_size, font_size),
     });
     body.draw_order
         .push(LaidOutDrawItem::Shape(body.shapes.len() - 1));
@@ -1208,7 +1258,7 @@ fn layout_simple_radical(
         },
         x: radicand_x,
         y: line_y,
-        stroke_width: thickness,
+        stroke: LaidOutStroke::new(thickness),
     });
     draw_order.push(LaidOutDrawItem::Shape(shapes.len() - 1));
     append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, radicand);
@@ -1390,7 +1440,7 @@ fn layout_simple_stack_nodes(
             },
             x: line_x,
             y: line_y,
-            stroke_width: thickness,
+            stroke: LaidOutStroke::new(thickness),
         });
         draw_order.push(LaidOutDrawItem::Shape(shapes.len() - 1));
     }
@@ -2532,7 +2582,7 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
         }
         MathNode::Cancel(cancel) => vec![MathNode::Cancel(super::ast::MathCancel {
             body: style_math_nodes(&cancel.body, selection),
-            options: cancel.options,
+            options: cancel.options.clone(),
             byte_range: cancel.byte_range.clone(),
         })],
         MathNode::Accent(accent) => vec![MathNode::Accent(super::ast::MathAccent {
@@ -3628,11 +3678,11 @@ fn path_artifact_from_simple_row(
                         kind: PathKind::MathShape,
                         fill: None,
                         stroke: Some(Stroke {
-                            color: fill,
-                            width: shape.stroke_width,
-                            line_cap: crate::paths::StrokeCap::Butt,
-                            line_join: crate::paths::StrokeJoin::Miter,
-                            dash: None,
+                            color: shape.stroke.paint.unwrap_or(fill),
+                            width: shape.stroke.width,
+                            line_cap: shape.stroke.line_cap,
+                            line_join: shape.stroke.line_join,
+                            dash: shape.stroke.dash.clone(),
                         }),
                         transform: Transform {
                             dx: shape.x,
@@ -4066,6 +4116,41 @@ mod tests {
             line_delta(cross_lines[0]).0.signum() != line_delta(cross_lines[1]).0.signum(),
             "cross cancel should draw opposing lines"
         );
+    }
+
+    #[test]
+    fn simple_row_cancel_honors_literal_stroke_options() {
+        let math = parse_math(
+            "cancel(x, stroke: #(thickness: 0.25em, paint: maroon, cap: \"round\", dash: \"dotted\"))",
+            0,
+        )
+        .unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: false,
+        };
+
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple cancel call should be handled by Typst row path");
+        let paths = artifact.paths.expect("cancel paths should exist");
+        let stroke = paths
+            .items
+            .iter()
+            .find(|item| matches!(item.kind, PathKind::MathShape))
+            .and_then(|item| item.stroke.as_ref())
+            .expect("cancel stroke should exist");
+
+        assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
+        assert!((stroke.width - options.style.font_size * 0.25).abs() < 1e-4);
+        assert_eq!(stroke.line_cap, crate::paths::StrokeCap::Round);
+        assert_eq!(stroke.line_join, crate::paths::StrokeJoin::Miter);
+        let dash = stroke.dash.as_ref().expect("dash should be resolved");
+        assert_eq!(dash.len(), 2);
+        assert!((dash[0] - stroke.width).abs() < 1e-4);
+        assert!((dash[1] - 2.0).abs() < 1e-4);
     }
 
     #[test]

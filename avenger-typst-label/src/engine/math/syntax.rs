@@ -1,3 +1,4 @@
+use crate::engine::syntax::parse_decoration_stroke;
 use crate::error::LabelError;
 
 use super::ast::{
@@ -606,10 +607,7 @@ fn lower_math_cancel_call(
                         options.angle = parse_math_cancel_angle(named.expr(), source, position)?;
                     }
                     "stroke" => {
-                        return Err(unsupported(
-                            position,
-                            "cancel stroke option is not supported yet",
-                        ));
+                        options.stroke = parse_decoration_stroke(named.expr(), position)?;
                     }
                     _ => {
                         return Err(unsupported(position, "unsupported cancel option"));
@@ -1740,6 +1738,23 @@ mod tests {
         assert!((cancel.options.length.relative - 0.0).abs() < f32::EPSILON);
         assert!((cancel.options.length.absolute_em - 1.5).abs() < f32::EPSILON);
         assert_eq!(cancel.options.angle, MathCancelAngle::Auto);
+
+        let stroke = parse("cancel(x, stroke: #(thickness: 0.25em, paint: red, cap: \"round\"))");
+        let [MathNode::Cancel(cancel)] = &stroke.nodes[..] else {
+            panic!("cancel call should lower to typed cancel node");
+        };
+        assert_eq!(
+            cancel.options.stroke.paint,
+            Some(crate::style::Color::rgba(1.0, 0.0, 0.0, 1.0))
+        );
+        assert_eq!(
+            cancel.options.stroke.thickness,
+            Some(crate::engine::ast::DecorationLength::Em(0.25))
+        );
+        assert_eq!(
+            cancel.options.stroke.line_cap,
+            Some(crate::paths::StrokeCap::Round)
+        );
     }
 
     #[test]
@@ -1757,8 +1772,8 @@ mod tests {
             ("cancel(x, cross: #auto)", "unsupported cancel cross value"),
             ("cancel(x, angle: #50%)", "unsupported cancel angle value"),
             (
-                "cancel(x, stroke: #red)",
-                "cancel stroke option is not supported yet",
+                "cancel(x, stroke: #auto.none)",
+                "unsupported decoration stroke value",
             ),
         ] {
             let err = parse_math(source, 0).unwrap_err();
