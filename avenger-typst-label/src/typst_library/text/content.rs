@@ -49,7 +49,6 @@ pub(crate) enum TextMarkupKind {
     Overline,
     Subscript,
     Superscript,
-    Highlight,
     Lower,
     Upper,
     Smallcaps,

@@ -143,7 +143,6 @@ fn supported_static_markup_kind(kind: TextMarkupKind) -> Option<TextMarkupKind> 
         | TextMarkupKind::Overline
         | TextMarkupKind::Subscript
         | TextMarkupKind::Superscript
-        | TextMarkupKind::Highlight
         | TextMarkupKind::Lower
         | TextMarkupKind::Upper
         | TextMarkupKind::Smallcaps
@@ -162,7 +161,6 @@ fn transform_static_text(kind: TextMarkupKind, text: &str) -> String {
         | TextMarkupKind::Overline
         | TextMarkupKind::Subscript
         | TextMarkupKind::Superscript
-        | TextMarkupKind::Highlight
         | TextMarkupKind::Smallcaps
         | TextMarkupKind::Emph
         | TextMarkupKind::Strong

@@ -84,7 +84,10 @@ fn compile_markup_style_wrappers_handle_emoji_bidi_and_complex_script() {
 #[test]
 fn compile_resolves_named_emoji_and_symbol_aliases() {
     let label = engine()
-        .compile("Trend #emoji.chart.up #sym.arrow.r target", &LabelOptions::default())
+        .compile(
+            "Trend #emoji.chart.up #sym.arrow.r target",
+            &LabelOptions::default(),
+        )
         .unwrap();
 
     assert_eq!(label.semantic_text(), "Trend 📈 → target");

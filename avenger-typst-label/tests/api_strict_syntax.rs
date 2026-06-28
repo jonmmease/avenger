@@ -54,6 +54,21 @@ fn rejects_let_function() {
 }
 
 #[test]
+fn rejects_unretained_text_markup_functions() {
+    let err = engine()
+        .compile("#highlight[warning]", &LabelOptions::default())
+        .unwrap_err();
+
+    assert_eq!(
+        err,
+        LabelError::UnsupportedSyntax {
+            position: 0,
+            message: "unsupported static text command"
+        }
+    );
+}
+
+#[test]
 fn allows_common_typst_math_fragments() {
     let samples = [
         "$alpha + beta$",

@@ -66,16 +66,12 @@ impl TextDecoration {
         }
     }
 
-    fn is_highlight(&self) -> bool {
-        self.kind == TextMarkupKind::Highlight
-    }
-
     fn is_line_decoration(&self) -> bool {
         self.kind.is_line_decoration()
     }
 
     fn is_background(&self) -> bool {
-        self.is_highlight() || (self.is_line_decoration() && self.options.background)
+        self.is_line_decoration() && self.options.background
     }
 
     fn is_foreground(&self) -> bool {
@@ -475,7 +471,6 @@ fn text_script_for_kind(kind: TextMarkupKind) -> Option<TextScript> {
         TextMarkupKind::Underline
         | TextMarkupKind::Strike
         | TextMarkupKind::Overline
-        | TextMarkupKind::Highlight
         | TextMarkupKind::Lower
         | TextMarkupKind::Upper
         | TextMarkupKind::Smallcaps
@@ -511,7 +506,6 @@ fn text_style_for_static_run(
         | TextMarkupKind::Overline
         | TextMarkupKind::Subscript
         | TextMarkupKind::Superscript
-        | TextMarkupKind::Highlight
         | TextMarkupKind::Lower
         | TextMarkupKind::Upper
         | TextMarkupKind::Smallcaps => {}
@@ -586,7 +580,6 @@ fn text_features_for_static_run(
         TextMarkupKind::Underline
         | TextMarkupKind::Strike
         | TextMarkupKind::Overline
-        | TextMarkupKind::Highlight
         | TextMarkupKind::Lower
         | TextMarkupKind::Upper
         | TextMarkupKind::Emph
@@ -979,14 +972,6 @@ fn decoration_path_item(
 ) -> Option<PathItem> {
     let kind = decoration.kind;
     let item = match kind {
-        TextMarkupKind::Highlight => PathItem {
-            path: PathData::rect(metrics.width, metrics.height),
-            kind: PathKind::MathShape,
-            fill: Some(crate::typst_library::Color::rgba(1.0, 0.9, 0.25, 0.35)),
-            stroke: None,
-            transform: Transform::IDENTITY,
-            clip: None,
-        },
         TextMarkupKind::Underline => line_decoration_item(
             metrics.width,
             metrics,
@@ -1041,8 +1026,7 @@ fn decoration_line(
         TextMarkupKind::Underline => metrics.underline,
         TextMarkupKind::Strike => metrics.strikethrough,
         TextMarkupKind::Overline => metrics.overline,
-        TextMarkupKind::Highlight
-        | TextMarkupKind::Subscript
+        TextMarkupKind::Subscript
         | TextMarkupKind::Superscript
         | TextMarkupKind::Lower
         | TextMarkupKind::Upper
@@ -2063,20 +2047,5 @@ mod tests {
 
         assert!((x0 + 2.0).abs() < 1e-4);
         assert!((y - (artifact.metrics.baseline - font_size * 1.2)).abs() < 1e-4);
-    }
-
-    #[test]
-    fn highlighted_plain_line_emits_background_before_glyphs() {
-        let fontdb = test_fontdb();
-        let line = render_line("#highlight[warning]");
-        let options = LineLayoutOptions::default();
-
-        let artifact = try_typeset_plain_text_line("#highlight[warning]", &line, &options, &fontdb)
-            .unwrap()
-            .expect("supported static highlight should use fast path");
-        let paths = artifact.paths;
-
-        assert!(matches!(paths.items[0].kind, PathKind::MathShape));
-        assert!(paths.items[0].fill.is_some());
     }
 }

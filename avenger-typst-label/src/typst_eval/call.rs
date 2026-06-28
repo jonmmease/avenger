@@ -25,7 +25,6 @@ pub(crate) fn text_span_kind(name: &str) -> Option<TextMarkupKind> {
         "overline" => Some(TextMarkupKind::Overline),
         "sub" => Some(TextMarkupKind::Subscript),
         "super" => Some(TextMarkupKind::Superscript),
-        "highlight" => Some(TextMarkupKind::Highlight),
         "lower" => Some(TextMarkupKind::Lower),
         "upper" => Some(TextMarkupKind::Upper),
         "smallcaps" => Some(TextMarkupKind::Smallcaps),
