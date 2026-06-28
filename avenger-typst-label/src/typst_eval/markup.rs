@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use crate::typst_diag::LabelError;
+use crate::typst_eval::call::{named_color, text_span_kind};
 use crate::typst_eval::delimiter::{MathDelimiterInfo, MathDisplayHint};
 use crate::typst_label::{LabelParamValue, LabelParams};
 use crate::typst_library::Color;
@@ -340,30 +341,6 @@ fn code_field_access_name(access: typst_ast::FieldAccess<'_>) -> Option<String> 
     name.push('.');
     name.push_str(access.field().as_str());
     Some(name)
-}
-
-fn text_span_kind(name: &str) -> Option<TextMarkupKind> {
-    match name {
-        "underline" => Some(TextMarkupKind::Underline),
-        "strike" => Some(TextMarkupKind::Strike),
-        "overline" => Some(TextMarkupKind::Overline),
-        "sub" => Some(TextMarkupKind::Subscript),
-        "super" => Some(TextMarkupKind::Superscript),
-        "highlight" => Some(TextMarkupKind::Highlight),
-        "lower" => Some(TextMarkupKind::Lower),
-        "upper" => Some(TextMarkupKind::Upper),
-        "smallcaps" => Some(TextMarkupKind::Smallcaps),
-        "emph" => Some(TextMarkupKind::Emph),
-        "strong" => Some(TextMarkupKind::Strong),
-        "raw" => Some(TextMarkupKind::Raw),
-        _ => None,
-    }
-}
-
-pub(crate) fn is_retained_markup_name(name: &str) -> bool {
-    text_span_kind(name).is_some()
-        || matches!(name, "auto" | "true" | "false" | "none" | "sym" | "emoji")
-        || named_color(name).is_some()
 }
 
 fn parse_text_markup_option(
@@ -1179,29 +1156,6 @@ fn parse_join_literal(value: &str, position: usize) -> Result<StrokeJoin, LabelE
         "round" => Ok(StrokeJoin::Round),
         _ => Err(unsupported(position, "unsupported stroke join value")),
     }
-}
-
-fn named_color(name: &str) -> Option<Color> {
-    Some(match name {
-        "black" => Color::rgba(0.0, 0.0, 0.0, 1.0),
-        "white" => Color::rgba(1.0, 1.0, 1.0, 1.0),
-        "red" => Color::rgba(1.0, 0.0, 0.0, 1.0),
-        "green" => Color::rgba(0.0, 0.5, 0.0, 1.0),
-        "blue" => Color::rgba(0.0, 0.0, 1.0, 1.0),
-        "yellow" => Color::rgba(1.0, 1.0, 0.0, 1.0),
-        "orange" => Color::rgba(1.0, 0.65, 0.0, 1.0),
-        "purple" => Color::rgba(0.5, 0.0, 0.5, 1.0),
-        "maroon" => Color::rgba(0.5, 0.0, 0.0, 1.0),
-        "gray" | "grey" => Color::rgba(0.5, 0.5, 0.5, 1.0),
-        "silver" => Color::rgba(0.75, 0.75, 0.75, 1.0),
-        "teal" => Color::rgba(0.0, 0.5, 0.5, 1.0),
-        "aqua" | "cyan" => Color::rgba(0.0, 1.0, 1.0, 1.0),
-        "navy" => Color::rgba(0.0, 0.0, 0.5, 1.0),
-        "lime" => Color::rgba(0.0, 1.0, 0.0, 1.0),
-        "olive" => Color::rgba(0.5, 0.5, 0.0, 1.0),
-        "fuchsia" | "magenta" => Color::rgba(1.0, 0.0, 1.0, 1.0),
-        _ => return None,
-    })
 }
 
 fn emoji_alias(name: &str) -> Option<&'static str> {

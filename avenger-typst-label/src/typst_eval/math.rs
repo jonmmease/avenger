@@ -1,4 +1,10 @@
 use crate::typst_diag::LabelError;
+use crate::typst_eval::call::{
+    is_math_accent_call_name as is_retained_math_accent_call_name,
+    is_math_call_name as is_retained_math_call_name, is_math_delimiter_helper_call_name,
+    is_math_delimiter_symbol_call_name, is_math_size_call_name,
+    is_retained_math_name as is_retained_math_name_with, is_unsupported_math_table_call_name,
+};
 use crate::typst_label::{LabelParamValue, LabelParams};
 use crate::typst_library::math::item as ast;
 use crate::typst_library::math::item::{
@@ -459,7 +465,7 @@ fn lower_math_call(
         return lower_math_cancel_call(call.args(), source, offset, range, params);
     }
 
-    if is_math_accent_call_name(&name) {
+    if is_retained_math_accent_call_name(&name, |name| named_accent_char(name).is_some()) {
         return lower_math_accent_call(&name, call.args(), source, offset, range, params);
     }
 
@@ -490,7 +496,7 @@ fn lower_math_call(
         })]);
     }
 
-    if is_math_call_name(&name) {
+    if math_call_name(&name) {
         let (args, options) = if name == "lr"
             || is_math_delimiter_helper_call_name(&name)
             || is_math_delimiter_symbol_call_name(&name)
@@ -1788,71 +1794,21 @@ const SHORTHANDS: &[(&str, &str)] = &[
     (":=", "≔"),
 ];
 
-fn is_math_call_name(name: &str) -> bool {
-    matches!(
+fn math_call_name(name: &str) -> bool {
+    is_retained_math_call_name(
         name,
-        "frac"
-            | "sqrt"
-            | "root"
-            | "binom"
-            | "abs"
-            | "norm"
-            | "floor"
-            | "ceil"
-            | "round"
-            | "lr"
-            | "mid"
-            | "class"
-            | "underline"
-            | "overline"
-            | "bb"
-            | "cal"
-            | "frak"
-            | "sans"
-            | "mono"
-            | "serif"
-            | "scr"
-            | "upright"
-            | "italic"
-            | "bold"
-            | "display"
-            | "inline"
-            | "script"
-            | "sscript"
-            | "stretch"
-    ) || predefined_operator_text(name).is_some()
-        || is_math_accent_call_name(name)
-        || is_math_delimiter_symbol_call_name(name)
-}
-
-pub(crate) fn is_retained_math_name(name: &str) -> bool {
-    matches!(name, "op" | "attach" | "cancel" | "scripts" | "limits")
-        || is_math_call_name(name)
-        || is_unsupported_math_table_call_name(name)
-        || named_math_symbol(name).is_some()
-}
-
-fn is_unsupported_math_table_call_name(name: &str) -> bool {
-    matches!(name, "mat" | "vec" | "cases")
-}
-
-fn is_math_size_call_name(name: &str) -> bool {
-    matches!(name, "display" | "inline" | "script" | "sscript")
-}
-
-fn is_math_delimiter_helper_call_name(name: &str) -> bool {
-    matches!(name, "abs" | "norm" | "floor" | "ceil" | "round")
-}
-
-fn is_math_delimiter_symbol_call_name(name: &str) -> bool {
-    matches!(
-        name,
-        "ceil.l" | "floor.l" | "paren.l" | "brace.l" | "bracket.l" | "chevron.l" | "bar.double"
+        |name| predefined_operator_text(name).is_some(),
+        |name| named_accent_char(name).is_some(),
     )
 }
 
-fn is_math_accent_call_name(name: &str) -> bool {
-    name == "accent" || named_accent_char(name).is_some()
+pub(crate) fn is_retained_math_name(name: &str) -> bool {
+    is_retained_math_name_with(
+        name,
+        |name| predefined_operator_text(name).is_some(),
+        |name| named_accent_char(name).is_some(),
+        |name| named_math_symbol(name).is_some(),
+    )
 }
 
 pub(crate) fn named_accent_char(name: &str) -> Option<char> {
