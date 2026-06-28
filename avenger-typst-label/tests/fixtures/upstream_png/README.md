@@ -43,6 +43,19 @@ Agent checklist:
 9. If label-engine code changed, run the full crate raster suite.
 10. Stage only suite files and intentional crate metadata.
 
+Definition of done for the first PNG-only build:
+
+- `cases.toml` drives the suite; Rust tests do not hard-code case IDs.
+- The generator can rebuild all checked-in `ref/*.png` files from snippets in
+  `src/*.typ` using upstream Typst from `../typst`.
+- The integration test never invokes upstream Typst; it only reads the
+  checked-in PNG references.
+- The initial corpus has two or three smoke cases, not a broad feature sweep.
+- A deliberately perturbed reference fails with a useful case-id message and
+  writes `expected.png`, `actual.png`, and `diff.png` artifacts.
+- A clean run passes both the generator and parity test commands below in
+  release mode.
+
 ## Layout
 
 - `cases.toml`: one manifest entry per case.
@@ -192,6 +205,11 @@ Required commands:
   cargo run --release -p avenger-typst-label --features raster --bin generate_upstream_png_refs
   cargo test --release -p avenger-typst-label --features raster upstream_png_parity -- --nocapture
   cargo test --release -p avenger-typst-label --features raster -- --nocapture
+
+For a first build, stop after the manifest, generator, integration test, and
+two or three smoke references are working. Do not expand the corpus in the same
+commit. For later extensions, add exactly one implemented feature family per
+commit.
 
 Before committing, inspect every generated ref PNG directly or in a temporary
 mosaic. Confirm each image is non-blank, unclipped, uses the intended
