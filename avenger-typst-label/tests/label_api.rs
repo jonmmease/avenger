@@ -1,7 +1,8 @@
 use avenger_typst_label::{
-    LabelEngine, LabelError, LabelFrameItem, LabelOptions, LabelParamValue, PdfOptions, SvgOptions,
-    TextItemKind, escape_text, pdf_items, svg_items,
+    Color, LabelEngine, LabelError, LabelFrameItem, LabelOptions, LabelParamValue, PdfOptions,
+    Stroke, StrokeCap, StrokeJoin, SvgOptions, TextItemKind, escape_text, pdf_items, svg_items,
 };
+use indexmap::IndexMap;
 
 #[cfg(feature = "raster")]
 use avenger_typst_label::{RasterOptions, rasterize};
@@ -28,6 +29,18 @@ fn assert_metrics_close(actual: f32, expected: f32) {
         (actual - expected).abs() <= 0.001,
         "expected {actual} to be within 0.001 of {expected}"
     );
+}
+
+fn first_stroke(label: &avenger_typst_label::CompiledLabel) -> &Stroke {
+    label
+        .frame
+        .items
+        .iter()
+        .find_map(|(_, item)| match item {
+            LabelFrameItem::Shape(shape) => shape.item.stroke.as_ref(),
+            _ => None,
+        })
+        .expect("label should contain a stroked shape")
 }
 
 #[test]
@@ -145,6 +158,79 @@ fn compile_errors_for_non_scalar_text_param() {
             message: "label parameter value cannot be rendered as text"
         }
     );
+}
+
+#[test]
+fn compile_resolves_stroke_paint_param() {
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "series_color".to_string(),
+        LabelParamValue::Str("red".to_string()),
+    );
+
+    let label = engine()
+        .compile("#underline(stroke: series_color)[Series]", &options)
+        .unwrap();
+    let stroke = first_stroke(&label);
+
+    assert_eq!(stroke.color, Color::rgba(1.0, 0.0, 0.0, 1.0));
+    assert!(stroke.width > 0.0);
+}
+
+#[test]
+fn compile_resolves_stroke_string_param() {
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "series_stroke".to_string(),
+        LabelParamValue::Str("1.5pt + blue".to_string()),
+    );
+
+    let label = engine()
+        .compile("#underline(stroke: series_stroke)[Series]", &options)
+        .unwrap();
+    let stroke = first_stroke(&label);
+
+    assert_eq!(stroke.color, Color::rgba(0.0, 0.0, 1.0, 1.0));
+    assert_metrics_close(stroke.width, 1.5);
+}
+
+#[test]
+fn compile_resolves_stroke_dict_param() {
+    let mut stroke_param = IndexMap::new();
+    stroke_param.insert(
+        "paint".to_string(),
+        LabelParamValue::Str("maroon".to_string()),
+    );
+    stroke_param.insert(
+        "thickness".to_string(),
+        LabelParamValue::Str("2pt".to_string()),
+    );
+    stroke_param.insert("cap".to_string(), LabelParamValue::Str("round".to_string()));
+    stroke_param.insert(
+        "join".to_string(),
+        LabelParamValue::Str("bevel".to_string()),
+    );
+    stroke_param.insert(
+        "dash".to_string(),
+        LabelParamValue::Str("dashed".to_string()),
+    );
+
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "series_stroke".to_string(),
+        LabelParamValue::Dict(stroke_param),
+    );
+
+    let label = engine()
+        .compile("#underline(stroke: series_stroke)[Series]", &options)
+        .unwrap();
+    let stroke = first_stroke(&label);
+
+    assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
+    assert_metrics_close(stroke.width, 2.0);
+    assert_eq!(stroke.line_cap, StrokeCap::Round);
+    assert_eq!(stroke.line_join, StrokeJoin::Bevel);
+    assert_eq!(stroke.dash.as_deref(), Some([3.0, 3.0].as_slice()));
 }
 
 #[test]

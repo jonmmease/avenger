@@ -13,7 +13,7 @@ use crate::engine::inline::try_typeset_text_line;
 #[cfg(test)]
 use crate::engine::math::metrics::try_typeset_simple_row_fragment;
 use crate::engine::math::syntax::parse_math;
-use crate::engine::syntax::parse_line;
+use crate::engine::syntax::parse_line_with_params;
 
 #[derive(Clone)]
 pub(crate) struct TypstEngineCore {
@@ -57,7 +57,7 @@ impl TypstEngineCore {
             return Ok(empty_text_line_artifact(source, options));
         }
 
-        let line = parse_line(source)?;
+        let line = parse_line_with_params(source, &options.params)?;
         validate_line_math(&line, options.limits)?;
         self.typeset_parsed_line(source, &line, options)
     }
