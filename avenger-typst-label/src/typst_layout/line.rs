@@ -471,7 +471,7 @@ mod tests {
     }
 
     #[test]
-    fn plain_text_syntax_treats_invalid_math_as_literal_text() {
+    fn plain_text_line_treats_invalid_math_as_literal_text() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let options = LineLayoutOptions::default();
 
