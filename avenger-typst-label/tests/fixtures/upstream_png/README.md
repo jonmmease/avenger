@@ -27,6 +27,44 @@ Do not prepare SVG or PDF parity scaffolding while building this suite. If a
 case exposes an SVG/PDF concern, record it in the scratch plan and keep the PNG
 case focused on raster equivalence.
 
+Copy-paste first-build prompt for an implementation agent:
+
+```text
+Build the PNG-only upstream Typst parity suite for avenger-typst-label.
+
+Scope is PNG only. Do not add SVG/PDF parity, chart baselines, scenegraph
+tests, browser tests, or renderer integration. Keep everything inside
+avenger-typst-label and behind the existing raster feature.
+
+Create or repair:
+- src/bin/generate_upstream_png_refs.rs
+- tests/upstream_png_parity.rs
+- tests/fixtures/upstream_png/README.md
+- tests/fixtures/upstream_png/cases.toml
+- tests/fixtures/upstream_png/src/{id}.typ
+- tests/fixtures/upstream_png/ref/{id}.png
+
+Use upstream Typst only from the generator, via ../typst. The integration test
+must be offline and compare Avenger raster output only against checked-in
+ref/*.png files.
+
+Start with exactly two or three smoke cases: one text decoration case, one
+math fraction/root case, and one symbol case. Do not expand the corpus in the
+first commit.
+
+Run all commands in release mode:
+  cargo run --release -p avenger-typst-label --features raster --bin generate_upstream_png_refs
+  cargo test --release -p avenger-typst-label --features raster upstream_png_parity -- --nocapture
+  cargo test --release -p avenger-typst-label --features raster -- --nocapture
+
+Before committing, inspect every generated ref PNG directly or in a temporary
+mosaic. Confirm non-blank output, no clipping, intended Lato/Lete Sans Math
+fonts, and visible exercise of the target feature. For generator/comparator
+changes, perturb one checked-in ref, verify useful expected/actual/diff
+failure artifacts, restore/regenerate, rerun, and commit only suite files and
+curated refs.
+```
+
 There are two modes:
 
 - Existing suite mode: add coverage for one implemented label feature family.
