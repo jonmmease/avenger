@@ -3,26 +3,11 @@ use crate::error::LabelError;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum UnmatchedDelimiterPolicy {
-    TreatAsLiteral,
-    Error,
-}
-
-impl Default for UnmatchedDelimiterPolicy {
-    fn default() -> Self {
-        Self::TreatAsLiteral
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MathDelimiterOptions {
     pub delimiter: char,
     pub escape: Option<char>,
-    pub unmatched: UnmatchedDelimiterPolicy,
-    pub allow_display_style: bool,
 }
 
 impl Default for MathDelimiterOptions {
@@ -30,8 +15,6 @@ impl Default for MathDelimiterOptions {
         Self {
             delimiter: '$',
             escape: Some('\\'),
-            unmatched: UnmatchedDelimiterPolicy::TreatAsLiteral,
-            allow_display_style: false,
         }
     }
 }
@@ -106,14 +89,7 @@ pub(crate) fn parse_segments(
                     pos = close_end;
                     continue;
                 }
-                None => match options.unmatched {
-                    UnmatchedDelimiterPolicy::TreatAsLiteral => {
-                        plain.push(ch);
-                    }
-                    UnmatchedDelimiterPolicy::Error => {
-                        return Err(LabelError::UnmatchedDelimiter { position: idx });
-                    }
-                },
+                None => plain.push(ch),
             }
         } else {
             plain.push(ch);

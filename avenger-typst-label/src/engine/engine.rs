@@ -3,13 +3,13 @@ use crate::error::{LabelError, LabelInitError};
 use crate::label::EngineOptions;
 use crate::paths::PathArtifact;
 use crate::pdf::PdfTextLayer;
-use crate::types::{
-    MathFragmentOptions, MathRunArtifact, MathSyntaxMode, TextLineArtifact, TextLineOptions,
-    TypesetMetrics,
-};
+#[cfg(test)]
+use crate::types::{MathFragmentOptions, MathRunArtifact};
+use crate::types::{MathSyntaxMode, TextLineArtifact, TextLineOptions, TypesetMetrics};
 
 use crate::engine::ast::{LineNode, ParsedLine, PlainTextNode};
 use crate::engine::inline::try_typeset_text_line;
+#[cfg(test)]
 use crate::engine::math::metrics::try_typeset_simple_row_fragment;
 use crate::engine::math::syntax::parse_math;
 use crate::engine::syntax::parse_line;
@@ -34,6 +34,7 @@ impl TypstEngineCore {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn typeset_fragment(
         &self,
         source: &str,
@@ -82,6 +83,7 @@ impl TypstEngineCore {
     }
 }
 
+#[cfg(test)]
 fn unsupported_fragment() -> Result<MathRunArtifact, LabelError> {
     Err(LabelError::UnsupportedOutput(
         "this Typst math subset is not supported yet",

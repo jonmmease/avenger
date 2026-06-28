@@ -17,9 +17,6 @@ pub enum LabelError {
     #[error("math nesting depth is {actual}, exceeding max_math_depth={limit}")]
     MathDepthExceeded { actual: usize, limit: usize },
 
-    #[error("unmatched math delimiter at byte {position}")]
-    UnmatchedDelimiter { position: usize },
-
     #[error("empty math fragment at byte range {start}..{end}")]
     EmptyMathFragment { start: usize, end: usize },
 
