@@ -108,248 +108,91 @@ the chart stack is `TextMeasurementService`, retained only so derived mark
 adjustments can reuse the evaluation-level text measurement cache; it is not a
 backend-selection seam.
 
-## Public API Sketch
+## Public API Shape
 
-Math parsing is now default behavior for text rendered through Avenger. The
-public configuration surface should stay small and should not expose a switch
-back to a plain/cosmic text backend. The current shape is a single concrete
-`avenger_text::TextEngine` plus a small `TextMarkupConfig` for delimiters,
-strict syntax, limits, and error policy.
-
-The older opt-in sketch below is retained as historical context, not as the
-current API plan:
+Math parsing is now part of the Typst-label engine used by Avenger text. The
+public configuration surface stays small: chart and scene APIs opt labels into
+Typst markup, while `avenger-text` owns fallback, truncation, measurement cache,
+and renderer integration policy. The lower-level `avenger-typst-label` crate is
+a frame-first label engine:
 
 ```rust
-pub enum TextMarkupMode {
-    Plain,
-    TypstMathDelimited(MathDelimiterOptions),
+pub struct LabelEngine;
+
+impl LabelEngine {
+    pub fn compile(
+        &self,
+        source: &str,
+        options: &LabelOptions,
+    ) -> Result<CompiledLabel, LabelError>;
+
+    pub fn compile_text(
+        &self,
+        text: &str,
+        options: &LabelOptions,
+    ) -> Result<CompiledLabel, LabelError>;
 }
 
-pub struct TextMathConfig {
-    pub mode: TextMarkupMode,
-    pub math_style: MathStyle,
-    pub syntax: MathSyntaxMode,
-    pub limits: MathLabelLimits,
-    pub error_policy: MathErrorPolicy,
+pub struct LabelOptions {
+    pub text: TextStyle,
+    pub math: MathStyle,
+    pub params: LabelParams,
+    pub limits: LabelLimits,
 }
 ```
 
-High-level chart helpers such as these can still be added later, but they
-should lower to the same opt-in text markup configuration:
+`compile` uses canonical Typst label markup, including `$...$` math spans and
+Typst escaping. `compile_text` is the literal fast path used for plain
+data-derived labels and fallback rendering; it is equivalent to escaping the
+source and compiling markup, but avoids the markup parser.
+
+The compiled artifact is page-independent and reused by all lowerers:
 
 ```rust
-plot.title("Plain title");
-plot.title_math("sum_(i=1)^n x_i");
-axis.title_math("x^2");
-legend.label_format_math(...);
-```
-
-For labels that intentionally mix text and math, use a helper that parses
-math spans:
-
-```rust
-pub fn typeset_math_label(
-    source: &str,
-    options: &MathLabelOptions,
-) -> Result<MathLabelArtifact, MathLabelError>;
-```
-
-Suggested configuration:
-
-```rust
-pub struct MathLabelOptions {
-    pub text_style: TextStyle,
-    pub math_style: MathStyle,
-    pub outputs: MathLabelOutputs,
-    pub delimiters: MathDelimiterOptions,
-    pub syntax: MathSyntaxMode,
-    pub raster_scale: f32,
-    pub limits: MathLabelLimits,
-}
-
-pub struct MathStyle {
-    /// Default: New Computer Modern Math.
-    pub math_font: MathFontSpec,
-
-    /// Usually inherited from surrounding text.
-    pub font_size: f32,
-
-    pub fill: Color,
-
-    /// Default should likely be false for chart labels.
-    pub allow_display_style: bool,
-}
-
-pub enum MathFontSpec {
-    NewComputerModernMath,
-    Family(String),
-    FontId(FontId),
-}
-
-pub struct MathLabelOutputs {
-    pub paths: bool,
-    pub raster: bool,
-
-    /// Exact glyph placement and font data for a PDF text-injection pass.
-    pub pdf_text_layer: bool,
-}
-
-pub struct MathDelimiterOptions {
-    /// Default: '$'.
-    pub delimiter: char,
-
-    /// Default: Some('\\'), so `\$` is literal.
-    pub escape: Option<char>,
-
-    pub unmatched: UnmatchedDelimiterPolicy,
-}
-
-pub enum UnmatchedDelimiterPolicy {
-    TreatAsLiteral,
-    Error,
-}
-
-pub enum MathSyntaxMode {
-    /// Typst math syntax, but no embedded Typst code/content.
-    TypstFragmentStrict,
-}
-
-pub struct MathLabelLimits {
-    pub max_source_bytes: usize,
-    pub max_math_spans: usize,
-    pub max_math_depth: usize,
-}
-```
-
-Suggested artifact shape:
-
-```rust
-pub struct MathLabelArtifact {
+pub struct CompiledLabel {
     pub source: String,
+    pub frame: LabelFrame,
     pub metrics: LabelMetrics,
-    pub runs: Vec<LabelRun>,
-    pub font_resources: Vec<MathFontResource>,
-    pub warnings: Vec<MathLabelWarning>,
+    pub flags: LabelFlags,
+    pub warnings: Vec<LabelWarning>,
 }
 
-pub struct LabelMetrics {
-    pub width: f32,
-    pub height: f32,
+pub struct LabelFrame {
+    pub size: Size,
     pub baseline: f32,
-    pub ascent: f32,
-    pub descent: f32,
+    pub items: Vec<(Point, LabelFrameItem)>,
 }
 
-pub enum LabelRun {
-    Text(TextRun),
-    Math(MathRun),
-}
-
-pub struct MathRun {
-    /// Source inside `$...$`, without delimiters.
-    pub source: String,
-    pub byte_range: std::ops::Range<usize>,
-    pub x: f32,
-    pub y: f32,
-    pub metrics: LabelMetrics,
-    pub paths: Option<MathPathArtifact>,
-    pub raster: Option<MathRasterArtifact>,
-    pub pdf_text: Option<MathPdfTextLayer>,
-}
-
-pub struct MathPathArtifact {
-    pub logical_width: f32,
-    pub logical_height: f32,
-    pub commands: Vec<MathPathItem>,
-}
-
-pub struct MathPathItem {
-    pub path: PathData,
-    pub kind: MathPathKind,
-    pub fill: Option<Color>,
-    pub stroke: Option<Stroke>,
-    pub transform: Transform,
-    pub clip: Option<PathData>,
-}
-
-pub enum MathPathKind {
-    /// Glyph outlines generated from a Typst text item.
-    /// PDF export may omit these and inject `MathPdfTextLayer` instead.
-    GlyphOutline { glyph_run: usize, glyph_index: usize },
-
-    /// Non-text math geometry: fraction bars, radicals, cancel strokes,
-    /// some stretchy constructions, etc.
-    MathShape,
-}
-
-pub struct MathRasterArtifact {
-    pub image: RgbaImage,
-    pub scale: f32,
-    pub logical_width: f32,
-    pub logical_height: f32,
-    pub origin_x: f32,
-    pub origin_y: f32,
-}
-
-pub struct MathFontResource {
-    pub id: MathFontResourceId,
-    pub family: String,
-    pub postscript_name: Option<String>,
-    pub face_index: u32,
-    pub units_per_em: f32,
-
-    /// Use shared storage or a font registry in real code.
-    pub data: std::sync::Arc<[u8]>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MathFontResourceId(pub u32);
-
-pub struct MathPdfTextLayer {
-    pub logical_width: f32,
-    pub logical_height: f32,
-
-    /// Useful for accessibility/search even if glyph-level extraction is
-    /// imperfect.
-    pub semantic_text: String,
-
-    pub glyph_runs: Vec<MathPdfGlyphRun>,
-}
-
-pub struct MathPdfGlyphRun {
-    pub font: MathFontResourceId,
-    pub font_size: f32,
-    pub fill: Color,
-    pub stroke: Option<Stroke>,
-    pub text: String,
-    pub glyphs: Vec<MathPdfGlyph>,
-}
-
-pub struct MathPdfGlyph {
-    /// Original glyph id in `font`. A PDF postprocessor can remap this into a
-    /// subset CID.
-    pub glyph_id: u16,
-
-    /// Byte range into `MathPdfGlyphRun::text` for this glyph's source
-    /// cluster. This mirrors Typst/krilla and feeds ToUnicode/ActualText.
-    pub text_range: std::ops::Range<usize>,
-
-    /// Glyph origin in math-run coordinates, in points, before the enclosing
-    /// label/scene/page transform.
-    pub x: f32,
-    pub y: f32,
-
-    pub x_advance: f32,
-    pub y_advance: f32,
-
-    /// Usually identity, but useful for transformed groups.
-    pub transform: Transform,
+pub enum LabelFrameItem {
+    Text(TextItem),
+    Shape(ShapeItem),
+    Image(ImageItem),
+    Group(GroupItem),
 }
 ```
 
-The artifact is intentionally page-independent. Glyph coordinates are in
-math-run coordinates. The PDF renderer supplies the final label, scene, and page
-transform when injecting `MathPdfTextLayer`.
+Raster, SVG/vector, and PDF output are derived from that same frame:
+
+```rust
+pub fn rasterize(
+    label: &CompiledLabel,
+    options: &RasterOptions,
+) -> Result<RasterImage, LabelError>;
+
+pub fn svg_items(
+    label: &CompiledLabel,
+    options: &SvgOptions,
+) -> Result<SvgLabel, LabelError>;
+
+pub fn pdf_items(
+    label: &CompiledLabel,
+    options: &PdfOptions,
+) -> Result<PdfLabel, LabelError>;
+```
+
+PDF artifacts carry font resources, glyph runs, paths, and draw order. The PDF
+renderer supplies the final label, scene, and page transform when converting
+these frame-local items into krilla operations.
 
 ## Font Choice
 
