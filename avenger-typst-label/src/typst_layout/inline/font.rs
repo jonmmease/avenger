@@ -395,7 +395,7 @@ impl TextFace {
                 commands: Vec::new(),
             };
         };
-        super::glyph_path::outline_glyph_path(&face, glyph_id, font_size, x, y)
+        crate::typst_layout::glyph_path::outline_glyph_path(&face, glyph_id, font_size, x, y)
     }
 
     pub(crate) fn raster_glyph_image(

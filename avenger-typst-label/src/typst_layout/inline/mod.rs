@@ -13,7 +13,9 @@ use crate::typst_svg::{
 };
 use crate::warnings::LabelWarning;
 
-use super::font::{
+pub(crate) mod font;
+
+use self::font::{
     SegmentedText, ShapedText, TextDecorationLineMetrics, TextDecorationMetrics, TextFace,
     TextScript, shape_plain_text_with_fallback,
 };
@@ -2011,10 +2013,10 @@ fn typeset_segmented_plain_text_line(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::font::build_text_fontdb;
     use crate::label::EngineOptions;
     use crate::types::LineOutputOptions;
     use crate::typst_eval::markup::parse_line;
+    use crate::typst_layout::inline::font::build_text_fontdb;
 
     fn test_fontdb() -> fontdb::Database {
         build_text_fontdb(&EngineOptions::default())
