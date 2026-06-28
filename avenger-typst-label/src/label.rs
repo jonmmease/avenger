@@ -10,8 +10,8 @@ use crate::pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 pub use crate::raster::RasterImage;
 use crate::style::{MathStyle, PlainTextStyle};
 use crate::types::{
-    PositionedTextLineRun, PositionedTextLineRunKind, TextLineArtifact, TextLineOptions,
-    TextLineOutputRequest, TypesetMetrics,
+    LineLayoutArtifact, LineLayoutOptions, LineOutputOptions, PositionedTextLineRun,
+    PositionedTextLineRunKind, TypesetMetrics,
 };
 
 #[cfg(feature = "raster")]
@@ -120,7 +120,7 @@ impl LabelEngine {
         validate_label_params(&options.params)?;
         let artifact = self
             .inner
-            .typeset_markup_line(source, &text_line_options(options))?;
+            .typeset_markup_line(source, &line_layout_options(options))?;
         Ok(CompiledLabel::from_artifact(
             artifact,
             label_has_markup(source),
@@ -143,7 +143,7 @@ impl LabelEngine {
         validate_source_limits(text, options.limits)?;
         let artifact = self
             .inner
-            .typeset_plain_line(text, &text_line_options(options))?;
+            .typeset_plain_line(text, &line_layout_options(options))?;
         Ok(CompiledLabel::from_artifact(artifact, false))
     }
 
@@ -167,7 +167,7 @@ pub struct CompiledLabel {
 }
 
 impl CompiledLabel {
-    fn from_artifact(artifact: TextLineArtifact, has_markup: bool) -> Self {
+    fn from_artifact(artifact: LineLayoutArtifact, has_markup: bool) -> Self {
         let metrics = LabelMetrics::from(artifact.metrics);
         let flags = LabelFlags {
             has_math: artifact
@@ -234,7 +234,7 @@ pub struct LabelFrame {
 }
 
 impl LabelFrame {
-    fn from_artifact(artifact: &TextLineArtifact) -> Self {
+    fn from_artifact(artifact: &LineLayoutArtifact) -> Self {
         let mut items = Vec::new();
         for run in &artifact.positioned_runs {
             let paths = paths_for_run(run, artifact.paths.as_ref());
@@ -819,12 +819,12 @@ fn collect_pdf_items(items: &[(Point, LabelFrameItem)], output: &mut PdfLabel) {
     }
 }
 
-fn text_line_options(options: &LabelOptions) -> TextLineOptions {
-    TextLineOptions {
+fn line_layout_options(options: &LabelOptions) -> LineLayoutOptions {
+    LineLayoutOptions {
         text_style: options.text.clone(),
         math_style: options.math.clone(),
         params: options.params.clone(),
-        outputs: TextLineOutputRequest {
+        outputs: LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,

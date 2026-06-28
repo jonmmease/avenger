@@ -4,12 +4,12 @@ use crate::label::EngineOptions;
 use crate::limits::LabelLimits;
 use crate::paths::PathArtifact;
 use crate::pdf::PdfTextLayer;
+use crate::types::{LineLayoutArtifact, LineLayoutOptions, TypesetMetrics};
 #[cfg(test)]
-use crate::types::{MathFragmentOptions, MathRunArtifact};
-use crate::types::{TextLineArtifact, TextLineOptions, TypesetMetrics};
+use crate::types::{MathLayoutOptions, MathRunArtifact};
 
 use crate::engine::ast::{LineNode, ParsedLine, PlainTextNode};
-use crate::engine::inline::try_typeset_text_line;
+use crate::engine::inline::try_layout_text_line;
 #[cfg(test)]
 use crate::engine::math::metrics::try_typeset_simple_row_fragment;
 #[cfg(test)]
@@ -41,7 +41,7 @@ impl TypstEngineCore {
     pub(crate) fn typeset_fragment(
         &self,
         source: &str,
-        options: &MathFragmentOptions,
+        options: &MathLayoutOptions,
     ) -> Result<MathRunArtifact, LabelError> {
         let math = parse_math(source, 0)?;
         if let Some(artifact) = try_typeset_simple_row_fragment(&math, options, &self.config)? {
@@ -53,10 +53,10 @@ impl TypstEngineCore {
     pub(crate) fn typeset_markup_line(
         &self,
         source: &str,
-        options: &TextLineOptions,
-    ) -> Result<TextLineArtifact, LabelError> {
+        options: &LineLayoutOptions,
+    ) -> Result<LineLayoutArtifact, LabelError> {
         if source.is_empty() && options.outputs.raster.is_none() {
-            return Ok(empty_text_line_artifact(source, options));
+            return Ok(empty_line_layout_artifact(source, options));
         }
 
         let line = parse_line_with_params(source, &options.params)?;
@@ -67,10 +67,10 @@ impl TypstEngineCore {
     pub(crate) fn typeset_plain_line(
         &self,
         source: &str,
-        options: &TextLineOptions,
-    ) -> Result<TextLineArtifact, LabelError> {
+        options: &LineLayoutOptions,
+    ) -> Result<LineLayoutArtifact, LabelError> {
         if source.is_empty() && options.outputs.raster.is_none() {
-            return Ok(empty_text_line_artifact(source, options));
+            return Ok(empty_line_layout_artifact(source, options));
         }
 
         let line = plain_text_line(source);
@@ -81,9 +81,9 @@ impl TypstEngineCore {
         &self,
         source: &str,
         line: &ParsedLine,
-        options: &TextLineOptions,
-    ) -> Result<TextLineArtifact, LabelError> {
-        if let Some(artifact) = try_typeset_text_line(
+        options: &LineLayoutOptions,
+    ) -> Result<LineLayoutArtifact, LabelError> {
+        if let Some(artifact) = try_layout_text_line(
             source,
             line,
             options,
@@ -98,7 +98,7 @@ impl TypstEngineCore {
             ));
         }
 
-        unsupported_text_line()
+        unsupported_line_layout()
     }
 }
 
@@ -109,7 +109,7 @@ fn unsupported_fragment() -> Result<MathRunArtifact, LabelError> {
     ))
 }
 
-fn unsupported_text_line() -> Result<TextLineArtifact, LabelError> {
+fn unsupported_line_layout() -> Result<LineLayoutArtifact, LabelError> {
     Err(LabelError::UnsupportedOutput(
         "this Typst text-line subset is not supported yet",
     ))
@@ -316,7 +316,7 @@ fn nodes_contain_static_markup(nodes: &[LineNode]) -> bool {
     })
 }
 
-fn empty_text_line_artifact(source: &str, options: &TextLineOptions) -> TextLineArtifact {
+fn empty_line_layout_artifact(source: &str, options: &LineLayoutOptions) -> LineLayoutArtifact {
     let metrics = TypesetMetrics {
         width: 0.0,
         height: 0.0,
@@ -337,7 +337,7 @@ fn empty_text_line_artifact(source: &str, options: &TextLineOptions) -> TextLine
         glyph_runs: Vec::new(),
     });
 
-    TextLineArtifact {
+    LineLayoutArtifact {
         source: source.to_string(),
         metrics,
         paths,
@@ -353,14 +353,14 @@ fn empty_text_line_artifact(source: &str, options: &TextLineOptions) -> TextLine
 mod tests {
     use super::*;
     use crate::style::{FontStyle, FontWeight};
-    use crate::types::{MathOutputRequest, TextLineOutputRequest};
+    use crate::types::{LineOutputOptions, MathOutputOptions};
 
     #[test]
     fn empty_text_line_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
 
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn plain_text_line_paths_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact = engine.typeset_markup_line("Hello", &options).unwrap();
@@ -404,7 +404,7 @@ mod tests {
     #[test]
     fn plain_text_line_with_non_rtl_missing_glyph_paths_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact = engine.typeset_markup_line("Revenue 🚀", &options).unwrap();
@@ -416,9 +416,9 @@ mod tests {
     #[test]
     fn non_atkinson_plain_text_can_use_fontdb_fallback() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.text_style.font_family = "serif".to_string();
-        options.outputs = TextLineOutputRequest {
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -439,9 +439,9 @@ mod tests {
     #[test]
     fn non_atkinson_mixed_script_text_can_segment_fallback_fonts() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.text_style.font_family = "serif".to_string();
-        options.outputs = TextLineOutputRequest {
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -469,8 +469,8 @@ mod tests {
     #[test]
     fn default_mixed_script_text_can_segment_fallback_fonts_when_available() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -494,8 +494,8 @@ mod tests {
     #[test]
     fn plain_text_line_with_rtl_text_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -520,7 +520,7 @@ mod tests {
     #[test]
     fn plain_text_syntax_treats_invalid_math_as_literal_text() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let options = TextLineOptions::default();
+        let options = LineLayoutOptions::default();
 
         let artifact = engine
             .typeset_plain_line("before $x^$ after", &options)
@@ -532,8 +532,8 @@ mod tests {
     #[test]
     fn plain_text_line_with_zwj_emoji_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -558,8 +558,8 @@ mod tests {
     #[test]
     fn named_emoji_alias_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -586,8 +586,8 @@ mod tests {
     #[test]
     fn named_symbol_alias_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -620,8 +620,8 @@ mod tests {
     #[test]
     fn named_emoji_alias_rasterizes_color_pixels_on_macos() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: false,
             raster: Some(crate::RasterRequest { scale: 2.0 }),
             pdf_text_layer: false,
@@ -654,7 +654,7 @@ mod tests {
     #[test]
     fn unknown_static_command_errors_before_rendering() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = false;
 
         let err = engine
@@ -673,7 +673,7 @@ mod tests {
     #[test]
     fn static_command_options_render() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact = engine
@@ -690,8 +690,8 @@ mod tests {
     #[test]
     fn supported_static_decoration_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -711,8 +711,8 @@ mod tests {
     #[test]
     fn static_case_transform_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -743,8 +743,8 @@ mod tests {
     #[test]
     fn static_smallcaps_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -790,8 +790,8 @@ mod tests {
     #[test]
     fn static_emph_and_strong_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -863,9 +863,9 @@ mod tests {
     #[test]
     fn static_raw_uses_monospace_show_set() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.text_style.font_size = 20.0;
-        options.outputs = TextLineOutputRequest {
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -905,8 +905,8 @@ mod tests {
     #[test]
     fn static_subscript_and_superscript_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -943,9 +943,9 @@ mod tests {
     #[test]
     fn static_subscript_and_superscript_honor_literal_options() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.text_style.font_size = 20.0;
-        options.outputs = TextLineOutputRequest {
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -990,7 +990,7 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
 
         let err = engine
-            .typeset_fragment("mat(1, 2; 3, 4)", &MathFragmentOptions::default())
+            .typeset_fragment("mat(1, 2; 3, 4)", &MathLayoutOptions::default())
             .unwrap_err();
 
         assert_eq!(
@@ -1005,8 +1005,8 @@ mod tests {
     #[test]
     fn simple_row_math_fragment_metrics_only_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: false,
             raster: None,
             pdf_text_layer: false,
@@ -1022,8 +1022,8 @@ mod tests {
     #[test]
     fn simple_row_math_fragment_paths_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: false,
@@ -1044,8 +1044,8 @@ mod tests {
     #[test]
     fn simple_row_math_fragment_pdf_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1062,8 +1062,8 @@ mod tests {
     #[test]
     fn simple_script_math_fragment_pdf_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1082,8 +1082,8 @@ mod tests {
     #[test]
     fn simple_fraction_math_fragment_paths_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1108,8 +1108,8 @@ mod tests {
     #[test]
     fn simple_frac_call_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1134,8 +1134,8 @@ mod tests {
     #[test]
     fn simple_binom_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1160,8 +1160,8 @@ mod tests {
     #[test]
     fn simple_cancel_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1186,8 +1186,8 @@ mod tests {
     #[test]
     fn simple_sqrt_fraction_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1214,8 +1214,8 @@ mod tests {
     #[test]
     fn simple_indexed_root_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1240,8 +1240,8 @@ mod tests {
     #[test]
     fn simple_group_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1266,8 +1266,8 @@ mod tests {
     #[test]
     fn identifier_subscript_group_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1292,8 +1292,8 @@ mod tests {
     #[test]
     fn simple_delimiter_call_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1318,8 +1318,8 @@ mod tests {
     #[test]
     fn simple_lr_call_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1344,8 +1344,8 @@ mod tests {
     #[test]
     fn simple_operator_call_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1370,8 +1370,8 @@ mod tests {
     #[test]
     fn operator_identifier_script_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1398,8 +1398,8 @@ mod tests {
     #[test]
     fn common_named_symbols_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -1436,9 +1436,9 @@ mod tests {
     #[test]
     fn bold_math_fragment_uses_bundled_bold_math_font() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
+        let mut options = MathLayoutOptions::default();
         options.style.font_weight = FontWeight::Bold;
-        options.outputs = MathOutputRequest {
+        options.outputs = MathOutputOptions {
             paths: false,
             raster: None,
             pdf_text_layer: true,
@@ -1456,8 +1456,8 @@ mod tests {
     #[test]
     fn simple_row_math_fragment_raster_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: false,
             raster: Some(crate::raster::RasterRequest { scale: 1.5 }),
             pdf_text_layer: false,
@@ -1473,7 +1473,7 @@ mod tests {
     #[test]
     fn matrix_text_line_span_reports_source_offset() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = false;
 
         let err = engine
@@ -1492,8 +1492,8 @@ mod tests {
     #[test]
     fn plain_text_line_metrics_only_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: false,
             raster: None,
             pdf_text_layer: false,
@@ -1510,8 +1510,8 @@ mod tests {
     #[test]
     fn plain_text_line_pdf_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: false,
             raster: None,
             pdf_text_layer: true,
@@ -1533,8 +1533,8 @@ mod tests {
     #[test]
     fn mixed_text_math_metrics_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: false,
             raster: None,
             pdf_text_layer: false,
@@ -1555,7 +1555,7 @@ mod tests {
     #[test]
     fn mixed_text_math_paths_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
         options.outputs.positioned_runs = true;
 
@@ -1571,8 +1571,8 @@ mod tests {
     #[test]
     fn mixed_text_math_pdf_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: false,
             raster: None,
             pdf_text_layer: true,
@@ -1600,8 +1600,8 @@ mod tests {
     #[test]
     fn mixed_text_math_raster_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: false,
             raster: Some(crate::raster::RasterRequest { scale: 1.5 }),
             pdf_text_layer: false,

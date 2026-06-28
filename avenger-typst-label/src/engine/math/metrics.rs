@@ -9,7 +9,7 @@ use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLay
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
 use crate::style::{Color, FontWeight, MathFontSpec};
-use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
+use crate::types::{MathLayoutOptions, MathRunArtifact, TypesetMetrics};
 
 use super::ast::{
     MathAccent, MathAst, MathCancel, MathCancelAngle, MathFractionStyle, MathNode, MathOperator,
@@ -19,7 +19,7 @@ use super::syntax::predefined_operator_text;
 
 pub(crate) fn try_typeset_simple_row_fragment(
     math: &MathAst,
-    options: &MathFragmentOptions,
+    options: &MathLayoutOptions,
     config: &EngineOptions,
 ) -> Result<Option<MathRunArtifact>, LabelError> {
     #[cfg(not(feature = "raster"))]
@@ -4224,7 +4224,7 @@ fn path_artifact_from_simple_row(
 mod tests {
     use super::*;
     use crate::engine::math::syntax::parse_math;
-    use crate::types::MathOutputRequest;
+    use crate::types::MathOutputOptions;
 
     type LineSegment = ((f32, f32), (f32, f32));
 
@@ -4258,7 +4258,7 @@ mod tests {
         }
     }
 
-    fn cancel_shape_lines(source: &str, options: &MathFragmentOptions) -> Vec<LineSegment> {
+    fn cancel_shape_lines(source: &str, options: &MathLayoutOptions) -> Vec<LineSegment> {
         let math = parse_math(source, 0).unwrap();
         let artifact = try_typeset_simple_row_fragment(&math, options, &EngineOptions::default())
             .unwrap()
@@ -4295,8 +4295,8 @@ mod tests {
     #[cfg(not(feature = "raster"))]
     fn atom_fragment_declines_raster_without_raster_feature() {
         let math = parse_math("1", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: false,
             raster: Some(crate::raster::RasterRequest::default()),
             pdf_text_layer: false,
@@ -4312,9 +4312,9 @@ mod tests {
     #[test]
     fn atom_fragment_can_emit_pdf_glyph_metadata() {
         let math = parse_math("1", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
+        let mut options = MathLayoutOptions::default();
 
-        options.outputs = MathOutputRequest {
+        options.outputs = MathOutputOptions {
             paths: false,
             raster: None,
             pdf_text_layer: true,
@@ -4335,8 +4335,8 @@ mod tests {
     #[test]
     fn atom_fragment_can_rasterize_from_typst_paths() {
         let math = parse_math("alpha + beta -> gamma", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: false,
             raster: Some(crate::raster::RasterRequest { scale: 2.0 }),
             pdf_text_layer: false,
@@ -4358,8 +4358,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_script_glyph_metadata() {
         let math = parse_math("x^2", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: false,
             raster: None,
             pdf_text_layer: true,
@@ -4452,8 +4452,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_prime_glyphs_as_scripts() {
         let math = parse_math("a'''_b", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4491,8 +4491,8 @@ mod tests {
             0,
         )
         .unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4521,8 +4521,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_fraction_rule_paths() {
         let math = parse_math("a / (b + c)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4545,8 +4545,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_frac_call_rule_paths() {
         let math = parse_math("frac(x + y, z)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4568,8 +4568,8 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_frac_style_variants() {
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4603,8 +4603,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_binom_paths_without_fraction_rule() {
         let math = parse_math("binom(n, k)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4634,8 +4634,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_variadic_binom_lower_terms() {
         let math = parse_math("binom(n, k_1, k_2, k_3)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4665,8 +4665,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_cancel_overlay_path() {
         let math = parse_math("cancel(x)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4686,8 +4686,8 @@ mod tests {
 
     #[test]
     fn simple_row_cancel_honors_literal_geometry_options() {
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4736,8 +4736,8 @@ mod tests {
             0,
         )
         .unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: false,
@@ -4767,8 +4767,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_sqrt_overbar_paths() {
         let math = parse_math("sqrt(x)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4787,8 +4787,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_math_underline_overline_paths() {
         let math = parse_math("overline(underline(x + y))", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4812,8 +4812,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_indexed_root_paths() {
         let math = parse_math("root(3, x)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4833,8 +4833,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_visible_group_paths() {
         let math = parse_math("x(t)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4859,8 +4859,8 @@ mod tests {
     #[test]
     fn simple_row_can_rasterize_visible_group() {
         let math = parse_math("x(t)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: false,
             raster: Some(crate::raster::RasterRequest { scale: 2.0 }),
             pdf_text_layer: false,
@@ -4880,8 +4880,8 @@ mod tests {
     #[test]
     fn simple_row_extends_identifier_subscript_with_adjacent_group() {
         let math = parse_math("J_n(x)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4903,8 +4903,8 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_delimiter_helper_calls() {
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4945,8 +4945,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_lr_delimited_call() {
         let math = parse_math("lr(|x + y|)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -4969,8 +4969,8 @@ mod tests {
 
     #[test]
     fn simple_row_stretches_mid_delimiter_inside_lr() {
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -5018,8 +5018,8 @@ mod tests {
 
     #[test]
     fn simple_row_applies_lr_delimiter_size_option() {
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -5055,8 +5055,8 @@ mod tests {
 
     #[test]
     fn simple_row_applies_delimiter_helper_size_option() {
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -5092,8 +5092,8 @@ mod tests {
 
     #[test]
     fn simple_row_applies_callable_delimiter_symbol_size_option() {
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -5129,8 +5129,8 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_operator_calls() {
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -5165,8 +5165,8 @@ mod tests {
     #[test]
     fn simple_row_can_emit_operator_identifier_with_script() {
         let math = parse_math("lim_(x -> oo) f(x)", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -5188,8 +5188,8 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_math_variant_calls() {
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -5224,8 +5224,8 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_vertical_stretch_call() {
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -5256,8 +5256,8 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_math_accent_calls() {
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -5311,8 +5311,8 @@ mod tests {
     #[test]
     fn simple_row_omits_script_group_delimiters() {
         let math = parse_math("sum_(i=0)^n i", 0).unwrap();
-        let mut options = MathFragmentOptions::default();
-        options.outputs = MathOutputRequest {
+        let mut options = MathLayoutOptions::default();
+        options.outputs = MathOutputOptions {
             paths: false,
             raster: None,
             pdf_text_layer: true,

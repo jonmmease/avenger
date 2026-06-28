@@ -11,13 +11,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct MathOutputRequest {
+pub struct MathOutputOptions {
     pub paths: bool,
     pub raster: Option<RasterRequest>,
     pub pdf_text_layer: bool,
 }
 
-impl Default for MathOutputRequest {
+impl Default for MathOutputOptions {
     fn default() -> Self {
         Self {
             paths: true,
@@ -29,17 +29,17 @@ impl Default for MathOutputRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct MathFragmentOptions {
+pub struct MathLayoutOptions {
     pub style: MathStyle,
-    pub outputs: MathOutputRequest,
+    pub outputs: MathOutputOptions,
     pub limits: LabelLimits,
 }
 
-impl Default for MathFragmentOptions {
+impl Default for MathLayoutOptions {
     fn default() -> Self {
         Self {
             style: MathStyle::default(),
-            outputs: MathOutputRequest::default(),
+            outputs: MathOutputOptions::default(),
             limits: LabelLimits::default(),
         }
     }
@@ -47,14 +47,14 @@ impl Default for MathFragmentOptions {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct TextLineOutputRequest {
+pub struct LineOutputOptions {
     pub paths: bool,
     pub raster: Option<RasterRequest>,
     pub pdf_text_layer: bool,
     pub positioned_runs: bool,
 }
 
-impl Default for TextLineOutputRequest {
+impl Default for LineOutputOptions {
     fn default() -> Self {
         Self {
             paths: true,
@@ -67,21 +67,21 @@ impl Default for TextLineOutputRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct TextLineOptions {
+pub struct LineLayoutOptions {
     pub text_style: PlainTextStyle,
     pub math_style: MathStyle,
     pub params: LabelParams,
-    pub outputs: TextLineOutputRequest,
+    pub outputs: LineOutputOptions,
     pub limits: LabelLimits,
 }
 
-impl Default for TextLineOptions {
+impl Default for LineLayoutOptions {
     fn default() -> Self {
         Self {
             text_style: PlainTextStyle::default(),
             math_style: MathStyle::default(),
             params: LabelParams::default(),
-            outputs: TextLineOutputRequest::default(),
+            outputs: LineOutputOptions::default(),
             limits: LabelLimits::default(),
         }
     }
@@ -110,7 +110,7 @@ pub struct MathRunArtifact {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct TextLineArtifact {
+pub struct LineLayoutArtifact {
     pub source: String,
     pub metrics: TypesetMetrics,
     pub paths: Option<PathArtifact>,

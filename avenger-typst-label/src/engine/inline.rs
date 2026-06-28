@@ -6,8 +6,8 @@ use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLay
 use crate::raster::rasterize_path_artifact;
 use crate::style::{Color, FontStyle, FontWeight, PlainTextStyle};
 use crate::types::{
-    MathFragmentOptions, MathOutputRequest, PositionedTextLineRun, PositionedTextLineRunKind,
-    TextLineArtifact, TextLineOptions, TypesetMetrics,
+    LineLayoutArtifact, LineLayoutOptions, MathLayoutOptions, MathOutputOptions,
+    PositionedTextLineRun, PositionedTextLineRunKind, TypesetMetrics,
 };
 use crate::warnings::LabelWarning;
 
@@ -22,13 +22,13 @@ use super::font::{
 use super::math::metrics::try_typeset_simple_row_fragment;
 use super::math::syntax::parse_math_with_params;
 
-pub(crate) fn try_typeset_text_line(
+pub(crate) fn try_layout_text_line(
     source: &str,
     line: &ParsedLine,
-    options: &TextLineOptions,
+    options: &LineLayoutOptions,
     config: &EngineOptions,
     fontdb: &fontdb::Database,
-) -> Result<Option<TextLineArtifact>, LabelError> {
+) -> Result<Option<LineLayoutArtifact>, LabelError> {
     let Some(line) = line_with_rendered_static_markup(line, &options.params)? else {
         return Ok(None);
     };
@@ -319,9 +319,9 @@ fn shape_plain_text_for_style(
 fn try_typeset_plain_text_line(
     source: &str,
     line: &RenderLine,
-    options: &TextLineOptions,
+    options: &LineLayoutOptions,
     fontdb: &fontdb::Database,
-) -> Result<Option<TextLineArtifact>, LabelError> {
+) -> Result<Option<LineLayoutArtifact>, LabelError> {
     #[cfg(not(feature = "raster"))]
     if options.outputs.raster.is_some() {
         return Ok(None);
@@ -375,19 +375,19 @@ fn try_typeset_plain_text_line(
 fn try_typeset_mixed_metrics_text_line(
     source: &str,
     line: &RenderLine,
-    options: &TextLineOptions,
+    options: &LineLayoutOptions,
     config: &EngineOptions,
     fontdb: &fontdb::Database,
-) -> Result<Option<TextLineArtifact>, LabelError> {
+) -> Result<Option<LineLayoutArtifact>, LabelError> {
     #[cfg(not(feature = "raster"))]
     if options.outputs.raster.is_some() {
         return Ok(None);
     }
 
     let text_font_size = options.text_style.font_size.max(1.0);
-    let math_options = MathFragmentOptions {
+    let math_options = MathLayoutOptions {
         style: options.math_style.clone(),
-        outputs: MathOutputRequest {
+        outputs: MathOutputOptions {
             paths: options.outputs.paths
                 || options.outputs.raster.is_some()
                 || options.outputs.positioned_runs,
@@ -728,7 +728,7 @@ fn try_typeset_mixed_metrics_text_line(
         Vec::new()
     };
 
-    Ok(Some(TextLineArtifact {
+    Ok(Some(LineLayoutArtifact {
         source: source.to_string(),
         metrics,
         paths,
@@ -1832,9 +1832,9 @@ fn typeset_plain_text_line(
     decoration: Option<TextDecoration>,
     features: &[rustybuzz::Feature],
     text_style: &PlainTextStyle,
-    options: &TextLineOptions,
+    options: &LineLayoutOptions,
     face: TextFace,
-) -> Result<Option<TextLineArtifact>, LabelError> {
+) -> Result<Option<LineLayoutArtifact>, LabelError> {
     let font_size = text_style.font_size.max(1.0);
     let shaped = face.shaped_text_with_features(&plain.text, font_size, features);
     let metrics = TypesetMetrics {
@@ -1915,7 +1915,7 @@ fn typeset_plain_text_line(
         }]
     });
 
-    Ok(Some(TextLineArtifact {
+    Ok(Some(LineLayoutArtifact {
         source: source.to_string(),
         metrics,
         paths,
@@ -1931,9 +1931,9 @@ fn typeset_segmented_plain_text_line(
     source: &str,
     plain: &PlainTextNode,
     decoration: Option<TextDecoration>,
-    options: &TextLineOptions,
+    options: &LineLayoutOptions,
     segmented: SegmentedText,
-) -> Result<Option<TextLineArtifact>, LabelError> {
+) -> Result<Option<LineLayoutArtifact>, LabelError> {
     let font_size = options.text_style.font_size.max(1.0);
     let metrics = metrics_from_segmented_text(&segmented, 0.0);
     let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
@@ -1994,7 +1994,7 @@ fn typeset_segmented_plain_text_line(
         runs
     });
 
-    Ok(Some(TextLineArtifact {
+    Ok(Some(LineLayoutArtifact {
         source: source.to_string(),
         metrics,
         paths,
@@ -2012,7 +2012,7 @@ mod tests {
     use crate::engine::font::build_text_fontdb;
     use crate::engine::syntax::parse_line;
     use crate::label::EngineOptions;
-    use crate::types::TextLineOutputRequest;
+    use crate::types::LineOutputOptions;
 
     fn test_fontdb() -> fontdb::Database {
         build_text_fontdb(&EngineOptions::default())
@@ -2041,8 +2041,8 @@ mod tests {
     fn plain_line_fast_path_returns_positioned_plain_run() {
         let fontdb = test_fontdb();
         let line = render_line("Hello");
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: false,
             raster: None,
             pdf_text_layer: false,
@@ -2067,7 +2067,7 @@ mod tests {
     fn plain_line_fast_path_can_emit_paths() {
         let fontdb = test_fontdb();
         let line = render_line("Hello");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
@@ -2083,7 +2083,7 @@ mod tests {
     fn plain_line_fast_path_declines_raster_without_raster_feature() {
         let fontdb = test_fontdb();
         let line = render_line("Hello");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.raster = Some(crate::raster::RasterRequest::default());
 
         assert!(
@@ -2098,7 +2098,7 @@ mod tests {
     fn plain_line_fast_path_can_emit_raster() {
         let fontdb = test_fontdb();
         let line = render_line("Hello");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = false;
         options.outputs.raster = Some(crate::raster::RasterRequest { scale: 2.0 });
 
@@ -2119,7 +2119,7 @@ mod tests {
     fn plain_line_fast_path_can_emit_non_rtl_missing_glyphs() {
         let fontdb = test_fontdb();
         let line = render_line("Revenue 🚀");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact = try_typeset_plain_text_line("Revenue 🚀", &line, &options, &fontdb)
@@ -2134,7 +2134,7 @@ mod tests {
     fn plain_line_fast_path_handles_rtl_with_fallback_when_available() {
         let fontdb = test_fontdb();
         let line = render_line("שלום");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         if let Some(artifact) =
@@ -2149,7 +2149,7 @@ mod tests {
     fn plain_line_fast_path_handles_zwj_with_fallback_when_available() {
         let fontdb = test_fontdb();
         let line = render_line("Family 👨‍👩‍👧‍👦");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         if let Some(artifact) =
@@ -2164,8 +2164,8 @@ mod tests {
     fn plain_line_fast_path_can_emit_pdf_glyph_metadata() {
         let fontdb = test_fontdb();
         let line = render_line("Hello");
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: false,
             raster: None,
             pdf_text_layer: true,
@@ -2189,8 +2189,8 @@ mod tests {
     fn decorated_plain_line_emits_text_and_decoration_paths() {
         let fontdb = test_fontdb();
         let line = render_line("#underline[important]");
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: true,
@@ -2223,8 +2223,8 @@ mod tests {
     fn underline_uses_font_decoration_metrics() {
         let fontdb = test_fontdb();
         let line = render_line("#underline[important]");
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: false,
@@ -2261,8 +2261,8 @@ mod tests {
     fn underline_literal_stroke_offset_extent() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(stroke: 1.5pt + red, offset: 2pt, extent: 3pt)[care]");
-        let mut options = TextLineOptions::default();
-        options.outputs = TextLineOutputRequest {
+        let mut options = LineLayoutOptions::default();
+        options.outputs = LineOutputOptions {
             paths: true,
             raster: None,
             pdf_text_layer: false,
@@ -2300,7 +2300,7 @@ mod tests {
     fn underline_background_precedes_glyphs() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(background: true, stroke: red)[care]");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact = try_typeset_plain_text_line(
@@ -2321,7 +2321,7 @@ mod tests {
     fn underline_evade_splits_descender_segments() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(evade: true, offset: 2pt)[group]");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact = try_typeset_plain_text_line(
@@ -2344,7 +2344,7 @@ mod tests {
     fn underline_evade_false_draws_continuous_line() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(evade: false, offset: 2pt)[group]");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact = try_typeset_plain_text_line(
@@ -2364,7 +2364,7 @@ mod tests {
     fn underline_evades_by_default_like_typst() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(offset: 2pt)[group]");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact =
@@ -2383,7 +2383,7 @@ mod tests {
     fn strike_does_not_evade_by_default() {
         let fontdb = test_fontdb();
         let line = render_line("#strike(offset: -4pt)[group]");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact =
@@ -2400,7 +2400,7 @@ mod tests {
         let fontdb = test_fontdb();
         let line =
             render_line("#underline(stroke: (thickness: 0.4em, paint: maroon, cap: \"round\"))[x]");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
         let font_size = options.text_style.font_size.max(1.0);
 
@@ -2425,7 +2425,7 @@ mod tests {
     fn decoration_stroke_dictionary_sets_join_and_dash() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(stroke: (join: \"bevel\", dash: \"dash-dotted\"))[x]");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact = try_typeset_plain_text_line(
@@ -2450,7 +2450,7 @@ mod tests {
     fn overline_supports_negative_em_offset() {
         let fontdb = test_fontdb();
         let line = render_line("#overline(offset: -1.2em, extent: 2pt)[top]");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
         let font_size = options.text_style.font_size.max(1.0);
 
@@ -2477,7 +2477,7 @@ mod tests {
     fn highlighted_plain_line_emits_background_before_glyphs() {
         let fontdb = test_fontdb();
         let line = render_line("#highlight[warning]");
-        let mut options = TextLineOptions::default();
+        let mut options = LineLayoutOptions::default();
         options.outputs.paths = true;
 
         let artifact = try_typeset_plain_text_line("#highlight[warning]", &line, &options, &fontdb)
