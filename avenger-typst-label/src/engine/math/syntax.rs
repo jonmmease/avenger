@@ -398,6 +398,8 @@ fn lower_math_call(
             validate_math_class_call_args(&args, range.start)?;
         } else if name == "binom" {
             validate_math_binom_call_args(&args, range.start)?;
+        } else if name == "mid" {
+            validate_math_mid_call_args(&args, range.start)?;
         }
         return Ok(vec![MathNode::Call(MathCall {
             name,
@@ -1366,6 +1368,19 @@ fn validate_math_binom_call_args(args: &[MathArg], position: usize) -> Result<()
     Ok(())
 }
 
+fn validate_math_mid_call_args(args: &[MathArg], position: usize) -> Result<(), LabelError> {
+    if args.is_empty() {
+        return Err(unsupported(position, "mid expects a body argument"));
+    }
+    if args.len() != 1 {
+        return Err(unsupported(
+            position,
+            "mid expects exactly one body argument",
+        ));
+    }
+    Ok(())
+}
+
 fn lower_math_args_as_group_body(
     args: typst_ast::MathArgs<'_>,
     source: &str,
@@ -1989,6 +2004,7 @@ mod tests {
             "floor(x)",
             "ceil(x)",
             "round(x)",
+            "mid(|)",
             "ceil.l(x)",
             "floor.l(x)",
             "paren.l(x)",
@@ -2149,6 +2165,20 @@ mod tests {
                 "abs(x, y)",
                 "delimiter call expects exactly one body argument",
             ),
+        ] {
+            let err = parse_math(source, 0).unwrap_err();
+            assert!(
+                format!("{err}").contains(message),
+                "{source}: expected {message}, got {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_mid_calls() {
+        for (source, message) in [
+            ("mid()", "mid expects a body argument"),
+            ("mid(|, |)", "mid expects exactly one body argument"),
         ] {
             let err = parse_math(source, 0).unwrap_err();
             assert!(

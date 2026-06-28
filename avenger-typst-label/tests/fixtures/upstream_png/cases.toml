@@ -107,6 +107,18 @@ pixel_tolerance = 14
 min_similarity = 0.55
 
 [[case]]
+id = "math-lr-mid"
+upstream_file = "../../typst/tests/suite/math/delimited.typ"
+upstream_test = "math-lr-mid/math-lr-mid-size reduced"
+source = "math-lr-mid.typ"
+font_size = 20.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+pixel_tolerance = 14
+min_similarity = 0.55
+
+[[case]]
 id = "math-accent-calls"
 upstream_file = "../../typst/tests/suite/math/accent.typ"
 upstream_test = "math-accent-sym-call/math-accent-func reduced"

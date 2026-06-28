@@ -213,6 +213,16 @@ fn layout_simple_nodes_as_atom(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    layout_simple_nodes_as_atom_with_mid_target(font, nodes, font_size, script_level, None)
+}
+
+fn layout_simple_nodes_as_atom_with_mid_target(
+    font: &MathFont,
+    nodes: &[MathNode],
+    font_size: f32,
+    script_level: u8,
+    mid_target_height: Option<f32>,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let mut atoms = Vec::new();
     let mut index = 0usize;
     while index < nodes.len() {
@@ -237,15 +247,26 @@ fn layout_simple_nodes_as_atom(
                             };
                             (atom, 2)
                         } else {
-                            let Some(atom) =
-                                layout_simple_node(font, node, font_size, script_level)?
+                            let Some(atom) = layout_simple_node_with_mid_target(
+                                font,
+                                node,
+                                font_size,
+                                script_level,
+                                mid_target_height,
+                            )?
                             else {
                                 return Ok(None);
                             };
                             (atom, 1)
                         }
                     } else {
-                        let Some(atom) = layout_simple_node(font, node, font_size, script_level)?
+                        let Some(atom) = layout_simple_node_with_mid_target(
+                            font,
+                            node,
+                            font_size,
+                            script_level,
+                            mid_target_height,
+                        )?
                         else {
                             return Ok(None);
                         };
@@ -364,6 +385,16 @@ fn layout_simple_node(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    layout_simple_node_with_mid_target(font, node, font_size, script_level, None)
+}
+
+fn layout_simple_node_with_mid_target(
+    font: &MathFont,
+    node: &MathNode,
+    font_size: f32,
+    script_level: u8,
+    mid_target_height: Option<f32>,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if let Some(atom) = simple_atom(node) {
         let layout = if atom.text_operator {
             layout_operator_atom(font, &atom.styled_text, font_size, script_level)?
@@ -426,6 +457,9 @@ fn layout_simple_node(
         }
         if call.name == "stretch" {
             return layout_simple_stretch_call(font, call, font_size, script_level);
+        }
+        if call.name == "mid" {
+            return layout_simple_mid_call(font, call, font_size, script_level, mid_target_height);
         }
         if let Some((left, right)) = delimiter_call_chars(&call.name) {
             return layout_simple_delimited_call(font, call, left, right, font_size, script_level);
@@ -658,6 +692,42 @@ fn layout_simple_stretch_call(
     Ok(Some(atom))
 }
 
+fn layout_simple_mid_call(
+    font: &MathFont,
+    call: &super::ast::MathCall,
+    font_size: f32,
+    script_level: u8,
+    target_height: Option<f32>,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let Some(mut atom) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    else {
+        return Ok(None);
+    };
+
+    atom.left_class = SimpleMathClass::Relation;
+    atom.right_class = SimpleMathClass::Relation;
+
+    if let Some(target_height) = target_height
+        && atom.glyphs.len() == 1
+        && atom.shapes.is_empty()
+    {
+        let _ = stretch_single_glyph_variant(
+            font,
+            &mut atom,
+            MathStretchAxis::Vertical,
+            target_height,
+            DELIMITER_SHORT_FALL_EM * font_size,
+            false,
+            "mid delimiter variants",
+        )?;
+    }
+
+    Ok(Some(atom))
+}
+
 fn layout_simple_operator_call(
     font: &MathFont,
     call: &super::ast::MathCall,
@@ -824,6 +894,48 @@ fn is_lr_delimiter_pair(left: char, right: char) -> bool {
     )
 }
 
+fn contains_mid_call(nodes: &[MathNode]) -> bool {
+    nodes.iter().any(|node| match node {
+        MathNode::Call(call) => {
+            call.name == "mid" || call.args.iter().any(|arg| contains_mid_call(&arg.nodes))
+        }
+        MathNode::Group(group) => contains_mid_call(&group.body),
+        MathNode::Attach(attach) => {
+            contains_mid_call(std::slice::from_ref(attach.base.as_ref()))
+                || attach
+                    .top
+                    .as_ref()
+                    .is_some_and(|nodes| contains_mid_call(nodes))
+                || attach
+                    .bottom
+                    .as_ref()
+                    .is_some_and(|nodes| contains_mid_call(nodes))
+                || attach
+                    .top_left
+                    .as_ref()
+                    .is_some_and(|nodes| contains_mid_call(nodes))
+                || attach
+                    .top_right
+                    .as_ref()
+                    .is_some_and(|nodes| contains_mid_call(nodes))
+                || attach
+                    .bottom_left
+                    .as_ref()
+                    .is_some_and(|nodes| contains_mid_call(nodes))
+                || attach
+                    .bottom_right
+                    .as_ref()
+                    .is_some_and(|nodes| contains_mid_call(nodes))
+        }
+        MathNode::Fraction(fraction) => {
+            contains_mid_call(&fraction.numerator) || contains_mid_call(&fraction.denominator)
+        }
+        MathNode::Cancel(cancel) => contains_mid_call(&cancel.body),
+        MathNode::Accent(accent) => contains_mid_call(&accent.base),
+        _ => false,
+    })
+}
+
 fn layout_simple_delimited_nodes(
     font: &MathFont,
     left: char,
@@ -836,7 +948,21 @@ fn layout_simple_delimited_nodes(
     let Some(body) = layout_simple_nodes_as_atom(font, body_nodes, font_size, script_level)? else {
         return Ok(None);
     };
-    layout_simple_delimited_atom(
+    let delimiter_target_height =
+        delimiter_target_height_for_body(&body, DelimiterTarget::Ink, explicit_size, font_size);
+    let body = if contains_mid_call(body_nodes) {
+        layout_simple_nodes_as_atom_with_mid_target(
+            font,
+            body_nodes,
+            font_size,
+            script_level,
+            Some(delimiter_target_height),
+        )?
+        .unwrap_or(body)
+    } else {
+        body
+    };
+    layout_simple_delimited_atom_with_target_height(
         font,
         left,
         body,
@@ -844,12 +970,52 @@ fn layout_simple_delimited_nodes(
         font_size,
         script_level,
         DelimiterTarget::Ink,
-        explicit_size,
+        delimiter_target_height,
     )
     .map(Some)
 }
 
+fn delimiter_target_height_for_body(
+    body: &LaidOutMathAtom,
+    target: DelimiterTarget,
+    explicit_size: Option<super::ast::MathDelimitedSize>,
+    font_size: f32,
+) -> f32 {
+    let natural_target_height = match target {
+        DelimiterTarget::Ink => body.ink_ascent + body.ink_descent,
+        DelimiterTarget::Frame => body.metrics.height,
+    };
+    explicit_size
+        .map(|size| resolve_relative_math_size(size, natural_target_height, font_size))
+        .unwrap_or(natural_target_height)
+        .max(0.0)
+}
+
 fn layout_simple_delimited_atom(
+    font: &MathFont,
+    left: char,
+    body: LaidOutMathAtom,
+    right: char,
+    font_size: f32,
+    script_level: u8,
+    target: DelimiterTarget,
+    explicit_size: Option<super::ast::MathDelimitedSize>,
+) -> Result<LaidOutMathAtom, LabelError> {
+    let delimiter_target_height =
+        delimiter_target_height_for_body(&body, target, explicit_size, font_size);
+    layout_simple_delimited_atom_with_target_height(
+        font,
+        left,
+        body,
+        right,
+        font_size,
+        script_level,
+        target,
+        delimiter_target_height,
+    )
+}
+
+fn layout_simple_delimited_atom_with_target_height(
     font: &MathFont,
     left: char,
     mut body: LaidOutMathAtom,
@@ -857,16 +1023,8 @@ fn layout_simple_delimited_atom(
     font_size: f32,
     script_level: u8,
     target: DelimiterTarget,
-    explicit_size: Option<super::ast::MathDelimitedSize>,
+    delimiter_target_height: f32,
 ) -> Result<LaidOutMathAtom, LabelError> {
-    let natural_target_height = match target {
-        DelimiterTarget::Ink => body.ink_ascent + body.ink_descent,
-        DelimiterTarget::Frame => body.metrics.height,
-    };
-    let delimiter_target_height = explicit_size
-        .map(|size| resolve_relative_math_size(size, natural_target_height, font_size))
-        .unwrap_or(natural_target_height)
-        .max(0.0);
     let mut left = layout_delimiter_atom_with_target(
         font,
         left,
@@ -4070,6 +4228,36 @@ mod tests {
 
     type LineSegment = ((f32, f32), (f32, f32));
 
+    fn path_y_extent(item: &PathItem) -> f32 {
+        let mut min_y = f32::INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        for command in &item.path.commands {
+            let mut include = |y: f32| {
+                let y = y + item.transform.dy;
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
+            };
+            match *command {
+                PathCommand::MoveTo { y, .. } | PathCommand::LineTo { y, .. } => include(y),
+                PathCommand::QuadTo { y1, y, .. } => {
+                    include(y1);
+                    include(y);
+                }
+                PathCommand::CubicTo { y1, y2, y, .. } => {
+                    include(y1);
+                    include(y2);
+                    include(y);
+                }
+                PathCommand::Close => {}
+            }
+        }
+        if min_y.is_finite() && max_y.is_finite() {
+            max_y - min_y
+        } else {
+            0.0
+        }
+    }
+
     fn cancel_shape_lines(source: &str, options: &MathFragmentOptions) -> Vec<LineSegment> {
         let math = parse_math(source, 0).unwrap();
         let artifact = try_typeset_simple_row_fragment(&math, options, &EngineOptions::default())
@@ -4777,6 +4965,55 @@ mod tests {
             .map(|glyph| glyph.unicode.as_str())
             .collect();
         assert_eq!(text, "|𝑥+𝑦|");
+    }
+
+    #[test]
+    fn simple_row_stretches_mid_delimiter_inside_lr() {
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let raw = parse_math("lr(| A | frac(1, 2) |)", 0).unwrap();
+        let mid = parse_math("lr(| A mid(|) frac(1, 2) |)", 0).unwrap();
+        let raw_artifact =
+            try_typeset_simple_row_fragment(&raw, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("raw middle delimiter row should be handled");
+        let mid_artifact =
+            try_typeset_simple_row_fragment(&mid, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("mid delimiter row should be handled");
+
+        let raw_paths = raw_artifact
+            .paths
+            .expect("raw delimiter paths should exist");
+        let mid_paths = mid_artifact
+            .paths
+            .expect("mid delimiter paths should exist");
+        assert!(raw_paths.items.len() >= 5);
+        assert!(mid_paths.items.len() >= 5);
+
+        let raw_middle_height = path_y_extent(&raw_paths.items[2]);
+        let mid_middle_height = path_y_extent(&mid_paths.items[2]);
+        assert!(
+            mid_middle_height > raw_middle_height + 3.0,
+            "mid delimiter should stretch to surrounding lr height: raw={raw_middle_height}, mid={mid_middle_height}"
+        );
+
+        let pdf = mid_artifact
+            .pdf_text
+            .expect("PDF glyph metadata should exist");
+        let text: String = pdf
+            .glyph_runs
+            .iter()
+            .flat_map(|run| &run.glyphs)
+            .map(|glyph| glyph.unicode.as_str())
+            .collect();
+        assert!(text.starts_with("|𝐴|1"));
+        assert!(text.ends_with("2|"));
     }
 
     #[test]
