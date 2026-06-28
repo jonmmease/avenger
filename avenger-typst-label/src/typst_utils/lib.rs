@@ -1,8 +1,9 @@
 //! Utility support copied from upstream `typst-utils`.
 //!
-//! These helpers support the vendored parser and retained label internals. They
-//! are private implementation details and should shrink as the label subset is
-//! trimmed.
+//! These helpers are copied from upstream `typst-utils`
+//! (`crates/typst-utils/src`) to support the copied parser and retained label
+//! internals. They are private implementation details and should shrink as the
+//! label subset is trimmed.
 
 pub mod fat;
 

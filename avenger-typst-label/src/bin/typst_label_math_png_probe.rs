@@ -1,4 +1,4 @@
-use std::{error::Error, path::PathBuf};
+use std::{error::Error, fs::File, io::BufWriter, path::PathBuf};
 
 use avenger_typst_label::{FontWeight, LabelEngine, LabelOptions, RasterOptions, rasterize};
 
@@ -23,9 +23,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     let raster = rasterize(&label, &RasterOptions { scale: 2.0 })?;
     let width = raster.image.width;
     let height = raster.image.height;
-    let image = image::RgbaImage::from_raw(width, height, raster.image.data)
-        .ok_or("raster dimensions did not match RGBA data length")?;
-    image.save(&output)?;
+    let expected_len = width as usize * height as usize * 4;
+    if raster.image.data.len() != expected_len {
+        return Err("raster dimensions did not match RGBA data length".into());
+    }
+    let file = File::create(&output)?;
+    let writer = BufWriter::new(file);
+    let mut encoder = png::Encoder::new(writer, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .write_header()?
+        .write_image_data(&raster.image.data)?;
 
     let png_bytes = std::fs::metadata(&output)?.len();
     println!(

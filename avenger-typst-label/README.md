@@ -140,8 +140,7 @@ source-level fork. The closest upstream source areas are:
 | `src/typst_layout/*` | `crates/typst-layout/src/*` | Single-line inline text and math layout plus frame items |
 | `src/typst_svg/*` | `crates/typst-svg/src/*` | Vector/path/image artifacts consumed by Avenger SVG/text layers |
 | `src/typst_render/*` | `crates/typst-render/src/*` | Optional `tiny-skia` raster lowering for compiled label frames |
-| `src/typst_pdf/*` | `crates/typst-pdf/src/*` | PDF glyph/font/path metadata consumed by Avenger's direct PDF renderer |
-| `src/label/*` | Avenger label facade | The public frame-first API boundary, including label-scoped errors and warnings |
+| `src/label/*` | Avenger label facade | The public frame-first API boundary, including label-scoped errors, warnings, and PDF metadata consumed by Avenger's direct PDF renderer |
 
 Every top-level implementation module other than `src/lib.rs` is either an
 upstream-shaped `typst_*` module or the Avenger-owned `label` facade. Remaining

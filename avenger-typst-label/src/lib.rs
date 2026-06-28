@@ -8,7 +8,6 @@ mod label;
 mod typst_eval;
 mod typst_layout;
 mod typst_library;
-mod typst_pdf;
 mod typst_realize;
 mod typst_render;
 mod typst_svg;
@@ -23,17 +22,15 @@ mod typst_timing;
 mod typst_utils;
 
 pub use label::{
-    CacheOptions, CompiledLabel, EngineOptions, FontOptions, Glyph, GroupItem, ImageItem,
-    LabelEngine, LabelError, LabelFlags, LabelFrame, LabelFrameItem, LabelInitError, LabelLimits,
-    LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, PdfDrawItem, PdfLabel,
-    PdfOptions, PdfPathItem, Point, RasterImage, RasterOptions, ShapeItem, Size, SvgLabel,
-    SvgOptions, TextItem, TextItemKind, TextStyle, escape_text, pdf_items, rasterize,
-    referenced_params, svg_items,
+    CacheOptions, CompiledLabel, EngineOptions, FontOptions, FontResource, FontResourceId, Glyph,
+    GroupItem, ImageItem, LabelEngine, LabelError, LabelFlags, LabelFrame, LabelFrameItem,
+    LabelInitError, LabelLimits, LabelMetrics, LabelOptions, LabelParamValue, LabelParams,
+    LabelWarning, PdfDrawItem, PdfGlyph, PdfGlyphRun, PdfLabel, PdfOptions, PdfPathItem,
+    PdfTextLayer, Point, RasterImage, RasterOptions, ShapeItem, Size, SvgLabel, SvgOptions,
+    TextItem, TextItemKind, TextStyle, escape_text, pdf_items, rasterize, referenced_params,
+    svg_items,
 };
-pub use typst_library::{
-    Color, FontStyle, FontWeight, MathDisplayStyle, MathFontBytesId, MathFontSpec, MathStyle,
-};
-pub use typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
+pub use typst_library::{Color, FontStyle, FontWeight, MathFontBytesId, MathFontSpec, MathStyle};
 pub use typst_render::{RasterRequest, RgbaImageData};
 pub use typst_svg::{
     PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, PathItem, PathKind,

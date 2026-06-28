@@ -1,16 +1,14 @@
 use crate::label::EngineOptions;
-use crate::label::{LabelError, LabelInitError};
-use crate::typst_eval::LabelLimits;
+use crate::label::{LabelError, LabelInitError, PdfTextLayer};
 use crate::typst_layout::frame::{LineLayoutArtifact, LineLayoutOptions, TypesetMetrics};
 #[cfg(test)]
 use crate::typst_layout::frame::{MathLayoutOptions, MathRunArtifact};
-use crate::typst_pdf::PdfTextLayer;
 use crate::typst_svg::PathArtifact;
 
+#[cfg(test)]
 use crate::typst_eval::markup::parse_line_with_params;
 #[cfg(test)]
 use crate::typst_eval::math::parse_math;
-use crate::typst_eval::math::parse_math_with_params;
 use crate::typst_layout::inline::font::build_text_fontdb;
 use crate::typst_layout::inline::try_layout_text_line;
 #[cfg(test)]
@@ -50,6 +48,7 @@ impl TypstEngineCore {
         unsupported_fragment()
     }
 
+    #[cfg(test)]
     pub(crate) fn typeset_markup_line(
         &self,
         source: &str,
@@ -60,7 +59,6 @@ impl TypstEngineCore {
         }
 
         let line = parse_line_with_params(source, &options.params)?;
-        validate_line_math(&line, options.limits, &options.params)?;
         self.typeset_parsed_line(source, &line, options)
     }
 
@@ -77,7 +75,7 @@ impl TypstEngineCore {
         self.typeset_parsed_line(source, &line, options)
     }
 
-    fn typeset_parsed_line(
+    pub(crate) fn typeset_parsed_line(
         &self,
         source: &str,
         line: &LabelContent,
@@ -131,178 +129,6 @@ fn plain_text_line(source: &str) -> LabelContent {
 
 fn line_contains_static_markup(line: &LabelContent) -> bool {
     nodes_contain_static_markup(&line.nodes)
-}
-
-fn validate_line_math(
-    line: &LabelContent,
-    limits: LabelLimits,
-    params: &crate::label::LabelParams,
-) -> Result<(), LabelError> {
-    let math_span_count = line
-        .nodes
-        .iter()
-        .filter(|node| matches!(node, LineNode::Math(_)))
-        .count();
-    if math_span_count > limits.max_math_spans {
-        return Err(LabelError::TooManyMathSpans {
-            actual: math_span_count,
-            limit: limits.max_math_spans,
-        });
-    }
-
-    for math in line.nodes.iter().filter_map(|node| match node {
-        LineNode::Math(math) => Some(math),
-        _ => None,
-    }) {
-        if math.source.trim().is_empty() {
-            return Err(LabelError::EmptyMathFragment {
-                start: math.source_range.start,
-                end: math.source_range.end,
-            });
-        }
-
-        let depth = max_grouping_depth(&math.source);
-        if depth > limits.max_math_depth {
-            return Err(LabelError::MathDepthExceeded {
-                actual: depth,
-                limit: limits.max_math_depth,
-            });
-        }
-
-        strict_hash_precheck(&math.source, math.source_range.start, params)?;
-        parse_math_with_params(&math.source, math.source_range.start, params)?;
-    }
-    Ok(())
-}
-
-fn strict_hash_precheck(
-    source: &str,
-    offset: usize,
-    params: &crate::label::LabelParams,
-) -> Result<(), LabelError> {
-    let mut escaped = false;
-    for (idx, ch) in source.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-            continue;
-        }
-        if ch == '#' {
-            if allowed_param_ident_end(source, idx, params).is_some() {
-                continue;
-            }
-            if !is_embedded_literal_allowed_in_math(source, idx) {
-                return Err(LabelError::UnsupportedSyntax {
-                    position: offset + idx,
-                    message: "embedded Typst code is not allowed in math fragments",
-                });
-            }
-        }
-    }
-    Ok(())
-}
-
-fn allowed_param_ident_end(
-    source: &str,
-    idx: usize,
-    params: &crate::label::LabelParams,
-) -> Option<usize> {
-    let rest = source.get(idx + 1..)?;
-    let mut chars = rest.char_indices();
-    let (_, first) = chars.next()?;
-    if first != '_' && !unicode_ident::is_xid_start(first) {
-        return None;
-    }
-
-    let mut end = idx + 1 + first.len_utf8();
-    for (relative_idx, ch) in chars {
-        if ch == '_' || unicode_ident::is_xid_continue(ch) {
-            end = idx + 1 + relative_idx + ch.len_utf8();
-        } else {
-            break;
-        }
-    }
-
-    let name = &source[idx + 1..end];
-    params.contains_key(name).then_some(end)
-}
-
-fn is_embedded_literal_allowed_in_math(source: &str, idx: usize) -> bool {
-    let Some(rest) = source.get(idx + 1..) else {
-        return false;
-    };
-    rest.starts_with("true")
-        || rest.starts_with("false")
-        || rest.starts_with("auto")
-        || rest.starts_with('(')
-        || starts_with_math_numeric_literal(rest)
-}
-
-fn starts_with_math_numeric_literal(rest: &str) -> bool {
-    let mut chars = rest.char_indices().peekable();
-    if matches!(chars.peek(), Some((_, '+' | '-'))) {
-        chars.next();
-    }
-
-    let mut saw_digit = false;
-    let mut saw_dot = false;
-    while let Some((_, ch)) = chars.peek().copied() {
-        if ch.is_ascii_digit() {
-            saw_digit = true;
-            chars.next();
-        } else if ch == '.' && !saw_dot {
-            saw_dot = true;
-            chars.next();
-        } else {
-            break;
-        }
-    }
-    if !saw_digit {
-        return false;
-    }
-
-    let unit_start = chars.peek().map_or(rest.len(), |(idx, _)| *idx);
-    let unit = &rest[unit_start..];
-    ["%", "em", "pt", "deg", "rad"]
-        .iter()
-        .any(|suffix| starts_with_literal_unit(unit, suffix))
-}
-
-fn starts_with_literal_unit(unit_and_tail: &str, unit: &str) -> bool {
-    let Some(tail) = unit_and_tail.strip_prefix(unit) else {
-        return false;
-    };
-    tail.chars()
-        .next()
-        .is_none_or(|ch| !matches!(ch, '_' | 'a'..='z' | 'A'..='Z' | '0'..='9'))
-}
-
-fn max_grouping_depth(source: &str) -> usize {
-    let mut escaped = false;
-    let mut depth = 0usize;
-    let mut max_depth = 0usize;
-    for ch in source.chars() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-            continue;
-        }
-        match ch {
-            '(' | '[' | '{' => {
-                depth += 1;
-                max_depth = max_depth.max(depth);
-            }
-            ')' | ']' | '}' => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-    }
-    max_depth
 }
 
 fn nodes_contain_static_markup(nodes: &[LineNode]) -> bool {

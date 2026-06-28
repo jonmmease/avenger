@@ -1,7 +1,8 @@
 //! Parser and syntax tree for Typst label markup.
 //!
-//! This is copied from upstream `typst-syntax` and kept private to the label
-//! engine. The public API exposes label frames and artifacts, not syntax nodes.
+//! This is copied from upstream `typst-syntax` (`crates/typst-syntax/src`) and
+//! kept private to the label engine. The public API exposes label frames and
+//! artifacts, not syntax nodes.
 
 pub mod ast;
 pub mod package;

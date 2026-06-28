@@ -1,8 +1,9 @@
 //! No-op timing shim for the vendored Typst parser.
 //!
-//! Upstream `typst-syntax` instruments parsing with `typst-timing`. Avenger
-//! labels do not expose timing traces, so this module preserves the tiny API
-//! shape the parser expects without retaining the tracing machinery.
+//! Upstream `typst-syntax` instruments parsing with `typst-timing`
+//! (`crates/typst-timing/src`). Avenger labels do not expose timing traces, so
+//! this module preserves the tiny API shape the parser expects without
+//! retaining the tracing machinery.
 
 /// Creates a timing scope around an expression.
 #[macro_export]

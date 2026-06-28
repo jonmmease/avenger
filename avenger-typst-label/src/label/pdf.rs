@@ -1,13 +1,15 @@
 //! PDF-oriented label artifacts.
 //!
-//! This mirrors the artifact side of upstream `typst-pdf`: font resources,
-//! glyph IDs, advances, transforms, Unicode text ranges, and ordered draw
-//! metadata. Actual PDF document writing is owned by `avenger-pdf`.
+//! These are label-scale PDF metadata types consumed by `avenger-pdf`: font
+//! resources, glyph IDs, advances, transforms, Unicode text ranges, and ordered
+//! draw metadata. They intentionally do not port Typst's PDF document writer.
 
 use std::{ops::Range, sync::Arc};
 
 use crate::typst_library::Color;
-use crate::typst_svg::{Stroke, Transform};
+use crate::typst_svg::{PathItem, Stroke, Transform};
+
+use super::LabelMetrics;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -24,7 +26,6 @@ pub struct FontResource {
     pub postscript_name: Option<String>,
     pub face_index: u32,
     pub units_per_em: f32,
-    pub variations: Vec<FontVariation>,
     #[cfg_attr(feature = "serde", serde(skip, default = "empty_font_data"))]
     pub data: Arc<[u8]>,
 }
@@ -32,13 +33,6 @@ pub struct FontResource {
 #[cfg(feature = "serde")]
 fn empty_font_data() -> Arc<[u8]> {
     Arc::<[u8]>::from([])
-}
-
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct FontVariation {
-    pub tag: [u8; 4],
-    pub value: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,4 +66,33 @@ pub struct PdfGlyph {
     pub x_advance: f32,
     pub y_advance: f32,
     pub transform: Transform,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct PdfOptions {}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct PdfLabel {
+    pub metrics: LabelMetrics,
+    pub semantic_text: String,
+    pub font_resources: Vec<FontResource>,
+    pub glyph_runs: Vec<PdfGlyphRun>,
+    pub path_items: Vec<PdfPathItem>,
+    pub draw_items: Vec<PdfDrawItem>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct PdfPathItem {
+    pub byte_range: Range<usize>,
+    pub item: PathItem,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum PdfDrawItem {
+    GlyphRun(usize),
+    PathItem(usize),
 }

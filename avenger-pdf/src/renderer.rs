@@ -43,7 +43,7 @@ use krilla::{
         Stop, Stroke, StrokeDash,
     },
     surface::Surface,
-    text::{Font as KrillaFont, GlyphId, KrillaGlyph, Tag},
+    text::{Font as KrillaFont, GlyphId, KrillaGlyph},
     Data, Document, SerializeSettings,
 };
 use lyon_algorithms::aabb::bounding_box;
@@ -882,22 +882,13 @@ impl PdfFontCache {
             return Ok(font.clone());
         }
 
-        let variation_coords = resource
-            .variations
-            .iter()
-            .map(|variation| (Tag::new(&variation.tag), variation.value))
-            .collect::<Vec<_>>();
-        let font = KrillaFont::new_variable(
-            Data::from(resource.data.to_vec()),
-            resource.face_index,
-            &variation_coords,
-        )
-        .ok_or_else(|| {
-            AvengerPdfError::Font(format!(
-                "failed to load font resource {} ({})",
-                resource.id.0, resource.family
-            ))
-        })?;
+        let font = KrillaFont::new(Data::from(resource.data.to_vec()), resource.face_index)
+            .ok_or_else(|| {
+                AvengerPdfError::Font(format!(
+                    "failed to load font resource {} ({})",
+                    resource.id.0, resource.family
+                ))
+            })?;
         self.fonts.insert(key, font.clone());
         Ok(font)
     }
@@ -908,7 +899,6 @@ struct FontCacheKey {
     face_index: u32,
     data_ptr: usize,
     data_len: usize,
-    variations: Vec<FontVariationKey>,
 }
 
 impl FontCacheKey {
@@ -917,22 +907,8 @@ impl FontCacheKey {
             face_index: resource.face_index,
             data_ptr: resource.data.as_ref().as_ptr() as usize,
             data_len: resource.data.len(),
-            variations: resource
-                .variations
-                .iter()
-                .map(|variation| FontVariationKey {
-                    tag: variation.tag,
-                    value_bits: variation.value.to_bits(),
-                })
-                .collect(),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct FontVariationKey {
-    tag: [u8; 4],
-    value_bits: u32,
 }
 
 fn lyon_path_to_krilla(path: &LyonPath) -> Option<krilla::geom::Path> {

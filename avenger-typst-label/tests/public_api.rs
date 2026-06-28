@@ -1,7 +1,7 @@
 use avenger_typst_label::{
     Color, CompiledLabel, EngineOptions, FontStyle, FontWeight, LabelEngine, LabelError,
-    LabelFrameItem, LabelOptions, LabelParamValue, MathDisplayStyle, MathFontSpec, PdfDrawItem,
-    PdfOptions, SvgOptions, TextItemKind, escape_text, pdf_items, svg_items,
+    LabelFrameItem, LabelOptions, LabelParamValue, MathFontSpec, PdfDrawItem, PdfOptions,
+    SvgOptions, TextItemKind, escape_text, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
 
@@ -107,7 +107,6 @@ fn final_public_api_exposes_options_and_external_param_model() {
     options.math.font_size = 15.0;
     options.math.fill = Color::rgba(0.3, 0.2, 0.1, 1.0);
     options.math.font_weight = FontWeight::Bold;
-    options.math.display_style = MathDisplayStyle::Inline;
     options
         .params
         .insert("none".to_string(), LabelParamValue::None);
@@ -183,7 +182,7 @@ fn raster_lowerer_consumes_compiled_frame_not_source_text() {
 fn final_public_api_literal_fast_path_matches_escaped_markup() {
     let engine = LabelEngine::new(EngineOptions::default()).unwrap();
     let options = LabelOptions::default();
-    let text = "cost $5 #literal [brackets] 🚀 שלום नमस्ते";
+    let text = "cost $5 #literal [brackets] *stars* http://example.com 🚀 שלום नमस्ते";
 
     let literal = engine.compile_text(text, &options).unwrap();
     let escaped = engine.compile(&escape_text(text), &options).unwrap();

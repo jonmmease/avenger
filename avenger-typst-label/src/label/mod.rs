@@ -6,6 +6,7 @@
 //! truncation, cache keys, and renderer policy live outside this crate.
 
 mod error;
+mod pdf;
 mod warnings;
 
 use std::{
@@ -17,7 +18,9 @@ use std::{
 use indexmap::IndexMap;
 
 use crate::typst_eval::call::is_retained_markup_name;
+use crate::typst_eval::markup::parse_line_with_params;
 use crate::typst_eval::math::is_retained_math_name;
+use crate::typst_eval::math::parse_math_with_params;
 use crate::typst_eval::params::referenced_params as collect_referenced_params;
 use crate::typst_layout::frame::{
     LineLayoutArtifact, LineLayoutOptions, PositionedTextLineRun, PositionedTextLineRunKind,
@@ -25,7 +28,7 @@ use crate::typst_layout::frame::{
 };
 use crate::typst_layout::line::TypstEngineCore;
 use crate::typst_library::MathStyle;
-use crate::typst_pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
+use crate::typst_library::text::content::{LabelContent, LineNode};
 pub use crate::typst_render::RasterImage;
 use crate::typst_svg::{PathArtifact, PathImageItem, PathItem, PathKind, Transform};
 
@@ -35,9 +38,12 @@ use crate::typst_render::RasterRequest;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub use crate::typst_eval::LabelLimits;
 pub use crate::typst_library::TextStyle;
 pub use error::{LabelError, LabelInitError};
+pub use pdf::{
+    FontResource, FontResourceId, PdfDrawItem, PdfGlyph, PdfGlyphRun, PdfLabel, PdfOptions,
+    PdfPathItem, PdfTextLayer,
+};
 pub use warnings::LabelWarning;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +84,24 @@ impl Default for FontOptions {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CacheOptions {
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct LabelLimits {
+    pub max_source_bytes: usize,
+    pub max_math_spans: usize,
+    pub max_math_depth: usize,
+}
+
+impl Default for LabelLimits {
+    fn default() -> Self {
+        Self {
+            max_source_bytes: 16 * 1024,
+            max_math_spans: 64,
+            max_math_depth: 64,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -154,9 +178,11 @@ impl LabelEngine {
     ) -> Result<CompiledLabel, LabelError> {
         validate_source_limits(source, options.limits)?;
         validate_label_params(&options.params)?;
-        let artifact = self
-            .inner
-            .typeset_markup_line(source, &line_layout_options(options))?;
+        let line = parse_line_with_params(source, &options.params)?;
+        validate_line_math(&line, options.limits, &options.params)?;
+        let artifact =
+            self.inner
+                .typeset_parsed_line(source, &line, &line_layout_options(options))?;
         Ok(CompiledLabel::from_artifact(
             artifact,
             label_has_markup(source),
@@ -679,47 +705,41 @@ pub struct SvgLabel {
     pub font_resources: Vec<FontResource>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct PdfOptions {}
-
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct PdfLabel {
-    pub metrics: LabelMetrics,
-    pub semantic_text: String,
-    pub font_resources: Vec<FontResource>,
-    pub glyph_runs: Vec<PdfGlyphRun>,
-    pub path_items: Vec<PdfPathItem>,
-    pub draw_items: Vec<PdfDrawItem>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct PdfPathItem {
-    pub byte_range: Range<usize>,
-    pub item: PathItem,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum PdfDrawItem {
-    GlyphRun(usize),
-    PathItem(usize),
-}
-
 pub fn escape_text(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     for ch in text.chars() {
-        match ch {
-            '\\' | '$' | '#' => {
-                escaped.push('\\');
-                escaped.push(ch);
-            }
-            _ => escaped.push(ch),
+        if should_escape_text_char(ch) {
+            escaped.push('\\');
         }
+        escaped.push(ch);
     }
     escaped
+}
+
+fn should_escape_text_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\\' | '/'
+            | '['
+            | ']'
+            | '~'
+            | '-'
+            | '+'
+            | '='
+            | '.'
+            | '\''
+            | '"'
+            | '*'
+            | '_'
+            | ':'
+            | '`'
+            | '$'
+            | '<'
+            | '>'
+            | '@'
+            | '#'
+            | 'h'
+    )
 }
 
 pub fn rasterize(
@@ -893,6 +913,174 @@ fn validate_label_params(params: &LabelParams) -> Result<(), LabelError> {
         }
     }
     Ok(())
+}
+
+fn validate_line_math(
+    line: &LabelContent,
+    limits: LabelLimits,
+    params: &LabelParams,
+) -> Result<(), LabelError> {
+    let math_span_count = line
+        .nodes
+        .iter()
+        .filter(|node| matches!(node, LineNode::Math(_)))
+        .count();
+    if math_span_count > limits.max_math_spans {
+        return Err(LabelError::TooManyMathSpans {
+            actual: math_span_count,
+            limit: limits.max_math_spans,
+        });
+    }
+
+    for math in line.nodes.iter().filter_map(|node| match node {
+        LineNode::Math(math) => Some(math),
+        _ => None,
+    }) {
+        if math.source.trim().is_empty() {
+            return Err(LabelError::EmptyMathFragment {
+                start: math.source_range.start,
+                end: math.source_range.end,
+            });
+        }
+
+        let depth = max_grouping_depth(&math.source);
+        if depth > limits.max_math_depth {
+            return Err(LabelError::MathDepthExceeded {
+                actual: depth,
+                limit: limits.max_math_depth,
+            });
+        }
+
+        strict_hash_precheck(&math.source, math.source_range.start, params)?;
+        parse_math_with_params(&math.source, math.source_range.start, params)?;
+    }
+    Ok(())
+}
+
+fn strict_hash_precheck(
+    source: &str,
+    offset: usize,
+    params: &LabelParams,
+) -> Result<(), LabelError> {
+    let mut escaped = false;
+    for (idx, ch) in source.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '#' {
+            if allowed_param_ident_end(source, idx, params).is_some() {
+                continue;
+            }
+            if !is_embedded_literal_allowed_in_math(source, idx) {
+                return Err(LabelError::UnsupportedSyntax {
+                    position: offset + idx,
+                    message: "embedded Typst code is not allowed in math fragments",
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn allowed_param_ident_end(source: &str, idx: usize, params: &LabelParams) -> Option<usize> {
+    let rest = source.get(idx + 1..)?;
+    let mut chars = rest.char_indices();
+    let (_, first) = chars.next()?;
+    if first != '_' && !unicode_ident::is_xid_start(first) {
+        return None;
+    }
+
+    let mut end = idx + 1 + first.len_utf8();
+    for (relative_idx, ch) in chars {
+        if ch == '_' || unicode_ident::is_xid_continue(ch) {
+            end = idx + 1 + relative_idx + ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    let name = &source[idx + 1..end];
+    params.contains_key(name).then_some(end)
+}
+
+fn is_embedded_literal_allowed_in_math(source: &str, idx: usize) -> bool {
+    let Some(rest) = source.get(idx + 1..) else {
+        return false;
+    };
+    rest.starts_with("true")
+        || rest.starts_with("false")
+        || rest.starts_with("auto")
+        || rest.starts_with('(')
+        || starts_with_math_numeric_literal(rest)
+}
+
+fn starts_with_math_numeric_literal(rest: &str) -> bool {
+    let mut chars = rest.char_indices().peekable();
+    if matches!(chars.peek(), Some((_, '+' | '-'))) {
+        chars.next();
+    }
+
+    let mut saw_digit = false;
+    let mut saw_dot = false;
+    while let Some((_, ch)) = chars.peek().copied() {
+        if ch.is_ascii_digit() {
+            saw_digit = true;
+            chars.next();
+        } else if ch == '.' && !saw_dot {
+            saw_dot = true;
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if !saw_digit {
+        return false;
+    }
+
+    let unit_start = chars.peek().map_or(rest.len(), |(idx, _)| *idx);
+    let unit = &rest[unit_start..];
+    ["%", "em", "pt", "deg", "rad"]
+        .iter()
+        .any(|suffix| starts_with_literal_unit(unit, suffix))
+}
+
+fn starts_with_literal_unit(unit_and_tail: &str, unit: &str) -> bool {
+    let Some(tail) = unit_and_tail.strip_prefix(unit) else {
+        return false;
+    };
+    tail.chars()
+        .next()
+        .is_none_or(|ch| !matches!(ch, '_' | 'a'..='z' | 'A'..='Z' | '0'..='9'))
+}
+
+fn max_grouping_depth(source: &str) -> usize {
+    let mut escaped = false;
+    let mut depth = 0usize;
+    let mut max_depth = 0usize;
+    for ch in source.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        match ch {
+            '(' | '[' | '{' => {
+                depth += 1;
+                max_depth = max_depth.max(depth);
+            }
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    max_depth
 }
 
 fn label_has_markup(source: &str) -> bool {

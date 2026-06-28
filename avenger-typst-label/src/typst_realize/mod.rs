@@ -162,8 +162,8 @@ fn supported_static_markup_kind(kind: TextMarkupKind) -> Option<TextMarkupKind> 
 
 fn transform_static_text(kind: TextMarkupKind, text: &str) -> String {
     match kind {
-        TextMarkupKind::Lower => text.chars().flat_map(char::to_lowercase).collect(),
-        TextMarkupKind::Upper => text.chars().flat_map(char::to_uppercase).collect(),
+        TextMarkupKind::Lower => text.to_lowercase(),
+        TextMarkupKind::Upper => text.to_uppercase(),
         TextMarkupKind::Underline
         | TextMarkupKind::Strike
         | TextMarkupKind::Overline

@@ -5,7 +5,7 @@ edition = "2024"
 
 [features]
 default = []
-raster = ["dep:image", "dep:tiny-skia"]
+raster = ["dep:png", "dep:tiny-skia"]
 serde = []
 upstream-png-parity = ["dep:toml"]
 wasm = []
@@ -24,7 +24,7 @@ thiserror = { workspace = true }
 serde = { workspace = true }
 fontdb = { workspace = true }
 indexmap = { workspace = true }
-image = { workspace = true, optional = true }
+png = { workspace = true, optional = true }
 rustybuzz = { workspace = true }
 ttf-parser = { workspace = true }
 tiny-skia = { workspace = true, optional = true }

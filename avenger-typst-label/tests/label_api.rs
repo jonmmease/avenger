@@ -54,6 +54,19 @@ fn compile_text_literal_dollar_hash_brackets_matches_escaped_compile() {
 }
 
 #[test]
+fn compile_text_typst_markup_punctuation_matches_escaped_compile() {
+    for text in [
+        "*literal* _literal_ `literal`",
+        "a~b a-b a...b",
+        "user@host <tag> /path [brackets]",
+        "- item + item = value :colon",
+        "\"quote\" 'quote' http://example.com #hash $dollar",
+    ] {
+        assert_same_literal_rendering(text);
+    }
+}
+
+#[test]
 fn compile_text_unicode_emoji_bidi_complex_script_matches_escaped_compile() {
     assert_same_literal_rendering("Revenue 🚀 שלום नमस्ते");
 }
@@ -146,6 +159,16 @@ fn compile_resolves_text_params_inside_static_markup() {
     let label = engine().compile("#upper[#series_name]", &options).unwrap();
 
     assert_eq!(label.semantic_text(), "REVENUE");
+    assert!(label.flags.has_markup);
+}
+
+#[test]
+fn compile_lower_uses_context_sensitive_unicode_casing() {
+    let label = engine()
+        .compile("#lower[ΟΣ]", &LabelOptions::default())
+        .unwrap();
+
+    assert_eq!(label.semantic_text(), "ος");
     assert!(label.flags.has_markup);
 }
 

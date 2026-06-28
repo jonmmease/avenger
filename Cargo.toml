@@ -75,6 +75,15 @@ codegen-units = 16
 strip = "symbols"
 incremental = false
 
+[profile.release-size]
+inherits = "release"
+opt-level = "z"
+codegen-units = 1
+lto = "fat"
+panic = "abort"
+strip = "symbols"
+incremental = false
+
 [workspace.dependencies]
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
@@ -85,6 +94,7 @@ lyon_algorithms = "1.0.5"
 lyon_tessellation = "1.0.15"
 lyon = "1.0.1"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
+png = "0.18.1"
 lazy_static = "1.5.0"
 pyo3 = "0.25.1"
 tracing = "0.1.41"

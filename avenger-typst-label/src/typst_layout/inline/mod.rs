@@ -1,12 +1,13 @@
 use crate::label::EngineOptions;
 use crate::label::LabelError;
-use crate::label::LabelWarning;
+use crate::label::{
+    FontResource, FontResourceId, LabelWarning, PdfGlyph, PdfGlyphRun, PdfTextLayer,
+};
 use crate::typst_layout::frame::{
     LineLayoutArtifact, LineLayoutOptions, MathLayoutOptions, PositionedTextLineRun,
     PositionedTextLineRunKind, TypesetMetrics,
 };
 use crate::typst_library::{Color, FontStyle, FontWeight, TextStyle};
-use crate::typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 use crate::typst_svg::{
     PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform,
 };
@@ -1533,7 +1534,7 @@ fn remap_pdf_fonts(
 }
 
 fn same_font_resource(a: &FontResource, b: &FontResource) -> bool {
-    a.face_index == b.face_index && a.variations == b.variations && a.data == b.data
+    a.face_index == b.face_index && a.data == b.data
 }
 
 fn intern_font_resource(

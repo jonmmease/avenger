@@ -11,6 +11,6 @@ pub mod text;
 pub mod visualize;
 
 pub use font::{FontStyle, FontWeight, MathFontBytesId, MathFontSpec};
-pub use math::{MathDisplayStyle, MathStyle};
+pub use math::MathStyle;
 pub use text::TextStyle;
 pub use visualize::Color;

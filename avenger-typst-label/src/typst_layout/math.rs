@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use crate::label::EngineOptions;
-use crate::label::LabelError;
+use crate::label::{
+    EngineOptions, FontResource, FontResourceId, LabelError, PdfGlyph, PdfGlyphRun, PdfTextLayer,
+};
 use crate::typst_layout::frame::{MathLayoutOptions, MathRunArtifact, TypesetMetrics};
 use crate::typst_layout::glyph_path::outline_glyph_path;
 use crate::typst_library::math::item as ast;
 use crate::typst_library::text::content::DecorationStroke;
 use crate::typst_library::{Color, FontWeight, MathFontSpec};
-use crate::typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 use crate::typst_svg::{
     PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform,
 };
@@ -4909,7 +4909,6 @@ fn pdf_text_from_simple_row(
         postscript_name: font_name(&face, ttf_parser::name_id::POST_SCRIPT_NAME),
         face_index: font.face_index,
         units_per_em: face.units_per_em() as f32,
-        variations: Vec::new(),
         data: Arc::<[u8]>::from(font.data.clone()),
     }];
 

@@ -1,11 +1,9 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::label::EngineOptions;
-use crate::label::LabelError;
+use crate::label::{EngineOptions, FontResource, FontResourceId, LabelError};
 use crate::typst_library::font::resources::{DEJAVU_SANS_MONO_FACES, EmbeddedFontFace, LATO_FACES};
 use crate::typst_library::{FontStyle, FontWeight, TextStyle};
-use crate::typst_pdf::{FontResource, FontResourceId};
 use crate::typst_svg::{PathData, PathImageFormat, PathImageItem, Transform};
 use unicode_bidi::BidiInfo;
 use unicode_script::{Script, UnicodeScript};
@@ -463,7 +461,6 @@ impl TextFace {
                 .as_ref()
                 .map(|face| face.units_per_em() as f32)
                 .unwrap_or(1000.0),
-            variations: Vec::new(),
             data: self.data.resource_data(),
         }
     }

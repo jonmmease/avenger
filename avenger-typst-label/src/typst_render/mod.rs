@@ -7,6 +7,9 @@
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "raster")]
+use std::io::Cursor;
+
+#[cfg(feature = "raster")]
 use crate::{
     label::LabelError,
     typst_library::Color,
@@ -188,16 +191,15 @@ fn draw_image_item(
     top_px: i32,
 ) -> Result<(), LabelError> {
     let PathImageFormat::Png = image.format;
-    let decoded = image::load_from_memory_with_format(&image.data, image::ImageFormat::Png)
-        .map_err(|_| LabelError::UnsupportedOutput("failed to decode Typst PNG glyph"))?
-        .into_rgba8();
-    let (width, height) = decoded.dimensions();
+    let decoded = decode_png_to_rgba(&image.data)?;
+    let width = decoded.width;
+    let height = decoded.height;
     let Some(size) = tiny_skia::IntSize::from_wh(width, height) else {
         return Err(LabelError::UnsupportedOutput(
             "Typst PNG glyph dimensions are too large",
         ));
     };
-    let source = tiny_skia::Pixmap::from_vec(premultiply_rgba(decoded.into_raw()), size).ok_or(
+    let source = tiny_skia::Pixmap::from_vec(premultiply_rgba(decoded.data), size).ok_or(
         LabelError::UnsupportedOutput("Typst PNG glyph data did not match its dimensions"),
     )?;
     if image.transform.xx != 1.0
@@ -225,6 +227,84 @@ fn draw_image_item(
         None,
     );
     Ok(())
+}
+
+#[cfg(feature = "raster")]
+fn decode_png_to_rgba(data: &[u8]) -> Result<RgbaImageData, LabelError> {
+    let mut decoder = png::Decoder::new(Cursor::new(data));
+    decoder.set_transformations(png::Transformations::ALPHA | png::Transformations::STRIP_16);
+    let mut reader = decoder
+        .read_info()
+        .map_err(|_| LabelError::UnsupportedOutput("failed to decode Typst PNG glyph"))?;
+    let buffer_size = reader
+        .output_buffer_size()
+        .ok_or(LabelError::UnsupportedOutput(
+            "failed to decode Typst PNG glyph",
+        ))?;
+    let mut buffer = vec![0; buffer_size];
+    let info = reader
+        .next_frame(&mut buffer)
+        .map_err(|_| LabelError::UnsupportedOutput("failed to decode Typst PNG glyph"))?;
+    let decoded = &buffer[..info.buffer_size()];
+
+    if info.bit_depth != png::BitDepth::Eight {
+        return Err(LabelError::UnsupportedOutput(
+            "unsupported Typst PNG glyph color format",
+        ));
+    }
+
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => decoded.to_vec(),
+        png::ColorType::Rgb => {
+            let mut out = Vec::with_capacity(rgba_byte_len(info.width, info.height)?);
+            for pixel in decoded.chunks_exact(3) {
+                out.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+            }
+            out
+        }
+        png::ColorType::GrayscaleAlpha => {
+            let mut out = Vec::with_capacity(rgba_byte_len(info.width, info.height)?);
+            for pixel in decoded.chunks_exact(2) {
+                out.extend_from_slice(&[pixel[0], pixel[0], pixel[0], pixel[1]]);
+            }
+            out
+        }
+        png::ColorType::Grayscale => {
+            let mut out = Vec::with_capacity(rgba_byte_len(info.width, info.height)?);
+            for gray in decoded {
+                out.extend_from_slice(&[*gray, *gray, *gray, 255]);
+            }
+            out
+        }
+        png::ColorType::Indexed => {
+            return Err(LabelError::UnsupportedOutput(
+                "unsupported Typst PNG glyph color format",
+            ));
+        }
+    };
+
+    let expected_len = rgba_byte_len(info.width, info.height)?;
+    if rgba.len() != expected_len {
+        return Err(LabelError::UnsupportedOutput(
+            "Typst PNG glyph data did not match its dimensions",
+        ));
+    }
+
+    Ok(RgbaImageData {
+        width: info.width,
+        height: info.height,
+        data: rgba,
+    })
+}
+
+#[cfg(feature = "raster")]
+fn rgba_byte_len(width: u32, height: u32) -> Result<usize, LabelError> {
+    (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or(LabelError::UnsupportedOutput(
+            "Typst PNG glyph dimensions are too large",
+        ))
 }
 
 #[cfg(feature = "raster")]

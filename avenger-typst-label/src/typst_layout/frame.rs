@@ -1,8 +1,5 @@
-use crate::label::LabelParams;
-use crate::label::LabelWarning;
-use crate::typst_eval::LabelLimits;
+use crate::label::{FontResource, LabelLimits, LabelParams, LabelWarning, PdfTextLayer};
 use crate::typst_library::{MathStyle, TextStyle};
-use crate::typst_pdf::{FontResource, PdfTextLayer};
 use crate::typst_svg::PathArtifact;
 
 #[cfg(feature = "serde")]
