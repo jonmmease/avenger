@@ -217,7 +217,7 @@ fn max_grouping_depth(source: &str) -> usize {
 
 fn nodes_contain_static_markup(nodes: &[LineNode]) -> bool {
     nodes.iter().any(|node| match node {
-        LineNode::Plain(_) | LineNode::Math(_) | LineNode::Emoji(_) => false,
+        LineNode::Plain(_) | LineNode::Math(_) | LineNode::Emoji(_) | LineNode::Symbol(_) => false,
         LineNode::TextSpan(_) => true,
     })
 }
@@ -487,6 +487,39 @@ mod tests {
         );
         assert!(artifact.paths.is_some());
         assert!(artifact.pdf_text.is_some());
+    }
+
+    #[test]
+    fn named_symbol_alias_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let artifact = engine
+            .typeset_markup_line("Flow #sym.arrow.r target", &options)
+            .unwrap();
+
+        assert_eq!(artifact.source, "Flow #sym.arrow.r target");
+        assert_eq!(
+            artifact
+                .positioned_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Flow → target"]
+        );
+        assert!(artifact.paths.is_some());
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.iter().any(|run| run.text == "Flow → target"))
+        );
     }
 
     #[cfg(all(feature = "raster", target_os = "macos"))]

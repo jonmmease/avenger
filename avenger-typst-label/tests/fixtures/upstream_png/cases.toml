@@ -21,3 +21,15 @@ text_font = "Lato"
 math_font = "Lete Sans Math"
 pixel_tolerance = 14
 min_similarity = 0.70
+
+[[case]]
+id = "symbol-arrow"
+upstream_file = "../../typst/tests/suite/symbols/symbol.typ"
+upstream_test = "symbol-arrow-smoke"
+source = "symbol-arrow.typ"
+font_size = 20.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+pixel_tolerance = 6
+min_similarity = 0.70

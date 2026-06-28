@@ -138,6 +138,13 @@ fn line_with_rendered_static_markup(line: &ParsedLine) -> Option<RenderLine> {
                 pending_end = alias.byte_range.end;
                 pending_plain.push_str(alias.emoji);
             }
+            LineNode::Symbol(alias) => {
+                if pending_start.is_none() {
+                    pending_start = Some(alias.byte_range.start);
+                }
+                pending_end = alias.byte_range.end;
+                pending_plain.push_str(alias.text);
+            }
             LineNode::Math(math) => {
                 flush_plain(
                     &mut nodes,
@@ -198,6 +205,7 @@ fn render_plain_static_body(nodes: &[LineNode]) -> Option<String> {
         match node {
             LineNode::Plain(plain) => text.push_str(&plain.text),
             LineNode::Emoji(alias) => text.push_str(alias.emoji),
+            LineNode::Symbol(alias) => text.push_str(alias.text),
             LineNode::Math(_) | LineNode::TextSpan(_) => return None,
         }
     }

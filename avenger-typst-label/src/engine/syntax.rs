@@ -7,8 +7,10 @@ use crate::style::Color;
 
 use super::ast::{
     DecorationDash, DecorationDashLength, DecorationLength, DecorationStroke, EmojiAlias, LineNode,
-    MathSpan, ParsedLine, PlainTextNode, TextMarkupKind, TextMarkupOptions, TextMarkupSpan,
+    MathSpan, ParsedLine, PlainTextNode, SymbolAlias, TextMarkupKind, TextMarkupOptions,
+    TextMarkupSpan,
 };
+use super::math::syntax::named_math_symbol;
 
 use crate::syntax::ast::{self as typst_ast, AstNode};
 use crate::syntax::{
@@ -174,18 +176,31 @@ fn lower_static_field_access(
     let Some(name) = code_field_access_name(access) else {
         return Err(unsupported(range.start, "unsupported static text command"));
     };
-    let Some(alias) = name.strip_prefix("emoji.") else {
-        return Err(unsupported(range.start, "unsupported static text command"));
-    };
-    let Some(emoji) = emoji_alias(alias) else {
-        return Err(unsupported(range.start, "unknown emoji alias"));
-    };
-    nodes.push(LineNode::Emoji(EmojiAlias {
-        name: alias.to_string(),
-        emoji,
-        byte_range: range,
-    }));
-    Ok(())
+    if let Some(alias) = name.strip_prefix("emoji.") {
+        let Some(emoji) = emoji_alias(alias) else {
+            return Err(unsupported(range.start, "unknown emoji alias"));
+        };
+        nodes.push(LineNode::Emoji(EmojiAlias {
+            name: alias.to_string(),
+            emoji,
+            byte_range: range,
+        }));
+        return Ok(());
+    }
+
+    if let Some(alias) = name.strip_prefix("sym.") {
+        let Some(text) = named_math_symbol(alias) else {
+            return Err(unsupported(range.start, "unknown symbol alias"));
+        };
+        nodes.push(LineNode::Symbol(SymbolAlias {
+            name: alias.to_string(),
+            text,
+            byte_range: range,
+        }));
+        return Ok(());
+    }
+
+    Err(unsupported(range.start, "unsupported static text command"))
 }
 
 fn code_expr_name(expr: typst_ast::Expr<'_>) -> Option<String> {
@@ -788,6 +803,19 @@ mod tests {
     }
 
     #[test]
+    fn parses_named_symbol_aliases() {
+        let line = parse("Flow #sym.arrow.r target #sym.gt.eq.not");
+
+        assert_eq!(line.nodes.len(), 4);
+        assert!(
+            matches!(&line.nodes[1], LineNode::Symbol(alias) if alias.name == "arrow.r" && alias.text == "→")
+        );
+        assert!(
+            matches!(&line.nodes[3], LineNode::Symbol(alias) if alias.name == "gt.eq.not" && alias.text == "≱")
+        );
+    }
+
+    #[test]
     fn parses_decoration_options() {
         let line = parse(
             "#underline(stroke: 1.5pt + red, offset: 2pt, extent: 3pt, background: true, evade: false)[important]",
@@ -887,6 +915,19 @@ mod tests {
             LabelError::UnsupportedSyntax {
                 position: 0,
                 message: "unknown emoji alias"
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_symbol_aliases() {
+        let err = parse_line("#sym.not.real").unwrap_err();
+
+        assert_eq!(
+            err,
+            LabelError::UnsupportedSyntax {
+                position: 0,
+                message: "unknown symbol alias"
             }
         );
     }

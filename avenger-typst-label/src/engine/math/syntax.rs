@@ -704,7 +704,7 @@ fn is_unsupported_math_table_call_name(name: &str) -> bool {
     matches!(name, "mat" | "vec" | "cases")
 }
 
-fn named_math_symbol(name: &str) -> Option<&'static str> {
+pub(crate) fn named_math_symbol(name: &str) -> Option<&'static str> {
     match name {
         "alpha" => Some("α"),
         "beta" => Some("β"),
