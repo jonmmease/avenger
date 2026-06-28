@@ -65,6 +65,7 @@ fn allows_common_typst_math_fragments() {
         "$script(a / b, cramped: #true) + sscript(c / d)$",
         "$overline(underline(x + y))$",
         "$attach(Pi, t: alpha, b: beta, tl: 1, tr: 2+3, bl: 4+5, br: 6)$",
+        "$a'''_b$",
     ];
 
     for sample in samples {

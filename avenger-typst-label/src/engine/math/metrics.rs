@@ -1423,6 +1423,7 @@ const INLINE_MATH_LEADING_SLACK_EM: f32 = 0.65 * 0.7;
 const CANCEL_STROKE_EM: f32 = 0.05;
 const CANCEL_LENGTH_EXTRA_EM: f32 = 0.3;
 const SCRIPT_SLOT_PAIR_GAP_EM: f32 = 0.08;
+const PRIME_CHAR: char = '′';
 
 fn layout_simple_attach(
     font: &MathFont,
@@ -1430,15 +1431,18 @@ fn layout_simple_attach(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    if attach.primes > 0 {
-        return Ok(None);
-    }
-
     let Some(base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
         return Ok(None);
     };
     let script_font_size = script_font_size(font, font_size, script_level)?;
     let slots = layout_attach_slots(font, attach, script_font_size, script_level + 1)?;
+    let slots = attach_slots_with_primes(
+        font,
+        slots,
+        attach.primes,
+        script_font_size,
+        script_level + 1,
+    )?;
     if attach_slots_missing_requested(attach, &slots) {
         return Ok(None);
     }
@@ -1453,9 +1457,6 @@ fn layout_simple_attach_with_bottom_continuation(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    if attach.primes > 0 {
-        return Ok(None);
-    }
     let Some([bottom_node]) = attach.bottom.as_deref() else {
         return Ok(None);
     };
@@ -1464,6 +1465,13 @@ fn layout_simple_attach_with_bottom_continuation(
     };
     let script_font_size = script_font_size(font, font_size, script_level)?;
     let mut slots = layout_attach_slots(font, attach, script_font_size, script_level + 1)?;
+    slots = attach_slots_with_primes(
+        font,
+        slots,
+        attach.primes,
+        script_font_size,
+        script_level + 1,
+    )?;
     let bottom_nodes = [bottom_node.clone(), MathNode::Group(group.clone())];
     let bottom =
         layout_simple_nodes_as_atom(font, &bottom_nodes, script_font_size, script_level + 1)?;
@@ -1519,6 +1527,40 @@ fn layout_attach_slots(
             script_level,
         )?,
     })
+}
+
+fn attach_slots_with_primes(
+    font: &MathFont,
+    mut slots: LaidOutAttachSlots,
+    primes: usize,
+    font_size: f32,
+    script_level: u8,
+) -> Result<LaidOutAttachSlots, LabelError> {
+    let Some(prime_atom) = layout_prime_slot(font, primes, font_size, script_level)? else {
+        return Ok(slots);
+    };
+    slots.top_right = combine_script_slots(font_size, slots.top_right, Some(prime_atom))?;
+    Ok(slots)
+}
+
+fn layout_prime_slot(
+    font: &MathFont,
+    primes: usize,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    if primes == 0 {
+        return Ok(None);
+    }
+    let text = PRIME_CHAR.to_string().repeat(primes);
+    layout_styled_atom_with_class(
+        font,
+        &text,
+        font_size,
+        script_style_feature(script_level),
+        SimpleMathClass::Normal,
+    )
+    .map(Some)
 }
 
 fn layout_script_nodes(
@@ -3441,6 +3483,40 @@ mod tests {
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 2);
         assert!(pdf.glyph_runs[1].font_size < pdf.glyph_runs[0].font_size);
+    }
+
+    #[test]
+    fn simple_row_can_emit_prime_glyphs_as_scripts() {
+        let math = parse_math("a'''_b", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("prime attachment should be handled by Typst row path");
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let text = pdf
+            .glyph_runs
+            .iter()
+            .map(|run| run.text.as_str())
+            .collect::<String>();
+        assert_eq!(text.matches(PRIME_CHAR).count(), 3);
+        let max_font_size = pdf
+            .glyph_runs
+            .iter()
+            .map(|run| run.font_size)
+            .fold(0.0, f32::max);
+        assert!(
+            pdf.glyph_runs
+                .iter()
+                .any(|run| run.text.contains(PRIME_CHAR) && run.font_size < max_font_size)
+        );
+        let paths = artifact.paths.expect("prime paths should exist");
+        assert!(paths.items.len() >= 5);
     }
 
     #[test]
