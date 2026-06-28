@@ -11,7 +11,10 @@ use crate::types::{
 };
 use crate::warnings::LabelWarning;
 
-use super::ast::{LineNode, MathSpan, ParsedLine, PlainTextNode, TextMarkupKind};
+use super::ast::{
+    LineNode, MathSpan, ParsedLine, PlainTextNode, TextDecorationOptions, TextMarkupKind,
+    TextMarkupOptions,
+};
 use super::font::{
     SegmentedText, ShapedText, TextDecorationLineMetrics, TextDecorationMetrics, TextFace,
     TextScript, shape_plain_text_with_fallback,
@@ -47,24 +50,56 @@ pub(crate) fn try_typeset_text_line(
     try_typeset_plain_text_line(source, &line, options, fontdb)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct RenderLine {
     source: String,
     nodes: Vec<RenderNode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum RenderNode {
     Plain(PlainTextNode),
     DecoratedText(DecoratedText),
     Math(MathSpan),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct DecoratedText {
     kind: TextMarkupKind,
+    options: TextMarkupOptions,
     text: String,
     byte_range: std::ops::Range<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TextDecoration {
+    kind: TextMarkupKind,
+    options: TextDecorationOptions,
+}
+
+impl TextDecoration {
+    fn from_markup(kind: TextMarkupKind, options: TextMarkupOptions) -> Self {
+        Self {
+            kind,
+            options: options.decoration,
+        }
+    }
+
+    fn is_highlight(self) -> bool {
+        self.kind == TextMarkupKind::Highlight
+    }
+
+    fn is_line_decoration(self) -> bool {
+        self.kind.is_line_decoration()
+    }
+
+    fn is_background(self) -> bool {
+        self.is_highlight() || (self.is_line_decoration() && self.options.background)
+    }
+
+    fn is_foreground(self) -> bool {
+        self.is_line_decoration() && !self.options.background
+    }
 }
 
 fn line_with_rendered_static_markup(line: &ParsedLine) -> Option<RenderLine> {
@@ -124,6 +159,7 @@ fn line_with_rendered_static_markup(line: &ParsedLine) -> Option<RenderLine> {
                 if !text.is_empty() {
                     nodes.push(RenderNode::DecoratedText(DecoratedText {
                         kind,
+                        options: span.options,
                         text,
                         byte_range: span.body_range.clone(),
                     }));
@@ -208,6 +244,7 @@ fn try_typeset_plain_text_line(
             typeset_segmented_plain_text_line(source, plain, None, options, segmented)
         }
         RenderNode::DecoratedText(decorated) => {
+            let decoration = TextDecoration::from_markup(decorated.kind, decorated.options);
             let Some(face) =
                 TextFace::for_plain_style_and_text(&options.text_style, &decorated.text, fontdb)?
             else {
@@ -219,7 +256,7 @@ fn try_typeset_plain_text_line(
                     text: decorated.text.clone(),
                     byte_range: decorated.byte_range.clone(),
                 },
-                Some(decorated.kind),
+                Some(decoration),
                 options,
                 face,
             )
@@ -325,6 +362,7 @@ fn try_typeset_mixed_metrics_text_line(
                 if decorated.text.is_empty() {
                     continue;
                 }
+                let decoration = TextDecoration::from_markup(decorated.kind, decorated.options);
                 let script = text_script_for_kind(decorated.kind);
                 let Some(text_face) = TextFace::for_plain_style_and_text(
                     &options.text_style,
@@ -353,7 +391,7 @@ fn try_typeset_mixed_metrics_text_line(
                             glyph_baseline_y,
                             run_font_size,
                             options.text_style.fill,
-                            Some(decorated.kind),
+                            Some(decoration),
                         )
                     });
                 let positioned_paths = options
@@ -361,7 +399,7 @@ fn try_typeset_mixed_metrics_text_line(
                     .positioned_runs
                     .then(|| {
                         decoration_path_artifact(
-                            decorated.kind,
+                            decoration,
                             metrics,
                             run_font_size,
                             options.text_style.fill,
@@ -770,13 +808,13 @@ fn plain_path_artifact_from_shaped(
     glyph_baseline_y: f32,
     font_size: f32,
     fill: Color,
-    decoration: Option<TextMarkupKind>,
+    decoration: Option<TextDecoration>,
 ) -> PathArtifact {
     let mut items = Vec::new();
     let mut images = Vec::new();
-    if matches!(decoration, Some(TextMarkupKind::Highlight)) {
+    if decoration.is_some_and(TextDecoration::is_background) {
         if let Some(highlight) =
-            decoration_path_item(TextMarkupKind::Highlight, metrics, font_size, fill, None)
+            decoration_path_item(decoration.unwrap(), metrics, font_size, fill, None)
         {
             items.push(highlight);
         }
@@ -813,11 +851,8 @@ fn plain_path_artifact_from_shaped(
         }
     }
 
-    if let Some(
-        kind @ (TextMarkupKind::Underline | TextMarkupKind::Strike | TextMarkupKind::Overline),
-    ) = decoration
-    {
-        if let Some(item) = decoration_path_item(kind, metrics, font_size, fill, Some(face)) {
+    if let Some(decoration) = decoration.filter(|decoration| decoration.is_foreground()) {
+        if let Some(item) = decoration_path_item(decoration, metrics, font_size, fill, Some(face)) {
             items.push(item);
         }
     }
@@ -836,13 +871,13 @@ fn plain_path_artifact_from_segmented(
     glyph_baseline_y: f32,
     font_size: f32,
     fill: Color,
-    decoration: Option<TextMarkupKind>,
+    decoration: Option<TextDecoration>,
 ) -> PathArtifact {
     let mut items = Vec::new();
     let mut images = Vec::new();
-    if matches!(decoration, Some(TextMarkupKind::Highlight)) {
+    if decoration.is_some_and(TextDecoration::is_background) {
         if let Some(highlight) =
-            decoration_path_item(TextMarkupKind::Highlight, metrics, font_size, fill, None)
+            decoration_path_item(decoration.unwrap(), metrics, font_size, fill, None)
         {
             items.push(highlight);
         }
@@ -881,12 +916,9 @@ fn plain_path_artifact_from_segmented(
         }
     }
 
-    if let Some(
-        kind @ (TextMarkupKind::Underline | TextMarkupKind::Strike | TextMarkupKind::Overline),
-    ) = decoration
-    {
+    if let Some(decoration) = decoration.filter(|decoration| decoration.is_foreground()) {
         let face = segmented.runs.first().map(|run| &run.face);
-        if let Some(item) = decoration_path_item(kind, metrics, font_size, fill, face) {
+        if let Some(item) = decoration_path_item(decoration, metrics, font_size, fill, face) {
             items.push(item);
         }
     }
@@ -900,13 +932,13 @@ fn plain_path_artifact_from_segmented(
 }
 
 fn decoration_path_artifact(
-    kind: TextMarkupKind,
+    decoration: TextDecoration,
     metrics: TypesetMetrics,
     font_size: f32,
     fill: Color,
     face: Option<&TextFace>,
 ) -> Option<PathArtifact> {
-    decoration_path_item(kind, metrics, font_size, fill, face).map(|item| PathArtifact {
+    decoration_path_item(decoration, metrics, font_size, fill, face).map(|item| PathArtifact {
         logical_width: metrics.width,
         logical_height: metrics.height,
         items: vec![item],
@@ -915,12 +947,13 @@ fn decoration_path_artifact(
 }
 
 fn decoration_path_item(
-    kind: TextMarkupKind,
+    decoration: TextDecoration,
     metrics: TypesetMetrics,
     font_size: f32,
     fill: Color,
     face: Option<&TextFace>,
 ) -> Option<PathItem> {
+    let kind = decoration.kind;
     let item = match kind {
         TextMarkupKind::Highlight => PathItem {
             path: PathData::rect(metrics.width, metrics.height),
@@ -935,18 +968,24 @@ fn decoration_path_item(
             metrics,
             decoration_line(face, font_size, kind),
             fill,
+            decoration.options,
+            font_size,
         ),
         TextMarkupKind::Strike => line_decoration_item(
             metrics.width,
             metrics,
             decoration_line(face, font_size, kind),
             fill,
+            decoration.options,
+            font_size,
         ),
         TextMarkupKind::Overline => line_decoration_item(
             metrics.width,
             metrics,
             decoration_line(face, font_size, kind),
             fill,
+            decoration.options,
+            font_size,
         ),
         TextMarkupKind::Subscript | TextMarkupKind::Superscript => return None,
     };
@@ -976,20 +1015,34 @@ fn line_decoration_item(
     metrics: TypesetMetrics,
     line: TextDecorationLineMetrics,
     fill: Color,
+    options: TextDecorationOptions,
+    font_size: f32,
 ) -> PathItem {
-    let y = metrics.baseline - line.position;
+    let position = options
+        .offset
+        .map(|offset| -offset.resolve(font_size))
+        .unwrap_or(line.position);
+    let extent = options.extent.resolve(font_size);
+    let y = metrics.baseline - position;
     PathItem {
         path: PathData {
             commands: vec![
-                crate::paths::PathCommand::MoveTo { x: 0.0, y },
-                crate::paths::PathCommand::LineTo { x: width, y },
+                crate::paths::PathCommand::MoveTo { x: -extent, y },
+                crate::paths::PathCommand::LineTo {
+                    x: width + extent,
+                    y,
+                },
             ],
         },
         kind: PathKind::MathShape,
         fill: None,
         stroke: Some(Stroke {
-            color: fill,
-            width: line.thickness,
+            color: options.stroke.paint.unwrap_or(fill),
+            width: options
+                .stroke
+                .thickness
+                .map(|thickness| thickness.resolve(font_size))
+                .unwrap_or(line.thickness),
         }),
         transform: Transform::IDENTITY,
         clip: None,
@@ -1248,7 +1301,7 @@ fn intern_font_resource(
 fn typeset_plain_text_line(
     source: &str,
     plain: &PlainTextNode,
-    decoration: Option<TextMarkupKind>,
+    decoration: Option<TextDecoration>,
     options: &TextLineOptions,
     face: TextFace,
 ) -> Result<Option<TextLineArtifact>, LabelError> {
@@ -1344,7 +1397,7 @@ fn typeset_plain_text_line(
 fn typeset_segmented_plain_text_line(
     source: &str,
     plain: &PlainTextNode,
-    decoration: Option<TextMarkupKind>,
+    decoration: Option<TextDecoration>,
     options: &TextLineOptions,
     segmented: SegmentedText,
 ) -> Result<Option<TextLineArtifact>, LabelError> {
@@ -1423,6 +1476,14 @@ mod tests {
     fn render_line(source: &str) -> RenderLine {
         let line = parse_line(source).unwrap();
         line_with_rendered_static_markup(&line).expect("test line should be renderable")
+    }
+
+    fn first_stroke_item(paths: &PathArtifact) -> &PathItem {
+        paths
+            .items
+            .iter()
+            .find(|item| item.stroke.is_some())
+            .expect("stroke path should be present")
     }
 
     #[test]
@@ -1643,6 +1704,116 @@ mod tests {
         assert!((y - (artifact.metrics.baseline - expected.position)).abs() < 1e-4);
         assert!(expected.position < -font_size * 0.2);
         assert!(expected.thickness < font_size * 0.06);
+    }
+
+    #[test]
+    fn underline_literal_stroke_offset_extent() {
+        let fontdb = test_fontdb();
+        let line = render_line("#underline(stroke: 1.5pt + red, offset: 2pt, extent: 3pt)[care]");
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: false,
+            positioned_runs: false,
+        };
+
+        let artifact = try_typeset_plain_text_line(
+            "#underline(stroke: 1.5pt + red, offset: 2pt, extent: 3pt)[care]",
+            &line,
+            &options,
+            &fontdb,
+        )
+        .unwrap()
+        .expect("supported static decoration should use fast path");
+        let paths = artifact.paths.expect("decorated paths should exist");
+        let underline = first_stroke_item(&paths);
+        let stroke = underline.stroke.as_ref().unwrap();
+        let (x0, y) = match underline.path.commands.first() {
+            Some(PathCommand::MoveTo { x, y }) => (*x, *y),
+            other => panic!("expected underline to start with MoveTo, got {other:?}"),
+        };
+        let x1 = match underline.path.commands.get(1) {
+            Some(PathCommand::LineTo { x, .. }) => *x,
+            other => panic!("expected underline to end with LineTo, got {other:?}"),
+        };
+
+        assert_eq!(stroke.color, Color::rgba(1.0, 0.0, 0.0, 1.0));
+        assert!((stroke.width - 1.5).abs() < 1e-4);
+        assert!((x0 + 3.0).abs() < 1e-4);
+        assert!((x1 - (artifact.metrics.width + 3.0)).abs() < 1e-4);
+        assert!((y - (artifact.metrics.baseline + 2.0)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn underline_background_precedes_glyphs() {
+        let fontdb = test_fontdb();
+        let line = render_line("#underline(background: true, stroke: red)[care]");
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        let artifact = try_typeset_plain_text_line(
+            "#underline(background: true, stroke: red)[care]",
+            &line,
+            &options,
+            &fontdb,
+        )
+        .unwrap()
+        .expect("supported static decoration should use fast path");
+        let paths = artifact.paths.expect("decorated paths should exist");
+
+        assert!(matches!(paths.items[0].kind, PathKind::MathShape));
+        assert!(paths.items[0].stroke.is_some());
+    }
+
+    #[test]
+    fn decoration_stroke_dictionary_sets_paint_and_thickness() {
+        let fontdb = test_fontdb();
+        let line = render_line("#underline(stroke: (thickness: 0.4em, paint: maroon))[x]");
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+        let font_size = options.text_style.font_size.max(1.0);
+
+        let artifact = try_typeset_plain_text_line(
+            "#underline(stroke: (thickness: 0.4em, paint: maroon))[x]",
+            &line,
+            &options,
+            &fontdb,
+        )
+        .unwrap()
+        .expect("supported static decoration should use fast path");
+        let paths = artifact.paths.expect("decorated paths should exist");
+        let stroke = first_stroke_item(&paths).stroke.as_ref().unwrap();
+
+        assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
+        assert!((stroke.width - font_size * 0.4).abs() < 1e-4);
+    }
+
+    #[test]
+    fn overline_supports_negative_em_offset() {
+        let fontdb = test_fontdb();
+        let line = render_line("#overline(offset: -1.2em, extent: 2pt)[top]");
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+        let font_size = options.text_style.font_size.max(1.0);
+
+        let artifact = try_typeset_plain_text_line(
+            "#overline(offset: -1.2em, extent: 2pt)[top]",
+            &line,
+            &options,
+            &fontdb,
+        )
+        .unwrap()
+        .expect("supported static decoration should use fast path");
+        let paths = artifact.paths.expect("decorated paths should exist");
+        let overline = first_stroke_item(&paths);
+        let (x0, y) = match overline.path.commands.first() {
+            Some(PathCommand::MoveTo { x, y }) => (*x, *y),
+            other => panic!("expected overline to start with MoveTo, got {other:?}"),
+        };
+
+        assert!((x0 + 2.0).abs() < 1e-4);
+        assert!((y - (artifact.metrics.baseline - font_size * 1.2)).abs() < 1e-4);
     }
 
     #[test]

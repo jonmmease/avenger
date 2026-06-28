@@ -2,9 +2,11 @@ use std::ops::Range;
 
 use crate::delimiter::{MathDelimiterInfo, MathDisplayHint};
 use crate::error::LabelError;
+use crate::style::Color;
 
 use super::ast::{
-    EmojiAlias, LineNode, MathSpan, ParsedLine, PlainTextNode, TextMarkupKind, TextMarkupSpan,
+    DecorationLength, DecorationStroke, EmojiAlias, LineNode, MathSpan, ParsedLine, PlainTextNode,
+    TextMarkupKind, TextMarkupOptions, TextMarkupSpan,
 };
 
 use crate::syntax::ast::{self as typst_ast, AstNode};
@@ -112,6 +114,7 @@ fn lower_static_call(
     };
 
     let mut body = None;
+    let mut options = TextMarkupOptions::default();
     for arg in call.args().items() {
         match arg {
             typst_ast::Arg::Pos(typst_ast::Expr::ContentBlock(block)) => {
@@ -122,11 +125,8 @@ fn lower_static_call(
                     ));
                 }
             }
-            typst_ast::Arg::Named(_) => {
-                return Err(unsupported(
-                    range.start,
-                    "static text commands do not support Typst-style options",
-                ));
+            typst_ast::Arg::Named(named) => {
+                parse_text_markup_option(kind, named, &mut options)?;
             }
             typst_ast::Arg::Spread(_) => {
                 return Err(unsupported(
@@ -156,6 +156,7 @@ fn lower_static_call(
     lower_markup(body_markup, source, &mut body_nodes)?;
     nodes.push(LineNode::TextSpan(TextMarkupSpan {
         kind,
+        options,
         body: body_nodes,
         byte_range: range,
         body_range,
@@ -211,6 +212,255 @@ fn text_span_kind(name: &str) -> Option<TextMarkupKind> {
         "highlight" => Some(TextMarkupKind::Highlight),
         _ => None,
     }
+}
+
+fn parse_text_markup_option(
+    kind: TextMarkupKind,
+    named: typst_ast::Named<'_>,
+    options: &mut TextMarkupOptions,
+) -> Result<(), LabelError> {
+    let position = named.to_untyped().range().start;
+    if !kind.is_line_decoration() {
+        return Err(unsupported(
+            position,
+            "this static text command does not support options",
+        ));
+    }
+
+    match named.name().as_str() {
+        "stroke" => {
+            options.decoration.stroke = parse_decoration_stroke(named.expr(), position)?;
+        }
+        "offset" => {
+            options.decoration.offset = parse_auto_or_length(named.expr(), position)?;
+        }
+        "extent" => {
+            options.decoration.extent = parse_length(named.expr(), position)?;
+        }
+        "background" => {
+            options.decoration.background = parse_bool(named.expr(), position)?;
+        }
+        "evade" => {
+            if kind == TextMarkupKind::Strike {
+                return Err(unsupported(position, "strike does not support evade"));
+            }
+            options.decoration.evade = parse_evade(named.expr(), position)?;
+        }
+        _ => return Err(unsupported(position, "unsupported decoration option")),
+    }
+
+    Ok(())
+}
+
+fn parse_decoration_stroke(
+    expr: typst_ast::Expr<'_>,
+    position: usize,
+) -> Result<DecorationStroke, LabelError> {
+    match expr {
+        typst_ast::Expr::Auto(_) => Ok(DecorationStroke::default()),
+        typst_ast::Expr::Dict(dict) => parse_stroke_dict(dict, position),
+        typst_ast::Expr::Binary(binary) if binary.op() == typst_ast::BinOp::Add => {
+            let mut stroke = parse_stroke_part(binary.lhs(), position)?;
+            stroke.merge(parse_stroke_part(binary.rhs(), position)?, position)?;
+            Ok(stroke)
+        }
+        _ => parse_stroke_part(expr, position),
+    }
+}
+
+fn parse_stroke_dict(
+    dict: typst_ast::Dict<'_>,
+    position: usize,
+) -> Result<DecorationStroke, LabelError> {
+    let mut stroke = DecorationStroke::default();
+    for item in dict.items() {
+        let typst_ast::DictItem::Named(named) = item else {
+            return Err(unsupported(position, "unsupported stroke dictionary item"));
+        };
+        let item_position = named.to_untyped().range().start;
+        match named.name().as_str() {
+            "paint" => {
+                stroke.merge(
+                    DecorationStroke {
+                        paint: Some(parse_paint(named.expr(), item_position)?),
+                        thickness: None,
+                    },
+                    item_position,
+                )?;
+            }
+            "thickness" => {
+                stroke.merge(
+                    DecorationStroke {
+                        paint: None,
+                        thickness: Some(parse_length(named.expr(), item_position)?),
+                    },
+                    item_position,
+                )?;
+            }
+            _ => {
+                return Err(unsupported(
+                    item_position,
+                    "unsupported stroke dictionary field",
+                ));
+            }
+        }
+    }
+    Ok(stroke)
+}
+
+fn parse_stroke_part(
+    expr: typst_ast::Expr<'_>,
+    position: usize,
+) -> Result<DecorationStroke, LabelError> {
+    if let Ok(paint) = parse_paint(expr, position) {
+        return Ok(DecorationStroke {
+            paint: Some(paint),
+            thickness: None,
+        });
+    }
+    if let Ok(thickness) = parse_length(expr, position) {
+        return Ok(DecorationStroke {
+            paint: None,
+            thickness: Some(thickness),
+        });
+    }
+    if matches!(expr, typst_ast::Expr::Auto(_)) {
+        return Ok(DecorationStroke::default());
+    }
+    Err(unsupported(position, "unsupported decoration stroke value"))
+}
+
+trait MergeDecorationStroke {
+    fn merge(&mut self, other: DecorationStroke, position: usize) -> Result<(), LabelError>;
+}
+
+impl MergeDecorationStroke for DecorationStroke {
+    fn merge(&mut self, other: DecorationStroke, position: usize) -> Result<(), LabelError> {
+        if let Some(paint) = other.paint {
+            if self.paint.replace(paint).is_some() {
+                return Err(unsupported(position, "duplicate decoration stroke paint"));
+            }
+        }
+        if let Some(thickness) = other.thickness {
+            if self.thickness.replace(thickness).is_some() {
+                return Err(unsupported(
+                    position,
+                    "duplicate decoration stroke thickness",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn parse_auto_or_length(
+    expr: typst_ast::Expr<'_>,
+    position: usize,
+) -> Result<Option<DecorationLength>, LabelError> {
+    match expr {
+        typst_ast::Expr::Auto(_) => Ok(None),
+        _ => parse_length(expr, position).map(Some),
+    }
+}
+
+fn parse_length(
+    expr: typst_ast::Expr<'_>,
+    position: usize,
+) -> Result<DecorationLength, LabelError> {
+    match expr {
+        typst_ast::Expr::Numeric(numeric) => {
+            let (value, unit) = numeric.get();
+            length_from_unit(value as f32, unit, position)
+        }
+        typst_ast::Expr::Unary(unary) => {
+            let sign = match unary.op() {
+                typst_ast::UnOp::Pos => 1.0,
+                typst_ast::UnOp::Neg => -1.0,
+                typst_ast::UnOp::Not => {
+                    return Err(unsupported(position, "unsupported decoration length"));
+                }
+            };
+            let length = parse_length(unary.expr(), position)?;
+            Ok(match length {
+                DecorationLength::Pt(value) => DecorationLength::Pt(sign * value),
+                DecorationLength::Em(value) => DecorationLength::Em(sign * value),
+            })
+        }
+        _ => Err(unsupported(position, "unsupported decoration length")),
+    }
+}
+
+fn length_from_unit(
+    value: f32,
+    unit: typst_ast::Unit,
+    position: usize,
+) -> Result<DecorationLength, LabelError> {
+    match unit {
+        typst_ast::Unit::Pt => Ok(DecorationLength::Pt(value)),
+        typst_ast::Unit::Mm => Ok(DecorationLength::Pt(value * 72.0 / 25.4)),
+        typst_ast::Unit::Cm => Ok(DecorationLength::Pt(value * 72.0 / 2.54)),
+        typst_ast::Unit::In => Ok(DecorationLength::Pt(value * 72.0)),
+        typst_ast::Unit::Em => Ok(DecorationLength::Em(value)),
+        typst_ast::Unit::Rad
+        | typst_ast::Unit::Deg
+        | typst_ast::Unit::Fr
+        | typst_ast::Unit::Percent => {
+            Err(unsupported(position, "unsupported decoration length unit"))
+        }
+    }
+}
+
+fn parse_bool(expr: typst_ast::Expr<'_>, position: usize) -> Result<bool, LabelError> {
+    match expr {
+        typst_ast::Expr::Bool(value) => Ok(value.get()),
+        _ => Err(unsupported(
+            position,
+            "unsupported decoration boolean value",
+        )),
+    }
+}
+
+fn parse_evade(expr: typst_ast::Expr<'_>, position: usize) -> Result<Option<bool>, LabelError> {
+    match expr {
+        typst_ast::Expr::Auto(_) => Ok(None),
+        typst_ast::Expr::Bool(value) if !value.get() => Ok(Some(false)),
+        typst_ast::Expr::Bool(_) => Err(unsupported(
+            position,
+            "decoration evade is not yet supported",
+        )),
+        _ => Err(unsupported(position, "unsupported decoration evade value")),
+    }
+}
+
+fn parse_paint(expr: typst_ast::Expr<'_>, position: usize) -> Result<Color, LabelError> {
+    match expr {
+        typst_ast::Expr::Ident(ident) => named_color(ident.as_str())
+            .ok_or_else(|| unsupported(position, "unsupported decoration paint")),
+        _ => Err(unsupported(position, "unsupported decoration paint")),
+    }
+}
+
+fn named_color(name: &str) -> Option<Color> {
+    Some(match name {
+        "black" => Color::rgba(0.0, 0.0, 0.0, 1.0),
+        "white" => Color::rgba(1.0, 1.0, 1.0, 1.0),
+        "red" => Color::rgba(1.0, 0.0, 0.0, 1.0),
+        "green" => Color::rgba(0.0, 0.5, 0.0, 1.0),
+        "blue" => Color::rgba(0.0, 0.0, 1.0, 1.0),
+        "yellow" => Color::rgba(1.0, 1.0, 0.0, 1.0),
+        "orange" => Color::rgba(1.0, 0.65, 0.0, 1.0),
+        "purple" => Color::rgba(0.5, 0.0, 0.5, 1.0),
+        "maroon" => Color::rgba(0.5, 0.0, 0.0, 1.0),
+        "gray" | "grey" => Color::rgba(0.5, 0.5, 0.5, 1.0),
+        "silver" => Color::rgba(0.75, 0.75, 0.75, 1.0),
+        "teal" => Color::rgba(0.0, 0.5, 0.5, 1.0),
+        "aqua" | "cyan" => Color::rgba(0.0, 1.0, 1.0, 1.0),
+        "navy" => Color::rgba(0.0, 0.0, 0.5, 1.0),
+        "lime" => Color::rgba(0.0, 1.0, 0.0, 1.0),
+        "olive" => Color::rgba(0.5, 0.5, 0.0, 1.0),
+        "fuchsia" | "magenta" => Color::rgba(1.0, 0.0, 1.0, 1.0),
+        _ => return None,
+    })
 }
 
 fn emoji_alias(name: &str) -> Option<&'static str> {
@@ -401,14 +651,51 @@ mod tests {
     }
 
     #[test]
-    fn rejects_static_command_options() {
-        let err = parse_line("#underline(stroke: red)[important]").unwrap_err();
+    fn parses_decoration_options() {
+        let line = parse(
+            "#underline(stroke: 1.5pt + red, offset: 2pt, extent: 3pt, background: true, evade: false)[important]",
+        );
+
+        let LineNode::TextSpan(span) = &line.nodes[0] else {
+            panic!("expected text span");
+        };
+        assert_eq!(span.kind, TextMarkupKind::Underline);
+        assert_eq!(
+            span.options.decoration.stroke.paint,
+            Some(Color::rgba(1.0, 0.0, 0.0, 1.0))
+        );
+        assert_eq!(
+            span.options.decoration.stroke.thickness,
+            Some(DecorationLength::Pt(1.5))
+        );
+        assert_eq!(
+            span.options.decoration.offset,
+            Some(DecorationLength::Pt(2.0))
+        );
+        assert_eq!(span.options.decoration.extent, DecorationLength::Pt(3.0));
+        assert!(span.options.decoration.background);
+        assert_eq!(span.options.decoration.evade, Some(false));
+    }
+
+    #[test]
+    fn rejects_unsupported_decoration_options() {
+        let err = parse_line("#strike(evade: false)[old]").unwrap_err();
 
         assert_eq!(
             err,
             LabelError::UnsupportedSyntax {
-                position: 0,
-                message: "static text commands do not support Typst-style options"
+                position: 8,
+                message: "strike does not support evade"
+            }
+        );
+
+        let err = parse_line("#underline(evade: true)[group]").unwrap_err();
+
+        assert_eq!(
+            err,
+            LabelError::UnsupportedSyntax {
+                position: 11,
+                message: "decoration evade is not yet supported"
             }
         );
     }

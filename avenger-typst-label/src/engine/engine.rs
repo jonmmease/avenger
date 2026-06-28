@@ -544,21 +544,19 @@ mod tests {
     }
 
     #[test]
-    fn static_command_options_error_before_rendering() {
+    fn static_command_options_render() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let mut options = TextLineOptions::default();
-        options.outputs.paths = false;
+        options.outputs.paths = true;
 
-        let err = engine
+        let artifact = engine
             .typeset_markup_line("#underline(stroke: red)[important]", &options)
-            .unwrap_err();
+            .unwrap();
 
-        assert_eq!(
-            err,
-            LabelError::UnsupportedSyntax {
-                position: 0,
-                message: "static text commands do not support Typst-style options"
-            }
+        assert!(
+            artifact
+                .paths
+                .is_some_and(|paths| paths.items.iter().any(|item| item.stroke.is_some()))
         );
     }
 
