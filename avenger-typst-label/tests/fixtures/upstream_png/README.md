@@ -51,6 +51,53 @@ fails with useful expected/actual/diff artifacts, restore the ref, rerun the
 suite, and commit only the suite files and curated PNG refs.
 ```
 
+## Canonical PNG-Only Build Card
+
+Use this card when assigning a fresh agent to build or repair this suite. It is
+the shortest complete version of the contract:
+
+```text
+Build the upstream Typst PNG parity test suite for avenger-typst-label.
+
+Scope is PNG only. Do not add SVG, PDF, chart baseline, scenegraph, browser, or
+renderer-integration tests. Keep the suite inside avenger-typst-label and gate
+it with the existing raster feature.
+
+Create or maintain the fixture manifest, source snippets, upstream PNG
+reference generator, checked-in ref PNGs, and offline Rust parity test:
+- tests/fixtures/upstream_png/cases.toml
+- tests/fixtures/upstream_png/src/{id}.typ
+- tests/fixtures/upstream_png/ref/{id}.png
+- src/bin/generate_upstream_png_refs.rs
+- tests/upstream_png_parity.rs
+
+The generator may call upstream Typst from ../typst. The Rust test must never
+call upstream Typst; it compares Avenger raster output only against checked-in
+ref/*.png files.
+
+For a first build, add exactly two or three smoke cases: one text decoration
+case, one math fraction/root case, and one symbol case. For later work, add
+one already-implemented feature family per commit.
+
+Always run from the repository root, always in release mode:
+  cargo run --release -p avenger-typst-label --features raster --bin generate_upstream_png_refs
+  cargo test --release -p avenger-typst-label --features raster upstream_png_parity -- --nocapture
+  cargo test --release -p avenger-typst-label --features raster -- --nocapture
+
+Before accepting generated refs, inspect every changed PNG directly or in a
+temporary mosaic. Confirm non-blank output, no clipping, intended Lato/Lete
+Sans Math fonts, reasonable line box/baseline, and visible exercise of the
+target feature.
+
+For generator or comparator changes, temporarily perturb one checked-in ref,
+verify the parity test fails with useful expected.png, actual.png, and
+diff.png artifacts, then restore/regenerate and rerun the suite.
+
+Commit only suite code, cases.toml, source snippets, curated ref PNGs, and
+required crate metadata. Never commit target artifacts, temporary mosaics,
+platform emoji font files, or upstream Typst render-reference images.
+```
+
 ## Agent Instructions
 
 Use this suite when an agent needs to validate that `avenger-typst-label`
