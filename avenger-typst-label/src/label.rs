@@ -21,7 +21,7 @@ use crate::typst_render::RasterRequest;
 use serde::{Deserialize, Serialize};
 
 pub use crate::error::{LabelError, LabelInitError};
-pub use crate::limits::LabelLimits;
+pub use crate::typst_eval::LabelLimits;
 pub use crate::warnings::LabelWarning;
 pub type TextStyle = PlainTextStyle;
 

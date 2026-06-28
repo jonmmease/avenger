@@ -1,10 +1,10 @@
 use crate::engine::font::build_text_fontdb;
 use crate::error::{LabelError, LabelInitError};
 use crate::label::EngineOptions;
-use crate::limits::LabelLimits;
 use crate::types::{LineLayoutArtifact, LineLayoutOptions, TypesetMetrics};
 #[cfg(test)]
 use crate::types::{MathLayoutOptions, MathRunArtifact};
+use crate::typst_eval::LabelLimits;
 use crate::typst_pdf::PdfTextLayer;
 use crate::typst_svg::PathArtifact;
 

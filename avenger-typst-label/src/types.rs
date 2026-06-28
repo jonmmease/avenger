@@ -1,5 +1,5 @@
 use crate::label::LabelParams;
-use crate::limits::LabelLimits;
+use crate::typst_eval::LabelLimits;
 use crate::typst_library::{MathStyle, PlainTextStyle};
 use crate::typst_pdf::{FontResource, PdfTextLayer};
 use crate::typst_render::{RasterImage, RasterRequest};
