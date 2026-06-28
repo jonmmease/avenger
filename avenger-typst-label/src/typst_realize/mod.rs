@@ -7,7 +7,7 @@
 use crate::typst_diag::LabelError;
 use crate::typst_label::{LabelParamValue, LabelParams};
 use crate::typst_library::text::content::{
-    LineNode, MathSpan, ParsedLine, PlainTextNode, TextMarkupKind, TextMarkupOptions,
+    LabelContent, LineNode, MathSpan, PlainTextNode, TextMarkupKind, TextMarkupOptions,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,7 +39,7 @@ pub(crate) struct TextMarkupRun {
 }
 
 pub(crate) fn realize_static_markup_line(
-    line: &ParsedLine,
+    line: &LabelContent,
     params: &LabelParams,
 ) -> Result<Option<RenderLine>, LabelError> {
     let mut nodes: Vec<RenderNode> = Vec::new();

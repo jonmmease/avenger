@@ -15,7 +15,7 @@ use crate::typst_layout::inline::font::build_text_fontdb;
 use crate::typst_layout::inline::try_layout_text_line;
 #[cfg(test)]
 use crate::typst_layout::math::try_typeset_simple_row_fragment;
-use crate::typst_library::text::content::{LineNode, ParsedLine, PlainTextNode};
+use crate::typst_library::text::content::{LabelContent, LineNode, PlainTextNode};
 
 #[derive(Clone)]
 pub(crate) struct TypstEngineCore {
@@ -80,7 +80,7 @@ impl TypstEngineCore {
     fn typeset_parsed_line(
         &self,
         source: &str,
-        line: &ParsedLine,
+        line: &LabelContent,
         options: &LineLayoutOptions,
     ) -> Result<LineLayoutArtifact, LabelError> {
         if let Some(artifact) = try_layout_text_line(
@@ -115,8 +115,8 @@ fn unsupported_line_layout() -> Result<LineLayoutArtifact, LabelError> {
     ))
 }
 
-fn plain_text_line(source: &str) -> ParsedLine {
-    ParsedLine {
+fn plain_text_line(source: &str) -> LabelContent {
+    LabelContent {
         source: source.to_string(),
         nodes: if source.is_empty() {
             Vec::new()
@@ -129,12 +129,12 @@ fn plain_text_line(source: &str) -> ParsedLine {
     }
 }
 
-fn line_contains_static_markup(line: &ParsedLine) -> bool {
+fn line_contains_static_markup(line: &LabelContent) -> bool {
     nodes_contain_static_markup(&line.nodes)
 }
 
 fn validate_line_math(
-    line: &ParsedLine,
+    line: &LabelContent,
     limits: LabelLimits,
     params: &crate::typst_label::LabelParams,
 ) -> Result<(), LabelError> {

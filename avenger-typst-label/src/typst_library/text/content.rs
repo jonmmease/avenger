@@ -4,8 +4,13 @@ use crate::typst_eval::delimiter::DelimiterInfo;
 use crate::typst_library::Color;
 use crate::typst_svg::{StrokeCap, StrokeJoin};
 
+/// Label-scoped content tree.
+///
+/// This mirrors the role of upstream Typst's `foundations::Content` for the
+/// single-line label subset, without pulling in the full dynamic element
+/// system.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ParsedLine {
+pub(crate) struct LabelContent {
     pub(crate) source: String,
     pub(crate) nodes: Vec<LineNode>,
 }

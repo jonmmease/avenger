@@ -6,7 +6,7 @@ use crate::typst_eval::delimiter::{DelimiterDisplayHint, DelimiterInfo};
 use crate::typst_label::LabelParams;
 use crate::typst_library::symbols::{named_emoji, named_symbol};
 use crate::typst_library::text::content::{
-    EmojiAlias, LabelParamRef, LineNode, MathSpan, ParsedLine, PlainTextNode, SymbolAlias,
+    EmojiAlias, LabelContent, LabelParamRef, LineNode, MathSpan, PlainTextNode, SymbolAlias,
     TextMarkupKind, TextMarkupOptions, TextMarkupSpan,
 };
 
@@ -16,14 +16,14 @@ use crate::typst_syntax::{
 };
 
 #[cfg(test)]
-pub(crate) fn parse_line(source: &str) -> Result<ParsedLine, LabelError> {
+pub(crate) fn parse_line(source: &str) -> Result<LabelContent, LabelError> {
     parse_line_with_params(source, &LabelParams::default())
 }
 
 pub(crate) fn parse_line_with_params(
     source: &str,
     params: &LabelParams,
-) -> Result<ParsedLine, LabelError> {
+) -> Result<LabelContent, LabelError> {
     let mut root = crate::typst_syntax::parse(source);
     synthesize_ranges(&mut root, source.len())?;
     reject_syntax_errors(&root)?;
@@ -37,7 +37,7 @@ pub(crate) fn parse_line_with_params(
 
     let mut nodes = Vec::new();
     lower_markup(markup, source, params, &mut nodes)?;
-    Ok(ParsedLine {
+    Ok(LabelContent {
         source: source.to_string(),
         nodes,
     })
@@ -453,11 +453,11 @@ mod tests {
     use crate::typst_library::text::content::DecorationLength;
     use crate::typst_svg::{StrokeCap, StrokeJoin};
 
-    fn parse(source: &str) -> ParsedLine {
+    fn parse(source: &str) -> LabelContent {
         parse_line(source).unwrap()
     }
 
-    fn parse_with_params(source: &str, params: &LabelParams) -> ParsedLine {
+    fn parse_with_params(source: &str, params: &LabelParams) -> LabelContent {
         parse_line_with_params(source, params).unwrap()
     }
 

@@ -20,13 +20,13 @@ use self::font::{
 use crate::typst_eval::math::parse_math_with_params;
 use crate::typst_layout::math::try_typeset_simple_row_fragment;
 use crate::typst_library::text::content::{
-    ParsedLine, PlainTextNode, TextDecorationOptions, TextMarkupKind, TextMarkupOptions,
+    LabelContent, PlainTextNode, TextDecorationOptions, TextMarkupKind, TextMarkupOptions,
 };
 use crate::typst_realize::{DecoratedText, RenderLine, RenderNode, realize_static_markup_line};
 
 pub(crate) fn try_layout_text_line(
     source: &str,
-    line: &ParsedLine,
+    line: &LabelContent,
     options: &LineLayoutOptions,
     config: &EngineOptions,
     fontdb: &fontdb::Database,
