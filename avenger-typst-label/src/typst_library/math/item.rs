@@ -11,6 +11,7 @@ pub(crate) struct MathAst {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum MathNode {
     Space(MathSpace),
+    Spacing(MathSpacing),
     Text(MathText),
     Identifier(MathIdentifier),
     Operator(MathOperator),
@@ -28,6 +29,7 @@ impl MathNode {
     pub(crate) fn byte_range(&self) -> Range<usize> {
         match self {
             Self::Space(node) => node.byte_range.clone(),
+            Self::Spacing(node) => node.byte_range.clone(),
             Self::Text(node) => node.byte_range.clone(),
             Self::Identifier(node) => node.byte_range.clone(),
             Self::Operator(node) => node.byte_range.clone(),
@@ -48,6 +50,34 @@ pub(crate) struct MathSpace {
     pub(crate) byte_range: Range<usize>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MathSpacing {
+    pub(crate) kind: MathSpacingKind,
+    pub(crate) weak: bool,
+    pub(crate) byte_range: Range<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum MathSpacingKind {
+    Thin,
+    Medium,
+    Thick,
+    Quad,
+    Wide,
+}
+
+impl MathSpacingKind {
+    pub(crate) fn em_width(self) -> f32 {
+        match self {
+            Self::Thin => 1.0 / 6.0,
+            Self::Medium => 2.0 / 9.0,
+            Self::Thick => 5.0 / 18.0,
+            Self::Quad => 1.0,
+            Self::Wide => 2.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MathText {
     pub(crate) text: String,
@@ -59,6 +89,7 @@ pub(crate) struct MathText {
 pub(crate) enum MathTextKind {
     Grapheme,
     Number,
+    Upright,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

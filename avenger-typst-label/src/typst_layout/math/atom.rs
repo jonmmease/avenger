@@ -12,7 +12,7 @@ fn simple_atom(node: &MathNode) -> Option<SimpleMathAtom> {
             styled_text: style_text_atom(text),
             class: match text.kind {
                 MathTextKind::Grapheme => SimpleMathClass::Alphabetic,
-                MathTextKind::Number => SimpleMathClass::Normal,
+                MathTextKind::Number | MathTextKind::Upright => SimpleMathClass::Normal,
             },
             text_operator: false,
         }),
@@ -168,7 +168,7 @@ fn glyph_cluster_range(text: &str, cluster: u32) -> std::ops::Range<usize> {
 fn style_text_atom(text: &MathText) -> String {
     match text.kind {
         MathTextKind::Grapheme => style_default_math_text(&text.text),
-        MathTextKind::Number => text.text.clone(),
+        MathTextKind::Number | MathTextKind::Upright => text.text.clone(),
     }
 }
 
@@ -186,6 +186,7 @@ fn style_math_nodes(nodes: &[MathNode], selection: MathStyleSelection) -> Vec<Ma
 fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNode> {
     match node {
         MathNode::Space(_)
+        | MathNode::Spacing(_)
         | MathNode::Operator(_)
         | MathNode::Shorthand(_)
         | MathNode::StringLiteral(_) => vec![node.clone()],
@@ -469,4 +470,3 @@ impl MathUnderOverCall {
         Some(Self { position, shape })
     }
 }
-

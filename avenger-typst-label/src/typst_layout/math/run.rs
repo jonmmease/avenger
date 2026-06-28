@@ -15,7 +15,7 @@ use crate::typst_svg::{
 use crate::typst_eval::math::predefined_operator_text;
 use ast::{
     MathAccent, MathAst, MathCancel, MathCancelAngle, MathFractionStyle, MathNode, MathOperator,
-    MathShorthand, MathText, MathTextKind,
+    MathShorthand, MathSpacing, MathText, MathTextKind,
 };
 
 pub(crate) fn try_typeset_simple_row_fragment(
@@ -215,4 +215,3 @@ impl MathLayoutSize {
         }
     }
 }
-

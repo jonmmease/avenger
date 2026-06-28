@@ -59,9 +59,19 @@ pub(crate) fn is_retained_math_name(
     has_named_symbol: impl Fn(&str) -> bool,
 ) -> bool {
     is_builtin_math_control_name(name)
+        || is_math_spacing_name(name)
+        || is_math_differential_name(name)
         || is_math_call_name(name, has_predefined_operator, has_named_accent)
         || is_unsupported_math_table_call_name(name)
         || has_named_symbol(name)
+}
+
+pub(crate) fn is_math_spacing_name(name: &str) -> bool {
+    matches!(name, "thin" | "med" | "thick" | "quad" | "wide")
+}
+
+pub(crate) fn is_math_differential_name(name: &str) -> bool {
+    matches!(name, "dif" | "Dif")
 }
 
 pub(crate) fn is_math_call_name(

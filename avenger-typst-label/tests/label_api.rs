@@ -300,21 +300,22 @@ fn compile_rejects_param_names_colliding_with_text_names() {
 
 #[test]
 fn compile_rejects_param_names_colliding_with_math_names() {
-    let mut options = LabelOptions::default();
-    options.params.insert(
-        "frac".to_string(),
-        LabelParamValue::Str("param".to_string()),
-    );
+    for name in ["frac", "thin", "dif"] {
+        let mut options = LabelOptions::default();
+        options
+            .params
+            .insert(name.to_string(), LabelParamValue::Str("param".to_string()));
 
-    let err = engine().compile("$x$", &options).unwrap_err();
+        let err = engine().compile("$x$", &options).unwrap_err();
 
-    assert_eq!(
-        err,
-        LabelError::ParameterNameCollision {
-            name: "frac".to_string(),
-            namespace: "math"
-        }
-    );
+        assert_eq!(
+            err,
+            LabelError::ParameterNameCollision {
+                name: name.to_string(),
+                namespace: "math"
+            }
+        );
+    }
 }
 
 #[test]

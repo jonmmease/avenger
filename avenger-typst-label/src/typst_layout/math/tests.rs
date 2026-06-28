@@ -1180,6 +1180,63 @@ mod tests {
     }
 
     #[test]
+    fn simple_row_honors_explicit_math_spacing_widths() {
+        fn width(source: &str) -> f32 {
+            let math = parse_math(source, 0).unwrap();
+            try_typeset_simple_row_fragment(
+                &math,
+                &MathLayoutOptions::default(),
+                &EngineOptions::default(),
+            )
+            .unwrap()
+            .unwrap_or_else(|| panic!("math spacing source should be handled: {source}"))
+            .metrics
+            .width
+        }
+
+        let base = width("a b");
+        let thin = width("a thin b");
+        let med = width("a med b");
+        let thick = width("a thick b");
+        let quad = width("a quad b");
+        let wide = width("a wide b");
+
+        assert!(thin > base, "thin should add explicit width");
+        assert!(med > thin, "med should be wider than thin");
+        assert!(thick > med, "thick should be wider than med");
+        assert!(quad > thick, "quad should be wider than thick");
+        assert!(wide > quad, "wide should be wider than quad");
+    }
+
+    #[test]
+    fn simple_row_differentials_emit_upright_pdf_glyphs() {
+        let math = parse_math("x dif y + Dif z", 0).unwrap();
+        let artifact = try_typeset_simple_row_fragment(
+            &math,
+            &MathLayoutOptions::default(),
+            &EngineOptions::default(),
+        )
+        .unwrap()
+        .expect("differential row should be handled by Typst row path");
+        let text: String = artifact
+            .pdf_text
+            .glyph_runs
+            .iter()
+            .flat_map(|run| &run.glyphs)
+            .map(|glyph| glyph.unicode.as_str())
+            .collect();
+
+        assert!(
+            text.contains('d') && text.contains('D'),
+            "differentials should be embedded as PDF glyph text: {text}"
+        );
+        assert!(
+            !text.contains("𝑑") && !text.contains("𝐷"),
+            "differentials should remain upright by default: {text}"
+        );
+    }
+
+    #[test]
     fn simple_row_class_call_overrides_spacing_class() {
         let config = EngineOptions::default();
         let font =

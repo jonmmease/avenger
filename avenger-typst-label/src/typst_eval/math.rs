@@ -1,11 +1,13 @@
 use crate::label::LabelError;
 use crate::label::{LabelParamValue, LabelParams};
 use crate::typst_eval::call::{MathCallLoweringContext, lower_math_call};
-use crate::typst_library::math::call::is_retained_math_name as is_retained_math_name_with;
+use crate::typst_library::math::call::{
+    is_math_differential_name, is_retained_math_name as is_retained_math_name_with,
+};
 use crate::typst_library::math::item::{
     MathArg, MathAst, MathAttach, MathCall, MathCallOptions, MathFraction, MathFractionStyle,
-    MathGroup, MathIdentifier, MathNode, MathOperator, MathShorthand, MathSpace, MathStringLiteral,
-    MathText, MathTextKind,
+    MathGroup, MathIdentifier, MathNode, MathOperator, MathShorthand, MathSpace, MathSpacing,
+    MathSpacingKind, MathStringLiteral, MathText, MathTextKind,
 };
 use crate::typst_library::symbols::{named_accent_char, named_symbol, normalize_accent_text};
 
@@ -152,10 +154,21 @@ fn lower_math_expr(
         }
         typst_ast::Expr::MathIdent(ident) => {
             let name = ident.as_str().to_string();
+            let byte_range = offset_range(ident.to_untyped().range(), offset);
+            if let Some(kind) = math_spacing_kind(&name) {
+                return Ok(vec![MathNode::Spacing(MathSpacing {
+                    kind,
+                    weak: false,
+                    byte_range,
+                })]);
+            }
+            if is_math_differential_name(&name) {
+                return Ok(math_differential_nodes(&name, byte_range));
+            }
             Ok(vec![MathNode::Identifier(MathIdentifier {
                 symbol: named_symbol(&name),
                 name,
-                byte_range: offset_range(ident.to_untyped().range(), offset),
+                byte_range,
             })])
         }
         typst_ast::Expr::Ident(ident) => lower_math_param_ident(ident, source, offset, params),
@@ -375,6 +388,33 @@ fn math_text(text: String, kind: MathTextKind, byte_range: std::ops::Range<usize
         kind,
         byte_range,
     })
+}
+
+fn math_spacing_kind(name: &str) -> Option<MathSpacingKind> {
+    match name {
+        "thin" => Some(MathSpacingKind::Thin),
+        "med" => Some(MathSpacingKind::Medium),
+        "thick" => Some(MathSpacingKind::Thick),
+        "quad" => Some(MathSpacingKind::Quad),
+        "wide" => Some(MathSpacingKind::Wide),
+        _ => None,
+    }
+}
+
+fn math_differential_nodes(name: &str, byte_range: std::ops::Range<usize>) -> Vec<MathNode> {
+    let letter = if name == "Dif" { "D" } else { "d" };
+    vec![
+        MathNode::Spacing(MathSpacing {
+            kind: MathSpacingKind::Thin,
+            weak: true,
+            byte_range: byte_range.clone(),
+        }),
+        MathNode::Text(MathText {
+            text: letter.to_string(),
+            kind: MathTextKind::Upright,
+            byte_range,
+        }),
+    ]
 }
 
 fn format_f64(value: f64) -> String {
@@ -788,6 +828,49 @@ mod tests {
             .collect::<String>();
 
         assert_eq!(text, "y = 2.5 x + 7");
+    }
+
+    #[test]
+    fn parses_explicit_spacings_and_differentials() {
+        let math = parse("a thin b med c thick d quad e wide f");
+        let spacings: Vec<_> = math
+            .nodes
+            .iter()
+            .filter_map(|node| match node {
+                MathNode::Spacing(spacing) => Some(spacing.kind),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            spacings,
+            [
+                MathSpacingKind::Thin,
+                MathSpacingKind::Medium,
+                MathSpacingKind::Thick,
+                MathSpacingKind::Quad,
+                MathSpacingKind::Wide,
+            ]
+        );
+
+        let math = parse("x dif y Dif z");
+        let weak_spacings = math
+            .nodes
+            .iter()
+            .filter(|node| matches!(node, MathNode::Spacing(spacing) if spacing.weak))
+            .count();
+        let upright_text: String = math
+            .nodes
+            .iter()
+            .filter_map(|node| match node {
+                MathNode::Text(text) if text.kind == MathTextKind::Upright => {
+                    Some(text.text.as_str())
+                }
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(weak_spacings, 2);
+        assert_eq!(upright_text, "dD");
     }
 
     #[test]

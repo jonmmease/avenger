@@ -46,12 +46,15 @@ fn layout_simple_nodes_as_atom_with_context(
     mid_target_height: Option<f32>,
     math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let mut atoms = Vec::new();
+    let mut items = Vec::new();
     let mut index = 0usize;
     while index < nodes.len() {
         let node = &nodes[index];
         match node {
             MathNode::Space(_) => {}
+            MathNode::Spacing(spacing) => {
+                items.push(RowLayoutItem::Spacing(spacing.clone()));
+            }
             _ => {
                 let (atom, consumed) =
                     if let (MathNode::Attach(attach), Some(MathNode::Group(group))) =
@@ -98,7 +101,7 @@ fn layout_simple_nodes_as_atom_with_context(
                         };
                         (atom, 1)
                     };
-                atoms.push(atom);
+                items.push(RowLayoutItem::Atom(atom));
                 index += consumed;
                 continue;
             }
@@ -106,7 +109,7 @@ fn layout_simple_nodes_as_atom_with_context(
         index += 1;
     }
 
-    if atoms.is_empty() {
+    if items.is_empty() {
         return Ok(None);
     }
 
@@ -117,26 +120,51 @@ fn layout_simple_nodes_as_atom_with_context(
         ascent: 0.0,
         descent: 0.0,
     };
-    let mut laid_out_atoms = Vec::with_capacity(atoms.len());
+    let mut laid_out_atoms = Vec::new();
     let mut previous = None;
+    let mut has_material = false;
 
-    for mut atom in atoms {
-        let left_class = resolved_left_class(previous, atom.left_class);
-        if let Some(previous) = previous {
-            metrics.width += math_spacing_for_level(previous, left_class, font_size, script_level);
+    let mut items = items.into_iter().peekable();
+    while let Some(item) = items.next() {
+        match item {
+            RowLayoutItem::Spacing(spacing) => {
+                let next_class = items.peek().and_then(RowLayoutItem::left_class);
+                if spacing.weak
+                    && (!has_material
+                        || previous == Some(SimpleMathClass::Opening)
+                        || matches!(
+                            next_class,
+                            Some(SimpleMathClass::Closing | SimpleMathClass::Fence)
+                        ))
+                {
+                    continue;
+                }
+                metrics.width += spacing.kind.em_width() * font_size;
+                previous = None;
+                has_material = true;
+                continue;
+            }
+            RowLayoutItem::Atom(mut atom) => {
+                let left_class = resolved_left_class(previous, atom.left_class);
+                if let Some(previous) = previous {
+                    metrics.width +=
+                        math_spacing_for_level(previous, left_class, font_size, script_level);
+                }
+                if atom.left_class == atom.right_class {
+                    atom.right_class = left_class;
+                }
+                atom.left_class = left_class;
+                offset_atom(&mut atom, metrics.width, 0.0);
+                metrics.width += atom.metrics.width;
+                metrics.ascent = metrics.ascent.max(atom.metrics.ascent);
+                metrics.descent = metrics.descent.max(atom.metrics.descent);
+                metrics.height = metrics.ascent + metrics.descent;
+                metrics.baseline = metrics.ascent;
+                previous = Some(atom.right_class);
+                has_material = true;
+                laid_out_atoms.push(atom);
+            }
         }
-        if atom.left_class == atom.right_class {
-            atom.right_class = left_class;
-        }
-        atom.left_class = left_class;
-        offset_atom(&mut atom, metrics.width, 0.0);
-        metrics.width += atom.metrics.width;
-        metrics.ascent = metrics.ascent.max(atom.metrics.ascent);
-        metrics.descent = metrics.descent.max(atom.metrics.descent);
-        metrics.height = metrics.ascent + metrics.descent;
-        metrics.baseline = metrics.ascent;
-        previous = Some(atom.right_class);
-        laid_out_atoms.push(atom);
     }
 
     let ink_ascent = laid_out_atoms
@@ -166,6 +194,20 @@ fn layout_simple_nodes_as_atom_with_context(
         shapes,
         draw_order,
     }))
+}
+
+enum RowLayoutItem {
+    Atom(LaidOutMathAtom),
+    Spacing(MathSpacing),
+}
+
+impl RowLayoutItem {
+    fn left_class(&self) -> Option<SimpleMathClass> {
+        match self {
+            Self::Atom(atom) => Some(atom.left_class),
+            Self::Spacing(_) => None,
+        }
+    }
 }
 
 fn offset_atom(atom: &mut LaidOutMathAtom, dx: f32, dy: f32) {
