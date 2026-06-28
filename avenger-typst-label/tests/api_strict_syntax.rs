@@ -100,17 +100,22 @@ fn allows_common_typst_math_fragments() {
     let samples = [
         "$alpha + beta$",
         "$sqrt(x^2 + y^2)$",
+        "$root(3, x)$",
         "$sum_(i=1)^n x_i$",
         "$binom(n, k)$",
         "$cancel(x)$",
         "$a class(\"relation\", !) b$",
+        "$lr(| A mid(|) integral |)$",
         "$script(a / b, cramped: #true) + sscript(c / d)$",
+        "$hat(i) + accent(v, <-)$",
+        "$stretch(->, size: #200%)$",
         "$overline(underline(x + y))$",
         "$overbrace(x + y) + underbrace(a + b)$",
         "$overbracket(x) + underparen(y) + overshell(z)$",
         "$overbrace(x + y, \"sum\") + underparen(z, alpha)$",
         "$attach(Pi, t: alpha, b: beta, tl: 1, tr: 2+3, bl: 4+5, br: 6)$",
         "$a'''_b$",
+        "$bold(x) + italic(y) + upright(z) + bb(N) + cal(P) + frak(g)$",
     ];
 
     for sample in samples {
