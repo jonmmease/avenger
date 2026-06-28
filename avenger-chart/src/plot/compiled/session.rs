@@ -260,6 +260,7 @@ pub(crate) struct TextMeasurementCacheKey {
     font_weight: String,
     font_style: String,
     syntax_mode: TextSyntaxMode,
+    params: String,
     measurement: String,
 }
 
@@ -271,6 +272,7 @@ impl TextMeasurementCacheKey {
         font_weight: &FontWeight,
         font_style: &FontStyle,
         syntax_mode: TextSyntaxMode,
+        params: &avenger_text::LabelParams,
         measurement: &str,
     ) -> Self {
         Self {
@@ -280,6 +282,7 @@ impl TextMeasurementCacheKey {
             font_weight: format!("{font_weight:?}"),
             font_style: format!("{font_style:?}"),
             syntax_mode,
+            params: avenger_text::label_params_fingerprint(params),
             measurement: measurement.to_string(),
         }
     }
@@ -2634,6 +2637,7 @@ mod tests {
             &FontWeight::default(),
             &FontStyle::default(),
             TextSyntaxMode::Plain,
+            avenger_text::empty_label_params(),
             "measurement",
         );
         let typst = TextMeasurementCacheKey::new(
@@ -2643,6 +2647,7 @@ mod tests {
             &FontWeight::default(),
             &FontStyle::default(),
             TextSyntaxMode::TypstMarkup,
+            avenger_text::empty_label_params(),
             "measurement",
         );
 

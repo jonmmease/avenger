@@ -190,6 +190,7 @@ mod tests {
         path::{TextPathExtractionConfig, TextPathKind},
         rasterization::TextRasterizationConfig,
         types::{FontStyle, FontWeight, FontWeightNameSpec, TextSyntaxMode},
+        LabelParamValue, LabelParams,
     };
 
     static WEIGHT: FontWeight = FontWeight::Name(FontWeightNameSpec::Normal);
@@ -213,6 +214,7 @@ mod tests {
             font_weight: WEIGHT,
             font_style: STYLE,
             syntax_mode: TextSyntaxMode::TypstMarkup,
+            params: crate::empty_label_params(),
         }
     }
 
@@ -226,6 +228,7 @@ mod tests {
             font_style: STYLE,
             limit: f32::INFINITY,
             syntax_mode: TextSyntaxMode::TypstMarkup,
+            params: crate::empty_label_params(),
         }
     }
 
@@ -239,7 +242,17 @@ mod tests {
             font_style: STYLE,
             limit: f32::INFINITY,
             syntax_mode: TextSyntaxMode::TypstMarkup,
+            params: crate::empty_label_params(),
         }
+    }
+
+    fn series_name_params(name: &str) -> LabelParams {
+        let mut params = LabelParams::default();
+        params.insert(
+            "series_name".to_string(),
+            LabelParamValue::Str(name.to_string()),
+        );
+        params
     }
 
     #[test]
@@ -312,6 +325,68 @@ mod tests {
         assert!(
             colored_pixel_count(buffer.entries[0].0.image.as_ref().unwrap().as_raw()) > 20,
             "emoji text raster should contain colored pixels on macOS"
+        );
+    }
+
+    #[test]
+    fn top_level_engine_resolves_params_for_measurement_and_paths() {
+        let engine = engine();
+        let font = "sans-serif".to_string();
+        let text = "#series_name $x + 1$".to_string();
+        let params = series_name_params("Revenue");
+
+        assert!(
+            engine.measure_bounds(&measure(&text, &font)).is_err(),
+            "markup parameter should be required in Typst syntax mode"
+        );
+
+        let mut measurement = measure(&text, &font);
+        measurement.params = &params;
+        let bounds = engine.measure_bounds(&measurement).unwrap();
+        assert!(bounds.width > 0.0);
+
+        let mut path_config = paths(&text, &font);
+        path_config.params = &params;
+        let buffer = engine.extract_paths(&path_config).unwrap();
+        assert!(buffer
+            .plain_runs
+            .iter()
+            .any(|run| run.text.contains("Revenue")));
+        assert!(buffer
+            .plain_runs
+            .iter()
+            .all(|run| !run.text.contains("#series_name")));
+        assert!(buffer
+            .items
+            .iter()
+            .any(|item| item.kind == TextPathKind::MathGlyph));
+    }
+
+    #[test]
+    fn top_level_engine_raster_cache_key_separates_params() {
+        let engine = engine();
+        let font = "sans-serif".to_string();
+        let text = "#series_name".to_string();
+        let params_a = series_name_params("Revenue");
+        let params_b = series_name_params("Cost");
+
+        let mut config_a = raster(&text, &font);
+        config_a.params = &params_a;
+        let mut config_b = raster(&text, &font);
+        config_b.params = &params_b;
+
+        let buffer_a = engine
+            .rasterize(&config_a, 2.0, &std::collections::HashMap::<_, ()>::new())
+            .unwrap();
+        let buffer_b = engine
+            .rasterize(&config_b, 2.0, &std::collections::HashMap::<_, ()>::new())
+            .unwrap();
+
+        assert_eq!(buffer_a.entries.len(), 1);
+        assert_eq!(buffer_b.entries.len(), 1);
+        assert_ne!(
+            buffer_a.entries[0].0.cache_key.params,
+            buffer_b.entries[0].0.cache_key.params
         );
     }
 

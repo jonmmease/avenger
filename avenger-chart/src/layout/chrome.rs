@@ -155,6 +155,7 @@ async fn measure_text_bounds(
         font_weight,
         font_style: FontStyle::Normal,
         syntax_mode,
+        params: avenger_text::empty_label_params(),
     };
     let bounds = eval_ctx.measure_text_bounds(&config)?;
 

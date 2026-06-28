@@ -1119,6 +1119,17 @@ impl EvaluationContext {
         config: &TextMeasurementConfig<'_>,
     ) -> TextBounds {
         if let Some(cache) = self.text_measurement_cache() {
+            let text_params = avenger_chart_core::scalar_params_to_label_params(self.params())
+                .unwrap_or_default();
+            let effective_config = TextMeasurementConfig {
+                text: config.text,
+                font: config.font,
+                font_size: config.font_size,
+                font_weight: config.font_weight,
+                font_style: config.font_style,
+                syntax_mode: config.syntax_mode,
+                params: &text_params,
+            };
             let key = TextMeasurementCacheKey::new(
                 config.text,
                 config.font,
@@ -1126,6 +1137,7 @@ impl EvaluationContext {
                 &config.font_weight,
                 &config.font_style,
                 config.syntax_mode,
+                effective_config.params,
                 TEXT_MARK_MEASUREMENT_CACHE_TAG,
             );
             let cached = {
@@ -1139,8 +1151,8 @@ impl EvaluationContext {
                 bounds
             } else {
                 self.record_text_measurement_cache_miss();
-                let bounds =
-                    default_text_engine().measure_bounds_with_plain_fallback_or_approx(config);
+                let bounds = default_text_engine()
+                    .measure_bounds_with_plain_fallback_or_approx(&effective_config);
                 cache
                     .lock()
                     .expect("text measurement cache lock poisoned")
@@ -1148,7 +1160,18 @@ impl EvaluationContext {
                 bounds
             }
         } else {
-            default_text_engine().measure_bounds_with_plain_fallback_or_approx(config)
+            let text_params = avenger_chart_core::scalar_params_to_label_params(self.params())
+                .unwrap_or_default();
+            let effective_config = TextMeasurementConfig {
+                text: config.text,
+                font: config.font,
+                font_size: config.font_size,
+                font_weight: config.font_weight,
+                font_style: config.font_style,
+                syntax_mode: config.syntax_mode,
+                params: &text_params,
+            };
+            default_text_engine().measure_bounds_with_plain_fallback_or_approx(&effective_config)
         }
     }
 
@@ -1160,14 +1183,26 @@ impl EvaluationContext {
             &TextMeasurementConfig<'_>,
         ) -> Result<TextBounds, avenger_text::error::AvengerTextError>,
     ) -> Result<TextBounds, AvengerChartError> {
+        let text_params = avenger_chart_core::scalar_params_to_label_params(self.params())?;
+        let effective_config = TextMeasurementConfig {
+            text: config.text,
+            font: config.font,
+            font_size: config.font_size,
+            font_weight: config.font_weight,
+            font_style: config.font_style,
+            syntax_mode: config.syntax_mode,
+            params: &text_params,
+        };
+
         if let Some(cache) = self.text_measurement_cache() {
             let key = TextMeasurementCacheKey::new(
-                config.text,
-                config.font,
-                config.font_size,
-                &config.font_weight,
-                &config.font_style,
-                config.syntax_mode,
+                effective_config.text,
+                effective_config.font,
+                effective_config.font_size,
+                &effective_config.font_weight,
+                &effective_config.font_style,
+                effective_config.syntax_mode,
+                effective_config.params,
                 measurement_tag,
             );
             let cached = {
@@ -1181,7 +1216,7 @@ impl EvaluationContext {
                 Ok(bounds)
             } else {
                 self.record_text_measurement_cache_miss();
-                let bounds = measure(config)?;
+                let bounds = measure(&effective_config)?;
                 cache
                     .lock()
                     .expect("text measurement cache lock poisoned")
@@ -1189,7 +1224,7 @@ impl EvaluationContext {
                 Ok(bounds)
             }
         } else {
-            Ok(measure(config)?)
+            Ok(measure(&effective_config)?)
         }
     }
 
@@ -2034,6 +2069,7 @@ mod tests {
                 ),
                 font_style: avenger_text::types::FontStyle::Normal,
                 syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
+                params: avenger_text::empty_label_params(),
             })
             .unwrap();
 
@@ -2062,6 +2098,7 @@ mod tests {
             ),
             font_style: avenger_text::types::FontStyle::Normal,
             syntax_mode: avenger_text::types::TextSyntaxMode::TypstMarkup,
+            params: avenger_text::empty_label_params(),
         };
 
         assert!(ctx.measure_text_bounds(&config).is_err());

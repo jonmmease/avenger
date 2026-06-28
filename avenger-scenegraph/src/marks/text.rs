@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use avenger_color::ColorOrGradient;
 use avenger_common::{
@@ -12,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::mark::{default_interactive, SceneMark};
 
-#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneTextMark {
     pub name: String,
@@ -23,6 +26,8 @@ pub struct SceneTextMark {
     pub text: ScalarOrArray<String>,
     #[serde(default)]
     pub text_syntax: TextSyntaxMode,
+    #[serde(default, skip_serializing_if = "text_params_is_empty")]
+    pub text_params: avenger_text::LabelParams,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
     #[serde(default = "default_true_bool_channel")]
@@ -72,6 +77,52 @@ pub struct SceneTextMark {
     pub leader_arrow_width: ScalarOrArray<f32>,
     pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
+}
+
+impl Hash for SceneTextMark {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.interactive.hash(state);
+        self.clip.hash(state);
+        self.len.hash(state);
+        self.text.hash(state);
+        self.text_syntax.hash(state);
+        avenger_text::label_params_fingerprint(&self.text_params).hash(state);
+        self.x.hash(state);
+        self.y.hash(state);
+        self.defined.hash(state);
+        self.dx.hash(state);
+        self.dy.hash(state);
+        self.align.hash(state);
+        self.baseline.hash(state);
+        self.angle.hash(state);
+        self.color.hash(state);
+        self.opacity.hash(state);
+        self.font.hash(state);
+        self.font_size.hash(state);
+        self.font_weight.hash(state);
+        self.font_style.hash(state);
+        self.limit.hash(state);
+        self.leader.hash(state);
+        self.leader_stroke.hash(state);
+        self.leader_stroke_width.hash(state);
+        self.leader_stroke_cap.hash(state);
+        self.leader_stroke_join.hash(state);
+        self.leader_stroke_dash.hash(state);
+        self.leader_label_padding.hash(state);
+        self.leader_target_radius.hash(state);
+        self.leader_min_length.hash(state);
+        self.leader_shape.hash(state);
+        self.leader_arrow.hash(state);
+        self.leader_arrow_length.hash(state);
+        self.leader_arrow_width.hash(state);
+        self.indices.hash(state);
+        self.zindex.hash(state);
+    }
+}
+
+fn text_params_is_empty(params: &avenger_text::LabelParams) -> bool {
+    params.is_empty()
 }
 
 fn default_zero_f32_channel() -> ScalarOrArray<f32> {
@@ -261,6 +312,7 @@ impl Default for SceneTextMark {
             len: 1,
             text: ScalarOrArray::new_scalar(String::new()),
             text_syntax: TextSyntaxMode::Plain,
+            text_params: avenger_text::LabelParams::default(),
             x: ScalarOrArray::new_scalar(0.0),
             y: ScalarOrArray::new_scalar(0.0),
             defined: ScalarOrArray::new_scalar(true),

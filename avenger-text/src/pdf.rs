@@ -21,6 +21,7 @@ pub struct TextPdfExtractionConfig<'a> {
     pub font_style: FontStyle,
     pub limit: f32,
     pub syntax_mode: TextSyntaxMode,
+    pub params: &'a avenger_typst_label::LabelParams,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -86,6 +87,7 @@ impl TextPdfExtractorImpl {
                     font_weight: config.font_weight,
                     font_style: config.font_style,
                     syntax_mode: config.syntax_mode,
+                    params: config.params,
                 };
                 self.measure_text_bounds(&measurement)
                     .map(|bounds| bounds.width)
@@ -100,6 +102,7 @@ impl TextPdfExtractorImpl {
             config.font_weight,
             config.font_style,
             config.color,
+            config.params,
         )?;
         let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
         let bounds = bounds_from_metrics(
@@ -186,6 +189,7 @@ mod tests {
             font_style: STYLE,
             limit: f32::INFINITY,
             syntax_mode: TextSyntaxMode::TypstMarkup,
+            params: crate::empty_label_params(),
         }
     }
 
@@ -199,6 +203,7 @@ mod tests {
             font_style: STYLE,
             limit: f32::INFINITY,
             syntax_mode: TextSyntaxMode::TypstMarkup,
+            params: crate::empty_label_params(),
         }
     }
 

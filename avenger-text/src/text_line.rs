@@ -40,6 +40,7 @@ impl TextLineMeasurer {
             config.font_weight,
             config.font_style,
             [0.0, 0.0, 0.0, 1.0],
+            config.params,
         )?;
         Ok(bounds_from_metrics(
             result.label.metrics,
@@ -87,6 +88,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
                 config.font_size,
                 config.font_weight,
                 config.font_style,
+                config.params,
             )
         })?;
         if raster_text.is_empty() {
@@ -116,6 +118,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             config.font_weight,
             config.font_style,
             config.color,
+            config.params,
         )?;
         let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
         let bounds = bounds_from_metrics(
@@ -136,6 +139,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             fill,
             scale: OrderedFloat(scale),
             markup: format!("{:?}", math),
+            params: crate::math::label_params_fingerprint(config.params),
         };
         let image = if cached_entries.contains_key(&cache_key) {
             None
@@ -186,6 +190,7 @@ fn measure_text_width_with_typst(
     font_size: f32,
     font_weight: FontWeight,
     font_style: FontStyle,
+    params: &avenger_typst_label::LabelParams,
 ) -> Result<f32, AvengerTextError> {
     Ok(typeset_line(
         typst,
@@ -196,6 +201,7 @@ fn measure_text_width_with_typst(
         font_weight,
         font_style,
         [0.0, 0.0, 0.0, 1.0],
+        params,
     )
     .map(|result| result.label.metrics.width)?)
 }
@@ -214,8 +220,18 @@ pub(crate) fn typeset_line(
     font_weight: FontWeight,
     font_style: FontStyle,
     color: [f32; 4],
+    params: &avenger_typst_label::LabelParams,
 ) -> Result<TypesetLineResult, avenger_typst_label::LabelError> {
-    let options = label_options(math, text, font, font_size, font_weight, font_style, color);
+    let options = label_options(
+        math,
+        text,
+        font,
+        font_size,
+        font_weight,
+        font_style,
+        color,
+        params,
+    );
     let label = if math.syntax_mode == crate::types::TextSyntaxMode::Plain {
         typst.compile_text(text, &options)?
     } else {
@@ -247,6 +263,7 @@ pub(crate) fn label_options(
     font_weight: FontWeight,
     font_style: FontStyle,
     color: [f32; 4],
+    params: &avenger_typst_label::LabelParams,
 ) -> avenger_typst_label::LabelOptions {
     let mut math_style = math.math_style.clone();
     math_style.font_size = font_size;
@@ -267,7 +284,7 @@ pub(crate) fn label_options(
             font_style: typst_font_style(font_style),
         },
         math: math_style,
-        params: avenger_typst_label::LabelParams::default(),
+        params: params.clone(),
         limits: limits_for_text(text, math.limits),
     }
 }
@@ -472,6 +489,7 @@ mod tests {
             WEIGHT,
             STYLE,
             [0.0, 0.0, 0.0, 1.0],
+            crate::empty_label_params(),
         );
 
         assert_eq!(options.text.font_family, "sans-serif");
@@ -515,6 +533,7 @@ mod tests {
                 font_weight: WEIGHT,
                 font_style: STYLE,
                 syntax_mode: TextSyntaxMode::Plain,
+                params: crate::empty_label_params(),
             })
             .unwrap();
 
@@ -556,6 +575,7 @@ mod tests {
                     font_style: STYLE,
                     limit: f32::INFINITY,
                     syntax_mode: TextSyntaxMode::Plain,
+                    params: crate::empty_label_params(),
                 },
                 1.0,
                 &HashMap::new(),
@@ -588,6 +608,7 @@ mod tests {
                     font_style: STYLE,
                     limit: f32::INFINITY,
                     syntax_mode: TextSyntaxMode::Plain,
+                    params: crate::empty_label_params(),
                 },
                 1.0,
                 &HashMap::new(),

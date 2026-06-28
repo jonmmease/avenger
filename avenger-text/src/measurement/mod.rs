@@ -55,6 +55,8 @@ pub struct TextMeasurementConfig<'a> {
     pub font_style: FontStyle,
     /// Whether to interpret the source string as plain text or Typst markup.
     pub syntax_mode: TextSyntaxMode,
+    /// Read-only Typst label parameters available to markup labels.
+    pub params: &'a avenger_typst_label::LabelParams,
 }
 
 /// Configuration needed for font-level metrics.

@@ -5,6 +5,7 @@ use avenger_text::{
     engine::TextEngine,
     rasterization::{TextRasterBBox, TextRasterCacheKey, TextRasterizationConfig},
     types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode},
+    LabelParams,
 };
 use etagere::euclid::{Angle, Point2D, Vector2D};
 use image::DynamicImage;
@@ -143,6 +144,7 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
                 font_style: *text.font_style,
                 limit: text.limit,
                 syntax_mode: text.syntax_mode,
+                params: text.params,
             },
             dimensions.scale,
             &self.next_cache,
@@ -374,5 +376,6 @@ pub struct TextInstance<'a> {
     pub font_style: &'a FontStyle,
     pub limit: f32,
     pub syntax_mode: TextSyntaxMode,
+    pub params: &'a LabelParams,
     pub use_nearest_filter: bool,
 }

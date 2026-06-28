@@ -526,6 +526,7 @@ impl PdfRenderer {
                 font_style: *font_style,
                 limit: *limit,
                 syntax_mode: mark.text_syntax,
+                params: &mark.text_params,
             })?;
 
             if *leader {

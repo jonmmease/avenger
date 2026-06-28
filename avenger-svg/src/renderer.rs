@@ -363,6 +363,7 @@ impl SvgRenderer {
                 font_weight,
                 font_style,
                 mark.text_syntax,
+                &mark.text_params,
                 &text_engine,
             );
             let target = [target[0] + origin[0], target[1] + origin[1]];
@@ -376,6 +377,7 @@ impl SvgRenderer {
                 font_weight,
                 font_style,
                 mark.text_syntax,
+                &mark.text_params,
             )?;
             let text_bounds = typst_text_path_buffer.bounds.clone();
             if self.options.font_embedding == crate::options::SvgFontEmbedding::EmbedSubsetWoff2 {
@@ -454,6 +456,7 @@ impl SvgRenderer {
         font_weight: &FontWeight,
         font_style: &FontStyle,
         syntax_mode: TextSyntaxMode,
+        params: &avenger_text::LabelParams,
     ) -> Result<TextPathBuffer, AvengerSvgError> {
         let path_color = match color {
             ColorOrGradient::Color(color) => *color,
@@ -469,6 +472,7 @@ impl SvgRenderer {
             font_style: *font_style,
             limit: f32::INFINITY,
             syntax_mode,
+            params,
         };
         let buffer = text_engine
             .extract_paths_with_plain_fallback(&config)
@@ -1294,6 +1298,7 @@ fn truncate_text_to_limit(
     font_weight: &FontWeight,
     font_style: &FontStyle,
     syntax_mode: TextSyntaxMode,
+    params: &avenger_text::LabelParams,
     text_engine: &TextEngine,
 ) -> String {
     if !limit.is_finite() {
@@ -1308,6 +1313,7 @@ fn truncate_text_to_limit(
             font_weight: *font_weight,
             font_style: *font_style,
             syntax_mode,
+            params,
         };
         Ok::<_, std::convert::Infallible>(
             text_engine

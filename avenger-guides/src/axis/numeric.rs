@@ -569,6 +569,7 @@ fn make_title(
         font_weight: title_font_weight,
         font_style: FontStyle::Normal,
         syntax_mode: config.title_syntax_mode,
+        params: avenger_text::empty_label_params(),
     })?;
 
     // Now the envelope is in the group's local coordinate system (origin = [0, 0])

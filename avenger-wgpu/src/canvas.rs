@@ -85,6 +85,7 @@ fn truncate_text_to_limit(
     font_weight: &avenger_text::types::FontWeight,
     font_style: &avenger_text::types::FontStyle,
     syntax_mode: TextSyntaxMode,
+    params: &avenger_text::LabelParams,
     text_engine: &TextEngine,
 ) -> String {
     if !limit.is_finite() {
@@ -99,6 +100,7 @@ fn truncate_text_to_limit(
             font_weight: *font_weight,
             font_style: *font_style,
             syntax_mode,
+            params,
         };
         Ok::<_, std::convert::Infallible>(
             text_engine
@@ -379,6 +381,7 @@ pub trait Canvas {
                     font_weight,
                     font_style,
                     syntax_mode: mark.text_syntax,
+                    params: &mark.text_params,
                     limit: *limit,
                     use_nearest_filter,
                 };
@@ -391,6 +394,7 @@ pub trait Canvas {
                         font_weight,
                         font_style,
                         mark.text_syntax,
+                        &mark.text_params,
                         &text_engine,
                     );
                     let text_bounds = text_engine.measure_bounds_with_plain_fallback_or_approx(
@@ -401,6 +405,7 @@ pub trait Canvas {
                             font_weight: *font_weight,
                             font_style: *font_style,
                             syntax_mode: mark.text_syntax,
+                            params: &mark.text_params,
                         },
                     );
                     if let Some(geometry) = compute_text_leader_geometry(TextLeaderGeometryInput {

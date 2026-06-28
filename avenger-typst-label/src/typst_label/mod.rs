@@ -5,7 +5,11 @@
 //! compiled frame into raster, SVG, or PDF artifacts. Avenger fallback,
 //! truncation, cache keys, and renderer policy live outside this crate.
 
-use std::{ops::Range, path::PathBuf};
+use std::{
+    hash::{Hash, Hasher},
+    ops::Range,
+    path::PathBuf,
+};
 
 use indexmap::IndexMap;
 
@@ -104,6 +108,27 @@ pub enum LabelParamValue {
     Str(String),
     Array(Vec<LabelParamValue>),
     Dict(IndexMap<String, LabelParamValue>),
+}
+
+impl Hash for LabelParamValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Self::None => {}
+            Self::Bool(value) => value.hash(state),
+            Self::Int(value) => value.hash(state),
+            Self::Float(value) => value.to_bits().hash(state),
+            Self::Str(value) => value.hash(state),
+            Self::Array(values) => values.hash(state),
+            Self::Dict(values) => {
+                values.len().hash(state);
+                for (key, value) in values {
+                    key.hash(state);
+                    value.hash(state);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

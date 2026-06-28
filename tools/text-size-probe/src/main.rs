@@ -7,7 +7,7 @@ fn run_text_line() {
     use avenger_text::measurement::TextMeasurementConfig;
     use avenger_text::rasterization::{TextRasterCacheKey, TextRasterizationConfig};
     use avenger_text::types::{FontStyle, FontWeight, TextSyntaxMode};
-    use avenger_text::default_text_engine;
+    use avenger_text::{default_text_engine, empty_label_params};
 
     let font = "sans-serif".to_string();
     let weight = FontWeight::default();
@@ -19,6 +19,7 @@ fn run_text_line() {
         font_weight: weight,
         font_style: style,
         syntax_mode: TextSyntaxMode::TypstMarkup,
+        params: empty_label_params(),
     };
 
     let text_engine = default_text_engine();
@@ -39,6 +40,7 @@ fn run_text_line() {
         font_style: style,
         limit: f32::INFINITY,
         syntax_mode: TextSyntaxMode::TypstMarkup,
+        params: empty_label_params(),
     };
 
     let cached_entries = HashMap::<TextRasterCacheKey, ()>::new();

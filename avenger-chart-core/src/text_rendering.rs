@@ -24,7 +24,8 @@ use crate::{
     coerce_stroke_join_channel_values_with_renderer, coerce_text_align_channel,
     coerce_text_baseline_channel, coerce_text_channel, evaluate_item_assignments,
     item_bbox_column_name, item_channel_column_name, item_channel_name_from_column,
-    item_data_column_name, item_data_name_from_column, stroke_rendering,
+    item_data_column_name, item_data_name_from_column, scalar_params_to_label_params,
+    stroke_rendering,
 };
 
 #[doc(hidden)]
@@ -231,6 +232,7 @@ where
         len,
         text,
         text_syntax: TextSyntaxMode::Plain,
+        text_params: scalar_params_to_label_params(mark_context.params())?,
         x,
         y,
         defined,

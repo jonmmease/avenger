@@ -280,6 +280,7 @@ pub fn make_line_legend_itemized(
             font_weight: title_font_weight,
             font_style: FontStyle::Normal,
             syntax_mode: config.title_syntax_mode,
+            params: avenger_text::empty_label_params(),
         })?;
 
         let title_mark = SceneTextMark {

@@ -66,6 +66,7 @@ dependencies = [
  "ecow",
  "fontdb",
  "image",
+ "indexmap",
  "libm",
  "once_cell",
  "parking_lot",
@@ -284,6 +285,8 @@ checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
  "hashbrown",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]

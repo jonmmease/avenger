@@ -4,7 +4,7 @@ version = "0.0.8"
 edition = "2021"
 
 [features]
-serde = ["dep:serde"]
+serde = ["dep:serde", "avenger-typst-label/serde"]
 default = ["serde"]
 
 [dependencies]

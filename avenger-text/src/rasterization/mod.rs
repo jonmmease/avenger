@@ -41,6 +41,7 @@ pub struct TextRasterizationConfig<'a> {
     pub font_style: FontStyle,
     pub limit: f32,
     pub syntax_mode: TextSyntaxMode,
+    pub params: &'a avenger_typst_label::LabelParams,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -53,6 +54,7 @@ pub struct TextRasterCacheKey {
     pub fill: [u8; 4],
     pub scale: OrderedFloat<f32>,
     pub markup: String,
+    pub params: String,
 }
 
 #[derive(Clone)]

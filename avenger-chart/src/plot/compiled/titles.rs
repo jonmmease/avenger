@@ -110,6 +110,7 @@ impl CompiledPlot {
             clip: false,
             text: text_value.into(),
             text_syntax: title.syntax_mode,
+            text_params: avenger_chart_core::scalar_params_to_label_params(params)?,
             x: x.into(),
             y: y.into(),
             color: ColorOrGradient::Color(
@@ -224,6 +225,7 @@ impl CompiledPlot {
             clip: false,
             text: text_value.into(),
             text_syntax: subtitle.syntax_mode,
+            text_params: avenger_chart_core::scalar_params_to_label_params(params)?,
             x: x.into(),
             y: y.into(),
             color: ColorOrGradient::Color(
