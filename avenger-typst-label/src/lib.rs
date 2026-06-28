@@ -4,7 +4,6 @@
 //! Avenger-specific fallback, truncation, caching, and renderer integration
 //! live in `avenger-text` and higher-level crates.
 
-mod delimiter;
 mod fonts;
 mod label;
 mod typst_diag;

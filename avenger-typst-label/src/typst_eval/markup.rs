@@ -1,8 +1,8 @@
 use std::ops::Range;
 
-use crate::delimiter::{MathDelimiterInfo, MathDisplayHint};
 use crate::label::{LabelParamValue, LabelParams};
 use crate::typst_diag::LabelError;
+use crate::typst_eval::delimiter::{MathDelimiterInfo, MathDisplayHint};
 use crate::typst_library::Color;
 use crate::typst_library::text::content::{
     DecorationDash, DecorationDashLength, DecorationLength, DecorationStroke, EmojiAlias,
