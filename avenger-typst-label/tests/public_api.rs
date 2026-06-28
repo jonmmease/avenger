@@ -1,7 +1,12 @@
 use avenger_typst_label::{
-    CompiledLabel, EngineOptions, LabelEngine, LabelFrameItem, LabelOptions, LabelParamValue,
-    PdfDrawItem, PdfOptions, SvgOptions, TextItemKind, escape_text, pdf_items, svg_items,
+    Color, CompiledLabel, EngineOptions, FontStyle, FontWeight, LabelEngine, LabelError,
+    LabelFrameItem, LabelOptions, LabelParamValue, MathDisplayStyle, MathFontSpec, PdfDrawItem,
+    PdfOptions, SvgOptions, TextItemKind, escape_text, pdf_items, svg_items,
 };
+use indexmap::IndexMap;
+
+#[cfg(feature = "raster")]
+use avenger_typst_label::{RasterOptions, rasterize};
 
 fn assert_close(actual: f32, expected: f32) {
     assert!(
@@ -74,6 +79,104 @@ fn final_public_api_compiles_measures_and_lowers_markup_label() {
             .iter()
             .any(|item| matches!(item, PdfDrawItem::PathItem(_)))
     );
+}
+
+#[test]
+fn final_public_api_exposes_options_and_external_param_model() {
+    let mut engine_options = EngineOptions::default();
+    engine_options.fonts.load_system_fonts = false;
+    engine_options
+        .fonts
+        .extra_font_families
+        .push("Lato".to_string());
+    engine_options.cache.enabled = true;
+
+    assert!(!engine_options.fonts.load_system_fonts);
+    assert_eq!(engine_options.fonts.extra_font_families, ["Lato"]);
+    assert!(engine_options.cache.enabled);
+
+    let mut dict = IndexMap::new();
+    dict.insert("paint".to_string(), LabelParamValue::Str("red".to_string()));
+    let mut options = LabelOptions::default();
+    options.text.font_family = "Lato".to_string();
+    options.text.font_size = 15.0;
+    options.text.fill = Color::rgba(0.1, 0.2, 0.3, 1.0);
+    options.text.font_weight = FontWeight::Number(500);
+    options.text.font_style = FontStyle::Italic;
+    options.math.font = MathFontSpec::LeteSansMath;
+    options.math.font_size = 15.0;
+    options.math.fill = Color::rgba(0.3, 0.2, 0.1, 1.0);
+    options.math.font_weight = FontWeight::Bold;
+    options.math.display_style = MathDisplayStyle::Inline;
+    options
+        .params
+        .insert("none".to_string(), LabelParamValue::None);
+    options
+        .params
+        .insert("flag".to_string(), LabelParamValue::Bool(true));
+    options
+        .params
+        .insert("count".to_string(), LabelParamValue::Int(7));
+    options
+        .params
+        .insert("ratio".to_string(), LabelParamValue::Float(0.25));
+    options.params.insert(
+        "name".to_string(),
+        LabelParamValue::Str("Series".to_string()),
+    );
+    options.params.insert(
+        "array".to_string(),
+        LabelParamValue::Array(vec![LabelParamValue::Int(1)]),
+    );
+    options
+        .params
+        .insert("stroke".to_string(), LabelParamValue::Dict(dict));
+    options.limits.max_source_bytes = 4;
+
+    let engine = LabelEngine::new(EngineOptions::default()).unwrap();
+    let err = engine.compile("12345", &options).unwrap_err();
+    assert!(matches!(
+        err,
+        LabelError::SourceTooLarge {
+            actual: 5,
+            limit: 4
+        }
+    ));
+}
+
+#[test]
+fn output_lowerers_consume_compiled_frame_not_source_text() {
+    let engine = LabelEngine::new(EngineOptions::default()).unwrap();
+    let mut label = engine
+        .compile("Price \\$7 $sqrt(x)$", &LabelOptions::default())
+        .unwrap();
+    let metrics = label.metrics;
+
+    label.source = "this would be invalid if a lowerer parsed it: $x^$ #let".to_string();
+
+    let svg = svg_items(&label, &SvgOptions::default()).unwrap();
+    assert_eq!(svg.metrics, metrics);
+    assert!(!svg.items.is_empty());
+
+    let pdf = pdf_items(&label, &PdfOptions::default()).unwrap();
+    assert_eq!(pdf.metrics, metrics);
+    assert!(pdf.semantic_text.contains("Price $7"));
+    assert!(!pdf.draw_items.is_empty());
+}
+
+#[cfg(feature = "raster")]
+#[test]
+fn raster_lowerer_consumes_compiled_frame_not_source_text() {
+    let engine = LabelEngine::new(EngineOptions::default()).unwrap();
+    let mut label = engine
+        .compile("Price \\$7 $sqrt(x)$", &LabelOptions::default())
+        .unwrap();
+
+    label.source = "this would be invalid if raster parsed it: $x^$ #let".to_string();
+
+    let raster = rasterize(&label, &RasterOptions { scale: 1.0 }).unwrap();
+    assert!(raster.image.width > 0);
+    assert!(raster.image.height > 0);
 }
 
 #[test]
