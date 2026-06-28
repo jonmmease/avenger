@@ -92,8 +92,12 @@ pub(crate) struct MathGroup {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MathAttach {
     pub(crate) base: Box<MathNode>,
-    pub(crate) top: Option<Box<MathNode>>,
-    pub(crate) bottom: Option<Box<MathNode>>,
+    pub(crate) top: Option<Vec<MathNode>>,
+    pub(crate) bottom: Option<Vec<MathNode>>,
+    pub(crate) top_left: Option<Vec<MathNode>>,
+    pub(crate) top_right: Option<Vec<MathNode>>,
+    pub(crate) bottom_left: Option<Vec<MathNode>>,
+    pub(crate) bottom_right: Option<Vec<MathNode>>,
     pub(crate) primes: usize,
     pub(crate) byte_range: Range<usize>,
 }

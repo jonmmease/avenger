@@ -1422,6 +1422,7 @@ const FRACTION_PADDING_EM: f32 = 0.1;
 const INLINE_MATH_LEADING_SLACK_EM: f32 = 0.65 * 0.7;
 const CANCEL_STROKE_EM: f32 = 0.05;
 const CANCEL_LENGTH_EXTRA_EM: f32 = 0.3;
+const SCRIPT_SLOT_PAIR_GAP_EM: f32 = 0.08;
 
 fn layout_simple_attach(
     font: &MathFont,
@@ -1437,23 +1438,12 @@ fn layout_simple_attach(
         return Ok(None);
     };
     let script_font_size = script_font_size(font, font_size, script_level)?;
-    let top = attach
-        .top
-        .as_deref()
-        .map(|node| layout_script_child(font, node, script_font_size, script_level + 1))
-        .transpose()?
-        .flatten();
-    let bottom = attach
-        .bottom
-        .as_deref()
-        .map(|node| layout_script_child(font, node, script_font_size, script_level + 1))
-        .transpose()?
-        .flatten();
-    if (attach.top.is_some() && top.is_none()) || (attach.bottom.is_some() && bottom.is_none()) {
+    let slots = layout_attach_slots(font, attach, script_font_size, script_level + 1)?;
+    if attach_slots_missing_requested(attach, &slots) {
         return Ok(None);
     }
 
-    layout_simple_attach_parts(font, font_size, base, top, bottom)
+    layout_simple_attach_parts(font, font_size, base, slots)
 }
 
 fn layout_simple_attach_with_bottom_continuation(
@@ -1466,27 +1456,23 @@ fn layout_simple_attach_with_bottom_continuation(
     if attach.primes > 0 {
         return Ok(None);
     }
-    let Some(bottom_node) = attach.bottom.as_deref() else {
+    let Some([bottom_node]) = attach.bottom.as_deref() else {
         return Ok(None);
     };
     let Some(base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
         return Ok(None);
     };
     let script_font_size = script_font_size(font, font_size, script_level)?;
-    let top = attach
-        .top
-        .as_deref()
-        .map(|node| layout_script_child(font, node, script_font_size, script_level + 1))
-        .transpose()?
-        .flatten();
+    let mut slots = layout_attach_slots(font, attach, script_font_size, script_level + 1)?;
     let bottom_nodes = [bottom_node.clone(), MathNode::Group(group.clone())];
     let bottom =
         layout_simple_nodes_as_atom(font, &bottom_nodes, script_font_size, script_level + 1)?;
-    if (attach.top.is_some() && top.is_none()) || bottom.is_none() {
+    if attach_slots_missing_requested(attach, &slots) || bottom.is_none() {
         return Ok(None);
     }
+    slots.bottom = bottom;
 
-    layout_simple_attach_parts(font, font_size, base, top, bottom)
+    layout_simple_attach_parts(font, font_size, base, slots)
 }
 
 fn is_identifier_subscript_group_continuation(
@@ -1496,27 +1482,93 @@ fn is_identifier_subscript_group_continuation(
     // Typst parses `_n(x)` like an identifier subscript expression with an
     // adjacent call-style group, while `_0(x)` leaves `(x)` at the outer level.
     attach.byte_range.end == group.byte_range.start
-        && matches!(attach.bottom.as_deref(), Some(MathNode::Identifier(_)))
+        && matches!(attach.bottom.as_deref(), Some([MathNode::Identifier(_)]))
+}
+
+#[derive(Default)]
+struct LaidOutAttachSlots {
+    top: Option<LaidOutMathAtom>,
+    bottom: Option<LaidOutMathAtom>,
+    top_left: Option<LaidOutMathAtom>,
+    top_right: Option<LaidOutMathAtom>,
+    bottom_left: Option<LaidOutMathAtom>,
+    bottom_right: Option<LaidOutMathAtom>,
+}
+
+fn layout_attach_slots(
+    font: &MathFont,
+    attach: &super::ast::MathAttach,
+    font_size: f32,
+    script_level: u8,
+) -> Result<LaidOutAttachSlots, LabelError> {
+    Ok(LaidOutAttachSlots {
+        top: layout_script_nodes(font, attach.top.as_deref(), font_size, script_level)?,
+        bottom: layout_script_nodes(font, attach.bottom.as_deref(), font_size, script_level)?,
+        top_left: layout_script_nodes(font, attach.top_left.as_deref(), font_size, script_level)?,
+        top_right: layout_script_nodes(font, attach.top_right.as_deref(), font_size, script_level)?,
+        bottom_left: layout_script_nodes(
+            font,
+            attach.bottom_left.as_deref(),
+            font_size,
+            script_level,
+        )?,
+        bottom_right: layout_script_nodes(
+            font,
+            attach.bottom_right.as_deref(),
+            font_size,
+            script_level,
+        )?,
+    })
+}
+
+fn layout_script_nodes(
+    font: &MathFont,
+    nodes: Option<&[MathNode]>,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let Some(nodes) = nodes else {
+        return Ok(None);
+    };
+    if let [node] = nodes {
+        return layout_script_child(font, node, font_size, script_level);
+    }
+    layout_simple_nodes_as_atom(font, nodes, font_size, script_level)
+}
+
+fn attach_slots_missing_requested(
+    attach: &super::ast::MathAttach,
+    slots: &LaidOutAttachSlots,
+) -> bool {
+    (attach.top.is_some() && slots.top.is_none())
+        || (attach.bottom.is_some() && slots.bottom.is_none())
+        || (attach.top_left.is_some() && slots.top_left.is_none())
+        || (attach.top_right.is_some() && slots.top_right.is_none())
+        || (attach.bottom_left.is_some() && slots.bottom_left.is_none())
+        || (attach.bottom_right.is_some() && slots.bottom_right.is_none())
 }
 
 fn layout_simple_attach_parts(
     font: &MathFont,
     font_size: f32,
     base: LaidOutMathAtom,
-    top: Option<LaidOutMathAtom>,
-    bottom: Option<LaidOutMathAtom>,
+    slots: LaidOutAttachSlots,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let post_top = combine_script_slots(font_size, slots.top, slots.top_right)?;
+    let post_bottom = combine_script_slots(font_size, slots.bottom, slots.bottom_right)?;
+    let top_ref = post_top.as_ref().or(slots.top_left.as_ref());
+    let bottom_ref = post_bottom.as_ref().or(slots.bottom_left.as_ref());
     let (shift_up, shift_down) =
-        compute_script_shifts(font, font_size, &base, top.as_ref(), bottom.as_ref())?;
+        compute_script_shifts(font, font_size, &base, top_ref, bottom_ref)?;
     let space_after_script = math_constant(font, font_size, |constants| {
         constants.space_after_script().value
     })?;
-    let top_kern = top
+    let post_top_kern = post_top
         .as_ref()
         .map(|top| math_kern(font, &base, top, shift_up, ScriptCorner::TopRight))
         .transpose()?
         .unwrap_or_default();
-    let bottom_kern = bottom
+    let post_bottom_kern = post_bottom
         .as_ref()
         .map(|bottom| {
             math_kern(font, &base, bottom, shift_down, ScriptCorner::BottomRight)
@@ -1524,14 +1576,36 @@ fn layout_simple_attach_parts(
         })
         .transpose()?
         .unwrap_or_default();
-
-    let top_post_width = top
+    let pre_top_kern = slots
+        .top_left
         .as_ref()
-        .map(|top| space_after_script + top.metrics.width + top_kern)
+        .map(|top| math_kern(font, &base, top, shift_up, ScriptCorner::TopLeft))
+        .transpose()?
         .unwrap_or_default();
-    let bottom_post_width = bottom
+    let pre_bottom_kern = slots
+        .bottom_left
         .as_ref()
-        .map(|bottom| space_after_script + bottom.metrics.width + bottom_kern)
+        .map(|bottom| math_kern(font, &base, bottom, shift_down, ScriptCorner::BottomLeft))
+        .transpose()?
+        .unwrap_or_default();
+
+    let top_post_width = post_top
+        .as_ref()
+        .map(|top| space_after_script + top.metrics.width + post_top_kern)
+        .unwrap_or_default();
+    let bottom_post_width = post_bottom
+        .as_ref()
+        .map(|bottom| space_after_script + bottom.metrics.width + post_bottom_kern)
+        .unwrap_or_default();
+    let top_pre_width = slots
+        .top_left
+        .as_ref()
+        .map(|top| space_after_script + top.metrics.width + pre_top_kern)
+        .unwrap_or_default();
+    let bottom_pre_width = slots
+        .bottom_left
+        .as_ref()
+        .map(|bottom| space_after_script + bottom.metrics.width + pre_bottom_kern)
         .unwrap_or_default();
     let base_width = base.metrics.width;
     let base_metrics = base.metrics;
@@ -1539,37 +1613,86 @@ fn layout_simple_attach_parts(
     let base_right_class = base.right_class;
     let base_italic_correction = base.italic_correction;
     let base_script_kernable = base.script_kernable;
-    let width = base_width + top_post_width.max(bottom_post_width);
+    let pre_width = top_pre_width.max(bottom_pre_width);
+    let post_width = top_post_width.max(bottom_post_width);
+    let width = pre_width + base_width + post_width;
     let baseline = base.metrics.baseline;
     let ink_ascent = base
         .ink_ascent
-        .max(top.as_ref().map_or(0.0, |top| shift_up + top.ink_ascent))
         .max(
-            bottom
+            post_top
+                .as_ref()
+                .map_or(0.0, |top| shift_up + top.ink_ascent),
+        )
+        .max(
+            slots
+                .top_left
+                .as_ref()
+                .map_or(0.0, |top| shift_up + top.ink_ascent),
+        )
+        .max(
+            post_bottom
+                .as_ref()
+                .map_or(0.0, |bottom| bottom.ink_ascent - shift_down),
+        )
+        .max(
+            slots
+                .bottom_left
                 .as_ref()
                 .map_or(0.0, |bottom| bottom.ink_ascent - shift_down),
         );
     let ink_descent = base
         .ink_descent
-        .max(top.as_ref().map_or(0.0, |top| top.ink_descent - shift_up))
         .max(
-            bottom
+            post_top
+                .as_ref()
+                .map_or(0.0, |top| top.ink_descent - shift_up),
+        )
+        .max(
+            slots
+                .top_left
+                .as_ref()
+                .map_or(0.0, |top| top.ink_descent - shift_up),
+        )
+        .max(
+            post_bottom
+                .as_ref()
+                .map_or(0.0, |bottom| shift_down + bottom.ink_descent),
+        )
+        .max(
+            slots
+                .bottom_left
                 .as_ref()
                 .map_or(0.0, |bottom| shift_down + bottom.ink_descent),
         );
     let mut glyphs = Vec::new();
     let mut shapes = Vec::new();
     let mut draw_order = Vec::new();
+
+    if let Some(mut top_left) = slots.top_left {
+        let dx = pre_width - space_after_script - top_left.metrics.width - pre_top_kern;
+        let dy = baseline - shift_up - top_left.metrics.baseline;
+        offset_atom(&mut top_left, dx, dy);
+        append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, top_left);
+    }
+    if let Some(mut bottom_left) = slots.bottom_left {
+        let dx = pre_width - space_after_script - bottom_left.metrics.width - pre_bottom_kern;
+        let dy = baseline + shift_down - bottom_left.metrics.baseline;
+        offset_atom(&mut bottom_left, dx, dy);
+        append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, bottom_left);
+    }
+    let mut base = base;
+    offset_atom(&mut base, pre_width, 0.0);
     append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, base);
 
-    if let Some(mut top) = top {
-        let dx = base_width + top_kern;
+    if let Some(mut top) = post_top {
+        let dx = pre_width + base_width + post_top_kern;
         let dy = baseline - shift_up - top.metrics.baseline;
         offset_atom(&mut top, dx, dy);
         append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, top);
     }
-    if let Some(mut bottom) = bottom {
-        let dx = base_width + bottom_kern;
+    if let Some(mut bottom) = post_bottom {
+        let dx = pre_width + base_width + post_bottom_kern;
         let dy = baseline + shift_down - bottom.metrics.baseline;
         offset_atom(&mut bottom, dx, dy);
         append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, bottom);
@@ -1590,6 +1713,58 @@ fn layout_simple_attach_parts(
         shapes,
         draw_order,
     }))
+}
+
+fn combine_script_slots(
+    font_size: f32,
+    first: Option<LaidOutMathAtom>,
+    second: Option<LaidOutMathAtom>,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    match (first, second) {
+        (None, None) => Ok(None),
+        (Some(atom), None) | (None, Some(atom)) => Ok(Some(atom)),
+        (Some(mut first), Some(mut second)) => {
+            let gap = SCRIPT_SLOT_PAIR_GAP_EM * font_size;
+            let baseline = first.metrics.baseline.max(second.metrics.baseline);
+            let first_dy = baseline - first.metrics.baseline;
+            let second_x = first.metrics.width + gap;
+            let second_dy = baseline - second.metrics.baseline;
+            offset_atom(&mut first, 0.0, first_dy);
+            offset_atom(&mut second, second_x, second_dy);
+
+            let width = first.metrics.width + gap + second.metrics.width;
+            let ascent = (first.metrics.ascent + first_dy).max(second.metrics.ascent + second_dy);
+            let descent =
+                (first.metrics.descent - first_dy).max(second.metrics.descent - second_dy);
+            let ink_ascent = (first.ink_ascent + first_dy).max(second.ink_ascent + second_dy);
+            let ink_descent = (first.ink_descent - first_dy).max(second.ink_descent - second_dy);
+
+            let mut glyphs = Vec::new();
+            let mut shapes = Vec::new();
+            let mut draw_order = Vec::new();
+            append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, first);
+            append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, second);
+
+            Ok(Some(LaidOutMathAtom {
+                metrics: TypesetMetrics {
+                    width,
+                    height: ascent + descent,
+                    baseline,
+                    ascent,
+                    descent,
+                },
+                ink_ascent,
+                ink_descent,
+                left_class: SimpleMathClass::Normal,
+                right_class: SimpleMathClass::Normal,
+                italic_correction: 0.0,
+                script_kernable: false,
+                glyphs,
+                shapes,
+                draw_order,
+            }))
+        }
+    }
 }
 
 fn layout_script_child(
@@ -2047,18 +2222,14 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
         })],
         MathNode::Attach(attach) => {
             let base = style_single_math_node(&attach.base, selection);
-            let top = attach
-                .top
-                .as_ref()
-                .map(|node| Box::new(style_single_math_node(node, selection)));
-            let bottom = attach
-                .bottom
-                .as_ref()
-                .map(|node| Box::new(style_single_math_node(node, selection)));
             vec![MathNode::Attach(super::ast::MathAttach {
                 base: Box::new(base),
-                top,
-                bottom,
+                top: style_optional_math_nodes(&attach.top, selection),
+                bottom: style_optional_math_nodes(&attach.bottom, selection),
+                top_left: style_optional_math_nodes(&attach.top_left, selection),
+                top_right: style_optional_math_nodes(&attach.top_right, selection),
+                bottom_left: style_optional_math_nodes(&attach.bottom_left, selection),
+                bottom_right: style_optional_math_nodes(&attach.bottom_right, selection),
                 primes: attach.primes,
                 byte_range: attach.byte_range.clone(),
             })]
@@ -2095,6 +2266,15 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
             })]
         }
     }
+}
+
+fn style_optional_math_nodes(
+    nodes: &Option<Vec<MathNode>>,
+    selection: MathStyleSelection,
+) -> Option<Vec<MathNode>> {
+    nodes
+        .as_ref()
+        .map(|nodes| style_math_nodes(nodes, selection))
 }
 
 fn style_single_math_node(node: &MathNode, selection: MathStyleSelection) -> MathNode {
@@ -3261,6 +3441,41 @@ mod tests {
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 2);
         assert!(pdf.glyph_runs[1].font_size < pdf.glyph_runs[0].font_size);
+    }
+
+    #[test]
+    fn simple_row_can_emit_attach_call_with_corner_slots() {
+        let base_math = parse_math("Pi", 0).unwrap();
+        let attach_math = parse_math(
+            "attach(Pi, t: alpha, b: beta, tl: 1, tr: 2+3, bl: 4+5, br: 6)",
+            0,
+        )
+        .unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let base = try_typeset_simple_row_fragment(&base_math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("base should be handled by Typst row path");
+        let artifact =
+            try_typeset_simple_row_fragment(&attach_math, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("attach call should be handled by Typst row path");
+
+        assert!(artifact.metrics.width > base.metrics.width);
+        let paths = artifact.paths.expect("attach paths should exist");
+        assert!(paths.items.len() > base.paths.expect("base paths should exist").items.len());
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let glyph_count = pdf
+            .glyph_runs
+            .iter()
+            .map(|run| run.glyphs.len())
+            .sum::<usize>();
+        assert!(glyph_count >= 10);
     }
 
     #[test]

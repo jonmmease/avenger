@@ -148,22 +148,22 @@ fn lower_math_expr(
                 .top()
                 .map(|expr| lower_script_expr(expr, source, offset))
                 .transpose()?
-                .map(|(script, continuation)| (Some(Box::new(script)), continuation))
+                .map(|(script, continuation)| (Some(vec![script]), continuation))
                 .unwrap_or((None, Vec::new()));
             let (bottom, bottom_continuation) = attach
                 .bottom()
                 .map(|expr| lower_script_expr(expr, source, offset))
                 .transpose()?
-                .map(|(script, continuation)| (Some(Box::new(script)), continuation))
+                .map(|(script, continuation)| (Some(vec![script]), continuation))
                 .unwrap_or((None, Vec::new()));
             continuation.extend(bottom_continuation);
             let primes = attach.primes().map_or(0, |primes| primes.count());
             let mut byte_range = base.byte_range().start..base.byte_range().end;
-            if let Some(top) = top.as_deref() {
-                byte_range.end = byte_range.end.max(top.byte_range().end);
+            if let Some(top) = top.as_deref().and_then(last_node_byte_range) {
+                byte_range.end = byte_range.end.max(top.end);
             }
-            if let Some(bottom) = bottom.as_deref() {
-                byte_range.end = byte_range.end.max(bottom.byte_range().end);
+            if let Some(bottom) = bottom.as_deref().and_then(last_node_byte_range) {
+                byte_range.end = byte_range.end.max(bottom.end);
             }
             if primes > 0 {
                 byte_range.end = offset_range(attach.to_untyped().range(), offset).end;
@@ -173,6 +173,10 @@ fn lower_math_expr(
                 base: Box::new(base),
                 top,
                 bottom,
+                top_left: None,
+                top_right: None,
+                bottom_left: None,
+                bottom_right: None,
                 primes,
                 byte_range,
             })];
@@ -187,6 +191,10 @@ fn lower_math_expr(
             })),
             top: None,
             bottom: None,
+            top_left: None,
+            top_right: None,
+            bottom_left: None,
+            bottom_right: None,
             primes: primes.count(),
             byte_range: offset_range(primes.to_untyped().range(), offset),
         })]),
@@ -269,6 +277,10 @@ fn lower_script_expr(
     Ok((script, nodes))
 }
 
+fn last_node_byte_range(nodes: &[MathNode]) -> Option<std::ops::Range<usize>> {
+    nodes.last().map(MathNode::byte_range)
+}
+
 fn lower_math_root(
     root: typst_ast::MathRoot<'_>,
     source: &str,
@@ -316,6 +328,10 @@ fn lower_math_call(
         ));
     }
 
+    if name == "attach" {
+        return lower_math_attach_call(call.args(), source, offset, range);
+    }
+
     if is_math_size_call_name(&name) {
         let args = lower_math_size_call_args(call.args(), source, offset, range.start)?;
         return Ok(vec![MathNode::Call(MathCall {
@@ -351,6 +367,94 @@ fn lower_math_call(
         byte_range: args_range,
     }));
     Ok(nodes)
+}
+
+fn lower_math_attach_call(
+    args: typst_ast::MathArgs<'_>,
+    source: &str,
+    offset: usize,
+    range: std::ops::Range<usize>,
+) -> Result<Vec<MathNode>, LabelError> {
+    let mut base = None;
+    let mut top = None;
+    let mut bottom = None;
+    let mut top_left = None;
+    let mut top_right = None;
+    let mut bottom_left = None;
+    let mut bottom_right = None;
+
+    for item in args.arg_items() {
+        if item.ends_in_semicolon {
+            return Err(unsupported(
+                item.arg.to_untyped().range().end + offset,
+                "semicolon math arguments are not supported in Avenger Typst subset",
+            ));
+        }
+        match item.arg {
+            typst_ast::Arg::Pos(expr) => {
+                if base.is_some() {
+                    return Err(unsupported(
+                        expr.to_untyped().range().start + offset,
+                        "attach expects one base argument",
+                    ));
+                }
+                base = Some(lower_math_expr_as_single(expr, source, offset)?);
+            }
+            typst_ast::Arg::Named(named) => {
+                let name = named.name().as_str();
+                let slot = match name {
+                    "t" => &mut top,
+                    "b" => &mut bottom,
+                    "tl" => &mut top_left,
+                    "tr" => &mut top_right,
+                    "bl" => &mut bottom_left,
+                    "br" => &mut bottom_right,
+                    _ => {
+                        return Err(unsupported(
+                            named_argument_position(named, source, offset),
+                            "unsupported attach option",
+                        ));
+                    }
+                };
+                if slot.is_some() {
+                    return Err(unsupported(
+                        named_argument_position(named, source, offset),
+                        "duplicate attach option",
+                    ));
+                }
+                let expr = named.expr();
+                let nodes = lower_math_expr(expr, source, offset)?;
+                if nodes.is_empty() {
+                    return Err(unsupported(
+                        expr.to_untyped().range().start + offset,
+                        "attach option expects math content",
+                    ));
+                }
+                *slot = Some(nodes);
+            }
+            typst_ast::Arg::Spread(spread) => {
+                return Err(unsupported(
+                    spread.to_untyped().range().start + offset,
+                    "spread math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+        }
+    }
+
+    let Some(base) = base else {
+        return Err(unsupported(range.start, "attach expects one base argument"));
+    };
+    Ok(vec![MathNode::Attach(MathAttach {
+        base: Box::new(base),
+        top,
+        bottom,
+        top_left,
+        top_right,
+        bottom_left,
+        bottom_right,
+        primes: 0,
+        byte_range: range,
+    })])
 }
 
 fn lower_math_call_args(
@@ -1097,7 +1201,7 @@ mod tests {
     #[test]
     fn parses_whitelisted_function_calls() {
         let math = parse(
-            "frac(x, y) + op(\"custom\") + bb(R) + scr(P) + class(\"relation\", !) + overline(underline(x))",
+            "frac(x, y) + op(\"custom\") + bb(R) + scr(P) + class(\"relation\", !) + overline(underline(x)) + attach(Pi, t: alpha, b: beta, tl: 1, tr: 2+3, bl: 4+5, br: 6)",
         );
 
         assert!(matches!(
@@ -1123,6 +1227,16 @@ mod tests {
         assert!(matches!(
             &math.nodes[20],
             MathNode::Call(call) if call.name == "overline" && call.args.len() == 1
+        ));
+        assert!(matches!(
+            &math.nodes[24],
+            MathNode::Attach(attach)
+                if attach.top.is_some()
+                && attach.bottom.is_some()
+                && attach.top_left.is_some()
+                && attach.top_right.is_some()
+                && attach.bottom_left.is_some()
+                && attach.bottom_right.is_some()
         ));
     }
 
