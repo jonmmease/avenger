@@ -215,6 +215,18 @@ pixel_tolerance = 8
 min_similarity = 0.65
 
 [[case]]
+id = "math-underover-constructs"
+upstream_file = "../../typst/tests/suite/math/underover.typ"
+upstream_test = "math-underover-brace/brackets/parens/shells reduced without annotations"
+source = "math-underover-constructs.typ"
+font_size = 20.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+pixel_tolerance = 20
+min_similarity = 0.55
+
+[[case]]
 id = "symbol-arrow"
 upstream_file = "../../typst/tests/suite/symbols/symbol.typ"
 upstream_test = "symbol-arrow-smoke"

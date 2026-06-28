@@ -79,6 +79,8 @@ fn allows_common_typst_math_fragments() {
         "$a class(\"relation\", !) b$",
         "$script(a / b, cramped: #true) + sscript(c / d)$",
         "$overline(underline(x + y))$",
+        "$overbrace(x + y) + underbrace(a + b)$",
+        "$overbracket(x) + underparen(y) + overshell(z)$",
         "$attach(Pi, t: alpha, b: beta, tl: 1, tr: 2+3, bl: 4+5, br: 6)$",
         "$a'''_b$",
     ];

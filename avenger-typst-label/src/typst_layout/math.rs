@@ -422,6 +422,9 @@ fn layout_simple_node_with_mid_target(
         if let Some(position) = MathLineCall::from_name(&call.name) {
             return layout_simple_line_call(font, call, position, font_size, script_level);
         }
+        if let Some(kind) = MathUnderOverCall::from_name(&call.name) {
+            return layout_simple_under_over_call(font, call, kind, font_size, script_level);
+        }
         if let Some(selection) = MathStyleSelection::from_call_name(&call.name) {
             return layout_simple_variant_call(font, call, selection, font_size, script_level);
         }
@@ -597,6 +600,263 @@ fn layout_simple_line_call(
     atom.italic_correction = italic_correction;
     atom.script_kernable = script_kernable;
     Ok(Some(atom))
+}
+
+fn layout_simple_under_over_call(
+    font: &MathFont,
+    call: &ast::MathCall,
+    kind: MathUnderOverCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let Some(mut body) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    else {
+        return Ok(None);
+    };
+
+    let target_width = body.metrics.width.max(font_size * 0.25);
+    let (gap, thickness) = match kind.position {
+        MathUnderOverPosition::Below => (
+            math_constant(font, font_size, |constants| {
+                constants.underbar_vertical_gap().value
+            })?,
+            math_constant(font, font_size, |constants| {
+                constants.underbar_rule_thickness().value
+            })?,
+        ),
+        MathUnderOverPosition::Above => (
+            math_constant(font, font_size, |constants| {
+                constants.overbar_vertical_gap().value
+            })?,
+            math_constant(font, font_size, |constants| {
+                constants.overbar_rule_thickness().value
+            })?,
+        ),
+    };
+    let gap = gap.min(font_size * 0.05).max(font_size * 0.02);
+    let thickness = thickness.max(font_size * 0.04);
+    let mut ornament = layout_under_over_ornament_atom(kind, target_width, font_size, thickness);
+
+    let width = body.metrics.width.max(ornament.metrics.width);
+    let body_x = (width - body.metrics.width) / 2.0;
+    let ornament_x = (width - ornament.metrics.width) / 2.0;
+    let body_height = body.metrics.height;
+    let ornament_height = ornament.metrics.height;
+    let baseline = match kind.position {
+        MathUnderOverPosition::Below => body.metrics.baseline,
+        MathUnderOverPosition::Above => {
+            offset_atom(&mut body, body_x, ornament_height + gap);
+            offset_atom(&mut ornament, ornament_x, 0.0);
+            body.metrics.baseline + ornament_height + gap
+        }
+    };
+    if kind.position == MathUnderOverPosition::Below {
+        offset_atom(&mut body, body_x, 0.0);
+        offset_atom(&mut ornament, ornament_x, body_height + gap);
+    }
+
+    let height = body_height + gap + ornament_height;
+    let left_class = body.left_class;
+    let right_class = body.right_class;
+    let italic_correction = body.italic_correction;
+    let script_kernable = body.script_kernable;
+    let mut glyphs = Vec::new();
+    let mut shapes = Vec::new();
+    let mut draw_order = Vec::new();
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, body);
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, ornament);
+
+    let Some(mut atom) = finalize_inline_frame_atom(
+        width, height, baseline, glyphs, shapes, draw_order, font, font_size,
+    )?
+    else {
+        return Ok(None);
+    };
+    atom.left_class = left_class;
+    atom.right_class = right_class;
+    atom.italic_correction = italic_correction;
+    atom.script_kernable = script_kernable;
+    Ok(Some(atom))
+}
+
+fn layout_under_over_ornament_atom(
+    kind: MathUnderOverCall,
+    width: f32,
+    font_size: f32,
+    thickness: f32,
+) -> LaidOutMathAtom {
+    // Keep the visible ornament compact while reserving enough outer line-box
+    // room to survive the inline math leading slack in `finalize_inline_frame_atom`.
+    let visible_height = (font_size * 0.18).max(thickness * 2.0);
+    let height = (font_size * 0.52).max(visible_height);
+    let path = under_over_ornament_path(kind, width, visible_height);
+    let shape_y = match kind.position {
+        MathUnderOverPosition::Below => 0.0,
+        MathUnderOverPosition::Above => height - visible_height,
+    };
+    LaidOutMathAtom {
+        metrics: TypesetMetrics {
+            width,
+            height,
+            baseline: height,
+            ascent: height,
+            descent: 0.0,
+        },
+        ink_ascent: height,
+        ink_descent: 0.0,
+        left_class: SimpleMathClass::Normal,
+        right_class: SimpleMathClass::Normal,
+        italic_correction: 0.0,
+        script_kernable: false,
+        glyphs: Vec::new(),
+        shapes: vec![LaidOutShape {
+            path,
+            x: 0.0,
+            y: shape_y,
+            stroke: LaidOutStroke::new(thickness),
+        }],
+        draw_order: vec![LaidOutDrawItem::Shape(0)],
+    }
+}
+
+fn under_over_ornament_path(kind: MathUnderOverCall, width: f32, height: f32) -> PathData {
+    let w = width.max(0.0);
+    let h = height.max(0.0);
+    let mid = w / 2.0;
+    let quarter = w / 4.0;
+    let three_quarter = 3.0 * w / 4.0;
+    let top = 0.0;
+    let bottom = h;
+
+    let commands = match (kind.position, kind.shape) {
+        (MathUnderOverPosition::Above, MathUnderOverShape::Bracket) => vec![
+            PathCommand::MoveTo { x: 0.0, y: bottom },
+            PathCommand::LineTo { x: 0.0, y: top },
+            PathCommand::LineTo { x: w, y: top },
+            PathCommand::LineTo { x: w, y: bottom },
+        ],
+        (MathUnderOverPosition::Below, MathUnderOverShape::Bracket) => vec![
+            PathCommand::MoveTo { x: 0.0, y: top },
+            PathCommand::LineTo { x: 0.0, y: bottom },
+            PathCommand::LineTo { x: w, y: bottom },
+            PathCommand::LineTo { x: w, y: top },
+        ],
+        (MathUnderOverPosition::Above, MathUnderOverShape::Paren) => vec![
+            PathCommand::MoveTo { x: 0.0, y: bottom },
+            PathCommand::CubicTo {
+                x1: quarter,
+                y1: top,
+                x2: three_quarter,
+                y2: top,
+                x: w,
+                y: bottom,
+            },
+        ],
+        (MathUnderOverPosition::Below, MathUnderOverShape::Paren) => vec![
+            PathCommand::MoveTo { x: 0.0, y: top },
+            PathCommand::CubicTo {
+                x1: quarter,
+                y1: bottom,
+                x2: three_quarter,
+                y2: bottom,
+                x: w,
+                y: top,
+            },
+        ],
+        (MathUnderOverPosition::Above, MathUnderOverShape::Shell) => vec![
+            PathCommand::MoveTo { x: 0.0, y: bottom },
+            PathCommand::QuadTo {
+                x1: mid,
+                y1: top,
+                x: w,
+                y: bottom,
+            },
+        ],
+        (MathUnderOverPosition::Below, MathUnderOverShape::Shell) => vec![
+            PathCommand::MoveTo { x: 0.0, y: top },
+            PathCommand::QuadTo {
+                x1: mid,
+                y1: bottom,
+                x: w,
+                y: top,
+            },
+        ],
+        (MathUnderOverPosition::Above, MathUnderOverShape::Brace) => vec![
+            PathCommand::MoveTo { x: 0.0, y: bottom },
+            PathCommand::CubicTo {
+                x1: quarter * 0.5,
+                y1: bottom,
+                x2: quarter * 0.7,
+                y2: top,
+                x: quarter,
+                y: top,
+            },
+            PathCommand::CubicTo {
+                x1: mid * 0.85,
+                y1: top,
+                x2: mid * 0.75,
+                y2: bottom * 0.55,
+                x: mid,
+                y: bottom * 0.55,
+            },
+            PathCommand::CubicTo {
+                x1: mid * 1.25,
+                y1: bottom * 0.55,
+                x2: mid * 1.15,
+                y2: top,
+                x: three_quarter,
+                y: top,
+            },
+            PathCommand::CubicTo {
+                x1: w - quarter * 0.7,
+                y1: top,
+                x2: w - quarter * 0.5,
+                y2: bottom,
+                x: w,
+                y: bottom,
+            },
+        ],
+        (MathUnderOverPosition::Below, MathUnderOverShape::Brace) => vec![
+            PathCommand::MoveTo { x: 0.0, y: top },
+            PathCommand::CubicTo {
+                x1: quarter * 0.5,
+                y1: top,
+                x2: quarter * 0.7,
+                y2: bottom,
+                x: quarter,
+                y: bottom,
+            },
+            PathCommand::CubicTo {
+                x1: mid * 0.85,
+                y1: bottom,
+                x2: mid * 0.75,
+                y2: bottom * 0.45,
+                x: mid,
+                y: bottom * 0.45,
+            },
+            PathCommand::CubicTo {
+                x1: mid * 1.25,
+                y1: bottom * 0.45,
+                x2: mid * 1.15,
+                y2: bottom,
+                x: three_quarter,
+                y: bottom,
+            },
+            PathCommand::CubicTo {
+                x1: w - quarter * 0.7,
+                y1: bottom,
+                x2: w - quarter * 0.5,
+                y2: top,
+                x: w,
+                y: top,
+            },
+        ],
+    };
+
+    PathData { commands }
 }
 
 fn layout_simple_variant_call(
@@ -3263,6 +3523,43 @@ impl MathLineCall {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MathUnderOverPosition {
+    Below,
+    Above,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MathUnderOverCall {
+    position: MathUnderOverPosition,
+    shape: MathUnderOverShape,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MathUnderOverShape {
+    Brace,
+    Bracket,
+    Paren,
+    Shell,
+}
+
+impl MathUnderOverCall {
+    fn from_name(name: &str) -> Option<Self> {
+        let (position, shape) = match name {
+            "underbrace" => (MathUnderOverPosition::Below, MathUnderOverShape::Brace),
+            "overbrace" => (MathUnderOverPosition::Above, MathUnderOverShape::Brace),
+            "underbracket" => (MathUnderOverPosition::Below, MathUnderOverShape::Bracket),
+            "overbracket" => (MathUnderOverPosition::Above, MathUnderOverShape::Bracket),
+            "underparen" => (MathUnderOverPosition::Below, MathUnderOverShape::Paren),
+            "overparen" => (MathUnderOverPosition::Above, MathUnderOverShape::Paren),
+            "undershell" => (MathUnderOverPosition::Below, MathUnderOverShape::Shell),
+            "overshell" => (MathUnderOverPosition::Above, MathUnderOverShape::Shell),
+            _ => return None,
+        };
+        Some(Self { position, shape })
+    }
+}
+
 fn resolved_left_class(
     previous: Option<SimpleMathClass>,
     class: SimpleMathClass,
@@ -4682,6 +4979,53 @@ mod tests {
         assert!(paths.items.iter().any(|item| item.stroke.is_some()));
         let pdf = artifact.pdf_text;
         assert_eq!(pdf.glyph_runs.len(), 3);
+    }
+
+    #[test]
+    fn simple_row_can_emit_math_under_over_constructs() {
+        let options = MathLayoutOptions::default();
+        let plain = parse_math("x + y", 0).unwrap();
+        let plain_artifact =
+            try_typeset_simple_row_fragment(&plain, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("plain body should be handled");
+        for source in [
+            "overbrace(x + y)",
+            "underbrace(x + y)",
+            "overbracket(x + y)",
+            "underbracket(x + y)",
+            "overparen(x + y)",
+            "underparen(x + y)",
+            "overshell(x + y)",
+            "undershell(x + y)",
+        ] {
+            let math = parse_math(source, 0).unwrap();
+            let artifact =
+                try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("{source} should be handled by Typst row path"));
+
+            assert!(
+                artifact.metrics.height > plain_artifact.metrics.height,
+                "{source} should add vertical extent over the plain body"
+            );
+            assert!(
+                artifact.paths.items.len() >= 4,
+                "{source} should emit body glyphs plus the under/over construct"
+            );
+            assert!(
+                artifact
+                    .paths
+                    .items
+                    .iter()
+                    .any(|item| matches!(item.kind, PathKind::MathShape)),
+                "{source} should emit the under/over construct as a math shape"
+            );
+            assert!(
+                artifact.pdf_text.glyph_runs.len() >= plain_artifact.pdf_text.glyph_runs.len(),
+                "{source} should retain PDF glyph metadata for the body"
+            );
+        }
     }
 
     #[test]
