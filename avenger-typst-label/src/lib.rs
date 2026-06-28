@@ -11,6 +11,7 @@ mod fonts;
 mod label;
 mod types;
 mod typst_eval;
+mod typst_layout;
 mod typst_library;
 mod typst_pdf;
 mod typst_render;

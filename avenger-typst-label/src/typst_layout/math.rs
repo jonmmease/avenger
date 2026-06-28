@@ -4,6 +4,7 @@ use crate::engine::glyph_path::outline_glyph_path;
 use crate::error::LabelError;
 use crate::label::EngineOptions;
 use crate::types::{MathLayoutOptions, MathRunArtifact, TypesetMetrics};
+use crate::typst_library::math::item as ast;
 use crate::typst_library::text::content::DecorationStroke;
 use crate::typst_library::{Color, FontWeight, MathFontSpec};
 use crate::typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
@@ -13,11 +14,11 @@ use crate::typst_svg::{
     PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform,
 };
 
-use super::ast::{
+use crate::typst_eval::math::predefined_operator_text;
+use ast::{
     MathAccent, MathAst, MathCancel, MathCancelAngle, MathFractionStyle, MathNode, MathOperator,
     MathShorthand, MathText, MathTextKind,
 };
-use crate::typst_eval::math::predefined_operator_text;
 
 pub(crate) fn try_typeset_simple_row_fragment(
     math: &MathAst,
@@ -482,7 +483,7 @@ fn layout_simple_node_with_mid_target(
 
 fn layout_simple_class_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -507,7 +508,7 @@ fn layout_simple_class_call(
 
 fn layout_simple_size_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     size: MathSizeCall,
     font_size: f32,
     script_level: u8,
@@ -534,7 +535,7 @@ fn layout_simple_size_call(
 
 fn layout_simple_line_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     position: MathLineCall,
     font_size: f32,
     script_level: u8,
@@ -633,7 +634,7 @@ fn layout_simple_line_call(
 
 fn layout_simple_variant_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     selection: MathStyleSelection,
     font_size: f32,
     script_level: u8,
@@ -647,7 +648,7 @@ fn layout_simple_variant_call(
 
 fn layout_simple_stretch_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -696,7 +697,7 @@ fn layout_simple_stretch_call(
 
 fn layout_simple_mid_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
     target_height: Option<f32>,
@@ -732,7 +733,7 @@ fn layout_simple_mid_call(
 
 fn layout_simple_operator_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -753,12 +754,12 @@ fn layout_simple_operator_call(
         return Ok(None);
     };
     let nodes = [
-        MathNode::Identifier(super::ast::MathIdentifier {
+        MathNode::Identifier(ast::MathIdentifier {
             name: text.to_string(),
             symbol: None,
             byte_range: call.byte_range.start..call.byte_range.start + call.name.len(),
         }),
-        MathNode::Group(super::ast::MathGroup {
+        MathNode::Group(ast::MathGroup {
             left: '(',
             right: ')',
             body: arg.nodes.clone(),
@@ -787,7 +788,7 @@ fn operator_arg_text(nodes: &[MathNode]) -> Option<String> {
 
 fn layout_simple_group(
     font: &MathFont,
-    group: &super::ast::MathGroup,
+    group: &ast::MathGroup,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -804,7 +805,7 @@ fn layout_simple_group(
 
 fn layout_simple_delimited_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     left: char,
     right: char,
     font_size: f32,
@@ -826,7 +827,7 @@ fn layout_simple_delimited_call(
 
 fn layout_simple_lr_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -945,7 +946,7 @@ fn layout_simple_delimited_nodes(
     right: char,
     font_size: f32,
     script_level: u8,
-    explicit_size: Option<super::ast::MathDelimitedSize>,
+    explicit_size: Option<ast::MathDelimitedSize>,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let Some(body) = layout_simple_nodes_as_atom(font, body_nodes, font_size, script_level)? else {
         return Ok(None);
@@ -980,7 +981,7 @@ fn layout_simple_delimited_nodes(
 fn delimiter_target_height_for_body(
     body: &LaidOutMathAtom,
     target: DelimiterTarget,
-    explicit_size: Option<super::ast::MathDelimitedSize>,
+    explicit_size: Option<ast::MathDelimitedSize>,
     font_size: f32,
 ) -> f32 {
     let natural_target_height = match target {
@@ -1001,7 +1002,7 @@ fn layout_simple_delimited_atom(
     font_size: f32,
     script_level: u8,
     target: DelimiterTarget,
-    explicit_size: Option<super::ast::MathDelimitedSize>,
+    explicit_size: Option<ast::MathDelimitedSize>,
 ) -> Result<LaidOutMathAtom, LabelError> {
     let delimiter_target_height =
         delimiter_target_height_for_body(&body, target, explicit_size, font_size);
@@ -1104,7 +1105,7 @@ fn layout_simple_delimited_atom_with_target_height(
 }
 
 fn resolve_relative_math_size(
-    size: super::ast::MathRelativeSize,
+    size: ast::MathRelativeSize,
     natural_target_height: f32,
     font_size: f32,
 ) -> f32 {
@@ -1247,7 +1248,7 @@ fn delimiter_call_chars(name: &str) -> Option<(char, char)> {
 
 fn layout_simple_sqrt(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -1259,7 +1260,7 @@ fn layout_simple_sqrt(
 
 fn layout_simple_root(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -1425,7 +1426,7 @@ fn dotless_accent_base_nodes(nodes: &[MathNode]) -> Vec<MathNode> {
             dotless_char(&identifier.name).map_or_else(
                 || nodes.to_vec(),
                 |text| {
-                    vec![MathNode::Identifier(super::ast::MathIdentifier {
+                    vec![MathNode::Identifier(ast::MathIdentifier {
                         name: text.to_string(),
                         symbol: None,
                         byte_range: identifier.byte_range.clone(),
@@ -1437,7 +1438,7 @@ fn dotless_accent_base_nodes(nodes: &[MathNode]) -> Vec<MathNode> {
             dotless_char(&text.text).map_or_else(
                 || nodes.to_vec(),
                 |dotless| {
-                    vec![MathNode::Text(super::ast::MathText {
+                    vec![MathNode::Text(ast::MathText {
                         text: dotless.to_string(),
                         kind: text.kind,
                         byte_range: text.byte_range.clone(),
@@ -1571,7 +1572,7 @@ fn layout_simple_radical(
 
 fn layout_simple_fraction(
     font: &MathFont,
-    fraction: &super::ast::MathFraction,
+    fraction: &ast::MathFraction,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -1587,7 +1588,7 @@ fn layout_simple_fraction(
 
 fn layout_simple_fraction_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -1606,7 +1607,7 @@ fn layout_simple_fraction_call(
 
 fn layout_simple_binom_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -1641,7 +1642,7 @@ fn layout_simple_binom_call(
     .map(Some)
 }
 
-fn binom_lower_nodes(lower: &[super::ast::MathArg]) -> Vec<MathNode> {
+fn binom_lower_nodes(lower: &[ast::MathArg]) -> Vec<MathNode> {
     let mut nodes = Vec::new();
     for (index, arg) in lower.iter().enumerate() {
         if index > 0 {
@@ -2111,7 +2112,7 @@ impl MathAttachmentMode {
 
 fn layout_simple_attachment_mode_call(
     font: &MathFont,
-    call: &super::ast::MathCall,
+    call: &ast::MathCall,
     _mode: MathAttachmentMode,
     font_size: f32,
     script_level: u8,
@@ -2124,7 +2125,7 @@ fn layout_simple_attachment_mode_call(
 
 fn layout_simple_attach(
     font: &MathFont,
-    attach: &super::ast::MathAttach,
+    attach: &ast::MathAttach,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -2151,8 +2152,8 @@ fn layout_simple_attach(
 
 fn layout_simple_attach_with_bottom_continuation(
     font: &MathFont,
-    attach: &super::ast::MathAttach,
-    group: &super::ast::MathGroup,
+    attach: &ast::MathAttach,
+    group: &ast::MathGroup,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
@@ -2185,8 +2186,8 @@ fn layout_simple_attach_with_bottom_continuation(
 }
 
 fn is_identifier_subscript_group_continuation(
-    attach: &super::ast::MathAttach,
-    group: &super::ast::MathGroup,
+    attach: &ast::MathAttach,
+    group: &ast::MathGroup,
 ) -> bool {
     // Typst parses `_n(x)` like an identifier subscript expression with an
     // adjacent call-style group, while `_0(x)` leaves `(x)` at the outer level.
@@ -2206,7 +2207,7 @@ struct LaidOutAttachSlots {
 
 fn layout_attach_slots(
     font: &MathFont,
-    attach: &super::ast::MathAttach,
+    attach: &ast::MathAttach,
     font_size: f32,
     script_level: u8,
 ) -> Result<LaidOutAttachSlots, LabelError> {
@@ -2279,10 +2280,7 @@ fn layout_script_nodes(
     layout_simple_nodes_as_atom(font, nodes, font_size, script_level)
 }
 
-fn attach_slots_missing_requested(
-    attach: &super::ast::MathAttach,
-    slots: &LaidOutAttachSlots,
-) -> bool {
+fn attach_slots_missing_requested(attach: &ast::MathAttach, slots: &LaidOutAttachSlots) -> bool {
     (attach.top.is_some() && slots.top.is_none())
         || (attach.bottom.is_some() && slots.bottom.is_none())
         || (attach.top_left.is_some() && slots.top_left.is_none())
@@ -3055,20 +3053,20 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
         | MathNode::Operator(_)
         | MathNode::Shorthand(_)
         | MathNode::StringLiteral(_) => vec![node.clone()],
-        MathNode::Text(text) => vec![MathNode::Text(super::ast::MathText {
+        MathNode::Text(text) => vec![MathNode::Text(ast::MathText {
             text: style_math_text_with_selection(&text.text, selection),
             kind: MathTextKind::Number,
             byte_range: text.byte_range.clone(),
         })],
         MathNode::Identifier(identifier) => {
             let text = identifier.symbol.unwrap_or(&identifier.name);
-            vec![MathNode::Text(super::ast::MathText {
+            vec![MathNode::Text(ast::MathText {
                 text: style_math_text_with_selection(text, selection),
                 kind: MathTextKind::Number,
                 byte_range: identifier.byte_range.clone(),
             })]
         }
-        MathNode::Group(group) => vec![MathNode::Group(super::ast::MathGroup {
+        MathNode::Group(group) => vec![MathNode::Group(ast::MathGroup {
             left: group.left,
             right: group.right,
             body: style_math_nodes(&group.body, selection),
@@ -3076,7 +3074,7 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
         })],
         MathNode::Attach(attach) => {
             let base = style_single_math_node(&attach.base, selection);
-            vec![MathNode::Attach(super::ast::MathAttach {
+            vec![MathNode::Attach(ast::MathAttach {
                 base: Box::new(base),
                 top: style_optional_math_nodes(&attach.top, selection),
                 bottom: style_optional_math_nodes(&attach.bottom, selection),
@@ -3089,7 +3087,7 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
             })]
         }
         MathNode::Fraction(fraction) => {
-            vec![MathNode::Fraction(super::ast::MathFraction {
+            vec![MathNode::Fraction(ast::MathFraction {
                 numerator: style_math_nodes(&fraction.numerator, selection),
                 denominator: style_math_nodes(&fraction.denominator, selection),
                 style: fraction.style,
@@ -3097,12 +3095,12 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
                 byte_range: fraction.byte_range.clone(),
             })]
         }
-        MathNode::Cancel(cancel) => vec![MathNode::Cancel(super::ast::MathCancel {
+        MathNode::Cancel(cancel) => vec![MathNode::Cancel(ast::MathCancel {
             body: style_math_nodes(&cancel.body, selection),
             options: cancel.options.clone(),
             byte_range: cancel.byte_range.clone(),
         })],
-        MathNode::Accent(accent) => vec![MathNode::Accent(super::ast::MathAccent {
+        MathNode::Accent(accent) => vec![MathNode::Accent(ast::MathAccent {
             base: style_math_nodes(&accent.base, selection),
             accent: accent.accent,
             dotless: accent.dotless,
@@ -3118,12 +3116,12 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
                     .collect();
             }
 
-            vec![MathNode::Call(super::ast::MathCall {
+            vec![MathNode::Call(ast::MathCall {
                 name: call.name.clone(),
                 args: call
                     .args
                     .iter()
-                    .map(|arg| super::ast::MathArg {
+                    .map(|arg| ast::MathArg {
                         nodes: style_math_nodes(&arg.nodes, selection),
                         byte_range: arg.byte_range.clone(),
                     })
@@ -3149,7 +3147,7 @@ fn style_single_math_node(node: &MathNode, selection: MathStyleSelection) -> Mat
     if styled.len() == 1 {
         styled.remove(0)
     } else {
-        MathNode::Group(super::ast::MathGroup {
+        MathNode::Group(ast::MathGroup {
             left: '(',
             right: ')',
             body: styled,

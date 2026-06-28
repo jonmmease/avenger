@@ -9,12 +9,12 @@ use crate::typst_pdf::PdfTextLayer;
 use crate::typst_svg::PathArtifact;
 
 use crate::engine::inline::try_layout_text_line;
-#[cfg(test)]
-use crate::engine::math::metrics::try_typeset_simple_row_fragment;
 use crate::typst_eval::markup::parse_line_with_params;
 #[cfg(test)]
 use crate::typst_eval::math::parse_math;
 use crate::typst_eval::math::parse_math_with_params;
+#[cfg(test)]
+use crate::typst_layout::math::try_typeset_simple_row_fragment;
 use crate::typst_library::text::content::{LineNode, ParsedLine, PlainTextNode};
 
 #[derive(Clone)]

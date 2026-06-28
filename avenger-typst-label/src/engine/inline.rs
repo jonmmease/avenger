@@ -13,16 +13,16 @@ use crate::typst_svg::{
 };
 use crate::warnings::LabelWarning;
 
-use super::ast::{
-    LineNode, MathSpan, ParsedLine, PlainTextNode, TextDecorationOptions, TextMarkupKind,
-    TextMarkupOptions,
-};
 use super::font::{
     SegmentedText, ShapedText, TextDecorationLineMetrics, TextDecorationMetrics, TextFace,
     TextScript, shape_plain_text_with_fallback,
 };
-use super::math::metrics::try_typeset_simple_row_fragment;
 use crate::typst_eval::math::parse_math_with_params;
+use crate::typst_layout::math::try_typeset_simple_row_fragment;
+use crate::typst_library::text::content::{
+    LineNode, MathSpan, ParsedLine, PlainTextNode, TextDecorationOptions, TextMarkupKind,
+    TextMarkupOptions,
+};
 
 pub(crate) fn try_layout_text_line(
     source: &str,

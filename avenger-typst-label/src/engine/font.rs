@@ -11,7 +11,7 @@ use unicode_bidi::BidiInfo;
 use unicode_script::{Script, UnicodeScript};
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::ast::DecorationLength;
+use crate::typst_library::text::content::DecorationLength;
 
 #[derive(Clone)]
 pub(crate) struct TextFace {
