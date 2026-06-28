@@ -824,6 +824,7 @@ pub(crate) fn named_math_symbol(name: &str) -> Option<&'static str> {
         "times" => Some("×"),
         "times.big" => Some("⨉"),
         "div" => Some("÷"),
+        "slash" => Some("/"),
         "eq" => Some("="),
         "eq.not" => Some("≠"),
         "eq.triple" | "equiv" => Some("≡"),
@@ -864,6 +865,8 @@ pub(crate) fn named_math_symbol(name: &str) -> Option<&'static str> {
         "angle" => Some("∠"),
         "parallel" => Some("∥"),
         "perp" => Some("⟂"),
+        "bar.v" => Some("|"),
+        "bar.v.double" => Some("‖"),
         "degree" => Some("°"),
         "aleph" => Some("א"),
         "ell" => Some("ℓ"),
@@ -1011,6 +1014,8 @@ mod tests {
             "chevron.l(x)",
             "bar(x)",
             "bar.double(x)",
+            "mid(slash)",
+            "mid(bar.v.double)",
             "stretch(->, size: #200%)",
             "alpha + beta -> gamma",
             "alpha + pi + sum",
@@ -1185,6 +1190,24 @@ mod tests {
                 format!("{err}").contains(message),
                 "{source}: expected {message}, got {err}"
             );
+        }
+    }
+
+    #[test]
+    fn resolves_named_mid_delimiter_symbols() {
+        for (source, expected) in [("mid(slash)", "/"), ("mid(bar.v.double)", "‖")] {
+            let math = parse(source);
+            let [MathNode::Call(call)] = &math.nodes[..] else {
+                panic!("{source} should lower to a mid call");
+            };
+            assert_eq!(call.name, "mid");
+            let [arg] = &call.args[..] else {
+                panic!("{source} should retain one mid argument");
+            };
+            let [MathNode::Identifier(identifier)] = &arg.nodes[..] else {
+                panic!("{source} should retain one named delimiter identifier");
+            };
+            assert_eq!(identifier.symbol, Some(expected));
         }
     }
 

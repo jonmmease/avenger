@@ -5467,6 +5467,58 @@ mod tests {
     }
 
     #[test]
+    fn simple_row_stretches_named_mid_delimiters_inside_lr() {
+        let options = MathLayoutOptions::default();
+
+        for (raw_source, mid_source, expected) in [
+            (
+                "lr(| A slash frac(1, 2) |)",
+                "lr(| A mid(slash) frac(1, 2) |)",
+                "/",
+            ),
+            (
+                "lr(| A bar.v.double frac(1, 2) |)",
+                "lr(| A mid(bar.v.double) frac(1, 2) |)",
+                "‖",
+            ),
+        ] {
+            let raw = parse_math(raw_source, 0).unwrap();
+            let mid = parse_math(mid_source, 0).unwrap();
+            let raw_artifact =
+                try_typeset_simple_row_fragment(&raw, &options, &EngineOptions::default())
+                    .unwrap()
+                    .unwrap_or_else(|| {
+                        panic!("raw named delimiter row should be handled: {raw_source}")
+                    });
+            let mid_artifact =
+                try_typeset_simple_row_fragment(&mid, &options, &EngineOptions::default())
+                    .unwrap()
+                    .unwrap_or_else(|| {
+                        panic!("mid named delimiter row should be handled: {mid_source}")
+                    });
+
+            let raw_middle_height = path_y_extent(&raw_artifact.paths.items[2]);
+            let mid_middle_height = path_y_extent(&mid_artifact.paths.items[2]);
+            assert!(
+                mid_middle_height > raw_middle_height + 3.0,
+                "{mid_source} should stretch to surrounding lr height: raw={raw_middle_height}, mid={mid_middle_height}"
+            );
+
+            let text: String = mid_artifact
+                .pdf_text
+                .glyph_runs
+                .iter()
+                .flat_map(|run| &run.glyphs)
+                .map(|glyph| glyph.unicode.as_str())
+                .collect();
+            assert!(
+                text.contains(expected),
+                "{mid_source} should preserve named delimiter text in PDF glyph metadata: {text}"
+            );
+        }
+    }
+
+    #[test]
     fn simple_row_applies_lr_delimiter_size_option() {
         let options = MathLayoutOptions::default();
 
