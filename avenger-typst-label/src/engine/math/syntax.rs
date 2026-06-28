@@ -1,9 +1,9 @@
 use crate::error::LabelError;
 
 use super::ast::{
-    MathArg, MathAst, MathAttach, MathCall, MathCancel, MathCancelAngle, MathCancelLength,
-    MathCancelOptions, MathFraction, MathGroup, MathIdentifier, MathNode, MathOperator,
-    MathShorthand, MathSpace, MathStringLiteral, MathText, MathTextKind,
+    MathAccent, MathArg, MathAst, MathAttach, MathCall, MathCancel, MathCancelAngle,
+    MathCancelLength, MathCancelOptions, MathFraction, MathGroup, MathIdentifier, MathNode,
+    MathOperator, MathShorthand, MathSpace, MathStringLiteral, MathText, MathTextKind,
 };
 
 use crate::syntax::ast::{self as typst_ast, AstNode, Unit};
@@ -347,12 +347,7 @@ fn lower_math_call(
     }
 
     if is_math_accent_call_name(&name) {
-        let args = lower_math_accent_call_args(&name, call.args(), source, offset, range.start)?;
-        return Ok(vec![MathNode::Call(MathCall {
-            name,
-            args,
-            byte_range: range,
-        })]);
+        return lower_math_accent_call(&name, call.args(), source, offset, range);
     }
 
     if name == "scripts" || name == "limits" {
@@ -644,15 +639,17 @@ fn lower_math_cancel_call(
     })])
 }
 
-fn lower_math_accent_call_args(
+fn lower_math_accent_call(
     name: &str,
     args: typst_ast::MathArgs<'_>,
     source: &str,
     offset: usize,
-    position: usize,
-) -> Result<Vec<MathArg>, LabelError> {
+    range: std::ops::Range<usize>,
+) -> Result<Vec<MathNode>, LabelError> {
     let expected_positional = if name == "accent" { 2 } else { 1 };
     let mut lowered = Vec::new();
+    let mut dotless = true;
+    let mut saw_dotless = false;
     for item in args.arg_items() {
         if item.ends_in_semicolon {
             return Err(unsupported(
@@ -675,15 +672,27 @@ fn lower_math_accent_call_args(
                 });
             }
             typst_ast::Arg::Named(named) => {
-                let message = match named.name().as_str() {
-                    "size" => "accent size option is not supported yet",
-                    "dotless" => "accent dotless option is not supported yet",
-                    _ => "unsupported accent option",
-                };
-                return Err(unsupported(
-                    named_argument_position(named, source, offset),
-                    message,
-                ));
+                let position = named_argument_position(named, source, offset);
+                match named.name().as_str() {
+                    "dotless" => {
+                        if saw_dotless {
+                            return Err(unsupported(position, "duplicate accent dotless option"));
+                        }
+                        dotless = parse_math_bool_literal_with_message(
+                            named.expr(),
+                            position,
+                            "unsupported accent dotless value",
+                        )?;
+                        saw_dotless = true;
+                    }
+                    "size" => {
+                        return Err(unsupported(
+                            position,
+                            "accent size option is not supported yet",
+                        ));
+                    }
+                    _ => return Err(unsupported(position, "unsupported accent option")),
+                }
             }
             typst_ast::Arg::Spread(spread) => {
                 return Err(unsupported(
@@ -699,9 +708,35 @@ fn lower_math_accent_call_args(
         } else {
             "accent math expects one body argument"
         };
-        return Err(unsupported(position, message));
+        return Err(unsupported(range.start, message));
     }
-    Ok(lowered)
+    let accent = if name == "accent" {
+        accent_arg_char(&lowered[1])
+            .ok_or_else(|| unsupported(lowered[1].byte_range.start, "unsupported accent value"))?
+    } else {
+        named_accent_char(name).expect("accent call names should be prevalidated")
+    };
+    Ok(vec![MathNode::Accent(MathAccent {
+        base: lowered.remove(0).nodes,
+        accent,
+        dotless,
+        byte_range: range,
+    })])
+}
+
+fn accent_arg_char(arg: &MathArg) -> Option<char> {
+    let [node] = &arg.nodes[..] else {
+        return None;
+    };
+    let text = match node {
+        MathNode::StringLiteral(string) => string.text.as_str(),
+        MathNode::Identifier(identifier) => identifier.symbol.unwrap_or(&identifier.name),
+        MathNode::Operator(operator) => operator.operator.as_str(),
+        MathNode::Shorthand(shorthand) => shorthand.replacement,
+        MathNode::Text(text) => text.text.as_str(),
+        _ => return None,
+    };
+    normalize_accent_text(text)
 }
 
 fn lower_math_op_call_args(
@@ -1740,19 +1775,33 @@ mod tests {
 
         assert!(matches!(
             &math.nodes[0],
-            MathNode::Call(call) if call.name == "grave" && call.args.len() == 1
+            MathNode::Accent(accent) if accent.accent == '\u{0300}' && accent.dotless
         ));
         assert!(matches!(
             &math.nodes[4],
-            MathNode::Call(call) if call.name == "dot.double" && call.args.len() == 1
+            MathNode::Accent(accent) if accent.accent == '\u{0308}' && accent.dotless
         ));
         assert!(matches!(
             &math.nodes[8],
-            MathNode::Call(call) if call.name == "arrow.l.r" && call.args.len() == 1
+            MathNode::Accent(accent) if accent.accent == '\u{20e1}' && accent.dotless
         ));
         assert!(matches!(
             &math.nodes[12],
-            MathNode::Call(call) if call.name == "accent" && call.args.len() == 2
+            MathNode::Accent(accent) if accent.accent == '\u{20d6}' && accent.dotless
+        ));
+    }
+
+    #[test]
+    fn parses_accent_dotless_option() {
+        let math = parse("hat(dotless: #false, i) + accent(dotless: #true, j, \".\")");
+
+        assert!(matches!(
+            &math.nodes[0],
+            MathNode::Accent(accent) if accent.accent == '\u{0302}' && !accent.dotless
+        ));
+        assert!(matches!(
+            &math.nodes[4],
+            MathNode::Accent(accent) if accent.accent == '\u{0307}' && accent.dotless
         ));
     }
 
@@ -1763,10 +1812,7 @@ mod tests {
                 "hat(x, size: #150%)",
                 "accent size option is not supported yet",
             ),
-            (
-                "hat(x, dotless: #false)",
-                "accent dotless option is not supported yet",
-            ),
+            ("hat(x, dotless: 1)", "unsupported accent dotless value"),
             ("accent(x, ., foo: #true)", "unsupported accent option"),
             ("accent(x)", "accent math expects a base and accent"),
         ] {

@@ -18,6 +18,7 @@ pub(crate) enum MathNode {
     Attach(MathAttach),
     Fraction(MathFraction),
     Cancel(MathCancel),
+    Accent(MathAccent),
     Call(MathCall),
 }
 
@@ -34,6 +35,7 @@ impl MathNode {
             Self::Attach(node) => node.byte_range.clone(),
             Self::Fraction(node) => node.byte_range.clone(),
             Self::Cancel(node) => node.byte_range.clone(),
+            Self::Accent(node) => node.byte_range.clone(),
             Self::Call(node) => node.byte_range.clone(),
         }
     }
@@ -157,6 +159,14 @@ impl Default for MathCancelLength {
 pub(crate) enum MathCancelAngle {
     Auto,
     Degrees(f32),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MathAccent {
+    pub(crate) base: Vec<MathNode>,
+    pub(crate) accent: char,
+    pub(crate) dotless: bool,
+    pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

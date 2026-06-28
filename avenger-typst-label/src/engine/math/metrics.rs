@@ -11,10 +11,10 @@ use crate::style::{FontWeight, MathFontSpec};
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
 use super::ast::{
-    MathAst, MathCancel, MathCancelAngle, MathNode, MathOperator, MathShorthand, MathText,
-    MathTextKind,
+    MathAccent, MathAst, MathCancel, MathCancelAngle, MathNode, MathOperator, MathShorthand,
+    MathText, MathTextKind,
 };
-use super::syntax::{named_accent_char, normalize_accent_text, predefined_operator_text};
+use super::syntax::predefined_operator_text;
 
 pub(crate) fn try_typeset_simple_row_fragment(
     math: &MathAst,
@@ -352,6 +352,10 @@ fn layout_simple_node(
         return layout_simple_cancel(font, cancel, font_size, script_level);
     }
 
+    if let MathNode::Accent(accent) = node {
+        return layout_simple_accent(font, accent, font_size, script_level);
+    }
+
     if let MathNode::Group(group) = node {
         return layout_simple_group(font, group, font_size, script_level);
     }
@@ -392,12 +396,6 @@ fn layout_simple_node(
         }
         if call.name == "root" {
             return layout_simple_root(font, call, font_size, script_level);
-        }
-        if call.name == "accent" {
-            return layout_simple_generic_accent_call(font, call, font_size, script_level);
-        }
-        if let Some(accent) = named_accent_char(&call.name) {
-            return layout_simple_accent_call(font, call, accent, font_size, script_level);
         }
     }
 
@@ -1014,37 +1012,38 @@ fn push_cancel_line(
         .push(LaidOutDrawItem::Shape(body.shapes.len() - 1));
 }
 
-fn layout_simple_accent_call(
+fn layout_simple_accent(
     font: &MathFont,
-    call: &super::ast::MathCall,
-    accent: char,
+    accent: &MathAccent,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let [arg] = &call.args[..] else {
-        return Ok(None);
+    let base_nodes = if accent.dotless {
+        dotless_accent_base_nodes(&accent.base)
+    } else {
+        accent.base.clone()
     };
-    let Some(mut base) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    let Some(mut base) = layout_simple_nodes_as_atom(font, &base_nodes, font_size, script_level)?
     else {
         return Ok(None);
     };
     let width = base.metrics.width;
     let height = base.metrics.height;
     let baseline = base.metrics.baseline;
-    let mut accent = layout_accent_atom(font, accent, font_size, script_level)?;
+    let mut accent_atom = layout_accent_atom(font, accent.accent, font_size, script_level)?;
     let base_attach = atom_top_accent_attachment(font, &base)?;
-    let accent_attach = atom_top_accent_attachment(font, &accent)?;
+    let accent_attach = atom_top_accent_attachment(font, &accent_atom)?;
     let accent_x = base_attach - accent_attach;
-    let accent_y = baseline - accent.metrics.baseline;
+    let accent_y = baseline - accent_atom.metrics.baseline;
 
     offset_atom(&mut base, 0.0, 0.0);
-    offset_atom(&mut accent, accent_x, accent_y);
+    offset_atom(&mut accent_atom, accent_x, accent_y);
 
     let mut glyphs = Vec::new();
     let mut shapes = Vec::new();
     let mut draw_order = Vec::new();
     append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, base);
-    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, accent);
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, accent_atom);
 
     Ok(Some(LaidOutMathAtom {
         metrics: TypesetMetrics {
@@ -1066,39 +1065,45 @@ fn layout_simple_accent_call(
     }))
 }
 
-fn layout_simple_generic_accent_call(
-    font: &MathFont,
-    call: &super::ast::MathCall,
-    font_size: f32,
-    script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let [base_arg, accent_arg] = &call.args[..] else {
-        return Ok(None);
-    };
-    let Some(accent) = accent_arg_char(accent_arg) else {
-        return Ok(None);
-    };
-    let call = super::ast::MathCall {
-        name: call.name.clone(),
-        args: vec![base_arg.clone()],
-        byte_range: call.byte_range.clone(),
-    };
-    layout_simple_accent_call(font, &call, accent, font_size, script_level)
+fn dotless_accent_base_nodes(nodes: &[MathNode]) -> Vec<MathNode> {
+    if nodes.len() != 1 {
+        return nodes.to_vec();
+    }
+    match &nodes[0] {
+        MathNode::Identifier(identifier) if identifier.symbol.is_none() => {
+            dotless_char(&identifier.name).map_or_else(
+                || nodes.to_vec(),
+                |text| {
+                    vec![MathNode::Identifier(super::ast::MathIdentifier {
+                        name: text.to_string(),
+                        symbol: None,
+                        byte_range: identifier.byte_range.clone(),
+                    })]
+                },
+            )
+        }
+        MathNode::Text(text) if matches!(text.kind, MathTextKind::Grapheme) => {
+            dotless_char(&text.text).map_or_else(
+                || nodes.to_vec(),
+                |dotless| {
+                    vec![MathNode::Text(super::ast::MathText {
+                        text: dotless.to_string(),
+                        kind: text.kind,
+                        byte_range: text.byte_range.clone(),
+                    })]
+                },
+            )
+        }
+        _ => nodes.to_vec(),
+    }
 }
 
-fn accent_arg_char(arg: &super::ast::MathArg) -> Option<char> {
-    let [node] = &arg.nodes[..] else {
-        return None;
-    };
-    let text = match node {
-        MathNode::StringLiteral(string) => string.text.as_str(),
-        MathNode::Identifier(identifier) => identifier.symbol.unwrap_or(&identifier.name),
-        MathNode::Operator(operator) => operator.operator.as_str(),
-        MathNode::Shorthand(shorthand) => shorthand.replacement,
-        MathNode::Text(text) => text.text.as_str(),
-        _ => return None,
-    };
-    normalize_accent_text(text)
+fn dotless_char(text: &str) -> Option<char> {
+    match text {
+        "i" => Some('ı'),
+        "j" => Some('ȷ'),
+        _ => None,
+    }
 }
 
 fn layout_simple_radical(
@@ -2529,6 +2534,12 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
             body: style_math_nodes(&cancel.body, selection),
             options: cancel.options,
             byte_range: cancel.byte_range.clone(),
+        })],
+        MathNode::Accent(accent) => vec![MathNode::Accent(super::ast::MathAccent {
+            base: style_math_nodes(&accent.base, selection),
+            accent: accent.accent,
+            dotless: accent.dotless,
+            byte_range: accent.byte_range.clone(),
         })],
         MathNode::Call(call) => {
             if let Some(nested) = MathStyleSelection::from_call_name(&call.name) {
@@ -4361,6 +4372,8 @@ mod tests {
             ("grave(a)", "𝑎\u{0300}"),
             ("acute(b)", "𝑏\u{0301}"),
             ("hat(x)", "𝑥\u{0302}"),
+            ("hat(i)", "𝚤\u{0302}"),
+            ("hat(dotless: #false, i)", "𝑖\u{0302}"),
             ("tilde(x)", "𝑥\u{0303}"),
             ("macron(x)", "𝑥\u{0304}"),
             ("dash(x)", "𝑥\u{0305}"),
