@@ -22,6 +22,11 @@ extend only the PNG path first. The generator may depend on a local upstream
 Typst checkout at `../typst`, but the Rust test must be offline and compare
 against checked-in references only.
 
+This is intentionally the first and only upstream-parity test suite for now.
+Do not prepare SVG or PDF parity scaffolding while building this suite. If a
+case exposes an SVG/PDF concern, record it in the scratch plan and keep the PNG
+case focused on raster equivalence.
+
 There are two modes:
 
 - Existing suite mode: add coverage for one implemented label feature family.
@@ -124,6 +129,35 @@ updating references for implemented label behavior:
 
 10. Review `git diff` and stage only the intentional generator/test changes,
    `cases.toml`, source snippets, and curated `ref/*.png` files.
+
+## PNG-Only Agent Task Card
+
+Use this condensed task card for a fresh agent working on the suite:
+
+1. Confirm the scope: PNG only, `avenger-typst-label` only, `raster` feature
+   only.
+2. Run `git status --short` and call out unrelated dirty files before editing.
+3. Read this README and `cases.toml`.
+4. Pick one already-implemented feature family.
+5. Read the matching upstream Typst test under `../typst/tests/suite/...`.
+6. Reduce the upstream behavior to one small label snippet under `src/`.
+7. Add or update exactly one `[[case]]` entry with upstream attribution.
+8. Run the generator in release mode.
+9. Inspect every changed reference PNG directly or in a temporary mosaic.
+10. Run the release-mode parity test.
+11. If generator/comparator code changed, perturb one ref, confirm useful
+    failure artifacts, then restore/regenerate.
+12. Stage only suite files and curated refs.
+
+Hard stop conditions:
+
+- The case needs SVG/PDF output to be meaningful.
+- The upstream test needs document layout, scripting, imports, counters,
+  tables, matrices, or show/set rules not in the retained label subset.
+- The Avenger feature is not implemented yet. Add or keep unit coverage first;
+  add PNG parity after the feature works.
+- The generated PNG is blank, clipped, uses the wrong font, or does not visibly
+  exercise the target feature.
 
 ## Choosing Upstream Cases
 
