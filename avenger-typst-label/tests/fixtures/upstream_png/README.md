@@ -50,6 +50,29 @@ Do not broaden this suite into SVG, PDF, chart baseline, scenegraph, browser,
 renderer integration, or PDF/text embedding validation. Those belong in later
 layers after the PNG oracle is useful.
 
+## Fresh Agent Checklist
+
+Use this checklist when a fresh implementation agent starts from this README:
+
+1. [ ] Confirm the task is PNG-only and scoped to `avenger-typst-label`.
+2. [ ] Run `git status --short` and note unrelated dirty files before editing.
+3. [ ] Read `cases.toml` and the existing `src/*.typ` snippets.
+4. [ ] If the suite is missing, build only the fixture tree, reference
+   generator, offline parity test, and two or three smoke cases.
+5. [ ] If the suite exists, add exactly one implemented feature family per
+   commit.
+6. [ ] For every case, read the relevant upstream file under
+   `../typst/tests/suite/...`, reduce it to a single-line label snippet, and
+   record `upstream_file` plus `upstream_test` in `cases.toml`.
+7. [ ] Generate refs in release mode with the command in "Required Commands".
+8. [ ] Inspect every changed `ref/*.png` directly or in a temporary mosaic.
+9. [ ] Run the release-mode PNG parity test.
+10. [ ] If generator or comparator code changed, perturb one checked-in ref,
+   confirm the failure artifacts are useful, restore/regenerate the ref, and
+   rerun the parity test.
+11. [ ] Commit only suite files: generator/test code, `cases.toml`,
+   `src/{id}.typ`, curated `ref/{id}.png`, and required crate metadata.
+
 ## PNG-Only Agent Task Card
 
 Use this card when assigning a fresh agent to build, repair, or extend the
