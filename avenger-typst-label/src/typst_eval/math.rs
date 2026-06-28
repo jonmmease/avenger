@@ -1,5 +1,5 @@
-use crate::label::{LabelParamValue, LabelParams};
 use crate::typst_diag::LabelError;
+use crate::typst_label::{LabelParamValue, LabelParams};
 use crate::typst_library::math::item as ast;
 use crate::typst_library::math::item::{
     MathAccent, MathArg, MathAst, MathAttach, MathCall, MathCallOptions, MathCancel,

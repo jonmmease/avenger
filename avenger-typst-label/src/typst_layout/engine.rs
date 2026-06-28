@@ -1,6 +1,6 @@
-use crate::label::EngineOptions;
 use crate::typst_diag::{LabelError, LabelInitError};
 use crate::typst_eval::LabelLimits;
+use crate::typst_label::EngineOptions;
 use crate::typst_layout::frame::{LineLayoutArtifact, LineLayoutOptions, TypesetMetrics};
 #[cfg(test)]
 use crate::typst_layout::frame::{MathLayoutOptions, MathRunArtifact};
@@ -136,7 +136,7 @@ fn line_contains_static_markup(line: &ParsedLine) -> bool {
 fn validate_line_math(
     line: &ParsedLine,
     limits: LabelLimits,
-    params: &crate::label::LabelParams,
+    params: &crate::typst_label::LabelParams,
 ) -> Result<(), LabelError> {
     let math_span_count = line
         .nodes
@@ -178,7 +178,7 @@ fn validate_line_math(
 fn strict_hash_precheck(
     source: &str,
     offset: usize,
-    params: &crate::label::LabelParams,
+    params: &crate::typst_label::LabelParams,
 ) -> Result<(), LabelError> {
     let mut escaped = false;
     for (idx, ch) in source.char_indices() {
@@ -208,7 +208,7 @@ fn strict_hash_precheck(
 fn allowed_param_ident_end(
     source: &str,
     idx: usize,
-    params: &crate::label::LabelParams,
+    params: &crate::typst_label::LabelParams,
 ) -> Option<usize> {
     let rest = source.get(idx + 1..)?;
     let mut chars = rest.char_indices();

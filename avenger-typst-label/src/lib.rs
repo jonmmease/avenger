@@ -4,9 +4,9 @@
 //! Avenger-specific fallback, truncation, caching, and renderer integration
 //! live in `avenger-text` and higher-level crates.
 
-mod label;
 mod typst_diag;
 mod typst_eval;
+mod typst_label;
 mod typst_layout;
 mod typst_library;
 mod typst_pdf;
@@ -22,7 +22,7 @@ mod typst_timing;
 #[path = "typst_utils/lib.rs"]
 mod typst_utils;
 
-pub use label::{
+pub use typst_label::{
     CacheOptions, CompiledLabel, EngineOptions, FontOptions, Glyph, GroupItem, ImageItem,
     LabelEngine, LabelError, LabelFlags, LabelFrame, LabelFrameItem, LabelInitError, LabelLimits,
     LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, PdfDrawItem, PdfLabel,

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::label::EngineOptions;
 use crate::typst_diag::LabelError;
+use crate::typst_label::EngineOptions;
 use crate::typst_layout::frame::{MathLayoutOptions, MathRunArtifact, TypesetMetrics};
 use crate::typst_layout::glyph_path::outline_glyph_path;
 use crate::typst_library::math::item as ast;
