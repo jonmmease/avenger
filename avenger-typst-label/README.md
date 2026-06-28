@@ -186,3 +186,15 @@ When adding or changing functionality:
   constructs.
 - Avoid reintroducing Typst evaluator, document, page-layout, or renderer
   dependencies unless label rendering explicitly needs them.
+
+## Size Probe
+
+The crate includes a tiny release probe for the direct label engine path:
+
+```bash
+cargo build --release -p avenger-typst-label --features raster --bin typst-label-math-png-probe
+target/release/typst-label-math-png-probe target/typst-label-math-png-probe/math-label.png
+```
+
+This lays out one Typst math label and rasterizes it to PNG without pulling in
+`avenger-text`, `avenger-wgpu`, or chart crates.
