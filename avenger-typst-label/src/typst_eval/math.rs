@@ -8,6 +8,7 @@ use crate::typst_library::math::item::{
     MathGroup, MathIdentifier, MathNode, MathOperator, MathShorthand, MathSpace, MathStringLiteral,
     MathText, MathTextKind,
 };
+use crate::typst_library::symbols::{named_accent_char, named_symbol, normalize_accent_text};
 
 use crate::typst_syntax::ast::{self as typst_ast, AstNode};
 use crate::typst_syntax::{
@@ -90,7 +91,7 @@ impl<'a> MathCallLoweringContext<'a> for MathEvalContext<'a> {
     }
 
     fn named_math_symbol(&self, name: &str) -> Option<&'static str> {
-        named_math_symbol(name)
+        named_symbol(name)
     }
 
     fn named_accent_char(&self, name: &str) -> Option<char> {
@@ -133,7 +134,7 @@ fn lower_math_expr(
                 typst_ast::MathTextKind::Grapheme(value) if is_identifier_text(value) => {
                     Ok(vec![MathNode::Identifier(MathIdentifier {
                         name: value.to_string(),
-                        symbol: named_math_symbol(value),
+                        symbol: named_symbol(value),
                         byte_range: range,
                     })])
                 }
@@ -153,7 +154,7 @@ fn lower_math_expr(
         typst_ast::Expr::MathIdent(ident) => {
             let name = ident.as_str().to_string();
             Ok(vec![MathNode::Identifier(MathIdentifier {
-                symbol: named_math_symbol(&name),
+                symbol: named_symbol(&name),
                 name,
                 byte_range: offset_range(ident.to_untyped().range(), offset),
             })])
@@ -493,16 +494,16 @@ fn lower_math_access_as_nodes(
         typst_ast::MathAccess::MathIdent(ident) => {
             let name = ident.as_str().to_string();
             Ok(vec![MathNode::Identifier(MathIdentifier {
-                symbol: named_math_symbol(&name),
+                symbol: named_symbol(&name),
                 name,
                 byte_range: offset_range(ident.to_untyped().range(), offset),
             })])
         }
         typst_ast::MathAccess::MathFieldAccess(access) => {
             let full_name = math_field_access_name(access);
-            if named_math_symbol(&full_name).is_some() {
+            if named_symbol(&full_name).is_some() {
                 return Ok(vec![MathNode::Identifier(MathIdentifier {
-                    symbol: named_math_symbol(&full_name),
+                    symbol: named_symbol(&full_name),
                     name: full_name,
                     byte_range: offset_range(access.to_untyped().range(), offset),
                 })]);
@@ -522,7 +523,7 @@ fn lower_math_access_as_nodes(
             }));
             let field_name = field.as_str().to_string();
             nodes.push(MathNode::Identifier(MathIdentifier {
-                symbol: named_math_symbol(&field_name),
+                symbol: named_symbol(&field_name),
                 name: field_name,
                 byte_range: offset_range(field_range, offset),
             }));
@@ -707,189 +708,8 @@ pub(crate) fn is_retained_math_name(name: &str) -> bool {
         name,
         |name| predefined_operator_text(name).is_some(),
         |name| named_accent_char(name).is_some(),
-        |name| named_math_symbol(name).is_some(),
+        |name| named_symbol(name).is_some(),
     )
-}
-
-pub(crate) fn named_accent_char(name: &str) -> Option<char> {
-    match name {
-        "grave" => Some('\u{0300}'),
-        "acute" => Some('\u{0301}'),
-        "hat" => Some('\u{0302}'),
-        "tilde" => Some('\u{0303}'),
-        "macron" => Some('\u{0304}'),
-        "dash" => Some('\u{0305}'),
-        "breve" => Some('\u{0306}'),
-        "dot" => Some('\u{0307}'),
-        "dot.double" | "ddot" | "diaer" => Some('\u{0308}'),
-        "dot.triple" => Some('\u{20db}'),
-        "dot.quad" => Some('\u{20dc}'),
-        "circle" => Some('\u{030a}'),
-        "acute.double" => Some('\u{030b}'),
-        "caron" => Some('\u{030c}'),
-        "arrow" | "arrow.r" => Some('\u{20d7}'),
-        "arrow.l" => Some('\u{20d6}'),
-        "arrow.l.r" => Some('\u{20e1}'),
-        "harpoon" => Some('\u{20d1}'),
-        "harpoon.lt" => Some('\u{20d0}'),
-        _ => None,
-    }
-}
-
-pub(crate) fn normalize_accent_text(value: &str) -> Option<char> {
-    named_accent_char(value).or_else(|| {
-        ACCENT_ALIASES
-            .iter()
-            .find_map(|(accent, aliases)| aliases.contains(&value).then_some(*accent))
-            .or_else(|| value.parse::<char>().ok())
-    })
-}
-
-const ACCENT_ALIASES: &[(char, &[&str])] = &[
-    ('\u{0300}', &["`"]),
-    ('\u{0301}', &["´"]),
-    ('\u{0302}', &["^", "ˆ"]),
-    ('\u{0303}', &["~", "∼", "˜"]),
-    ('\u{0304}', &["¯"]),
-    ('\u{0305}', &["-", "–", "‾", "−"]),
-    ('\u{0306}', &["˘"]),
-    ('\u{0307}', &[".", "˙", "⋅"]),
-    ('\u{0308}', &["¨"]),
-    ('\u{030a}', &["∘", "○"]),
-    ('\u{030b}', &["˝"]),
-    ('\u{030c}', &["ˇ"]),
-    ('\u{20d6}', &["←"]),
-    ('\u{20d7}', &["→", "⟶"]),
-    ('\u{20e1}', &["↔", "↔\u{fe0e}", "⟷"]),
-    ('\u{20d0}', &["↼"]),
-    ('\u{20d1}', &["⇀"]),
-];
-
-pub(crate) fn named_math_symbol(name: &str) -> Option<&'static str> {
-    match name {
-        "alpha" => Some("α"),
-        "beta" => Some("β"),
-        "gamma" => Some("γ"),
-        "delta" => Some("δ"),
-        "epsilon" => Some("ε"),
-        "zeta" => Some("ζ"),
-        "eta" => Some("η"),
-        "theta" => Some("θ"),
-        "iota" => Some("ι"),
-        "kappa" => Some("κ"),
-        "lambda" => Some("λ"),
-        "mu" => Some("μ"),
-        "nu" => Some("ν"),
-        "xi" => Some("ξ"),
-        "pi" => Some("π"),
-        "rho" => Some("ρ"),
-        "sigma" => Some("σ"),
-        "tau" => Some("τ"),
-        "upsilon" => Some("υ"),
-        "phi" => Some("φ"),
-        "chi" => Some("χ"),
-        "psi" => Some("ψ"),
-        "omega" => Some("ω"),
-        "Gamma" => Some("Γ"),
-        "Delta" => Some("Δ"),
-        "Theta" => Some("Θ"),
-        "Lambda" => Some("Λ"),
-        "Xi" => Some("Ξ"),
-        "Pi" => Some("Π"),
-        "Sigma" => Some("Σ"),
-        "Upsilon" => Some("Υ"),
-        "Phi" => Some("Φ"),
-        "Psi" => Some("Ψ"),
-        "Omega" => Some("Ω"),
-        "dot" | "dot.op" => Some("⋅"),
-        "dot.c" => Some("·"),
-        "dots" | "dots.h" => Some("…"),
-        "dots.h.c" => Some("⋯"),
-        "dots.v" => Some("⋮"),
-        "sum" => Some("∑"),
-        "prod" | "product" => Some("∏"),
-        "integral" => Some("∫"),
-        "oo" | "infinity" => Some("∞"),
-        "partial" => Some("∂"),
-        "gradient" | "nabla" => Some("∇"),
-        "RR" => Some("ℝ"),
-        "NN" => Some("ℕ"),
-        "ZZ" => Some("ℤ"),
-        "QQ" => Some("ℚ"),
-        "CC" => Some("ℂ"),
-        "plus" => Some("+"),
-        "plus.minus" => Some("±"),
-        "minus" => Some("−"),
-        "minus.plus" => Some("∓"),
-        "times" => Some("×"),
-        "times.big" => Some("⨉"),
-        "div" => Some("÷"),
-        "slash" => Some("/"),
-        "eq" => Some("="),
-        "eq.not" => Some("≠"),
-        "eq.triple" | "equiv" => Some("≡"),
-        "eq.triple.not" | "equiv.not" => Some("≢"),
-        "lt" => Some("<"),
-        "lt.eq" => Some("≤"),
-        "lt.eq.not" => Some("≰"),
-        "lt.not" => Some("≮"),
-        "gt" => Some(">"),
-        "gt.eq" => Some("≥"),
-        "gt.eq.not" => Some("≱"),
-        "gt.not" => Some("≯"),
-        "approx" => Some("≈"),
-        "approx.not" => Some("≉"),
-        "prop" => Some("∝"),
-        "emptyset" | "nothing" => Some("∅"),
-        "in" => Some("∈"),
-        "in.not" => Some("∉"),
-        "in.rev" => Some("∋"),
-        "in.rev.not" => Some("∌"),
-        "subset" => Some("⊂"),
-        "subset.eq" => Some("⊆"),
-        "subset.eq.not" => Some("⊈"),
-        "subset.neq" => Some("⊊"),
-        "subset.not" => Some("⊄"),
-        "supset" => Some("⊃"),
-        "supset.eq" => Some("⊇"),
-        "supset.eq.not" => Some("⊉"),
-        "supset.neq" => Some("⊋"),
-        "supset.not" => Some("⊅"),
-        "union" => Some("∪"),
-        "union.big" => Some("⋃"),
-        "union.plus" => Some("⊎"),
-        "inter" => Some("∩"),
-        "inter.big" => Some("⋂"),
-        "forall" => Some("∀"),
-        "exists" => Some("∃"),
-        "angle" => Some("∠"),
-        "parallel" => Some("∥"),
-        "perp" => Some("⟂"),
-        "bar.v" => Some("|"),
-        "bar.v.double" => Some("‖"),
-        "degree" => Some("°"),
-        "aleph" => Some("א"),
-        "ell" => Some("ℓ"),
-        "arrow.r" => Some("→"),
-        "arrow.r.long" => Some("⟶"),
-        "arrow.r.bar" => Some("↦"),
-        "arrow.r.double" => Some("⇒"),
-        "arrow.r.double.long" => Some("⟹"),
-        "arrow.r.not" => Some("↛"),
-        "arrow.l" => Some("←"),
-        "arrow.l.long" => Some("⟵"),
-        "arrow.l.bar" => Some("↤"),
-        "arrow.l.double" => Some("⇐"),
-        "arrow.l.double.long" => Some("⟸"),
-        "arrow.l.not" => Some("↚"),
-        "arrow.l.r" => Some("↔"),
-        "arrow.l.r.long" => Some("⟷"),
-        "arrow.l.r.double" => Some("⇔"),
-        "arrow.l.r.double.long" => Some("⟺"),
-        "arrow.t" => Some("↑"),
-        "arrow.b" => Some("↓"),
-        _ => None,
-    }
 }
 
 pub(crate) fn predefined_operator_text(name: &str) -> Option<&'static str> {
@@ -1439,7 +1259,7 @@ mod tests {
 
     #[test]
     fn parses_symbols_and_shorthands() {
-        let math = parse("alpha -> RR + in.not + subset.eq + arrow.r.double");
+        let math = parse("alpha -> RR + in.not + subset.eq + arrow.r.double + arrow.double.r");
 
         assert!(matches!(
             &math.nodes[0],
@@ -1470,6 +1290,11 @@ mod tests {
             MathNode::Identifier(ident)
                 if ident.name == "arrow.r.double" && ident.symbol == Some("⇒")
         ));
+        assert!(math.nodes.iter().any(|node| matches!(
+            node,
+            MathNode::Identifier(ident)
+                if ident.name == "arrow.double.r" && ident.symbol == Some("⇒")
+        )));
     }
 
     #[test]

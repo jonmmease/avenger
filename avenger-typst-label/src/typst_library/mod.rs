@@ -6,6 +6,7 @@
 
 pub mod font;
 pub mod math;
+pub mod symbols;
 pub mod text;
 pub mod visualize;
 

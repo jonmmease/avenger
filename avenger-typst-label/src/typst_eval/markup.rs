@@ -4,12 +4,11 @@ use crate::typst_diag::LabelError;
 use crate::typst_eval::call::{parse_text_markup_option, text_span_kind};
 use crate::typst_eval::delimiter::{DelimiterDisplayHint, DelimiterInfo};
 use crate::typst_label::LabelParams;
+use crate::typst_library::symbols::{named_emoji, named_symbol};
 use crate::typst_library::text::content::{
     EmojiAlias, LabelParamRef, LineNode, MathSpan, ParsedLine, PlainTextNode, SymbolAlias,
     TextMarkupKind, TextMarkupOptions, TextMarkupSpan,
 };
-
-use super::math::named_math_symbol;
 
 use crate::typst_syntax::ast::{self as typst_ast, AstNode};
 use crate::typst_syntax::{
@@ -299,7 +298,7 @@ fn lower_static_field_access(
         return Err(unsupported(range.start, "unsupported static text command"));
     };
     if let Some(alias) = name.strip_prefix("emoji.") {
-        let Some(emoji) = emoji_alias(alias) else {
+        let Some(emoji) = named_emoji(alias) else {
             return Err(unsupported(range.start, "unknown emoji alias"));
         };
         nodes.push(LineNode::Emoji(EmojiAlias {
@@ -311,7 +310,7 @@ fn lower_static_field_access(
     }
 
     if let Some(alias) = name.strip_prefix("sym.") {
-        let Some(text) = named_math_symbol(alias) else {
+        let Some(text) = named_symbol(alias) else {
             return Err(unsupported(range.start, "unknown symbol alias"));
         };
         nodes.push(LineNode::Symbol(SymbolAlias {
@@ -338,15 +337,6 @@ fn code_field_access_name(access: typst_ast::FieldAccess<'_>) -> Option<String> 
     name.push('.');
     name.push_str(access.field().as_str());
     Some(name)
-}
-
-fn emoji_alias(name: &str) -> Option<&'static str> {
-    match name {
-        "face" => Some("😀"),
-        "rocket" => Some("🚀"),
-        "chart.up" => Some("📈"),
-        _ => None,
-    }
 }
 
 fn push_plain(nodes: &mut Vec<LineNode>, text: &str, range: Range<usize>) {
@@ -685,14 +675,17 @@ mod tests {
 
     #[test]
     fn parses_named_symbol_aliases() {
-        let line = parse("Flow #sym.arrow.r target #sym.gt.eq.not");
+        let line = parse("Flow #sym.arrow.r target #sym.gt.eq.not #sym.arrow.double.r");
 
-        assert_eq!(line.nodes.len(), 4);
+        assert_eq!(line.nodes.len(), 6);
         assert!(
             matches!(&line.nodes[1], LineNode::Symbol(alias) if alias.name == "arrow.r" && alias.text == "→")
         );
         assert!(
             matches!(&line.nodes[3], LineNode::Symbol(alias) if alias.name == "gt.eq.not" && alias.text == "≱")
+        );
+        assert!(
+            matches!(&line.nodes[5], LineNode::Symbol(alias) if alias.name == "arrow.double.r" && alias.text == "⇒")
         );
     }
 
