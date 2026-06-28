@@ -31,8 +31,8 @@ The crate keeps the parts of Typst that are useful for compact labels:
   constants, glyph variants, italic correction, top accent attachment, and
   script-style shaping.
 - Full-line metrics with width, height, baseline, ascent, and descent.
-- Optional positioned run output so SVG/PDF can emit native `<text>` for plain
-  text and paths or future PDF glyph metadata for math runs.
+- Frame item output so SVG/PDF can emit native text, vector shapes, color emoji
+  images, and PDF glyph metadata from one compiled label.
 - Path output for vector renderers.
 - Optional raster output through the `raster` feature and `tiny-skia`.
 - Optional PDF text-layer metadata for future direct PDF math embedding.
@@ -94,6 +94,7 @@ pub struct CompiledLabel {
     pub source: String,
     pub frame: LabelFrame,
     pub metrics: LabelMetrics,
+    pub flags: LabelFlags,
     pub warnings: Vec<LabelWarning>,
 }
 

@@ -45,4 +45,3 @@ pub use raster::RgbaImageData;
 pub use style::{
     Color, FontStyle, FontWeight, MathDisplayStyle, MathFontBytesId, MathFontSpec, MathStyle,
 };
-pub use types::{PositionedTextLineRun, PositionedTextLineRunKind};
