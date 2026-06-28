@@ -6,9 +6,10 @@ use crate::typst_eval::delimiter::{DelimiterDisplayHint, DelimiterInfo};
 use crate::typst_library::symbols::{named_emoji, named_symbol};
 use crate::typst_library::text::call::{parse_text_markup_option, text_span_kind};
 use crate::typst_library::text::content::{
-    EmojiAlias, LabelContent, LabelParamRef, LineNode, MathSpan, PlainTextNode, SymbolAlias,
-    TextMarkupKind, TextMarkupOptions, TextMarkupSpan,
+    EmojiAlias, LabelContent, LabelParamRef, LineNode, MathSpan, PlainTextNode, SmartQuoteNode,
+    SymbolAlias, TextMarkupKind, TextMarkupOptions, TextMarkupSpan,
 };
+use crate::typst_library::text::smartquote::SmartQuote;
 
 use crate::typst_syntax::ast::{self as typst_ast, AstNode};
 use crate::typst_syntax::{
@@ -79,7 +80,12 @@ fn lower_markup_expr(
         }
         typst_ast::Expr::SmartQuote(quote) => {
             let node = quote.to_untyped();
-            push_plain(nodes, node.full_text().as_str(), node.range());
+            nodes.push(LineNode::SmartQuote(SmartQuoteNode {
+                quote: SmartQuote {
+                    double: quote.double(),
+                },
+                byte_range: node.range(),
+            }));
         }
         typst_ast::Expr::Equation(equation) => {
             if equation.block() {

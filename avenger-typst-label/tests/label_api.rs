@@ -67,6 +67,39 @@ fn compile_text_typst_markup_punctuation_matches_escaped_compile() {
 }
 
 #[test]
+fn compile_markup_resolves_default_smartquotes() {
+    let engine = engine();
+    let options = LabelOptions::default();
+
+    let cases = [
+        ("\"hello\"", "“hello”"),
+        ("'hello'", "‘hello’"),
+        ("5'", "5′"),
+        ("5\"", "5″"),
+        ("\"She said 'hi'\"", "“She said ‘hi’”"),
+        ("\"a #emph[b]\"", "“a b”"),
+        ("$x$'", "x’"),
+        ("\\\"hello\\\"", "\"hello\""),
+    ];
+
+    for (source, expected) in cases {
+        let label = engine
+            .compile(source, &options)
+            .unwrap_or_else(|err| panic!("{source} should compile, got {err:?}"));
+        assert_eq!(label.semantic_text(), expected, "{source}");
+    }
+}
+
+#[test]
+fn compile_text_keeps_literal_straight_quotes() {
+    let label = engine()
+        .compile_text("\"hello\" and 'hello'", &LabelOptions::default())
+        .unwrap();
+
+    assert_eq!(label.semantic_text(), "\"hello\" and 'hello'");
+}
+
+#[test]
 fn compile_text_unicode_emoji_bidi_complex_script_matches_escaped_compile() {
     assert_same_literal_rendering("Revenue 🚀 שלום नमस्ते");
 }

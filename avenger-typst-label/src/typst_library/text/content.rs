@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use crate::typst_eval::delimiter::DelimiterInfo;
 use crate::typst_library::Color;
+use crate::typst_library::text::smartquote::SmartQuote;
 use crate::typst_svg::{LineCap, LineJoin};
 
 /// Label-scoped content tree.
@@ -20,6 +21,7 @@ pub(crate) enum LineNode {
     Plain(PlainTextNode),
     Math(MathSpan),
     TextSpan(TextMarkupSpan),
+    SmartQuote(SmartQuoteNode),
     Emoji(EmojiAlias),
     Symbol(SymbolAlias),
     Param(LabelParamRef),
@@ -45,6 +47,12 @@ pub(crate) struct TextMarkupSpan {
     pub(crate) body: Vec<LineNode>,
     pub(crate) byte_range: Range<usize>,
     pub(crate) body_range: Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SmartQuoteNode {
+    pub(crate) quote: SmartQuote,
+    pub(crate) byte_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

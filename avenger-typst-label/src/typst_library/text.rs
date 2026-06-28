@@ -1,5 +1,6 @@
 pub(crate) mod call;
 pub(crate) mod content;
+pub(crate) mod smartquote;
 
 use super::{Color, FontStyle, FontWeight};
 

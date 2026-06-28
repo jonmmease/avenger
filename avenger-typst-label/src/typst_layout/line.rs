@@ -135,6 +135,7 @@ fn nodes_contain_static_markup(nodes: &[LineNode]) -> bool {
     nodes.iter().any(|node| match node {
         LineNode::Plain(_)
         | LineNode::Math(_)
+        | LineNode::SmartQuote(_)
         | LineNode::Emoji(_)
         | LineNode::Symbol(_)
         | LineNode::Param(_) => false,

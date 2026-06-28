@@ -8,6 +8,7 @@ use crate::label::{LabelError, LabelParams, render_label_param};
 use crate::typst_library::text::content::{
     LabelContent, LineNode, MathSpan, PlainTextNode, TextMarkupKind, TextMarkupOptions,
 };
+use crate::typst_library::text::smartquote::{SmartQuoter, is_default_ignorable};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RenderLine {
@@ -45,6 +46,7 @@ pub(crate) fn realize_static_markup_line(
     let mut pending_plain = String::new();
     let mut pending_start = None;
     let mut pending_end = 0usize;
+    let mut quote_context = QuoteContext::default();
 
     let flush_plain = |nodes: &mut Vec<RenderNode>,
                        pending_plain: &mut String,
@@ -63,36 +65,56 @@ pub(crate) fn realize_static_markup_line(
     for node in &line.nodes {
         match node {
             LineNode::Plain(plain) => {
-                if pending_start.is_none() {
-                    pending_start = Some(plain.byte_range.start);
-                }
-                pending_end = plain.byte_range.end;
-                pending_plain.push_str(&plain.text);
+                push_pending_text(
+                    &mut pending_plain,
+                    &mut pending_start,
+                    &mut pending_end,
+                    &mut quote_context,
+                    &plain.text,
+                    plain.byte_range.clone(),
+                );
             }
             LineNode::Emoji(alias) => {
-                if pending_start.is_none() {
-                    pending_start = Some(alias.byte_range.start);
-                }
-                pending_end = alias.byte_range.end;
-                pending_plain.push_str(alias.emoji);
+                push_pending_text(
+                    &mut pending_plain,
+                    &mut pending_start,
+                    &mut pending_end,
+                    &mut quote_context,
+                    alias.emoji,
+                    alias.byte_range.clone(),
+                );
             }
             LineNode::Symbol(alias) => {
-                if pending_start.is_none() {
-                    pending_start = Some(alias.byte_range.start);
-                }
-                pending_end = alias.byte_range.end;
-                pending_plain.push_str(alias.text);
+                push_pending_text(
+                    &mut pending_plain,
+                    &mut pending_start,
+                    &mut pending_end,
+                    &mut quote_context,
+                    alias.text,
+                    alias.byte_range.clone(),
+                );
             }
             LineNode::Param(param) => {
-                if pending_start.is_none() {
-                    pending_start = Some(param.byte_range.start);
-                }
-                pending_end = param.byte_range.end;
-                pending_plain.push_str(&render_label_param(
-                    param.name.as_str(),
-                    params,
-                    param.byte_range.start,
-                )?);
+                let text = render_label_param(param.name.as_str(), params, param.byte_range.start)?;
+                push_pending_text(
+                    &mut pending_plain,
+                    &mut pending_start,
+                    &mut pending_end,
+                    &mut quote_context,
+                    &text,
+                    param.byte_range.clone(),
+                );
+            }
+            LineNode::SmartQuote(quote) => {
+                let text = quote_context.quote(quote.quote.double);
+                push_pending_text(
+                    &mut pending_plain,
+                    &mut pending_start,
+                    &mut pending_end,
+                    &mut quote_context,
+                    text,
+                    quote.byte_range.clone(),
+                );
             }
             LineNode::Math(math) => {
                 flush_plain(
@@ -101,13 +123,14 @@ pub(crate) fn realize_static_markup_line(
                     &mut pending_start,
                     pending_end,
                 );
+                quote_context.push_text("\u{FFFC}");
                 nodes.push(RenderNode::Math(math.clone()));
             }
             LineNode::TextSpan(span) => {
                 let Some(kind) = supported_static_markup_kind(span.kind) else {
                     return Ok(None);
                 };
-                let Some(body) = render_static_body(&span.body, params)? else {
+                let Some(body) = render_static_body(&span.body, params, &mut quote_context)? else {
                     return Ok(None);
                 };
                 let text = transform_static_text(kind, &body.text);
@@ -141,6 +164,39 @@ pub(crate) fn realize_static_markup_line(
         source: line.source.clone(),
         nodes,
     }))
+}
+
+#[derive(Default)]
+struct QuoteContext {
+    quoter: SmartQuoter,
+    text: String,
+}
+
+impl QuoteContext {
+    fn quote(&mut self, double: bool) -> &'static str {
+        let before = self.text.chars().rev().find(|&c| !is_default_ignorable(c));
+        self.quoter.quote(before, double)
+    }
+
+    fn push_text(&mut self, text: &str) {
+        self.text.push_str(text);
+    }
+}
+
+fn push_pending_text(
+    pending_plain: &mut String,
+    pending_start: &mut Option<usize>,
+    pending_end: &mut usize,
+    quote_context: &mut QuoteContext,
+    text: &str,
+    byte_range: std::ops::Range<usize>,
+) {
+    if pending_start.is_none() {
+        *pending_start = Some(byte_range.start);
+    }
+    *pending_end = byte_range.end;
+    pending_plain.push_str(text);
+    quote_context.push_text(text);
 }
 
 fn supported_static_markup_kind(kind: TextMarkupKind) -> Option<TextMarkupKind> {
@@ -183,23 +239,37 @@ struct RealizedStaticBody {
 fn render_static_body(
     nodes: &[LineNode],
     params: &LabelParams,
+    quote_context: &mut QuoteContext,
 ) -> Result<Option<RealizedStaticBody>, LabelError> {
     let mut text = String::new();
     let mut nested = Vec::new();
     for node in nodes {
         match node {
-            LineNode::Plain(plain) => text.push_str(&plain.text),
-            LineNode::Emoji(alias) => text.push_str(alias.emoji),
-            LineNode::Symbol(alias) => text.push_str(alias.text),
+            LineNode::Plain(plain) => {
+                text.push_str(&plain.text);
+                quote_context.push_text(&plain.text);
+            }
+            LineNode::Emoji(alias) => {
+                text.push_str(alias.emoji);
+                quote_context.push_text(alias.emoji);
+            }
+            LineNode::Symbol(alias) => {
+                text.push_str(alias.text);
+                quote_context.push_text(alias.text);
+            }
             LineNode::Param(param) => {
-                text.push_str(&render_label_param(
-                    param.name.as_str(),
-                    params,
-                    param.byte_range.start,
-                )?);
+                let rendered =
+                    render_label_param(param.name.as_str(), params, param.byte_range.start)?;
+                text.push_str(&rendered);
+                quote_context.push_text(&rendered);
+            }
+            LineNode::SmartQuote(quote) => {
+                let rendered = quote_context.quote(quote.quote.double);
+                text.push_str(rendered);
+                quote_context.push_text(rendered);
             }
             LineNode::TextSpan(span) if span.kind.is_line_decoration() => {
-                let Some(body) = render_static_body(&span.body, params)? else {
+                let Some(body) = render_static_body(&span.body, params, quote_context)? else {
                     return Ok(None);
                 };
                 text.push_str(&body.text);

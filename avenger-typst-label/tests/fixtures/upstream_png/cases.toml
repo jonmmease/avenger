@@ -11,6 +11,18 @@ pixel_tolerance = 6
 min_similarity = 0.70
 
 [[case]]
+id = "text-smartquotes"
+upstream_file = "../../typst/tests/suite/text/smartquote.typ"
+upstream_test = "smartquote/smartquote-apostrophe/smartquote-nesting reduced"
+source = "text-smartquotes.typ"
+font_size = 20.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+pixel_tolerance = 8
+min_similarity = 0.70
+
+[[case]]
 id = "math-frac-root"
 upstream_file = "../../typst/tests/suite/math/root.typ"
 upstream_test = "frac-root-smoke"
