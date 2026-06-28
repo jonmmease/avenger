@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use crate::api::TypstEngineConfig;
 use crate::engine::glyph_path::outline_glyph_path;
 use crate::error::LabelError;
+use crate::label::EngineOptions;
 use crate::paths::{PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform};
 use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
@@ -15,7 +15,7 @@ use super::ast::{MathAst, MathNode, MathOperator, MathShorthand, MathText, MathT
 pub(crate) fn try_typeset_simple_row_fragment(
     math: &MathAst,
     options: &MathFragmentOptions,
-    config: &TypstEngineConfig,
+    config: &EngineOptions,
 ) -> Result<Option<MathRunArtifact>, LabelError> {
     #[cfg(not(feature = "raster"))]
     if options.outputs.raster.is_some() {
@@ -27,7 +27,7 @@ pub(crate) fn try_typeset_simple_row_fragment(
     ) {
         return Ok(None);
     }
-    if !config.font_config.extra_font_families.is_empty() {
+    if !config.fonts.extra_font_families.is_empty() {
         return Ok(None);
     }
 
@@ -2521,7 +2521,7 @@ struct MathFont {
 }
 
 fn load_default_math_font(
-    config: &TypstEngineConfig,
+    config: &EngineOptions,
     spec: &MathFontSpec,
     weight: &FontWeight,
 ) -> Option<MathFont> {
@@ -2975,7 +2975,7 @@ mod tests {
         };
 
         assert!(
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+            try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                 .unwrap()
                 .is_none()
         );
@@ -2993,7 +2993,7 @@ mod tests {
         };
 
         assert!(
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+            try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                 .unwrap()
                 .is_some_and(|artifact| artifact
                     .pdf_text
@@ -3014,10 +3014,9 @@ mod tests {
             pdf_text_layer: false,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple row should rasterize through Typst paths");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple row should rasterize through Typst paths");
 
         assert!(artifact.paths.is_none());
         assert!(
@@ -3038,10 +3037,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple superscript should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple superscript should be handled by Typst row path");
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 2);
         assert!(pdf.glyph_runs[1].font_size < pdf.glyph_runs[0].font_size);
@@ -3057,10 +3055,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple fraction should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple fraction should be handled by Typst row path");
         let paths = artifact.paths.expect("fraction paths should exist");
         assert!(
             paths
@@ -3082,10 +3079,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple frac call should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple frac call should be handled by Typst row path");
         let paths = artifact.paths.expect("fraction paths should exist");
         assert!(
             paths
@@ -3107,10 +3103,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple binom call should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple binom call should be handled by Typst row path");
         let paths = artifact.paths.expect("binom paths should exist");
         assert_eq!(paths.items.len(), 4);
         assert!(
@@ -3139,10 +3134,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple cancel call should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple cancel call should be handled by Typst row path");
         let paths = artifact.paths.expect("cancel paths should exist");
         assert_eq!(paths.items.len(), 2);
         assert!(matches!(paths.items[0].kind, PathKind::GlyphOutline { .. }));
@@ -3162,10 +3156,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple sqrt should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple sqrt should be handled by Typst row path");
         let paths = artifact.paths.expect("sqrt paths should exist");
         assert_eq!(paths.items.len(), 3);
         assert!(matches!(paths.items[1].kind, PathKind::MathShape));
@@ -3183,10 +3176,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple indexed root should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple indexed root should be handled by Typst row path");
         let paths = artifact.paths.expect("root paths should exist");
         assert_eq!(paths.items.len(), 4);
         assert!(matches!(paths.items[2].kind, PathKind::MathShape));
@@ -3205,10 +3197,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple visible group should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple visible group should be handled by Typst row path");
         let paths = artifact.paths.expect("group paths should exist");
         assert_eq!(paths.items.len(), 4);
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
@@ -3232,10 +3223,9 @@ mod tests {
             pdf_text_layer: false,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple visible group should rasterize through Typst paths");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple visible group should rasterize through Typst paths");
         assert!(
             artifact
                 .raster
@@ -3254,10 +3244,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("identifier subscript group should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("identifier subscript group should be handled by Typst row path");
         let paths = artifact.paths.expect("group paths should exist");
         assert_eq!(paths.items.len(), 5);
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
@@ -3287,7 +3276,7 @@ mod tests {
         ] {
             let math = parse_math(source, 0).unwrap();
             let artifact =
-                try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                     .unwrap()
                     .unwrap_or_else(|| panic!("simple delimiter call should be handled: {source}"));
             let paths = artifact.paths.expect("delimiter call paths should exist");
@@ -3313,10 +3302,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple lr call should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple lr call should be handled by Typst row path");
         let paths = artifact.paths.expect("lr paths should exist");
         assert_eq!(paths.items.len(), 5);
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
@@ -3345,7 +3333,7 @@ mod tests {
         ] {
             let math = parse_math(source, 0).unwrap();
             let artifact =
-                try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                     .unwrap()
                     .unwrap_or_else(|| panic!("operator call should be handled: {source}"));
             let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
@@ -3369,10 +3357,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("operator identifier with script should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("operator identifier with script should be handled by Typst row path");
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         let text: String = pdf
             .glyph_runs
@@ -3406,7 +3393,7 @@ mod tests {
         ] {
             let math = parse_math(source, 0).unwrap();
             let artifact =
-                try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                     .unwrap()
                     .unwrap_or_else(|| panic!("math variant call should be handled: {source}"));
             let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
@@ -3439,7 +3426,7 @@ mod tests {
         ] {
             let math = parse_math(source, 0).unwrap();
             let artifact =
-                try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
+                try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                     .unwrap()
                     .unwrap_or_else(|| panic!("math accent call should be handled: {source}"));
             let paths = artifact.paths.expect("accent paths should exist");
@@ -3465,10 +3452,9 @@ mod tests {
             pdf_text_layer: true,
         };
 
-        let artifact =
-            try_typeset_simple_row_fragment(&math, &options, &TypstEngineConfig::default())
-                .unwrap()
-                .expect("simple grouped script should be handled by Typst row path");
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple grouped script should be handled by Typst row path");
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         let text: String = pdf
             .glyph_runs

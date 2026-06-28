@@ -2,7 +2,7 @@ use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
-use crate::api::TypstEngineConfig;
+use crate::label::EngineOptions;
 use crate::style::FontStyle;
 
 pub(crate) struct EmbeddedFontFace {
@@ -84,7 +84,7 @@ pub(crate) fn bundled_math_fonts() -> &'static [EmbeddedMathFontFace] {
     ]
 }
 
-pub(crate) fn candidate_math_font_paths(config: &TypstEngineConfig) -> Vec<PathBuf> {
+pub(crate) fn candidate_math_font_paths(config: &EngineOptions) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     let mut push = |path: PathBuf| {
         if !paths.iter().any(|existing| existing == &path) {
@@ -97,11 +97,7 @@ pub(crate) fn candidate_math_font_paths(config: &TypstEngineConfig) -> Vec<PathB
     }
 
     for dir in system_font_dirs() {
-        collect_font_paths(
-            dir,
-            &mut push,
-            !config.font_config.extra_font_families.is_empty(),
-        );
+        collect_font_paths(dir, &mut push, !config.fonts.extra_font_families.is_empty());
     }
 
     paths

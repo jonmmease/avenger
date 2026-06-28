@@ -1,5 +1,5 @@
-use crate::api::TypstEngineConfig;
 use crate::error::LabelError;
+use crate::label::EngineOptions;
 use crate::paths::{PathArtifact, PathData, PathItem, PathKind, Stroke, Transform};
 use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
@@ -23,7 +23,7 @@ pub(crate) fn try_typeset_text_line(
     source: &str,
     line: &ParsedLine,
     options: &TextLineOptions,
-    config: &TypstEngineConfig,
+    config: &EngineOptions,
     fontdb: &fontdb::Database,
 ) -> Result<Option<TextLineArtifact>, LabelError> {
     let Some(line) = line_with_rendered_static_markup(line) else {
@@ -232,7 +232,7 @@ fn try_typeset_mixed_metrics_text_line(
     source: &str,
     line: &RenderLine,
     options: &TextLineOptions,
-    config: &TypstEngineConfig,
+    config: &EngineOptions,
     fontdb: &fontdb::Database,
 ) -> Result<Option<TextLineArtifact>, LabelError> {
     #[cfg(not(feature = "raster"))]
@@ -1411,15 +1411,15 @@ fn typeset_segmented_plain_text_line(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::TypstEngineConfig;
     use crate::delimiter::MathDelimiterOptions;
     use crate::engine::font::build_text_fontdb;
     use crate::engine::syntax::parse_line;
+    use crate::label::EngineOptions;
     use crate::paths::PathCommand;
     use crate::types::TextLineOutputRequest;
 
     fn test_fontdb() -> fontdb::Database {
-        build_text_fontdb(&TypstEngineConfig::default())
+        build_text_fontdb(&EngineOptions::default())
     }
 
     fn render_line(source: &str) -> RenderLine {

@@ -1,9 +1,9 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::api::TypstEngineConfig;
 use crate::error::LabelError;
 use crate::fonts::{EmbeddedFontFace, LATO_FACES};
+use crate::label::EngineOptions;
 use crate::paths::{PathData, PathImageFormat, PathImageItem, Transform};
 use crate::pdf::{FontResource, FontResourceId};
 use crate::style::{FontStyle, FontWeight, PlainTextStyle};
@@ -596,16 +596,16 @@ pub(crate) enum TextScript {
     Superscript,
 }
 
-pub(crate) fn build_text_fontdb(config: &TypstEngineConfig) -> fontdb::Database {
+pub(crate) fn build_text_fontdb(config: &EngineOptions) -> fontdb::Database {
     let mut db = fontdb::Database::new();
     for face in LATO_FACES {
         db.load_font_data(face.decompressed_data().to_vec());
     }
     db.set_sans_serif_family("Lato");
-    if config.font_config.load_system_fonts {
+    if config.fonts.load_system_fonts {
         db.load_system_fonts();
     }
-    for dir in &config.font_config.extra_font_dirs {
+    for dir in &config.fonts.extra_font_dirs {
         db.load_fonts_dir(dir);
     }
     db
@@ -883,7 +883,7 @@ mod tests {
     use super::*;
 
     fn test_fontdb() -> fontdb::Database {
-        build_text_fontdb(&TypstEngineConfig::default())
+        build_text_fontdb(&EngineOptions::default())
     }
 
     #[test]

@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -128,35 +126,5 @@ impl Default for MathStyle {
             font_weight: FontWeight::Normal,
             display_style: MathDisplayStyle::Inline,
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct MathFontConfig {
-    pub extra_font_families: Vec<String>,
-    pub load_system_fonts: bool,
-    pub extra_font_dirs: Vec<PathBuf>,
-}
-
-impl Default for MathFontConfig {
-    fn default() -> Self {
-        Self {
-            extra_font_families: Vec::new(),
-            load_system_fonts: true,
-            extra_font_dirs: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum MathStrictness {
-    Strict,
-}
-
-impl Default for MathStrictness {
-    fn default() -> Self {
-        Self::Strict
     }
 }

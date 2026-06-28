@@ -2,13 +2,12 @@ use std::{ops::Range, path::PathBuf};
 
 use indexmap::IndexMap;
 
-use crate::api::{TypstCacheConfig, TypstEngineConfig};
 use crate::delimiter::{ParsedSegment, parse_segments};
 use crate::engine::engine::TypstEngineCore;
 use crate::paths::{PathArtifact, PathImageItem, PathItem, PathKind, Transform};
 use crate::pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 pub use crate::raster::RasterImage;
-use crate::style::{MathFontConfig, MathStrictness, MathStyle, PlainTextStyle};
+use crate::style::{MathStyle, PlainTextStyle};
 use crate::types::{
     MathSyntaxMode, PositionedTextLineRun, PositionedTextLineRunKind, TextLineArtifact,
     TextLineOptions, TextLineOutputRequest, TypesetMetrics,
@@ -51,11 +50,10 @@ pub struct FontOptions {
 
 impl Default for FontOptions {
     fn default() -> Self {
-        let config = MathFontConfig::default();
         Self {
-            load_system_fonts: config.load_system_fonts,
-            extra_font_dirs: config.extra_font_dirs,
-            extra_font_families: config.extra_font_families,
+            load_system_fonts: true,
+            extra_font_dirs: Vec::new(),
+            extra_font_families: Vec::new(),
         }
     }
 }
@@ -107,9 +105,8 @@ pub struct LabelEngine {
 
 impl LabelEngine {
     pub fn new(options: EngineOptions) -> Result<Self, LabelInitError> {
-        let config = TypstEngineConfig::from(options);
         Ok(Self {
-            inner: TypstEngineCore::new(&config)?,
+            inner: TypstEngineCore::new(&options)?,
         })
     }
 
@@ -157,22 +154,6 @@ impl LabelEngine {
         options: &LabelOptions,
     ) -> Result<LabelMetrics, LabelError> {
         self.compile_text(text, options).map(|label| label.metrics)
-    }
-}
-
-impl From<EngineOptions> for TypstEngineConfig {
-    fn from(options: EngineOptions) -> Self {
-        Self {
-            font_config: MathFontConfig {
-                extra_font_families: options.fonts.extra_font_families,
-                load_system_fonts: options.fonts.load_system_fonts,
-                extra_font_dirs: options.fonts.extra_font_dirs,
-            },
-            cache: TypstCacheConfig {
-                enabled: options.cache.enabled,
-            },
-            strictness: MathStrictness::Strict,
-        }
     }
 }
 
