@@ -22,7 +22,7 @@ use super::font::{
     TextScript, shape_plain_text_with_fallback,
 };
 use super::math::metrics::try_typeset_simple_row_fragment;
-use super::math::syntax::parse_math_with_params;
+use crate::typst_eval::math::parse_math_with_params;
 
 pub(crate) fn try_layout_text_line(
     source: &str,
@@ -2012,9 +2012,9 @@ fn typeset_segmented_plain_text_line(
 mod tests {
     use super::*;
     use crate::engine::font::build_text_fontdb;
-    use crate::engine::syntax::parse_line;
     use crate::label::EngineOptions;
     use crate::types::LineOutputOptions;
+    use crate::typst_eval::markup::parse_line;
 
     fn test_fontdb() -> fontdb::Database {
         build_text_fontdb(&EngineOptions::default())

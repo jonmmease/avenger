@@ -17,7 +17,7 @@ use super::ast::{
     MathAccent, MathAst, MathCancel, MathCancelAngle, MathFractionStyle, MathNode, MathOperator,
     MathShorthand, MathText, MathTextKind,
 };
-use super::syntax::predefined_operator_text;
+use crate::typst_eval::math::predefined_operator_text;
 
 pub(crate) fn try_typeset_simple_row_fragment(
     math: &MathAst,
@@ -4225,8 +4225,8 @@ fn path_artifact_from_simple_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::math::syntax::parse_math;
     use crate::types::MathOutputOptions;
+    use crate::typst_eval::math::parse_math;
 
     type LineSegment = ((f32, f32), (f32, f32));
 

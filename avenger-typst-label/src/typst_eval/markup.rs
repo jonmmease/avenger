@@ -4,14 +4,14 @@ use crate::delimiter::{MathDelimiterInfo, MathDisplayHint};
 use crate::error::LabelError;
 use crate::label::{LabelParamValue, LabelParams};
 use crate::typst_library::Color;
-use crate::typst_svg::{StrokeCap, StrokeJoin};
-
-use super::ast::{
+use crate::typst_library::text::content::{
     DecorationDash, DecorationDashLength, DecorationLength, DecorationStroke, EmojiAlias,
     LabelParamRef, LineNode, MathSpan, ParsedLine, PlainTextNode, SymbolAlias, TextMarkupKind,
     TextMarkupOptions, TextMarkupSpan,
 };
-use super::math::syntax::named_math_symbol;
+use crate::typst_svg::{StrokeCap, StrokeJoin};
+
+use super::math::named_math_symbol;
 
 use crate::typst_syntax::ast::{self as typst_ast, AstNode};
 use crate::typst_syntax::{

@@ -1,13 +1,14 @@
-use crate::engine::syntax::parse_decoration_stroke;
 use crate::error::LabelError;
 use crate::label::{LabelParamValue, LabelParams};
-
-use super::ast::{
+use crate::typst_library::math::item as ast;
+use crate::typst_library::math::item::{
     MathAccent, MathArg, MathAst, MathAttach, MathCall, MathCallOptions, MathCancel,
     MathCancelAngle, MathCancelLength, MathCancelOptions, MathDelimitedSize, MathFraction,
     MathFractionStyle, MathGroup, MathIdentifier, MathNode, MathOperator, MathShorthand, MathSpace,
     MathStretchSize, MathStringLiteral, MathText, MathTextKind,
 };
+
+use super::markup::parse_decoration_stroke;
 
 use crate::typst_syntax::ast::{self as typst_ast, AstNode, Unit};
 use crate::typst_syntax::{
@@ -1250,21 +1251,21 @@ fn parse_math_relative_size(
     source: &str,
     position: usize,
     message: &'static str,
-) -> Result<super::ast::MathRelativeSize, LabelError> {
+) -> Result<ast::MathRelativeSize, LabelError> {
     let (value, unit) = parse_math_numeric_literal(expr, source, position, message)?;
     let value = value as f32;
     match unit {
-        Unit::Percent => Ok(super::ast::MathRelativeSize {
+        Unit::Percent => Ok(ast::MathRelativeSize {
             relative: value / 100.0,
             absolute_em: 0.0,
             absolute_pt: 0.0,
         }),
-        Unit::Em => Ok(super::ast::MathRelativeSize {
+        Unit::Em => Ok(ast::MathRelativeSize {
             relative: 0.0,
             absolute_em: value,
             absolute_pt: 0.0,
         }),
-        Unit::Pt => Ok(super::ast::MathRelativeSize {
+        Unit::Pt => Ok(ast::MathRelativeSize {
             relative: 0.0,
             absolute_em: 0.0,
             absolute_pt: value,
