@@ -267,7 +267,11 @@ fn max_grouping_depth(source: &str) -> usize {
 
 fn nodes_contain_static_markup(nodes: &[LineNode]) -> bool {
     nodes.iter().any(|node| match node {
-        LineNode::Plain(_) | LineNode::Math(_) | LineNode::Emoji(_) | LineNode::Symbol(_) => false,
+        LineNode::Plain(_)
+        | LineNode::Math(_)
+        | LineNode::Emoji(_)
+        | LineNode::Symbol(_)
+        | LineNode::Param(_) => false,
         LineNode::TextSpan(_) => true,
     })
 }

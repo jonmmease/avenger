@@ -17,6 +17,7 @@ pub(crate) enum LineNode {
     TextSpan(TextMarkupSpan),
     Emoji(EmojiAlias),
     Symbol(SymbolAlias),
+    Param(LabelParamRef),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -196,5 +197,11 @@ pub(crate) struct EmojiAlias {
 pub(crate) struct SymbolAlias {
     pub(crate) name: String,
     pub(crate) text: &'static str,
+    pub(crate) byte_range: Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LabelParamRef {
+    pub(crate) name: String,
     pub(crate) byte_range: Range<usize>,
 }

@@ -820,6 +820,7 @@ fn text_line_options(options: &LabelOptions) -> TextLineOptions {
     TextLineOptions {
         text_style: options.text.clone(),
         math_style: options.math.clone(),
+        params: options.params.clone(),
         outputs: TextLineOutputRequest {
             paths: true,
             raster: None,

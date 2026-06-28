@@ -1,3 +1,4 @@
+use crate::label::LabelParams;
 use crate::limits::LabelLimits;
 use crate::paths::PathArtifact;
 use crate::pdf::{FontResource, PdfTextLayer};
@@ -69,6 +70,7 @@ impl Default for TextLineOutputRequest {
 pub struct TextLineOptions {
     pub text_style: PlainTextStyle,
     pub math_style: MathStyle,
+    pub params: LabelParams,
     pub outputs: TextLineOutputRequest,
     pub limits: LabelLimits,
 }
@@ -78,6 +80,7 @@ impl Default for TextLineOptions {
         Self {
             text_style: PlainTextStyle::default(),
             math_style: MathStyle::default(),
+            params: LabelParams::default(),
             outputs: TextLineOutputRequest::default(),
             limits: LabelLimits::default(),
         }

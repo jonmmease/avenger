@@ -6,9 +6,9 @@ use crate::paths::{StrokeCap, StrokeJoin};
 use crate::style::Color;
 
 use super::ast::{
-    DecorationDash, DecorationDashLength, DecorationLength, DecorationStroke, EmojiAlias, LineNode,
-    MathSpan, ParsedLine, PlainTextNode, SymbolAlias, TextMarkupKind, TextMarkupOptions,
-    TextMarkupSpan,
+    DecorationDash, DecorationDashLength, DecorationLength, DecorationStroke, EmojiAlias,
+    LabelParamRef, LineNode, MathSpan, ParsedLine, PlainTextNode, SymbolAlias, TextMarkupKind,
+    TextMarkupOptions, TextMarkupSpan,
 };
 use super::math::syntax::named_math_symbol;
 
@@ -92,6 +92,13 @@ fn lower_markup_expr(
         }
         typst_ast::Expr::FuncCall(call) => {
             lower_static_call(call, source, nodes)?;
+        }
+        typst_ast::Expr::Ident(ident) => {
+            let range = expand_hash_range(source, ident.to_untyped().range());
+            nodes.push(LineNode::Param(LabelParamRef {
+                name: ident.as_str().to_string(),
+                byte_range: range,
+            }));
         }
         typst_ast::Expr::FieldAccess(access) => {
             lower_static_field_access(access, source, nodes)?;
@@ -959,6 +966,20 @@ mod tests {
             LineNode::TextSpan(span)
                 if span.kind == TextMarkupKind::Strike
                     && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "old")
+        ));
+    }
+
+    #[test]
+    fn parses_embedded_code_identifier_as_param_ref() {
+        let line = parse("Series #series_name");
+
+        assert_eq!(line.nodes.len(), 2);
+        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Series "));
+        assert!(matches!(
+            &line.nodes[1],
+            LineNode::Param(param)
+                if param.name == "series_name"
+                    && param.byte_range == (7..19)
         ));
     }
 

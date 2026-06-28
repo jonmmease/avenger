@@ -1,6 +1,6 @@
 use avenger_typst_label::{
-    LabelEngine, LabelError, LabelFrameItem, LabelOptions, PdfOptions, SvgOptions, TextItemKind,
-    escape_text, pdf_items, svg_items,
+    LabelEngine, LabelError, LabelFrameItem, LabelOptions, LabelParamValue, PdfOptions, SvgOptions,
+    TextItemKind, escape_text, pdf_items, svg_items,
 };
 
 #[cfg(feature = "raster")]
@@ -60,6 +60,91 @@ fn compile_text_unmatched_dollar_succeeds() {
         .unwrap();
     assert_eq!(label.semantic_text(), "cost $5");
     assert!(!label.flags.has_math);
+}
+
+#[test]
+fn compile_resolves_text_params() {
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "series_name".to_string(),
+        LabelParamValue::Str("Revenue".to_string()),
+    );
+    options
+        .params
+        .insert("threshold".to_string(), LabelParamValue::Float(2.5));
+    options
+        .params
+        .insert("active".to_string(), LabelParamValue::Bool(true));
+
+    let label = engine()
+        .compile("#series_name >= #threshold (#active)", &options)
+        .unwrap();
+
+    assert_eq!(label.semantic_text(), "Revenue >= 2.5 (true)");
+    assert!(label.flags.has_markup);
+    assert!(!label.flags.has_math);
+}
+
+#[test]
+fn compile_resolves_text_params_inside_static_markup() {
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "series_name".to_string(),
+        LabelParamValue::Str("revenue".to_string()),
+    );
+
+    let label = engine().compile("#upper[#series_name]", &options).unwrap();
+
+    assert_eq!(label.semantic_text(), "REVENUE");
+    assert!(label.flags.has_markup);
+}
+
+#[test]
+fn compile_text_treats_param_syntax_as_literal_text() {
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "series_name".to_string(),
+        LabelParamValue::Str("Revenue".to_string()),
+    );
+
+    let label = engine().compile_text("#series_name", &options).unwrap();
+
+    assert_eq!(label.semantic_text(), "#series_name");
+    assert!(!label.flags.has_markup);
+}
+
+#[test]
+fn compile_errors_for_unknown_text_param() {
+    let err = engine()
+        .compile("#series_name", &LabelOptions::default())
+        .unwrap_err();
+
+    assert_eq!(
+        err,
+        LabelError::UnsupportedSyntax {
+            position: 0,
+            message: "unknown label parameter"
+        }
+    );
+}
+
+#[test]
+fn compile_errors_for_non_scalar_text_param() {
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "items".to_string(),
+        LabelParamValue::Array(vec![LabelParamValue::Int(1)]),
+    );
+
+    let err = engine().compile("#items", &options).unwrap_err();
+
+    assert_eq!(
+        err,
+        LabelError::UnsupportedSyntax {
+            position: 0,
+            message: "label parameter value cannot be rendered as text"
+        }
+    );
 }
 
 #[test]

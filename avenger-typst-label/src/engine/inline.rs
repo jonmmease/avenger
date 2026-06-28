@@ -1,5 +1,5 @@
 use crate::error::LabelError;
-use crate::label::EngineOptions;
+use crate::label::{EngineOptions, LabelParamValue, LabelParams};
 use crate::paths::{PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform};
 use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
@@ -29,7 +29,7 @@ pub(crate) fn try_typeset_text_line(
     config: &EngineOptions,
     fontdb: &fontdb::Database,
 ) -> Result<Option<TextLineArtifact>, LabelError> {
-    let Some(line) = line_with_rendered_static_markup(line) else {
+    let Some(line) = line_with_rendered_static_markup(line, &options.params)? else {
         return Ok(None);
     };
 
@@ -102,7 +102,10 @@ impl TextDecoration {
     }
 }
 
-fn line_with_rendered_static_markup(line: &ParsedLine) -> Option<RenderLine> {
+fn line_with_rendered_static_markup(
+    line: &ParsedLine,
+    params: &LabelParams,
+) -> Result<Option<RenderLine>, LabelError> {
     let mut nodes: Vec<RenderNode> = Vec::new();
     let mut pending_plain = String::new();
     let mut pending_start = None;
@@ -145,6 +148,17 @@ fn line_with_rendered_static_markup(line: &ParsedLine) -> Option<RenderLine> {
                 pending_end = alias.byte_range.end;
                 pending_plain.push_str(alias.text);
             }
+            LineNode::Param(param) => {
+                if pending_start.is_none() {
+                    pending_start = Some(param.byte_range.start);
+                }
+                pending_end = param.byte_range.end;
+                pending_plain.push_str(&render_label_param(
+                    param.name.as_str(),
+                    params,
+                    param.byte_range.start,
+                )?);
+            }
             LineNode::Math(math) => {
                 flush_plain(
                     &mut nodes,
@@ -155,8 +169,13 @@ fn line_with_rendered_static_markup(line: &ParsedLine) -> Option<RenderLine> {
                 nodes.push(RenderNode::Math(math.clone()));
             }
             LineNode::TextSpan(span) => {
-                let kind = supported_decoration_kind(span.kind)?;
-                let text = transform_static_text(kind, &render_plain_static_body(&span.body)?);
+                let Some(kind) = supported_decoration_kind(span.kind) else {
+                    return Ok(None);
+                };
+                let Some(body) = render_plain_static_body(&span.body, params)? else {
+                    return Ok(None);
+                };
+                let text = transform_static_text(kind, &body);
                 flush_plain(
                     &mut nodes,
                     &mut pending_plain,
@@ -182,10 +201,10 @@ fn line_with_rendered_static_markup(line: &ParsedLine) -> Option<RenderLine> {
         pending_end,
     );
 
-    Some(RenderLine {
+    Ok(Some(RenderLine {
         source: line.source.clone(),
         nodes,
-    })
+    }))
 }
 
 fn supported_decoration_kind(kind: TextMarkupKind) -> Option<TextMarkupKind> {
@@ -222,17 +241,69 @@ fn transform_static_text(kind: TextMarkupKind, text: &str) -> String {
     }
 }
 
-fn render_plain_static_body(nodes: &[LineNode]) -> Option<String> {
+fn render_plain_static_body(
+    nodes: &[LineNode],
+    params: &LabelParams,
+) -> Result<Option<String>, LabelError> {
     let mut text = String::new();
     for node in nodes {
         match node {
             LineNode::Plain(plain) => text.push_str(&plain.text),
             LineNode::Emoji(alias) => text.push_str(alias.emoji),
             LineNode::Symbol(alias) => text.push_str(alias.text),
-            LineNode::Math(_) | LineNode::TextSpan(_) => return None,
+            LineNode::Param(param) => {
+                text.push_str(&render_label_param(
+                    param.name.as_str(),
+                    params,
+                    param.byte_range.start,
+                )?);
+            }
+            LineNode::Math(_) | LineNode::TextSpan(_) => return Ok(None),
         }
     }
-    Some(text)
+    Ok(Some(text))
+}
+
+fn render_label_param(
+    name: &str,
+    params: &LabelParams,
+    position: usize,
+) -> Result<String, LabelError> {
+    let Some(value) = params.get(name) else {
+        return Err(LabelError::UnsupportedSyntax {
+            position,
+            message: "unknown label parameter",
+        });
+    };
+    label_param_to_text(value, position)
+}
+
+fn label_param_to_text(value: &LabelParamValue, position: usize) -> Result<String, LabelError> {
+    match value {
+        LabelParamValue::None => Ok(String::new()),
+        LabelParamValue::Bool(value) => Ok(value.to_string()),
+        LabelParamValue::Int(value) => Ok(value.to_string()),
+        LabelParamValue::Float(value) if value.is_finite() => Ok(format_f64(*value)),
+        LabelParamValue::Float(_) => Err(LabelError::UnsupportedSyntax {
+            position,
+            message: "non-finite label parameter is not supported",
+        }),
+        LabelParamValue::Str(value) => Ok(value.clone()),
+        LabelParamValue::Array(_) | LabelParamValue::Dict(_) => {
+            Err(LabelError::UnsupportedSyntax {
+                position,
+                message: "label parameter value cannot be rendered as text",
+            })
+        }
+    }
+}
+
+fn format_f64(value: f64) -> String {
+    let mut text = value.to_string();
+    if text == "-0" {
+        text = "0".to_string();
+    }
+    text
 }
 
 fn shape_plain_text_for_style(
@@ -1948,7 +2019,9 @@ mod tests {
 
     fn render_line(source: &str) -> RenderLine {
         let line = parse_line(source).unwrap();
-        line_with_rendered_static_markup(&line).expect("test line should be renderable")
+        line_with_rendered_static_markup(&line, &Default::default())
+            .expect("test line should not error")
+            .expect("test line should be renderable")
     }
 
     fn first_stroke_item(paths: &PathArtifact) -> &PathItem {
