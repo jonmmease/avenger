@@ -12,7 +12,9 @@ use crate::engine::ast::{LineNode, ParsedLine, PlainTextNode};
 use crate::engine::inline::try_typeset_text_line;
 #[cfg(test)]
 use crate::engine::math::metrics::try_typeset_simple_row_fragment;
+#[cfg(test)]
 use crate::engine::math::syntax::parse_math;
+use crate::engine::math::syntax::parse_math_with_params;
 use crate::engine::syntax::parse_line_with_params;
 
 #[derive(Clone)]
@@ -58,7 +60,7 @@ impl TypstEngineCore {
         }
 
         let line = parse_line_with_params(source, &options.params)?;
-        validate_line_math(&line, options.limits)?;
+        validate_line_math(&line, options.limits, &options.params)?;
         self.typeset_parsed_line(source, &line, options)
     }
 
@@ -131,7 +133,11 @@ fn line_contains_static_markup(line: &ParsedLine) -> bool {
     nodes_contain_static_markup(&line.nodes)
 }
 
-fn validate_line_math(line: &ParsedLine, limits: LabelLimits) -> Result<(), LabelError> {
+fn validate_line_math(
+    line: &ParsedLine,
+    limits: LabelLimits,
+    params: &crate::label::LabelParams,
+) -> Result<(), LabelError> {
     let math_span_count = line
         .nodes
         .iter()
@@ -163,13 +169,17 @@ fn validate_line_math(line: &ParsedLine, limits: LabelLimits) -> Result<(), Labe
             });
         }
 
-        strict_hash_precheck(&math.source, math.source_range.start)?;
-        parse_math(&math.source, math.source_range.start)?;
+        strict_hash_precheck(&math.source, math.source_range.start, params)?;
+        parse_math_with_params(&math.source, math.source_range.start, params)?;
     }
     Ok(())
 }
 
-fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), LabelError> {
+fn strict_hash_precheck(
+    source: &str,
+    offset: usize,
+    params: &crate::label::LabelParams,
+) -> Result<(), LabelError> {
     let mut escaped = false;
     for (idx, ch) in source.char_indices() {
         if escaped {
@@ -180,14 +190,44 @@ fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), LabelError> {
             escaped = true;
             continue;
         }
-        if ch == '#' && !is_embedded_literal_allowed_in_math(source, idx) {
-            return Err(LabelError::UnsupportedSyntax {
-                position: offset + idx,
-                message: "embedded Typst code is not allowed in math fragments",
-            });
+        if ch == '#' {
+            if allowed_param_ident_end(source, idx, params).is_some() {
+                continue;
+            }
+            if !is_embedded_literal_allowed_in_math(source, idx) {
+                return Err(LabelError::UnsupportedSyntax {
+                    position: offset + idx,
+                    message: "embedded Typst code is not allowed in math fragments",
+                });
+            }
         }
     }
     Ok(())
+}
+
+fn allowed_param_ident_end(
+    source: &str,
+    idx: usize,
+    params: &crate::label::LabelParams,
+) -> Option<usize> {
+    let rest = source.get(idx + 1..)?;
+    let mut chars = rest.char_indices();
+    let (_, first) = chars.next()?;
+    if first != '_' && !unicode_ident::is_xid_start(first) {
+        return None;
+    }
+
+    let mut end = idx + 1 + first.len_utf8();
+    for (relative_idx, ch) in chars {
+        if ch == '_' || unicode_ident::is_xid_continue(ch) {
+            end = idx + 1 + relative_idx + ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    let name = &source[idx + 1..end];
+    params.contains_key(name).then_some(end)
 }
 
 fn is_embedded_literal_allowed_in_math(source: &str, idx: usize) -> bool {

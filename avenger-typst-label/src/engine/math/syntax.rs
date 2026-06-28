@@ -1,5 +1,6 @@
 use crate::engine::syntax::parse_decoration_stroke;
 use crate::error::LabelError;
+use crate::label::{LabelParamValue, LabelParams};
 
 use super::ast::{
     MathAccent, MathArg, MathAst, MathAttach, MathCall, MathCallOptions, MathCancel,
@@ -13,7 +14,16 @@ use crate::syntax::{
     RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
 };
 
+#[cfg(test)]
 pub(crate) fn parse_math(source: &str, offset: usize) -> Result<MathAst, LabelError> {
+    parse_math_with_params(source, offset, &LabelParams::default())
+}
+
+pub(crate) fn parse_math_with_params(
+    source: &str,
+    offset: usize,
+    params: &LabelParams,
+) -> Result<MathAst, LabelError> {
     if let Some((idx, _)) = source
         .char_indices()
         .find(|(_, ch)| matches!(ch, '\n' | '\r'))
@@ -33,7 +43,7 @@ pub(crate) fn parse_math(source: &str, offset: usize) -> Result<MathAst, LabelEr
             end: offset + source.len(),
             message: "Typst parser did not return a math root".to_string(),
         })?;
-    let nodes = lower_math(math, source, offset)?;
+    let nodes = lower_math(math, source, offset, params)?;
     Ok(MathAst {
         source: source.to_string(),
         nodes,
@@ -44,10 +54,11 @@ fn lower_math(
     math: typst_ast::Math<'_>,
     source: &str,
     offset: usize,
+    params: &LabelParams,
 ) -> Result<Vec<MathNode>, LabelError> {
     let mut nodes = Vec::new();
     for expr in math.exprs() {
-        nodes.extend(lower_math_expr(expr, source, offset)?);
+        nodes.extend(lower_math_expr(expr, source, offset, params)?);
     }
     Ok(nodes)
 }
@@ -56,10 +67,11 @@ fn lower_math_expr(
     expr: typst_ast::Expr<'_>,
     source: &str,
     offset: usize,
+    params: &LabelParams,
 ) -> Result<Vec<MathNode>, LabelError> {
     let range = expr.to_untyped().range();
     match expr {
-        typst_ast::Expr::Math(math) => lower_math(math, source, offset),
+        typst_ast::Expr::Math(math) => lower_math(math, source, offset, params),
         typst_ast::Expr::Space(space) => Ok(vec![MathNode::Space(MathSpace {
             byte_range: offset_range(space.to_untyped().range(), offset),
         })]),
@@ -103,6 +115,7 @@ fn lower_math_expr(
                 byte_range: offset_range(ident.to_untyped().range(), offset),
             })])
         }
+        typst_ast::Expr::Ident(ident) => lower_math_param_ident(ident, source, offset, params),
         typst_ast::Expr::MathFieldAccess(access) => lower_math_access_as_nodes(
             typst_ast::MathAccess::MathFieldAccess(access),
             source,
@@ -134,7 +147,12 @@ fn lower_math_expr(
             let right = delimiter_char(close, source)?;
             let body_range = open_range.end..close_range.start;
             let body = if body_range.start <= body_range.end {
-                parse_math(&source[body_range.clone()], offset + body_range.start)?.nodes
+                parse_math_with_params(
+                    &source[body_range.clone()],
+                    offset + body_range.start,
+                    params,
+                )?
+                .nodes
             } else {
                 Vec::new()
             };
@@ -146,16 +164,16 @@ fn lower_math_expr(
             })])
         }
         typst_ast::Expr::MathAttach(attach) => {
-            let base = lower_math_expr_as_single(attach.base(), source, offset)?;
+            let base = lower_math_expr_as_single(attach.base(), source, offset, params)?;
             let (top, mut continuation) = attach
                 .top()
-                .map(|expr| lower_script_expr(expr, source, offset))
+                .map(|expr| lower_script_expr(expr, source, offset, params))
                 .transpose()?
                 .map(|(script, continuation)| (Some(vec![script]), continuation))
                 .unwrap_or((None, Vec::new()));
             let (bottom, bottom_continuation) = attach
                 .bottom()
-                .map(|expr| lower_script_expr(expr, source, offset))
+                .map(|expr| lower_script_expr(expr, source, offset, params))
                 .transpose()?
                 .map(|(script, continuation)| (Some(vec![script]), continuation))
                 .unwrap_or((None, Vec::new()));
@@ -202,8 +220,8 @@ fn lower_math_expr(
             byte_range: offset_range(primes.to_untyped().range(), offset),
         })]),
         typst_ast::Expr::MathFrac(frac) => {
-            let numerator = lower_math_expr_as_single(frac.num(), source, offset)?;
-            let denominator = lower_math_expr_as_single(frac.denom(), source, offset)?;
+            let numerator = lower_math_expr_as_single(frac.num(), source, offset, params)?;
+            let denominator = lower_math_expr_as_single(frac.denom(), source, offset, params)?;
             let slash_range = slash_range_between(
                 source,
                 frac.num().to_untyped().range().end,
@@ -219,8 +237,8 @@ fn lower_math_expr(
                 byte_range,
             })])
         }
-        typst_ast::Expr::MathRoot(root) => lower_math_root(root, source, offset),
-        typst_ast::Expr::MathCall(call) => lower_math_call(call, source, offset),
+        typst_ast::Expr::MathRoot(root) => lower_math_root(root, source, offset, params),
+        typst_ast::Expr::MathCall(call) => lower_math_call(call, source, offset, params),
         typst_ast::Expr::Str(string) => Ok(vec![MathNode::StringLiteral(MathStringLiteral {
             text: string.get().to_string(),
             byte_range: offset_range(string.to_untyped().range(), offset),
@@ -237,13 +255,94 @@ fn lower_math_expr(
     }
 }
 
+fn lower_math_param_ident(
+    ident: typst_ast::Ident<'_>,
+    source: &str,
+    offset: usize,
+    params: &LabelParams,
+) -> Result<Vec<MathNode>, LabelError> {
+    let local_range = expand_hash_range(source, ident.to_untyped().range());
+    let range = offset_range(local_range, offset);
+    let Some(value) = params.get(ident.as_str()) else {
+        return Err(unsupported(range.start, "unknown label parameter"));
+    };
+    label_param_to_math_nodes(value, range)
+}
+
+fn label_param_to_math_nodes(
+    value: &LabelParamValue,
+    byte_range: std::ops::Range<usize>,
+) -> Result<Vec<MathNode>, LabelError> {
+    match value {
+        LabelParamValue::None => Ok(Vec::new()),
+        LabelParamValue::Bool(value) => Ok(vec![math_text(
+            value.to_string(),
+            MathTextKind::Grapheme,
+            byte_range,
+        )]),
+        LabelParamValue::Int(value) => Ok(vec![math_text(
+            value.to_string(),
+            MathTextKind::Number,
+            byte_range,
+        )]),
+        LabelParamValue::Float(value) if value.is_finite() => Ok(vec![math_text(
+            format_f64(*value),
+            MathTextKind::Number,
+            byte_range,
+        )]),
+        LabelParamValue::Float(_) => Err(LabelError::UnsupportedSyntax {
+            position: byte_range.start,
+            message: "non-finite label parameter is not supported",
+        }),
+        LabelParamValue::Str(value) => Ok(vec![math_text(
+            value.clone(),
+            if is_plain_numeric_text(value) {
+                MathTextKind::Number
+            } else {
+                MathTextKind::Grapheme
+            },
+            byte_range,
+        )]),
+        LabelParamValue::Array(_) | LabelParamValue::Dict(_) => {
+            Err(LabelError::UnsupportedSyntax {
+                position: byte_range.start,
+                message: "label parameter value cannot be rendered as math",
+            })
+        }
+    }
+}
+
+fn is_plain_numeric_text(value: &str) -> bool {
+    value
+        .trim()
+        .parse::<f64>()
+        .is_ok_and(|value| value.is_finite())
+}
+
+fn math_text(text: String, kind: MathTextKind, byte_range: std::ops::Range<usize>) -> MathNode {
+    MathNode::Text(MathText {
+        text,
+        kind,
+        byte_range,
+    })
+}
+
+fn format_f64(value: f64) -> String {
+    let mut text = value.to_string();
+    if text == "-0" {
+        text = "0".to_string();
+    }
+    text
+}
+
 fn lower_math_expr_as_single(
     expr: typst_ast::Expr<'_>,
     source: &str,
     offset: usize,
+    params: &LabelParams,
 ) -> Result<MathNode, LabelError> {
     let range = expr.to_untyped().range();
-    let mut nodes = lower_math_expr(expr, source, offset)?;
+    let mut nodes = lower_math_expr(expr, source, offset, params)?;
     if nodes.len() == 1 {
         Ok(nodes.remove(0))
     } else if let Some(index) = single_non_space_node_index(&nodes) {
@@ -267,9 +366,10 @@ fn lower_script_expr(
     expr: typst_ast::Expr<'_>,
     source: &str,
     offset: usize,
+    params: &LabelParams,
 ) -> Result<(MathNode, Vec<MathNode>), LabelError> {
     let range = expr.to_untyped().range();
-    let mut nodes = lower_math_expr(expr, source, offset)?;
+    let mut nodes = lower_math_expr(expr, source, offset, params)?;
     nodes.retain(|node| !matches!(node, MathNode::Space(_)));
     if nodes.is_empty() {
         return Err(unsupported(
@@ -289,8 +389,9 @@ fn lower_math_root(
     root: typst_ast::MathRoot<'_>,
     source: &str,
     offset: usize,
+    params: &LabelParams,
 ) -> Result<Vec<MathNode>, LabelError> {
-    let radicand = lower_math_expr_as_single(root.radicand(), source, offset)?;
+    let radicand = lower_math_expr_as_single(root.radicand(), source, offset, params)?;
     let radicand_range = radicand.byte_range();
     let mut args = Vec::new();
     let name = if let Some(index) = root.index() {
@@ -323,6 +424,7 @@ fn lower_math_call(
     call: typst_ast::MathCall<'_>,
     source: &str,
     offset: usize,
+    params: &LabelParams,
 ) -> Result<Vec<MathNode>, LabelError> {
     let name = math_access_name(call.callee());
     let range = offset_range(call.to_untyped().range(), offset);
@@ -334,7 +436,8 @@ fn lower_math_call(
     }
 
     if name == "op" {
-        let (name, args) = lower_math_op_call_args(call.args(), source, offset, range.start)?;
+        let (name, args) =
+            lower_math_op_call_args(call.args(), source, offset, range.start, params)?;
         return Ok(vec![MathNode::Call(MathCall {
             name,
             args,
@@ -344,24 +447,30 @@ fn lower_math_call(
     }
 
     if name == "frac" {
-        return lower_math_frac_call(call.args(), source, offset, range);
+        return lower_math_frac_call(call.args(), source, offset, range, params);
     }
 
     if name == "attach" {
-        return lower_math_attach_call(call.args(), source, offset, range);
+        return lower_math_attach_call(call.args(), source, offset, range, params);
     }
 
     if name == "cancel" {
-        return lower_math_cancel_call(call.args(), source, offset, range);
+        return lower_math_cancel_call(call.args(), source, offset, range, params);
     }
 
     if is_math_accent_call_name(&name) {
-        return lower_math_accent_call(&name, call.args(), source, offset, range);
+        return lower_math_accent_call(&name, call.args(), source, offset, range, params);
     }
 
     if name == "scripts" || name == "limits" {
-        let (name, args) =
-            lower_math_attachment_mode_call_args(&name, call.args(), source, offset, range.start)?;
+        let (name, args) = lower_math_attachment_mode_call_args(
+            &name,
+            call.args(),
+            source,
+            offset,
+            range.start,
+            params,
+        )?;
         return Ok(vec![MathNode::Call(MathCall {
             name,
             args,
@@ -371,7 +480,7 @@ fn lower_math_call(
     }
 
     if is_math_size_call_name(&name) {
-        let args = lower_math_size_call_args(call.args(), source, offset, range.start)?;
+        let args = lower_math_size_call_args(call.args(), source, offset, range.start, params)?;
         return Ok(vec![MathNode::Call(MathCall {
             name,
             args,
@@ -385,12 +494,12 @@ fn lower_math_call(
             || is_math_delimiter_helper_call_name(&name)
             || is_math_delimiter_symbol_call_name(&name)
         {
-            lower_math_delimited_call_args(&name, call.args(), source, offset, range.start)?
+            lower_math_delimited_call_args(&name, call.args(), source, offset, range.start, params)?
         } else if name == "stretch" {
-            lower_math_stretch_call_args(call.args(), source, offset, range.start)?
+            lower_math_stretch_call_args(call.args(), source, offset, range.start, params)?
         } else {
             (
-                lower_math_call_args(call.args(), source, offset)?,
+                lower_math_call_args(call.args(), source, offset, params)?,
                 MathCallOptions::default(),
             )
         };
@@ -415,7 +524,7 @@ fn lower_math_call(
         byte_range: offset_range(call.callee().to_untyped().range(), offset),
     })];
     let args_range = offset_range(call.args().to_untyped().range(), offset);
-    let body = lower_math_args_as_group_body(call.args(), source, offset)?;
+    let body = lower_math_args_as_group_body(call.args(), source, offset, params)?;
     nodes.push(MathNode::Group(MathGroup {
         left: '(',
         right: ')',
@@ -430,6 +539,7 @@ fn lower_math_frac_call(
     source: &str,
     offset: usize,
     range: std::ops::Range<usize>,
+    params: &LabelParams,
 ) -> Result<Vec<MathNode>, LabelError> {
     let mut numerator = None;
     let mut denominator = None;
@@ -445,7 +555,7 @@ fn lower_math_frac_call(
         }
         match item.arg {
             typst_ast::Arg::Pos(expr) => {
-                let nodes = lower_math_expr(expr, source, offset)?;
+                let nodes = lower_math_expr(expr, source, offset, params)?;
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
                 if numerator.is_none() {
                     numerator = Some((nodes, byte_range));
@@ -536,6 +646,7 @@ fn lower_math_attach_call(
     source: &str,
     offset: usize,
     range: std::ops::Range<usize>,
+    params: &LabelParams,
 ) -> Result<Vec<MathNode>, LabelError> {
     let mut base = None;
     let mut top = None;
@@ -560,7 +671,7 @@ fn lower_math_attach_call(
                         "attach expects one base argument",
                     ));
                 }
-                base = Some(lower_math_expr_as_single(expr, source, offset)?);
+                base = Some(lower_math_expr_as_single(expr, source, offset, params)?);
             }
             typst_ast::Arg::Named(named) => {
                 let name = named.name().as_str();
@@ -585,7 +696,7 @@ fn lower_math_attach_call(
                     ));
                 }
                 let expr = named.expr();
-                let nodes = lower_math_expr(expr, source, offset)?;
+                let nodes = lower_math_expr(expr, source, offset, params)?;
                 if nodes.is_empty() {
                     return Err(unsupported(
                         expr.to_untyped().range().start + offset,
@@ -625,6 +736,7 @@ fn lower_math_delimited_call_args(
     source: &str,
     offset: usize,
     position: usize,
+    params: &LabelParams,
 ) -> Result<(Vec<MathArg>, MathCallOptions), LabelError> {
     let mut lowered = Vec::new();
     let mut delimiter_size = None;
@@ -640,7 +752,7 @@ fn lower_math_delimited_call_args(
             typst_ast::Arg::Pos(expr) => {
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
                 lowered.push(MathArg {
-                    nodes: lower_math_expr(expr, source, offset)?,
+                    nodes: lower_math_expr(expr, source, offset, params)?,
                     byte_range,
                 });
             }
@@ -703,6 +815,7 @@ fn lower_math_stretch_call_args(
     source: &str,
     offset: usize,
     position: usize,
+    params: &LabelParams,
 ) -> Result<(Vec<MathArg>, MathCallOptions), LabelError> {
     let mut lowered = Vec::new();
     let mut stretch_size = None;
@@ -718,7 +831,7 @@ fn lower_math_stretch_call_args(
             typst_ast::Arg::Pos(expr) => {
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
                 lowered.push(MathArg {
-                    nodes: lower_math_expr(expr, source, offset)?,
+                    nodes: lower_math_expr(expr, source, offset, params)?,
                     byte_range,
                 });
             }
@@ -771,6 +884,7 @@ fn lower_math_attachment_mode_call_args(
     source: &str,
     offset: usize,
     position: usize,
+    params: &LabelParams,
 ) -> Result<(String, Vec<MathArg>), LabelError> {
     let mut body = None;
     let mut limits_inline = true;
@@ -791,7 +905,7 @@ fn lower_math_attachment_mode_call_args(
                 }
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
                 body = Some(MathArg {
-                    nodes: lower_math_expr(expr, source, offset)?,
+                    nodes: lower_math_expr(expr, source, offset, params)?,
                     byte_range,
                 });
             }
@@ -842,6 +956,7 @@ fn lower_math_cancel_call(
     source: &str,
     offset: usize,
     range: std::ops::Range<usize>,
+    params: &LabelParams,
 ) -> Result<Vec<MathNode>, LabelError> {
     let mut body = None;
     let mut options = MathCancelOptions::default();
@@ -860,7 +975,7 @@ fn lower_math_cancel_call(
                         "cancel math expects one body argument",
                     ));
                 }
-                body = Some(lower_math_expr(expr, source, offset)?);
+                body = Some(lower_math_expr(expr, source, offset, params)?);
             }
             typst_ast::Arg::Named(named) => {
                 let position = named_argument_position(named, source, offset);
@@ -922,6 +1037,7 @@ fn lower_math_accent_call(
     source: &str,
     offset: usize,
     range: std::ops::Range<usize>,
+    params: &LabelParams,
 ) -> Result<Vec<MathNode>, LabelError> {
     let expected_positional = if name == "accent" { 2 } else { 1 };
     let mut lowered = Vec::new();
@@ -944,7 +1060,7 @@ fn lower_math_accent_call(
                 }
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
                 lowered.push(MathArg {
-                    nodes: lower_math_expr(expr, source, offset)?,
+                    nodes: lower_math_expr(expr, source, offset, params)?,
                     byte_range,
                 });
             }
@@ -1021,6 +1137,7 @@ fn lower_math_op_call_args(
     source: &str,
     offset: usize,
     position: usize,
+    params: &LabelParams,
 ) -> Result<(String, Vec<MathArg>), LabelError> {
     let mut body = None;
     let mut limits = false;
@@ -1041,7 +1158,7 @@ fn lower_math_op_call_args(
                 }
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
                 body = Some(MathArg {
-                    nodes: lower_math_expr(expr, source, offset)?,
+                    nodes: lower_math_expr(expr, source, offset, params)?,
                     byte_range,
                 });
             }
@@ -1218,6 +1335,7 @@ fn lower_math_call_args(
     args: typst_ast::MathArgs<'_>,
     source: &str,
     offset: usize,
+    params: &LabelParams,
 ) -> Result<Vec<MathArg>, LabelError> {
     let mut lowered = Vec::new();
     for item in args.arg_items() {
@@ -1231,7 +1349,7 @@ fn lower_math_call_args(
             typst_ast::Arg::Pos(expr) => {
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
                 lowered.push(MathArg {
-                    nodes: lower_math_expr(expr, source, offset)?,
+                    nodes: lower_math_expr(expr, source, offset, params)?,
                     byte_range,
                 });
             }
@@ -1257,6 +1375,7 @@ fn lower_math_size_call_args(
     source: &str,
     offset: usize,
     position: usize,
+    params: &LabelParams,
 ) -> Result<Vec<MathArg>, LabelError> {
     let mut body = None;
     for item in args.arg_items() {
@@ -1276,7 +1395,7 @@ fn lower_math_size_call_args(
                 }
                 let byte_range = offset_range(expr.to_untyped().range(), offset);
                 body = Some(MathArg {
-                    nodes: lower_math_expr(expr, source, offset)?,
+                    nodes: lower_math_expr(expr, source, offset, params)?,
                     byte_range,
                 });
             }
@@ -1385,12 +1504,13 @@ fn lower_math_args_as_group_body(
     args: typst_ast::MathArgs<'_>,
     source: &str,
     offset: usize,
+    params: &LabelParams,
 ) -> Result<Vec<MathNode>, LabelError> {
     let mut body = Vec::new();
     for item in args.content_items() {
         match item {
             typst_ast::MathArgItem::Arg(typst_ast::Arg::Pos(expr)) => {
-                body.extend(lower_math_expr(expr, source, offset)?);
+                body.extend(lower_math_expr(expr, source, offset, params)?);
             }
             typst_ast::MathArgItem::Arg(typst_ast::Arg::Named(named)) => {
                 return Err(unsupported(
@@ -1498,6 +1618,14 @@ fn delimiter_char(expr: typst_ast::Expr<'_>, source: &str) -> Result<char, Label
 
 fn offset_range(range: std::ops::Range<usize>, offset: usize) -> std::ops::Range<usize> {
     offset + range.start..offset + range.end
+}
+
+fn expand_hash_range(source: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+    if range.start > 0 && source.as_bytes().get(range.start - 1) == Some(&b'#') {
+        range.start - 1..range.end
+    } else {
+        range
+    }
 }
 
 fn single_non_space_node_index(nodes: &[MathNode]) -> Option<usize> {
@@ -1968,6 +2096,28 @@ mod tests {
 
     fn parse(source: &str) -> MathAst {
         parse_math(source, 0).unwrap()
+    }
+
+    #[test]
+    fn resolves_embedded_math_params() {
+        let mut params = LabelParams::new();
+        params.insert("slope".to_string(), LabelParamValue::Float(2.5));
+        params.insert("intercept".to_string(), LabelParamValue::Int(7));
+
+        let math = parse_math_with_params("y = #slope x + #intercept", 0, &params).unwrap();
+        let text = math
+            .nodes
+            .iter()
+            .filter_map(|node| match node {
+                MathNode::Text(text) => Some(text.text.as_str()),
+                MathNode::Identifier(identifier) => Some(identifier.name.as_str()),
+                MathNode::Operator(operator) => Some(operator.operator.as_str()),
+                MathNode::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<String>();
+
+        assert_eq!(text, "y = 2.5 x + 7");
     }
 
     #[test]

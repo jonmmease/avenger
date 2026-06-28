@@ -20,7 +20,7 @@ use super::font::{
     TextScript, shape_plain_text_with_fallback,
 };
 use super::math::metrics::try_typeset_simple_row_fragment;
-use super::math::syntax::parse_math;
+use super::math::syntax::parse_math_with_params;
 
 pub(crate) fn try_typeset_text_line(
     source: &str,
@@ -589,7 +589,8 @@ fn try_typeset_mixed_metrics_text_line(
                 });
             }
             RenderNode::Math(span) => {
-                let math = parse_math(&span.source, span.source_range.start)?;
+                let math =
+                    parse_math_with_params(&span.source, span.source_range.start, &options.params)?;
                 let Some(artifact) = try_typeset_simple_row_fragment(&math, &math_options, config)?
                 else {
                     return Ok(None);

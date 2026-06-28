@@ -161,6 +161,65 @@ fn compile_errors_for_non_scalar_text_param() {
 }
 
 #[test]
+fn compile_resolves_math_params() {
+    let mut options = LabelOptions::default();
+    options
+        .params
+        .insert("slope".to_string(), LabelParamValue::Float(2.5));
+    options
+        .params
+        .insert("intercept".to_string(), LabelParamValue::Int(7));
+
+    let label = engine()
+        .compile("$y = #slope x + #intercept$", &options)
+        .unwrap();
+
+    assert!(label.metrics.width > 0.0);
+    assert!(label.metrics.height > 0.0);
+    assert!(label.flags.has_math);
+    assert!(label.flags.has_markup);
+}
+
+#[test]
+fn compile_errors_for_non_scalar_math_param() {
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "items".to_string(),
+        LabelParamValue::Array(vec![LabelParamValue::Int(1)]),
+    );
+
+    let err = engine().compile("$#items$", &options).unwrap_err();
+
+    assert_eq!(
+        err,
+        LabelError::UnsupportedSyntax {
+            position: 1,
+            message: "label parameter value cannot be rendered as math"
+        }
+    );
+}
+
+#[test]
+fn math_names_stay_in_math_namespace_when_params_exist() {
+    let engine = engine();
+    let source = "$alpha + frac(1, 2) + sqrt(x) + bold(x)$";
+    let baseline = engine.compile(source, &LabelOptions::default()).unwrap();
+
+    let mut options = LabelOptions::default();
+    for name in ["alpha", "frac", "sqrt", "bold"] {
+        options
+            .params
+            .insert(name.to_string(), LabelParamValue::Str("param".to_string()));
+    }
+
+    let with_params = engine.compile(source, &options).unwrap();
+
+    assert_metrics_close(with_params.metrics.width, baseline.metrics.width);
+    assert_metrics_close(with_params.metrics.height, baseline.metrics.height);
+    assert_metrics_close(with_params.metrics.baseline, baseline.metrics.baseline);
+}
+
+#[test]
 fn compile_resolves_stroke_paint_param() {
     let mut options = LabelOptions::default();
     options.params.insert(
