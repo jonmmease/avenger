@@ -1,13 +1,15 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MathAttachmentMode {
     Scripts,
+    DisplayLimits,
     Limits,
 }
 
 impl MathAttachmentMode {
     fn from_call_name(name: &str) -> Option<Self> {
         match name {
-            "scripts" | "limits_display" => Some(Self::Scripts),
+            "scripts" | "op" => Some(Self::Scripts),
+            "limits_display" | "op_limits" => Some(Self::DisplayLimits),
             "limits" => Some(Self::Limits),
             _ => None,
         }
@@ -15,21 +17,98 @@ impl MathAttachmentMode {
 
     fn explicit_from_base_node(node: &MathNode) -> Option<Self> {
         if let MathNode::Call(call) = node {
-            Self::from_call_name(&call.name)
+            Self::from_call_name(&call.name).or_else(|| {
+                MathSizeCall::from_name(&call.name)
+                    .and_then(|_| only_arg_node(call))
+                    .and_then(Self::explicit_from_base_node)
+            })
         } else {
             None
         }
     }
 
-    fn default_for_base(base: &LaidOutMathAtom) -> Self {
+    fn default_for_base(base: &LaidOutMathAtom, math_size: MathLayoutSize) -> Self {
         if base.left_class == SimpleMathClass::Relation
             && base.right_class == SimpleMathClass::Relation
+        {
+            Self::Limits
+        } else if base.left_class == SimpleMathClass::Large
+            && base.right_class == SimpleMathClass::Large
+            && default_large_operator_uses_display_limits(base)
+            && math_size.is_display()
         {
             Self::Limits
         } else {
             Self::Scripts
         }
     }
+
+    fn resolve(self, math_size: MathLayoutSize) -> Self {
+        match self {
+            Self::DisplayLimits if math_size.is_display() => Self::Limits,
+            Self::DisplayLimits => Self::Scripts,
+            mode => mode,
+        }
+    }
+}
+
+fn only_arg_node(call: &ast::MathCall) -> Option<&MathNode> {
+    let [arg] = &call.args[..] else {
+        return None;
+    };
+    let [node] = &arg.nodes[..] else {
+        return None;
+    };
+    Some(node)
+}
+
+fn base_math_size_context(node: &MathNode, current: MathLayoutSize) -> MathLayoutSize {
+    let MathNode::Call(call) = node else {
+        return current;
+    };
+    let Some(size) = MathSizeCall::from_name(&call.name) else {
+        return current;
+    };
+    match size {
+        MathSizeCall::Display => MathLayoutSize::Display,
+        MathSizeCall::Inline => MathLayoutSize::Text,
+        MathSizeCall::Script => MathLayoutSize::Script,
+        MathSizeCall::ScriptScript => MathLayoutSize::ScriptScript,
+    }
+}
+
+fn default_large_operator_uses_display_limits(base: &LaidOutMathAtom) -> bool {
+    let text = base
+        .glyphs
+        .iter()
+        .map(|glyph| glyph.unicode.as_str())
+        .collect::<String>();
+    if text.is_empty() || is_integral_operator_text(&text) {
+        return false;
+    }
+    text.chars().count() == 1 || text_operator_uses_display_limits(&text)
+}
+
+fn is_integral_operator_text(text: &str) -> bool {
+    text.chars()
+        .any(|ch| ('∫'..='∳').contains(&ch) || ('⨋'..='⨜').contains(&ch))
+}
+
+fn text_operator_uses_display_limits(text: &str) -> bool {
+    matches!(
+        text,
+        "det"
+            | "gcd"
+            | "lcm"
+            | "inf"
+            | "lim"
+            | "lim\u{2009}inf"
+            | "lim\u{2009}sup"
+            | "max"
+            | "min"
+            | "Pr"
+            | "sup"
+    )
 }
 
 fn layout_simple_attachment_mode_call(
@@ -71,8 +150,10 @@ fn layout_simple_attach(
     else {
         return Ok(None);
     };
+    let base_math_size = base_math_size_context(&attach.base, math_size);
     let mode = MathAttachmentMode::explicit_from_base_node(&attach.base)
-        .unwrap_or_else(|| MathAttachmentMode::default_for_base(&base));
+        .unwrap_or_else(|| MathAttachmentMode::default_for_base(&base, base_math_size))
+        .resolve(base_math_size);
     let (script_font_size, script_level, script_math_size) =
         math_size.child_context(math_size.script_child(), font, font_size, script_level)?;
     let slots = layout_attach_slots(
@@ -113,8 +194,10 @@ fn layout_simple_attach_with_bottom_continuation(
     else {
         return Ok(None);
     };
+    let base_math_size = base_math_size_context(&attach.base, math_size);
     let mode = MathAttachmentMode::explicit_from_base_node(&attach.base)
-        .unwrap_or_else(|| MathAttachmentMode::default_for_base(&base));
+        .unwrap_or_else(|| MathAttachmentMode::default_for_base(&base, base_math_size))
+        .resolve(base_math_size);
     let (script_font_size, script_level, script_math_size) =
         math_size.child_context(math_size.script_child(), font, font_size, script_level)?;
     let mut slots = layout_attach_slots(
@@ -282,7 +365,7 @@ fn layout_simple_attach_parts(
     mode: MathAttachmentMode,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     match mode {
-        MathAttachmentMode::Scripts => {
+        MathAttachmentMode::Scripts | MathAttachmentMode::DisplayLimits => {
             layout_simple_script_attach_parts(font, font_size, base, slots)
         }
         MathAttachmentMode::Limits => {
@@ -703,12 +786,22 @@ fn compute_limit_shifts(
     let upper_gap_min = math_constant(font, font_size, |constants| {
         constants.upper_limit_gap_min().value
     })?;
+    let upper_rise_min = math_constant(font, font_size, |constants| {
+        constants.upper_limit_baseline_rise_min().value
+    })?;
     let lower_gap_min = math_constant(font, font_size, |constants| {
         constants.lower_limit_gap_min().value
     })?;
+    let lower_drop_min = math_constant(font, font_size, |constants| {
+        constants.lower_limit_baseline_drop_min().value
+    })?;
 
-    let upper_shift = top.map_or(0.0, |top| base.ink_ascent + upper_gap_min + top.ink_descent);
-    let lower_shift = bottom.map_or(0.0, |_| base.ink_descent + lower_gap_min);
+    let upper_shift = top.map_or(0.0, |top| {
+        base.ink_ascent + upper_rise_min.max(upper_gap_min + top.ink_descent)
+    });
+    let lower_shift = bottom.map_or(0.0, |bottom| {
+        base.ink_descent + lower_drop_min.max(lower_gap_min + bottom.ink_ascent)
+    });
     Ok((upper_shift, lower_shift))
 }
 
@@ -827,6 +920,21 @@ fn math_constant(
     constant: impl FnOnce(ttf_parser::math::Constants<'_>) -> i16,
 ) -> Result<f32, LabelError> {
     let face = parse_math_face(font, "math constants")?;
+    let value = face
+        .tables()
+        .math
+        .and_then(|math| math.constants)
+        .map(constant)
+        .unwrap_or_default();
+    Ok(value as f32 * font_size / face.units_per_em() as f32)
+}
+
+fn math_unsigned_constant(
+    font: &MathFont,
+    font_size: f32,
+    constant: impl FnOnce(ttf_parser::math::Constants<'_>) -> u16,
+) -> Result<f32, LabelError> {
+    let face = parse_math_face(font, "math unsigned constants")?;
     let value = face
         .tables()
         .math

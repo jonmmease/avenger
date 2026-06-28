@@ -86,6 +86,9 @@ requires `../typst`; fixture operation and failure artifacts are documented in
 - `src/label` owns the public API and is intentionally not upstream-shaped.
 - Math matrices, cases, vectors, multiline math, and general scripting are out
   of scope.
+- Block display equations are out of scope. Explicit display-style math inside
+  a single-line label, such as `$display(sum_(i=0)^n)$`, is retained and should
+  follow upstream large-operator variant and limit-placement behavior.
 - Text and math parameters are read-only external values, not Typst variables
   from `#let`.
 - SVG/PDF/raster lowerers expose Avenger artifact structs instead of upstream

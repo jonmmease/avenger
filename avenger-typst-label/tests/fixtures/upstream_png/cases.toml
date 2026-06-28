@@ -179,6 +179,18 @@ pixel_tolerance = 14
 min_similarity = 0.60
 
 [[case]]
+id = "math-display-limits"
+upstream_file = "../../typst/tests/suite/math/attach.typ"
+upstream_test = "math-attach-large-operator/math-attach-integral reduced"
+source = "math-display-limits.typ"
+font_size = 20.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+pixel_tolerance = 14
+min_similarity = 0.60
+
+[[case]]
 id = "math-op-predefined-custom"
 upstream_file = "../../typst/tests/suite/math/op.typ"
 upstream_test = "math-op-predefined/custom reduced"

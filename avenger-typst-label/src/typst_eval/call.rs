@@ -829,6 +829,7 @@ fn lower_math_size_call_args<'a>(
     let source = ctx.source();
     let offset = ctx.offset();
     let mut body = None;
+    let mut saw_named = false;
     for item in args.arg_items() {
         if item.ends_in_semicolon {
             return Err(unsupported(
@@ -851,6 +852,7 @@ fn lower_math_size_call_args<'a>(
                 });
             }
             typst_ast::Arg::Named(named) => {
+                saw_named = true;
                 if named.name().as_str() != "cramped" {
                     return Err(unsupported(
                         named_argument_position(named, source, offset),
@@ -871,6 +873,17 @@ fn lower_math_size_call_args<'a>(
                 ));
             }
         }
+    }
+    if !saw_named {
+        let byte_range = offset_range(args.to_untyped().range(), offset);
+        let nodes = lower_math_args_as_group_body(args, ctx)?;
+        if nodes.is_empty() {
+            return Err(unsupported(
+                position,
+                "math size call expects one body argument",
+            ));
+        }
+        return Ok(vec![MathArg { nodes, byte_range }]);
     }
     body.map(|body| vec![body])
         .ok_or_else(|| unsupported(position, "math size call expects one body argument"))

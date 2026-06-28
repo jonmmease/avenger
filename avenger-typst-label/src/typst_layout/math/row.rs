@@ -123,6 +123,8 @@ fn layout_simple_nodes_as_atom_with_context(
     let mut laid_out_atoms = Vec::new();
     let mut previous = None;
     let mut has_material = false;
+    let mut row_left_class = None;
+    let mut row_right_class = None;
 
     let mut items = items.into_iter().peekable();
     while let Some(item) = items.next() {
@@ -154,6 +156,7 @@ fn layout_simple_nodes_as_atom_with_context(
                     atom.right_class = left_class;
                 }
                 atom.left_class = left_class;
+                row_left_class.get_or_insert(atom.left_class);
                 offset_atom(&mut atom, metrics.width, 0.0);
                 metrics.width += atom.metrics.width;
                 metrics.ascent = metrics.ascent.max(atom.metrics.ascent);
@@ -161,6 +164,7 @@ fn layout_simple_nodes_as_atom_with_context(
                 metrics.height = metrics.ascent + metrics.descent;
                 metrics.baseline = metrics.ascent;
                 previous = Some(atom.right_class);
+                row_right_class = Some(atom.right_class);
                 has_material = true;
                 laid_out_atoms.push(atom);
             }
@@ -186,8 +190,8 @@ fn layout_simple_nodes_as_atom_with_context(
         metrics,
         ink_ascent,
         ink_descent,
-        left_class: SimpleMathClass::Normal,
-        right_class: SimpleMathClass::Normal,
+        left_class: row_left_class.unwrap_or(SimpleMathClass::Normal),
+        right_class: row_right_class.unwrap_or(SimpleMathClass::Normal),
         italic_correction: 0.0,
         script_kernable: true,
         glyphs,
@@ -256,7 +260,7 @@ fn layout_simple_node_with_mid_target(
     math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if let Some(atom) = simple_atom(node) {
-        let layout = if atom.text_operator {
+        let mut layout = if atom.text_operator {
             layout_operator_atom(font, &atom.styled_text, font_size, script_level)?
         } else {
             layout_styled_atom_with_class(
@@ -267,6 +271,9 @@ fn layout_simple_node_with_mid_target(
                 atom.class,
             )?
         };
+        if atom.class == SimpleMathClass::Large && math_size.is_display() {
+            stretch_display_large_operator(font, &mut layout, font_size)?;
+        }
         return Ok(Some(layout));
     }
 
@@ -384,6 +391,26 @@ fn layout_simple_node_with_mid_target(
     }
 
     Ok(None)
+}
+
+fn stretch_display_large_operator(
+    font: &MathFont,
+    atom: &mut LaidOutMathAtom,
+    font_size: f32,
+) -> Result<(), LabelError> {
+    let target = math_unsigned_constant(font, font_size, |constants| {
+        constants.display_operator_min_height()
+    })?;
+    let _ = stretch_single_glyph_variant(
+        font,
+        atom,
+        MathStretchAxis::Vertical,
+        target,
+        0.0,
+        false,
+        "display operator variants",
+    )?;
+    Ok(())
 }
 
 fn layout_simple_class_call(

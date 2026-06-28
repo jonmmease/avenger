@@ -128,7 +128,8 @@ mod tests {
         let font_size = 20.0;
         let limits = parse_math("limits(A)_1^2", 0).unwrap();
         let scripts = parse_math("scripts(A)_1^2", 0).unwrap();
-        let display_limits = parse_math("limits(A, inline: #false)_1^2", 0).unwrap();
+        let inline_display_only = parse_math("limits(A, inline: #false)_1^2", 0).unwrap();
+        let display_limits = parse_math("display(limits(A, inline: #false))_1^2", 0).unwrap();
 
         let limits_metrics = layout_simple_row(&font, &limits, font_size)
             .unwrap()
@@ -138,9 +139,13 @@ mod tests {
             .unwrap()
             .expect("scripts row should layout")
             .metrics;
+        let inline_display_only_metrics = layout_simple_row(&font, &inline_display_only, font_size)
+            .unwrap()
+            .expect("inline display-only limits row should layout")
+            .metrics;
         let display_limits_metrics = layout_simple_row(&font, &display_limits, font_size)
             .unwrap()
-            .expect("display-only limits row should layout as scripts in labels")
+            .expect("explicit display-only limits row should layout")
             .metrics;
 
         assert!(
@@ -152,8 +157,60 @@ mod tests {
             "forced limits should center top/bottom attachments instead of widening side scripts"
         );
         assert!(
-            (display_limits_metrics.width - scripts_metrics.width).abs() < font_size * 0.05,
-            "display-only limits should use side scripts in Avenger's inline label context"
+            (inline_display_only_metrics.width - scripts_metrics.width).abs() < font_size * 0.05,
+            "display-only limits should use side scripts in inline math context"
+        );
+        assert!(
+            display_limits_metrics.height > scripts_metrics.height + font_size * 0.4,
+            "display-only limits should stack in explicit display math context"
+        );
+        assert!(
+            display_limits_metrics.width < scripts_metrics.width,
+            "display-only limits should center attachments in explicit display math context"
+        );
+    }
+
+    #[test]
+    fn simple_row_display_large_operator_defaults_to_limits() {
+        let config = EngineOptions::default();
+        let font =
+            load_default_math_font(&config, &MathFontSpec::LeteSansMath, &FontWeight::Normal)
+                .expect("default math font should load");
+        let font_size = 20.0;
+        let metrics = |source: &str| {
+            let math = parse_math(source, 0).unwrap();
+            layout_simple_row(&font, &math, font_size)
+                .unwrap()
+                .unwrap_or_else(|| panic!("{source} should layout"))
+                .metrics
+        };
+
+        let inline_sum = metrics("sum_(i=0)^n");
+        let display_sum = metrics("display(sum_(i=0)^n)");
+        let forced_sum_scripts = metrics("scripts(display(sum))_(i=0)^n");
+        let inline_integral = metrics("integral_a^b");
+        let display_integral = metrics("display(integral_a^b)");
+        let forced_integral_limits = metrics("display(limits(integral))_a^b");
+
+        assert!(
+            display_sum.height > inline_sum.height + font_size * 0.35,
+            "display-style sum should stack limits by default"
+        );
+        assert!(
+            display_sum.width < inline_sum.width,
+            "display-style sum limits should avoid side-script widening"
+        );
+        assert!(
+            forced_sum_scripts.width > display_sum.width + font_size * 0.2,
+            "scripts(...) should force side scripts even around display-style sum"
+        );
+        assert!(
+            display_integral.width > forced_integral_limits.width + font_size * 0.1,
+            "display-style integral should keep side scripts by default"
+        );
+        assert!(
+            display_integral.height > inline_integral.height,
+            "display-style integral should still use a display-sized glyph"
         );
     }
 

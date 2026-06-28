@@ -225,13 +225,13 @@ fn lower_math_expr(
                 .top()
                 .map(|expr| lower_script_expr(expr, source, offset, params))
                 .transpose()?
-                .map(|(script, continuation)| (Some(vec![script]), continuation))
+                .map(|(script, continuation)| (Some(script), continuation))
                 .unwrap_or((None, Vec::new()));
             let (bottom, bottom_continuation) = attach
                 .bottom()
                 .map(|expr| lower_script_expr(expr, source, offset, params))
                 .transpose()?
-                .map(|(script, continuation)| (Some(vec![script]), continuation))
+                .map(|(script, continuation)| (Some(script), continuation))
                 .unwrap_or((None, Vec::new()));
             continuation.extend(bottom_continuation);
             let primes = attach.primes().map_or(0, |primes| primes.count());
@@ -457,8 +457,20 @@ fn lower_script_expr(
     source: &str,
     offset: usize,
     params: &LabelParams,
-) -> Result<(MathNode, Vec<MathNode>), LabelError> {
+) -> Result<(Vec<MathNode>, Vec<MathNode>), LabelError> {
     let range = expr.to_untyped().range();
+    if script_expr_is_parenthesized_group(source, range.clone()) {
+        let mut nodes = lower_math_expr(expr, source, offset, params)?;
+        nodes.retain(|node| !matches!(node, MathNode::Space(_)));
+        if nodes.is_empty() {
+            return Err(unsupported(
+                range.start + offset,
+                "math script expects an expression",
+            ));
+        }
+        return Ok((nodes, Vec::new()));
+    }
+
     let mut nodes = lower_math_expr(expr, source, offset, params)?;
     nodes.retain(|node| !matches!(node, MathNode::Space(_)));
     if nodes.is_empty() {
@@ -468,7 +480,16 @@ fn lower_script_expr(
         ));
     }
     let script = nodes.remove(0);
-    Ok((script, nodes))
+    Ok((vec![script], nodes))
+}
+
+fn script_expr_is_parenthesized_group(source: &str, range: std::ops::Range<usize>) -> bool {
+    let text = &source[range.clone()];
+    (text.starts_with('(') && text.ends_with(')'))
+        || (range.start > 0
+            && range.end < source.len()
+            && source[..range.start].chars().next_back() == Some('(')
+            && source[range.end..].chars().next() == Some(')'))
 }
 
 fn last_node_byte_range(nodes: &[MathNode]) -> Option<std::ops::Range<usize>> {
@@ -1202,6 +1223,28 @@ mod tests {
             MathNode::Attach(attach)
                 if matches!(attach.base.as_ref(), MathNode::Call(call) if call.name == "scripts" && call.args.len() == 1)
         ));
+    }
+
+    #[test]
+    fn parses_parenthesized_script_as_one_script_body() {
+        let grouped = parse("sum_(i=0)^n");
+        let [MathNode::Attach(grouped_attach)] = &grouped.nodes[..] else {
+            panic!("grouped sum script should lower to one attachment");
+        };
+        assert_eq!(grouped_attach.bottom.as_ref().map(Vec::len), Some(3));
+
+        let ungrouped = parse("sum_i=0");
+        let [
+            MathNode::Attach(ungrouped_attach),
+            MathNode::Operator(operator),
+            MathNode::Text(number),
+        ] = &ungrouped.nodes[..]
+        else {
+            panic!("ungrouped script continuation should remain outside the attachment");
+        };
+        assert_eq!(ungrouped_attach.bottom.as_ref().map(Vec::len), Some(1));
+        assert_eq!(operator.operator, "=");
+        assert_eq!(number.text, "0");
     }
 
     #[test]

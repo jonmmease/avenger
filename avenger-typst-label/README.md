@@ -24,6 +24,9 @@ The crate keeps the parts of Typst that are useful for compact labels:
   grouping, shorthand symbols, string literals, scripts, primes, fractions,
   roots, binomial-style calls, accents, cancellation, common functions, and
   operator-sized constructs such as sums.
+- Explicit math size calls such as `display(...)` inside a single-line math
+  label, including display-style large operator variants and Typst's default
+  limit placement rules.
 - A small text-markup subset outside math, including case transforms,
   underline/overline/strike options, sub/super, smallcaps, emph/strong, raw
   inline text, symbols, and named emoji aliases such as `#emoji.face`.
@@ -44,6 +47,8 @@ The crate intentionally excludes full Typst document features:
 - No public Typst `SyntaxNode`, content, element, style-chain, or frame tree.
 - No page layout, paragraphs, wrapping, justification, tables, matrices, or
   multiline math.
+- No block display equations; display-style math is supported only as an
+  explicit single-line math call such as `$display(sum_(i=0)^n)$`.
 - No general Typst SVG/PDF/render backends.
 - No compatibility promise for unsupported Typst syntax beyond returning clear
   errors.
