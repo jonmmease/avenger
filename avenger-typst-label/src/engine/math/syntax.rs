@@ -9,8 +9,8 @@ use super::ast::{
     MathStretchSize, MathStringLiteral, MathText, MathTextKind,
 };
 
-use crate::syntax::ast::{self as typst_ast, AstNode, Unit};
-use crate::syntax::{
+use crate::typst_syntax::ast::{self as typst_ast, AstNode, Unit};
+use crate::typst_syntax::{
     RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
 };
 
@@ -33,7 +33,7 @@ pub(crate) fn parse_math_with_params(
             "multi-line math is not supported in Avenger Typst subset",
         ));
     }
-    let mut root = crate::syntax::parse_math(source);
+    let mut root = crate::typst_syntax::parse_math(source);
     synthesize_ranges(&mut root, source.len(), offset)?;
     reject_syntax_errors(&root, offset)?;
     let math = root
@@ -1768,7 +1768,7 @@ fn synthesize_ranges(
         })
 }
 
-fn scratch_file_id() -> crate::syntax::FileId {
+fn scratch_file_id() -> crate::typst_syntax::FileId {
     RootedPath::new(
         VirtualRoot::Project,
         VirtualPath::new("avenger-typst-label-math.typ").expect("static virtual path is valid"),

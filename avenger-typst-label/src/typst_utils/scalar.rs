@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::iter::Sum;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
-use crate::utils::Numeric;
+use crate::typst_utils::Numeric;
 
 /// A 64-bit float that implements `Eq`, `Ord` and `Hash`.
 ///

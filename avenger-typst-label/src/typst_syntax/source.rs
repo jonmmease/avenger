@@ -4,11 +4,11 @@ use std::fmt::{self, Debug, Formatter};
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::utils::LazyHash;
+use crate::typst_utils::LazyHash;
 
-use crate::syntax::lines::Lines;
-use crate::syntax::reparser::reparse;
-use crate::syntax::{
+use crate::typst_syntax::lines::Lines;
+use crate::typst_syntax::reparser::reparse;
+use crate::typst_syntax::{
     FileId, LinkedNode, RootedPath, Span, SpanNumber, SubRange, SyntaxNode, VirtualPath,
     VirtualRoot, parse,
 };
@@ -34,7 +34,7 @@ struct SourceInner {
 impl Source {
     /// Create a new source file.
     pub fn new(id: FileId, text: String) -> Self {
-        let _scope = crate::timing::TimingScope::new("create source");
+        let _scope = crate::typst_timing::TimingScope::new("create source");
         let mut root = parse(&text);
         root.numberize(id, Span::FULL).unwrap();
         Self(Arc::new(LazyHash::new(SourceInner {
@@ -90,7 +90,7 @@ impl Source {
     ///
     /// Returns the range in the new source that was ultimately reparsed.
     pub fn replace(&mut self, new: &str) -> Range<usize> {
-        let _scope = crate::timing::TimingScope::new("replace source");
+        let _scope = crate::typst_timing::TimingScope::new("replace source");
 
         let Some((prefix, suffix)) = self.0.lines.replacement_range(new) else {
             return 0..0;
@@ -160,14 +160,14 @@ impl AsRef<str> for Source {
 #[cfg(test)]
 mod test {
     use super::Source;
-    use crate::syntax::{LinkedNode, Side, Span, SubRange};
+    use crate::typst_syntax::{LinkedNode, Side, Span, SubRange};
 
     #[test]
     fn test_source_sub_ranges() {
         let text = "= head <label>";
         let source = Source::detached(text);
         let get = |span: Span, sub_range| {
-            let num = crate::syntax::SpanNumber(span.number());
+            let num = crate::typst_syntax::SpanNumber(span.number());
             &text[source.range(num, sub_range).unwrap()]
         };
         let head = LinkedNode::new(source.root())

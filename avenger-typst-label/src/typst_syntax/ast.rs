@@ -94,12 +94,12 @@ use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::utils::NonZeroExt;
+use crate::typst_utils::NonZeroExt;
 use ecow::EcoString;
 use unscanny::Scanner;
 
-use crate::syntax::package::PackageSpec;
-use crate::syntax::{Span, SyntaxKind, SyntaxNode, is_ident, is_newline};
+use crate::typst_syntax::package::PackageSpec;
+use crate::typst_syntax::{Span, SyntaxKind, SyntaxNode, is_ident, is_newline};
 
 /// A typed AST node.
 pub trait AstNode<'a>: Sized {

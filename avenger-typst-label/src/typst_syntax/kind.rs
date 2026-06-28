@@ -1,4 +1,4 @@
-use crate::syntax::SyntaxMode;
+use crate::typst_syntax::SyntaxMode;
 
 /// A syntactical building block of a Typst file.
 ///
@@ -558,7 +558,7 @@ impl SyntaxKind {
     /// How to determine the [`SyntaxMode`] we will be in when immediately after
     /// a node of this kind.
     ///
-    /// The high-level interface for this is [`crate::syntax::LinkedNode::mode_after`].
+    /// The high-level interface for this is [`crate::typst_syntax::LinkedNode::mode_after`].
     pub(crate) fn mode_after(self) -> ModeAfter {
         use ModeAfter::*;
         use SyntaxMode::{Code, Markup, Math};
@@ -720,7 +720,7 @@ impl SyntaxKind {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::syntax::{LinkedNode, Side, Source};
+    use crate::typst_syntax::{LinkedNode, Side, Source};
 
     #[track_caller]
     fn test_mode(

@@ -3,7 +3,7 @@ use std::iter::zip;
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::syntax::is_newline;
+use crate::typst_syntax::is_newline;
 
 /// A text buffer and metadata about lines.
 ///

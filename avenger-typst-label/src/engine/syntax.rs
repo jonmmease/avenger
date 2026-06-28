@@ -13,8 +13,8 @@ use super::ast::{
 };
 use super::math::syntax::named_math_symbol;
 
-use crate::syntax::ast::{self as typst_ast, AstNode};
-use crate::syntax::{
+use crate::typst_syntax::ast::{self as typst_ast, AstNode};
+use crate::typst_syntax::{
     RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
 };
 
@@ -27,7 +27,7 @@ pub(crate) fn parse_line_with_params(
     source: &str,
     params: &LabelParams,
 ) -> Result<ParsedLine, LabelError> {
-    let mut root = crate::syntax::parse(source);
+    let mut root = crate::typst_syntax::parse(source);
     synthesize_ranges(&mut root, source.len())?;
     reject_syntax_errors(&root)?;
     let markup = root
@@ -1311,7 +1311,7 @@ fn synthesize_ranges(root: &mut SyntaxNode, source_len: usize) -> Result<(), Lab
         })
 }
 
-fn scratch_file_id() -> crate::syntax::FileId {
+fn scratch_file_id() -> crate::typst_syntax::FileId {
     RootedPath::new(
         VirtualRoot::Project,
         VirtualPath::new("avenger-typst-label-line.typ").expect("static virtual path is valid"),

@@ -34,11 +34,11 @@ use serde::{Serialize, Serializer};
 #[macro_export]
 macro_rules! timed {
     ($name:expr, span = $span:expr, $body:expr $(,)?) => {{
-        let __scope = $crate::timing::TimingScope::with_span($name, Some($span));
+        let __scope = $crate::typst_timing::TimingScope::with_span($name, Some($span));
         $body
     }};
     ($name:expr, $body:expr $(,)?) => {{
-        let __scope = $crate::timing::TimingScope::new($name);
+        let __scope = $crate::typst_timing::TimingScope::new($name);
         $body
     }};
 }

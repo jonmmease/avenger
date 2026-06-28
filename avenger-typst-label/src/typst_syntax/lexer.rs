@@ -1,6 +1,6 @@
 use std::num::IntErrorKind;
 
-use crate::utils::default_math_class;
+use crate::typst_utils::default_math_class;
 use ecow::{EcoString, EcoVec, eco_format, eco_vec};
 use unicode_ident::{is_xid_continue, is_xid_start};
 use unicode_math_class::MathClass;
@@ -8,7 +8,7 @@ use unicode_script::{Script, UnicodeScript};
 use unicode_segmentation::UnicodeSegmentation;
 use unscanny::Scanner;
 
-use crate::syntax::{SyntaxKind, SyntaxMode, SyntaxNode};
+use crate::typst_syntax::{SyntaxKind, SyntaxMode, SyntaxNode};
 
 /// An iterator over a source code string which returns tokens.
 #[derive(Clone)]

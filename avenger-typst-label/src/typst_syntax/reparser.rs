@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::syntax::{
+use crate::typst_syntax::{
     Span, SyntaxKind, SyntaxNode, is_newline, parse, reparse_block, reparse_markup,
 };
 
@@ -11,7 +11,7 @@ use crate::syntax::{
 /// ultimately reparsed.
 ///
 /// The high-level API for this function is
-/// [`Source::edit`](crate::syntax::Source::edit).
+/// [`Source::edit`](crate::typst_syntax::Source::edit).
 pub fn reparse(
     root: &mut SyntaxNode,
     text: &str,
@@ -296,7 +296,7 @@ fn next_nesting(node: &SyntaxNode, nesting: &mut usize) {
 mod tests {
     use std::ops::Range;
 
-    use crate::syntax::{Source, Span, parse};
+    use crate::typst_syntax::{Source, Span, parse};
 
     /// How to replace text in the test string.
     enum Edit {

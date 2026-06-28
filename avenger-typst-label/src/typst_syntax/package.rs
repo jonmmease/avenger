@@ -9,7 +9,7 @@ use serde::de::IgnoredAny;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use unscanny::Scanner;
 
-use crate::syntax::is_ident;
+use crate::typst_syntax::is_ident;
 
 /// A type alias for a map of key-value pairs used to collect unknown fields
 /// where values are completely discarded.
@@ -370,7 +370,7 @@ pub struct PackageVersion {
 impl PackageVersion {
     /// The current compiler version.
     pub fn compiler() -> Self {
-        let typst_version = crate::utils::version();
+        let typst_version = crate::typst_utils::version();
         Self {
             major: typst_version.major(),
             minor: typst_version.minor(),

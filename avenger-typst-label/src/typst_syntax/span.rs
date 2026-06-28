@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use ecow::{EcoString, eco_format};
 
-use crate::syntax::FileId;
+use crate::typst_syntax::FileId;
 
 /// Defines a range of text in a Typst source file.
 ///
@@ -62,11 +62,11 @@ use crate::syntax::FileId;
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct Span(NonZeroU64);
 
-/// The unique number of a span within its [`Source`](crate::syntax::Source). Known to
+/// The unique number of a span within its [`Source`](crate::typst_syntax::Source). Known to
 /// be within the range of `Span::FULL`.
 ///
 /// This is mainly used externally as an input to the
-/// [`Source::range`](crate::syntax::Source::range) method for efficiently finding the
+/// [`Source::range`](crate::typst_syntax::Source::range) method for efficiently finding the
 /// byte range of a span.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct SpanNumber(pub(crate) u64);
@@ -166,7 +166,7 @@ impl Span {
         }
     }
 
-    /// The unique number of the span within its [`Source`](crate::syntax::Source).
+    /// The unique number of the span within its [`Source`](crate::typst_syntax::Source).
     pub(crate) const fn number(self) -> u64 {
         self.0.get() & Self::NUMBER_MASK
     }

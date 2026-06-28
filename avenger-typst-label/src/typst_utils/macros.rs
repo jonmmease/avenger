@@ -70,6 +70,6 @@ macro_rules! assign_impl {
 #[macro_export]
 macro_rules! display {
     ($($arg:tt)*) => {
-        $crate::utils::display(|f| write!(f, $($arg)*))
+        $crate::typst_utils::display(|f| write!(f, $($arg)*))
     };
 }

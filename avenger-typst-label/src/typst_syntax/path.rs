@@ -11,7 +11,7 @@ use std::sync::{LazyLock, RwLock};
 use ecow::{EcoString, eco_format};
 use rustc_hash::FxHashMap;
 
-use crate::syntax::package::PackageSpec;
+use crate::typst_syntax::package::PackageSpec;
 
 /// A path in a specific virtual file system root.
 ///

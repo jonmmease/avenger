@@ -2,7 +2,7 @@
 // Based on rust-analyzer's `TokenSet`.
 // https://github.com/rust-lang/rust-analyzer/blob/master/crates/parser/src/token_set.rs
 
-use crate::syntax::SyntaxKind;
+use crate::typst_syntax::SyntaxKind;
 
 /// A set of syntax kinds.
 #[derive(Default, Copy, Clone)]
@@ -50,8 +50,8 @@ const fn bit(kind: SyntaxKind) -> u128 {
 /// Generate a compile-time constant `SyntaxSet` of the given kinds.
 macro_rules! syntax_set {
     ($($kind:ident),* $(,)?) => {{
-        const SET: crate::syntax::set::SyntaxSet = crate::syntax::set::SyntaxSet::new()
-            $(.add(crate::syntax::SyntaxKind:: $kind))*;
+        const SET: crate::typst_syntax::set::SyntaxSet = crate::typst_syntax::set::SyntaxSet::new()
+            $(.add(crate::typst_syntax::SyntaxKind:: $kind))*;
         SET
     }}
 }

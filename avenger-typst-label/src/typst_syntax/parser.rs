@@ -1,20 +1,20 @@
 use std::mem;
 use std::ops::{DerefMut, Index, IndexMut, Range};
 
-use crate::utils::{default_math_class, defer};
+use crate::typst_utils::{default_math_class, defer};
 use ecow::{EcoString, eco_format};
 use rustc_hash::{FxHashMap, FxHashSet};
 use unicode_math_class::MathClass;
 
-use crate::syntax::set::{SyntaxSet, syntax_set};
-use crate::syntax::{Lexer, SyntaxKind, SyntaxMode, SyntaxNode, ast, set};
+use crate::typst_syntax::set::{SyntaxSet, syntax_set};
+use crate::typst_syntax::{Lexer, SyntaxKind, SyntaxMode, SyntaxNode, ast, set};
 
 // Picked by gut feeling.
 const MAX_DEPTH: u32 = 256;
 
 /// Parses a source file as top-level markup.
 pub fn parse(text: &str) -> SyntaxNode {
-    let _scope = crate::timing::TimingScope::new("parse");
+    let _scope = crate::typst_timing::TimingScope::new("parse");
     let mut p = Parser::new(text, 0, SyntaxMode::Markup);
     markup_exprs(&mut p, true, syntax_set!(End));
     p.finish_into(SyntaxKind::Markup)
@@ -22,7 +22,7 @@ pub fn parse(text: &str) -> SyntaxNode {
 
 /// Parses top-level code.
 pub fn parse_code(text: &str) -> SyntaxNode {
-    let _scope = crate::timing::TimingScope::new("parse code");
+    let _scope = crate::typst_timing::TimingScope::new("parse code");
     let mut p = Parser::new(text, 0, SyntaxMode::Code);
     code_exprs(&mut p, syntax_set!(End));
     p.finish_into(SyntaxKind::Code)
@@ -30,7 +30,7 @@ pub fn parse_code(text: &str) -> SyntaxNode {
 
 /// Parses top-level math.
 pub fn parse_math(text: &str) -> SyntaxNode {
-    let _scope = crate::timing::TimingScope::new("parse math");
+    let _scope = crate::typst_timing::TimingScope::new("parse math");
     let mut p = Parser::new(text, 0, SyntaxMode::Math);
     math_exprs(&mut p, syntax_set!(End));
     p.finish_into(SyntaxKind::Math)

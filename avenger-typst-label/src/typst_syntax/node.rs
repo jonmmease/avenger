@@ -4,11 +4,11 @@ use std::ops::{Deref, Range};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::utils::debug;
+use crate::typst_utils::debug;
 use ecow::{EcoString, EcoVec, eco_format, eco_vec};
 
-use crate::syntax::kind::ModeAfter;
-use crate::syntax::{
+use crate::typst_syntax::kind::ModeAfter;
+use crate::typst_syntax::{
     DiagSpan, FileId, RangeMapper, Span, SpanKind, SpanNumber, Spanned, SubRange, SyntaxKind,
     SyntaxMode,
 };
@@ -1499,14 +1499,14 @@ impl std::error::Error for Unnumberable {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::syntax::Source;
+    use crate::typst_syntax::Source;
 
     /// Test the debug output of a `SyntaxNode`.
     #[test]
     fn test_debug() {
         // A standard syntax tree:
         assert_eq!(
-            format!("{:#?}", crate::syntax::parse("= Head <label>")),
+            format!("{:#?}", crate::typst_syntax::parse("= Head <label>")),
             "\
 Markup: 14 [
     Heading: 6 [
@@ -1522,7 +1522,7 @@ Markup: 14 [
         );
         // A basic syntax error:
         assert_eq!(
-            format!("{:#?}", crate::syntax::parse("#")),
+            format!("{:#?}", crate::typst_syntax::parse("#")),
             "\
 Markup: 1 [
     Hash: \"#\",
@@ -1531,7 +1531,7 @@ Markup: 1 [
         );
         // A syntax error with multiple hints:
         assert_eq!(
-            format!("{:#?}", crate::syntax::parse("##")),
+            format!("{:#?}", crate::typst_syntax::parse("##")),
             "\
 Markup: 2 [
     Hash: \"#\",
@@ -1545,7 +1545,7 @@ Markup: 2 [
         );
         // A warning with a hint:
         assert_eq!(
-            format!("{:#?}", crate::syntax::parse("**")),
+            format!("{:#?}", crate::typst_syntax::parse("**")),
             "\
 Markup: 2 [
     Warning: {
@@ -1564,7 +1564,7 @@ Markup: 2 [
     #[test]
     fn test_debug_sub_range() {
         // An example warning for text at a sub-range:
-        let mut root = crate::syntax::parse("= =head");
+        let mut root = crate::typst_syntax::parse("= =head");
         let heading_body = &mut root.children_mut()[0];
         heading_body.warn_at(0..3, "equal space equal!");
         heading_body.hint("try equal equal space?");
@@ -1587,7 +1587,7 @@ Markup: 7 [
         );
 
         // An example for hints at sub-ranges:
-        let mut root = crate::syntax::parse("<unclosed");
+        let mut root = crate::typst_syntax::parse("<unclosed");
         let node = &mut root.children_mut()[0];
         // Hint on the "unclosed label" error:
         node.hint_at(0..1, "greater");

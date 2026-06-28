@@ -14,16 +14,16 @@ mod paths;
 mod pdf;
 mod raster;
 mod style;
-#[allow(dead_code, unused_imports, unused_macros)]
-#[path = "syntax/lib.rs"]
-mod syntax;
-#[allow(dead_code, unused_imports, unused_macros)]
-#[path = "timing/lib.rs"]
-mod timing;
 mod types;
 #[allow(dead_code, unused_imports, unused_macros)]
-#[path = "utils/lib.rs"]
-mod utils;
+#[path = "typst_syntax/lib.rs"]
+mod typst_syntax;
+#[allow(dead_code, unused_imports, unused_macros)]
+#[path = "typst_timing/lib.rs"]
+mod typst_timing;
+#[allow(dead_code, unused_imports, unused_macros)]
+#[path = "typst_utils/lib.rs"]
+mod typst_utils;
 mod warnings;
 
 pub use label::{
