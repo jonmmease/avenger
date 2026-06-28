@@ -55,6 +55,7 @@ fn hello_text_scene() -> SceneGraph {
                 "Fraction: $sqrt(x) / (1 + x^2)$".to_string(),
             ]),
             text_syntax: TextSyntaxMode::TypstMarkup,
+            text_params: avenger_text::LabelParams::default(),
             x: ScalarOrArray::new_array(vec![36.0, 36.0, 36.0]),
             y: ScalarOrArray::new_array(vec![48.0, 104.0, 160.0]),
             defined: ScalarOrArray::new_scalar(true),
