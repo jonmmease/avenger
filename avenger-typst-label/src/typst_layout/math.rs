@@ -4672,7 +4672,7 @@ fn load_default_math_font(
 ) -> Option<MathFont> {
     if matches!(spec, MathFontSpec::LeteSansMath) {
         let target_weight = font_weight_number(weight);
-        let mut bundled = crate::typst_library::font::resources::bundled_math_fonts()
+        let mut bundled = crate::label::fonts::bundled_math_fonts()
             .iter()
             .collect::<Vec<_>>();
         bundled.sort_by_key(|face| {
@@ -4688,7 +4688,7 @@ fn load_default_math_font(
         }
     }
 
-    for path in crate::typst_library::font::resources::candidate_math_font_paths(config) {
+    for path in crate::label::fonts::candidate_math_font_paths(config) {
         let Ok(data) = std::fs::read(path) else {
             continue;
         };

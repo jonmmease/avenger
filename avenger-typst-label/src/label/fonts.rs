@@ -3,8 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 use crate::label::EngineOptions;
-
-use super::FontStyle;
+use crate::typst_library::FontStyle;
 
 pub(crate) struct EmbeddedFontFace {
     family: EmbeddedFontFamily,
@@ -52,7 +51,7 @@ pub(crate) const LATO_FACES: &[EmbeddedFontFace] = &[
         index: 0,
         weight: 300,
         style: FontStyle::Normal,
-        compressed_data: include_bytes!("../../../../avenger-chart/fonts/Lato/Lato-Light.ttf.br"),
+        compressed_data: include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Light.ttf.br"),
     },
     EmbeddedFontFace {
         family: EmbeddedFontFamily::Lato,
@@ -60,7 +59,7 @@ pub(crate) const LATO_FACES: &[EmbeddedFontFace] = &[
         index: 1,
         weight: 400,
         style: FontStyle::Italic,
-        compressed_data: include_bytes!("../../../../avenger-chart/fonts/Lato/Lato-Italic.ttf.br"),
+        compressed_data: include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Italic.ttf.br"),
     },
     EmbeddedFontFace {
         family: EmbeddedFontFamily::Lato,
@@ -68,7 +67,7 @@ pub(crate) const LATO_FACES: &[EmbeddedFontFace] = &[
         index: 2,
         weight: 500,
         style: FontStyle::Normal,
-        compressed_data: include_bytes!("../../../../avenger-chart/fonts/Lato/Lato-Medium.ttf.br"),
+        compressed_data: include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Medium.ttf.br"),
     },
     EmbeddedFontFace {
         family: EmbeddedFontFamily::Lato,
@@ -76,7 +75,7 @@ pub(crate) const LATO_FACES: &[EmbeddedFontFace] = &[
         index: 3,
         weight: 700,
         style: FontStyle::Normal,
-        compressed_data: include_bytes!("../../../../avenger-chart/fonts/Lato/Lato-Bold.ttf.br"),
+        compressed_data: include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Bold.ttf.br"),
     },
 ];
 
@@ -87,7 +86,7 @@ pub(crate) const DEJAVU_SANS_MONO_FACES: &[EmbeddedFontFace] = &[EmbeddedFontFac
     weight: 400,
     style: FontStyle::Normal,
     compressed_data: include_bytes!(
-        "../../../../avenger-chart/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br"
+        "../../../avenger-chart/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br"
     ),
 }];
 
@@ -98,7 +97,7 @@ pub(crate) fn bundled_math_fonts() -> &'static [EmbeddedMathFontFace] {
             index: 0,
             weight: 400,
             compressed_data: include_bytes!(
-                "../../../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath.otf.br"
+                "../../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath.otf.br"
             ),
         },
         EmbeddedMathFontFace {
@@ -106,7 +105,7 @@ pub(crate) fn bundled_math_fonts() -> &'static [EmbeddedMathFontFace] {
             index: 1,
             weight: 700,
             compressed_data: include_bytes!(
-                "../../../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br"
+                "../../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br"
             ),
         },
     ]

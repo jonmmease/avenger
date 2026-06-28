@@ -1,6 +1,6 @@
 use indexmap::IndexSet;
 
-use crate::label::LabelError;
+use crate::label::{LabelError, LabelParamValue, LabelParams};
 use crate::typst_eval::call::{is_retained_markup_name, parse_text_markup_option, text_span_kind};
 use crate::typst_library::text::content::{TextMarkupKind, TextMarkupOptions};
 use crate::typst_syntax::ast::{self as typst_ast, AstNode};
@@ -398,6 +398,48 @@ fn scratch_file_id() -> crate::typst_syntax::FileId {
             .expect("static virtual path is valid"),
     )
     .intern()
+}
+
+pub(crate) fn render_label_param(
+    name: &str,
+    params: &LabelParams,
+    position: usize,
+) -> Result<String, LabelError> {
+    let Some(value) = params.get(name) else {
+        return Err(LabelError::UnsupportedSyntax {
+            position,
+            message: "unknown label parameter",
+        });
+    };
+    label_param_to_text(value, position)
+}
+
+fn label_param_to_text(value: &LabelParamValue, position: usize) -> Result<String, LabelError> {
+    match value {
+        LabelParamValue::None => Ok(String::new()),
+        LabelParamValue::Bool(value) => Ok(value.to_string()),
+        LabelParamValue::Int(value) => Ok(value.to_string()),
+        LabelParamValue::Float(value) if value.is_finite() => Ok(format_f64(*value)),
+        LabelParamValue::Float(_) => Err(LabelError::UnsupportedSyntax {
+            position,
+            message: "non-finite label parameter is not supported",
+        }),
+        LabelParamValue::Str(value) => Ok(value.clone()),
+        LabelParamValue::Array(_) | LabelParamValue::Dict(_) => {
+            Err(LabelError::UnsupportedSyntax {
+                position,
+                message: "label parameter value cannot be rendered as text",
+            })
+        }
+    }
+}
+
+fn format_f64(value: f64) -> String {
+    let mut text = value.to_string();
+    if text == "-0" {
+        text = "0".to_string();
+    }
+    text
 }
 
 #[cfg(test)]

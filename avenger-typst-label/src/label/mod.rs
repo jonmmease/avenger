@@ -6,6 +6,8 @@
 //! truncation, cache keys, and renderer policy live outside this crate.
 
 mod error;
+pub(crate) mod fonts;
+mod params;
 mod pdf;
 mod warnings;
 
@@ -21,7 +23,6 @@ use crate::typst_eval::call::is_retained_markup_name;
 use crate::typst_eval::markup::parse_line_with_params;
 use crate::typst_eval::math::is_retained_math_name;
 use crate::typst_eval::math::parse_math_with_params;
-use crate::typst_eval::params::referenced_params as collect_referenced_params;
 use crate::typst_layout::frame::{
     LineLayoutArtifact, LineLayoutOptions, PositionedTextLineRun, PositionedTextLineRunKind,
     TypesetMetrics,
@@ -40,6 +41,7 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::typst_library::TextStyle;
 pub use error::{LabelError, LabelInitError};
+pub(crate) use params::render_label_param;
 pub use pdf::{
     FontResource, FontResourceId, PdfDrawItem, PdfGlyph, PdfGlyphRun, PdfLabel, PdfOptions,
     PdfPathItem, PdfTextLayer,
@@ -223,7 +225,7 @@ impl LabelEngine {
 }
 
 pub fn referenced_params(source: &str) -> Result<Vec<String>, LabelError> {
-    collect_referenced_params(source)
+    params::referenced_params(source)
 }
 
 #[derive(Debug, Clone, PartialEq)]

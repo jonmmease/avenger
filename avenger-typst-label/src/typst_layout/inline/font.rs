@@ -1,8 +1,8 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use crate::label::fonts::{DEJAVU_SANS_MONO_FACES, EmbeddedFontFace, LATO_FACES};
 use crate::label::{EngineOptions, FontResource, FontResourceId, LabelError};
-use crate::typst_library::font::resources::{DEJAVU_SANS_MONO_FACES, EmbeddedFontFace, LATO_FACES};
 use crate::typst_library::{FontStyle, FontWeight, TextStyle};
 use crate::typst_svg::{PathData, PathImageFormat, PathImageItem, Transform};
 use unicode_bidi::BidiInfo;

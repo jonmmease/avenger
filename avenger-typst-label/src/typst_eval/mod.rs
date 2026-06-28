@@ -9,4 +9,3 @@ pub(crate) mod call;
 pub(crate) mod delimiter;
 pub(crate) mod markup;
 pub(crate) mod math;
-pub(crate) mod params;
