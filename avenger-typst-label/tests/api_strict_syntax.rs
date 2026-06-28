@@ -69,6 +69,33 @@ fn rejects_unretained_text_markup_functions() {
 }
 
 #[test]
+fn allows_supported_typst_text_model_markup() {
+    let samples = [
+        "#lower[LOUD]",
+        "#upper[quiet]",
+        "#smallcaps[Small Caps]",
+        "H#sub[2]O",
+        "x#super[2]",
+        "#emph[call]",
+        "#strong(delta: 150)[mild]",
+        "_emph syntax_",
+        "*strong syntax*",
+        "`x # y`",
+        "#raw(\"z * w\")",
+    ];
+
+    for sample in samples {
+        let label = engine()
+            .compile(sample, &LabelOptions::default())
+            .unwrap_or_else(|err| panic!("{sample} should be accepted, got {err:?}"));
+        assert!(label.flags.has_markup, "{sample}");
+        assert!(!label.flags.has_math, "{sample}");
+        assert!(label.metrics.width > 0.0, "{sample}");
+        assert!(label.metrics.height > 0.0, "{sample}");
+    }
+}
+
+#[test]
 fn allows_common_typst_math_fragments() {
     let samples = [
         "$alpha + beta$",
