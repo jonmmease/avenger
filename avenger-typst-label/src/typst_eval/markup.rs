@@ -662,22 +662,27 @@ mod tests {
 
     #[test]
     fn parses_named_emoji_aliases() {
-        let line = parse("Revenue #emoji.rocket #emoji.chart.up");
+        let line = parse("Revenue #emoji.rocket #emoji.chart.up #emoji.face.halo");
 
-        assert_eq!(line.nodes.len(), 4);
+        assert_eq!(line.nodes.len(), 6);
         assert!(
             matches!(&line.nodes[1], LineNode::Emoji(alias) if alias.name == "rocket" && alias.emoji == "🚀")
         );
         assert!(
             matches!(&line.nodes[3], LineNode::Emoji(alias) if alias.name == "chart.up" && alias.emoji == "📈")
         );
+        assert!(
+            matches!(&line.nodes[5], LineNode::Emoji(alias) if alias.name == "face.halo" && alias.emoji == "😇")
+        );
     }
 
     #[test]
     fn parses_named_symbol_aliases() {
-        let line = parse("Flow #sym.arrow.r target #sym.gt.eq.not #sym.arrow.double.r");
+        let line = parse(
+            "Flow #sym.arrow.r target #sym.gt.eq.not #sym.arrow.double.r #sym.forces.not #sym.gender.male.stroke.t",
+        );
 
-        assert_eq!(line.nodes.len(), 6);
+        assert_eq!(line.nodes.len(), 10);
         assert!(
             matches!(&line.nodes[1], LineNode::Symbol(alias) if alias.name == "arrow.r" && alias.text == "→")
         );
@@ -686,6 +691,12 @@ mod tests {
         );
         assert!(
             matches!(&line.nodes[5], LineNode::Symbol(alias) if alias.name == "arrow.double.r" && alias.text == "⇒")
+        );
+        assert!(
+            matches!(&line.nodes[7], LineNode::Symbol(alias) if alias.name == "forces.not" && alias.text == "⊮")
+        );
+        assert!(
+            matches!(&line.nodes[9], LineNode::Symbol(alias) if alias.name == "gender.male.stroke.t" && alias.text == "⚨")
         );
     }
 

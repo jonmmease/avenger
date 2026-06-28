@@ -1259,7 +1259,9 @@ mod tests {
 
     #[test]
     fn parses_symbols_and_shorthands() {
-        let math = parse("alpha -> RR + in.not + subset.eq + arrow.r.double + arrow.double.r");
+        let math = parse(
+            "alpha -> RR + in.not + subset.eq + arrow.r.double + arrow.double.r + forces.not",
+        );
 
         assert!(matches!(
             &math.nodes[0],
@@ -1295,6 +1297,11 @@ mod tests {
             MathNode::Identifier(ident)
                 if ident.name == "arrow.double.r" && ident.symbol == Some("⇒")
         )));
+        assert!(math.nodes.iter().any(|node| matches!(
+            node,
+            MathNode::Identifier(ident)
+                if ident.name == "forces.not" && ident.symbol == Some("⊮")
+        )));
     }
 
     #[test]
@@ -1308,7 +1315,7 @@ mod tests {
                 MathNode::Operator(operator),
                 MathNode::Identifier(suffix),
             ] if identifier.name == "arrow"
-                && identifier.symbol.is_none()
+                && identifier.symbol == Some("→")
                 && operator.operator == "."
                 && suffix.name == "unknown"
         ));

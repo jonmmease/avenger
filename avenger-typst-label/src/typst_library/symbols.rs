@@ -2,17 +2,27 @@
 //!
 //! Upstream Typst wires symbols through `typst-library/src/symbols.rs`, backed
 //! by the generated `codex` symbol tree and `typst-library/src/foundations/symbol.rs`
-//! for modifier resolution. Labels keep a compact owned table here, with the
-//! same public concept: a root symbol name plus dot modifiers.
+//! for modifier resolution. Labels mirror the `codex` module data in
+//! `symbols/{sym,emoji}.txt` and keep just enough of the `Symbol` model to
+//! resolve root names plus dot modifiers.
+
+use std::cmp::Reverse;
+use std::sync::LazyLock;
+
+static SYMBOLS: LazyLock<Vec<SymbolEntry>> = LazyLock::new(|| parse_symbol_data(SYM_DATA));
+static EMOJI: LazyLock<Vec<SymbolEntry>> = LazyLock::new(|| parse_symbol_data(EMOJI_DATA));
+
+const SYM_DATA: &str = include_str!("symbols/sym.txt");
+const EMOJI_DATA: &str = include_str!("symbols/emoji.txt");
 
 /// Resolve a retained `sym.*` name or bare math symbol name.
 pub(crate) fn named_symbol(name: &str) -> Option<&'static str> {
-    lookup_symbol(name, RETAINED_SYMBOLS)
+    lookup_symbol(name, &SYMBOLS)
 }
 
 /// Resolve a retained `emoji.*` name.
 pub(crate) fn named_emoji(name: &str) -> Option<&'static str> {
-    lookup_symbol(name, RETAINED_EMOJI)
+    lookup_symbol(name, &EMOJI)
 }
 
 /// Resolve retained math accent function names.
@@ -51,29 +61,27 @@ pub(crate) fn normalize_accent_text(value: &str) -> Option<char> {
     })
 }
 
-fn lookup_symbol(name: &str, table: &[(&'static str, &'static str)]) -> Option<&'static str> {
+fn lookup_symbol(name: &str, table: &'static [SymbolEntry]) -> Option<&'static str> {
+    if let Some(entry) = table.iter().find(|entry| entry.name == name) {
+        return entry.best_match(&[]).map(String::as_str);
+    }
+
     table
         .iter()
-        .find_map(|(candidate, value)| (*candidate == name).then_some(*value))
-        .or_else(|| {
-            let (base, modifiers) = split_symbol_name(name)?;
-            table.iter().find_map(|(candidate, value)| {
-                let (candidate_base, candidate_modifiers) = split_symbol_name(candidate)?;
-                (candidate_base == base
-                    && modifiers.len() == candidate_modifiers.len()
-                    && modifiers
-                        .iter()
-                        .all(|modifier| candidate_modifiers.contains(modifier)))
-                .then_some(*value)
-            })
+        .filter_map(|entry| {
+            let modifiers = name.strip_prefix(&entry.name)?.strip_prefix('.')?;
+            let modifiers = modifiers
+                .split('.')
+                .filter(|modifier| !modifier.is_empty())
+                .collect::<Vec<_>>();
+            (!modifiers.is_empty()).then(|| {
+                entry
+                    .best_match(&modifiers)
+                    .map(|value| (entry.name.len(), value))
+            })?
         })
-}
-
-fn split_symbol_name(name: &str) -> Option<(&str, Vec<&str>)> {
-    let (base, modifiers) = name.split_once('.')?;
-    let modifiers = modifiers.split('.').collect::<Vec<_>>();
-    (!base.is_empty() && modifiers.iter().all(|modifier| !modifier.is_empty()))
-        .then_some((base, modifiers))
+        .max_by_key(|(base_len, _)| *base_len)
+        .map(|(_, value)| value.as_str())
 }
 
 const ACCENT_ALIASES: &[(char, &[&str])] = &[
@@ -96,139 +104,158 @@ const ACCENT_ALIASES: &[(char, &[&str])] = &[
     ('\u{20d1}', &["⇀"]),
 ];
 
-const RETAINED_EMOJI: &[(&str, &str)] = &[("chart.up", "📈"), ("face", "😀"), ("rocket", "🚀")];
+#[derive(Debug)]
+struct SymbolEntry {
+    name: String,
+    variants: Vec<SymbolVariant>,
+}
 
-const RETAINED_SYMBOLS: &[(&str, &str)] = &[
-    ("CC", "ℂ"),
-    ("Delta", "Δ"),
-    ("Gamma", "Γ"),
-    ("Lambda", "Λ"),
-    ("NN", "ℕ"),
-    ("Omega", "Ω"),
-    ("Phi", "Φ"),
-    ("Pi", "Π"),
-    ("Psi", "Ψ"),
-    ("QQ", "ℚ"),
-    ("RR", "ℝ"),
-    ("Sigma", "Σ"),
-    ("Theta", "Θ"),
-    ("Upsilon", "Υ"),
-    ("Xi", "Ξ"),
-    ("ZZ", "ℤ"),
-    ("aleph", "א"),
-    ("alpha", "α"),
-    ("angle", "∠"),
-    ("approx", "≈"),
-    ("approx.not", "≉"),
-    ("arrow.b", "↓"),
-    ("arrow.l", "←"),
-    ("arrow.l.bar", "↤"),
-    ("arrow.l.double", "⇐"),
-    ("arrow.l.double.long", "⟸"),
-    ("arrow.l.long", "⟵"),
-    ("arrow.l.not", "↚"),
-    ("arrow.l.r", "↔"),
-    ("arrow.l.r.double", "⇔"),
-    ("arrow.l.r.double.long", "⟺"),
-    ("arrow.l.r.long", "⟷"),
-    ("arrow.r", "→"),
-    ("arrow.r.bar", "↦"),
-    ("arrow.r.double", "⇒"),
-    ("arrow.r.double.long", "⟹"),
-    ("arrow.r.long", "⟶"),
-    ("arrow.r.not", "↛"),
-    ("arrow.t", "↑"),
-    ("bar.v", "|"),
-    ("bar.v.double", "‖"),
-    ("beta", "β"),
-    ("chi", "χ"),
-    ("degree", "°"),
-    ("delta", "δ"),
-    ("div", "÷"),
-    ("dot", "⋅"),
-    ("dot.c", "·"),
-    ("dot.op", "⋅"),
-    ("dots", "…"),
-    ("dots.h", "…"),
-    ("dots.h.c", "⋯"),
-    ("dots.v", "⋮"),
-    ("ell", "ℓ"),
-    ("emptyset", "∅"),
-    ("epsilon", "ε"),
-    ("eq", "="),
-    ("eq.not", "≠"),
-    ("eq.triple", "≡"),
-    ("eq.triple.not", "≢"),
-    ("equiv", "≡"),
-    ("equiv.not", "≢"),
-    ("eta", "η"),
-    ("exists", "∃"),
-    ("forall", "∀"),
-    ("gamma", "γ"),
-    ("gradient", "∇"),
-    ("gt", ">"),
-    ("gt.eq", "≥"),
-    ("gt.eq.not", "≱"),
-    ("gt.not", "≯"),
-    ("in", "∈"),
-    ("in.not", "∉"),
-    ("in.rev", "∋"),
-    ("in.rev.not", "∌"),
-    ("infinity", "∞"),
-    ("integral", "∫"),
-    ("inter", "∩"),
-    ("inter.big", "⋂"),
-    ("iota", "ι"),
-    ("kappa", "κ"),
-    ("lambda", "λ"),
-    ("lt", "<"),
-    ("lt.eq", "≤"),
-    ("lt.eq.not", "≰"),
-    ("lt.not", "≮"),
-    ("minus", "−"),
-    ("minus.plus", "∓"),
-    ("mu", "μ"),
-    ("nabla", "∇"),
-    ("nothing", "∅"),
-    ("nu", "ν"),
-    ("omega", "ω"),
-    ("oo", "∞"),
-    ("parallel", "∥"),
-    ("partial", "∂"),
-    ("perp", "⟂"),
-    ("phi", "φ"),
-    ("pi", "π"),
-    ("plus", "+"),
-    ("plus.minus", "±"),
-    ("prod", "∏"),
-    ("product", "∏"),
-    ("prop", "∝"),
-    ("psi", "ψ"),
-    ("rho", "ρ"),
-    ("sigma", "σ"),
-    ("slash", "/"),
-    ("subset", "⊂"),
-    ("subset.eq", "⊆"),
-    ("subset.eq.not", "⊈"),
-    ("subset.neq", "⊊"),
-    ("subset.not", "⊄"),
-    ("sum", "∑"),
-    ("supset", "⊃"),
-    ("supset.eq", "⊇"),
-    ("supset.eq.not", "⊉"),
-    ("supset.neq", "⊋"),
-    ("supset.not", "⊅"),
-    ("tau", "τ"),
-    ("theta", "θ"),
-    ("times", "×"),
-    ("times.big", "⨉"),
-    ("union", "∪"),
-    ("union.big", "⋃"),
-    ("union.plus", "⊎"),
-    ("upsilon", "υ"),
-    ("xi", "ξ"),
-    ("zeta", "ζ"),
-];
+impl SymbolEntry {
+    fn best_match(&self, modifiers: &[&str]) -> Option<&String> {
+        let mut best = None;
+        let mut best_score = None;
+        for variant in self.variants.iter().filter(|variant| {
+            modifiers
+                .iter()
+                .all(|modifier| variant.modifiers.iter().any(|item| item == modifier))
+        }) {
+            let matching = variant
+                .modifiers
+                .iter()
+                .filter(|modifier| modifiers.contains(&modifier.as_str()))
+                .count();
+            let score = (matching, Reverse(variant.modifiers.len()));
+            if best_score.is_none_or(|current| score > current) {
+                best = Some(&variant.value);
+                best_score = Some(score);
+            }
+        }
+        best
+    }
+}
+
+#[derive(Debug)]
+struct SymbolVariant {
+    modifiers: Vec<String>,
+    value: String,
+}
+
+fn parse_symbol_data(data: &'static str) -> Vec<SymbolEntry> {
+    let mut entries: Vec<SymbolEntry> = Vec::new();
+    let mut module_stack: Vec<&'static str> = Vec::new();
+    let mut current_symbol: Option<usize> = None;
+
+    for raw_line in data.lines() {
+        let line = raw_line
+            .split_once("//")
+            .map_or(raw_line, |(head, _)| head)
+            .trim();
+        if line.is_empty() || line.starts_with("@deprecated:") {
+            continue;
+        }
+        if line == "}" {
+            module_stack.pop();
+            current_symbol = None;
+            continue;
+        }
+
+        let (head, tail) = line
+            .split_once(' ')
+            .map_or((line, None), |(head, tail)| (head, Some(tail.trim())));
+        if tail == Some("{") {
+            module_stack.push(head);
+            current_symbol = None;
+            continue;
+        }
+
+        if let Some(modifiers) = head.strip_prefix('.') {
+            let Some(symbol_idx) = current_symbol else {
+                panic!("symbol variant without preceding symbol in codex data: {line}");
+            };
+            let value = decode_symbol_value(tail.expect("codex symbol variant has a value"));
+            entries[symbol_idx].variants.push(SymbolVariant {
+                modifiers: split_modifiers(modifiers),
+                value,
+            });
+            continue;
+        }
+
+        let mut name = module_stack.join(".");
+        if !name.is_empty() {
+            name.push('.');
+        }
+        name.push_str(head);
+
+        let mut variants = Vec::new();
+        if let Some(value) = tail {
+            variants.push(SymbolVariant {
+                modifiers: Vec::new(),
+                value: decode_symbol_value(value),
+            });
+        }
+        entries.push(SymbolEntry { name, variants });
+        current_symbol = Some(entries.len() - 1);
+    }
+
+    entries
+}
+
+fn split_modifiers(modifiers: &str) -> Vec<String> {
+    modifiers
+        .split('.')
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+}
+
+fn decode_symbol_value(mut text: &str) -> String {
+    let mut result = String::new();
+    loop {
+        if let Some(rest) = text.strip_prefix("\\u{") {
+            let (code, tail) = rest
+                .split_once('}')
+                .expect("codex unicode escape is closed");
+            result.push(
+                u32::from_str_radix(code, 16)
+                    .ok()
+                    .and_then(|value| char::try_from(value).ok())
+                    .expect("codex unicode escape is valid"),
+            );
+            text = tail;
+        } else if let Some(rest) = text.strip_prefix("\\vs{") {
+            let (value, tail) = rest.split_once('}').expect("codex VS escape is closed");
+            result.push(match value {
+                "1" => '\u{fe00}',
+                "2" => '\u{fe01}',
+                "3" => '\u{fe02}',
+                "4" => '\u{fe03}',
+                "5" => '\u{fe04}',
+                "6" => '\u{fe05}',
+                "7" => '\u{fe06}',
+                "8" => '\u{fe07}',
+                "9" => '\u{fe08}',
+                "10" => '\u{fe09}',
+                "11" => '\u{fe0a}',
+                "12" => '\u{fe0b}',
+                "13" => '\u{fe0c}',
+                "14" => '\u{fe0d}',
+                "15" | "text" => '\u{fe0e}',
+                "16" | "emoji" => '\u{fe0f}',
+                _ => panic!("unsupported codex variation selector: {value}"),
+            });
+            text = tail;
+        } else if let Some((prefix, tail)) = text.find('\\').map(|idx| text.split_at(idx)) {
+            assert!(
+                !prefix.is_empty(),
+                "unsupported codex escape sequence: {tail}"
+            );
+            result.push_str(prefix);
+            text = tail;
+        } else {
+            result.push_str(text);
+            return result;
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -240,6 +267,10 @@ mod tests {
         assert_eq!(named_symbol("arrow.r"), Some("→"));
         assert_eq!(named_symbol("gt.eq.not"), Some("≱"));
         assert_eq!(named_symbol("subset.eq"), Some("⊆"));
+        assert_eq!(named_symbol("forces.not"), Some("⊮"));
+        assert_eq!(named_symbol("interleave.big"), Some("⫼"));
+        assert_eq!(named_symbol("gender.male.stroke.t"), Some("⚨"));
+        assert_eq!(named_symbol("control.dc.three"), Some("␓"));
     }
 
     #[test]
@@ -252,6 +283,7 @@ mod tests {
     #[test]
     fn resolves_retained_emoji_aliases() {
         assert_eq!(named_emoji("face"), Some("😀"));
+        assert_eq!(named_emoji("face.halo"), Some("😇"));
         assert_eq!(named_emoji("chart.up"), Some("📈"));
     }
 
@@ -259,6 +291,6 @@ mod tests {
     fn rejects_unknown_symbol_and_modifier_aliases() {
         assert_eq!(named_symbol("arrow.diagonal"), None);
         assert_eq!(named_symbol("arrow.r.double.long.extra"), None);
-        assert_eq!(named_emoji("face.halo"), None);
+        assert_eq!(named_emoji("face.not.real"), None);
     }
 }
