@@ -87,6 +87,27 @@ impl PathData {
 pub struct Stroke {
     pub color: Color,
     pub width: f32,
+    pub line_cap: StrokeCap,
+    pub line_join: StrokeJoin,
+    pub dash: Option<Vec<f32>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum StrokeCap {
+    #[default]
+    Butt,
+    Round,
+    Square,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum StrokeJoin {
+    Bevel,
+    #[default]
+    Miter,
+    Round,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

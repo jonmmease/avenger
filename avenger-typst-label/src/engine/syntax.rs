@@ -2,11 +2,12 @@ use std::ops::Range;
 
 use crate::delimiter::{MathDelimiterInfo, MathDisplayHint};
 use crate::error::LabelError;
+use crate::paths::{StrokeCap, StrokeJoin};
 use crate::style::Color;
 
 use super::ast::{
-    DecorationLength, DecorationStroke, EmojiAlias, LineNode, MathSpan, ParsedLine, PlainTextNode,
-    TextMarkupKind, TextMarkupOptions, TextMarkupSpan,
+    DecorationDash, DecorationDashLength, DecorationLength, DecorationStroke, EmojiAlias, LineNode,
+    MathSpan, ParsedLine, PlainTextNode, TextMarkupKind, TextMarkupOptions, TextMarkupSpan,
 };
 
 use crate::syntax::ast::{self as typst_ast, AstNode};
@@ -284,6 +285,9 @@ fn parse_stroke_dict(
                     DecorationStroke {
                         paint: Some(parse_paint(named.expr(), item_position)?),
                         thickness: None,
+                        line_cap: None,
+                        line_join: None,
+                        dash: None,
                     },
                     item_position,
                 )?;
@@ -293,6 +297,45 @@ fn parse_stroke_dict(
                     DecorationStroke {
                         paint: None,
                         thickness: Some(parse_length(named.expr(), item_position)?),
+                        line_cap: None,
+                        line_join: None,
+                        dash: None,
+                    },
+                    item_position,
+                )?;
+            }
+            "cap" => {
+                stroke.merge(
+                    DecorationStroke {
+                        paint: None,
+                        thickness: None,
+                        line_cap: Some(parse_line_cap(named.expr(), item_position)?),
+                        line_join: None,
+                        dash: None,
+                    },
+                    item_position,
+                )?;
+            }
+            "join" => {
+                stroke.merge(
+                    DecorationStroke {
+                        paint: None,
+                        thickness: None,
+                        line_cap: None,
+                        line_join: Some(parse_line_join(named.expr(), item_position)?),
+                        dash: None,
+                    },
+                    item_position,
+                )?;
+            }
+            "dash" => {
+                stroke.merge(
+                    DecorationStroke {
+                        paint: None,
+                        thickness: None,
+                        line_cap: None,
+                        line_join: None,
+                        dash: Some(parse_dash(named.expr(), item_position)?),
                     },
                     item_position,
                 )?;
@@ -316,12 +359,18 @@ fn parse_stroke_part(
         return Ok(DecorationStroke {
             paint: Some(paint),
             thickness: None,
+            line_cap: None,
+            line_join: None,
+            dash: None,
         });
     }
     if let Ok(thickness) = parse_length(expr, position) {
         return Ok(DecorationStroke {
             paint: None,
             thickness: Some(thickness),
+            line_cap: None,
+            line_join: None,
+            dash: None,
         });
     }
     if matches!(expr, typst_ast::Expr::Auto(_)) {
@@ -347,6 +396,21 @@ impl MergeDecorationStroke for DecorationStroke {
                     position,
                     "duplicate decoration stroke thickness",
                 ));
+            }
+        }
+        if let Some(line_cap) = other.line_cap {
+            if self.line_cap.replace(line_cap).is_some() {
+                return Err(unsupported(position, "duplicate decoration stroke cap"));
+            }
+        }
+        if let Some(line_join) = other.line_join {
+            if self.line_join.replace(line_join).is_some() {
+                return Err(unsupported(position, "duplicate decoration stroke join"));
+            }
+        }
+        if let Some(dash) = other.dash {
+            if self.dash.replace(dash).is_some() {
+                return Err(unsupported(position, "duplicate decoration stroke dash"));
             }
         }
         Ok(())
@@ -418,6 +482,83 @@ fn parse_bool(expr: typst_ast::Expr<'_>, position: usize) -> Result<bool, LabelE
             "unsupported decoration boolean value",
         )),
     }
+}
+
+fn parse_line_cap(expr: typst_ast::Expr<'_>, position: usize) -> Result<StrokeCap, LabelError> {
+    let typst_ast::Expr::Str(value) = expr else {
+        return Err(unsupported(position, "unsupported stroke cap value"));
+    };
+    match value.get().as_str() {
+        "butt" => Ok(StrokeCap::Butt),
+        "round" => Ok(StrokeCap::Round),
+        "square" => Ok(StrokeCap::Square),
+        _ => Err(unsupported(position, "unsupported stroke cap value")),
+    }
+}
+
+fn parse_line_join(expr: typst_ast::Expr<'_>, position: usize) -> Result<StrokeJoin, LabelError> {
+    let typst_ast::Expr::Str(value) = expr else {
+        return Err(unsupported(position, "unsupported stroke join value"));
+    };
+    match value.get().as_str() {
+        "bevel" => Ok(StrokeJoin::Bevel),
+        "miter" => Ok(StrokeJoin::Miter),
+        "round" => Ok(StrokeJoin::Round),
+        _ => Err(unsupported(position, "unsupported stroke join value")),
+    }
+}
+
+fn parse_dash(expr: typst_ast::Expr<'_>, position: usize) -> Result<DecorationDash, LabelError> {
+    match expr {
+        typst_ast::Expr::Str(value) => named_dash(value.get().as_str())
+            .ok_or_else(|| unsupported(position, "unsupported stroke dash value")),
+        typst_ast::Expr::Array(array) => {
+            let mut lengths = Vec::new();
+            for item in array.items() {
+                let typst_ast::ArrayItem::Pos(expr) = item else {
+                    return Err(unsupported(position, "unsupported stroke dash array item"));
+                };
+                lengths.push(parse_dash_length(expr, position)?);
+            }
+            Ok(DecorationDash { array: lengths })
+        }
+        typst_ast::Expr::Dict(_) => Err(unsupported(
+            position,
+            "stroke dash phase is not supported in Avenger labels",
+        )),
+        _ => Err(unsupported(position, "unsupported stroke dash value")),
+    }
+}
+
+fn parse_dash_length(
+    expr: typst_ast::Expr<'_>,
+    position: usize,
+) -> Result<DecorationDashLength, LabelError> {
+    match expr {
+        typst_ast::Expr::Str(value) if value.get().as_str() == "dot" => {
+            Ok(DecorationDashLength::LineWidth)
+        }
+        _ => parse_length(expr, position).map(DecorationDashLength::Length),
+    }
+}
+
+fn named_dash(name: &str) -> Option<DecorationDash> {
+    let pt = |value| DecorationDashLength::Length(DecorationLength::Pt(value));
+    let dot = DecorationDashLength::LineWidth;
+    let array = match name {
+        "solid" => Vec::new(),
+        "dotted" => vec![dot, pt(2.0)],
+        "densely-dotted" => vec![dot, pt(1.0)],
+        "loosely-dotted" => vec![dot, pt(4.0)],
+        "dashed" => vec![pt(3.0), pt(3.0)],
+        "densely-dashed" => vec![pt(3.0), pt(2.0)],
+        "loosely-dashed" => vec![pt(3.0), pt(6.0)],
+        "dash-dotted" => vec![pt(3.0), pt(2.0), dot, pt(2.0)],
+        "densely-dash-dotted" => vec![pt(3.0), pt(1.0), dot, pt(1.0)],
+        "loosely-dash-dotted" => vec![pt(3.0), pt(4.0), dot, pt(4.0)],
+        _ => return None,
+    };
+    Some(DecorationDash { array })
 }
 
 fn parse_evade(expr: typst_ast::Expr<'_>, position: usize) -> Result<Option<bool>, LabelError> {
@@ -664,6 +805,7 @@ mod tests {
             span.options.decoration.stroke.thickness,
             Some(DecorationLength::Pt(1.5))
         );
+        assert_eq!(span.options.decoration.stroke.line_cap, None);
         assert_eq!(
             span.options.decoration.offset,
             Some(DecorationLength::Pt(2.0))
@@ -685,7 +827,7 @@ mod tests {
             }
         );
 
-        let err = parse_line("#underline(stroke: (cap: \"round\"))[group]").unwrap_err();
+        let err = parse_line("#underline(stroke: (miter-limit: 2))[group]").unwrap_err();
 
         assert_eq!(
             err,
@@ -693,6 +835,33 @@ mod tests {
                 position: 20,
                 message: "unsupported stroke dictionary field"
             }
+        );
+    }
+
+    #[test]
+    fn parses_stroke_cap_join_and_dash() {
+        let line =
+            parse("#underline(stroke: (cap: \"round\", join: \"bevel\", dash: \"dotted\"))[x]");
+
+        let LineNode::TextSpan(span) = &line.nodes[0] else {
+            panic!("expected text span");
+        };
+        assert_eq!(
+            span.options.decoration.stroke.line_cap,
+            Some(StrokeCap::Round)
+        );
+        assert_eq!(
+            span.options.decoration.stroke.line_join,
+            Some(StrokeJoin::Bevel)
+        );
+        assert_eq!(
+            span.options
+                .decoration
+                .stroke
+                .dash
+                .as_ref()
+                .map(|dash| dash.array.len()),
+            Some(2)
         );
     }
 

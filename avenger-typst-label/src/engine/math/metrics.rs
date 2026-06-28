@@ -2936,6 +2936,9 @@ fn path_artifact_from_simple_row(
                         stroke: Some(Stroke {
                             color: fill,
                             width: shape.stroke_width,
+                            line_cap: crate::paths::StrokeCap::Butt,
+                            line_join: crate::paths::StrokeJoin::Miter,
+                            dash: None,
                         }),
                         transform: Transform {
                             dx: shape.x,

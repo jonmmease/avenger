@@ -29,7 +29,7 @@ use avenger_text::{
     measurement::{truncate_text_to_limit_with, TextMeasurementConfig},
     path::{
         TextPathBuffer, TextPathDrawItem, TextPathExtractionConfig, TextPathImageFormat,
-        TextPathImageItem, TextPathItem,
+        TextPathImageItem, TextPathItem, TextPathStrokeCap, TextPathStrokeJoin,
     },
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextSyntaxMode},
     TextEngine,
@@ -633,6 +633,32 @@ impl SvgRenderer {
             document.body.push_str(r#" stroke-width=""#);
             push_number(&mut document.body, stroke.width, self.options.precision)?;
             document.body.push('"');
+            document.body.push_str(r#" stroke-linecap=""#);
+            document.body.push_str(match stroke.line_cap {
+                TextPathStrokeCap::Butt => "butt",
+                TextPathStrokeCap::Round => "round",
+                TextPathStrokeCap::Square => "square",
+            });
+            document.body.push('"');
+            document.body.push_str(r#" stroke-linejoin=""#);
+            document.body.push_str(match stroke.line_join {
+                TextPathStrokeJoin::Bevel => "bevel",
+                TextPathStrokeJoin::Miter => "miter",
+                TextPathStrokeJoin::Round => "round",
+            });
+            document.body.push('"');
+            if let Some(dash) = &stroke.dash {
+                if !dash.is_empty() {
+                    document.body.push_str(r#" stroke-dasharray=""#);
+                    for (index, value) in dash.iter().enumerate() {
+                        if index > 0 {
+                            document.body.push(' ');
+                        }
+                        push_number(&mut document.body, *value, self.options.precision)?;
+                    }
+                    document.body.push('"');
+                }
+            }
         }
         document.body.push_str(r#" transform="translate("#);
         push_number(&mut document.body, x, self.options.precision)?;

@@ -35,10 +35,10 @@ pub use label::{
 };
 pub use paths::{
     PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, PathItem, PathKind,
-    Stroke, Transform,
+    Stroke, StrokeCap, StrokeJoin, Transform,
 };
 pub use pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
-pub use raster::RgbaImageData;
+pub use raster::{RasterRequest, RgbaImageData};
 pub use style::{
     Color, FontStyle, FontWeight, MathDisplayStyle, MathFontBytesId, MathFontSpec, MathStyle,
 };

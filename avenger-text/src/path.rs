@@ -32,6 +32,25 @@ pub struct TextPathExtractionConfig<'a> {
 pub struct TextPathStroke {
     pub color: [f32; 4],
     pub width: f32,
+    pub line_cap: TextPathStrokeCap,
+    pub line_join: TextPathStrokeJoin,
+    pub dash: Option<Vec<f32>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextPathStrokeCap {
+    #[default]
+    Butt,
+    Round,
+    Square,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextPathStrokeJoin {
+    Bevel,
+    #[default]
+    Miter,
+    Round,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -269,9 +288,28 @@ pub(crate) fn typst_path_item_to_text_path_item(
         stroke: item.stroke.map(|stroke| TextPathStroke {
             color: rgba_from_typst_color(stroke.color),
             width: stroke.width,
+            line_cap: text_path_stroke_cap(stroke.line_cap),
+            line_join: text_path_stroke_join(stroke.line_join),
+            dash: stroke.dash,
         }),
         byte_range,
         kind,
+    }
+}
+
+fn text_path_stroke_cap(cap: avenger_typst_label::StrokeCap) -> TextPathStrokeCap {
+    match cap {
+        avenger_typst_label::StrokeCap::Butt => TextPathStrokeCap::Butt,
+        avenger_typst_label::StrokeCap::Round => TextPathStrokeCap::Round,
+        avenger_typst_label::StrokeCap::Square => TextPathStrokeCap::Square,
+    }
+}
+
+fn text_path_stroke_join(join: avenger_typst_label::StrokeJoin) -> TextPathStrokeJoin {
+    match join {
+        avenger_typst_label::StrokeJoin::Bevel => TextPathStrokeJoin::Bevel,
+        avenger_typst_label::StrokeJoin::Miter => TextPathStrokeJoin::Miter,
+        avenger_typst_label::StrokeJoin::Round => TextPathStrokeJoin::Round,
     }
 }
 

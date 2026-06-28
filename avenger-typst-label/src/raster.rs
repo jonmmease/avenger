@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "raster")]
 use crate::{
     error::LabelError,
-    paths::{PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, Transform},
+    paths::{
+        PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, StrokeCap, StrokeJoin,
+        Transform,
+    },
     style::Color,
 };
 
@@ -139,6 +142,14 @@ pub(crate) fn rasterize_path_artifact(
             let paint = paint_from_color(stroke.color);
             let tiny_stroke = tiny_skia::Stroke {
                 width: stroke.width * scale,
+                line_cap: tiny_line_cap(stroke.line_cap),
+                line_join: tiny_line_join(stroke.line_join),
+                dash: stroke.dash.as_ref().and_then(|dash| {
+                    tiny_skia::StrokeDash::new(
+                        dash.iter().map(|value| value * scale).collect(),
+                        0.0,
+                    )
+                }),
                 ..Default::default()
             };
             pixmap.stroke_path(&path, &paint, &tiny_stroke, draw_transform, None);
@@ -284,6 +295,24 @@ fn paint_from_color(color: Color) -> tiny_skia::Paint<'static> {
         channel(color.a),
     );
     paint
+}
+
+#[cfg(feature = "raster")]
+fn tiny_line_cap(cap: StrokeCap) -> tiny_skia::LineCap {
+    match cap {
+        StrokeCap::Butt => tiny_skia::LineCap::Butt,
+        StrokeCap::Round => tiny_skia::LineCap::Round,
+        StrokeCap::Square => tiny_skia::LineCap::Square,
+    }
+}
+
+#[cfg(feature = "raster")]
+fn tiny_line_join(join: StrokeJoin) -> tiny_skia::LineJoin {
+    match join {
+        StrokeJoin::Bevel => tiny_skia::LineJoin::Bevel,
+        StrokeJoin::Miter => tiny_skia::LineJoin::Miter,
+        StrokeJoin::Round => tiny_skia::LineJoin::Round,
+    }
 }
 
 #[cfg(feature = "raster")]

@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use crate::delimiter::MathDelimiterInfo;
+use crate::paths::{StrokeCap, StrokeJoin};
 use crate::style::Color;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,12 +56,12 @@ impl TextMarkupKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct TextMarkupOptions {
     pub(crate) decoration: TextDecorationOptions,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct TextDecorationOptions {
     pub(crate) stroke: DecorationStroke,
     pub(crate) offset: Option<DecorationLength>,
@@ -69,10 +70,13 @@ pub(crate) struct TextDecorationOptions {
     pub(crate) evade: Option<bool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct DecorationStroke {
     pub(crate) paint: Option<Color>,
     pub(crate) thickness: Option<DecorationLength>,
+    pub(crate) line_cap: Option<StrokeCap>,
+    pub(crate) line_join: Option<StrokeJoin>,
+    pub(crate) dash: Option<DecorationDash>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -93,6 +97,40 @@ impl DecorationLength {
 impl Default for DecorationLength {
     fn default() -> Self {
         Self::Pt(0.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct DecorationDash {
+    pub(crate) array: Vec<DecorationDashLength>,
+}
+
+impl DecorationDash {
+    pub(crate) fn resolve(&self, stroke_width: f32, font_size: f32) -> Option<Vec<f32>> {
+        if self.array.is_empty() {
+            return None;
+        }
+        Some(
+            self.array
+                .iter()
+                .map(|length| length.resolve(stroke_width, font_size).max(0.0))
+                .collect(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum DecorationDashLength {
+    Length(DecorationLength),
+    LineWidth,
+}
+
+impl DecorationDashLength {
+    fn resolve(self, stroke_width: f32, font_size: f32) -> f32 {
+        match self {
+            Self::Length(length) => length.resolve(font_size),
+            Self::LineWidth => stroke_width,
+        }
     }
 }
 

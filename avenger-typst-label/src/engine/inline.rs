@@ -71,7 +71,7 @@ struct DecoratedText {
     byte_range: std::ops::Range<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct TextDecoration {
     kind: TextMarkupKind,
     options: TextDecorationOptions,
@@ -85,19 +85,19 @@ impl TextDecoration {
         }
     }
 
-    fn is_highlight(self) -> bool {
+    fn is_highlight(&self) -> bool {
         self.kind == TextMarkupKind::Highlight
     }
 
-    fn is_line_decoration(self) -> bool {
+    fn is_line_decoration(&self) -> bool {
         self.kind.is_line_decoration()
     }
 
-    fn is_background(self) -> bool {
+    fn is_background(&self) -> bool {
         self.is_highlight() || (self.is_line_decoration() && self.options.background)
     }
 
-    fn is_foreground(self) -> bool {
+    fn is_foreground(&self) -> bool {
         self.is_line_decoration() && !self.options.background
     }
 }
@@ -159,7 +159,7 @@ fn line_with_rendered_static_markup(line: &ParsedLine) -> Option<RenderLine> {
                 if !text.is_empty() {
                     nodes.push(RenderNode::DecoratedText(DecoratedText {
                         kind,
-                        options: span.options,
+                        options: span.options.clone(),
                         text,
                         byte_range: span.body_range.clone(),
                     }));
@@ -244,7 +244,7 @@ fn try_typeset_plain_text_line(
             typeset_segmented_plain_text_line(source, plain, None, options, segmented)
         }
         RenderNode::DecoratedText(decorated) => {
-            let decoration = TextDecoration::from_markup(decorated.kind, decorated.options);
+            let decoration = TextDecoration::from_markup(decorated.kind, decorated.options.clone());
             let Some(face) =
                 TextFace::for_plain_style_and_text(&options.text_style, &decorated.text, fontdb)?
             else {
@@ -362,7 +362,8 @@ fn try_typeset_mixed_metrics_text_line(
                 if decorated.text.is_empty() {
                     continue;
                 }
-                let decoration = TextDecoration::from_markup(decorated.kind, decorated.options);
+                let decoration =
+                    TextDecoration::from_markup(decorated.kind, decorated.options.clone());
                 let script = text_script_for_kind(decorated.kind);
                 let Some(text_face) = TextFace::for_plain_style_and_text(
                     &options.text_style,
@@ -391,7 +392,7 @@ fn try_typeset_mixed_metrics_text_line(
                             glyph_baseline_y,
                             run_font_size,
                             options.text_style.fill,
-                            Some(decoration),
+                            Some(decoration.clone()),
                         )
                     });
                 let positioned_paths = options
@@ -897,9 +898,12 @@ fn plain_path_artifact_from_shaped(
         }
     }
 
-    if decoration.is_some_and(TextDecoration::is_background) {
+    if decoration
+        .as_ref()
+        .is_some_and(TextDecoration::is_background)
+    {
         if let Some(highlight) = decoration_path_item(
-            decoration.unwrap(),
+            decoration.clone().unwrap(),
             metrics,
             font_size,
             fill,
@@ -911,9 +915,12 @@ fn plain_path_artifact_from_shaped(
     }
     items.extend(glyph_items);
 
-    if let Some(decoration) = decoration.filter(|decoration| decoration.is_foreground()) {
+    if let Some(decoration) = decoration
+        .as_ref()
+        .filter(|decoration| decoration.is_foreground())
+    {
         if let Some(item) = decoration_path_item(
-            decoration,
+            decoration.clone(),
             metrics,
             font_size,
             fill,
@@ -979,9 +986,12 @@ fn plain_path_artifact_from_segmented(
         }
     }
 
-    if decoration.is_some_and(TextDecoration::is_background) {
+    if decoration
+        .as_ref()
+        .is_some_and(TextDecoration::is_background)
+    {
         if let Some(highlight) = decoration_path_item(
-            decoration.unwrap(),
+            decoration.clone().unwrap(),
             metrics,
             font_size,
             fill,
@@ -993,11 +1003,19 @@ fn plain_path_artifact_from_segmented(
     }
     items.extend(glyph_items);
 
-    if let Some(decoration) = decoration.filter(|decoration| decoration.is_foreground()) {
+    if let Some(decoration) = decoration
+        .as_ref()
+        .filter(|decoration| decoration.is_foreground())
+    {
         let face = segmented.runs.first().map(|run| &run.face);
-        if let Some(item) =
-            decoration_path_item(decoration, metrics, font_size, fill, face, &glyph_paths)
-        {
+        if let Some(item) = decoration_path_item(
+            decoration.clone(),
+            metrics,
+            font_size,
+            fill,
+            face,
+            &glyph_paths,
+        ) {
             items.push(item);
         }
     }
@@ -1117,17 +1135,25 @@ fn line_decoration_item(
     let y = metrics.baseline - position;
     let evade = options.evade.unwrap_or(default_evade);
     let path = line_decoration_path(width, y, extent, evade, font_size, glyph_paths);
+    let stroke_width = options
+        .stroke
+        .thickness
+        .map(|thickness| thickness.resolve(font_size))
+        .unwrap_or(line.thickness);
     PathItem {
         path,
         kind: PathKind::MathShape,
         fill: None,
         stroke: Some(Stroke {
             color: options.stroke.paint.unwrap_or(fill),
-            width: options
+            width: stroke_width,
+            line_cap: options.stroke.line_cap.unwrap_or_default(),
+            line_join: options.stroke.line_join.unwrap_or_default(),
+            dash: options
                 .stroke
-                .thickness
-                .map(|thickness| thickness.resolve(font_size))
-                .unwrap_or(line.thickness),
+                .dash
+                .as_ref()
+                .and_then(|dash| dash.resolve(stroke_width, font_size)),
         }),
         transform: Transform::IDENTITY,
         clip: None,
@@ -1619,7 +1645,7 @@ fn typeset_plain_text_line(
             metrics.baseline,
             font_size,
             options.text_style.fill,
-            decoration,
+            decoration.clone(),
         )
     });
     let paths = options.outputs.paths.then(|| {
@@ -1706,7 +1732,7 @@ fn typeset_segmented_plain_text_line(
             metrics.baseline,
             font_size,
             options.text_style.fill,
-            decoration,
+            decoration.clone(),
         )
     });
     let paths = options.outputs.paths.then(|| {
@@ -1729,7 +1755,7 @@ fn typeset_segmented_plain_text_line(
             metrics.baseline,
             true,
         );
-        if let (Some(decoration), Some(first)) = (decoration, runs.first_mut()) {
+        if let (Some(decoration), Some(first)) = (decoration.clone(), runs.first_mut()) {
             let glyph_paths =
                 glyph_outline_paths_from_segmented(&segmented, font_size, metrics.baseline);
             first.paths = decoration_path_artifact(
@@ -2146,13 +2172,14 @@ mod tests {
     #[test]
     fn decoration_stroke_dictionary_sets_paint_and_thickness() {
         let fontdb = test_fontdb();
-        let line = render_line("#underline(stroke: (thickness: 0.4em, paint: maroon))[x]");
+        let line =
+            render_line("#underline(stroke: (thickness: 0.4em, paint: maroon, cap: \"round\"))[x]");
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
         let font_size = options.text_style.font_size.max(1.0);
 
         let artifact = try_typeset_plain_text_line(
-            "#underline(stroke: (thickness: 0.4em, paint: maroon))[x]",
+            "#underline(stroke: (thickness: 0.4em, paint: maroon, cap: \"round\"))[x]",
             &line,
             &options,
             &fontdb,
@@ -2164,6 +2191,33 @@ mod tests {
 
         assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
         assert!((stroke.width - font_size * 0.4).abs() < 1e-4);
+        assert_eq!(stroke.line_cap, crate::paths::StrokeCap::Round);
+        assert_eq!(stroke.line_join, crate::paths::StrokeJoin::Miter);
+    }
+
+    #[test]
+    fn decoration_stroke_dictionary_sets_join_and_dash() {
+        let fontdb = test_fontdb();
+        let line = render_line("#underline(stroke: (join: \"bevel\", dash: \"dash-dotted\"))[x]");
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        let artifact = try_typeset_plain_text_line(
+            "#underline(stroke: (join: \"bevel\", dash: \"dash-dotted\"))[x]",
+            &line,
+            &options,
+            &fontdb,
+        )
+        .unwrap()
+        .expect("supported static decoration should use fast path");
+        let paths = artifact.paths.expect("decorated paths should exist");
+        let stroke = first_stroke_item(&paths).stroke.as_ref().unwrap();
+        let dash = stroke.dash.as_ref().expect("dash should be present");
+
+        assert_eq!(stroke.line_join, crate::paths::StrokeJoin::Bevel);
+        assert_eq!(dash.len(), 4);
+        assert!((dash[0] - 3.0).abs() < 1e-4);
+        assert!((dash[2] - stroke.width).abs() < 1e-4);
     }
 
     #[test]

@@ -25,7 +25,7 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_text::{
-    path::{TextPathItem, TextPathKind},
+    path::{TextPathItem, TextPathKind, TextPathStrokeCap, TextPathStrokeJoin},
     pdf::{TextPdfBuffer, TextPdfDrawItem, TextPdfExtractionConfig},
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
     FontResolutionOptions, MissingFontPolicy, TextEngine,
@@ -688,9 +688,18 @@ impl PdfRenderer {
                 fill: fill.as_ref(),
                 stroke: stroke.as_ref(),
                 stroke_width: item.stroke.as_ref().map(|stroke| stroke.width),
-                stroke_cap: None,
-                stroke_join: None,
-                stroke_dash: None,
+                stroke_cap: item
+                    .stroke
+                    .as_ref()
+                    .map(|stroke| text_path_stroke_cap(stroke.line_cap)),
+                stroke_join: item
+                    .stroke
+                    .as_ref()
+                    .map(|stroke| text_path_stroke_join(stroke.line_join)),
+                stroke_dash: item
+                    .stroke
+                    .as_ref()
+                    .and_then(|stroke| stroke.dash.as_deref()),
                 gradients: &[],
             },
         );
@@ -812,6 +821,22 @@ impl PdfRenderer {
         surface.set_stroke(stroke);
         surface.draw_path(&krilla_path);
         Ok(())
+    }
+}
+
+fn text_path_stroke_cap(cap: TextPathStrokeCap) -> StrokeCap {
+    match cap {
+        TextPathStrokeCap::Butt => StrokeCap::Butt,
+        TextPathStrokeCap::Round => StrokeCap::Round,
+        TextPathStrokeCap::Square => StrokeCap::Square,
+    }
+}
+
+fn text_path_stroke_join(join: TextPathStrokeJoin) -> StrokeJoin {
+    match join {
+        TextPathStrokeJoin::Bevel => StrokeJoin::Bevel,
+        TextPathStrokeJoin::Miter => StrokeJoin::Miter,
+        TextPathStrokeJoin::Round => StrokeJoin::Round,
     }
 }
 
