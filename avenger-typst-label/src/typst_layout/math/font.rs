@@ -1,3 +1,6 @@
+// Retained math font, glyph, variant, and assembly helpers, mapped in
+// UPSTREAM.md to upstream `math/text.rs`, `math/shaping.rs`, and
+// `math/fragment/glyph.rs`.
 struct MathFont {
     data: Vec<u8>,
     face_index: u32,
@@ -225,4 +228,3 @@ fn top_accent_attachment(font: &MathFont, glyph: &LaidOutGlyph) -> Result<Option
 fn script_style_feature(script_level: u8) -> Option<u32> {
     (script_level > 0).then_some(u32::from(script_level.min(2)))
 }
-

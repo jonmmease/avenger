@@ -1,3 +1,5 @@
+// Retained under/over, line-decoration, operator, variant, stretch, and `mid`
+// helpers, mapped in UPSTREAM.md to upstream math scripts/fenced/text/glyph code.
 fn layout_simple_line_call(
     font: &MathFont,
     call: &ast::MathCall,
@@ -572,4 +574,3 @@ fn operator_arg_text(nodes: &[MathNode]) -> Option<String> {
     }
     (!text.is_empty()).then_some(text)
 }
-

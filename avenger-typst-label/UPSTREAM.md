@@ -49,6 +49,31 @@ math layout concerns:
 Because these files are `include!` partials, private items are still in one Rust
 module. This keeps the split traceable while avoiding visibility churn.
 
+## Math Layout Function Map
+
+Many retained math layout functions still use `layout_simple_*` names. That is
+intentional for now: the useful traceability is the source mapping below, not a
+large private rename diff.
+
+| Avenger function(s) | Upstream source/function(s) | Notes |
+| --- | --- | --- |
+| `layout_simple_row`, `layout_simple_nodes_as_atom*` in `row.rs` | `../typst/crates/typst-layout/src/math/run.rs` (`layout_aligned_row`, `row_into_line_frame`) and `../typst/crates/typst-layout/src/math/mod.rs` (`layout_into_fragments`, `layout_into_fragment`) | Retained single-row dispatcher and row-to-frame assembly. Multiline/table alignment is intentionally not kept. |
+| `layout_simple_node_with_mid_target` in `row.rs` | `../typst/crates/typst-layout/src/math/mod.rs` (`layout_realized`) plus the individual `typst-layout/src/math/*.rs` element layout functions | Compact dispatcher from retained `MathNode` to the supported construct layouts. |
+| Math-class propagation and spacing in `row.rs`/`spacing.rs` | `../typst/crates/typst-library/src/math/ir/process.rs` (`spacing`) and `../typst/crates/typst-library/src/math/ir/item.rs` (`MathClass`, `MathItem::class`) | Avenger keeps the class-spacing subset needed for one-line labels, including explicit spacing suppressing automatic spacing. |
+| `layout_simple_fraction`, `layout_simple_fraction_call`, `layout_simple_fraction_nodes` in `constructs.rs` | `../typst/crates/typst-layout/src/math/fraction.rs` (`layout_fraction`) | Vertical fractions mirror OpenType MATH numerator/denominator shifts and gaps. |
+| `layout_simple_stack_nodes`, `layout_simple_no_rule_stack`, `layout_simple_horizontal_fraction_nodes`, `layout_simple_skewed_fraction_nodes` in `stack.rs` | `../typst/crates/typst-layout/src/math/fraction.rs` (`layout_fraction`, `layout_skewed_fraction`) | Retained stack, no-rule stack/binom, horizontal fraction, and skewed fraction formulas. |
+| `layout_simple_sqrt`, `layout_simple_root`, `layout_simple_radical` in `constructs.rs` | `../typst/crates/typst-layout/src/math/radical.rs` (`layout_radical`) | Retains radical gap/thickness/degree placement formulas without upstream frame/style machinery. |
+| `layout_simple_accent` in `constructs.rs` | `../typst/crates/typst-layout/src/math/accent.rs` (`layout_accent`) | Retains top/bottom accent placement, flattened accent behavior, and accent attachment points. |
+| `layout_simple_cancel` in `constructs.rs` | `../typst/crates/typst-layout/src/math/cancel.rs` (`layout_cancel`, `draw_cancel_line`, `default_angle`) | Retains diagonal/cross cancel line geometry and literal stroke options. |
+| `layout_simple_attach*`, `layout_simple_script_attach_parts`, `layout_simple_limit_attach_parts` in `scripts.rs` | `../typst/crates/typst-layout/src/math/scripts.rs` (`layout_scripts`, `layout_primes`, `layout_attachments`, script/limit shift helpers) and `../typst/crates/typst-library/src/math/attach.rs` (`Limits`) | Retains scripts, primes, corner slots, default display limits, forced `scripts(...)`, and forced `limits(...)`. |
+| `layout_simple_group`, `layout_simple_delimited_*`, `layout_simple_lr_call` in `fenced.rs` | `../typst/crates/typst-layout/src/math/fenced.rs` (`layout_fenced`) and `../typst/crates/typst-layout/src/math/fragment/glyph.rs` (`stretch`) | Retains group/delimiter/lr layout and stretchy delimiter sizing for one-line labels. |
+| `layout_simple_mid_call` in `decorate.rs` with helpers in `fenced.rs` | `../typst/crates/typst-layout/src/math/fenced.rs` and `../typst/crates/typst-library/src/math/lr.rs` | Retains `mid` as a stretchy middle delimiter between surrounding `lr` content. |
+| `layout_simple_line_call`, `layout_simple_under_over_call` in `decorate.rs` | `../typst/crates/typst-layout/src/math/scripts.rs` for under/over attachment placement, plus retained decoration path construction | Retains math underline/overline and under/over ornaments as label path artifacts. |
+| `layout_simple_operator_call`, `layout_simple_variant_call`, `layout_simple_stretch_call` in `decorate.rs` | `../typst/crates/typst-layout/src/math/text.rs`, `../typst/crates/typst-layout/src/math/shaping.rs`, and `../typst/crates/typst-layout/src/math/fragment/glyph.rs` | Retains operator text, math alphabet variants, and explicit stretch calls for supported axes. |
+| `layout_math_text`, glyph shaping helpers, variant/assembly helpers in `font.rs` | `../typst/crates/typst-layout/src/math/text.rs` (`layout_text`, `layout_number`, `layout_glyph`), `../typst/crates/typst-layout/src/math/shaping.rs`, and `../typst/crates/typst-layout/src/math/fragment/glyph.rs` (`glyph_construction`, `assemble`, `stretch_axes`) | Retains direct math glyph shaping, glyph variants, and MATH assembly support needed for radicals, delimiters, accents, and large operators. |
+| `pdf.rs` math glyph metadata helpers | Upstream PDF export path through Typst's frame/glyph metadata and `typst-pdf`/krilla integration | Avenger exposes a compact PDF text-layer artifact rather than upstream frames. |
+| `svg.rs` math path artifact lowering | `../typst/crates/typst-svg/src/path.rs` and `../typst/crates/typst-svg/src/shape.rs` | Retains path commands, transform names, stroke cap/join/dash/miter, and rectangle winding relevant to SVG/PDF/raster output. |
+
 ## Parity Validation
 
 Use Rust tests, not GitHub Actions wiring, to validate upstream parity for this

@@ -1,3 +1,5 @@
+// Retained one-line row dispatcher, mapped in UPSTREAM.md to upstream
+// `typst-layout/src/math/run.rs`, `mod.rs`, and `typst-library/src/math/ir`.
 fn layout_simple_row(
     font: &MathFont,
     math: &MathAst,

@@ -1,3 +1,5 @@
+// Retained script, prime, and limit placement, mapped in UPSTREAM.md to
+// upstream `typst-layout/src/math/scripts.rs` and `typst-library/src/math/attach.rs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MathAttachmentMode {
     Scripts,

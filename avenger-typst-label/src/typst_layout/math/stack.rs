@@ -4,6 +4,8 @@ enum StackRule {
     None,
 }
 
+// Retained fraction stack formulas, mapped in UPSTREAM.md to upstream
+// `typst-layout/src/math/fraction.rs`.
 fn layout_simple_stack_nodes(
     font: &MathFont,
     numerator_nodes: &[MathNode],

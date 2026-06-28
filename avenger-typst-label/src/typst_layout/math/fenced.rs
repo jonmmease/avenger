@@ -1,3 +1,5 @@
+// Retained fenced/delimiter layout, mapped in UPSTREAM.md to upstream
+// `typst-layout/src/math/fenced.rs` and glyph stretching helpers.
 fn layout_simple_group(
     font: &MathFont,
     group: &ast::MathGroup,
@@ -652,4 +654,3 @@ fn delimiter_call_chars(name: &str) -> Option<(char, char)> {
         _ => None,
     }
 }
-

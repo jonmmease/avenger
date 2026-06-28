@@ -1,3 +1,5 @@
+// Retained construct layouts, mapped in UPSTREAM.md to upstream
+// `accent.rs`, `cancel.rs`, `fraction.rs`, and `radical.rs`.
 fn layout_simple_sqrt(
     font: &MathFont,
     call: &ast::MathCall,
