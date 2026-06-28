@@ -1818,6 +1818,11 @@ fn layout_simple_accent(
     let accent_attach = atom_top_accent_attachment(font, &accent_atom)?;
     let accent_x = base_attach - accent_attach;
     let accent_y = baseline - accent_atom.metrics.baseline;
+    let output_height = if is_bottom_math_accent(accent.accent) {
+        height.max(accent_y + accent_atom.metrics.height)
+    } else {
+        height
+    };
 
     offset_atom(&mut base, 0.0, 0.0);
     offset_atom(&mut accent_atom, accent_x, accent_y);
@@ -1831,13 +1836,13 @@ fn layout_simple_accent(
     Ok(Some(LaidOutMathAtom {
         metrics: TypesetMetrics {
             width,
-            height,
+            height: output_height,
             baseline,
             ascent: baseline,
-            descent: height - baseline,
+            descent: output_height - baseline,
         },
         ink_ascent: baseline,
-        ink_descent: height - baseline,
+        ink_descent: output_height - baseline,
         left_class: SimpleMathClass::Alphabetic,
         right_class: SimpleMathClass::Alphabetic,
         italic_correction: 0.0,
@@ -1846,6 +1851,26 @@ fn layout_simple_accent(
         shapes,
         draw_order,
     }))
+}
+
+fn is_bottom_math_accent(accent: char) -> bool {
+    matches!(
+        accent,
+        '\u{0323}'
+            | '\u{032c}'
+            | '\u{032d}'
+            | '\u{032e}'
+            | '\u{032f}'
+            | '\u{0330}'
+            | '\u{0331}'
+            | '\u{0332}'
+            | '\u{0333}'
+            | '\u{20e8}'
+            | '\u{20ec}'
+            | '\u{20ed}'
+            | '\u{20ee}'
+            | '\u{20ef}'
+    )
 }
 
 fn dotless_accent_base_nodes(nodes: &[MathNode]) -> Vec<MathNode> {
@@ -5729,6 +5754,37 @@ mod tests {
             glyph_unicodes.iter().any(|unicode| unicode.is_empty()),
             "assembled accent should use non-semantic extender glyphs"
         );
+    }
+
+    #[test]
+    fn simple_row_can_emit_bottom_math_accent_call() {
+        let options = MathLayoutOptions::default();
+
+        let base = parse_math("x", 0).unwrap();
+        let bottom = parse_math("accent(x, \"\u{0330}\")", 0).unwrap();
+        let base_artifact =
+            try_typeset_simple_row_fragment(&base, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("base row should be handled by Typst row path");
+        let bottom_artifact =
+            try_typeset_simple_row_fragment(&bottom, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("bottom accent call should be handled by Typst row path");
+
+        assert!(
+            bottom_artifact.metrics.descent > base_artifact.metrics.descent,
+            "bottom accent should contribute descent: base={:?}, bottom={:?}",
+            base_artifact.metrics,
+            bottom_artifact.metrics
+        );
+        let text: String = bottom_artifact
+            .pdf_text
+            .glyph_runs
+            .iter()
+            .flat_map(|run| &run.glyphs)
+            .map(|glyph| glyph.unicode.as_str())
+            .collect();
+        assert_eq!(text, "𝑥\u{0330}");
     }
 
     #[test]
