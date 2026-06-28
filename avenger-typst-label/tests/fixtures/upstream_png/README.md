@@ -20,6 +20,42 @@ Start with PNG only. This suite is the first upstream Typst parity oracle for
 `avenger-typst-label`; do not build SVG/PDF/chart/renderer parity scaffolding
 until the raster oracle is stable.
 
+## Quick Agent Build Instructions
+
+When assigning this work to an implementation agent, keep the task bounded to
+this PNG suite:
+
+1. Work only in `avenger-typst-label` and only behind the existing `raster`
+   feature.
+2. Do not add SVG parity, PDF parity, chart baselines, scenegraph tests,
+   browser tests, renderer integration, or PDF/text embedding checks.
+3. Use upstream Typst only from the reference generator. The Rust parity test
+   must be offline and compare against checked-in `ref/*.png` files.
+4. Build or update the manifest-driven files:
+   - `src/bin/generate_upstream_png_refs.rs`
+   - `tests/upstream_png_parity.rs`
+   - `tests/fixtures/upstream_png/cases.toml`
+   - `tests/fixtures/upstream_png/src/{id}.typ`
+   - `tests/fixtures/upstream_png/ref/{id}.png`
+5. Add one implemented feature family at a time. For a first build, stop after
+   two or three smoke cases.
+6. Run every command from the repository root in release mode:
+
+   ```sh
+   cargo run --release -p avenger-typst-label --features raster --bin generate_upstream_png_refs
+   cargo test --release -p avenger-typst-label --features raster upstream_png_parity -- --nocapture
+   cargo test --release -p avenger-typst-label --features raster -- --nocapture
+   ```
+
+7. Inspect every changed reference PNG directly or in a temporary mosaic before
+   accepting it. Confirm non-blank output, no clipping, intended Lato/Lete Sans
+   Math fonts, and visible coverage of the target feature.
+8. If generator or comparator code changed, perturb one checked-in reference
+   PNG, confirm the test writes useful `expected.png`, `actual.png`, and
+   `diff.png` artifacts, then restore/regenerate before committing.
+9. Commit only suite code, `cases.toml`, source snippets, curated refs, and
+   required crate metadata.
+
 A fresh agent building the suite should:
 
 1. create or repair the manifest-driven fixture tree;

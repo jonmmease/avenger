@@ -163,6 +163,59 @@ enum SimpleMathClass {
     Large,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MathLayoutSize {
+    Display,
+    Text,
+    Script,
+    ScriptScript,
+}
+
+impl MathLayoutSize {
+    fn fraction_child(self) -> Self {
+        match self {
+            Self::Display => Self::Text,
+            Self::Text => Self::Script,
+            Self::Script | Self::ScriptScript => Self::ScriptScript,
+        }
+    }
+
+    fn script_child(self) -> Self {
+        match self {
+            Self::Display | Self::Text => Self::Script,
+            Self::Script | Self::ScriptScript => Self::ScriptScript,
+        }
+    }
+
+    fn is_display(self) -> bool {
+        self == Self::Display
+    }
+
+    fn child_context(
+        self,
+        child: Self,
+        font: &MathFont,
+        font_size: f32,
+        script_level: u8,
+    ) -> Result<(f32, u8, Self), LabelError> {
+        let reduce = matches!(
+            (self, child),
+            (Self::Text, Self::Script)
+                | (Self::Script, Self::ScriptScript)
+                | (Self::Display, Self::Script)
+        );
+        if reduce {
+            Ok((
+                script_font_size(font, font_size, script_level)?,
+                script_level + 1,
+                child,
+            ))
+        } else {
+            Ok((font_size, script_level, child))
+        }
+    }
+}
+
 fn layout_simple_row(
     font: &MathFont,
     math: &MathAst,
@@ -193,6 +246,24 @@ fn layout_simple_nodes_as_atom_with_mid_target(
     script_level: u8,
     mid_target_height: Option<f32>,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    layout_simple_nodes_as_atom_with_context(
+        font,
+        nodes,
+        font_size,
+        script_level,
+        mid_target_height,
+        MathLayoutSize::Text,
+    )
+}
+
+fn layout_simple_nodes_as_atom_with_context(
+    font: &MathFont,
+    nodes: &[MathNode],
+    font_size: f32,
+    script_level: u8,
+    mid_target_height: Option<f32>,
+    math_size: MathLayoutSize,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let mut atoms = Vec::new();
     let mut index = 0usize;
     while index < nodes.len() {
@@ -211,6 +282,7 @@ fn layout_simple_nodes_as_atom_with_mid_target(
                                 group,
                                 font_size,
                                 script_level,
+                                math_size,
                             )?
                             else {
                                 return Ok(None);
@@ -223,6 +295,7 @@ fn layout_simple_nodes_as_atom_with_mid_target(
                                 font_size,
                                 script_level,
                                 mid_target_height,
+                                math_size,
                             )?
                             else {
                                 return Ok(None);
@@ -236,6 +309,7 @@ fn layout_simple_nodes_as_atom_with_mid_target(
                             font_size,
                             script_level,
                             mid_target_height,
+                            math_size,
                         )?
                         else {
                             return Ok(None);
@@ -349,21 +423,13 @@ fn append_atom_items(
     shapes.append(&mut atom.shapes);
 }
 
-fn layout_simple_node(
-    font: &MathFont,
-    node: &MathNode,
-    font_size: f32,
-    script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    layout_simple_node_with_mid_target(font, node, font_size, script_level, None)
-}
-
 fn layout_simple_node_with_mid_target(
     font: &MathFont,
     node: &MathNode,
     font_size: f32,
     script_level: u8,
     mid_target_height: Option<f32>,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if let Some(atom) = simple_atom(node) {
         let layout = if atom.text_operator {
@@ -381,70 +447,115 @@ fn layout_simple_node_with_mid_target(
     }
 
     if let MathNode::Attach(attach) = node {
-        return layout_simple_attach(font, attach, font_size, script_level);
+        return layout_simple_attach(font, attach, font_size, script_level, math_size);
     }
 
     if let MathNode::Fraction(fraction) = node {
-        return layout_simple_fraction(font, fraction, font_size, script_level);
+        return layout_simple_fraction(font, fraction, font_size, script_level, math_size);
     }
 
     if let MathNode::Cancel(cancel) = node {
-        return layout_simple_cancel(font, cancel, font_size, script_level);
+        return layout_simple_cancel(font, cancel, font_size, script_level, math_size);
     }
 
     if let MathNode::Accent(accent) = node {
-        return layout_simple_accent(font, accent, font_size, script_level);
+        return layout_simple_accent(font, accent, font_size, script_level, math_size);
     }
 
     if let MathNode::Group(group) = node {
-        return layout_simple_group(font, group, font_size, script_level);
+        return layout_simple_group(font, group, font_size, script_level, math_size);
     }
 
     if let MathNode::Call(call) = node {
         if let Some(mode) = MathAttachmentMode::from_call_name(&call.name) {
-            return layout_simple_attachment_mode_call(font, call, mode, font_size, script_level);
+            return layout_simple_attachment_mode_call(
+                font,
+                call,
+                mode,
+                font_size,
+                script_level,
+                math_size,
+            );
         }
-        if let Some(atom) = layout_simple_operator_call(font, call, font_size, script_level)? {
+        if let Some(atom) =
+            layout_simple_operator_call(font, call, font_size, script_level, math_size)?
+        {
             return Ok(Some(atom));
         }
         if call.name == "frac" {
-            return layout_simple_fraction_call(font, call, font_size, script_level);
+            return layout_simple_fraction_call(font, call, font_size, script_level, math_size);
         }
         if call.name == "binom" {
-            return layout_simple_binom_call(font, call, font_size, script_level);
+            return layout_simple_binom_call(font, call, font_size, script_level, math_size);
         }
         if call.name == "class" {
-            return layout_simple_class_call(font, call, font_size, script_level);
+            return layout_simple_class_call(font, call, font_size, script_level, math_size);
         }
         if let Some(size) = MathSizeCall::from_name(&call.name) {
             return layout_simple_size_call(font, call, size, font_size, script_level);
         }
         if let Some(position) = MathLineCall::from_name(&call.name) {
-            return layout_simple_line_call(font, call, position, font_size, script_level);
+            return layout_simple_line_call(
+                font,
+                call,
+                position,
+                font_size,
+                script_level,
+                math_size,
+            );
         }
         if let Some(kind) = MathUnderOverCall::from_name(&call.name) {
-            return layout_simple_under_over_call(font, call, kind, font_size, script_level);
+            return layout_simple_under_over_call(
+                font,
+                call,
+                kind,
+                font_size,
+                script_level,
+                math_size,
+            );
         }
         if let Some(selection) = MathStyleSelection::from_call_name(&call.name) {
-            return layout_simple_variant_call(font, call, selection, font_size, script_level);
+            return layout_simple_variant_call(
+                font,
+                call,
+                selection,
+                font_size,
+                script_level,
+                math_size,
+            );
         }
         if call.name == "stretch" {
-            return layout_simple_stretch_call(font, call, font_size, script_level);
+            return layout_simple_stretch_call(font, call, font_size, script_level, math_size);
         }
         if call.name == "mid" {
-            return layout_simple_mid_call(font, call, font_size, script_level, mid_target_height);
+            return layout_simple_mid_call(
+                font,
+                call,
+                font_size,
+                script_level,
+                mid_target_height,
+                math_size,
+            );
         }
         if let Some((left, right)) = delimiter_call_chars(&call.name) {
-            return layout_simple_delimited_call(font, call, left, right, font_size, script_level);
+            return layout_simple_delimited_call(
+                font,
+                call,
+                left,
+                right,
+                font_size,
+                script_level,
+                math_size,
+            );
         }
         if call.name == "lr" {
-            return layout_simple_lr_call(font, call, font_size, script_level);
+            return layout_simple_lr_call(font, call, font_size, script_level, math_size);
         }
         if call.name == "sqrt" {
-            return layout_simple_sqrt(font, call, font_size, script_level);
+            return layout_simple_sqrt(font, call, font_size, script_level, math_size);
         }
         if call.name == "root" {
-            return layout_simple_root(font, call, font_size, script_level);
+            return layout_simple_root(font, call, font_size, script_level, math_size);
         }
     }
 
@@ -456,6 +567,7 @@ fn layout_simple_class_call(
     call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [class_arg, body_arg] = &call.args[..] else {
         return Ok(None);
@@ -463,8 +575,14 @@ fn layout_simple_class_call(
     let [MathNode::StringLiteral(class)] = &class_arg.nodes[..] else {
         return Ok(None);
     };
-    let Some(mut atom) =
-        layout_simple_nodes_as_atom(font, &body_arg.nodes, font_size, script_level)?
+    let Some(mut atom) = layout_simple_nodes_as_atom_with_context(
+        font,
+        &body_arg.nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
     else {
         return Ok(None);
     };
@@ -486,21 +604,31 @@ fn layout_simple_size_call(
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
-    let (font_size, script_level) = match size {
-        MathSizeCall::Display | MathSizeCall::Inline => (font_size, script_level),
+    let (font_size, script_level, math_size) = match size {
+        MathSizeCall::Display => (font_size, script_level, MathLayoutSize::Display),
+        MathSizeCall::Inline => (font_size, script_level, MathLayoutSize::Text),
         MathSizeCall::Script => (
             script_font_size(font, font_size, script_level)?,
             script_level + 1,
+            MathLayoutSize::Script,
         ),
         MathSizeCall::ScriptScript => {
             let script_size = script_font_size(font, font_size, script_level)?;
             (
                 script_font_size(font, script_size, script_level + 1)?,
                 script_level + 2,
+                MathLayoutSize::ScriptScript,
             )
         }
     };
-    layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)
+    layout_simple_nodes_as_atom_with_context(
+        font,
+        &arg.nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )
 }
 
 fn layout_simple_line_call(
@@ -509,11 +637,19 @@ fn layout_simple_line_call(
     position: MathLineCall,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
-    let Some(mut body) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    let Some(mut body) = layout_simple_nodes_as_atom_with_context(
+        font,
+        &arg.nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
     else {
         return Ok(None);
     };
@@ -608,6 +744,7 @@ fn layout_simple_under_over_call(
     kind: MathUnderOverCall,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [body_arg, annotation_args @ ..] = &call.args[..] else {
         return Ok(None);
@@ -617,8 +754,14 @@ fn layout_simple_under_over_call(
         [arg] => Some(arg),
         _ => return Ok(None),
     };
-    let Some(mut body) =
-        layout_simple_nodes_as_atom(font, &body_arg.nodes, font_size, script_level)?
+    let Some(mut body) = layout_simple_nodes_as_atom_with_context(
+        font,
+        &body_arg.nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
     else {
         return Ok(None);
     };
@@ -890,12 +1033,20 @@ fn layout_simple_variant_call(
     selection: MathStyleSelection,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
     let styled_nodes = style_math_nodes(&arg.nodes, selection);
-    layout_simple_nodes_as_atom(font, &styled_nodes, font_size, script_level)
+    layout_simple_nodes_as_atom_with_context(
+        font,
+        &styled_nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )
 }
 
 fn layout_simple_stretch_call(
@@ -903,11 +1054,19 @@ fn layout_simple_stretch_call(
     call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
-    let Some(mut atom) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    let Some(mut atom) = layout_simple_nodes_as_atom_with_context(
+        font,
+        &arg.nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
     else {
         return Ok(None);
     };
@@ -953,11 +1112,19 @@ fn layout_simple_mid_call(
     font_size: f32,
     script_level: u8,
     target_height: Option<f32>,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
-    let Some(mut atom) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    let Some(mut atom) = layout_simple_nodes_as_atom_with_context(
+        font,
+        &arg.nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
     else {
         return Ok(None);
     };
@@ -988,6 +1155,7 @@ fn layout_simple_operator_call(
     call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if call.name == "op" || call.name == "op_limits" {
         let [arg] = &call.args[..] else {
@@ -1018,7 +1186,7 @@ fn layout_simple_operator_call(
             byte_range: arg.byte_range.clone(),
         }),
     ];
-    layout_simple_nodes_as_atom(font, &nodes, font_size, script_level)
+    layout_simple_nodes_as_atom_with_context(font, &nodes, font_size, script_level, None, math_size)
 }
 
 fn operator_arg_text(nodes: &[MathNode]) -> Option<String> {
@@ -1043,6 +1211,7 @@ fn layout_simple_group(
     group: &ast::MathGroup,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     layout_simple_delimited_nodes(
         font,
@@ -1052,6 +1221,7 @@ fn layout_simple_group(
         font_size,
         script_level,
         None,
+        math_size,
     )
 }
 
@@ -1062,6 +1232,7 @@ fn layout_simple_delimited_call(
     right: char,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
@@ -1074,6 +1245,7 @@ fn layout_simple_delimited_call(
         font_size,
         script_level,
         call.options.delimiter_size,
+        math_size,
     )
 }
 
@@ -1082,6 +1254,7 @@ fn layout_simple_lr_call(
     call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
@@ -1097,6 +1270,7 @@ fn layout_simple_lr_call(
         font_size,
         script_level,
         call.options.delimiter_size,
+        math_size,
     )
 }
 
@@ -1199,8 +1373,17 @@ fn layout_simple_delimited_nodes(
     font_size: f32,
     script_level: u8,
     explicit_size: Option<ast::MathDelimitedSize>,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let Some(body) = layout_simple_nodes_as_atom(font, body_nodes, font_size, script_level)? else {
+    let Some(body) = layout_simple_nodes_as_atom_with_context(
+        font,
+        body_nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
+    else {
         return Ok(None);
     };
     let delimiter_target_height = delimiter_target_height_for_body(
@@ -1211,12 +1394,13 @@ fn layout_simple_delimited_nodes(
         font_size,
     )?;
     let body = if contains_mid_call(body_nodes) {
-        layout_simple_nodes_as_atom_with_mid_target(
+        layout_simple_nodes_as_atom_with_context(
             font,
             body_nodes,
             font_size,
             script_level,
             Some(delimiter_target_height),
+            math_size,
         )?
         .unwrap_or(body)
     } else {
@@ -1682,11 +1866,12 @@ fn layout_simple_sqrt(
     call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
-    layout_simple_radical(font, &arg.nodes, None, font_size, script_level)
+    layout_simple_radical(font, &arg.nodes, None, font_size, script_level, math_size)
 }
 
 fn layout_simple_root(
@@ -1694,6 +1879,7 @@ fn layout_simple_root(
     call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [index, radicand] = &call.args[..] else {
         return Ok(None);
@@ -1704,6 +1890,7 @@ fn layout_simple_root(
         Some(index.nodes.as_slice()),
         font_size,
         script_level,
+        math_size,
     )
 }
 
@@ -1712,8 +1899,16 @@ fn layout_simple_cancel(
     cancel: &MathCancel,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let Some(mut body) = layout_simple_nodes_as_atom(font, &cancel.body, font_size, script_level)?
+    let Some(mut body) = layout_simple_nodes_as_atom_with_context(
+        font,
+        &cancel.body,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
     else {
         return Ok(None);
     };
@@ -1800,13 +1995,21 @@ fn layout_simple_accent(
     accent: &MathAccent,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let base_nodes = if accent.dotless {
         dotless_accent_base_nodes(&accent.base)
     } else {
         accent.base.clone()
     };
-    let Some(mut base) = layout_simple_nodes_as_atom(font, &base_nodes, font_size, script_level)?
+    let Some(mut base) = layout_simple_nodes_as_atom_with_context(
+        font,
+        &base_nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
     else {
         return Ok(None);
     };
@@ -1930,9 +2133,16 @@ fn layout_simple_radical(
     index_nodes: Option<&[MathNode]>,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let Some(mut radicand) =
-        layout_simple_nodes_as_atom(font, radicand_nodes, font_size, script_level)?
+    let Some(mut radicand) = layout_simple_nodes_as_atom_with_context(
+        font,
+        radicand_nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
     else {
         return Ok(None);
     };
@@ -1951,7 +2161,11 @@ fn layout_simple_radical(
         constants.radical_extra_ascender().value
     })?;
     let mut gap = math_constant(font, font_size, |constants| {
-        constants.radical_vertical_gap().value
+        if math_size.is_display() {
+            constants.radical_display_style_vertical_gap().value
+        } else {
+            constants.radical_vertical_gap().value
+        }
     })?;
     let kern_before = math_constant(font, font_size, |constants| {
         constants.radical_kern_before_degree().value
@@ -2041,6 +2255,7 @@ fn layout_simple_fraction(
     fraction: &ast::MathFraction,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     layout_simple_fraction_nodes(
         font,
@@ -2049,6 +2264,7 @@ fn layout_simple_fraction(
         fraction.style,
         font_size,
         script_level,
+        math_size,
     )
 }
 
@@ -2057,6 +2273,7 @@ fn layout_simple_fraction_call(
     call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [numerator, denominator] = &call.args[..] else {
         return Ok(None);
@@ -2068,6 +2285,7 @@ fn layout_simple_fraction_call(
         MathFractionStyle::Vertical,
         font_size,
         script_level,
+        math_size,
     )
 }
 
@@ -2076,6 +2294,7 @@ fn layout_simple_binom_call(
     call: &ast::MathCall,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [top, lower @ ..] = &call.args[..] else {
         return Ok(None);
@@ -2091,6 +2310,7 @@ fn layout_simple_binom_call(
         font_size,
         script_level,
         StackRule::None,
+        math_size,
     )?
     else {
         return Ok(None);
@@ -2130,6 +2350,7 @@ fn layout_simple_fraction_nodes(
     style: MathFractionStyle,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     match style {
         MathFractionStyle::Vertical => layout_simple_stack_nodes(
@@ -2139,6 +2360,7 @@ fn layout_simple_fraction_nodes(
             font_size,
             script_level,
             StackRule::Fraction,
+            math_size,
         ),
         MathFractionStyle::Skewed => layout_simple_skewed_fraction_nodes(
             font,
@@ -2146,6 +2368,7 @@ fn layout_simple_fraction_nodes(
             denominator_nodes,
             font_size,
             script_level,
+            math_size,
         ),
         MathFractionStyle::Horizontal => layout_simple_horizontal_fraction_nodes(
             font,
@@ -2153,6 +2376,7 @@ fn layout_simple_fraction_nodes(
             denominator_nodes,
             font_size,
             script_level,
+            math_size,
         ),
     }
 }
@@ -2170,21 +2394,34 @@ fn layout_simple_stack_nodes(
     font_size: f32,
     script_level: u8,
     rule: StackRule,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let child_font_size = script_font_size(font, font_size, script_level)?;
-    let Some(mut numerator) =
-        layout_fraction_child_nodes(font, numerator_nodes, child_font_size, script_level + 1)?
+    let child_size = math_size.fraction_child();
+    let (child_font_size, child_script_level, child_math_size) =
+        math_size.child_context(child_size, font, font_size, script_level)?;
+    let Some(mut numerator) = layout_fraction_child_nodes(
+        font,
+        numerator_nodes,
+        child_font_size,
+        child_script_level,
+        child_math_size,
+    )?
     else {
         return Ok(None);
     };
-    let Some(mut denominator) =
-        layout_fraction_child_nodes(font, denominator_nodes, child_font_size, script_level + 1)?
+    let Some(mut denominator) = layout_fraction_child_nodes(
+        font,
+        denominator_nodes,
+        child_font_size,
+        child_script_level,
+        child_math_size,
+    )?
     else {
         return Ok(None);
     };
 
     if rule == StackRule::None {
-        return layout_simple_no_rule_stack(font, numerator, denominator, font_size);
+        return layout_simple_no_rule_stack(font, numerator, denominator, font_size, math_size);
     }
 
     let axis = math_constant(font, font_size, |constants| constants.axis_height().value)?;
@@ -2192,16 +2429,34 @@ fn layout_simple_stack_nodes(
         constants.fraction_rule_thickness().value
     })?;
     let shift_up = math_constant(font, font_size, |constants| {
-        constants.fraction_numerator_shift_up().value
+        if math_size.is_display() {
+            constants.fraction_numerator_display_style_shift_up().value
+        } else {
+            constants.fraction_numerator_shift_up().value
+        }
     })?;
     let shift_down = math_constant(font, font_size, |constants| {
-        constants.fraction_denominator_shift_down().value
+        if math_size.is_display() {
+            constants
+                .fraction_denominator_display_style_shift_down()
+                .value
+        } else {
+            constants.fraction_denominator_shift_down().value
+        }
     })?;
     let numerator_gap_min = math_constant(font, font_size, |constants| {
-        constants.fraction_numerator_gap_min().value
+        if math_size.is_display() {
+            constants.fraction_num_display_style_gap_min().value
+        } else {
+            constants.fraction_numerator_gap_min().value
+        }
     })?;
     let denominator_gap_min = math_constant(font, font_size, |constants| {
-        constants.fraction_denominator_gap_min().value
+        if math_size.is_display() {
+            constants.fraction_denom_display_style_gap_min().value
+        } else {
+            constants.fraction_denominator_gap_min().value
+        }
     })?;
     let padding = FRACTION_PADDING_EM * font_size;
 
@@ -2262,14 +2517,29 @@ fn layout_simple_no_rule_stack(
     mut numerator: LaidOutMathAtom,
     mut denominator: LaidOutMathAtom,
     font_size: f32,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let shift_up = math_constant(font, font_size, |constants| {
-        constants.stack_top_shift_up().value
+        if math_size.is_display() {
+            constants.stack_top_display_style_shift_up().value
+        } else {
+            constants.stack_top_shift_up().value
+        }
     })?;
     let shift_down = math_constant(font, font_size, |constants| {
-        constants.stack_bottom_shift_down().value
+        if math_size.is_display() {
+            constants.stack_bottom_display_style_shift_down().value
+        } else {
+            constants.stack_bottom_shift_down().value
+        }
     })?;
-    let gap_min = math_constant(font, font_size, |constants| constants.stack_gap_min().value)?;
+    let gap_min = math_constant(font, font_size, |constants| {
+        if math_size.is_display() {
+            constants.stack_display_style_gap_min().value
+        } else {
+            constants.stack_gap_min().value
+        }
+    })?;
     let padding = FRACTION_PADDING_EM * font_size;
 
     let gap = (shift_up - numerator.metrics.descent) + (shift_down - denominator.metrics.ascent);
@@ -2342,9 +2612,16 @@ fn layout_simple_horizontal_fraction_nodes(
     denominator_nodes: &[MathNode],
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let Some(numerator) =
-        layout_simple_nodes_as_atom(font, numerator_nodes, font_size, script_level)?
+    let Some(numerator) = layout_simple_nodes_as_atom_with_context(
+        font,
+        numerator_nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
     else {
         return Ok(None);
     };
@@ -2355,8 +2632,14 @@ fn layout_simple_horizontal_fraction_nodes(
         script_style_feature(script_level),
         SimpleMathClass::Binary,
     )?;
-    let Some(denominator) =
-        layout_simple_nodes_as_atom(font, denominator_nodes, font_size, script_level)?
+    let Some(denominator) = layout_simple_nodes_as_atom_with_context(
+        font,
+        denominator_nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
     else {
         return Ok(None);
     };
@@ -2377,15 +2660,28 @@ fn layout_simple_skewed_fraction_nodes(
     denominator_nodes: &[MathNode],
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let child_font_size = script_font_size(font, font_size, script_level)?;
-    let Some(mut numerator) =
-        layout_fraction_child_nodes(font, numerator_nodes, child_font_size, script_level + 1)?
+    let child_size = math_size.fraction_child();
+    let (child_font_size, child_script_level, child_math_size) =
+        math_size.child_context(child_size, font, font_size, script_level)?;
+    let Some(mut numerator) = layout_fraction_child_nodes(
+        font,
+        numerator_nodes,
+        child_font_size,
+        child_script_level,
+        child_math_size,
+    )?
     else {
         return Ok(None);
     };
-    let Some(mut denominator) =
-        layout_fraction_child_nodes(font, denominator_nodes, child_font_size, script_level + 1)?
+    let Some(mut denominator) = layout_fraction_child_nodes(
+        font,
+        denominator_nodes,
+        child_font_size,
+        child_script_level,
+        child_math_size,
+    )?
     else {
         return Ok(None);
     };
@@ -2517,11 +2813,19 @@ fn layout_fraction_child(
     node: &MathNode,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if let MathNode::Group(group) = node {
-        return layout_simple_nodes_as_atom(font, &group.body, font_size, script_level);
+        return layout_simple_nodes_as_atom_with_context(
+            font,
+            &group.body,
+            font_size,
+            script_level,
+            None,
+            math_size,
+        );
     }
-    layout_simple_node(font, node, font_size, script_level)
+    layout_simple_node_with_mid_target(font, node, font_size, script_level, None, math_size)
 }
 
 fn layout_fraction_child_nodes(
@@ -2529,11 +2833,12 @@ fn layout_fraction_child_nodes(
     nodes: &[MathNode],
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if let [node] = nodes {
-        return layout_fraction_child(font, node, font_size, script_level);
+        return layout_fraction_child(font, node, font_size, script_level, math_size);
     }
-    layout_simple_nodes_as_atom(font, nodes, font_size, script_level)
+    layout_simple_nodes_as_atom_with_context(font, nodes, font_size, script_level, None, math_size)
 }
 
 const FRACTION_PADDING_EM: f32 = 0.1;
@@ -2582,11 +2887,19 @@ fn layout_simple_attachment_mode_call(
     _mode: MathAttachmentMode,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
-    layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)
+    layout_simple_nodes_as_atom_with_context(
+        font,
+        &arg.nodes,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )
 }
 
 fn layout_simple_attach(
@@ -2594,21 +2907,32 @@ fn layout_simple_attach(
     attach: &ast::MathAttach,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let Some(base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
+    let Some(base) = layout_simple_node_with_mid_target(
+        font,
+        &attach.base,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
+    else {
         return Ok(None);
     };
     let mode = MathAttachmentMode::explicit_from_base_node(&attach.base)
         .unwrap_or_else(|| MathAttachmentMode::default_for_base(&base));
-    let script_font_size = script_font_size(font, font_size, script_level)?;
-    let slots = layout_attach_slots(font, attach, script_font_size, script_level + 1)?;
-    let slots = attach_slots_with_primes(
+    let (script_font_size, script_level, script_math_size) =
+        math_size.child_context(math_size.script_child(), font, font_size, script_level)?;
+    let slots = layout_attach_slots(
         font,
-        slots,
-        attach.primes,
+        attach,
         script_font_size,
-        script_level + 1,
+        script_level,
+        script_math_size,
     )?;
+    let slots =
+        attach_slots_with_primes(font, slots, attach.primes, script_font_size, script_level)?;
     if attach_slots_missing_requested(attach, &slots) {
         return Ok(None);
     }
@@ -2622,27 +2946,43 @@ fn layout_simple_attach_with_bottom_continuation(
     group: &ast::MathGroup,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let Some([bottom_node]) = attach.bottom.as_deref() else {
         return Ok(None);
     };
-    let Some(base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
+    let Some(base) = layout_simple_node_with_mid_target(
+        font,
+        &attach.base,
+        font_size,
+        script_level,
+        None,
+        math_size,
+    )?
+    else {
         return Ok(None);
     };
     let mode = MathAttachmentMode::explicit_from_base_node(&attach.base)
         .unwrap_or_else(|| MathAttachmentMode::default_for_base(&base));
-    let script_font_size = script_font_size(font, font_size, script_level)?;
-    let mut slots = layout_attach_slots(font, attach, script_font_size, script_level + 1)?;
-    slots = attach_slots_with_primes(
+    let (script_font_size, script_level, script_math_size) =
+        math_size.child_context(math_size.script_child(), font, font_size, script_level)?;
+    let mut slots = layout_attach_slots(
         font,
-        slots,
-        attach.primes,
+        attach,
         script_font_size,
-        script_level + 1,
+        script_level,
+        script_math_size,
     )?;
+    slots = attach_slots_with_primes(font, slots, attach.primes, script_font_size, script_level)?;
     let bottom_nodes = [bottom_node.clone(), MathNode::Group(group.clone())];
-    let bottom =
-        layout_simple_nodes_as_atom(font, &bottom_nodes, script_font_size, script_level + 1)?;
+    let bottom = layout_simple_nodes_as_atom_with_context(
+        font,
+        &bottom_nodes,
+        script_font_size,
+        script_level,
+        None,
+        script_math_size,
+    )?;
     if attach_slots_missing_requested(attach, &slots) || bottom.is_none() {
         return Ok(None);
     }
@@ -2676,23 +3016,50 @@ fn layout_attach_slots(
     attach: &ast::MathAttach,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<LaidOutAttachSlots, LabelError> {
     Ok(LaidOutAttachSlots {
-        top: layout_script_nodes(font, attach.top.as_deref(), font_size, script_level)?,
-        bottom: layout_script_nodes(font, attach.bottom.as_deref(), font_size, script_level)?,
-        top_left: layout_script_nodes(font, attach.top_left.as_deref(), font_size, script_level)?,
-        top_right: layout_script_nodes(font, attach.top_right.as_deref(), font_size, script_level)?,
+        top: layout_script_nodes(
+            font,
+            attach.top.as_deref(),
+            font_size,
+            script_level,
+            math_size,
+        )?,
+        bottom: layout_script_nodes(
+            font,
+            attach.bottom.as_deref(),
+            font_size,
+            script_level,
+            math_size,
+        )?,
+        top_left: layout_script_nodes(
+            font,
+            attach.top_left.as_deref(),
+            font_size,
+            script_level,
+            math_size,
+        )?,
+        top_right: layout_script_nodes(
+            font,
+            attach.top_right.as_deref(),
+            font_size,
+            script_level,
+            math_size,
+        )?,
         bottom_left: layout_script_nodes(
             font,
             attach.bottom_left.as_deref(),
             font_size,
             script_level,
+            math_size,
         )?,
         bottom_right: layout_script_nodes(
             font,
             attach.bottom_right.as_deref(),
             font_size,
             script_level,
+            math_size,
         )?,
     })
 }
@@ -2736,14 +3103,15 @@ fn layout_script_nodes(
     nodes: Option<&[MathNode]>,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let Some(nodes) = nodes else {
         return Ok(None);
     };
     if let [node] = nodes {
-        return layout_script_child(font, node, font_size, script_level);
+        return layout_script_child(font, node, font_size, script_level, math_size);
     }
-    layout_simple_nodes_as_atom(font, nodes, font_size, script_level)
+    layout_simple_nodes_as_atom_with_context(font, nodes, font_size, script_level, None, math_size)
 }
 
 fn attach_slots_missing_requested(attach: &ast::MathAttach, slots: &LaidOutAttachSlots) -> bool {
@@ -3081,11 +3449,19 @@ fn layout_script_child(
     node: &MathNode,
     font_size: f32,
     script_level: u8,
+    math_size: MathLayoutSize,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if let MathNode::Group(group) = node {
-        return layout_simple_nodes_as_atom(font, &group.body, font_size, script_level);
+        return layout_simple_nodes_as_atom_with_context(
+            font,
+            &group.body,
+            font_size,
+            script_level,
+            None,
+            math_size,
+        );
     }
-    layout_simple_node(font, node, font_size, script_level)
+    layout_simple_node_with_mid_target(font, node, font_size, script_level, None, math_size)
 }
 
 fn script_font_size(font: &MathFont, font_size: f32, script_level: u8) -> Result<f32, LabelError> {
@@ -5966,5 +6342,34 @@ mod tests {
 
         assert!(script_width < inline_width);
         assert!(sscript_width < script_width);
+    }
+
+    #[test]
+    fn simple_row_display_math_size_uses_display_fraction_metrics() {
+        let config = EngineOptions::default();
+        let font =
+            load_default_math_font(&config, &MathFontSpec::LeteSansMath, &FontWeight::Normal)
+                .expect("default math font should load");
+        let font_size = 20.0;
+        let inline = parse_math("inline(frac(1, 2))", 0).unwrap();
+        let display = parse_math("display(frac(1, 2))", 0).unwrap();
+
+        let inline_metrics = layout_simple_row(&font, &inline, font_size)
+            .unwrap()
+            .expect("inline fraction row should layout")
+            .metrics;
+        let display_metrics = layout_simple_row(&font, &display, font_size)
+            .unwrap()
+            .expect("display fraction row should layout")
+            .metrics;
+
+        assert!(
+            display_metrics.height > inline_metrics.height + font_size * 0.3,
+            "display fraction should use taller display-style stack metrics: inline={inline_metrics:?}, display={display_metrics:?}"
+        );
+        assert!(
+            display_metrics.width > inline_metrics.width,
+            "display fraction should keep text-style numerator and denominator instead of script-style children"
+        );
     }
 }
