@@ -1,6 +1,4 @@
-use avenger_typst_label::{
-    MathDelimiterOptions, MathLimits, MathStyle, MathSyntaxMode, UnmatchedDelimiterPolicy,
-};
+use avenger_typst_label::{LabelLimits, MathStyle};
 
 use crate::types::TextSyntaxMode;
 
@@ -8,19 +6,17 @@ pub(crate) const DEFAULT_MARKUP_LINE_LEADING_FACTOR: f32 = 0.65;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextMarkupConfig {
-    pub delimiters: MathDelimiterOptions,
     pub math_style: MathStyle,
-    pub syntax: MathSyntaxMode,
-    pub limits: MathLimits,
+    pub syntax_mode: TextSyntaxMode,
+    pub limits: LabelLimits,
 }
 
 impl Default for TextMarkupConfig {
     fn default() -> Self {
         Self {
-            delimiters: MathDelimiterOptions::default(),
             math_style: MathStyle::default(),
-            syntax: MathSyntaxMode::PlainText,
-            limits: MathLimits::default(),
+            syntax_mode: TextSyntaxMode::Plain,
+            limits: LabelLimits::default(),
         }
     }
 }
@@ -28,15 +24,7 @@ impl Default for TextMarkupConfig {
 impl TextMarkupConfig {
     pub(crate) fn with_syntax_mode(&self, mode: TextSyntaxMode) -> Self {
         let mut config = self.clone();
-        match mode {
-            TextSyntaxMode::Plain => {
-                config.syntax = MathSyntaxMode::PlainText;
-            }
-            TextSyntaxMode::TypstMarkup => {
-                config.syntax = MathSyntaxMode::TypstFragmentStrict;
-                config.delimiters.unmatched = UnmatchedDelimiterPolicy::Error;
-            }
-        }
+        config.syntax_mode = mode;
         config
     }
 

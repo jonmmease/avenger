@@ -13,6 +13,7 @@ wasm = []
 thiserror = { workspace = true }
 serde = { workspace = true }
 fontdb = { workspace = true }
+indexmap = { workspace = true }
 image = { workspace = true, optional = true }
 rustybuzz = { workspace = true }
 ttf-parser = { workspace = true }

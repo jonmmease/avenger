@@ -1,61 +1,61 @@
-use avenger_typst_label::{AvengerTypst, MathTypesetError, TypstEngineConfig};
+use avenger_typst_label::{LabelEngine, LabelError, LabelOptions};
 
-fn engine() -> AvengerTypst {
-    AvengerTypst::new(TypstEngineConfig::default()).unwrap()
+fn engine() -> LabelEngine {
+    LabelEngine::new(Default::default()).unwrap()
 }
 
 #[test]
 fn rejects_hash_identifier() {
     let err = engine()
-        .typeset_math_string("$#x$", &Default::default())
+        .compile("$#x$", &LabelOptions::default())
         .unwrap_err();
     assert!(matches!(
         err,
-        MathTypesetError::UnsupportedSyntax { position: 1, .. }
+        LabelError::UnsupportedSyntax { position: 1, .. }
     ));
 }
 
 #[test]
 fn rejects_hash_content_block() {
     let err = engine()
-        .typeset_math_string("$#{x}$", &Default::default())
+        .compile("$#{x}$", &LabelOptions::default())
         .unwrap_err();
     assert!(matches!(
         err,
-        MathTypesetError::UnsupportedSyntax { position: 1, .. }
+        LabelError::UnsupportedSyntax { position: 1, .. }
     ));
 }
 
 #[test]
 fn rejects_hash_box_call() {
     let err = engine()
-        .typeset_math_string("$#box(x)$", &Default::default())
+        .compile("$#box(x)$", &LabelOptions::default())
         .unwrap_err();
     assert!(matches!(
         err,
-        MathTypesetError::UnsupportedSyntax { position: 1, .. }
+        LabelError::UnsupportedSyntax { position: 1, .. }
     ));
 }
 
 #[test]
 fn rejects_import() {
     let err = engine()
-        .typeset_math_string("$#import \"foo.typ\"$", &Default::default())
+        .compile("$#import \"foo.typ\"$", &LabelOptions::default())
         .unwrap_err();
     assert!(matches!(
         err,
-        MathTypesetError::UnsupportedSyntax { position: 1, .. }
+        LabelError::UnsupportedSyntax { position: 1, .. }
     ));
 }
 
 #[test]
 fn rejects_let_function() {
     let err = engine()
-        .typeset_math_string("$#let f(x) = x$", &Default::default())
+        .compile("$#let f(x) = x$", &LabelOptions::default())
         .unwrap_err();
     assert!(matches!(
         err,
-        MathTypesetError::UnsupportedSyntax { position: 1, .. }
+        LabelError::UnsupportedSyntax { position: 1, .. }
     ));
 }
 
@@ -71,7 +71,7 @@ fn allows_common_typst_math_fragments() {
 
     for sample in samples {
         engine()
-            .typeset_math_string(sample, &Default::default())
+            .compile(sample, &LabelOptions::default())
             .unwrap_or_else(|err| panic!("{sample} should be accepted, got {err:?}"));
     }
 }
@@ -79,12 +79,12 @@ fn allows_common_typst_math_fragments() {
 #[test]
 fn rejects_matrix_math() {
     let err = engine()
-        .typeset_math_string("$mat(1, 2; 3, 4)$", &Default::default())
+        .compile("$mat(1, 2; 3, 4)$", &LabelOptions::default())
         .unwrap_err();
 
     assert_eq!(
         err,
-        MathTypesetError::UnsupportedSyntax {
+        LabelError::UnsupportedSyntax {
             position: 1,
             message: "matrix/table math is not supported in Avenger Typst subset"
         }
@@ -94,8 +94,8 @@ fn rejects_matrix_math() {
 #[test]
 fn rejects_real_typst_parse_error() {
     let err = engine()
-        .typeset_math_string("before $x^$ after", &Default::default())
+        .compile("before $x^$ after", &LabelOptions::default())
         .unwrap_err();
 
-    assert!(matches!(err, MathTypesetError::Syntax { position: 10, .. }));
+    assert!(matches!(err, LabelError::Syntax { position: 10, .. }));
 }

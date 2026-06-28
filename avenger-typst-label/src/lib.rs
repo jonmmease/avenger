@@ -1,14 +1,15 @@
-//! Typst-style math fragment typesetting for Avenger.
+//! Typst-style single-line label typesetting for Avenger.
 //!
-//! This crate is intentionally standalone. It owns the API and artifact types
-//! for math fragments, but does not integrate with `avenger-text`, scenegraph
-//! marks, chart APIs, or renderers yet.
+//! This crate owns the lightweight Typst-label engine and artifact types.
+//! Avenger-specific fallback, truncation, caching, and renderer integration
+//! live in `avenger-text` and higher-level crates.
 
 mod api;
 mod delimiter;
 mod engine;
 mod error;
 mod fonts;
+mod label;
 mod limits;
 mod paths;
 mod pdf;
@@ -26,12 +27,13 @@ mod types;
 mod utils;
 mod warnings;
 
-pub use api::{AvengerTypst, TypstCacheConfig, TypstEngineConfig};
-pub use delimiter::{
-    MathDelimiterInfo, MathDelimiterOptions, MathDisplayHint, UnmatchedDelimiterPolicy,
+pub use label::{
+    CacheOptions, CompiledLabel, EngineOptions, FontOptions, Glyph, GroupItem, ImageItem,
+    LabelEngine, LabelError, LabelFlags, LabelFrame, LabelFrameItem, LabelInitError, LabelLimits,
+    LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, PdfLabel, PdfOptions,
+    Point, RasterImage, RasterOptions, ShapeItem, Size, SvgLabel, SvgOptions, TextItem, TextStyle,
+    escape_text, pdf_items, rasterize, svg_items,
 };
-pub use error::{MathTypesetError, TypstInitError};
-pub use limits::MathLimits;
 pub use paths::{
     MathImageFormat, MathImageItem, MathPathArtifact, MathPathCommand, MathPathData, MathPathItem,
     MathPathKind, MathStroke, MathTransform,
@@ -39,15 +41,8 @@ pub use paths::{
 pub use pdf::{
     MathFontResource, MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer,
 };
-pub use raster::{MathRasterArtifact, RasterRequest, RgbaImageData};
+pub use raster::RgbaImageData;
 pub use style::{
-    Color, FontStyle, FontWeight, MathDisplayStyle, MathFontBytesId, MathFontConfig, MathFontSpec,
-    MathStrictness, MathStyle, PlainTextStyle,
+    Color, FontStyle, FontWeight, MathDisplayStyle, MathFontBytesId, MathFontSpec, MathStyle,
 };
-pub use types::{
-    MathFragmentOptions, MathOutputRequest, MathRun, MathRunArtifact, MathStringArtifact,
-    MathStringOptions, MathStringRun, MathSyntaxMode, PlainTextRun, PositionedTextLineRun,
-    PositionedTextLineRunKind, TextLineArtifact, TextLineOptions, TextLineOutputRequest,
-    TypesetMetrics,
-};
-pub use warnings::MathTypesetWarning;
+pub use types::{PositionedTextLineRun, PositionedTextLineRunKind};

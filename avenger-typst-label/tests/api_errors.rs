@@ -1,18 +1,18 @@
-use avenger_typst_label::{AvengerTypst, MathTypesetError, TypstEngineConfig};
+use avenger_typst_label::{LabelEngine, LabelError, LabelOptions};
 
-fn engine() -> AvengerTypst {
-    AvengerTypst::new(TypstEngineConfig::default()).unwrap()
+fn engine() -> LabelEngine {
+    LabelEngine::new(Default::default()).unwrap()
 }
 
 #[test]
 fn errors_when_source_exceeds_limit() {
-    let mut options = avenger_typst_label::MathFragmentOptions::default();
+    let mut options = LabelOptions::default();
     options.limits.max_source_bytes = 2;
 
-    let err = engine().typeset_math_fragment("abc", &options).unwrap_err();
+    let err = engine().compile("abc", &options).unwrap_err();
     assert_eq!(
         err,
-        MathTypesetError::SourceTooLarge {
+        LabelError::SourceTooLarge {
             actual: 3,
             limit: 2
         }
@@ -21,15 +21,13 @@ fn errors_when_source_exceeds_limit() {
 
 #[test]
 fn errors_when_math_span_count_exceeds_limit() {
-    let mut options = avenger_typst_label::MathStringOptions::default();
+    let mut options = LabelOptions::default();
     options.limits.max_math_spans = 1;
 
-    let err = engine()
-        .typeset_math_string("$x$ $y$", &options)
-        .unwrap_err();
+    let err = engine().compile("$x$ $y$", &options).unwrap_err();
     assert_eq!(
         err,
-        MathTypesetError::TooManyMathSpans {
+        LabelError::TooManyMathSpans {
             actual: 2,
             limit: 1
         }
@@ -39,23 +37,20 @@ fn errors_when_math_span_count_exceeds_limit() {
 #[test]
 fn empty_math_span_errors_with_source_range() {
     let err = engine()
-        .typeset_math_string("before $$ after", &Default::default())
+        .compile("before $$ after", &LabelOptions::default())
         .unwrap_err();
-    assert_eq!(
-        err,
-        MathTypesetError::EmptyMathFragment { start: 8, end: 8 }
-    );
+    assert_eq!(err, LabelError::EmptyMathFragment { start: 8, end: 8 });
 }
 
 #[test]
 fn engine_error_for_one_span_reports_source_range() {
     let err = engine()
-        .typeset_math_string("before $#let x = 1$ after", &Default::default())
+        .compile("before $#let x = 1$ after", &LabelOptions::default())
         .unwrap_err();
 
     assert_eq!(
         err,
-        MathTypesetError::UnsupportedSyntax {
+        LabelError::UnsupportedSyntax {
             position: 8,
             message: "embedded Typst code is not allowed in math fragments"
         }
@@ -64,15 +59,13 @@ fn engine_error_for_one_span_reports_source_range() {
 
 #[test]
 fn math_depth_limit_is_enforced() {
-    let mut options = avenger_typst_label::MathFragmentOptions::default();
+    let mut options = LabelOptions::default();
     options.limits.max_math_depth = 2;
 
-    let err = engine()
-        .typeset_math_fragment("a + (((x)))", &options)
-        .unwrap_err();
+    let err = engine().compile("$a + (((x)))$", &options).unwrap_err();
     assert_eq!(
         err,
-        MathTypesetError::MathDepthExceeded {
+        LabelError::MathDepthExceeded {
             actual: 3,
             limit: 2
         }
@@ -81,15 +74,13 @@ fn math_depth_limit_is_enforced() {
 
 #[test]
 fn default_engine_produces_paths() {
-    let engine = AvengerTypst::new(TypstEngineConfig::default()).unwrap();
-
-    let artifact = engine
-        .typeset_math_fragment("x^2 + y^2", &Default::default())
+    let label = engine()
+        .compile("$x^2 + y^2$", &LabelOptions::default())
         .unwrap();
+    let svg = avenger_typst_label::svg_items(&label, &Default::default()).unwrap();
 
     assert!(
-        artifact
-            .paths
+        svg.paths
             .as_ref()
             .is_some_and(|paths| !paths.items.is_empty())
     );

@@ -108,12 +108,12 @@ impl TextPathBuffer {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TextPathExtractorImpl {
-    typst: avenger_typst_label::AvengerTypst,
+    typst: avenger_typst_label::LabelEngine,
     math: TextMarkupConfig,
 }
 
 impl TextPathExtractorImpl {
-    pub(crate) fn new(typst: avenger_typst_label::AvengerTypst, math: TextMarkupConfig) -> Self {
+    pub(crate) fn new(typst: avenger_typst_label::LabelEngine, math: TextMarkupConfig) -> Self {
         Self { typst, math }
     }
 
@@ -154,23 +154,21 @@ impl TextPathExtractorImpl {
             config.font_weight,
             config.font_style,
             config.color,
-            avenger_typst_label::TextLineOutputRequest {
-                paths: false,
-                raster: None,
-                pdf_text_layer: false,
-                positioned_runs: true,
-            },
         )?;
-        let tight_bounds = tight_bounds_from_metrics(result.artifact.metrics);
+        let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
         let bounds = bounds_from_metrics(
-            result.artifact.metrics,
+            result.label.metrics,
             config.font_size,
             result.has_math_spans,
         );
         let y_offset = bounds.ascent - tight_bounds.ascent;
         let mut output = TextPathBuffer::new(bounds.clone());
+        let svg = avenger_typst_label::svg_items(
+            &result.label,
+            &avenger_typst_label::SvgOptions::default(),
+        )?;
 
-        for run in result.artifact.positioned_runs {
+        for run in svg.positioned_runs {
             match run.kind {
                 avenger_typst_label::PositionedTextLineRunKind::Plain => {
                     let mut after_text_items = Vec::new();
@@ -208,7 +206,13 @@ impl TextPathExtractorImpl {
                         }
                     }
 
-                    let run_bounds = tight_bounds_from_metrics(run.metrics);
+                    let run_bounds = tight_bounds_from_metrics(avenger_typst_label::LabelMetrics {
+                        width: run.metrics.width,
+                        height: run.metrics.height,
+                        baseline: run.metrics.baseline,
+                        ascent: run.metrics.ascent,
+                        descent: run.metrics.descent,
+                    });
                     let run_index = output.plain_runs.len();
                     output.plain_runs.push(PlainTextPathRun {
                         text: run.text,
@@ -443,9 +447,8 @@ mod tests {
         crate::math::TextMarkupConfig::default()
     }
 
-    fn typst() -> avenger_typst_label::AvengerTypst {
-        avenger_typst_label::AvengerTypst::new(avenger_typst_label::TypstEngineConfig::default())
-            .unwrap()
+    fn typst() -> avenger_typst_label::LabelEngine {
+        avenger_typst_label::LabelEngine::new(Default::default()).unwrap()
     }
 
     #[test]

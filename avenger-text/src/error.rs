@@ -6,7 +6,7 @@ use web_sys::{js_sys::Object, wasm_bindgen::JsValue};
 #[derive(Error, Debug)]
 pub enum AvengerTextError {
     #[error("Typst text typesetting failed: {0}")]
-    Typesetting(#[from] avenger_typst_label::MathTypesetError),
+    Typesetting(#[from] avenger_typst_label::LabelError),
 
     #[error("Failed to allocate image: {0}")]
     ImageAllocationError(String),

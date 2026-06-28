@@ -50,20 +50,78 @@ The crate intentionally excludes full Typst document features:
 
 ## Public API Shape
 
-The current top-level entry point is `AvengerTypst`; future API cleanup should
-rename it to a Typst-label-oriented name.
+The public API is frame-first: compile Typst label markup into one positioned
+label frame, then lower that frame into measurement, raster, SVG, or PDF
+artifacts.
 
-- `typeset_math_fragment` accepts one math fragment without delimiters and
-  returns metrics plus requested path, raster, and PDF metadata artifacts.
-- `typeset_math_string` splits a string into text and math runs. The intended
-  long-term behavior is canonical Typst `$...$` syntax rather than
-  crate-specific delimiter policy.
-- `typeset_text_line` lays out a complete single line containing plain text,
-  static text markup, emoji aliases, and math spans. This is the primary API used
-  by Avenger renderers and text measurement.
+```rust
+pub struct LabelEngine;
 
-Output requests are explicit. Callers can ask only for metrics, or can also
-request positioned runs, paths, raster images, and PDF text metadata.
+impl LabelEngine {
+    pub fn new(options: EngineOptions) -> Result<Self, LabelInitError>;
+    pub fn compile(
+        &self,
+        source: &str,
+        options: &LabelOptions,
+    ) -> Result<CompiledLabel, LabelError>;
+    pub fn measure(
+        &self,
+        source: &str,
+        options: &LabelOptions,
+    ) -> Result<LabelMetrics, LabelError>;
+    pub fn compile_text(
+        &self,
+        text: &str,
+        options: &LabelOptions,
+    ) -> Result<CompiledLabel, LabelError>;
+    pub fn measure_text(
+        &self,
+        text: &str,
+        options: &LabelOptions,
+    ) -> Result<LabelMetrics, LabelError>;
+}
+
+pub fn escape_text(text: &str) -> String;
+pub fn rasterize(label: &CompiledLabel, options: &RasterOptions) -> Result<RasterImage, LabelError>;
+pub fn svg_items(label: &CompiledLabel, options: &SvgOptions) -> Result<SvgLabel, LabelError>;
+pub fn pdf_items(label: &CompiledLabel, options: &PdfOptions) -> Result<PdfLabel, LabelError>;
+```
+
+Core output should look like a small Typst frame:
+
+```rust
+pub struct CompiledLabel {
+    pub source: String,
+    pub frame: LabelFrame,
+    pub metrics: LabelMetrics,
+    pub warnings: Vec<LabelWarning>,
+}
+
+pub struct LabelFrame {
+    pub size: Size,
+    pub baseline: f32,
+    pub items: Vec<(Point, LabelFrameItem)>,
+}
+
+pub enum LabelFrameItem {
+    Text(TextItem),
+    Shape(ShapeItem),
+    Image(ImageItem),
+    Group(GroupItem),
+}
+```
+
+This mirrors Typst's useful public shape without adopting its full document API:
+parse/evaluate label markup, produce a frame, then export that frame through
+raster/SVG/PDF lowerers. Older `AvengerTypst`-style output-request APIs are no
+longer exported from the crate facade; remaining similarly named internals are
+temporary implementation details while the engine modules are reorganized into
+Typst-shaped label-frame concepts.
+
+`compile_text` and `measure_text` are literal-text fast paths. They should be
+semantically equivalent to `compile(escape_text(text), options)`, but should
+bypass escaping allocation and parser traversal by constructing the same label
+content that escaped plain text would produce.
 
 ## Relationship To Upstream Typst
 

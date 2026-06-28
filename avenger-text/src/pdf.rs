@@ -54,12 +54,12 @@ impl TextPdfBuffer {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TextPdfExtractorImpl {
-    typst: avenger_typst_label::AvengerTypst,
+    typst: avenger_typst_label::LabelEngine,
     math: TextMarkupConfig,
 }
 
 impl TextPdfExtractorImpl {
-    pub(crate) fn new(typst: avenger_typst_label::AvengerTypst, math: TextMarkupConfig) -> Self {
+    pub(crate) fn new(typst: avenger_typst_label::LabelEngine, math: TextMarkupConfig) -> Self {
         Self { typst, math }
     }
 
@@ -100,25 +100,23 @@ impl TextPdfExtractorImpl {
             config.font_weight,
             config.font_style,
             config.color,
-            avenger_typst_label::TextLineOutputRequest {
-                paths: true,
-                raster: None,
-                pdf_text_layer: true,
-                positioned_runs: false,
-            },
         )?;
-        let tight_bounds = tight_bounds_from_metrics(result.artifact.metrics);
+        let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
         let bounds = bounds_from_metrics(
-            result.artifact.metrics,
+            result.label.metrics,
             config.font_size,
             result.has_math_spans,
         );
         let y_offset = bounds.ascent - tight_bounds.ascent;
         let text_len = text.len();
         let mut output = TextPdfBuffer::new(bounds, text);
+        let pdf = avenger_typst_label::pdf_items(
+            &result.label,
+            &avenger_typst_label::PdfOptions::default(),
+        )?;
 
-        if let Some(pdf_text) = result.artifact.pdf_text {
-            output.semantic_text = pdf_text.semantic_text;
+        if let Some(pdf_text) = pdf.text {
+            output.semantic_text = result.label.semantic_text();
             for mut run in pdf_text.glyph_runs {
                 for glyph in &mut run.glyphs {
                     glyph.transform.dy += y_offset;
@@ -128,9 +126,9 @@ impl TextPdfExtractorImpl {
                 output.draw_items.push(TextPdfDrawItem::GlyphRun(index));
             }
         }
-        output.font_resources = result.artifact.font_resources;
+        output.font_resources = pdf.font_resources;
 
-        if let Some(paths) = result.artifact.paths {
+        if let Some(paths) = pdf.paths {
             for item in paths.items {
                 if !matches!(item.kind, avenger_typst_label::MathPathKind::MathShape) {
                     continue;

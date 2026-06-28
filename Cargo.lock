@@ -1244,6 +1244,7 @@ dependencies = [
  "ecow",
  "fontdb",
  "image",
+ "indexmap 2.14.0",
  "libm",
  "once_cell",
  "parking_lot",
