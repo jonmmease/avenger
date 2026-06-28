@@ -1,4 +1,8 @@
-//! Utilities for Typst.
+//! Utility support copied from upstream `typst-utils`.
+//!
+//! These helpers support the vendored parser and retained label internals. They
+//! are private implementation details and should shrink as the label subset is
+//! trimmed.
 
 pub mod fat;
 

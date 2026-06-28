@@ -1,3 +1,8 @@
+//! Raster lowering for compiled label frames.
+//!
+//! This mirrors the frame-to-pixels role of upstream `typst-render`, but only
+//! for the path/image artifacts emitted by a compiled single-line label.
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 

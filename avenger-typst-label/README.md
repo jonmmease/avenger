@@ -6,11 +6,12 @@ including regular text, inline math, emoji, simple text markup, SVG/PDF-friendly
 metadata, and raster output.
 
 The implementation is owned by this crate, but the syntax and layout behavior
-should stay Typst-shaped. The parser front end and small parser support modules
-are currently copied from upstream Typst into private `src/syntax`, `src/timing`,
-and `src/utils` modules. Those copied modules are intentionally treated as an
-intermediate extraction point: this crate lowers their AST into a compact label
-representation and does not expose Typst parser types in the public API.
+should stay Typst-shaped. Parser and parser-support modules copied from upstream
+Typst live in private `src/typst_syntax`, `src/typst_timing`, and
+`src/typst_utils` modules. The rest of the crate is organized into private
+`typst_*` modules that mirror upstream Typst concepts at label scale. Public
+callers see only label frames and output artifacts, not Typst parser or document
+types.
 
 ## Kept Functionality
 
@@ -24,9 +25,9 @@ The crate keeps the parts of Typst that are useful for compact labels:
   grouping, shorthand symbols, string literals, scripts, primes, fractions,
   roots, binomial-style calls, accents, cancellation, common functions, and
   operator-sized constructs such as sums.
-- A small text-markup subset outside math, currently including bracketed
-  commands such as underline/strike-like spans and named emoji aliases such as
-  `#emoji.face`.
+- A small text-markup subset outside math, including case transforms,
+  underline/overline/strike options, sub/super, smallcaps, emph/strong, raw
+  inline text, symbols, and named emoji aliases such as `#emoji.face`.
 - OpenType MATH-table based math positioning where available, including math
   constants, glyph variants, italic correction, top accent attachment, and
   script-style shaping.
@@ -39,8 +40,8 @@ The crate keeps the parts of Typst that are useful for compact labels:
 
 The crate intentionally excludes full Typst document features:
 
-- No Typst evaluator, `#let`, imports, dynamic code execution, content blocks, or
-  package loading.
+- No full Typst evaluator, `#let`, imports, dynamic code execution, package
+  loading, or document-level code.
 - No public Typst `SyntaxNode`, content, element, style-chain, or frame tree.
 - No page layout, paragraphs, wrapping, justification, tables, matrices, or
   multiline math.
@@ -114,10 +115,8 @@ pub enum LabelFrameItem {
 
 This mirrors Typst's useful public shape without adopting its full document API:
 parse/evaluate label markup, produce a frame, then export that frame through
-raster/SVG/PDF lowerers. Older `AvengerTypst`-style output-request APIs are no
-longer exported from the crate facade; remaining similarly named internals are
-temporary implementation details while the engine modules are reorganized into
-Typst-shaped label-frame concepts.
+raster/SVG/PDF lowerers. Legacy output-request APIs are no longer exported from
+the crate facade.
 
 `compile_text` and `measure_text` are literal-text fast paths. They should be
 semantically equivalent to `compile(escape_text(text), options)`, but should
@@ -131,25 +130,23 @@ source-level fork. The closest upstream source areas are:
 
 | Module | Typst source area | Relationship |
 | --- | --- | --- |
-| `src/syntax/*` | `crates/typst-syntax/src/*` | Private copied parser/AST module, pending trim to the single-line label subset |
-| `src/timing/*` | `crates/typst-timing/src/*` | Private copied timing support used by parser macros; expected to shrink to no-op or minimal hooks |
-| `src/utils/*` | `crates/typst-utils/src/*` | Private copied parser support utilities; expected to shrink to only parser-required helpers |
-| `src/delimiter.rs` | Typst markup/math delimiter behavior | Temporary compatibility scanner; should be replaced by canonical Typst parsing/escaping |
-| `src/engine/syntax.rs` | `crates/typst-syntax/src/parser.rs` markup/code parsing | Lowers copied Typst parser AST into the label text-markup IR; no Typst evaluator |
-| `src/engine/math/syntax.rs` | `crates/typst-syntax/src/parser.rs` math parsing | Lowers copied Typst parser AST into the supported label math fragment IR |
-| `src/engine/math/ast.rs` | `crates/typst-syntax/src/ast.rs` and `typst-library/src/math/ir` | Compact label math AST |
-| `src/engine/math/metrics.rs` | `typst-library/src/math/ir/*` and `typst-layout/src/math/*` | Consolidated subset of Typst math layout behavior |
-| `src/engine/font.rs` | `typst-layout/src/inline/shaping.rs` and Typst text/font modules | Label font fallback and shaping pipeline |
-| `src/engine/inline.rs` | `typst-layout/src/inline/*` | Single-line inline layout for labels |
-| `src/engine/glyph_path.rs` | `typst-svg`, `typst-render`, and glyph outline helpers | Glyph outline lowering |
-| `src/paths.rs` | Typst frame/path export concepts | Vector artifact model |
-| `src/raster.rs` | `typst-render` | `tiny-skia` path rasterization |
-| `src/pdf.rs` | `typst-pdf` text/glyph embedding concepts | PDF glyph metadata; not Typst's PDF backend |
+| `src/typst_syntax/*` | `crates/typst-syntax/src/*` | Private copied parser/AST module, trimmed by policy through the evaluator and label tests |
+| `src/typst_timing/*` | `crates/typst-timing/src/*` | Private parser support used by copied syntax code |
+| `src/typst_utils/*` | `crates/typst-utils/src/*` | Private parser/support utilities retained only where needed |
+| `src/typst_eval/*` | `crates/typst-eval/src/*` | Static label evaluator for retained markup, math, literal arguments, and read-only params |
+| `src/typst_library/*` | `crates/typst-library/src/*` | Retained text, math, font, color, stroke, symbol, and compact content concepts |
+| `src/typst_realize/*` | `crates/typst-realize/src/*` | Static realization from parsed label content into renderable text/math nodes |
+| `src/typst_layout/*` | `crates/typst-layout/src/*` | Single-line inline text and math layout plus frame items |
+| `src/typst_svg/*` | `crates/typst-svg/src/*` | Vector/path/image artifacts consumed by Avenger SVG/text layers |
+| `src/typst_render/*` | `crates/typst-render/src/*` | Optional `tiny-skia` raster lowering for compiled label frames |
+| `src/typst_pdf/*` | `crates/typst-pdf/src/*` | PDF glyph/font/path metadata consumed by Avenger's direct PDF renderer |
+| `src/typst_diag/*` | Typst diagnostics concepts | Label-scoped errors and warnings |
+| `src/typst_label/*` | Avenger label facade | The public frame-first API boundary |
 
-Most layout file names are still inherited from the initial extraction rather
-than preserved Typst names. The copied parser/support modules are the exception.
-The intended direction is to reorganize this crate into Typst-shaped modules
-that still stay focused on single-line labels.
+Every top-level implementation module other than `src/lib.rs` has been moved
+under these `typst_*` directories. Remaining compact internal names such as
+`ParsedLine` and `MathAst` represent label-scale Typst-equivalent content/IR
+concepts, not public compatibility shims.
 
 ## Extraction Process
 
@@ -160,13 +157,15 @@ The current crate came from a staged extraction:
    metrics, rasterization, and SVG/PDF-friendly artifacts.
 2. Prototype a vendored path by copying relevant Typst code and patching it
    enough to compile independently.
-3. Remove the evaluator and document model, keeping only static text and math
-   fragments.
-4. Replace Typst's general syntax, content, style-chain, frame, render, SVG, and
-   PDF machinery with compact label-oriented structs and APIs.
-5. Collapse the remaining backend abstraction after the label engine was
-   sufficient.
-6. Add release-mode unit and visual tests to lock down the supported subset.
+3. Remove the full evaluator and document model, keeping only static label
+   evaluation for retained text, math, symbols, emoji, literal arguments, and
+   read-only external parameters.
+4. Replace Typst's general content, style-chain, frame, render, SVG, and PDF
+   machinery with compact label-oriented structs and APIs.
+5. Reorganize the owned implementation into `typst_*` modules that preserve
+   traceability to upstream concepts without exposing upstream APIs.
+6. Add release-mode unit, crate-level PNG parity, and chart visual tests to lock
+   down the supported subset.
 
 This means future traceability should rely on both source notes for the copied
 parser modules and behavior tests for the label layout engine. When changing
@@ -183,6 +182,7 @@ When adding or changing functionality:
 - If a new feature corresponds closely to Typst source, mention the upstream file
   in the module or test comment.
 - Keep unsupported Typst syntax strict: accept the subset intentionally, and
-  return `MathTypesetError::UnsupportedSyntax` for unsupported constructs.
+  return `LabelError::UnsupportedSyntax` or `LabelError::Syntax` for unsupported
+  constructs.
 - Avoid reintroducing Typst evaluator, document, page-layout, or renderer
   dependencies unless label rendering explicitly needs them.

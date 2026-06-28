@@ -1,3 +1,10 @@
+//! Public frame-first label API.
+//!
+//! This is the Avenger-facing boundary for the lightweight Typst label engine:
+//! compile markup or literal text into a `CompiledLabel`, then lower that
+//! compiled frame into raster, SVG, or PDF artifacts. Avenger fallback,
+//! truncation, cache keys, and renderer policy live outside this crate.
+
 use std::{ops::Range, path::PathBuf};
 
 use indexmap::IndexMap;

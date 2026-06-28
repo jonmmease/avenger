@@ -1,3 +1,10 @@
+//! SVG/vector-oriented label artifacts.
+//!
+//! This mirrors the frame-to-vector role of upstream `typst-svg`: path data,
+//! transforms, solid paints/strokes, image items, and native-text-friendly
+//! metadata. Actual SVG document emission is owned by `avenger-svg` through
+//! `avenger-text`.
+
 use crate::typst_library::Color;
 
 #[cfg(feature = "serde")]

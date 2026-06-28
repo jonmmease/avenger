@@ -1,3 +1,9 @@
+//! PDF-oriented label artifacts.
+//!
+//! This mirrors the artifact side of upstream `typst-pdf`: font resources,
+//! glyph IDs, advances, transforms, Unicode text ranges, and ordered draw
+//! metadata. Actual PDF document writing is owned by `avenger-pdf`.
+
 use std::{ops::Range, sync::Arc};
 
 use crate::typst_library::Color;

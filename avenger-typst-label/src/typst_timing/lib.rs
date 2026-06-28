@@ -1,4 +1,7 @@
-//! Performance timing for Typst.
+//! Performance timing support copied from upstream `typst-timing`.
+//!
+//! The label engine only needs this as parser support; it is not part of the
+//! public API.
 
 use std::io::Write;
 use std::num::NonZeroU64;

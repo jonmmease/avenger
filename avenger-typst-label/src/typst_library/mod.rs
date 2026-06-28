@@ -1,3 +1,9 @@
+//! Retained Typst library concepts.
+//!
+//! This mirrors the small subset of upstream `typst-library` needed by labels:
+//! font resources, text style, math style, colors, strokes, and compact
+//! text/math content models.
+
 pub mod font;
 pub mod math;
 pub mod text;
