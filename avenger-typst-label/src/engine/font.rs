@@ -2,7 +2,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::error::LabelError;
-use crate::fonts::{EmbeddedFontFace, LATO_FACES};
+use crate::fonts::{DEJAVU_SANS_MONO_FACES, EmbeddedFontFace, LATO_FACES};
 use crate::label::EngineOptions;
 use crate::paths::{PathData, PathImageFormat, PathImageItem, Transform};
 use crate::pdf::{FontResource, FontResourceId};
@@ -601,7 +601,11 @@ pub(crate) fn build_text_fontdb(config: &EngineOptions) -> fontdb::Database {
     for face in LATO_FACES {
         db.load_font_data(face.decompressed_data().to_vec());
     }
+    for face in DEJAVU_SANS_MONO_FACES {
+        db.load_font_data(face.decompressed_data().to_vec());
+    }
     db.set_sans_serif_family("Lato");
+    db.set_monospace_family("DejaVu Sans Mono");
     if config.fonts.load_system_fonts {
         db.load_system_fonts();
     }
@@ -864,6 +868,10 @@ fn embedded_text_family(font_family: &str) -> Option<(&'static str, &'static [Em
         let family = family.trim().trim_matches('"').trim_matches('\'');
         if family.eq_ignore_ascii_case("sans-serif") || family.eq_ignore_ascii_case("Lato") {
             Some(("Lato", LATO_FACES))
+        } else if family.eq_ignore_ascii_case("monospace")
+            || family.eq_ignore_ascii_case("DejaVu Sans Mono")
+        {
+            Some(("DejaVu Sans Mono", DEJAVU_SANS_MONO_FACES))
         } else {
             None
         }

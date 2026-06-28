@@ -54,6 +54,7 @@ pub(crate) enum TextMarkupKind {
     Smallcaps,
     Emph,
     Strong,
+    Raw,
 }
 
 impl TextMarkupKind {

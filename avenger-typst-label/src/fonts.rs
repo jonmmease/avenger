@@ -6,6 +6,7 @@ use crate::label::EngineOptions;
 use crate::style::FontStyle;
 
 pub(crate) struct EmbeddedFontFace {
+    family: EmbeddedFontFamily,
     pub(crate) name: &'static str,
     index: usize,
     pub(crate) weight: u16,
@@ -15,8 +16,19 @@ pub(crate) struct EmbeddedFontFace {
 
 impl EmbeddedFontFace {
     pub(crate) fn decompressed_data(&self) -> Arc<[u8]> {
-        decompressed_lato_faces()[self.index].clone()
+        match self.family {
+            EmbeddedFontFamily::Lato => decompressed_lato_faces()[self.index].clone(),
+            EmbeddedFontFamily::DejaVuSansMono => {
+                decompressed_dejavu_sans_mono_faces()[self.index].clone()
+            }
+        }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EmbeddedFontFamily {
+    Lato,
+    DejaVuSansMono,
 }
 
 pub(crate) struct EmbeddedMathFontFace {
@@ -34,6 +46,7 @@ impl EmbeddedMathFontFace {
 
 pub(crate) const LATO_FACES: &[EmbeddedFontFace] = &[
     EmbeddedFontFace {
+        family: EmbeddedFontFamily::Lato,
         name: "Lato-Light",
         index: 0,
         weight: 300,
@@ -41,6 +54,7 @@ pub(crate) const LATO_FACES: &[EmbeddedFontFace] = &[
         compressed_data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-Light.ttf.br"),
     },
     EmbeddedFontFace {
+        family: EmbeddedFontFamily::Lato,
         name: "Lato-Italic",
         index: 1,
         weight: 400,
@@ -48,6 +62,7 @@ pub(crate) const LATO_FACES: &[EmbeddedFontFace] = &[
         compressed_data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-Italic.ttf.br"),
     },
     EmbeddedFontFace {
+        family: EmbeddedFontFamily::Lato,
         name: "Lato-Medium",
         index: 2,
         weight: 500,
@@ -55,6 +70,7 @@ pub(crate) const LATO_FACES: &[EmbeddedFontFace] = &[
         compressed_data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-Medium.ttf.br"),
     },
     EmbeddedFontFace {
+        family: EmbeddedFontFamily::Lato,
         name: "Lato-Bold",
         index: 3,
         weight: 700,
@@ -62,6 +78,17 @@ pub(crate) const LATO_FACES: &[EmbeddedFontFace] = &[
         compressed_data: include_bytes!("../../avenger-chart/fonts/Lato/Lato-Bold.ttf.br"),
     },
 ];
+
+pub(crate) const DEJAVU_SANS_MONO_FACES: &[EmbeddedFontFace] = &[EmbeddedFontFace {
+    family: EmbeddedFontFamily::DejaVuSansMono,
+    name: "DejaVuSansMono",
+    index: 0,
+    weight: 400,
+    style: FontStyle::Normal,
+    compressed_data: include_bytes!(
+        "../../avenger-chart/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br"
+    ),
+}];
 
 pub(crate) fn bundled_math_fonts() -> &'static [EmbeddedMathFontFace] {
     &[
@@ -120,6 +147,22 @@ fn decompressed_lato_faces() -> &'static [Arc<[u8]>] {
     static DECOMPRESSED_FACES: OnceLock<Vec<Arc<[u8]>>> = OnceLock::new();
     DECOMPRESSED_FACES.get_or_init(|| {
         LATO_FACES
+            .iter()
+            .map(|face| {
+                Arc::<[u8]>::from(
+                    decompress_brotli_font(face.name, face.compressed_data).unwrap_or_else(|err| {
+                        panic!("failed to decompress embedded font {}: {err}", face.name)
+                    }),
+                )
+            })
+            .collect()
+    })
+}
+
+fn decompressed_dejavu_sans_mono_faces() -> &'static [Arc<[u8]>] {
+    static DECOMPRESSED_FACES: OnceLock<Vec<Arc<[u8]>>> = OnceLock::new();
+    DECOMPRESSED_FACES.get_or_init(|| {
+        DEJAVU_SANS_MONO_FACES
             .iter()
             .map(|face| {
                 Arc::<[u8]>::from(

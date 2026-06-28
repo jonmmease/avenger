@@ -116,6 +116,9 @@ fn lower_markup_expr(
                 nodes,
             )?;
         }
+        typst_ast::Expr::Raw(raw) => {
+            lower_raw_markup(raw, nodes)?;
+        }
         other => {
             return Err(unsupported_markup_expr(source, other));
         }
@@ -141,6 +144,9 @@ fn lower_static_call(
     for arg in call.args().items() {
         match arg {
             typst_ast::Arg::Pos(typst_ast::Expr::ContentBlock(block)) => {
+                if kind == TextMarkupKind::Raw {
+                    return Err(unsupported(range.start, "raw expects a string literal"));
+                }
                 let body_markup = block.body();
                 let body_range = body_markup.to_untyped().range();
                 let mut body_nodes = Vec::new();
@@ -152,7 +158,9 @@ fn lower_static_call(
                     ));
                 }
             }
-            typst_ast::Arg::Pos(typst_ast::Expr::Str(string)) if kind.is_case_transform() => {
+            typst_ast::Arg::Pos(typst_ast::Expr::Str(string))
+                if kind.is_case_transform() || kind == TextMarkupKind::Raw =>
+            {
                 let string_range = string.to_untyped().range();
                 let body_nodes = vec![LineNode::Plain(PlainTextNode {
                     text: string.get().to_string(),
@@ -195,6 +203,45 @@ fn lower_static_call(
         kind,
         options,
         body: body_nodes,
+        byte_range: range,
+        body_range,
+    }));
+    Ok(())
+}
+
+fn lower_raw_markup(raw: typst_ast::Raw<'_>, nodes: &mut Vec<LineNode>) -> Result<(), LabelError> {
+    let range = raw.to_untyped().range();
+    if raw.block() {
+        return Err(unsupported(
+            range.start,
+            "raw block labels are not supported",
+        ));
+    }
+    if raw.lang().is_some() {
+        return Err(unsupported(
+            range.start,
+            "raw syntax highlighting is not supported",
+        ));
+    }
+
+    let lines = raw.lines().collect::<Vec<_>>();
+    let body_range = lines
+        .first()
+        .zip(lines.last())
+        .map(|(first, last)| first.to_untyped().range().start..last.to_untyped().range().end)
+        .unwrap_or_else(|| range.clone());
+    let text = lines
+        .iter()
+        .map(|line| line.get().as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    nodes.push(LineNode::TextSpan(TextMarkupSpan {
+        kind: TextMarkupKind::Raw,
+        options: TextMarkupOptions::default(),
+        body: vec![LineNode::Plain(PlainTextNode {
+            text,
+            byte_range: body_range.clone(),
+        })],
         byte_range: range,
         body_range,
     }));
@@ -286,6 +333,7 @@ fn text_span_kind(name: &str) -> Option<TextMarkupKind> {
         "smallcaps" => Some(TextMarkupKind::Smallcaps),
         "emph" => Some(TextMarkupKind::Emph),
         "strong" => Some(TextMarkupKind::Strong),
+        "raw" => Some(TextMarkupKind::Raw),
         _ => None,
     }
 }
@@ -956,6 +1004,47 @@ mod tests {
                 && span.options.strong.delta == 150
                 && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "mild")
         ));
+    }
+
+    #[test]
+    fn parses_inline_raw_static_text() {
+        let line = parse("Use `x # y` and #raw(\"z * w\")");
+
+        assert_eq!(line.nodes.len(), 4);
+        let LineNode::TextSpan(span) = &line.nodes[1] else {
+            panic!("expected backtick raw span");
+        };
+        assert_eq!(span.kind, TextMarkupKind::Raw);
+        assert_eq!(span.byte_range, 4..11);
+        assert_eq!(span.body_range, 5..10);
+        assert!(matches!(&span.body[..], [LineNode::Plain(plain)]
+            if plain.text == "x # y" && plain.byte_range == (5..10)
+        ));
+        assert!(matches!(&line.nodes[3], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Raw
+                && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "z * w")
+        ));
+    }
+
+    #[test]
+    fn rejects_raw_block_and_highlighting() {
+        let block = parse_line("```typ\nlet x = 1\n```").unwrap_err();
+        assert_eq!(
+            block,
+            LabelError::UnsupportedSyntax {
+                position: 0,
+                message: "raw block labels are not supported"
+            }
+        );
+
+        let highlighted = parse_line("```typ let x = 1```").unwrap_err();
+        assert_eq!(
+            highlighted,
+            LabelError::UnsupportedSyntax {
+                position: 0,
+                message: "raw syntax highlighting is not supported"
+            }
+        );
     }
 
     #[test]

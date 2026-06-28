@@ -767,6 +767,48 @@ mod tests {
     }
 
     #[test]
+    fn static_raw_uses_monospace_show_set() {
+        let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.text_style.font_size = 20.0;
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let artifact = engine
+            .typeset_markup_line("Use `x # y` and #raw(\"z * w\")", &options)
+            .unwrap();
+
+        assert_eq!(
+            artifact
+                .positioned_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Use ", "x # y", " and ", "z * w"]
+        );
+        for index in [1, 3] {
+            let style = artifact.positioned_runs[index]
+                .text_style
+                .as_ref()
+                .expect("raw text should preserve positioned text style");
+            assert_eq!(style.font_family, "monospace");
+            assert_eq!(style.font_size, 16.0);
+        }
+        assert!(artifact.paths.is_some());
+        assert!(
+            artifact.pdf_text.as_ref().is_some_and(|pdf| pdf
+                .glyph_runs
+                .iter()
+                .any(|run| run.text == "x # y")
+                && pdf.glyph_runs.iter().any(|run| run.text == "z * w"))
+        );
+    }
+
+    #[test]
     fn static_subscript_and_superscript_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let mut options = TextLineOptions::default();

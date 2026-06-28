@@ -200,7 +200,8 @@ fn supported_decoration_kind(kind: TextMarkupKind) -> Option<TextMarkupKind> {
         | TextMarkupKind::Upper
         | TextMarkupKind::Smallcaps
         | TextMarkupKind::Emph
-        | TextMarkupKind::Strong => Some(kind),
+        | TextMarkupKind::Strong
+        | TextMarkupKind::Raw => Some(kind),
     }
 }
 
@@ -216,7 +217,8 @@ fn transform_static_text(kind: TextMarkupKind, text: &str) -> String {
         | TextMarkupKind::Highlight
         | TextMarkupKind::Smallcaps
         | TextMarkupKind::Emph
-        | TextMarkupKind::Strong => text.to_string(),
+        | TextMarkupKind::Strong
+        | TextMarkupKind::Raw => text.to_string(),
     }
 }
 
@@ -680,7 +682,8 @@ fn text_script_for_kind(kind: TextMarkupKind) -> Option<TextScript> {
         | TextMarkupKind::Upper
         | TextMarkupKind::Smallcaps
         | TextMarkupKind::Emph
-        | TextMarkupKind::Strong => None,
+        | TextMarkupKind::Strong
+        | TextMarkupKind::Raw => None,
     }
 }
 
@@ -700,6 +703,10 @@ fn text_style_for_static_run(
         TextMarkupKind::Strong => {
             run_style.font_weight =
                 thicken_font_weight(&run_style.font_weight, options.strong.delta);
+        }
+        TextMarkupKind::Raw => {
+            run_style.font_family = "monospace".to_string();
+            run_style.font_size = (run_style.font_size * 0.8).max(1.0);
         }
         TextMarkupKind::Underline
         | TextMarkupKind::Strike
@@ -784,7 +791,8 @@ fn text_features_for_static_run(
         | TextMarkupKind::Lower
         | TextMarkupKind::Upper
         | TextMarkupKind::Emph
-        | TextMarkupKind::Strong => {}
+        | TextMarkupKind::Strong
+        | TextMarkupKind::Raw => {}
     }
 
     features
@@ -1216,7 +1224,8 @@ fn decoration_path_item(
         | TextMarkupKind::Upper
         | TextMarkupKind::Smallcaps
         | TextMarkupKind::Emph
-        | TextMarkupKind::Strong => return None,
+        | TextMarkupKind::Strong
+        | TextMarkupKind::Raw => return None,
     };
     Some(item)
 }
@@ -1240,7 +1249,8 @@ fn decoration_line(
         | TextMarkupKind::Upper
         | TextMarkupKind::Smallcaps
         | TextMarkupKind::Emph
-        | TextMarkupKind::Strong => TextDecorationMetrics::fallback(font_size).underline,
+        | TextMarkupKind::Strong
+        | TextMarkupKind::Raw => TextDecorationMetrics::fallback(font_size).underline,
     }
 }
 

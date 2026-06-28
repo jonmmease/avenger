@@ -106,6 +106,7 @@ fn prepare_fonts(
         "avenger-chart/fonts/Lato/Lato-Italic.ttf.br",
         "avenger-chart/fonts/Lato/Lato-Medium.ttf.br",
         "avenger-chart/fonts/Lato/Lato-Bold.ttf.br",
+        "avenger-chart/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br",
         "avenger-chart/fonts/Lete_Sans_Math/LeteSansMath.otf.br",
         "avenger-chart/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br",
     ];
