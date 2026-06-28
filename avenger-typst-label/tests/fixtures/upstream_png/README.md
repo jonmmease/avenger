@@ -40,7 +40,17 @@ Each `cases.toml` entry records upstream provenance with `upstream_file` and
 `upstream_test` so future agents can trace the case back to
 `../typst/tests/suite/...`.
 
-## Agent Task Card
+## Canonical PNG-Only Build Card
+
+Build this suite as a PNG-only upstream Typst parity oracle for
+`avenger-typst-label`. Keep it label-level, manifest-driven, offline at test
+time, and behind the existing `raster` feature.
+
+Do not broaden this suite into SVG, PDF, chart baseline, scenegraph, browser,
+renderer integration, or PDF/text embedding validation. Those belong in later
+layers after the PNG oracle is useful.
+
+## PNG-Only Agent Task Card
 
 Use this card when assigning a fresh agent to build, repair, or extend the
 suite:
