@@ -11,6 +11,7 @@ use crate::style::{FontWeight, MathFontSpec};
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
 use super::ast::{MathAst, MathNode, MathOperator, MathShorthand, MathText, MathTextKind};
+use super::syntax::predefined_operator_text;
 
 pub(crate) fn try_typeset_simple_row_fragment(
     math: &MathAst,
@@ -567,14 +568,14 @@ fn layout_simple_operator_call(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    if call.name == "op" {
+    if call.name == "op" || call.name == "op_limits" {
         let [arg] = &call.args[..] else {
             return Ok(None);
         };
-        let [MathNode::StringLiteral(text)] = &arg.nodes[..] else {
+        let Some(text) = operator_arg_text(&arg.nodes) else {
             return Ok(None);
         };
-        return layout_operator_atom(font, &text.text, font_size, script_level).map(Some);
+        return layout_operator_atom(font, &text, font_size, script_level).map(Some);
     }
 
     let Some(text) = operator_identifier_text(&call.name) else {
@@ -597,6 +598,23 @@ fn layout_simple_operator_call(
         }),
     ];
     layout_simple_nodes_as_atom(font, &nodes, font_size, script_level)
+}
+
+fn operator_arg_text(nodes: &[MathNode]) -> Option<String> {
+    let mut text = String::new();
+    for node in nodes {
+        match node {
+            MathNode::StringLiteral(string) => text.push_str(&string.text),
+            MathNode::Identifier(identifier) => {
+                text.push_str(identifier.symbol.unwrap_or(&identifier.name));
+            }
+            MathNode::Operator(operator) => text.push_str(&operator.operator),
+            MathNode::Shorthand(shorthand) => text.push_str(shorthand.replacement),
+            MathNode::Text(text_node) => text.push_str(&text_node.text),
+            _ => return None,
+        }
+    }
+    (!text.is_empty()).then_some(text)
 }
 
 fn layout_simple_group(
@@ -2357,17 +2375,7 @@ fn layout_operator_atom(
 }
 
 fn operator_identifier_text(name: &str) -> Option<&'static str> {
-    match name {
-        "sin" => Some("sin"),
-        "cos" => Some("cos"),
-        "tan" => Some("tan"),
-        "log" => Some("log"),
-        "ln" => Some("ln"),
-        "lim" => Some("lim"),
-        "max" => Some("max"),
-        "min" => Some("min"),
-        _ => None,
-    }
+    predefined_operator_text(name)
 }
 
 fn glyph_cluster_range(text: &str, cluster: u32) -> std::ops::Range<usize> {
@@ -4064,7 +4072,12 @@ mod tests {
         for (source, expected) in [
             ("sin(x)", "sin(𝑥)"),
             ("cos(theta)", "cos(𝜃)"),
+            ("sech(x)", "sech(𝑥)"),
+            ("liminf_(n -> oo)", "lim inf𝑛→∞"),
+            ("Pr(X)", "Pr(𝑋)"),
             ("op(\"custom\")", "custom"),
+            ("op(\"myop\", limits: #true)_n", "myop𝑛"),
+            ("op(lt, limits: #false)", "<"),
         ] {
             let math = parse_math(source, 0).unwrap();
             let artifact =

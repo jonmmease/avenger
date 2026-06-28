@@ -328,6 +328,15 @@ fn lower_math_call(
         ));
     }
 
+    if name == "op" {
+        let (name, args) = lower_math_op_call_args(call.args(), source, offset, range.start)?;
+        return Ok(vec![MathNode::Call(MathCall {
+            name,
+            args,
+            byte_range: range,
+        })]);
+    }
+
     if name == "attach" {
         return lower_math_attach_call(call.args(), source, offset, range);
     }
@@ -537,6 +546,62 @@ fn lower_math_attachment_mode_call_args(
         name.to_string()
     };
     Ok((lowered_name, vec![body]))
+}
+
+fn lower_math_op_call_args(
+    args: typst_ast::MathArgs<'_>,
+    source: &str,
+    offset: usize,
+    position: usize,
+) -> Result<(String, Vec<MathArg>), LabelError> {
+    let mut body = None;
+    let mut limits = false;
+    for item in args.arg_items() {
+        if item.ends_in_semicolon {
+            return Err(unsupported(
+                item.arg.to_untyped().range().end + offset,
+                "semicolon math arguments are not supported in Avenger Typst subset",
+            ));
+        }
+        match item.arg {
+            typst_ast::Arg::Pos(expr) => {
+                if body.is_some() {
+                    return Err(unsupported(
+                        expr.to_untyped().range().start + offset,
+                        "op math expects one text argument",
+                    ));
+                }
+                let byte_range = offset_range(expr.to_untyped().range(), offset);
+                body = Some(MathArg {
+                    nodes: lower_math_expr(expr, source, offset)?,
+                    byte_range,
+                });
+            }
+            typst_ast::Arg::Named(named) => {
+                if named.name().as_str() != "limits" {
+                    return Err(unsupported(
+                        named_argument_position(named, source, offset),
+                        "unsupported op option",
+                    ));
+                }
+                limits = parse_math_bool_literal_with_message(
+                    named.expr(),
+                    named.to_untyped().range().start + offset,
+                    "unsupported op limits value",
+                )?;
+            }
+            typst_ast::Arg::Spread(spread) => {
+                return Err(unsupported(
+                    spread.to_untyped().range().start + offset,
+                    "spread math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+        }
+    }
+
+    let body = body.ok_or_else(|| unsupported(position, "op math expects one text argument"))?;
+    let name = if limits { "op_limits" } else { "op" }.to_string();
+    Ok((name, vec![body]))
 }
 
 fn lower_math_call_args(
@@ -973,15 +1038,6 @@ fn is_math_call_name(name: &str) -> bool {
             | "class"
             | "underline"
             | "overline"
-            | "op"
-            | "sin"
-            | "cos"
-            | "tan"
-            | "log"
-            | "ln"
-            | "lim"
-            | "max"
-            | "min"
             | "hat"
             | "tilde"
             | "dot"
@@ -1002,7 +1058,7 @@ fn is_math_call_name(name: &str) -> bool {
             | "inline"
             | "script"
             | "sscript"
-    )
+    ) || predefined_operator_text(name).is_some()
 }
 
 fn is_unsupported_math_table_call_name(name: &str) -> bool {
@@ -1154,6 +1210,54 @@ pub(crate) fn named_math_symbol(name: &str) -> Option<&'static str> {
     }
 }
 
+pub(crate) fn predefined_operator_text(name: &str) -> Option<&'static str> {
+    match name {
+        "arccos" => Some("arccos"),
+        "arcsin" => Some("arcsin"),
+        "arctan" => Some("arctan"),
+        "arg" => Some("arg"),
+        "cos" => Some("cos"),
+        "cosh" => Some("cosh"),
+        "cot" => Some("cot"),
+        "coth" => Some("coth"),
+        "csc" => Some("csc"),
+        "csch" => Some("csch"),
+        "ctg" => Some("ctg"),
+        "deg" => Some("deg"),
+        "det" => Some("det"),
+        "dim" => Some("dim"),
+        "exp" => Some("exp"),
+        "gcd" => Some("gcd"),
+        "lcm" => Some("lcm"),
+        "hom" => Some("hom"),
+        "id" => Some("id"),
+        "im" => Some("im"),
+        "inf" => Some("inf"),
+        "ker" => Some("ker"),
+        "lg" => Some("lg"),
+        "lim" => Some("lim"),
+        "liminf" => Some("lim\u{2009}inf"),
+        "limsup" => Some("lim\u{2009}sup"),
+        "ln" => Some("ln"),
+        "log" => Some("log"),
+        "max" => Some("max"),
+        "min" => Some("min"),
+        "mod" => Some("mod"),
+        "Pr" => Some("Pr"),
+        "sec" => Some("sec"),
+        "sech" => Some("sech"),
+        "sin" => Some("sin"),
+        "sinc" => Some("sinc"),
+        "sinh" => Some("sinh"),
+        "sup" => Some("sup"),
+        "tan" => Some("tan"),
+        "tanh" => Some("tanh"),
+        "tg" => Some("tg"),
+        "tr" => Some("tr"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1187,7 +1291,10 @@ mod tests {
             "limits(A)_1^2",
             "scripts(sum)_1^2",
             "sin(x)",
+            "sech(x)",
+            "liminf_(n -> oo)",
             "op(\"custom\")",
+            "op(\"custom\", limits: #true)",
             "abs(x)",
             "norm(v)",
             "floor(x)",
@@ -1326,7 +1433,7 @@ mod tests {
     #[test]
     fn parses_whitelisted_function_calls() {
         let math = parse(
-            "frac(x, y) + op(\"custom\") + bb(R) + scr(P) + class(\"relation\", !) + overline(underline(x)) + attach(Pi, t: alpha, b: beta, tl: 1, tr: 2+3, bl: 4+5, br: 6)",
+            "frac(x, y) + op(\"custom\", limits: #true) + bb(R) + scr(P) + class(\"relation\", !) + overline(underline(x)) + attach(Pi, t: alpha, b: beta, tl: 1, tr: 2+3, bl: 4+5, br: 6)",
         );
 
         assert!(matches!(
@@ -1335,7 +1442,7 @@ mod tests {
         ));
         assert!(matches!(
             &math.nodes[4],
-            MathNode::Call(call) if call.name == "op" && call.args.len() == 1
+            MathNode::Call(call) if call.name == "op_limits" && call.args.len() == 1
         ));
         assert!(matches!(
             &math.nodes[8],
@@ -1383,6 +1490,32 @@ mod tests {
             let err = parse_math(source, 0).unwrap_err();
             assert_eq!(err, LabelError::UnsupportedSyntax { position, message });
         }
+    }
+
+    #[test]
+    fn parses_predefined_operator_call_names() {
+        for name in [
+            "arccos", "arcsin", "arctan", "arg", "cos", "cosh", "cot", "coth", "csc", "csch",
+            "ctg", "deg", "det", "dim", "exp", "gcd", "lcm", "hom", "id", "im", "inf", "ker", "lg",
+            "lim", "liminf", "limsup", "ln", "log", "max", "min", "mod", "Pr", "sec", "sech",
+            "sin", "sinc", "sinh", "sup", "tan", "tanh", "tg", "tr",
+        ] {
+            let source = format!("{name}(x)");
+            let math = parse(&source);
+            assert!(
+                matches!(&math.nodes[0], MathNode::Call(call) if call.name == name),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_op_options() {
+        let err = parse_math("op(\"custom\", foo: #true)", 0).unwrap_err();
+        assert!(format!("{err}").contains("unsupported op option"));
+
+        let err = parse_math("op(\"custom\", limits: #auto)", 0).unwrap_err();
+        assert!(format!("{err}").contains("unsupported op limits value"));
     }
 
     #[test]
