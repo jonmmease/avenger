@@ -108,12 +108,12 @@ impl TextPathBuffer {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TextPathExtractorImpl {
-    typst: avenger_typst::AvengerTypst,
+    typst: avenger_typst_label::AvengerTypst,
     math: TextMarkupConfig,
 }
 
 impl TextPathExtractorImpl {
-    pub(crate) fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
+    pub(crate) fn new(typst: avenger_typst_label::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self { typst, math }
     }
 
@@ -154,7 +154,7 @@ impl TextPathExtractorImpl {
             config.font_weight,
             config.font_style,
             config.color,
-            avenger_typst::TextLineOutputRequest {
+            avenger_typst_label::TextLineOutputRequest {
                 paths: false,
                 raster: None,
                 pdf_text_layer: false,
@@ -172,7 +172,7 @@ impl TextPathExtractorImpl {
 
         for run in result.artifact.positioned_runs {
             match run.kind {
-                avenger_typst::PositionedTextLineRunKind::Plain => {
+                avenger_typst_label::PositionedTextLineRunKind::Plain => {
                     let mut after_text_items = Vec::new();
                     let mut image_items = Vec::new();
                     let run_font = run
@@ -251,7 +251,7 @@ impl TextPathExtractorImpl {
                             .push(TextPathDrawItem::PathItem(path_index));
                     }
                 }
-                avenger_typst::PositionedTextLineRunKind::Math => {
+                avenger_typst_label::PositionedTextLineRunKind::Math => {
                     let paths = run.paths.ok_or_else(|| {
                         AvengerTextError::InternalError(
                             "Typst positioned math path output was requested but missing"
@@ -291,14 +291,14 @@ impl TextPathExtractorImpl {
 }
 
 pub(crate) fn typst_path_item_to_text_path_item(
-    item: avenger_typst::MathPathItem,
+    item: avenger_typst_label::MathPathItem,
     byte_range: Range<usize>,
     x_offset: f32,
     y_offset: f32,
 ) -> TextPathItem {
     let kind = match item.kind {
-        avenger_typst::MathPathKind::GlyphOutline { .. } => TextPathKind::MathGlyph,
-        avenger_typst::MathPathKind::MathShape => TextPathKind::MathShape,
+        avenger_typst_label::MathPathKind::GlyphOutline { .. } => TextPathKind::MathGlyph,
+        avenger_typst_label::MathPathKind::MathShape => TextPathKind::MathShape,
     };
     TextPathItem {
         path: math_path_data_to_lyon_path(&item.path, item.transform, x_offset, y_offset),
@@ -313,13 +313,13 @@ pub(crate) fn typst_path_item_to_text_path_item(
 }
 
 fn typst_image_item_to_text_path_image_item(
-    image: avenger_typst::MathImageItem,
+    image: avenger_typst_label::MathImageItem,
     byte_range: Range<usize>,
     x_offset: f32,
     y_offset: f32,
 ) -> TextPathImageItem {
     let format = match image.format {
-        avenger_typst::MathImageFormat::Png => TextPathImageFormat::Png,
+        avenger_typst_label::MathImageFormat::Png => TextPathImageFormat::Png,
     };
     TextPathImageItem {
         data: image.data,
@@ -339,27 +339,27 @@ fn typst_image_item_to_text_path_image_item(
 }
 
 fn math_path_data_to_lyon_path(
-    path: &avenger_typst::MathPathData,
-    transform: avenger_typst::MathTransform,
+    path: &avenger_typst_label::MathPathData,
+    transform: avenger_typst_label::MathTransform,
     x_offset: f32,
     y_offset: f32,
 ) -> Path {
     let mut builder = Path::builder();
     for command in &path.commands {
         match *command {
-            avenger_typst::MathPathCommand::MoveTo { x, y } => {
+            avenger_typst_label::MathPathCommand::MoveTo { x, y } => {
                 builder.begin(transform_math_point(transform, x, y, x_offset, y_offset));
             }
-            avenger_typst::MathPathCommand::LineTo { x, y } => {
+            avenger_typst_label::MathPathCommand::LineTo { x, y } => {
                 builder.line_to(transform_math_point(transform, x, y, x_offset, y_offset));
             }
-            avenger_typst::MathPathCommand::QuadTo { x1, y1, x, y } => {
+            avenger_typst_label::MathPathCommand::QuadTo { x1, y1, x, y } => {
                 builder.quadratic_bezier_to(
                     transform_math_point(transform, x1, y1, x_offset, y_offset),
                     transform_math_point(transform, x, y, x_offset, y_offset),
                 );
             }
-            avenger_typst::MathPathCommand::CubicTo {
+            avenger_typst_label::MathPathCommand::CubicTo {
                 x1,
                 y1,
                 x2,
@@ -373,14 +373,14 @@ fn math_path_data_to_lyon_path(
                     transform_math_point(transform, x, y, x_offset, y_offset),
                 );
             }
-            avenger_typst::MathPathCommand::Close => builder.close(),
+            avenger_typst_label::MathPathCommand::Close => builder.close(),
         }
     }
     builder.build()
 }
 
 fn transform_math_point(
-    transform: avenger_typst::MathTransform,
+    transform: avenger_typst_label::MathTransform,
     x: f32,
     y: f32,
     x_offset: f32,
@@ -392,24 +392,28 @@ fn transform_math_point(
     )
 }
 
-pub(crate) fn rgba_from_typst_color(color: avenger_typst::Color) -> [f32; 4] {
+pub(crate) fn rgba_from_typst_color(color: avenger_typst_label::Color) -> [f32; 4] {
     [color.r, color.g, color.b, color.a]
 }
 
-fn typst_font_weight(weight: &avenger_typst::FontWeight) -> FontWeight {
+fn typst_font_weight(weight: &avenger_typst_label::FontWeight) -> FontWeight {
     match weight {
-        avenger_typst::FontWeight::Normal => {
+        avenger_typst_label::FontWeight::Normal => {
             FontWeight::Name(crate::types::FontWeightNameSpec::Normal)
         }
-        avenger_typst::FontWeight::Bold => FontWeight::Name(crate::types::FontWeightNameSpec::Bold),
-        avenger_typst::FontWeight::Number(value) => FontWeight::Number(*value as f32),
+        avenger_typst_label::FontWeight::Bold => {
+            FontWeight::Name(crate::types::FontWeightNameSpec::Bold)
+        }
+        avenger_typst_label::FontWeight::Number(value) => FontWeight::Number(*value as f32),
     }
 }
 
-fn typst_font_style(style: avenger_typst::FontStyle) -> FontStyle {
+fn typst_font_style(style: avenger_typst_label::FontStyle) -> FontStyle {
     match style {
-        avenger_typst::FontStyle::Normal => FontStyle::Normal,
-        avenger_typst::FontStyle::Italic | avenger_typst::FontStyle::Oblique => FontStyle::Italic,
+        avenger_typst_label::FontStyle::Normal => FontStyle::Normal,
+        avenger_typst_label::FontStyle::Italic | avenger_typst_label::FontStyle::Oblique => {
+            FontStyle::Italic
+        }
     }
 }
 
@@ -439,8 +443,9 @@ mod tests {
         crate::math::TextMarkupConfig::default()
     }
 
-    fn typst() -> avenger_typst::AvengerTypst {
-        avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap()
+    fn typst() -> avenger_typst_label::AvengerTypst {
+        avenger_typst_label::AvengerTypst::new(avenger_typst_label::TypstEngineConfig::default())
+            .unwrap()
     }
 
     #[test]

@@ -20,7 +20,7 @@ ttf-parser = { workspace = true }
 fontdb = { workspace = true }
 brotli = { workspace = true }
 
-[dependencies.avenger-typst]
-path = "../avenger-typst"
+[dependencies.avenger-typst-label]
+path = "../avenger-typst-label"
 default-features = false
 features = ["raster"]

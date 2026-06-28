@@ -31,7 +31,7 @@ Host-platform dependency counts from `cargo tree -p text-render-probe`:
 The Typst path should be checked after major text-engine changes. It is
 expected to include shaping, font fallback, bidi/segmentation, math-glyph path
 extraction, and optional `tiny-skia` rasterization, but not the old vendored
-`avenger-typst-*` crates.
+`avenger-typst-label-*` crates.
 
 ## Cargo Bloat
 

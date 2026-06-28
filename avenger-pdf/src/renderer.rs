@@ -30,7 +30,7 @@ use avenger_text::{
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
     FontResolutionOptions, MissingFontPolicy, TextEngine,
 };
-use avenger_typst::{MathFontResource, MathFontResourceId, MathPdfGlyphRun};
+use avenger_typst_label::{MathFontResource, MathFontResourceId, MathPdfGlyphRun};
 use itertools::izip;
 use krilla::{
     color::rgb,
@@ -1397,7 +1397,7 @@ fn krilla_glyphs_from_run(run: &MathPdfGlyphRun) -> Result<Vec<KrillaGlyph>, Ave
     Ok(glyphs)
 }
 
-fn is_translation_only(transform: avenger_typst::MathTransform) -> bool {
+fn is_translation_only(transform: avenger_typst_label::MathTransform) -> bool {
     const EPSILON: f32 = 1.0e-5;
     (transform.xx - 1.0).abs() < EPSILON
         && transform.yx.abs() < EPSILON
@@ -1855,10 +1855,10 @@ mod tests {
         let run = MathPdfGlyphRun {
             font: MathFontResourceId(0),
             font_size: 10.0,
-            fill: avenger_typst::Color::BLACK,
+            fill: avenger_typst_label::Color::BLACK,
             stroke: None,
             text: "A".to_string(),
-            glyphs: vec![avenger_typst::MathPdfGlyph {
+            glyphs: vec![avenger_typst_label::MathPdfGlyph {
                 glyph_id: 1,
                 unicode: "A".to_string(),
                 text_range: 0..1,
@@ -1866,10 +1866,10 @@ mod tests {
                 y: 0.0,
                 x_advance: 10.0,
                 y_advance: 0.0,
-                transform: avenger_typst::MathTransform {
+                transform: avenger_typst_label::MathTransform {
                     dx: 3.0,
                     dy: 12.0,
-                    ..avenger_typst::MathTransform::IDENTITY
+                    ..avenger_typst_label::MathTransform::IDENTITY
                 },
             }],
         };

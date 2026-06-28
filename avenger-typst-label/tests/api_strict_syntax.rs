@@ -1,4 +1,4 @@
-use avenger_typst::{AvengerTypst, MathTypesetError, TypstEngineConfig};
+use avenger_typst_label::{AvengerTypst, MathTypesetError, TypstEngineConfig};
 
 fn engine() -> AvengerTypst {
     AvengerTypst::new(TypstEngineConfig::default()).unwrap()

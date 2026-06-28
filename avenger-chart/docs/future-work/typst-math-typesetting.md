@@ -4,9 +4,9 @@ Date: 2026-06-24
 Last updated: 2026-06-26
 
 Status: partially implemented in the active text-engine branch; vendor-route
-research superseded by the `avenger-typst` text engine.
+research superseded by the `avenger-typst-label` text engine.
 
-Current direction: `avenger-typst` owns the strict Typst-style text/math subset
+Current direction: `avenger-typst-label` owns the strict Typst-style text/math subset
 directly. `avenger-text` should always use that engine for regular text
 and `$...$` math fragments; the old cosmic-text and HTML canvas text backends
 are no longer the target architecture. The active path should not depend on
@@ -33,7 +33,7 @@ $x^2 + y^2$
 ```
 
 Text outside math spans should be shaped, measured, rasterized, and exported by
-the same `avenger-typst` line engine as text inside math spans. This keeps
+the same `avenger-typst-label` line engine as text inside math spans. This keeps
 mixed strings such as `Price $7, score $R^2$ = 0.94` positioned by one line
 layout pass instead of by summing independently measured fragments.
 
@@ -49,12 +49,12 @@ provided the supported syntax remains a strict subset rather than arbitrary
 Typst documents. A math span is a laid-out mini scene: it can contain positioned
 glyph runs, fraction rules, radicals, accents, stretchy delimiters, grouped
 transforms, and other shapes. A mixed text label should therefore be laid out as
-one text line by `avenger-typst`, not as separately positioned plain and math
+one text line by `avenger-typst-label`, not as separately positioned plain and math
 fragments.
 
 The current long-term plan is:
 
-1. Keep `avenger-typst` as the low-level Avenger Typst-style text/math crate.
+1. Keep `avenger-typst-label` as the low-level Avenger Typst-style text/math crate.
 2. Make `avenger-text::TextEngine` the single concrete text engine.
 3. Always parse supported static text markup and `$...$` math spans.
 4. Return measured artifacts with width, height, baseline, ascent, descent,
@@ -397,7 +397,7 @@ facade should return those values directly.
 
 Raster payloads can be derived from the path artifact instead of depending on
 Typst's renderer in the minimal path. Use `tiny-skia` behind an optional
-`avenger-typst/raster` feature; keep `typst-render` out of the default path.
+`avenger-typst-label/raster` feature; keep `typst-render` out of the default path.
 
 Important raster details:
 
@@ -548,7 +548,7 @@ evaluation, except for escaped characters that should render literally.
 
 Historical note: the implementation no longer follows the vendor route. The
 old plan was to copy and patch a small Typst subset, then periodically sync it
-from upstream. That path was replaced by the `avenger-typst` parser, text
+from upstream. That path was replaced by the `avenger-typst-label` parser, text
 layout, math layout, artifact lowering, and strict unsupported-syntax errors.
 
 ## Frame-To-Artifact Lowering
@@ -577,7 +577,7 @@ those same paths. PDF post-processing can consume the glyph layer.
 
 Historical note: the vendored tree has been removed from the active dependency
 path. Future sync work should happen as targeted owned-engine improvements:
-copy the relevant upstream algorithm or metric rule into `avenger-typst`, add
+copy the relevant upstream algorithm or metric rule into `avenger-typst-label`, add
 unit tests and visual baselines, and keep the public strict-subset contract.
 
 ## Size Findings
@@ -667,7 +667,7 @@ Possible upstream contributions:
 Phase 1: text engine as default.
 
 - Own the Typst-style text/math parser and strict subset validation in
-  `avenger-typst`.
+  `avenger-typst-label`.
 - Route `avenger-text::TextEngine` measurement, rasterization, and path
   extraction through the default engine.
 - Remove cosmic-text, HTML canvas text measurement, and text-backend feature

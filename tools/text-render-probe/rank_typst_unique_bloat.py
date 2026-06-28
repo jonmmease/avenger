@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 CRATE_NAME_OVERRIDES = {
-    "avenger-typst": "avenger_typst",
+    "avenger-typst-label": "avenger_typst_label",
 }
 
 

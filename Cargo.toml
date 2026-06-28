@@ -9,7 +9,7 @@ members = [
     "avenger-common",
     "avenger-geometry",
     "avenger-text",
-    "avenger-typst",
+    "avenger-typst-label",
     "avenger-image",
     "avenger-resource",
     "avenger-svg",

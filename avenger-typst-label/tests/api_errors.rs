@@ -1,4 +1,4 @@
-use avenger_typst::{AvengerTypst, MathTypesetError, TypstEngineConfig};
+use avenger_typst_label::{AvengerTypst, MathTypesetError, TypstEngineConfig};
 
 fn engine() -> AvengerTypst {
     AvengerTypst::new(TypstEngineConfig::default()).unwrap()
@@ -6,7 +6,7 @@ fn engine() -> AvengerTypst {
 
 #[test]
 fn errors_when_source_exceeds_limit() {
-    let mut options = avenger_typst::MathFragmentOptions::default();
+    let mut options = avenger_typst_label::MathFragmentOptions::default();
     options.limits.max_source_bytes = 2;
 
     let err = engine().typeset_math_fragment("abc", &options).unwrap_err();
@@ -21,7 +21,7 @@ fn errors_when_source_exceeds_limit() {
 
 #[test]
 fn errors_when_math_span_count_exceeds_limit() {
-    let mut options = avenger_typst::MathStringOptions::default();
+    let mut options = avenger_typst_label::MathStringOptions::default();
     options.limits.max_math_spans = 1;
 
     let err = engine()
@@ -64,7 +64,7 @@ fn engine_error_for_one_span_reports_source_range() {
 
 #[test]
 fn math_depth_limit_is_enforced() {
-    let mut options = avenger_typst::MathFragmentOptions::default();
+    let mut options = avenger_typst_label::MathFragmentOptions::default();
     options.limits.max_math_depth = 2;
 
     let err = engine()

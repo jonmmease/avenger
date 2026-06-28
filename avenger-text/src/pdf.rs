@@ -33,8 +33,8 @@ pub enum TextPdfDrawItem {
 pub struct TextPdfBuffer {
     pub bounds: TextBounds,
     pub semantic_text: String,
-    pub font_resources: Vec<avenger_typst::MathFontResource>,
-    pub glyph_runs: Vec<avenger_typst::MathPdfGlyphRun>,
+    pub font_resources: Vec<avenger_typst_label::MathFontResource>,
+    pub glyph_runs: Vec<avenger_typst_label::MathPdfGlyphRun>,
     pub items: Vec<TextPathItem>,
     pub draw_items: Vec<TextPdfDrawItem>,
 }
@@ -54,12 +54,12 @@ impl TextPdfBuffer {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TextPdfExtractorImpl {
-    typst: avenger_typst::AvengerTypst,
+    typst: avenger_typst_label::AvengerTypst,
     math: TextMarkupConfig,
 }
 
 impl TextPdfExtractorImpl {
-    pub(crate) fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
+    pub(crate) fn new(typst: avenger_typst_label::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self { typst, math }
     }
 
@@ -100,7 +100,7 @@ impl TextPdfExtractorImpl {
             config.font_weight,
             config.font_style,
             config.color,
-            avenger_typst::TextLineOutputRequest {
+            avenger_typst_label::TextLineOutputRequest {
                 paths: true,
                 raster: None,
                 pdf_text_layer: true,
@@ -132,7 +132,7 @@ impl TextPdfExtractorImpl {
 
         if let Some(paths) = result.artifact.paths {
             for item in paths.items {
-                if !matches!(item.kind, avenger_typst::MathPathKind::MathShape) {
+                if !matches!(item.kind, avenger_typst_label::MathPathKind::MathShape) {
                     continue;
                 }
                 let item = typst_path_item_to_text_path_item(item, 0..text_len, 0.0, y_offset);
@@ -151,7 +151,7 @@ impl TextPdfExtractorImpl {
 
 #[cfg(test)]
 pub(crate) fn validate_glyph_run_text_ranges(
-    glyph_runs: &[avenger_typst::MathPdfGlyphRun],
+    glyph_runs: &[avenger_typst_label::MathPdfGlyphRun],
 ) -> bool {
     glyph_runs.iter().all(|run| {
         run.glyphs.iter().all(|glyph| {

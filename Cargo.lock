@@ -1118,7 +1118,7 @@ dependencies = [
  "avenger-image",
  "avenger-scenegraph",
  "avenger-text",
- "avenger-typst",
+ "avenger-typst-label",
  "fontdb",
  "image",
  "itertools 0.14.0",
@@ -1222,7 +1222,7 @@ dependencies = [
 name = "avenger-text"
 version = "0.0.8"
 dependencies = [
- "avenger-typst",
+ "avenger-typst-label",
  "brotli",
  "fontdb",
  "image",
@@ -1237,7 +1237,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "avenger-typst"
+name = "avenger-typst-label"
 version = "0.1.0"
 dependencies = [
  "brotli",

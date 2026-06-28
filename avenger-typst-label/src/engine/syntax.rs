@@ -326,7 +326,7 @@ fn synthesize_ranges(root: &mut SyntaxNode, source_len: usize) -> Result<(), Mat
 fn scratch_file_id() -> crate::syntax::FileId {
     RootedPath::new(
         VirtualRoot::Project,
-        VirtualPath::new("avenger-typst-line.typ").expect("static virtual path is valid"),
+        VirtualPath::new("avenger-typst-label-line.typ").expect("static virtual path is valid"),
     )
     .intern()
 }

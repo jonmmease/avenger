@@ -1,4 +1,4 @@
-use avenger_typst::{
+use avenger_typst_label::{
     AvengerTypst, MathDelimiterOptions, MathDisplayHint, MathStringRun, MathTypesetError,
     TypstEngineConfig, UnmatchedDelimiterPolicy,
 };
@@ -90,7 +90,7 @@ fn unmatched_dollar_can_be_literal() {
 
 #[test]
 fn unmatched_dollar_can_error() {
-    let mut options = avenger_typst::MathStringOptions::default();
+    let mut options = avenger_typst_label::MathStringOptions::default();
     options.delimiters.unmatched = UnmatchedDelimiterPolicy::Error;
     let err = engine()
         .typeset_math_string("cost $5", &options)
@@ -101,7 +101,7 @@ fn unmatched_dollar_can_error() {
 
 #[test]
 fn display_delimiter_whitespace_is_recorded() {
-    let mut options = avenger_typst::MathStringOptions::default();
+    let mut options = avenger_typst_label::MathStringOptions::default();
     options.delimiters = MathDelimiterOptions {
         allow_display_style: true,
         ..MathDelimiterOptions::default()

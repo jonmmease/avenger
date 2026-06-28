@@ -32,8 +32,8 @@ default-features = false
 path = "../avenger-text"
 default-features = false
 
-[dependencies.avenger-typst]
-path = "../avenger-typst"
+[dependencies.avenger-typst-label]
+path = "../avenger-typst-label"
 default-features = false
 
 [dev-dependencies.pdf-extract]

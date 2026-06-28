@@ -18,12 +18,12 @@ const TYPST_LINE_LEADING_FACTOR: f32 = crate::math::DEFAULT_MARKUP_LINE_LEADING_
 
 #[derive(Debug, Clone)]
 pub(crate) struct TextLineMeasurer {
-    typst: avenger_typst::AvengerTypst,
+    typst: avenger_typst_label::AvengerTypst,
     math: TextMarkupConfig,
 }
 
 impl TextLineMeasurer {
-    pub(crate) fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
+    pub(crate) fn new(typst: avenger_typst_label::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self { typst, math }
     }
     pub(crate) fn measure_text_bounds(
@@ -40,7 +40,7 @@ impl TextLineMeasurer {
             config.font_weight,
             config.font_style,
             [0.0, 0.0, 0.0, 1.0],
-            avenger_typst::TextLineOutputRequest {
+            avenger_typst_label::TextLineOutputRequest {
                 paths: false,
                 raster: None,
                 pdf_text_layer: false,
@@ -61,13 +61,13 @@ impl TextLineMeasurer {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TextLineRasterizer<CacheValue> {
-    typst: avenger_typst::AvengerTypst,
+    typst: avenger_typst_label::AvengerTypst,
     math: TextMarkupConfig,
     _cache_value: PhantomData<CacheValue>,
 }
 
 impl<CacheValue> TextLineRasterizer<CacheValue> {
-    pub(crate) fn new(typst: avenger_typst::AvengerTypst, math: TextMarkupConfig) -> Self {
+    pub(crate) fn new(typst: avenger_typst_label::AvengerTypst, math: TextMarkupConfig) -> Self {
         Self {
             typst,
             math,
@@ -98,7 +98,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
         if raster_text.is_empty() {
             return Ok(TextRasterizationBuffer {
                 text_bounds: bounds_from_metrics(
-                    avenger_typst::TypesetMetrics {
+                    avenger_typst_label::TypesetMetrics {
                         width: 0.0,
                         height: 0.0,
                         baseline: 0.0,
@@ -122,9 +122,9 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             config.font_weight,
             config.font_style,
             config.color,
-            avenger_typst::TextLineOutputRequest {
+            avenger_typst_label::TextLineOutputRequest {
                 paths: false,
-                raster: Some(avenger_typst::RasterRequest { scale }),
+                raster: Some(avenger_typst_label::RasterRequest { scale }),
                 pdf_text_layer: false,
                 positioned_runs: false,
             },
@@ -192,7 +192,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
 }
 
 fn measure_text_width_with_typst(
-    typst: &avenger_typst::AvengerTypst,
+    typst: &avenger_typst_label::AvengerTypst,
     math: &TextMarkupConfig,
     text: &str,
     font: &str,
@@ -209,7 +209,7 @@ fn measure_text_width_with_typst(
         font_weight,
         font_style,
         [0.0, 0.0, 0.0, 1.0],
-        avenger_typst::TextLineOutputRequest {
+        avenger_typst_label::TextLineOutputRequest {
             paths: false,
             raster: None,
             pdf_text_layer: false,
@@ -220,12 +220,12 @@ fn measure_text_width_with_typst(
 }
 
 pub(crate) struct TypesetLineResult {
-    pub(crate) artifact: avenger_typst::TextLineArtifact,
+    pub(crate) artifact: avenger_typst_label::TextLineArtifact,
     pub(crate) has_math_spans: bool,
 }
 
 pub(crate) fn typeset_line(
-    typst: &avenger_typst::AvengerTypst,
+    typst: &avenger_typst_label::AvengerTypst,
     math: &TextMarkupConfig,
     text: &str,
     font: &str,
@@ -233,8 +233,8 @@ pub(crate) fn typeset_line(
     font_weight: FontWeight,
     font_style: FontStyle,
     color: [f32; 4],
-    outputs: avenger_typst::TextLineOutputRequest,
-) -> Result<TypesetLineResult, avenger_typst::MathTypesetError> {
+    outputs: avenger_typst_label::TextLineOutputRequest,
+) -> Result<TypesetLineResult, avenger_typst_label::MathTypesetError> {
     let options = text_line_options(
         math,
         text,
@@ -273,23 +273,23 @@ pub(crate) fn text_line_options(
     font_weight: FontWeight,
     font_style: FontStyle,
     color: [f32; 4],
-    outputs: avenger_typst::TextLineOutputRequest,
-) -> avenger_typst::TextLineOptions {
+    outputs: avenger_typst_label::TextLineOutputRequest,
+) -> avenger_typst_label::TextLineOptions {
     let mut math_style = math.math_style.clone();
     math_style.font_size = font_size;
-    math_style.fill = avenger_typst::Color::rgba(color[0], color[1], color[2], color[3]);
+    math_style.fill = avenger_typst_label::Color::rgba(color[0], color[1], color[2], color[3]);
     math_style.font_weight = typst_font_weight(font_weight);
     let font_family = if font.trim().is_empty() {
-        avenger_typst::PlainTextStyle::default().font_family
+        avenger_typst_label::PlainTextStyle::default().font_family
     } else {
         font.to_string()
     };
 
-    avenger_typst::TextLineOptions {
-        text_style: avenger_typst::PlainTextStyle {
+    avenger_typst_label::TextLineOptions {
+        text_style: avenger_typst_label::PlainTextStyle {
             font_family,
             font_size,
-            fill: avenger_typst::Color::rgba(color[0], color[1], color[2], color[3]),
+            fill: avenger_typst_label::Color::rgba(color[0], color[1], color[2], color[3]),
             font_weight: typst_font_weight(font_weight),
             font_style: typst_font_style(font_style),
         },
@@ -301,13 +301,16 @@ pub(crate) fn text_line_options(
     }
 }
 
-fn limits_for_text(text: &str, mut limits: avenger_typst::MathLimits) -> avenger_typst::MathLimits {
+fn limits_for_text(
+    text: &str,
+    mut limits: avenger_typst_label::MathLimits,
+) -> avenger_typst_label::MathLimits {
     limits.max_source_bytes = limits.max_source_bytes.max(text.len());
     limits
 }
 
 pub(crate) fn bounds_from_metrics(
-    metrics: avenger_typst::TypesetMetrics,
+    metrics: avenger_typst_label::TypesetMetrics,
     font_size: f32,
     has_math_spans: bool,
 ) -> TextBounds {
@@ -319,7 +322,9 @@ pub(crate) fn bounds_from_metrics(
     }
 }
 
-pub(crate) fn tight_bounds_from_metrics(metrics: avenger_typst::TypesetMetrics) -> TextBounds {
+pub(crate) fn tight_bounds_from_metrics(
+    metrics: avenger_typst_label::TypesetMetrics,
+) -> TextBounds {
     TextBounds {
         width: metrics.width,
         height: metrics.height,
@@ -431,13 +436,16 @@ fn metrics_from_ttf_face(face: &ttf_parser::Face<'_>, font_size: f32) -> FontMet
 }
 
 fn contains_active_math_span(math: &TextMarkupConfig, text: &str) -> bool {
-    if math.syntax == avenger_typst::MathSyntaxMode::PlainText {
+    if math.syntax == avenger_typst_label::MathSyntaxMode::PlainText {
         return false;
     }
     contains_delimited_span(text, &math.delimiters)
 }
 
-fn contains_delimited_span(text: &str, delimiters: &avenger_typst::MathDelimiterOptions) -> bool {
+fn contains_delimited_span(
+    text: &str,
+    delimiters: &avenger_typst_label::MathDelimiterOptions,
+) -> bool {
     let mut pos = 0usize;
     while let Some((idx, ch)) = next_char(text, pos) {
         let next_pos = idx + ch.len_utf8();
@@ -463,7 +471,7 @@ fn contains_delimited_span(text: &str, delimiters: &avenger_typst::MathDelimiter
 fn has_closing_delimiter(
     text: &str,
     start: usize,
-    delimiters: &avenger_typst::MathDelimiterOptions,
+    delimiters: &avenger_typst_label::MathDelimiterOptions,
 ) -> bool {
     let mut pos = start;
     while let Some((idx, ch)) = next_char(text, pos) {
@@ -494,20 +502,20 @@ fn next_char(text: &str, start: usize) -> Option<(usize, char)> {
         .map(|(offset, ch)| (start + offset, ch))
 }
 
-fn typst_font_weight(weight: FontWeight) -> avenger_typst::FontWeight {
+fn typst_font_weight(weight: FontWeight) -> avenger_typst_label::FontWeight {
     match weight {
-        FontWeight::Name(FontWeightNameSpec::Normal) => avenger_typst::FontWeight::Normal,
-        FontWeight::Name(FontWeightNameSpec::Bold) => avenger_typst::FontWeight::Bold,
+        FontWeight::Name(FontWeightNameSpec::Normal) => avenger_typst_label::FontWeight::Normal,
+        FontWeight::Name(FontWeightNameSpec::Bold) => avenger_typst_label::FontWeight::Bold,
         FontWeight::Number(value) => {
-            avenger_typst::FontWeight::Number(value.round().clamp(1.0, u16::MAX as f32) as u16)
+            avenger_typst_label::FontWeight::Number(value.round().clamp(1.0, u16::MAX as f32) as u16)
         }
     }
 }
 
-fn typst_font_style(style: FontStyle) -> avenger_typst::FontStyle {
+fn typst_font_style(style: FontStyle) -> avenger_typst_label::FontStyle {
     match style {
-        FontStyle::Normal => avenger_typst::FontStyle::Normal,
-        FontStyle::Italic => avenger_typst::FontStyle::Italic,
+        FontStyle::Normal => avenger_typst_label::FontStyle::Normal,
+        FontStyle::Italic => avenger_typst_label::FontStyle::Italic,
     }
 }
 
@@ -542,7 +550,7 @@ mod tests {
             WEIGHT,
             STYLE,
             [0.0, 0.0, 0.0, 1.0],
-            avenger_typst::TextLineOutputRequest::default(),
+            avenger_typst_label::TextLineOutputRequest::default(),
         );
 
         assert_eq!(options.delimiters.delimiter, '$');
@@ -558,7 +566,7 @@ mod tests {
 
     #[test]
     fn typst_bounds_report_plain_line_box_and_math_leading() {
-        let metrics = avenger_typst::TypesetMetrics {
+        let metrics = avenger_typst_label::TypesetMetrics {
             width: 20.0,
             height: 10.0,
             baseline: 7.0,
@@ -582,8 +590,10 @@ mod tests {
 
     #[test]
     fn plain_text_markup_measures_invalid_math_literal() {
-        let typst =
-            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap();
+        let typst = avenger_typst_label::AvengerTypst::new(
+            avenger_typst_label::TypstEngineConfig::default(),
+        )
+        .unwrap();
         let measurer = TextLineMeasurer::new(typst, TextMarkupConfig::default().plain_text());
         let bounds = measurer
             .measure_text_bounds(&TextMeasurementConfig {
@@ -617,7 +627,10 @@ mod tests {
     #[test]
     fn typst_rasterizer_reports_one_line_entry_with_typst_engine() {
         let rasterizer = TextLineRasterizer::<()>::new(
-            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap(),
+            avenger_typst_label::AvengerTypst::new(
+                avenger_typst_label::TypstEngineConfig::default(),
+            )
+            .unwrap(),
             TextMarkupConfig::default(),
         );
         let text = "Price $7".to_string();
@@ -649,7 +662,10 @@ mod tests {
     #[test]
     fn typst_rasterizer_accepts_empty_text() {
         let rasterizer = TextLineRasterizer::<()>::new(
-            avenger_typst::AvengerTypst::new(avenger_typst::TypstEngineConfig::default()).unwrap(),
+            avenger_typst_label::AvengerTypst::new(
+                avenger_typst_label::TypstEngineConfig::default(),
+            )
+            .unwrap(),
             TextMarkupConfig::default(),
         );
         let text = String::new();

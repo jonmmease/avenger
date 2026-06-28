@@ -645,7 +645,7 @@ fn synthesize_ranges(
 fn scratch_file_id() -> crate::syntax::FileId {
     RootedPath::new(
         VirtualRoot::Project,
-        VirtualPath::new("avenger-typst-math.typ").expect("static virtual path is valid"),
+        VirtualPath::new("avenger-typst-label-math.typ").expect("static virtual path is valid"),
     )
     .intern()
 }

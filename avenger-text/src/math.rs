@@ -1,4 +1,4 @@
-use avenger_typst::{
+use avenger_typst_label::{
     MathDelimiterOptions, MathLimits, MathStyle, MathSyntaxMode, UnmatchedDelimiterPolicy,
 };
 

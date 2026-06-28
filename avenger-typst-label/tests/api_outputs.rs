@@ -1,7 +1,7 @@
-use avenger_typst::{AvengerTypst, MathOutputRequest, MathStringRun, TypstEngineConfig};
+use avenger_typst_label::{AvengerTypst, MathOutputRequest, MathStringRun, TypstEngineConfig};
 
 #[cfg(feature = "raster")]
-use avenger_typst::{PositionedTextLineRunKind, RasterRequest, TextLineOutputRequest};
+use avenger_typst_label::{PositionedTextLineRunKind, RasterRequest, TextLineOutputRequest};
 
 fn engine() -> AvengerTypst {
     AvengerTypst::new(TypstEngineConfig::default()).unwrap()
@@ -17,7 +17,7 @@ fn paths_can_be_requested() {
 
 #[test]
 fn paths_can_be_disabled() {
-    let mut options = avenger_typst::MathFragmentOptions::default();
+    let mut options = avenger_typst_label::MathFragmentOptions::default();
     options.outputs.paths = false;
 
     let artifact = engine().typeset_math_fragment("x", &options).unwrap();
@@ -27,7 +27,7 @@ fn paths_can_be_disabled() {
 #[test]
 #[cfg(feature = "raster")]
 fn raster_payload_can_be_requested() {
-    let mut options = avenger_typst::MathFragmentOptions::default();
+    let mut options = avenger_typst_label::MathFragmentOptions::default();
     options.outputs.raster = Some(RasterRequest { scale: 2.0 });
 
     let artifact = engine().typeset_math_fragment("x", &options).unwrap();
@@ -45,7 +45,7 @@ fn raster_payload_can_be_requested() {
 
 #[test]
 fn pdf_text_layer_can_be_requested() {
-    let mut options = avenger_typst::MathFragmentOptions::default();
+    let mut options = avenger_typst_label::MathFragmentOptions::default();
     options.outputs.pdf_text_layer = true;
 
     let artifact = engine().typeset_math_fragment("x + y", &options).unwrap();
@@ -58,7 +58,7 @@ fn pdf_text_layer_can_be_requested() {
 
 #[test]
 fn string_artifact_deduplicates_font_resources() {
-    let mut options = avenger_typst::MathStringOptions::default();
+    let mut options = avenger_typst_label::MathStringOptions::default();
     options.outputs = MathOutputRequest {
         paths: true,
         raster: None,
@@ -93,7 +93,7 @@ fn string_artifact_deduplicates_font_resources() {
 #[test]
 #[cfg(feature = "raster")]
 fn text_line_outputs_can_be_requested() {
-    let mut options = avenger_typst::TextLineOptions::default();
+    let mut options = avenger_typst_label::TextLineOptions::default();
     options.outputs = TextLineOutputRequest {
         paths: true,
         raster: Some(RasterRequest { scale: 2.0 }),
@@ -126,7 +126,7 @@ fn text_line_outputs_can_be_requested() {
 
 #[test]
 fn text_line_metrics_only_disables_heavy_outputs() {
-    let mut options = avenger_typst::TextLineOptions::default();
+    let mut options = avenger_typst_label::TextLineOptions::default();
     options.outputs.paths = false;
 
     let artifact = engine().typeset_text_line("plain $x$", &options).unwrap();
