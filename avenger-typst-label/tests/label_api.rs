@@ -59,6 +59,40 @@ fn compile_text_unicode_emoji_bidi_complex_script_matches_escaped_compile() {
 }
 
 #[test]
+fn compile_markup_style_wrappers_handle_emoji_bidi_and_complex_script() {
+    let samples = [
+        "#underline[Revenue 🚀 שלום नमस्ते]",
+        "#emph[Revenue 🚀 שלום नमस्ते]",
+        "#strong[Revenue 🚀 שלום नमस्ते]",
+        "#upper[Revenue 🚀 שלום नमस्ते]",
+    ];
+
+    for source in samples {
+        let label = engine()
+            .compile(source, &LabelOptions::default())
+            .unwrap_or_else(|err| panic!("{source} should compile, got {err:?}"));
+
+        assert!(label.metrics.width > 0.0, "{source}");
+        assert!(label.metrics.height > 0.0, "{source}");
+        assert!(label.flags.has_markup, "{source}");
+        assert!(label.semantic_text().contains('🚀'), "{source}");
+        assert!(label.semantic_text().contains("שלום"), "{source}");
+        assert!(label.semantic_text().contains("नमस्ते"), "{source}");
+    }
+}
+
+#[test]
+fn compile_resolves_named_emoji_and_symbol_aliases() {
+    let label = engine()
+        .compile("Trend #emoji.chart.up #sym.arrow.r target", &LabelOptions::default())
+        .unwrap();
+
+    assert_eq!(label.semantic_text(), "Trend 📈 → target");
+    assert!(label.metrics.width > 0.0);
+    assert!(label.flags.has_markup);
+}
+
+#[test]
 fn compile_unmatched_dollar_errors() {
     let err = engine()
         .compile("cost $5", &LabelOptions::default())
