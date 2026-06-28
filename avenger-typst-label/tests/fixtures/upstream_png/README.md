@@ -22,17 +22,26 @@ extend only the PNG path first. The generator may depend on a local upstream
 Typst checkout at `../typst`, but the Rust test must be offline and compare
 against checked-in references only.
 
+There are two modes:
+
+- Existing suite mode: add coverage for one implemented label feature family.
+- Build-from-zero mode: recreate the manifest/generator/test harness only if
+  the suite has been deliberately removed or is being rebuilt after a major
+  refactor.
+
 Agent checklist:
 
 1. Read this README and `cases.toml` before editing.
 2. Add one supported feature family at a time.
-3. Add label-only snippets under `src/{id}.typ`.
-4. Add matching `[[case]]` entries with upstream file/test attribution.
-5. Regenerate references with the release-mode generator.
-6. Inspect every changed `ref/*.png` directly or in a temporary mosaic.
-7. Run the PNG parity test in release mode.
-8. If label-engine code changed, run the full crate raster suite.
-9. Stage only suite files and intentional crate metadata.
+3. Read the relevant upstream Typst test under `../typst/tests/suite/...` and
+   preserve the smallest label-sized expression that exercises the behavior.
+4. Add label-only snippets under `src/{id}.typ`.
+5. Add matching `[[case]]` entries with upstream file/test attribution.
+6. Regenerate references with the release-mode generator.
+7. Inspect every changed `ref/*.png` directly or in a temporary mosaic.
+8. Run the PNG parity test in release mode.
+9. If label-engine code changed, run the full crate raster suite.
+10. Stage only suite files and intentional crate metadata.
 
 ## Layout
 
@@ -69,32 +78,66 @@ updating references for implemented label behavior:
 
 1. Run `git status --short` and identify unrelated dirty files before editing.
 2. Read `cases.toml` and this README. Keep the suite PNG-only.
-3. Add or update one feature family at a time. Prefer unit tests first, then add
+3. Read the relevant upstream Typst test file from `../typst/tests/suite`.
+   Keep the expression, not the whole document:
+   - remove upstream page setup, show rules, loops, tables, columns, and other
+     document-level scaffolding;
+   - keep only syntax that belongs to the supported single-line label subset;
+   - if the upstream case requires unsupported scripting or document layout,
+     add an unsupported-syntax unit test instead of a PNG fixture.
+4. Add or update one feature family at a time. Prefer unit tests first, then add
    small label-only snippets under `src/{id}.typ`.
-4. Add matching `[[case]]` entries with upstream file/test attribution.
-5. Run the reference generator:
+5. Add matching `[[case]]` entries with upstream file/test attribution.
+6. Run the reference generator:
 
    ```sh
    cargo run --release -p avenger-typst-label --features raster --bin generate_upstream_png_refs
    ```
 
-6. Inspect every changed `ref/*.png` directly or in a temporary mosaic. Confirm
+7. Inspect every changed `ref/*.png` directly or in a temporary mosaic. Confirm
    each image is non-blank, unclipped, uses the intended Lato/Lete Sans Math
    fonts, and visibly exercises the intended feature.
-7. Run the parity test:
+8. Run the parity test:
 
    ```sh
    cargo test --release -p avenger-typst-label --features raster upstream_png_parity -- --nocapture
    ```
 
-8. If label-engine code changed, run the full crate raster suite:
+9. If label-engine code changed, run the full crate raster suite:
 
    ```sh
    cargo test --release -p avenger-typst-label --features raster -- --nocapture
    ```
 
-9. Review `git diff` and stage only the intentional generator/test changes,
+10. Review `git diff` and stage only the intentional generator/test changes,
    `cases.toml`, source snippets, and curated `ref/*.png` files.
+
+## Choosing Upstream Cases
+
+Start from the upstream Typst suite, but convert tests into small label
+fixtures rather than copying page-level render tests verbatim.
+
+Good PNG parity cases:
+
+- fit naturally on one label line;
+- have deterministic visual output with the bundled fonts;
+- exercise one retained feature family clearly;
+- do not require Typst scripting, `#set`, `#show`, imports, counters, layout
+  containers, matrix/table layout, or full-page behavior;
+- can be attributed to one upstream file and test name in `cases.toml`.
+
+Bad PNG parity cases:
+
+- depend on page layout, block layout, columns, tables, counters, loops, or
+  full Typst evaluation;
+- require unsupported functions that should currently error;
+- are mostly redundant with an existing visual fixture;
+- hide the feature under a large expression where a one-line reduced case is
+  clearer.
+
+When reducing a Typst test, keep the upstream spelling of the feature under
+test. Change surrounding values only to make the case label-sized,
+deterministic, and readable.
 
 ## Agent Build Checklist
 
