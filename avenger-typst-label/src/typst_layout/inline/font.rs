@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::typst_diag::LabelError;
 use crate::typst_label::EngineOptions;
 use crate::typst_library::font::resources::{DEJAVU_SANS_MONO_FACES, EmbeddedFontFace, LATO_FACES};
-use crate::typst_library::{FontStyle, FontWeight, PlainTextStyle};
+use crate::typst_library::{FontStyle, FontWeight, TextStyle};
 use crate::typst_pdf::{FontResource, FontResourceId};
 use crate::typst_svg::{PathData, PathImageFormat, PathImageItem, Transform};
 use unicode_bidi::BidiInfo;
@@ -157,7 +157,7 @@ impl TextDecorationMetrics {
 
 impl TextFace {
     pub(crate) fn for_plain_style(
-        style: &PlainTextStyle,
+        style: &TextStyle,
         fontdb: &fontdb::Database,
     ) -> Result<Option<Self>, LabelError> {
         if let Some((family, faces)) = embedded_text_family(&style.font_family) {
@@ -168,7 +168,7 @@ impl TextFace {
     }
 
     pub(crate) fn for_plain_style_and_text(
-        style: &PlainTextStyle,
+        style: &TextStyle,
         text: &str,
         fontdb: &fontdb::Database,
     ) -> Result<Option<Self>, LabelError> {
@@ -321,19 +321,19 @@ impl TextFace {
 
     pub(crate) fn script_style_with_size(
         &self,
-        parent_style: &PlainTextStyle,
+        parent_style: &TextStyle,
         script: TextScript,
         explicit_size: Option<DecorationLength>,
-    ) -> PlainTextStyle {
+    ) -> TextStyle {
         if let Some(size) = explicit_size {
-            return PlainTextStyle {
+            return TextStyle {
                 font_size: size.resolve(parent_style.font_size.max(1.0)).max(1.0),
                 ..parent_style.clone()
             };
         }
 
         let Some(face) = self.parsed_face() else {
-            return PlainTextStyle {
+            return TextStyle {
                 font_size: parent_style.font_size.max(1.0) * 0.7,
                 ..parent_style.clone()
             };
@@ -348,7 +348,7 @@ impl TextFace {
             .unwrap_or_else(|| parent_style.font_size.max(1.0) * 0.7)
             .max(1.0);
 
-        PlainTextStyle {
+        TextStyle {
             font_size,
             ..parent_style.clone()
         }
@@ -475,7 +475,7 @@ impl TextFace {
 
 pub(crate) fn shape_plain_text_with_fallback(
     fontdb: &fontdb::Database,
-    style: &PlainTextStyle,
+    style: &TextStyle,
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
@@ -635,7 +635,7 @@ pub(crate) fn build_text_fontdb(config: &EngineOptions) -> fontdb::Database {
 }
 
 fn embedded_text_face(
-    style: &PlainTextStyle,
+    style: &TextStyle,
     family: &'static str,
     faces: &'static [EmbeddedFontFace],
 ) -> Result<Option<TextFace>, LabelError> {
@@ -659,7 +659,7 @@ fn embedded_text_face(
 
 fn fontdb_face_for_style_and_text(
     db: &fontdb::Database,
-    style: &PlainTextStyle,
+    style: &TextStyle,
     text: &str,
 ) -> Option<TextFace> {
     if text.chars().any(is_color_emoji_char) {
@@ -697,7 +697,7 @@ fn fontdb_face_for_style_and_text(
 
 fn emoji_fontdb_face_for_text(
     db: &fontdb::Database,
-    style: &PlainTextStyle,
+    style: &TextStyle,
     text: &str,
 ) -> Option<TextFace> {
     const EMOJI_FAMILIES: &[&str] = &[
@@ -916,9 +916,9 @@ mod tests {
     #[test]
     fn selects_nearest_embedded_weight() {
         let fontdb = test_fontdb();
-        let style = PlainTextStyle {
+        let style = TextStyle {
             font_weight: FontWeight::Number(575),
-            ..PlainTextStyle::default()
+            ..TextStyle::default()
         };
 
         let face = TextFace::for_plain_style(&style, &fontdb)
@@ -932,9 +932,9 @@ mod tests {
     #[test]
     fn normal_lato_prefers_medium_when_regular_is_not_bundled() {
         let fontdb = test_fontdb();
-        let style = PlainTextStyle {
+        let style = TextStyle {
             font_weight: FontWeight::Normal,
-            ..PlainTextStyle::default()
+            ..TextStyle::default()
         };
 
         let face = TextFace::for_plain_style(&style, &fontdb)
@@ -948,9 +948,9 @@ mod tests {
     #[test]
     fn can_resolve_fontdb_fallback_for_non_embedded_family() {
         let fontdb = test_fontdb();
-        let style = PlainTextStyle {
+        let style = TextStyle {
             font_family: "serif".to_string(),
-            ..PlainTextStyle::default()
+            ..TextStyle::default()
         };
 
         let Some(face) = TextFace::for_plain_style_and_text(&style, "Hello", &fontdb).unwrap()
@@ -964,9 +964,9 @@ mod tests {
     #[test]
     fn segmented_fallback_preserves_grapheme_runs_when_fonts_are_available() {
         let fontdb = test_fontdb();
-        let style = PlainTextStyle {
+        let style = TextStyle {
             font_family: "Lato".to_string(),
-            ..PlainTextStyle::default()
+            ..TextStyle::default()
         };
 
         let Some(segmented) =
@@ -1006,9 +1006,9 @@ mod tests {
     #[test]
     fn segmented_fallback_breaks_at_script_boundaries_when_fonts_are_available() {
         let fontdb = test_fontdb();
-        let style = PlainTextStyle {
+        let style = TextStyle {
             font_family: "Lato".to_string(),
-            ..PlainTextStyle::default()
+            ..TextStyle::default()
         };
 
         let Some(segmented) =
@@ -1032,9 +1032,9 @@ mod tests {
     #[test]
     fn segmented_fallback_orders_bidi_runs_visually_when_fonts_are_available() {
         let fontdb = test_fontdb();
-        let style = PlainTextStyle {
+        let style = TextStyle {
             font_family: "Lato".to_string(),
-            ..PlainTextStyle::default()
+            ..TextStyle::default()
         };
 
         let Some(segmented) =
@@ -1065,9 +1065,9 @@ mod tests {
     #[test]
     fn segmented_fallback_uses_apple_color_emoji_png_glyphs_on_macos() {
         let fontdb = test_fontdb();
-        let style = PlainTextStyle {
+        let style = TextStyle {
             font_family: "Lato".to_string(),
-            ..PlainTextStyle::default()
+            ..TextStyle::default()
         };
 
         let segmented =
@@ -1106,7 +1106,7 @@ mod tests {
     #[test]
     fn keeps_lato_fast_path_for_default_sans_serif() {
         let fontdb = test_fontdb();
-        let style = PlainTextStyle::default();
+        let style = TextStyle::default();
         let face = TextFace::for_plain_style_and_text(&style, "Hello", &fontdb)
             .unwrap()
             .expect("default sans-serif should resolve");

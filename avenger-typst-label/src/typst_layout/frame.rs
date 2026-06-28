@@ -1,7 +1,7 @@
 use crate::typst_diag::LabelWarning;
 use crate::typst_eval::LabelLimits;
 use crate::typst_label::LabelParams;
-use crate::typst_library::{MathStyle, PlainTextStyle};
+use crate::typst_library::{MathStyle, TextStyle};
 use crate::typst_pdf::{FontResource, PdfTextLayer};
 use crate::typst_svg::PathArtifact;
 
@@ -27,7 +27,7 @@ impl Default for MathLayoutOptions {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct LineLayoutOptions {
-    pub text_style: PlainTextStyle,
+    pub text_style: TextStyle,
     pub math_style: MathStyle,
     pub params: LabelParams,
     pub limits: LabelLimits,
@@ -36,7 +36,7 @@ pub struct LineLayoutOptions {
 impl Default for LineLayoutOptions {
     fn default() -> Self {
         Self {
-            text_style: PlainTextStyle::default(),
+            text_style: TextStyle::default(),
             math_style: MathStyle::default(),
             params: LabelParams::default(),
             limits: LabelLimits::default(),
@@ -91,7 +91,7 @@ pub struct PositionedTextLineRun {
     pub byte_range: std::ops::Range<usize>,
     /// Style for native plain-text output. Math runs leave this empty because
     /// their SVG/PDF representation is carried by paths/PDF glyph metadata.
-    pub text_style: Option<PlainTextStyle>,
+    pub text_style: Option<TextStyle>,
     /// X coordinate of the run start in the tight Typst line frame.
     pub x: f32,
     /// Baseline coordinate for plain text in the tight Typst line frame.

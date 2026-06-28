@@ -20,7 +20,7 @@ use crate::typst_layout::frame::{
     TypesetMetrics,
 };
 use crate::typst_layout::line::TypstEngineCore;
-use crate::typst_library::{MathStyle, PlainTextStyle};
+use crate::typst_library::MathStyle;
 use crate::typst_pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 pub use crate::typst_render::RasterImage;
 use crate::typst_svg::{PathArtifact, PathImageItem, PathItem, PathKind, Transform};
@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::typst_diag::LabelWarning;
 pub use crate::typst_diag::{LabelError, LabelInitError};
 pub use crate::typst_eval::LabelLimits;
-pub type TextStyle = PlainTextStyle;
+pub use crate::typst_library::TextStyle;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

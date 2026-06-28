@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct PlainTextStyle {
+pub struct TextStyle {
     pub font_family: String,
     pub font_size: f32,
     pub fill: Color,
@@ -15,7 +15,7 @@ pub struct PlainTextStyle {
     pub font_style: FontStyle,
 }
 
-impl Default for PlainTextStyle {
+impl Default for TextStyle {
     fn default() -> Self {
         Self {
             font_family: "sans-serif".to_string(),

@@ -5,7 +5,7 @@ use crate::typst_layout::frame::{
     LineLayoutArtifact, LineLayoutOptions, MathLayoutOptions, PositionedTextLineRun,
     PositionedTextLineRunKind, TypesetMetrics,
 };
-use crate::typst_library::{Color, FontStyle, FontWeight, PlainTextStyle};
+use crate::typst_library::{Color, FontStyle, FontWeight, TextStyle};
 use crate::typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 use crate::typst_svg::{
     PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform,
@@ -98,7 +98,7 @@ fn text_decorations_for_run(decorated: &DecoratedText) -> Vec<TextDecoration> {
 }
 
 fn shape_plain_text_for_style(
-    style: &PlainTextStyle,
+    style: &TextStyle,
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
@@ -471,7 +471,7 @@ struct MixedRunPart {
     kind: PositionedTextLineRunKind,
     text: String,
     byte_range: std::ops::Range<usize>,
-    text_style: Option<PlainTextStyle>,
+    text_style: Option<TextStyle>,
     baseline_shift: f32,
     metrics: TypesetMetrics,
     paths: Option<PathArtifact>,
@@ -498,10 +498,10 @@ fn text_script_for_kind(kind: TextMarkupKind) -> Option<TextScript> {
 }
 
 fn text_style_for_static_run(
-    style: &PlainTextStyle,
+    style: &TextStyle,
     kind: TextMarkupKind,
     options: &TextMarkupOptions,
-) -> PlainTextStyle {
+) -> TextStyle {
     let mut run_style = style.clone();
     match kind {
         TextMarkupKind::Emph => {
@@ -642,7 +642,7 @@ fn metrics_from_segmented_text(segmented: &SegmentedText, baseline_shift: f32) -
 fn positioned_plain_runs_from_segmented(
     plain: &PlainTextNode,
     segmented: &SegmentedText,
-    text_style: &PlainTextStyle,
+    text_style: &TextStyle,
     baseline: f32,
     include_color_emoji_images: bool,
 ) -> Vec<PositionedTextLineRun> {
@@ -726,7 +726,7 @@ fn merge_adjacent_positioned_plain_runs(
     merged
 }
 
-fn positioned_plain_text_style(text_style: &PlainTextStyle, face: &TextFace) -> PlainTextStyle {
+fn positioned_plain_text_style(text_style: &TextStyle, face: &TextFace) -> TextStyle {
     let mut run_style = text_style.clone();
     let family = face.font_resource(FontResourceId(0)).family;
     if is_color_emoji_family(&family) {
@@ -1557,7 +1557,7 @@ fn typeset_plain_text_line(
     plain: &PlainTextNode,
     decorations: &[TextDecoration],
     features: &[rustybuzz::Feature],
-    text_style: &PlainTextStyle,
+    text_style: &TextStyle,
     _options: &LineLayoutOptions,
     face: TextFace,
 ) -> Result<Option<LineLayoutArtifact>, LabelError> {
