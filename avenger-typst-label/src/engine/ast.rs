@@ -49,11 +49,17 @@ pub(crate) enum TextMarkupKind {
     Subscript,
     Superscript,
     Highlight,
+    Lower,
+    Upper,
 }
 
 impl TextMarkupKind {
     pub(crate) fn is_line_decoration(self) -> bool {
         matches!(self, Self::Underline | Self::Strike | Self::Overline)
+    }
+
+    pub(crate) fn is_case_transform(self) -> bool {
+        matches!(self, Self::Lower | Self::Upper)
     }
 }
 

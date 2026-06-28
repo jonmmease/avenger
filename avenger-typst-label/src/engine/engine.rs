@@ -615,6 +615,38 @@ mod tests {
     }
 
     #[test]
+    fn static_case_transform_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let artifact = engine
+            .typeset_markup_line("Mode #lower[MiXeD #sym.arrow.r] #upper(\"loud\")", &options)
+            .unwrap();
+
+        assert_eq!(
+            artifact
+                .positioned_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Mode ", "mixed →", " ", "LOUD"]
+        );
+        assert!(artifact.paths.is_some());
+        assert!(
+            artifact
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.iter().any(|run| run.text == "mixed →"))
+        );
+    }
+
+    #[test]
     fn static_subscript_and_superscript_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let mut options = TextLineOptions::default();

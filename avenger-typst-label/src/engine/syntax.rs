@@ -121,7 +121,24 @@ fn lower_static_call(
     for arg in call.args().items() {
         match arg {
             typst_ast::Arg::Pos(typst_ast::Expr::ContentBlock(block)) => {
-                if body.replace(block).is_some() {
+                let body_markup = block.body();
+                let body_range = body_markup.to_untyped().range();
+                let mut body_nodes = Vec::new();
+                lower_markup(body_markup, source, &mut body_nodes)?;
+                if body.replace((body_nodes, body_range)).is_some() {
+                    return Err(unsupported(
+                        range.start,
+                        "static text command expects one bracketed content block",
+                    ));
+                }
+            }
+            typst_ast::Arg::Pos(typst_ast::Expr::Str(string)) if kind.is_case_transform() => {
+                let string_range = string.to_untyped().range();
+                let body_nodes = vec![LineNode::Plain(PlainTextNode {
+                    text: string.get().to_string(),
+                    byte_range: string_range.clone(),
+                })];
+                if body.replace((body_nodes, string_range)).is_some() {
                     return Err(unsupported(
                         range.start,
                         "static text command expects one bracketed content block",
@@ -153,10 +170,7 @@ fn lower_static_call(
         ));
     };
 
-    let body_markup = body.body();
-    let body_range = body_markup.to_untyped().range();
-    let mut body_nodes = Vec::new();
-    lower_markup(body_markup, source, &mut body_nodes)?;
+    let (body_nodes, body_range) = body;
     nodes.push(LineNode::TextSpan(TextMarkupSpan {
         kind,
         options,
@@ -226,6 +240,8 @@ fn text_span_kind(name: &str) -> Option<TextMarkupKind> {
         "sub" => Some(TextMarkupKind::Subscript),
         "super" => Some(TextMarkupKind::Superscript),
         "highlight" => Some(TextMarkupKind::Highlight),
+        "lower" => Some(TextMarkupKind::Lower),
+        "upper" => Some(TextMarkupKind::Upper),
         _ => None,
     }
 }
@@ -787,6 +803,21 @@ mod tests {
         assert!(
             matches!(&span.body[1], LineNode::TextSpan(inner) if inner.kind == TextMarkupKind::Superscript)
         );
+    }
+
+    #[test]
+    fn parses_case_transform_static_text() {
+        let line = parse("#lower[MiXeD #sym.arrow.r] #upper(\"loud\")");
+
+        assert_eq!(line.nodes.len(), 3);
+        assert!(matches!(&line.nodes[0], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Lower
+                && matches!(&span.body[..], [LineNode::Plain(_), LineNode::Symbol(_)])
+        ));
+        assert!(matches!(&line.nodes[2], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Upper
+                && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "loud")
+        ));
     }
 
     #[test]

@@ -156,7 +156,7 @@ fn line_with_rendered_static_markup(line: &ParsedLine) -> Option<RenderLine> {
             }
             LineNode::TextSpan(span) => {
                 let kind = supported_decoration_kind(span.kind)?;
-                let text = render_plain_static_body(&span.body)?;
+                let text = transform_static_text(kind, &render_plain_static_body(&span.body)?);
                 flush_plain(
                     &mut nodes,
                     &mut pending_plain,
@@ -195,7 +195,22 @@ fn supported_decoration_kind(kind: TextMarkupKind) -> Option<TextMarkupKind> {
         | TextMarkupKind::Overline
         | TextMarkupKind::Subscript
         | TextMarkupKind::Superscript
-        | TextMarkupKind::Highlight => Some(kind),
+        | TextMarkupKind::Highlight
+        | TextMarkupKind::Lower
+        | TextMarkupKind::Upper => Some(kind),
+    }
+}
+
+fn transform_static_text(kind: TextMarkupKind, text: &str) -> String {
+    match kind {
+        TextMarkupKind::Lower => text.chars().flat_map(char::to_lowercase).collect(),
+        TextMarkupKind::Upper => text.chars().flat_map(char::to_uppercase).collect(),
+        TextMarkupKind::Underline
+        | TextMarkupKind::Strike
+        | TextMarkupKind::Overline
+        | TextMarkupKind::Subscript
+        | TextMarkupKind::Superscript
+        | TextMarkupKind::Highlight => text.to_string(),
     }
 }
 
@@ -640,7 +655,9 @@ fn text_script_for_kind(kind: TextMarkupKind) -> Option<TextScript> {
         TextMarkupKind::Underline
         | TextMarkupKind::Strike
         | TextMarkupKind::Overline
-        | TextMarkupKind::Highlight => None,
+        | TextMarkupKind::Highlight
+        | TextMarkupKind::Lower
+        | TextMarkupKind::Upper => None,
     }
 }
 
@@ -1102,7 +1119,10 @@ fn decoration_path_item(
             glyph_paths,
             true,
         ),
-        TextMarkupKind::Subscript | TextMarkupKind::Superscript => return None,
+        TextMarkupKind::Subscript
+        | TextMarkupKind::Superscript
+        | TextMarkupKind::Lower
+        | TextMarkupKind::Upper => return None,
     };
     Some(item)
 }
@@ -1119,9 +1139,11 @@ fn decoration_line(
         TextMarkupKind::Underline => metrics.underline,
         TextMarkupKind::Strike => metrics.strikethrough,
         TextMarkupKind::Overline => metrics.overline,
-        TextMarkupKind::Highlight | TextMarkupKind::Subscript | TextMarkupKind::Superscript => {
-            TextDecorationMetrics::fallback(font_size).underline
-        }
+        TextMarkupKind::Highlight
+        | TextMarkupKind::Subscript
+        | TextMarkupKind::Superscript
+        | TextMarkupKind::Lower
+        | TextMarkupKind::Upper => TextDecorationMetrics::fallback(font_size).underline,
     }
 }
 
