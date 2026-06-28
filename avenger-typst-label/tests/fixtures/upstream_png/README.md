@@ -62,6 +62,77 @@ When building or extending this suite:
    the test harness, and required crate metadata. Never commit `target/`
    artifacts or upstream Typst render-reference images.
 
+## Fresh Agent Handoff
+
+Use this as the implementation prompt for a new agent:
+
+```text
+Build or extend the PNG-only upstream Typst parity suite for
+avenger-typst-label.
+
+Scope is PNG only. Do not add SVG/PDF parity, chart baselines, scenegraph
+tests, browser tests, or renderer integration. Keep everything inside
+avenger-typst-label and behind the existing raster feature.
+
+Use upstream Typst only in the reference generator. The integration test must
+be offline and must compare Avenger raster output against checked-in curated
+ref/*.png files. Run every command in release mode.
+
+Required files:
+- src/bin/generate_upstream_png_refs.rs
+- tests/upstream_png_parity.rs
+- tests/fixtures/upstream_png/README.md
+- tests/fixtures/upstream_png/cases.toml
+- tests/fixtures/upstream_png/src/{id}.typ
+- tests/fixtures/upstream_png/ref/{id}.png
+
+Required commands:
+  cargo run --release -p avenger-typst-label --features raster --bin generate_upstream_png_refs
+  cargo test --release -p avenger-typst-label --features raster upstream_png_parity -- --nocapture
+  cargo test --release -p avenger-typst-label --features raster -- --nocapture
+
+Before committing, inspect every generated ref PNG directly or in a temporary
+mosaic. Confirm each image is non-blank, unclipped, uses the intended
+Lato/Lete Sans Math fonts, and visibly exercises the intended feature. For
+generator or comparator changes, temporarily perturb one reference PNG and
+confirm the test fails with useful expected.png, actual.png, and diff.png
+artifacts. Then restore/regenerate the reference and rerun the suite.
+
+Commit only generator/test code, cases.toml, label snippets, curated ref PNGs,
+and required crate metadata. Never commit target artifacts, temporary mosaics,
+platform emoji font files, or upstream Typst render-reference images.
+```
+
+## Build From Zero
+
+If this suite needs to be rebuilt deliberately:
+
+1. Create `tests/fixtures/upstream_png/{src,ref}` and a manifest-driven
+   `cases.toml`.
+2. Start with exactly two or three smoke cases: one text decoration case, one
+   math fraction/root case, and one symbol case. Add emoji only after the
+   deterministic emoji font path is proven.
+3. Implement `src/bin/generate_upstream_png_refs.rs`.
+   - Read and sort `cases.toml` by `id`.
+   - Wrap each label snippet in a tiny auto-sized Typst page with white fill and
+     4pt inset.
+   - Decompress Avenger's bundled Lato and Lete Sans Math fonts into
+     `target/typst-parity/fonts`.
+   - Call `../typst/crates/typst-cli` with explicit `--font-path`,
+     `--ignore-system-fonts`, and `--ppi 72`.
+   - Fail clearly if the upstream Typst checkout is missing.
+4. Run the generator and inspect every generated reference PNG.
+5. Implement `tests/upstream_png_parity.rs`.
+   - Read the same manifest; do not hard-code cases.
+   - Compile through `LabelEngine`, rasterize through `rasterize`, composite
+     transparent output over white, crop expected/actual to content plus
+     padding, and compare dimensions plus similarity.
+   - On failure, write `expected.png`, `actual.png`, and `diff.png` under
+     `target/tests/upstream_png_parity/{case_id}/`.
+6. Prove the harness by perturbing one checked-in reference PNG, confirming the
+   failure output is useful, restoring/regenerating, and rerunning the suite.
+7. Commit the suite in a focused commit.
+
 ## Adding A Case
 
 1. Add a small snippet to `src/{id}.typ`.
