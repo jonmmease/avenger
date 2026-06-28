@@ -381,7 +381,10 @@ fn lower_math_call(
     }
 
     if is_math_call_name(&name) {
-        let (args, options) = if name == "lr" || is_math_delimiter_helper_call_name(&name) {
+        let (args, options) = if name == "lr"
+            || is_math_delimiter_helper_call_name(&name)
+            || is_math_delimiter_symbol_call_name(&name)
+        {
             lower_math_delimited_call_args(&name, call.args(), source, offset, range.start)?
         } else if name == "stretch" {
             lower_math_stretch_call_args(call.args(), source, offset, range.start)?
@@ -1675,6 +1678,7 @@ fn is_math_call_name(name: &str) -> bool {
             | "stretch"
     ) || predefined_operator_text(name).is_some()
         || is_math_accent_call_name(name)
+        || is_math_delimiter_symbol_call_name(name)
 }
 
 fn is_unsupported_math_table_call_name(name: &str) -> bool {
@@ -1687,6 +1691,13 @@ fn is_math_size_call_name(name: &str) -> bool {
 
 fn is_math_delimiter_helper_call_name(name: &str) -> bool {
     matches!(name, "abs" | "norm" | "floor" | "ceil" | "round")
+}
+
+fn is_math_delimiter_symbol_call_name(name: &str) -> bool {
+    matches!(
+        name,
+        "ceil.l" | "floor.l" | "paren.l" | "brace.l" | "bracket.l" | "chevron.l" | "bar.double"
+    )
 }
 
 fn is_math_accent_call_name(name: &str) -> bool {
@@ -1978,6 +1989,13 @@ mod tests {
             "floor(x)",
             "ceil(x)",
             "round(x)",
+            "ceil.l(x)",
+            "floor.l(x)",
+            "paren.l(x)",
+            "brace.l(x)",
+            "bracket.l(x)",
+            "chevron.l(x)",
+            "bar.double(x)",
             "stretch(->, size: #200%)",
             "alpha + beta -> gamma",
             "alpha + pi + sum",
@@ -2084,10 +2102,47 @@ mod tests {
     }
 
     #[test]
+    fn parses_callable_delimiter_symbol_size_options() {
+        let math = parse("bracket.l(x, size: #400%)");
+
+        let MathNode::Call(bracket) = &math.nodes[0] else {
+            panic!("bracket.l should lower to a typed call");
+        };
+        assert_eq!(bracket.name, "bracket.l");
+        assert_eq!(bracket.args.len(), 1);
+        let size = bracket
+            .options
+            .delimiter_size
+            .expect("bracket.l size option should be retained");
+        assert!((size.relative - 4.0).abs() < f32::EPSILON);
+        assert!((size.absolute_em - 0.0).abs() < f32::EPSILON);
+        assert!((size.absolute_pt - 0.0).abs() < f32::EPSILON);
+
+        for source in [
+            "ceil.l(x)",
+            "floor.l(x)",
+            "paren.l(x)",
+            "brace.l(x)",
+            "chevron.l(x)",
+            "bar.double(x)",
+        ] {
+            let math = parse(source);
+            assert!(
+                matches!(&math.nodes[..], [MathNode::Call(call)] if call.name == source.trim_end_matches("(x)")),
+                "{source} should lower to a typed delimiter symbol call"
+            );
+        }
+    }
+
+    #[test]
     fn rejects_invalid_delimiter_size_options() {
         for (source, message) in [
             ("lr(|x|, foo: #true)", "unsupported lr option"),
             ("abs(x, foo: #true)", "unsupported delimiter option"),
+            (
+                "bracket.l(x, nope: \"nope\")",
+                "unsupported delimiter option",
+            ),
             ("abs(x, size: #auto)", "unsupported delimiter size value"),
             ("abs(x, size: #45deg)", "unsupported delimiter size value"),
             (

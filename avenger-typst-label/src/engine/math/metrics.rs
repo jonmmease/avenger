@@ -1074,6 +1074,13 @@ fn delimiter_call_chars(name: &str) -> Option<(char, char)> {
         "floor" => Some(('⌊', '⌋')),
         "ceil" => Some(('⌈', '⌉')),
         "round" => Some(('⌊', '⌉')),
+        "ceil.l" => Some(('⌈', '⌉')),
+        "floor.l" => Some(('⌊', '⌋')),
+        "paren.l" => Some(('(', ')')),
+        "brace.l" => Some(('{', '}')),
+        "bracket.l" => Some(('[', ']')),
+        "chevron.l" => Some(('⟨', '⟩')),
+        "bar.double" => Some(('‖', '‖')),
         _ => None,
     }
 }
@@ -4721,6 +4728,13 @@ mod tests {
             ("floor(x)", "⌊𝑥⌋"),
             ("ceil(x)", "⌈𝑥⌉"),
             ("round(x)", "⌊𝑥⌉"),
+            ("ceil.l(x)", "⌈𝑥⌉"),
+            ("floor.l(x)", "⌊𝑥⌋"),
+            ("paren.l(x)", "(𝑥)"),
+            ("brace.l(x)", "{𝑥}"),
+            ("bracket.l(x)", "[𝑥]"),
+            ("chevron.l(x)", "⟨𝑥⟩"),
+            ("bar.double(x)", "‖𝑥‖"),
         ] {
             let math = parse_math(source, 0).unwrap();
             let artifact =
@@ -4833,6 +4847,43 @@ mod tests {
                 .paths
                 .as_ref()
                 .expect("sized abs paths should exist")
+                .items
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn simple_row_applies_callable_delimiter_symbol_size_option() {
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let plain = parse_math("bracket.l(x)", 0).unwrap();
+        let sized = parse_math("bracket.l(x, size: #240%)", 0).unwrap();
+        let plain_artifact =
+            try_typeset_simple_row_fragment(&plain, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("plain bracket.l call should be handled by Typst row path");
+        let sized_artifact =
+            try_typeset_simple_row_fragment(&sized, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("sized bracket.l call should be handled by Typst row path");
+
+        assert!(
+            sized_artifact.metrics.height > plain_artifact.metrics.height + 3.0,
+            "explicit delimiter size should increase callable symbol height: plain={:?}, sized={:?}",
+            plain_artifact.metrics,
+            sized_artifact.metrics
+        );
+        assert_eq!(
+            sized_artifact
+                .paths
+                .as_ref()
+                .expect("sized bracket.l paths should exist")
                 .items
                 .len(),
             3
