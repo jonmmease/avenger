@@ -221,6 +221,10 @@ Hard stop conditions:
 Start from the upstream Typst suite, but convert tests into small label
 fixtures rather than copying page-level render tests verbatim.
 
+Do not copy upstream Typst's own render reference images into this repository.
+Generate Avenger-owned references by compiling our reduced label snippets with
+the upstream Typst CLI through `generate_upstream_png_refs`.
+
 Good PNG parity cases:
 
 - fit naturally on one label line;
@@ -242,6 +246,35 @@ Bad PNG parity cases:
 When reducing a Typst test, keep the upstream spelling of the feature under
 test. Change surrounding values only to make the case label-sized,
 deterministic, and readable.
+
+## Upstream PNG Seed Map
+
+Use this as the first source map when growing the PNG corpus. Add one
+implemented feature family per commit.
+
+| Priority | Feature family | Upstream files to read | PNG-case guidance |
+| --- | --- | --- | --- |
+| 1 | Text decorations | `../typst/tests/suite/text/deco.typ` | Underline, strike, overline, stroke/offset options. Use short words with descenders so line position is visible. |
+| 1 | Case and scripts | `../typst/tests/suite/text/case.typ`, `../typst/tests/suite/text/shift.typ`, `../typst/tests/suite/text/smallcaps.typ` | Cover `#upper`, `#lower`, `#sub`, `#super`, `#smallcaps`; avoid full paragraph cases. |
+| 1 | Model emphasis | `../typst/tests/suite/model/emph-strong.typ`, `../typst/tests/suite/text/raw.typ` | Cover `_emph_`, `*strong*`, `#emph`, `#strong`, and raw backticks. |
+| 1 | Symbols | `../typst/tests/suite/symbols/symbol.typ`, `../typst/tests/suite/math/symbols.typ` | Use named symbols that fit in one label. Keep emoji in its own case with `requires_system_emoji = true`. |
+| 2 | Fractions and roots | `../typst/tests/suite/math/frac.typ`, `../typst/tests/suite/math/root.typ` | Prefer compact expressions that expose bar placement, skewed/horizontal styles, and root extenders. |
+| 2 | Attachments and primes | `../typst/tests/suite/math/attach.typ`, `../typst/tests/suite/math/primes.typ` | Cover script vs limits placement, corner slots, and grouped prime syntax. |
+| 2 | Accents and delimiters | `../typst/tests/suite/math/accent.typ`, `../typst/tests/suite/math/delimited.typ`, `../typst/tests/suite/math/stretch.typ` | Cover direct accent calls, `lr`, helper delimiter calls, `mid`, and stretch size. |
+| 2 | Math classes/operators | `../typst/tests/suite/math/class.typ`, `../typst/tests/suite/math/op.typ`, `../typst/tests/suite/math/spacing.typ` | Use short expressions where spacing/class changes are obvious after raster comparison. |
+| 2 | Cancel and under/over | `../typst/tests/suite/math/cancel.typ`, `../typst/tests/suite/math/underover.typ` | Include literal stroke/color/angle options and simple under/over lines. |
+| 3 | Math styles/sizes/text | `../typst/tests/suite/math/style.typ`, `../typst/tests/suite/math/size.typ`, `../typst/tests/suite/math/text.typ` | Add after the corresponding retained label functionality has unit coverage. |
+
+Skip these upstream suites for PNG parity unless Avenger later implements the
+needed label subset:
+
+- `../typst/tests/suite/math/cases.typ`, `mat.typ`, `vec.typ`,
+  `multiline.typ`, and `alignment.typ` because they depend on matrix/table or
+  multiline layout.
+- `../typst/tests/suite/model/*` other than `emph-strong.typ` because most
+  model tests exercise document/page semantics.
+- `../typst/tests/suite/text/font.typ`, `lang.typ`, `lorem.typ`, and
+  `smartquote.typ` unless a specific retained label feature is added first.
 
 ## Agent Build Checklist
 
