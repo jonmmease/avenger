@@ -157,6 +157,20 @@ pub(crate) fn is_math_accent_call_name(name: &str, named_accent: impl Fn(&str) -
     name == "accent" || named_accent(name)
 }
 
+pub(crate) fn is_math_under_over_call_name(name: &str) -> bool {
+    matches!(
+        name,
+        "underbrace"
+            | "overbrace"
+            | "underbracket"
+            | "overbracket"
+            | "underparen"
+            | "overparen"
+            | "undershell"
+            | "overshell"
+    )
+}
+
 pub(crate) fn parse_text_markup_option(
     kind: TextMarkupKind,
     named: typst_ast::Named<'_>,
@@ -1067,6 +1081,8 @@ pub(crate) fn lower_math_call<'a>(
             validate_math_binom_call_args(&args, range.start)?;
         } else if name == "mid" {
             validate_math_mid_call_args(&args, range.start)?;
+        } else if is_math_under_over_call_name(&name) {
+            validate_math_under_over_call_args(&args, range.start)?;
         }
         return Ok(vec![MathNode::Call(MathCall {
             name,
@@ -2146,6 +2162,19 @@ pub(crate) fn validate_math_mid_call_args(
         return Err(unsupported(
             position,
             "mid expects exactly one body argument",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_math_under_over_call_args(
+    args: &[MathArg],
+    position: usize,
+) -> Result<(), LabelError> {
+    if !(1..=2).contains(&args.len()) {
+        return Err(unsupported(
+            position,
+            "under/over math calls require a body and optional annotation",
         ));
     }
     Ok(())

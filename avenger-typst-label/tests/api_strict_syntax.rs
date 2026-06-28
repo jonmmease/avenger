@@ -81,6 +81,7 @@ fn allows_common_typst_math_fragments() {
         "$overline(underline(x + y))$",
         "$overbrace(x + y) + underbrace(a + b)$",
         "$overbracket(x) + underparen(y) + overshell(z)$",
+        "$overbrace(x + y, \"sum\") + underparen(z, alpha)$",
         "$attach(Pi, t: alpha, b: beta, tl: 1, tr: 2+3, bl: 4+5, br: 6)$",
         "$a'''_b$",
     ];
@@ -108,6 +109,21 @@ fn rejects_deferred_matrix_table_math() {
             "{source}"
         );
     }
+}
+
+#[test]
+fn rejects_invalid_under_over_arity() {
+    let err = engine()
+        .compile("$overbrace(x, y, z)$", &LabelOptions::default())
+        .unwrap_err();
+
+    assert_eq!(
+        err,
+        LabelError::UnsupportedSyntax {
+            position: 1,
+            message: "under/over math calls require a body and optional annotation"
+        }
+    );
 }
 
 #[test]

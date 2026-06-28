@@ -609,11 +609,27 @@ fn layout_simple_under_over_call(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let [arg] = &call.args[..] else {
+    let [body_arg, annotation_args @ ..] = &call.args[..] else {
         return Ok(None);
     };
-    let Some(mut body) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    let annotation_arg = match annotation_args {
+        [] => None,
+        [arg] => Some(arg),
+        _ => return Ok(None),
+    };
+    let Some(mut body) =
+        layout_simple_nodes_as_atom(font, &body_arg.nodes, font_size, script_level)?
     else {
+        return Ok(None);
+    };
+    let annotation = annotation_arg
+        .map(|arg| {
+            let script_size = script_font_size(font, font_size, script_level)?;
+            layout_simple_nodes_as_atom(font, &arg.nodes, script_size, script_level + 1)
+        })
+        .transpose()?
+        .flatten();
+    if annotation_arg.is_some() && annotation.is_none() {
         return Ok(None);
     };
 
@@ -679,7 +695,16 @@ fn layout_simple_under_over_call(
     atom.right_class = right_class;
     atom.italic_correction = italic_correction;
     atom.script_kernable = script_kernable;
-    Ok(Some(atom))
+    if let Some(annotation) = annotation {
+        let mut slots = LaidOutAttachSlots::default();
+        match kind.position {
+            MathUnderOverPosition::Below => slots.bottom = Some(annotation),
+            MathUnderOverPosition::Above => slots.top = Some(annotation),
+        }
+        layout_simple_limit_attach_parts(font, font_size, atom, slots)
+    } else {
+        Ok(Some(atom))
+    }
 }
 
 fn layout_under_over_ornament_atom(
@@ -3112,6 +3137,11 @@ fn simple_atom(node: &MathNode) -> Option<SimpleMathAtom> {
             },
             text_operator: false,
         }),
+        MathNode::StringLiteral(string) => Some(SimpleMathAtom {
+            styled_text: string.text.clone(),
+            class: SimpleMathClass::Normal,
+            text_operator: false,
+        }),
         MathNode::Identifier(identifier) => {
             let text = identifier.symbol.unwrap_or(&identifier.name);
             if let Some(operator) = operator_identifier_text(text) {
@@ -5024,6 +5054,46 @@ mod tests {
             assert!(
                 artifact.pdf_text.glyph_runs.len() >= plain_artifact.pdf_text.glyph_runs.len(),
                 "{source} should retain PDF glyph metadata for the body"
+            );
+        }
+    }
+
+    #[test]
+    fn simple_row_can_emit_annotated_math_under_over_constructs() {
+        let options = MathLayoutOptions::default();
+        let unannotated = parse_math("overbrace(x + y)", 0).unwrap();
+        let unannotated_artifact =
+            try_typeset_simple_row_fragment(&unannotated, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("unannotated under/over should be handled");
+
+        for source in [
+            "overbrace(x + y, \"sum\")",
+            "underbrace(x + y, alpha)",
+            "overbracket(x + y, n)",
+            "underparen(x + y, \"note\")",
+        ] {
+            let math = parse_math(source, 0).unwrap();
+            let artifact =
+                try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("{source} should be handled by Typst row path"));
+
+            assert!(
+                artifact.metrics.height > unannotated_artifact.metrics.height,
+                "{source} should add annotation vertical extent"
+            );
+            assert!(
+                artifact
+                    .paths
+                    .items
+                    .iter()
+                    .any(|item| matches!(item.kind, PathKind::MathShape)),
+                "{source} should keep the under/over ornament shape"
+            );
+            assert!(
+                artifact.pdf_text.glyph_runs.len() > unannotated_artifact.pdf_text.glyph_runs.len(),
+                "{source} should retain PDF glyph metadata for the annotation"
             );
         }
     }

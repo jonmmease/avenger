@@ -1467,7 +1467,7 @@ mod tests {
     #[test]
     fn parses_whitelisted_function_calls() {
         let math = parse(
-            "frac(x, y) + op(\"custom\", limits: #true) + bb(R) + scr(P) + class(\"relation\", !) + overline(underline(x)) + overbrace(x) + underparen(y) + attach(Pi, t: alpha, b: beta, tl: 1, tr: 2+3, bl: 4+5, br: 6)",
+            "frac(x, y) + op(\"custom\", limits: #true) + bb(R) + scr(P) + class(\"relation\", !) + overline(underline(x)) + overbrace(x, \"note\") + underparen(y, alpha) + attach(Pi, t: alpha, b: beta, tl: 1, tr: 2+3, bl: 4+5, br: 6)",
         );
 
         assert!(matches!(
@@ -1499,11 +1499,11 @@ mod tests {
         ));
         assert!(math.nodes.iter().any(|node| matches!(
             node,
-            MathNode::Call(call) if call.name == "overbrace" && call.args.len() == 1
+            MathNode::Call(call) if call.name == "overbrace" && call.args.len() == 2
         )));
         assert!(math.nodes.iter().any(|node| matches!(
             node,
-            MathNode::Call(call) if call.name == "underparen" && call.args.len() == 1
+            MathNode::Call(call) if call.name == "underparen" && call.args.len() == 2
         )));
         assert!(matches!(
             &math.nodes[32],
