@@ -1,7 +1,18 @@
-use avenger_typst_label::{LabelEngine, LabelError, LabelOptions};
+use avenger_typst_label::{CompiledLabel, LabelEngine, LabelError, LabelFrameItem, LabelOptions};
 
 fn engine() -> LabelEngine {
     LabelEngine::new(Default::default()).unwrap()
+}
+
+fn has_shape(label: &CompiledLabel) -> bool {
+    label.frame.items.iter().any(|(_, item)| match item {
+        LabelFrameItem::Shape(_) => true,
+        LabelFrameItem::Group(group) => group
+            .items
+            .iter()
+            .any(|(_, item)| matches!(item, LabelFrameItem::Shape(_))),
+        LabelFrameItem::Text(_) | LabelFrameItem::Image(_) => false,
+    })
 }
 
 #[test]
@@ -93,6 +104,39 @@ fn allows_supported_typst_text_model_markup() {
         assert!(label.metrics.width > 0.0, "{sample}");
         assert!(label.metrics.height > 0.0, "{sample}");
     }
+}
+
+#[test]
+fn allows_supported_typst_decoration_options() {
+    let samples = [
+        "#underline(stroke: 1.5pt + red, offset: 2pt, extent: 3pt, evade: false, background: true)[care]",
+        "#overline(stroke: 1.5pt + red, offset: -1.2em, extent: 2pt, evade: true, background: true)[top]",
+        "#strike(stroke: 1.5pt + red, offset: -3.5pt, extent: 2pt, background: true)[gone]",
+    ];
+
+    for sample in samples {
+        let label = engine()
+            .compile(sample, &LabelOptions::default())
+            .unwrap_or_else(|err| panic!("{sample} should be accepted, got {err:?}"));
+        assert!(label.flags.has_markup, "{sample}");
+        assert!(!label.flags.has_math, "{sample}");
+        assert!(has_shape(&label), "{sample}");
+    }
+}
+
+#[test]
+fn rejects_unsupported_strike_evade_option() {
+    let err = engine()
+        .compile("#strike(evade: false)[old]", &LabelOptions::default())
+        .unwrap_err();
+
+    assert_eq!(
+        err,
+        LabelError::UnsupportedSyntax {
+            position: 8,
+            message: "strike does not support evade"
+        }
+    );
 }
 
 #[test]
