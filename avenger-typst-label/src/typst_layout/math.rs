@@ -8,8 +8,6 @@ use crate::typst_library::math::item as ast;
 use crate::typst_library::text::content::DecorationStroke;
 use crate::typst_library::{Color, FontWeight, MathFontSpec};
 use crate::typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
-#[cfg(feature = "raster")]
-use crate::typst_render::rasterize_path_artifact;
 use crate::typst_svg::{
     PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform,
 };
@@ -25,10 +23,6 @@ pub(crate) fn try_typeset_simple_row_fragment(
     options: &MathLayoutOptions,
     config: &EngineOptions,
 ) -> Result<Option<MathRunArtifact>, LabelError> {
-    #[cfg(not(feature = "raster"))]
-    if options.outputs.raster.is_some() {
-        return Ok(None);
-    }
     if !matches!(
         options.style.font,
         MathFontSpec::LeteSansMath | MathFontSpec::NewComputerModernMath
@@ -47,41 +41,14 @@ pub(crate) fn try_typeset_simple_row_fragment(
     let Some(layout) = layout_simple_row(&font, math, options.style.font_size.max(1.0))? else {
         return Ok(None);
     };
-    let path_artifact = (options.outputs.paths || options.outputs.raster.is_some())
-        .then(|| path_artifact_from_simple_row(&font, &layout, options.style.fill));
-    #[cfg(feature = "raster")]
-    let raster = options
-        .outputs
-        .raster
-        .map(|request| {
-            rasterize_path_artifact(
-                path_artifact
-                    .as_ref()
-                    .expect("path artifact should be available for raster requests"),
-                request,
-            )
-        })
-        .transpose()?;
-    #[cfg(not(feature = "raster"))]
-    let raster = None;
-    let paths = options.outputs.paths.then(|| {
-        path_artifact
-            .clone()
-            .expect("path artifact should be available for path requests")
-    });
-    let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
-        let artifact = pdf_text_from_simple_row(&font, &layout, &math.source, options.style.fill)?;
-        (Some(artifact.text_layer), artifact.font_resources)
-    } else {
-        (None, Vec::new())
-    };
+    let paths = path_artifact_from_simple_row(&font, &layout, options.style.fill);
+    let pdf_artifact = pdf_text_from_simple_row(&font, &layout, &math.source, options.style.fill)?;
 
     Ok(Some(MathRunArtifact {
         metrics: layout.metrics,
         paths,
-        raster,
-        pdf_text,
-        font_resources,
+        pdf_text: pdf_artifact.text_layer,
+        font_resources: pdf_artifact.font_resources,
         warnings: Vec::new(),
     }))
 }
@@ -4224,7 +4191,6 @@ fn path_artifact_from_simple_row(
 mod tests {
     use super::*;
     use crate::typst_eval::math::parse_math;
-    use crate::typst_layout::frame::MathOutputOptions;
 
     type LineSegment = ((f32, f32), (f32, f32));
 
@@ -4265,7 +4231,6 @@ mod tests {
             .unwrap_or_else(|| panic!("cancel call should be handled: {source}"));
         artifact
             .paths
-            .expect("cancel paths should exist")
             .items
             .into_iter()
             .filter(|item| matches!(item.kind, PathKind::MathShape))
@@ -4293,82 +4258,52 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "raster"))]
-    fn atom_fragment_declines_raster_without_raster_feature() {
+    fn atom_fragment_layout_is_available_without_raster_feature() {
         let math = parse_math("1", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: false,
-            raster: Some(crate::typst_render::RasterRequest::default()),
-            pdf_text_layer: false,
-        };
+        let options = MathLayoutOptions::default();
 
-        assert!(
-            try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
-                .unwrap()
-                .is_none()
-        );
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple atom should be handled without raster support");
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 1);
+        assert!(!artifact.paths.items.is_empty());
     }
 
     #[test]
     fn atom_fragment_can_emit_pdf_glyph_metadata() {
         let math = parse_math("1", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-
-        options.outputs = MathOutputOptions {
-            paths: false,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         assert!(
             try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                 .unwrap()
-                .is_some_and(|artifact| artifact
-                    .pdf_text
-                    .as_ref()
-                    .is_some_and(|pdf| pdf.glyph_runs.len() == 1)
+                .is_some_and(|artifact| artifact.pdf_text.glyph_runs.len() == 1
                     && artifact.font_resources.len() == 1)
         );
     }
 
     #[cfg(feature = "raster")]
     #[test]
-    fn atom_fragment_can_rasterize_from_typst_paths() {
+    fn atom_fragment_emits_frame_ready_paths_for_rasterization() {
         let math = parse_math("alpha + beta -> gamma", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: false,
-            raster: Some(crate::typst_render::RasterRequest { scale: 2.0 }),
-            pdf_text_layer: false,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
-            .expect("simple row should rasterize through Typst paths");
+            .expect("simple row should be handled by Typst paths");
 
-        assert!(artifact.paths.is_none());
-        assert!(
-            artifact
-                .raster
-                .as_ref()
-                .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0)
-        );
+        assert!(!artifact.paths.items.is_empty());
     }
 
     #[test]
     fn simple_row_can_emit_script_glyph_metadata() {
         let math = parse_math("x^2", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: false,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple superscript should be handled by Typst row path");
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         assert_eq!(pdf.glyph_runs.len(), 2);
         assert!(pdf.glyph_runs[1].font_size < pdf.glyph_runs[0].font_size);
     }
@@ -4452,17 +4387,12 @@ mod tests {
     #[test]
     fn simple_row_can_emit_prime_glyphs_as_scripts() {
         let math = parse_math("a'''_b", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("prime attachment should be handled by Typst row path");
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         let text = pdf
             .glyph_runs
             .iter()
@@ -4479,7 +4409,7 @@ mod tests {
                 .iter()
                 .any(|run| run.text.contains(PRIME_CHAR) && run.font_size < max_font_size)
         );
-        let paths = artifact.paths.expect("prime paths should exist");
+        let paths = artifact.paths;
         assert!(paths.items.len() >= 5);
     }
 
@@ -4491,12 +4421,7 @@ mod tests {
             0,
         )
         .unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let base = try_typeset_simple_row_fragment(&base_math, &options, &EngineOptions::default())
             .unwrap()
@@ -4507,9 +4432,9 @@ mod tests {
                 .expect("attach call should be handled by Typst row path");
 
         assert!(artifact.metrics.width > base.metrics.width);
-        let paths = artifact.paths.expect("attach paths should exist");
-        assert!(paths.items.len() > base.paths.expect("base paths should exist").items.len());
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let paths = artifact.paths;
+        assert!(paths.items.len() > base.paths.items.len());
+        let pdf = artifact.pdf_text;
         let glyph_count = pdf
             .glyph_runs
             .iter()
@@ -4521,59 +4446,44 @@ mod tests {
     #[test]
     fn simple_row_can_emit_fraction_rule_paths() {
         let math = parse_math("a / (b + c)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple fraction should be handled by Typst row path");
-        let paths = artifact.paths.expect("fraction paths should exist");
+        let paths = artifact.paths;
         assert!(
             paths
                 .items
                 .iter()
                 .any(|item| matches!(item.kind, PathKind::MathShape) && item.stroke.is_some())
         );
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         assert_eq!(pdf.glyph_runs.len(), 4);
     }
 
     #[test]
     fn simple_row_can_emit_frac_call_rule_paths() {
         let math = parse_math("frac(x + y, z)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple frac call should be handled by Typst row path");
-        let paths = artifact.paths.expect("fraction paths should exist");
+        let paths = artifact.paths;
         assert!(
             paths
                 .items
                 .iter()
                 .any(|item| matches!(item.kind, PathKind::MathShape) && item.stroke.is_some())
         );
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         assert_eq!(pdf.glyph_runs.len(), 4);
     }
 
     #[test]
     fn simple_row_can_emit_frac_style_variants() {
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         for source in [
             "frac(x + y, z, style: \"skewed\")",
@@ -4584,7 +4494,7 @@ mod tests {
                 try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                     .unwrap()
                     .unwrap_or_else(|| panic!("{source} should be handled by Typst row path"));
-            let paths = artifact.paths.expect("fraction paths should exist");
+            let paths = artifact.paths;
             assert!(
                 paths
                     .items
@@ -4592,7 +4502,7 @@ mod tests {
                     .all(|item| !matches!(item.kind, PathKind::MathShape)),
                 "{source} should not emit a vertical fraction rule"
             );
-            let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+            let pdf = artifact.pdf_text;
             assert!(
                 pdf.glyph_runs.len() >= 3,
                 "{source} should emit numerator, slash, and denominator glyphs"
@@ -4603,17 +4513,12 @@ mod tests {
     #[test]
     fn simple_row_can_emit_binom_paths_without_fraction_rule() {
         let math = parse_math("binom(n, k)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple binom call should be handled by Typst row path");
-        let paths = artifact.paths.expect("binom paths should exist");
+        let paths = artifact.paths;
         assert_eq!(paths.items.len(), 4);
         assert!(
             paths
@@ -4621,7 +4526,7 @@ mod tests {
                 .iter()
                 .all(|item| !matches!(item.kind, PathKind::MathShape))
         );
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         let text: String = pdf
             .glyph_runs
             .iter()
@@ -4634,24 +4539,19 @@ mod tests {
     #[test]
     fn simple_row_can_emit_variadic_binom_lower_terms() {
         let math = parse_math("binom(n, k_1, k_2, k_3)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("variadic binom call should be handled by Typst row path");
-        let paths = artifact.paths.expect("binom paths should exist");
+        let paths = artifact.paths;
         assert!(
             paths
                 .items
                 .iter()
                 .all(|item| !matches!(item.kind, PathKind::MathShape))
         );
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         let text: String = pdf
             .glyph_runs
             .iter()
@@ -4665,33 +4565,23 @@ mod tests {
     #[test]
     fn simple_row_can_emit_cancel_overlay_path() {
         let math = parse_math("cancel(x)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple cancel call should be handled by Typst row path");
-        let paths = artifact.paths.expect("cancel paths should exist");
+        let paths = artifact.paths;
         assert_eq!(paths.items.len(), 2);
         assert!(matches!(paths.items[0].kind, PathKind::GlyphOutline { .. }));
         assert!(matches!(paths.items[1].kind, PathKind::MathShape));
         assert!(paths.items[1].stroke.is_some());
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         assert_eq!(pdf.glyph_runs.len(), 1);
     }
 
     #[test]
     fn simple_row_cancel_honors_literal_geometry_options() {
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let default_line = cancel_shape_lines("cancel(x)", &options);
         let long_line = cancel_shape_lines("cancel(x, length: #200%)", &options);
@@ -4736,17 +4626,12 @@ mod tests {
             0,
         )
         .unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: false,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple cancel call should be handled by Typst row path");
-        let paths = artifact.paths.expect("cancel paths should exist");
+        let paths = artifact.paths;
         let stroke = paths
             .items
             .iter()
@@ -4767,37 +4652,27 @@ mod tests {
     #[test]
     fn simple_row_can_emit_sqrt_overbar_paths() {
         let math = parse_math("sqrt(x)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple sqrt should be handled by Typst row path");
-        let paths = artifact.paths.expect("sqrt paths should exist");
+        let paths = artifact.paths;
         assert_eq!(paths.items.len(), 3);
         assert!(matches!(paths.items[1].kind, PathKind::MathShape));
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         assert_eq!(pdf.glyph_runs.len(), 2);
     }
 
     #[test]
     fn simple_row_can_emit_math_underline_overline_paths() {
         let math = parse_math("overline(underline(x + y))", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple math underline/overline should be handled by Typst row path");
-        let paths = artifact.paths.expect("line paths should exist");
+        let paths = artifact.paths;
         let shape_count = paths
             .items
             .iter()
@@ -4805,27 +4680,22 @@ mod tests {
             .count();
         assert_eq!(shape_count, 2);
         assert!(paths.items.iter().any(|item| item.stroke.is_some()));
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         assert_eq!(pdf.glyph_runs.len(), 3);
     }
 
     #[test]
     fn simple_row_can_emit_indexed_root_paths() {
         let math = parse_math("root(3, x)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple indexed root should be handled by Typst row path");
-        let paths = artifact.paths.expect("root paths should exist");
+        let paths = artifact.paths;
         assert_eq!(paths.items.len(), 4);
         assert!(matches!(paths.items[2].kind, PathKind::MathShape));
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         assert_eq!(pdf.glyph_runs.len(), 3);
         assert!(pdf.glyph_runs[0].font_size < pdf.glyph_runs[1].font_size);
     }
@@ -4833,19 +4703,14 @@ mod tests {
     #[test]
     fn simple_row_can_emit_visible_group_paths() {
         let math = parse_math("x(t)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple visible group should be handled by Typst row path");
-        let paths = artifact.paths.expect("group paths should exist");
+        let paths = artifact.paths;
         assert_eq!(paths.items.len(), 4);
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         let text: String = pdf
             .glyph_runs
             .iter()
@@ -4857,42 +4722,27 @@ mod tests {
 
     #[cfg(feature = "raster")]
     #[test]
-    fn simple_row_can_rasterize_visible_group() {
+    fn simple_row_visible_group_emits_frame_ready_paths_for_rasterization() {
         let math = parse_math("x(t)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: false,
-            raster: Some(crate::typst_render::RasterRequest { scale: 2.0 }),
-            pdf_text_layer: false,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
-            .expect("simple visible group should rasterize through Typst paths");
-        assert!(
-            artifact
-                .raster
-                .as_ref()
-                .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0)
-        );
+            .expect("simple visible group should emit Typst paths");
+        assert!(!artifact.paths.items.is_empty());
     }
 
     #[test]
     fn simple_row_extends_identifier_subscript_with_adjacent_group() {
         let math = parse_math("J_n(x)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("identifier subscript group should be handled by Typst row path");
-        let paths = artifact.paths.expect("group paths should exist");
+        let paths = artifact.paths;
         assert_eq!(paths.items.len(), 5);
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         assert_eq!(pdf.glyph_runs.len(), 5);
         assert!(
             pdf.glyph_runs[1..]
@@ -4903,12 +4753,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_delimiter_helper_calls() {
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         for (source, expected) in [
             ("abs(x)", "|𝑥|"),
@@ -4929,9 +4774,9 @@ mod tests {
                 try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                     .unwrap()
                     .unwrap_or_else(|| panic!("simple delimiter call should be handled: {source}"));
-            let paths = artifact.paths.expect("delimiter call paths should exist");
+            let paths = artifact.paths;
             assert_eq!(paths.items.len(), 3, "{source}");
-            let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+            let pdf = artifact.pdf_text;
             let text: String = pdf
                 .glyph_runs
                 .iter()
@@ -4945,19 +4790,14 @@ mod tests {
     #[test]
     fn simple_row_can_emit_lr_delimited_call() {
         let math = parse_math("lr(|x + y|)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple lr call should be handled by Typst row path");
-        let paths = artifact.paths.expect("lr paths should exist");
+        let paths = artifact.paths;
         assert_eq!(paths.items.len(), 5);
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         let text: String = pdf
             .glyph_runs
             .iter()
@@ -4969,12 +4809,7 @@ mod tests {
 
     #[test]
     fn simple_row_stretches_mid_delimiter_inside_lr() {
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let raw = parse_math("lr(| A | frac(1, 2) |)", 0).unwrap();
         let mid = parse_math("lr(| A mid(|) frac(1, 2) |)", 0).unwrap();
@@ -4987,12 +4822,8 @@ mod tests {
                 .unwrap()
                 .expect("mid delimiter row should be handled");
 
-        let raw_paths = raw_artifact
-            .paths
-            .expect("raw delimiter paths should exist");
-        let mid_paths = mid_artifact
-            .paths
-            .expect("mid delimiter paths should exist");
+        let raw_paths = raw_artifact.paths;
+        let mid_paths = mid_artifact.paths;
         assert!(raw_paths.items.len() >= 5);
         assert!(mid_paths.items.len() >= 5);
 
@@ -5003,9 +4834,7 @@ mod tests {
             "mid delimiter should stretch to surrounding lr height: raw={raw_middle_height}, mid={mid_middle_height}"
         );
 
-        let pdf = mid_artifact
-            .pdf_text
-            .expect("PDF glyph metadata should exist");
+        let pdf = mid_artifact.pdf_text;
         let text: String = pdf
             .glyph_runs
             .iter()
@@ -5018,12 +4847,7 @@ mod tests {
 
     #[test]
     fn simple_row_applies_lr_delimiter_size_option() {
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let plain = parse_math("lr(|x|)", 0).unwrap();
         let sized = parse_math("lr(size: #240%, |x|)", 0).unwrap();
@@ -5042,25 +4866,12 @@ mod tests {
             plain_artifact.metrics,
             sized_artifact.metrics
         );
-        assert_eq!(
-            sized_artifact
-                .paths
-                .as_ref()
-                .expect("sized lr paths should exist")
-                .items
-                .len(),
-            3
-        );
+        assert_eq!(sized_artifact.paths.items.len(), 3);
     }
 
     #[test]
     fn simple_row_applies_delimiter_helper_size_option() {
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let plain = parse_math("abs(x)", 0).unwrap();
         let sized = parse_math("abs(x, size: #2em)", 0).unwrap();
@@ -5079,25 +4890,12 @@ mod tests {
             plain_artifact.metrics,
             sized_artifact.metrics
         );
-        assert_eq!(
-            sized_artifact
-                .paths
-                .as_ref()
-                .expect("sized abs paths should exist")
-                .items
-                .len(),
-            3
-        );
+        assert_eq!(sized_artifact.paths.items.len(), 3);
     }
 
     #[test]
     fn simple_row_applies_callable_delimiter_symbol_size_option() {
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let plain = parse_math("bracket.l(x)", 0).unwrap();
         let sized = parse_math("bracket.l(x, size: #240%)", 0).unwrap();
@@ -5116,25 +4914,12 @@ mod tests {
             plain_artifact.metrics,
             sized_artifact.metrics
         );
-        assert_eq!(
-            sized_artifact
-                .paths
-                .as_ref()
-                .expect("sized bracket.l paths should exist")
-                .items
-                .len(),
-            3
-        );
+        assert_eq!(sized_artifact.paths.items.len(), 3);
     }
 
     #[test]
     fn simple_row_can_emit_operator_calls() {
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         for (source, expected) in [
             ("sin(x)", "sin(𝑥)"),
@@ -5151,7 +4936,7 @@ mod tests {
                 try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                     .unwrap()
                     .unwrap_or_else(|| panic!("operator call should be handled: {source}"));
-            let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+            let pdf = artifact.pdf_text;
             let text: String = pdf
                 .glyph_runs
                 .iter()
@@ -5165,17 +4950,12 @@ mod tests {
     #[test]
     fn simple_row_can_emit_operator_identifier_with_script() {
         let math = parse_math("lim_(x -> oo) f(x)", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("operator identifier with script should be handled by Typst row path");
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         let text: String = pdf
             .glyph_runs
             .iter()
@@ -5188,12 +4968,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_math_variant_calls() {
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         for (source, expected) in [
             ("bb(R)", "ℝ"),
@@ -5211,7 +4986,7 @@ mod tests {
                 try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                     .unwrap()
                     .unwrap_or_else(|| panic!("math variant call should be handled: {source}"));
-            let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+            let pdf = artifact.pdf_text;
             let text: String = pdf
                 .glyph_runs
                 .iter()
@@ -5224,12 +4999,7 @@ mod tests {
 
     #[test]
     fn simple_row_can_emit_vertical_stretch_call() {
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let plain = parse_math("stretch(|)", 0).unwrap();
         let stretched = parse_math("stretch(|, size: #2em)", 0).unwrap();
@@ -5248,20 +5018,13 @@ mod tests {
             plain_artifact.metrics,
             stretched_artifact.metrics
         );
-        let paths = stretched_artifact
-            .paths
-            .expect("stretched bar paths should exist");
+        let paths = stretched_artifact.paths;
         assert_eq!(paths.items.len(), 1);
     }
 
     #[test]
     fn simple_row_can_emit_math_accent_calls() {
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         for (source, expected) in [
             ("grave(a)", "𝑎\u{0300}"),
@@ -5295,9 +5058,9 @@ mod tests {
                 try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
                     .unwrap()
                     .unwrap_or_else(|| panic!("math accent call should be handled: {source}"));
-            let paths = artifact.paths.expect("accent paths should exist");
+            let paths = artifact.paths;
             assert_eq!(paths.items.len(), 2, "{source}");
-            let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+            let pdf = artifact.pdf_text;
             let text: String = pdf
                 .glyph_runs
                 .iter()
@@ -5311,17 +5074,12 @@ mod tests {
     #[test]
     fn simple_row_omits_script_group_delimiters() {
         let math = parse_math("sum_(i=0)^n i", 0).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: false,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
             .unwrap()
             .expect("simple grouped script should be handled by Typst row path");
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         let text: String = pdf
             .glyph_runs
             .iter()

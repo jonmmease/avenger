@@ -5,8 +5,8 @@ use indexmap::IndexMap;
 use crate::typst_eval::call::is_retained_markup_name;
 use crate::typst_eval::math::is_retained_math_name;
 use crate::typst_layout::frame::{
-    LineLayoutArtifact, LineLayoutOptions, LineOutputOptions, PositionedTextLineRun,
-    PositionedTextLineRunKind, TypesetMetrics,
+    LineLayoutArtifact, LineLayoutOptions, PositionedTextLineRun, PositionedTextLineRunKind,
+    TypesetMetrics,
 };
 use crate::typst_layout::line::TypstEngineCore;
 use crate::typst_library::{MathStyle, PlainTextStyle};
@@ -237,9 +237,9 @@ impl LabelFrame {
     fn from_artifact(artifact: &LineLayoutArtifact) -> Self {
         let mut items = Vec::new();
         for run in &artifact.positioned_runs {
-            let paths = paths_for_run(run, artifact.paths.as_ref());
+            let paths = paths_for_run(run, &artifact.paths);
             let (pdf_text, font_resources) =
-                pdf_text_for_run(run, artifact.pdf_text.as_ref(), &artifact.font_resources);
+                pdf_text_for_run(run, &artifact.pdf_text, &artifact.font_resources);
             match run.kind {
                 PositionedTextLineRunKind::Plain => {
                     push_plain_run_items(&mut items, run, paths.as_ref(), pdf_text, font_resources);
@@ -261,11 +261,7 @@ impl LabelFrame {
                 }
             }
         }
-        push_missing_aggregate_shape_items(
-            &mut items,
-            0..artifact.source.len(),
-            artifact.paths.as_ref(),
-        );
+        push_missing_aggregate_shape_items(&mut items, 0..artifact.source.len(), &artifact.paths);
 
         Self {
             size: Size {
@@ -281,11 +277,8 @@ impl LabelFrame {
 fn push_missing_aggregate_shape_items(
     items: &mut Vec<(Point, LabelFrameItem)>,
     byte_range: Range<usize>,
-    paths: Option<&PathArtifact>,
+    paths: &PathArtifact,
 ) {
-    let Some(paths) = paths else {
-        return;
-    };
     for item in &paths.items {
         if !matches!(item.kind, PathKind::MathShape) {
             continue;
@@ -406,10 +399,7 @@ fn push_path_items(
     }
 }
 
-fn paths_for_run(
-    run: &PositionedTextLineRun,
-    aggregate: Option<&PathArtifact>,
-) -> Option<PathArtifact> {
+fn paths_for_run(run: &PositionedTextLineRun, aggregate: &PathArtifact) -> Option<PathArtifact> {
     let mut paths = run.paths.clone().unwrap_or_else(|| PathArtifact {
         logical_width: run.metrics.width,
         logical_height: run.metrics.height,
@@ -417,20 +407,18 @@ fn paths_for_run(
         images: Vec::new(),
     });
 
-    if let Some(aggregate) = aggregate {
-        for item in &aggregate.items {
-            if path_item_belongs_to_run(item, run)
-                && !paths.items.iter().any(|existing| existing == item)
-            {
-                paths.items.push(item.clone());
-            }
+    for item in &aggregate.items {
+        if path_item_belongs_to_run(item, run)
+            && !paths.items.iter().any(|existing| existing == item)
+        {
+            paths.items.push(item.clone());
         }
-        for image in &aggregate.images {
-            if image_item_belongs_to_run(image, run)
-                && !paths.images.iter().any(|existing| existing == image)
-            {
-                paths.images.push(image.clone());
-            }
+    }
+    for image in &aggregate.images {
+        if image_item_belongs_to_run(image, run)
+            && !paths.images.iter().any(|existing| existing == image)
+        {
+            paths.images.push(image.clone());
         }
     }
 
@@ -439,27 +427,25 @@ fn paths_for_run(
 
 fn pdf_text_for_run(
     run: &PositionedTextLineRun,
-    aggregate: Option<&PdfTextLayer>,
+    aggregate: &PdfTextLayer,
     aggregate_resources: &[FontResource],
 ) -> (Option<PdfTextLayer>, Vec<FontResource>) {
-    if let Some(aggregate) = aggregate {
-        let glyph_runs = aggregate
-            .glyph_runs
-            .iter()
-            .filter(|glyph_run| glyph_run_belongs_to_run(glyph_run, run))
-            .cloned()
-            .collect::<Vec<_>>();
-        if !glyph_runs.is_empty() {
-            return (
-                Some(PdfTextLayer {
-                    logical_width: run.metrics.width,
-                    logical_height: run.metrics.height,
-                    semantic_text: run.text.clone(),
-                    glyph_runs,
-                }),
-                aggregate_resources.to_vec(),
-            );
-        }
+    let glyph_runs = aggregate
+        .glyph_runs
+        .iter()
+        .filter(|glyph_run| glyph_run_belongs_to_run(glyph_run, run))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !glyph_runs.is_empty() {
+        return (
+            Some(PdfTextLayer {
+                logical_width: run.metrics.width,
+                logical_height: run.metrics.height,
+                semantic_text: run.text.clone(),
+                glyph_runs,
+            }),
+            aggregate_resources.to_vec(),
+        );
     }
 
     (run.pdf_text.clone(), run.font_resources.clone())
@@ -825,12 +811,6 @@ fn line_layout_options(options: &LabelOptions) -> LineLayoutOptions {
         text_style: options.text.clone(),
         math_style: options.math.clone(),
         params: options.params.clone(),
-        outputs: LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        },
         limits: options.limits,
     }
 }

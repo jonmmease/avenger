@@ -2,13 +2,11 @@ use crate::typst_diag::LabelError;
 use crate::typst_diag::LabelWarning;
 use crate::typst_label::EngineOptions;
 use crate::typst_layout::frame::{
-    LineLayoutArtifact, LineLayoutOptions, MathLayoutOptions, MathOutputOptions,
-    PositionedTextLineRun, PositionedTextLineRunKind, TypesetMetrics,
+    LineLayoutArtifact, LineLayoutOptions, MathLayoutOptions, PositionedTextLineRun,
+    PositionedTextLineRunKind, TypesetMetrics,
 };
 use crate::typst_library::{Color, FontStyle, FontWeight, PlainTextStyle};
 use crate::typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
-#[cfg(feature = "raster")]
-use crate::typst_render::rasterize_path_artifact;
 use crate::typst_svg::{
     PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform,
 };
@@ -101,11 +99,6 @@ fn try_typeset_plain_text_line(
     options: &LineLayoutOptions,
     fontdb: &fontdb::Database,
 ) -> Result<Option<LineLayoutArtifact>, LabelError> {
-    #[cfg(not(feature = "raster"))]
-    if options.outputs.raster.is_some() {
-        return Ok(None);
-    }
-
     let [node] = &line.nodes[..] else {
         return Ok(None);
     };
@@ -158,21 +151,9 @@ fn try_typeset_mixed_metrics_text_line(
     config: &EngineOptions,
     fontdb: &fontdb::Database,
 ) -> Result<Option<LineLayoutArtifact>, LabelError> {
-    #[cfg(not(feature = "raster"))]
-    if options.outputs.raster.is_some() {
-        return Ok(None);
-    }
-
     let text_font_size = options.text_style.font_size.max(1.0);
     let math_options = MathLayoutOptions {
         style: options.math_style.clone(),
-        outputs: MathOutputOptions {
-            paths: options.outputs.paths
-                || options.outputs.raster.is_some()
-                || options.outputs.positioned_runs,
-            raster: None,
-            pdf_text_layer: options.outputs.pdf_text_layer,
-        },
         limits: options.limits,
     };
     let mut run_parts = Vec::new();
@@ -197,30 +178,22 @@ fn try_typeset_mixed_metrics_text_line(
                     return Ok(None);
                 };
                 let metrics = metrics_from_segmented_text(&segmented, 0.0);
-                let paths =
-                    (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
-                        plain_path_artifact_from_segmented(
-                            &segmented,
-                            metrics,
-                            metrics.baseline,
-                            text_font_size,
-                            options.text_style.fill,
-                            None,
-                        )
-                    });
-                let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
-                    let (pdf_text, font_resources) = plain_pdf_text_from_segmented(
-                        &plain.text,
-                        &segmented,
-                        metrics,
-                        metrics.baseline,
-                        text_font_size,
-                        options.text_style.fill,
-                    );
-                    (Some(pdf_text), font_resources)
-                } else {
-                    (None, Vec::new())
-                };
+                let paths = Some(plain_path_artifact_from_segmented(
+                    &segmented,
+                    metrics,
+                    metrics.baseline,
+                    text_font_size,
+                    options.text_style.fill,
+                    None,
+                ));
+                let (pdf_text, font_resources) = plain_pdf_text_from_segmented(
+                    &plain.text,
+                    &segmented,
+                    metrics,
+                    metrics.baseline,
+                    text_font_size,
+                    options.text_style.fill,
+                );
                 width += metrics.width;
                 ascent = ascent.max(metrics.ascent);
                 descent = descent.max(metrics.descent);
@@ -233,14 +206,14 @@ fn try_typeset_mixed_metrics_text_line(
                     metrics,
                     paths,
                     positioned_paths: None,
-                    pdf_text,
+                    pdf_text: Some(pdf_text),
                     font_resources,
                     positioned_plain_runs: positioned_plain_runs_from_segmented(
                         plain,
                         &segmented,
                         &options.text_style,
                         metrics.baseline,
-                        options.outputs.positioned_runs,
+                        true,
                     ),
                 });
             }
@@ -290,55 +263,40 @@ fn try_typeset_mixed_metrics_text_line(
                 );
                 let metrics = shifted_text_metrics(&shaped, baseline_shift);
                 let glyph_baseline_y = metrics.baseline + baseline_shift;
-                let paths =
-                    (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
-                        plain_path_artifact_from_shaped(
-                            &text_face,
-                            &shaped,
-                            metrics,
-                            glyph_baseline_y,
-                            run_font_size,
-                            run_style.fill,
-                            Some(decoration.clone()),
-                        )
-                    });
-                let positioned_paths = options
-                    .outputs
-                    .positioned_runs
-                    .then(|| {
-                        let glyph_paths = glyph_outline_paths_from_shaped(
-                            &text_face,
-                            &shaped,
-                            run_font_size,
-                            glyph_baseline_y,
-                        );
-                        decoration_path_artifact(
-                            decoration,
-                            metrics,
-                            run_font_size,
-                            run_style.fill,
-                            Some(&text_face),
-                            &glyph_paths,
-                        )
-                    })
-                    .flatten();
-                let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
-                    let font_id = FontResourceId(0);
-                    (
-                        Some(plain_pdf_text_from_shaped(
-                            &decorated.text,
-                            &shaped,
-                            metrics,
-                            glyph_baseline_y,
-                            run_font_size,
-                            run_style.fill,
-                            font_id,
-                        )),
-                        vec![text_face.font_resource(font_id)],
-                    )
-                } else {
-                    (None, Vec::new())
-                };
+                let paths = Some(plain_path_artifact_from_shaped(
+                    &text_face,
+                    &shaped,
+                    metrics,
+                    glyph_baseline_y,
+                    run_font_size,
+                    run_style.fill,
+                    Some(decoration.clone()),
+                ));
+                let glyph_paths = glyph_outline_paths_from_shaped(
+                    &text_face,
+                    &shaped,
+                    run_font_size,
+                    glyph_baseline_y,
+                );
+                let positioned_paths = decoration_path_artifact(
+                    decoration,
+                    metrics,
+                    run_font_size,
+                    run_style.fill,
+                    Some(&text_face),
+                    &glyph_paths,
+                );
+                let font_id = FontResourceId(0);
+                let pdf_text = plain_pdf_text_from_shaped(
+                    &decorated.text,
+                    &shaped,
+                    metrics,
+                    glyph_baseline_y,
+                    run_font_size,
+                    run_style.fill,
+                    font_id,
+                );
+                let font_resources = vec![text_face.font_resource(font_id)];
                 width += metrics.width;
                 ascent = ascent.max(metrics.ascent);
                 descent = descent.max(metrics.descent);
@@ -351,7 +309,7 @@ fn try_typeset_mixed_metrics_text_line(
                     metrics,
                     paths,
                     positioned_paths,
-                    pdf_text,
+                    pdf_text: Some(pdf_text),
                     font_resources,
                     positioned_plain_runs: vec![PositionedTextLineRun {
                         kind: PositionedTextLineRunKind::Plain,
@@ -384,9 +342,9 @@ fn try_typeset_mixed_metrics_text_line(
                     text_style: None,
                     baseline_shift: 0.0,
                     metrics: artifact.metrics,
-                    positioned_paths: artifact.paths.clone(),
-                    paths: artifact.paths,
-                    pdf_text: artifact.pdf_text,
+                    positioned_paths: Some(artifact.paths.clone()),
+                    paths: Some(artifact.paths),
+                    pdf_text: Some(artifact.pdf_text),
                     font_resources: artifact.font_resources,
                     positioned_plain_runs: Vec::new(),
                 });
@@ -401,29 +359,9 @@ fn try_typeset_mixed_metrics_text_line(
         ascent,
         descent,
     };
-    let path_artifact = if options.outputs.paths || options.outputs.raster.is_some() {
-        Some(full_line_path_artifact(&run_parts, metrics))
-    } else {
-        None
-    };
-    #[cfg(feature = "raster")]
-    let raster = match (options.outputs.raster, path_artifact.as_ref()) {
-        (Some(request), Some(paths)) => Some(rasterize_path_artifact(paths, request)?),
-        _ => None,
-    };
-    #[cfg(not(feature = "raster"))]
-    let raster = None;
-    let paths = options.outputs.paths.then(|| {
-        path_artifact
-            .clone()
-            .expect("mixed text paths should be built when paths are requested")
-    });
-    let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
-        full_line_pdf_text(source, &run_parts, metrics)
-    } else {
-        (None, Vec::new())
-    };
-    let positioned_runs = if options.outputs.positioned_runs {
+    let paths = full_line_path_artifact(&run_parts, metrics);
+    let (pdf_text, font_resources) = full_line_pdf_text(source, &run_parts, metrics);
+    let positioned_runs = {
         let mut x = 0.0;
         run_parts
             .iter()
@@ -503,15 +441,12 @@ fn try_typeset_mixed_metrics_text_line(
                 runs
             })
             .collect()
-    } else {
-        Vec::new()
     };
 
     Ok(Some(LineLayoutArtifact {
         source: source.to_string(),
         metrics,
         paths,
-        raster,
         pdf_text,
         positioned_runs,
         font_resources,
@@ -1504,7 +1439,7 @@ fn full_line_pdf_text(
     source: &str,
     parts: &[MixedRunPart],
     metrics: TypesetMetrics,
-) -> (Option<PdfTextLayer>, Vec<FontResource>) {
+) -> (PdfTextLayer, Vec<FontResource>) {
     let mut glyph_runs = Vec::new();
     let mut font_resources = Vec::new();
     let mut x = 0.0;
@@ -1527,12 +1462,12 @@ fn full_line_pdf_text(
     }
 
     (
-        Some(PdfTextLayer {
+        PdfTextLayer {
             logical_width: metrics.width,
             logical_height: metrics.height,
             semantic_text: source.to_string(),
             glyph_runs,
-        }),
+        },
         font_resources,
     )
 }
@@ -1611,7 +1546,7 @@ fn typeset_plain_text_line(
     decoration: Option<TextDecoration>,
     features: &[rustybuzz::Feature],
     text_style: &PlainTextStyle,
-    options: &LineLayoutOptions,
+    _options: &LineLayoutOptions,
     face: TextFace,
 ) -> Result<Option<LineLayoutArtifact>, LabelError> {
     let font_size = text_style.font_size.max(1.0);
@@ -1624,83 +1559,55 @@ fn typeset_plain_text_line(
         descent: shaped.metrics.descent,
     };
     let font_id = FontResourceId(0);
-    let font_resources = options
-        .outputs
-        .pdf_text_layer
-        .then(|| vec![face.font_resource(font_id)])
-        .unwrap_or_default();
-    let pdf_text = options.outputs.pdf_text_layer.then(|| {
-        plain_pdf_text_from_shaped(
-            source,
-            &shaped,
+    let font_resources = vec![face.font_resource(font_id)];
+    let pdf_text = plain_pdf_text_from_shaped(
+        source,
+        &shaped,
+        metrics,
+        metrics.baseline,
+        font_size,
+        text_style.fill,
+        font_id,
+    );
+    let paths = plain_path_artifact_from_shaped(
+        &face,
+        &shaped,
+        metrics,
+        metrics.baseline,
+        font_size,
+        text_style.fill,
+        decoration.clone(),
+    );
+    let glyph_paths = glyph_outline_paths_from_shaped(&face, &shaped, font_size, metrics.baseline);
+    let positioned_paths = decoration.clone().and_then(|decoration| {
+        decoration_path_artifact(
+            decoration,
             metrics,
-            metrics.baseline,
             font_size,
             text_style.fill,
-            font_id,
+            Some(&face),
+            &glyph_paths,
         )
     });
-    let path_artifact = (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
-        plain_path_artifact_from_shaped(
-            &face,
-            &shaped,
-            metrics,
-            metrics.baseline,
-            font_size,
-            text_style.fill,
-            decoration.clone(),
-        )
-    });
-    let paths = options.outputs.paths.then(|| {
-        path_artifact
-            .clone()
-            .expect("plain text paths should be built when paths are requested")
-    });
-    #[cfg(feature = "raster")]
-    let raster = match (options.outputs.raster, path_artifact.as_ref()) {
-        (Some(request), Some(paths)) => Some(rasterize_path_artifact(paths, request)?),
-        _ => None,
-    };
-    #[cfg(not(feature = "raster"))]
-    let raster = None;
-    let positioned_paths = options
-        .outputs
-        .positioned_runs
-        .then(|| {
-            let glyph_paths =
-                glyph_outline_paths_from_shaped(&face, &shaped, font_size, metrics.baseline);
-            decoration_path_artifact(
-                decoration?,
-                metrics,
-                font_size,
-                text_style.fill,
-                Some(&face),
-                &glyph_paths,
-            )
-        })
-        .flatten();
-    let positioned_runs = options.outputs.positioned_runs.then(|| {
-        vec![PositionedTextLineRun {
-            kind: PositionedTextLineRunKind::Plain,
-            text: plain.text.clone(),
-            byte_range: plain.byte_range.clone(),
-            text_style: Some(text_style.clone()),
-            x: 0.0,
-            y: metrics.baseline,
-            metrics,
-            paths: positioned_paths,
-            pdf_text: None,
-            font_resources: Vec::new(),
-        }]
-    });
+    let positioned_runs = vec![PositionedTextLineRun {
+        kind: PositionedTextLineRunKind::Plain,
+        text: plain.text.clone(),
+        byte_range: plain.byte_range.clone(),
+        text_style: Some(text_style.clone()),
+        x: 0.0,
+        y: metrics.baseline,
+        metrics,
+        paths: positioned_paths,
+        pdf_text: None,
+        font_resources: Vec::new(),
+    }];
 
     Ok(Some(LineLayoutArtifact {
         source: source.to_string(),
         metrics,
         paths,
-        raster,
         pdf_text,
-        positioned_runs: positioned_runs.unwrap_or_default(),
+        positioned_runs,
         font_resources,
         warnings: Vec::<LabelWarning>::new(),
     }))
@@ -1715,71 +1622,48 @@ fn typeset_segmented_plain_text_line(
 ) -> Result<Option<LineLayoutArtifact>, LabelError> {
     let font_size = options.text_style.font_size.max(1.0);
     let metrics = metrics_from_segmented_text(&segmented, 0.0);
-    let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
-        let (pdf_text, font_resources) = plain_pdf_text_from_segmented(
-            source,
-            &segmented,
+    let (pdf_text, font_resources) = plain_pdf_text_from_segmented(
+        source,
+        &segmented,
+        metrics,
+        metrics.baseline,
+        font_size,
+        options.text_style.fill,
+    );
+    let paths = plain_path_artifact_from_segmented(
+        &segmented,
+        metrics,
+        metrics.baseline,
+        font_size,
+        options.text_style.fill,
+        decoration.clone(),
+    );
+    let mut positioned_runs = positioned_plain_runs_from_segmented(
+        plain,
+        &segmented,
+        &options.text_style,
+        metrics.baseline,
+        true,
+    );
+    if let (Some(decoration), Some(first)) = (decoration.clone(), positioned_runs.first_mut()) {
+        let glyph_paths =
+            glyph_outline_paths_from_segmented(&segmented, font_size, metrics.baseline);
+        first.paths = decoration_path_artifact(
+            decoration,
             metrics,
-            metrics.baseline,
             font_size,
             options.text_style.fill,
+            segmented.runs.first().map(|run| &run.face),
+            &glyph_paths,
         );
-        (Some(pdf_text), font_resources)
-    } else {
-        (None, Vec::new())
-    };
-    let path_artifact = (options.outputs.paths || options.outputs.raster.is_some()).then(|| {
-        plain_path_artifact_from_segmented(
-            &segmented,
-            metrics,
-            metrics.baseline,
-            font_size,
-            options.text_style.fill,
-            decoration.clone(),
-        )
-    });
-    let paths = options.outputs.paths.then(|| {
-        path_artifact
-            .clone()
-            .expect("segmented plain text paths should be built when paths are requested")
-    });
-    #[cfg(feature = "raster")]
-    let raster = match (options.outputs.raster, path_artifact.as_ref()) {
-        (Some(request), Some(paths)) => Some(rasterize_path_artifact(paths, request)?),
-        _ => None,
-    };
-    #[cfg(not(feature = "raster"))]
-    let raster = None;
-    let positioned_runs = options.outputs.positioned_runs.then(|| {
-        let mut runs = positioned_plain_runs_from_segmented(
-            plain,
-            &segmented,
-            &options.text_style,
-            metrics.baseline,
-            true,
-        );
-        if let (Some(decoration), Some(first)) = (decoration.clone(), runs.first_mut()) {
-            let glyph_paths =
-                glyph_outline_paths_from_segmented(&segmented, font_size, metrics.baseline);
-            first.paths = decoration_path_artifact(
-                decoration,
-                metrics,
-                font_size,
-                options.text_style.fill,
-                segmented.runs.first().map(|run| &run.face),
-                &glyph_paths,
-            );
-        }
-        runs
-    });
+    }
 
     Ok(Some(LineLayoutArtifact {
         source: source.to_string(),
         metrics,
         paths,
-        raster,
         pdf_text,
-        positioned_runs: positioned_runs.unwrap_or_default(),
+        positioned_runs,
         font_resources,
         warnings: Vec::<LabelWarning>::new(),
     }))
@@ -1790,7 +1674,6 @@ mod tests {
     use super::*;
     use crate::typst_eval::markup::parse_line;
     use crate::typst_label::EngineOptions;
-    use crate::typst_layout::frame::LineOutputOptions;
     use crate::typst_layout::inline::font::build_text_fontdb;
 
     fn test_fontdb() -> fontdb::Database {
@@ -1816,17 +1699,19 @@ mod tests {
         &first_stroke_item(paths).path.commands
     }
 
+    fn has_path_output(paths: &PathArtifact) -> bool {
+        !paths.items.is_empty() || !paths.images.is_empty()
+    }
+
+    fn has_pdf_text(pdf_text: &PdfTextLayer) -> bool {
+        !pdf_text.glyph_runs.is_empty()
+    }
+
     #[test]
     fn plain_line_fast_path_returns_positioned_plain_run() {
         let fontdb = test_fontdb();
         let line = render_line("Hello");
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: false,
-            raster: None,
-            pdf_text_layer: false,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
@@ -1846,81 +1731,41 @@ mod tests {
     fn plain_line_fast_path_can_emit_paths() {
         let fontdb = test_fontdb();
         let line = render_line("Hello");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
             .expect("plain embedded text should use fast path");
 
-        let paths = artifact.paths.expect("plain paths should exist");
+        let paths = artifact.paths;
         assert_eq!(paths.items.len(), 5);
-    }
-
-    #[cfg(not(feature = "raster"))]
-    #[test]
-    fn plain_line_fast_path_declines_raster_without_raster_feature() {
-        let fontdb = test_fontdb();
-        let line = render_line("Hello");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.raster = Some(crate::typst_render::RasterRequest::default());
-
-        assert!(
-            try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
-                .unwrap()
-                .is_none()
-        );
-    }
-
-    #[cfg(feature = "raster")]
-    #[test]
-    fn plain_line_fast_path_can_emit_raster() {
-        let fontdb = test_fontdb();
-        let line = render_line("Hello");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = false;
-        options.outputs.raster = Some(crate::typst_render::RasterRequest { scale: 2.0 });
-
-        let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
-            .unwrap()
-            .expect("plain embedded text should use fast path");
-
-        assert!(artifact.paths.is_none());
-        assert!(
-            artifact
-                .raster
-                .as_ref()
-                .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0)
-        );
     }
 
     #[test]
     fn plain_line_fast_path_can_emit_non_rtl_missing_glyphs() {
         let fontdb = test_fontdb();
         let line = render_line("Revenue 🚀");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact = try_typeset_plain_text_line("Revenue 🚀", &line, &options, &fontdb)
             .unwrap()
             .expect("non-RTL missing glyphs should stay on the Typst path");
 
         assert!(artifact.metrics.width > 0.0);
-        assert!(artifact.paths.is_some());
+        assert!(has_path_output(&artifact.paths));
     }
 
     #[test]
     fn plain_line_fast_path_handles_rtl_with_fallback_when_available() {
         let fontdb = test_fontdb();
         let line = render_line("שלום");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         if let Some(artifact) =
             try_typeset_plain_text_line("שלום", &line, &options, &fontdb).unwrap()
         {
             assert!(artifact.metrics.width > 0.0);
-            assert!(artifact.paths.is_some());
+            assert!(has_path_output(&artifact.paths));
         }
     }
 
@@ -1928,14 +1773,13 @@ mod tests {
     fn plain_line_fast_path_handles_zwj_with_fallback_when_available() {
         let fontdb = test_fontdb();
         let line = render_line("Family 👨‍👩‍👧‍👦");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         if let Some(artifact) =
             try_typeset_plain_text_line("Family 👨‍👩‍👧‍👦", &line, &options, &fontdb).unwrap()
         {
             assert!(artifact.metrics.width > 0.0);
-            assert!(artifact.paths.is_some());
+            assert!(has_path_output(&artifact.paths));
         }
     }
 
@@ -1943,20 +1787,14 @@ mod tests {
     fn plain_line_fast_path_can_emit_pdf_glyph_metadata() {
         let fontdb = test_fontdb();
         let line = render_line("Hello");
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: false,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
             .expect("plain embedded text should use fast path");
 
         assert_eq!(artifact.font_resources.len(), 1);
-        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let pdf = artifact.pdf_text;
         assert_eq!(pdf.semantic_text, "Hello");
         assert_eq!(pdf.glyph_runs.len(), 1);
         assert_eq!(pdf.glyph_runs[0].glyphs.len(), 5);
@@ -1968,13 +1806,7 @@ mod tests {
     fn decorated_plain_line_emits_text_and_decoration_paths() {
         let fontdb = test_fontdb();
         let line = render_line("#underline[important]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact =
             try_typeset_plain_text_line("#underline[important]", &line, &options, &fontdb)
@@ -1989,26 +1821,21 @@ mod tests {
                 .as_ref()
                 .is_some_and(|paths| paths.items.len() == 1 && paths.items[0].stroke.is_some())
         );
-        assert!(artifact.paths.as_ref().is_some_and(|paths| {
-            paths
+        assert!(
+            artifact
+                .paths
                 .items
                 .iter()
                 .any(|item| matches!(item.kind, PathKind::MathShape) && item.stroke.is_some())
-        }));
-        assert!(artifact.pdf_text.is_some());
+        );
+        assert!(has_pdf_text(&artifact.pdf_text));
     }
 
     #[test]
     fn underline_uses_font_decoration_metrics() {
         let fontdb = test_fontdb();
         let line = render_line("#underline[important]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: false,
-            positioned_runs: false,
-        };
+        let options = LineLayoutOptions::default();
         let font_size = options.text_style.font_size.max(1.0);
         let face = TextFace::for_plain_style_and_text(&options.text_style, "important", &fontdb)
             .unwrap()
@@ -2019,7 +1846,7 @@ mod tests {
             try_typeset_plain_text_line("#underline[important]", &line, &options, &fontdb)
                 .unwrap()
                 .expect("supported static decoration should use fast path");
-        let paths = artifact.paths.expect("decorated paths should exist");
+        let paths = artifact.paths;
         let underline = paths
             .items
             .iter()
@@ -2040,13 +1867,7 @@ mod tests {
     fn underline_literal_stroke_offset_extent() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(stroke: 1.5pt + red, offset: 2pt, extent: 3pt)[care]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: false,
-            positioned_runs: false,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = try_typeset_plain_text_line(
             "#underline(stroke: 1.5pt + red, offset: 2pt, extent: 3pt)[care]",
@@ -2056,7 +1877,7 @@ mod tests {
         )
         .unwrap()
         .expect("supported static decoration should use fast path");
-        let paths = artifact.paths.expect("decorated paths should exist");
+        let paths = artifact.paths;
         let underline = first_stroke_item(&paths);
         let stroke = underline.stroke.as_ref().unwrap();
         let (x0, y) = match underline.path.commands.first() {
@@ -2079,8 +1900,7 @@ mod tests {
     fn underline_background_precedes_glyphs() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(background: true, stroke: red)[care]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact = try_typeset_plain_text_line(
             "#underline(background: true, stroke: red)[care]",
@@ -2090,7 +1910,7 @@ mod tests {
         )
         .unwrap()
         .expect("supported static decoration should use fast path");
-        let paths = artifact.paths.expect("decorated paths should exist");
+        let paths = artifact.paths;
 
         assert!(matches!(paths.items[0].kind, PathKind::MathShape));
         assert!(paths.items[0].stroke.is_some());
@@ -2100,8 +1920,7 @@ mod tests {
     fn underline_evade_splits_descender_segments() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(evade: true, offset: 2pt)[group]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact = try_typeset_plain_text_line(
             "#underline(evade: true, offset: 2pt)[group]",
@@ -2111,7 +1930,7 @@ mod tests {
         )
         .unwrap()
         .expect("supported static decoration should use fast path");
-        let paths = artifact.paths.expect("decorated paths should exist");
+        let paths = artifact.paths;
 
         assert!(
             stroke_commands(&paths).len() > 2,
@@ -2123,8 +1942,7 @@ mod tests {
     fn underline_evade_false_draws_continuous_line() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(evade: false, offset: 2pt)[group]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact = try_typeset_plain_text_line(
             "#underline(evade: false, offset: 2pt)[group]",
@@ -2134,7 +1952,7 @@ mod tests {
         )
         .unwrap()
         .expect("supported static decoration should use fast path");
-        let paths = artifact.paths.expect("decorated paths should exist");
+        let paths = artifact.paths;
 
         assert_eq!(stroke_commands(&paths).len(), 2);
     }
@@ -2143,14 +1961,13 @@ mod tests {
     fn underline_evades_by_default_like_typst() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(offset: 2pt)[group]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact =
             try_typeset_plain_text_line("#underline(offset: 2pt)[group]", &line, &options, &fontdb)
                 .unwrap()
                 .expect("supported static decoration should use fast path");
-        let paths = artifact.paths.expect("decorated paths should exist");
+        let paths = artifact.paths;
 
         assert!(
             stroke_commands(&paths).len() > 2,
@@ -2162,14 +1979,13 @@ mod tests {
     fn strike_does_not_evade_by_default() {
         let fontdb = test_fontdb();
         let line = render_line("#strike(offset: -4pt)[group]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact =
             try_typeset_plain_text_line("#strike(offset: -4pt)[group]", &line, &options, &fontdb)
                 .unwrap()
                 .expect("supported static decoration should use fast path");
-        let paths = artifact.paths.expect("decorated paths should exist");
+        let paths = artifact.paths;
 
         assert_eq!(stroke_commands(&paths).len(), 2);
     }
@@ -2179,8 +1995,7 @@ mod tests {
         let fontdb = test_fontdb();
         let line =
             render_line("#underline(stroke: (thickness: 0.4em, paint: maroon, cap: \"round\"))[x]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
         let font_size = options.text_style.font_size.max(1.0);
 
         let artifact = try_typeset_plain_text_line(
@@ -2191,7 +2006,7 @@ mod tests {
         )
         .unwrap()
         .expect("supported static decoration should use fast path");
-        let paths = artifact.paths.expect("decorated paths should exist");
+        let paths = artifact.paths;
         let stroke = first_stroke_item(&paths).stroke.as_ref().unwrap();
 
         assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
@@ -2204,8 +2019,7 @@ mod tests {
     fn decoration_stroke_dictionary_sets_join_and_dash() {
         let fontdb = test_fontdb();
         let line = render_line("#underline(stroke: (join: \"bevel\", dash: \"dash-dotted\"))[x]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact = try_typeset_plain_text_line(
             "#underline(stroke: (join: \"bevel\", dash: \"dash-dotted\"))[x]",
@@ -2215,7 +2029,7 @@ mod tests {
         )
         .unwrap()
         .expect("supported static decoration should use fast path");
-        let paths = artifact.paths.expect("decorated paths should exist");
+        let paths = artifact.paths;
         let stroke = first_stroke_item(&paths).stroke.as_ref().unwrap();
         let dash = stroke.dash.as_ref().expect("dash should be present");
 
@@ -2229,8 +2043,7 @@ mod tests {
     fn overline_supports_negative_em_offset() {
         let fontdb = test_fontdb();
         let line = render_line("#overline(offset: -1.2em, extent: 2pt)[top]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
         let font_size = options.text_style.font_size.max(1.0);
 
         let artifact = try_typeset_plain_text_line(
@@ -2241,7 +2054,7 @@ mod tests {
         )
         .unwrap()
         .expect("supported static decoration should use fast path");
-        let paths = artifact.paths.expect("decorated paths should exist");
+        let paths = artifact.paths;
         let overline = first_stroke_item(&paths);
         let (x0, y) = match overline.path.commands.first() {
             Some(PathCommand::MoveTo { x, y }) => (*x, *y),
@@ -2256,13 +2069,12 @@ mod tests {
     fn highlighted_plain_line_emits_background_before_glyphs() {
         let fontdb = test_fontdb();
         let line = render_line("#highlight[warning]");
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact = try_typeset_plain_text_line("#highlight[warning]", &line, &options, &fontdb)
             .unwrap()
             .expect("supported static highlight should use fast path");
-        let paths = artifact.paths.expect("highlight paths should exist");
+        let paths = artifact.paths;
 
         assert!(matches!(paths.items[0].kind, PathKind::MathShape));
         assert!(paths.items[0].fill.is_some());

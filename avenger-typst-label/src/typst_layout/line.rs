@@ -55,8 +55,8 @@ impl TypstEngineCore {
         source: &str,
         options: &LineLayoutOptions,
     ) -> Result<LineLayoutArtifact, LabelError> {
-        if source.is_empty() && options.outputs.raster.is_none() {
-            return Ok(empty_line_layout_artifact(source, options));
+        if source.is_empty() {
+            return Ok(empty_line_layout_artifact(source));
         }
 
         let line = parse_line_with_params(source, &options.params)?;
@@ -69,8 +69,8 @@ impl TypstEngineCore {
         source: &str,
         options: &LineLayoutOptions,
     ) -> Result<LineLayoutArtifact, LabelError> {
-        if source.is_empty() && options.outputs.raster.is_none() {
-            return Ok(empty_line_layout_artifact(source, options));
+        if source.is_empty() {
+            return Ok(empty_line_layout_artifact(source));
         }
 
         let line = plain_text_line(source);
@@ -316,7 +316,7 @@ fn nodes_contain_static_markup(nodes: &[LineNode]) -> bool {
     })
 }
 
-fn empty_line_layout_artifact(source: &str, options: &LineLayoutOptions) -> LineLayoutArtifact {
+fn empty_line_layout_artifact(source: &str) -> LineLayoutArtifact {
     let metrics = TypesetMetrics {
         width: 0.0,
         height: 0.0,
@@ -324,24 +324,23 @@ fn empty_line_layout_artifact(source: &str, options: &LineLayoutOptions) -> Line
         ascent: 0.0,
         descent: 0.0,
     };
-    let paths = options.outputs.paths.then(|| PathArtifact {
+    let paths = PathArtifact {
         logical_width: 0.0,
         logical_height: 0.0,
         items: Vec::new(),
         images: Vec::new(),
-    });
-    let pdf_text = options.outputs.pdf_text_layer.then(|| PdfTextLayer {
+    };
+    let pdf_text = PdfTextLayer {
         logical_width: 0.0,
         logical_height: 0.0,
         semantic_text: source.to_string(),
         glyph_runs: Vec::new(),
-    });
+    };
 
     LineLayoutArtifact {
         source: source.to_string(),
         metrics,
         paths,
-        raster: None,
         pdf_text,
         positioned_runs: Vec::new(),
         font_resources: Vec::new(),
@@ -352,65 +351,49 @@ fn empty_line_layout_artifact(source: &str, options: &LineLayoutOptions) -> Line
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::typst_layout::frame::{LineOutputOptions, MathOutputOptions};
     use crate::typst_library::{FontStyle, FontWeight};
+
+    fn has_path_output(paths: &PathArtifact) -> bool {
+        !paths.items.is_empty() || !paths.images.is_empty()
+    }
+
+    fn has_pdf_text(pdf_text: &PdfTextLayer) -> bool {
+        !pdf_text.glyph_runs.is_empty()
+    }
 
     #[test]
     fn empty_text_line_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
 
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
         let artifact = engine.typeset_markup_line("", &options).unwrap();
 
         assert_eq!(artifact.metrics.width, 0.0);
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.is_empty())
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf_text| pdf_text.glyph_runs.is_empty())
-        );
+        assert!(artifact.paths.items.is_empty());
+        assert!(artifact.pdf_text.glyph_runs.is_empty());
         assert!(artifact.positioned_runs.is_empty());
     }
 
     #[test]
     fn plain_text_line_paths_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact = engine.typeset_markup_line("Hello", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 5)
-        );
+        assert_eq!(artifact.paths.items.len(), 5);
     }
 
     #[test]
     fn plain_text_line_with_non_rtl_missing_glyph_paths_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact = engine.typeset_markup_line("Revenue 🚀", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
-        assert!(artifact.paths.is_some());
+        assert!(has_path_output(&artifact.paths));
     }
 
     #[test]
@@ -418,12 +401,6 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let mut options = LineLayoutOptions::default();
         options.text_style.font_family = "serif".to_string();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
 
         let Ok(artifact) = engine.typeset_markup_line("Fallback font", &options) else {
             return;
@@ -431,8 +408,8 @@ mod tests {
 
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.positioned_runs[0].text, "Fallback font");
-        assert!(artifact.paths.is_some());
-        assert!(artifact.pdf_text.is_some());
+        assert!(has_path_output(&artifact.paths));
+        assert!(has_pdf_text(&artifact.pdf_text));
         assert_eq!(artifact.font_resources.len(), 1);
     }
 
@@ -441,72 +418,48 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let mut options = LineLayoutOptions::default();
         options.text_style.font_family = "serif".to_string();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
 
         let Ok(artifact) = engine.typeset_markup_line("Hello 温度", &options) else {
             return;
         };
 
-        if artifact
-            .pdf_text
-            .as_ref()
-            .is_none_or(|pdf_text| pdf_text.glyph_runs.len() < 2)
-        {
+        if artifact.pdf_text.glyph_runs.len() < 2 {
             return;
         }
 
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.positioned_runs[0].text, "Hello 温度");
-        assert!(artifact.paths.is_some());
+        assert!(has_path_output(&artifact.paths));
         assert!(artifact.font_resources.len() >= 2);
     }
 
     #[test]
     fn default_mixed_script_text_can_segment_fallback_fonts_when_available() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine.typeset_markup_line("Hello 温度", &options).unwrap();
-        let Some(pdf_text) = artifact.pdf_text.as_ref() else {
-            return;
-        };
+        let pdf_text = &artifact.pdf_text;
         if pdf_text.glyph_runs.len() < 2 {
             return;
         }
 
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.positioned_runs[0].text, "Hello 温度");
-        assert!(artifact.paths.is_some());
+        assert!(has_path_output(&artifact.paths));
         assert!(artifact.font_resources.len() >= 2);
     }
 
     #[test]
     fn plain_text_line_with_rtl_text_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine.typeset_markup_line("שלום", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
-        assert!(artifact.paths.is_some());
-        assert!(artifact.pdf_text.is_some());
+        assert!(has_path_output(&artifact.paths));
+        assert!(has_pdf_text(&artifact.pdf_text));
         assert_eq!(
             artifact
                 .positioned_runs
@@ -532,19 +485,13 @@ mod tests {
     #[test]
     fn plain_text_line_with_zwj_emoji_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine.typeset_markup_line("Family 👨‍👩‍👧‍👦", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
-        assert!(artifact.paths.is_some());
-        assert!(artifact.pdf_text.is_some());
+        assert!(has_path_output(&artifact.paths));
+        assert!(has_pdf_text(&artifact.pdf_text));
         assert_eq!(
             artifact
                 .positioned_runs
@@ -558,13 +505,7 @@ mod tests {
     #[test]
     fn named_emoji_alias_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine
             .typeset_markup_line("Revenue #emoji.rocket", &options)
@@ -579,20 +520,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Revenue ", "🚀"]
         );
-        assert!(artifact.paths.is_some());
-        assert!(artifact.pdf_text.is_some());
+        assert!(has_path_output(&artifact.paths));
+        assert!(has_pdf_text(&artifact.pdf_text));
     }
 
     #[test]
     fn named_symbol_alias_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine
             .typeset_markup_line("Flow #sym.arrow.r target", &options)
@@ -607,32 +542,24 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Flow → target"]
         );
-        assert!(artifact.paths.is_some());
+        assert!(has_path_output(&artifact.paths));
         assert!(
             artifact
                 .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.iter().any(|run| run.text == "Flow → target"))
+                .glyph_runs
+                .iter()
+                .any(|run| run.text == "Flow → target")
         );
     }
 
     #[cfg(all(feature = "raster", target_os = "macos"))]
     #[test]
     fn named_emoji_alias_rasterizes_color_pixels_on_macos() {
-        let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: false,
-            raster: Some(crate::RasterRequest { scale: 2.0 }),
-            pdf_text_layer: false,
-            positioned_runs: false,
-        };
-
-        let artifact = engine
-            .typeset_markup_line("Revenue #emoji.rocket", &options)
+        let label = crate::typst_label::LabelEngine::new(EngineOptions::default())
+            .unwrap()
+            .compile("Revenue #emoji.rocket", &Default::default())
             .unwrap();
-        let raster = artifact
-            .raster
+        let raster = crate::typst_label::rasterize(&label, &Default::default())
             .expect("raster output should be produced for emoji text");
 
         assert!(
@@ -654,8 +581,7 @@ mod tests {
     #[test]
     fn unknown_static_command_errors_before_rendering() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = false;
+        let options = LineLayoutOptions::default();
 
         let err = engine
             .typeset_markup_line("#let x = 1", &options)
@@ -673,8 +599,7 @@ mod tests {
     #[test]
     fn static_command_options_render() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
+        let options = LineLayoutOptions::default();
 
         let artifact = engine
             .typeset_markup_line("#underline(stroke: red)[important]", &options)
@@ -683,20 +608,16 @@ mod tests {
         assert!(
             artifact
                 .paths
-                .is_some_and(|paths| paths.items.iter().any(|item| item.stroke.is_some()))
+                .items
+                .iter()
+                .any(|item| item.stroke.is_some())
         );
     }
 
     #[test]
     fn supported_static_decoration_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine
             .typeset_markup_line("#underline[important]", &options)
@@ -705,19 +626,13 @@ mod tests {
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.positioned_runs[0].text, "important");
         assert!(artifact.positioned_runs[0].paths.is_some());
-        assert!(artifact.pdf_text.is_some());
+        assert!(has_pdf_text(&artifact.pdf_text));
     }
 
     #[test]
     fn static_case_transform_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine
             .typeset_markup_line("Mode #lower[MiXeD #sym.arrow.r] #upper(\"loud\")", &options)
@@ -731,25 +646,20 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Mode ", "mixed →", " ", "LOUD"]
         );
-        assert!(artifact.paths.is_some());
+        assert!(has_path_output(&artifact.paths));
         assert!(
             artifact
                 .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.iter().any(|run| run.text == "mixed →"))
+                .glyph_runs
+                .iter()
+                .any(|run| run.text == "mixed →")
         );
     }
 
     #[test]
     fn static_smallcaps_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let smallcaps = engine
             .typeset_markup_line(
@@ -766,13 +676,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Smallcaps", " ", "UNICEF"]
         );
-        assert!(smallcaps.paths.is_some());
+        assert!(has_path_output(&smallcaps.paths));
         assert_eq!(
-            smallcaps
-                .pdf_text
-                .as_ref()
-                .map(|pdf| pdf.semantic_text.as_str()),
-            Some("#smallcaps[Smallcaps] #smallcaps(all: true)[UNICEF]")
+            smallcaps.pdf_text.semantic_text.as_str(),
+            "#smallcaps[Smallcaps] #smallcaps(all: true)[UNICEF]"
         );
         assert!(
             smallcaps.metrics.width > 0.0,
@@ -781,8 +688,9 @@ mod tests {
         assert!(
             smallcaps
                 .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.iter().any(|run| run.text == "Smallcaps")),
+                .glyph_runs
+                .iter()
+                .any(|run| run.text == "Smallcaps"),
             "smallcaps text should remain PDF text rather than path-only output"
         );
     }
@@ -790,13 +698,7 @@ mod tests {
     #[test]
     fn static_emph_and_strong_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine
             .typeset_markup_line(
@@ -841,12 +743,13 @@ mod tests {
                 .map(|style| &style.font_weight),
             Some(&FontWeight::Number(550))
         );
-        assert!(artifact.paths.is_some());
+        assert!(has_path_output(&artifact.paths));
         assert!(
             artifact
                 .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.iter().any(|run| run.text == "Strong"))
+                .glyph_runs
+                .iter()
+                .any(|run| run.text == "Strong")
         );
 
         let solo = engine.typeset_markup_line("#emph[solo]", &options).unwrap();
@@ -865,12 +768,6 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let mut options = LineLayoutOptions::default();
         options.text_style.font_size = 20.0;
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
 
         let artifact = engine
             .typeset_markup_line("Use `x # y` and #raw(\"z * w\")", &options)
@@ -892,26 +789,25 @@ mod tests {
             assert_eq!(style.font_family, "monospace");
             assert_eq!(style.font_size, 16.0);
         }
-        assert!(artifact.paths.is_some());
+        assert!(has_path_output(&artifact.paths));
         assert!(
-            artifact.pdf_text.as_ref().is_some_and(|pdf| pdf
+            artifact
+                .pdf_text
                 .glyph_runs
                 .iter()
                 .any(|run| run.text == "x # y")
-                && pdf.glyph_runs.iter().any(|run| run.text == "z * w"))
+                && artifact
+                    .pdf_text
+                    .glyph_runs
+                    .iter()
+                    .any(|run| run.text == "z * w")
         );
     }
 
     #[test]
     fn static_subscript_and_superscript_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine
             .typeset_markup_line("H#sub[2]O #super[\\*]", &options)
@@ -936,8 +832,8 @@ mod tests {
                 .as_ref()
                 .is_some_and(|style| style.font_size < options.text_style.font_size)
         );
-        assert!(artifact.paths.is_some());
-        assert!(artifact.pdf_text.is_some());
+        assert!(has_path_output(&artifact.paths));
+        assert!(has_pdf_text(&artifact.pdf_text));
     }
 
     #[test]
@@ -945,12 +841,6 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let mut options = LineLayoutOptions::default();
         options.text_style.font_size = 20.0;
-        options.outputs = LineOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
 
         let source = "x#super(typographic: false, baseline: -0.25em, size: 0.7em)[N] \
                       y#sub(typographic: false, baseline: 0.2em, size: 0.6em)[2]";
@@ -981,8 +871,8 @@ mod tests {
                 .as_ref()
                 .is_some_and(|style| (style.font_size - 12.0).abs() < 1e-4)
         );
-        assert!(artifact.paths.is_some());
-        assert!(artifact.pdf_text.is_some());
+        assert!(has_path_output(&artifact.paths));
+        assert!(has_pdf_text(&artifact.pdf_text));
     }
 
     #[test]
@@ -1005,12 +895,7 @@ mod tests {
     #[test]
     fn simple_row_math_fragment_metrics_only_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: false,
-            raster: None,
-            pdf_text_layer: false,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine
             .typeset_fragment("alpha + beta -> gamma", &options)
@@ -1022,59 +907,36 @@ mod tests {
     #[test]
     fn simple_row_math_fragment_paths_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: false,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine
             .typeset_fragment("alpha + beta -> gamma", &options)
             .unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| !paths.items.is_empty())
-        );
+        assert!(has_path_output(&artifact.paths));
     }
 
     #[test]
     fn simple_row_math_fragment_pdf_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine
             .typeset_fragment("alpha + beta -> gamma", &options)
             .unwrap();
 
-        assert!(artifact.pdf_text.is_some());
+        assert!(has_pdf_text(&artifact.pdf_text));
         assert_eq!(artifact.font_resources.len(), 1);
     }
 
     #[test]
     fn simple_script_math_fragment_pdf_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine.typeset_fragment("R^2 = 0.94", &options).unwrap();
 
-        let pdf = artifact
-            .pdf_text
-            .as_ref()
-            .expect("Typst script path should emit PDF glyph metadata");
+        let pdf = &artifact.pdf_text;
         assert!(pdf.glyph_runs.iter().any(|run| run.font_size < 12.0));
         assert_eq!(artifact.font_resources.len(), 1);
     }
@@ -1082,351 +944,157 @@ mod tests {
     #[test]
     fn simple_fraction_math_fragment_paths_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine.typeset_fragment("a / (b + c)", &options).unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 5)
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 4)
-        );
+        assert_eq!(artifact.paths.items.len(), 5);
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 4);
     }
 
     #[test]
     fn simple_frac_call_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine.typeset_fragment("frac(x + y, z)", &options).unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 5)
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 4)
-        );
+        assert_eq!(artifact.paths.items.len(), 5);
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 4);
     }
 
     #[test]
     fn simple_binom_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine.typeset_fragment("binom(n, k)", &options).unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 4)
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 4)
-        );
+        assert_eq!(artifact.paths.items.len(), 4);
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 4);
     }
 
     #[test]
     fn simple_cancel_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine.typeset_fragment("cancel(x)", &options).unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 2)
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 1)
-        );
+        assert_eq!(artifact.paths.items.len(), 2);
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 1);
     }
 
     #[test]
     fn simple_sqrt_fraction_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine
             .typeset_fragment("sqrt(x) / (1 + x^2)", &options)
             .unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 8)
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 6)
-        );
+        assert_eq!(artifact.paths.items.len(), 8);
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 6);
     }
 
     #[test]
     fn simple_indexed_root_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine.typeset_fragment("root(3, x)", &options).unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 4)
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 3)
-        );
+        assert_eq!(artifact.paths.items.len(), 4);
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 3);
     }
 
     #[test]
     fn simple_group_math_fragment_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine.typeset_fragment("x(t)", &options).unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 4)
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 4)
-        );
+        assert_eq!(artifact.paths.items.len(), 4);
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 4);
     }
 
     #[test]
     fn identifier_subscript_group_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine.typeset_fragment("J_n(x)", &options).unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 5)
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 5)
-        );
+        assert_eq!(artifact.paths.items.len(), 5);
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 5);
     }
 
     #[test]
     fn simple_delimiter_call_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine.typeset_fragment("abs(x)", &options).unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 3)
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 3)
-        );
+        assert_eq!(artifact.paths.items.len(), 3);
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 3);
     }
 
     #[test]
     fn simple_lr_call_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine.typeset_fragment("lr(|x + y|)", &options).unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 5)
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 5)
-        );
+        assert_eq!(artifact.paths.items.len(), 5);
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 5);
     }
 
     #[test]
     fn simple_operator_call_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine.typeset_fragment("sin(x)", &options).unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| paths.items.len() == 6)
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 4)
-        );
+        assert_eq!(artifact.paths.items.len(), 6);
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 4);
     }
 
     #[test]
     fn operator_identifier_script_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine
             .typeset_fragment("lim_(x -> oo) f(x)", &options)
             .unwrap();
 
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| !paths.items.is_empty())
-        );
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() > 6)
-        );
+        assert!(has_path_output(&artifact.paths));
+        assert!(artifact.pdf_text.glyph_runs.len() > 6);
     }
 
     #[test]
     fn common_named_symbols_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: true,
-            raster: None,
-            pdf_text_layer: true,
-        };
+        let options = MathLayoutOptions::default();
 
         let artifact = engine
             .typeset_fragment("forall x in RR + A subset.eq B + arrow.r.double", &options)
             .unwrap();
 
         assert!(artifact.metrics.width > 0.0);
-        assert!(
-            artifact
-                .paths
-                .as_ref()
-                .is_some_and(|paths| !paths.items.is_empty())
-        );
+        assert!(has_path_output(&artifact.paths));
         let glyph_text = artifact
             .pdf_text
-            .as_ref()
-            .map(|pdf| {
-                pdf.glyph_runs
-                    .iter()
-                    .flat_map(|run| run.glyphs.iter())
-                    .map(|glyph| glyph.unicode.as_str())
-                    .collect::<String>()
-            })
-            .unwrap_or_default();
+            .glyph_runs
+            .iter()
+            .flat_map(|run| run.glyphs.iter())
+            .map(|glyph| glyph.unicode.as_str())
+            .collect::<String>();
         assert!(glyph_text.contains('∀'));
         assert!(glyph_text.contains('∈'));
         assert!(glyph_text.contains('⊆'));
@@ -1438,11 +1106,6 @@ mod tests {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let mut options = MathLayoutOptions::default();
         options.style.font_weight = FontWeight::Bold;
-        options.outputs = MathOutputOptions {
-            paths: false,
-            raster: None,
-            pdf_text_layer: true,
-        };
 
         let artifact = engine.typeset_fragment("R^2 + beta", &options).unwrap();
 
@@ -1455,26 +1118,19 @@ mod tests {
     #[cfg(feature = "raster")]
     #[test]
     fn simple_row_math_fragment_raster_uses_typst_engine() {
-        let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = MathLayoutOptions::default();
-        options.outputs = MathOutputOptions {
-            paths: false,
-            raster: Some(crate::typst_render::RasterRequest { scale: 1.5 }),
-            pdf_text_layer: false,
-        };
-
-        let artifact = engine
-            .typeset_fragment("alpha + beta -> gamma", &options)
+        let label = crate::typst_label::LabelEngine::new(EngineOptions::default())
+            .unwrap()
+            .compile("$alpha + beta -> gamma$", &Default::default())
             .unwrap();
-
-        assert!(artifact.raster.is_some());
+        let raster = crate::typst_label::rasterize(&label, &Default::default())
+            .expect("raster output should be produced for math text");
+        assert!(raster.image.width > 0 && raster.image.height > 0);
     }
 
     #[test]
     fn matrix_text_line_span_reports_source_offset() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = false;
+        let options = LineLayoutOptions::default();
 
         let err = engine
             .typeset_markup_line("before $mat(1, 2; 3, 4)$ after", &options)
@@ -1492,13 +1148,7 @@ mod tests {
     #[test]
     fn plain_text_line_metrics_only_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: false,
-            raster: None,
-            pdf_text_layer: false,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine.typeset_markup_line("Hello", &options).unwrap();
 
@@ -1510,36 +1160,19 @@ mod tests {
     #[test]
     fn plain_text_line_pdf_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: false,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine.typeset_markup_line("Hello", &options).unwrap();
 
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.font_resources.len(), 1);
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| pdf.glyph_runs.len() == 1)
-        );
+        assert_eq!(artifact.pdf_text.glyph_runs.len(), 1);
     }
 
     #[test]
     fn mixed_text_math_metrics_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: false,
-            raster: None,
-            pdf_text_layer: false,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine
             .typeset_markup_line("Price \\$7, score $R^2$ = 0.94", &options)
@@ -1555,15 +1188,13 @@ mod tests {
     #[test]
     fn mixed_text_math_paths_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs.paths = true;
-        options.outputs.positioned_runs = true;
+        let options = LineLayoutOptions::default();
 
         let artifact = engine
             .typeset_markup_line("Price \\$7, score $R^2$ = 0.94", &options)
             .unwrap();
 
-        assert!(artifact.paths.is_some());
+        assert!(has_path_output(&artifact.paths));
         assert_eq!(artifact.positioned_runs.len(), 3);
         assert!(artifact.positioned_runs[1].paths.is_some());
     }
@@ -1571,25 +1202,14 @@ mod tests {
     #[test]
     fn mixed_text_math_pdf_uses_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: false,
-            raster: None,
-            pdf_text_layer: true,
-            positioned_runs: true,
-        };
+        let options = LineLayoutOptions::default();
 
         let artifact = engine
             .typeset_markup_line("Price \\$7, score $R^2$ = 0.94", &options)
             .unwrap();
 
         assert_eq!(artifact.font_resources.len(), 2);
-        assert!(
-            artifact
-                .pdf_text
-                .as_ref()
-                .is_some_and(|pdf| !pdf.glyph_runs.is_empty())
-        );
+        assert!(has_pdf_text(&artifact.pdf_text));
         assert_eq!(artifact.positioned_runs.len(), 3);
         assert!(artifact.positioned_runs[0].pdf_text.is_none());
         assert!(artifact.positioned_runs[1].pdf_text.is_some());
@@ -1599,25 +1219,12 @@ mod tests {
     #[cfg(feature = "raster")]
     #[test]
     fn mixed_text_math_raster_uses_typst_engine() {
-        let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = LineLayoutOptions::default();
-        options.outputs = LineOutputOptions {
-            paths: false,
-            raster: Some(crate::typst_render::RasterRequest { scale: 1.5 }),
-            pdf_text_layer: false,
-            positioned_runs: false,
-        };
-
-        let artifact = engine
-            .typeset_markup_line("Price \\$7, score $R^2$ = 0.94", &options)
+        let label = crate::typst_label::LabelEngine::new(EngineOptions::default())
+            .unwrap()
+            .compile("Price \\$7, score $R^2$ = 0.94", &Default::default())
             .unwrap();
-
-        assert!(artifact.paths.is_none());
-        assert!(
-            artifact
-                .raster
-                .as_ref()
-                .is_some_and(|raster| raster.image.width > 0 && raster.image.height > 0)
-        );
+        let raster = crate::typst_label::rasterize(&label, &Default::default())
+            .expect("raster output should be produced for mixed text");
+        assert!(raster.image.width > 0 && raster.image.height > 0);
     }
 }
