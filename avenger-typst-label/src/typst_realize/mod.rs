@@ -27,8 +27,15 @@ pub(crate) enum RenderNode {
 pub(crate) struct DecoratedText {
     pub(crate) kind: TextMarkupKind,
     pub(crate) options: TextMarkupOptions,
+    pub(crate) nested: Vec<TextMarkupRun>,
     pub(crate) text: String,
     pub(crate) byte_range: std::ops::Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TextMarkupRun {
+    pub(crate) kind: TextMarkupKind,
+    pub(crate) options: TextMarkupOptions,
 }
 
 pub(crate) fn realize_static_markup_line(
@@ -101,10 +108,10 @@ pub(crate) fn realize_static_markup_line(
                 let Some(kind) = supported_static_markup_kind(span.kind) else {
                     return Ok(None);
                 };
-                let Some(body) = render_plain_static_body(&span.body, params)? else {
+                let Some(body) = render_static_body(&span.body, params)? else {
                     return Ok(None);
                 };
-                let text = transform_static_text(kind, &body);
+                let text = transform_static_text(kind, &body.text);
                 flush_plain(
                     &mut nodes,
                     &mut pending_plain,
@@ -115,6 +122,7 @@ pub(crate) fn realize_static_markup_line(
                     nodes.push(RenderNode::DecoratedText(DecoratedText {
                         kind,
                         options: span.options.clone(),
+                        nested: body.nested,
                         text,
                         byte_range: span.body_range.clone(),
                     }));
@@ -168,11 +176,17 @@ fn transform_static_text(kind: TextMarkupKind, text: &str) -> String {
     }
 }
 
-fn render_plain_static_body(
+struct RealizedStaticBody {
+    text: String,
+    nested: Vec<TextMarkupRun>,
+}
+
+fn render_static_body(
     nodes: &[LineNode],
     params: &LabelParams,
-) -> Result<Option<String>, LabelError> {
+) -> Result<Option<RealizedStaticBody>, LabelError> {
     let mut text = String::new();
+    let mut nested = Vec::new();
     for node in nodes {
         match node {
             LineNode::Plain(plain) => text.push_str(&plain.text),
@@ -185,10 +199,21 @@ fn render_plain_static_body(
                     param.byte_range.start,
                 )?);
             }
+            LineNode::TextSpan(span) if span.kind.is_line_decoration() => {
+                let Some(body) = render_static_body(&span.body, params)? else {
+                    return Ok(None);
+                };
+                text.push_str(&body.text);
+                nested.push(TextMarkupRun {
+                    kind: span.kind,
+                    options: span.options.clone(),
+                });
+                nested.extend(body.nested);
+            }
             LineNode::Math(_) | LineNode::TextSpan(_) => return Ok(None),
         }
     }
-    Ok(Some(text))
+    Ok(Some(RealizedStaticBody { text, nested }))
 }
 
 fn render_label_param(

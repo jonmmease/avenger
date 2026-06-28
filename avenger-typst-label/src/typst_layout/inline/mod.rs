@@ -79,6 +79,24 @@ impl TextDecoration {
     }
 }
 
+fn text_decorations_for_run(decorated: &DecoratedText) -> Vec<TextDecoration> {
+    let mut decorations = Vec::new();
+    if decorated.kind.is_line_decoration() {
+        decorations.push(TextDecoration::from_markup(
+            decorated.kind,
+            decorated.options.clone(),
+        ));
+    }
+    decorations.extend(
+        decorated
+            .nested
+            .iter()
+            .filter(|nested| nested.kind.is_line_decoration())
+            .map(|nested| TextDecoration::from_markup(nested.kind, nested.options.clone())),
+    );
+    decorations
+}
+
 fn shape_plain_text_for_style(
     style: &PlainTextStyle,
     text: &str,
@@ -111,10 +129,10 @@ fn try_typeset_plain_text_line(
             else {
                 return Ok(None);
             };
-            typeset_segmented_plain_text_line(source, plain, None, options, segmented)
+            typeset_segmented_plain_text_line(source, plain, &[], options, segmented)
         }
         RenderNode::DecoratedText(decorated) => {
-            let decoration = TextDecoration::from_markup(decorated.kind, decorated.options.clone());
+            let decorations = text_decorations_for_run(decorated);
             let run_style =
                 text_style_for_static_run(&options.text_style, decorated.kind, &decorated.options);
             let Some(face) =
@@ -129,7 +147,7 @@ fn try_typeset_plain_text_line(
                     text: decorated.text.clone(),
                     byte_range: decorated.byte_range.clone(),
                 },
-                Some(decoration),
+                &decorations,
                 &features,
                 &run_style,
                 options,
@@ -180,7 +198,7 @@ fn try_typeset_mixed_metrics_text_line(
                     metrics.baseline,
                     text_font_size,
                     options.text_style.fill,
-                    None,
+                    &[],
                 ));
                 let (pdf_text, font_resources) = plain_pdf_text_from_segmented(
                     &plain.text,
@@ -217,8 +235,7 @@ fn try_typeset_mixed_metrics_text_line(
                 if decorated.text.is_empty() {
                     continue;
                 }
-                let decoration =
-                    TextDecoration::from_markup(decorated.kind, decorated.options.clone());
+                let decorations = text_decorations_for_run(decorated);
                 let script = text_script_for_kind(decorated.kind);
                 let base_run_style = text_style_for_static_run(
                     &options.text_style,
@@ -266,7 +283,7 @@ fn try_typeset_mixed_metrics_text_line(
                     glyph_baseline_y,
                     run_font_size,
                     run_style.fill,
-                    Some(decoration.clone()),
+                    &decorations,
                 ));
                 let glyph_paths = glyph_outline_paths_from_shaped(
                     &text_face,
@@ -275,7 +292,7 @@ fn try_typeset_mixed_metrics_text_line(
                     glyph_baseline_y,
                 );
                 let positioned_paths = decoration_path_artifact(
-                    decoration,
+                    &decorations,
                     metrics,
                     run_font_size,
                     run_style.fill,
@@ -650,7 +667,7 @@ fn positioned_plain_runs_from_segmented(
                         baseline,
                         run_style.font_size,
                         text_style.fill,
-                        None,
+                        &[],
                     );
                     (!paths.images.is_empty()).then(|| {
                         offset_path_artifact(
@@ -775,7 +792,7 @@ fn plain_path_artifact_from_shaped(
     glyph_baseline_y: f32,
     font_size: f32,
     fill: Color,
-    decoration: Option<TextDecoration>,
+    decorations: &[TextDecoration],
 ) -> PathArtifact {
     let mut items = Vec::new();
     let mut images = Vec::new();
@@ -814,25 +831,25 @@ fn plain_path_artifact_from_shaped(
         }
     }
 
-    if decoration
-        .as_ref()
-        .is_some_and(TextDecoration::is_background)
+    for decoration in decorations
+        .iter()
+        .filter(|decoration| decoration.is_background())
     {
-        if let Some(highlight) = decoration_path_item(
-            decoration.clone().unwrap(),
+        if let Some(item) = decoration_path_item(
+            decoration.clone(),
             metrics,
             font_size,
             fill,
             None,
             &glyph_paths,
         ) {
-            items.push(highlight);
+            items.push(item);
         }
     }
     items.extend(glyph_items);
 
-    if let Some(decoration) = decoration
-        .as_ref()
+    for decoration in decorations
+        .iter()
         .filter(|decoration| decoration.is_foreground())
     {
         if let Some(item) = decoration_path_item(
@@ -861,7 +878,7 @@ fn plain_path_artifact_from_segmented(
     glyph_baseline_y: f32,
     font_size: f32,
     fill: Color,
-    decoration: Option<TextDecoration>,
+    decorations: &[TextDecoration],
 ) -> PathArtifact {
     let mut items = Vec::new();
     let mut images = Vec::new();
@@ -902,25 +919,25 @@ fn plain_path_artifact_from_segmented(
         }
     }
 
-    if decoration
-        .as_ref()
-        .is_some_and(TextDecoration::is_background)
+    for decoration in decorations
+        .iter()
+        .filter(|decoration| decoration.is_background())
     {
-        if let Some(highlight) = decoration_path_item(
-            decoration.clone().unwrap(),
+        if let Some(item) = decoration_path_item(
+            decoration.clone(),
             metrics,
             font_size,
             fill,
             None,
             &glyph_paths,
         ) {
-            items.push(highlight);
+            items.push(item);
         }
     }
     items.extend(glyph_items);
 
-    if let Some(decoration) = decoration
-        .as_ref()
+    for decoration in decorations
+        .iter()
         .filter(|decoration| decoration.is_foreground())
     {
         let face = segmented.runs.first().map(|run| &run.face);
@@ -945,20 +962,31 @@ fn plain_path_artifact_from_segmented(
 }
 
 fn decoration_path_artifact(
-    decoration: TextDecoration,
+    decorations: &[TextDecoration],
     metrics: TypesetMetrics,
     font_size: f32,
     fill: Color,
     face: Option<&TextFace>,
     glyph_paths: &[PathData],
 ) -> Option<PathArtifact> {
-    decoration_path_item(decoration, metrics, font_size, fill, face, glyph_paths).map(|item| {
-        PathArtifact {
-            logical_width: metrics.width,
-            logical_height: metrics.height,
-            items: vec![item],
-            images: Vec::new(),
-        }
+    let items = decorations
+        .iter()
+        .filter_map(|decoration| {
+            decoration_path_item(
+                decoration.clone(),
+                metrics,
+                font_size,
+                fill,
+                face,
+                glyph_paths,
+            )
+        })
+        .collect::<Vec<_>>();
+    (!items.is_empty()).then_some(PathArtifact {
+        logical_width: metrics.width,
+        logical_height: metrics.height,
+        items,
+        images: Vec::new(),
     })
 }
 
@@ -1527,7 +1555,7 @@ fn intern_font_resource(
 fn typeset_plain_text_line(
     source: &str,
     plain: &PlainTextNode,
-    decoration: Option<TextDecoration>,
+    decorations: &[TextDecoration],
     features: &[rustybuzz::Feature],
     text_style: &PlainTextStyle,
     _options: &LineLayoutOptions,
@@ -1560,19 +1588,17 @@ fn typeset_plain_text_line(
         metrics.baseline,
         font_size,
         text_style.fill,
-        decoration.clone(),
+        decorations,
     );
     let glyph_paths = glyph_outline_paths_from_shaped(&face, &shaped, font_size, metrics.baseline);
-    let positioned_paths = decoration.clone().and_then(|decoration| {
-        decoration_path_artifact(
-            decoration,
-            metrics,
-            font_size,
-            text_style.fill,
-            Some(&face),
-            &glyph_paths,
-        )
-    });
+    let positioned_paths = decoration_path_artifact(
+        decorations,
+        metrics,
+        font_size,
+        text_style.fill,
+        Some(&face),
+        &glyph_paths,
+    );
     let positioned_runs = vec![PositionedTextLineRun {
         kind: PositionedTextLineRunKind::Plain,
         text: plain.text.clone(),
@@ -1600,7 +1626,7 @@ fn typeset_plain_text_line(
 fn typeset_segmented_plain_text_line(
     source: &str,
     plain: &PlainTextNode,
-    decoration: Option<TextDecoration>,
+    decorations: &[TextDecoration],
     options: &LineLayoutOptions,
     segmented: SegmentedText,
 ) -> Result<Option<LineLayoutArtifact>, LabelError> {
@@ -1620,7 +1646,7 @@ fn typeset_segmented_plain_text_line(
         metrics.baseline,
         font_size,
         options.text_style.fill,
-        decoration.clone(),
+        decorations,
     );
     let mut positioned_runs = positioned_plain_runs_from_segmented(
         plain,
@@ -1629,11 +1655,13 @@ fn typeset_segmented_plain_text_line(
         metrics.baseline,
         true,
     );
-    if let (Some(decoration), Some(first)) = (decoration.clone(), positioned_runs.first_mut()) {
+    if let Some(first) = positioned_runs.first_mut()
+        && !decorations.is_empty()
+    {
         let glyph_paths =
             glyph_outline_paths_from_segmented(&segmented, font_size, metrics.baseline);
         first.paths = decoration_path_artifact(
-            decoration,
+            decorations,
             metrics,
             font_size,
             options.text_style.fill,
@@ -2047,5 +2075,99 @@ mod tests {
 
         assert!((x0 + 2.0).abs() < 1e-4);
         assert!((y - (artifact.metrics.baseline - font_size * 1.2)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn overline_supports_same_literal_options_as_typst() {
+        let fontdb = test_fontdb();
+        let source =
+            "#overline(background: true, stroke: 1.5pt + red, offset: -1.2em, extent: 2pt)[top]";
+        let line = render_line(source);
+        let options = LineLayoutOptions::default();
+        let font_size = options.text_style.font_size.max(1.0);
+
+        let artifact = try_typeset_plain_text_line(source, &line, &options, &fontdb)
+            .unwrap()
+            .expect("supported static overline should use fast path");
+        let paths = artifact.paths;
+
+        assert!(matches!(paths.items[0].kind, PathKind::MathShape));
+        let overline = first_stroke_item(&paths);
+        let stroke = overline.stroke.as_ref().unwrap();
+        let (x0, y) = match overline.path.commands.first() {
+            Some(PathCommand::MoveTo { x, y }) => (*x, *y),
+            other => panic!("expected overline to start with MoveTo, got {other:?}"),
+        };
+        let x1 = match overline.path.commands.get(1) {
+            Some(PathCommand::LineTo { x, .. }) => *x,
+            other => panic!("expected overline to end with LineTo, got {other:?}"),
+        };
+
+        assert_eq!(stroke.color, Color::rgba(1.0, 0.0, 0.0, 1.0));
+        assert!((stroke.width - 1.5).abs() < 1e-4);
+        assert!((x0 + 2.0).abs() < 1e-4);
+        assert!((x1 - (artifact.metrics.width + 2.0)).abs() < 1e-4);
+        assert!((y - (artifact.metrics.baseline - font_size * 1.2)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn strike_supports_literal_options_except_evade() {
+        let fontdb = test_fontdb();
+        let source =
+            "#strike(background: true, stroke: 1.5pt + red, offset: -3.5pt, extent: 2pt)[gone]";
+        let line = render_line(source);
+        let options = LineLayoutOptions::default();
+
+        let artifact = try_typeset_plain_text_line(source, &line, &options, &fontdb)
+            .unwrap()
+            .expect("supported static strike should use fast path");
+        let paths = artifact.paths;
+
+        assert!(matches!(paths.items[0].kind, PathKind::MathShape));
+        let strike = first_stroke_item(&paths);
+        let stroke = strike.stroke.as_ref().unwrap();
+        let (x0, y) = match strike.path.commands.first() {
+            Some(PathCommand::MoveTo { x, y }) => (*x, *y),
+            other => panic!("expected strike to start with MoveTo, got {other:?}"),
+        };
+        let x1 = match strike.path.commands.get(1) {
+            Some(PathCommand::LineTo { x, .. }) => *x,
+            other => panic!("expected strike to end with LineTo, got {other:?}"),
+        };
+
+        assert_eq!(stroke.color, Color::rgba(1.0, 0.0, 0.0, 1.0));
+        assert!((stroke.width - 1.5).abs() < 1e-4);
+        assert!((x0 + 2.0).abs() < 1e-4);
+        assert!((x1 - (artifact.metrics.width + 2.0)).abs() < 1e-4);
+        assert!((y - (artifact.metrics.baseline - 3.5)).abs() < 1e-4);
+        assert_eq!(stroke_commands(&paths).len(), 2);
+    }
+
+    #[test]
+    fn nested_decorations_preserve_order() {
+        let fontdb = test_fontdb();
+        let source = "#underline(background: true, stroke: red)[#overline(stroke: blue)[x]]";
+        let line = render_line(source);
+        let options = LineLayoutOptions::default();
+
+        let artifact = try_typeset_plain_text_line(source, &line, &options, &fontdb)
+            .unwrap()
+            .expect("nested static decorations should use fast path");
+        let stroke_items = artifact
+            .paths
+            .items
+            .iter()
+            .filter(|item| item.stroke.is_some())
+            .collect::<Vec<_>>();
+
+        assert_eq!(stroke_items.len(), 2);
+        assert_eq!(
+            stroke_items[0].stroke.as_ref().unwrap().color,
+            Color::rgba(1.0, 0.0, 0.0, 1.0)
+        );
+        assert_eq!(
+            stroke_items[1].stroke.as_ref().unwrap().color,
+            Color::rgba(0.0, 0.0, 1.0, 1.0)
+        );
     }
 }
