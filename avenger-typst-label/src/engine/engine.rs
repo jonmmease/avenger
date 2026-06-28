@@ -847,6 +847,51 @@ mod tests {
     }
 
     #[test]
+    fn static_subscript_and_superscript_honor_literal_options() {
+        let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.text_style.font_size = 20.0;
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let source = "x#super(typographic: false, baseline: -0.25em, size: 0.7em)[N] \
+                      y#sub(typographic: false, baseline: 0.2em, size: 0.6em)[2]";
+        let artifact = engine.typeset_markup_line(source, &options).unwrap();
+
+        assert_eq!(
+            artifact
+                .positioned_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["x", "N", " y", "2"]
+        );
+        let plain_y = artifact.positioned_runs[0].y;
+        let super_run = &artifact.positioned_runs[1];
+        let sub_run = &artifact.positioned_runs[3];
+        assert!((super_run.y - (plain_y - 5.0)).abs() < 1e-4);
+        assert!((sub_run.y - (plain_y + 4.0)).abs() < 1e-4);
+        assert!(
+            super_run
+                .text_style
+                .as_ref()
+                .is_some_and(|style| (style.font_size - 14.0).abs() < 1e-4)
+        );
+        assert!(
+            sub_run
+                .text_style
+                .as_ref()
+                .is_some_and(|style| (style.font_size - 12.0).abs() < 1e-4)
+        );
+        assert!(artifact.paths.is_some());
+        assert!(artifact.pdf_text.is_some());
+    }
+
+    #[test]
     fn matrix_math_fragment_errors_before_rendering() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
 

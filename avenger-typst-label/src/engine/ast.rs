@@ -62,6 +62,10 @@ impl TextMarkupKind {
         matches!(self, Self::Underline | Self::Strike | Self::Overline)
     }
 
+    pub(crate) fn is_script(self) -> bool {
+        matches!(self, Self::Subscript | Self::Superscript)
+    }
+
     pub(crate) fn is_case_transform(self) -> bool {
         matches!(self, Self::Lower | Self::Upper)
     }
@@ -71,6 +75,7 @@ impl TextMarkupKind {
 pub(crate) struct TextMarkupOptions {
     pub(crate) decoration: TextDecorationOptions,
     pub(crate) smallcaps: TextSmallcapsOptions,
+    pub(crate) script: TextScriptOptions,
     pub(crate) strong: TextStrongOptions,
 }
 
@@ -87,6 +92,23 @@ pub(crate) struct TextStrongOptions {
 impl Default for TextStrongOptions {
     fn default() -> Self {
         Self { delta: 300 }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct TextScriptOptions {
+    pub(crate) typographic: bool,
+    pub(crate) baseline: Option<DecorationLength>,
+    pub(crate) size: Option<DecorationLength>,
+}
+
+impl Default for TextScriptOptions {
+    fn default() -> Self {
+        Self {
+            typographic: true,
+            baseline: None,
+            size: None,
+        }
     }
 }
 

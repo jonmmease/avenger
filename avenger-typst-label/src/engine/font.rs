@@ -11,6 +11,8 @@ use unicode_bidi::BidiInfo;
 use unicode_script::{Script, UnicodeScript};
 use unicode_segmentation::UnicodeSegmentation;
 
+use super::ast::DecorationLength;
+
 #[derive(Clone)]
 pub(crate) struct TextFace {
     data: TextFontData,
@@ -317,11 +319,19 @@ impl TextFace {
         }
     }
 
-    pub(crate) fn script_style(
+    pub(crate) fn script_style_with_size(
         &self,
         parent_style: &PlainTextStyle,
         script: TextScript,
+        explicit_size: Option<DecorationLength>,
     ) -> PlainTextStyle {
+        if let Some(size) = explicit_size {
+            return PlainTextStyle {
+                font_size: size.resolve(parent_style.font_size.max(1.0)).max(1.0),
+                ..parent_style.clone()
+            };
+        }
+
         let Some(face) = self.parsed_face() else {
             return PlainTextStyle {
                 font_size: parent_style.font_size.max(1.0) * 0.7,
@@ -344,7 +354,16 @@ impl TextFace {
         }
     }
 
-    pub(crate) fn script_baseline_shift(&self, parent_font_size: f32, script: TextScript) -> f32 {
+    pub(crate) fn script_baseline_shift_with_baseline(
+        &self,
+        parent_font_size: f32,
+        script: TextScript,
+        explicit_baseline: Option<DecorationLength>,
+    ) -> f32 {
+        if let Some(baseline) = explicit_baseline {
+            return baseline.resolve(parent_font_size.max(1.0));
+        }
+
         let Some(face) = self.parsed_face() else {
             return fallback_script_shift(parent_font_size, script);
         };

@@ -412,11 +412,23 @@ fn try_typeset_mixed_metrics_text_line(
                     return Ok(None);
                 };
                 let run_style = script
-                    .map(|script| text_face.script_style(&base_run_style, script))
+                    .map(|script| {
+                        text_face.script_style_with_size(
+                            &base_run_style,
+                            script,
+                            decorated.options.script.size,
+                        )
+                    })
                     .unwrap_or(base_run_style);
                 let run_font_size = run_style.font_size.max(1.0);
                 let baseline_shift = script
-                    .map(|script| text_face.script_baseline_shift(text_font_size, script))
+                    .map(|script| {
+                        text_face.script_baseline_shift_with_baseline(
+                            text_font_size,
+                            script,
+                            decorated.options.script.baseline,
+                        )
+                    })
                     .unwrap_or(0.0);
                 let features = text_features_for_static_run(decorated.kind, &decorated.options);
                 let shaped = shape_text_for_static_run(
@@ -776,14 +788,15 @@ fn text_features_for_static_run(
     };
 
     match kind {
-        TextMarkupKind::Subscript => push_feature(b"subs"),
-        TextMarkupKind::Superscript => push_feature(b"sups"),
+        TextMarkupKind::Subscript if options.script.typographic => push_feature(b"subs"),
+        TextMarkupKind::Superscript if options.script.typographic => push_feature(b"sups"),
         TextMarkupKind::Smallcaps => {
             push_feature(b"smcp");
             if options.smallcaps.all {
                 push_feature(b"c2sc");
             }
         }
+        TextMarkupKind::Subscript | TextMarkupKind::Superscript => {}
         TextMarkupKind::Underline
         | TextMarkupKind::Strike
         | TextMarkupKind::Overline

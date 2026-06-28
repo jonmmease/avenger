@@ -372,6 +372,26 @@ fn parse_text_markup_option(
         return Ok(());
     }
 
+    if kind.is_script() {
+        match named.name().as_str() {
+            "typographic" => {
+                options.script.typographic = parse_bool_with_message(
+                    named.expr(),
+                    position,
+                    "unsupported script typographic value",
+                )?;
+            }
+            "baseline" => {
+                options.script.baseline = parse_auto_or_length(named.expr(), position)?;
+            }
+            "size" => {
+                options.script.size = parse_auto_or_length(named.expr(), position)?;
+            }
+            _ => return Err(unsupported(position, "unsupported script option")),
+        }
+        return Ok(());
+    }
+
     if !kind.is_line_decoration() {
         return Err(unsupported(
             position,
@@ -946,6 +966,42 @@ mod tests {
         assert_eq!(span.body.len(), 2);
         assert!(
             matches!(&span.body[1], LineNode::TextSpan(inner) if inner.kind == TextMarkupKind::Superscript)
+        );
+    }
+
+    #[test]
+    fn parses_script_text_options() {
+        let line = parse(
+            "#super(typographic: false, baseline: -0.25em, size: 0.7em)[N] \
+             #sub(typographic: false, baseline: 2pt, size: 8pt)[2]",
+        );
+
+        assert_eq!(line.nodes.len(), 3);
+        assert!(matches!(&line.nodes[0], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Superscript
+                && !span.options.script.typographic
+                && span.options.script.baseline == Some(DecorationLength::Em(-0.25))
+                && span.options.script.size == Some(DecorationLength::Em(0.7))
+                && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "N")
+        ));
+        assert!(matches!(&line.nodes[2], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Subscript
+                && !span.options.script.typographic
+                && span.options.script.baseline == Some(DecorationLength::Pt(2.0))
+                && span.options.script.size == Some(DecorationLength::Pt(8.0))
+                && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "2")
+        ));
+    }
+
+    #[test]
+    fn rejects_unknown_script_option() {
+        let err = parse_line("#super(foo: true)[x]").unwrap_err();
+        assert_eq!(
+            err,
+            LabelError::UnsupportedSyntax {
+                position: 7,
+                message: "unsupported script option"
+            }
         );
     }
 

@@ -59,6 +59,18 @@ pixel_tolerance = 6
 min_similarity = 0.65
 
 [[case]]
+id = "text-shift-options"
+upstream_file = "../../typst/tests/suite/text/shift.typ"
+upstream_test = "sub-super-non-typographic"
+source = "text-shift-options.typ"
+font_size = 20.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+pixel_tolerance = 6
+min_similarity = 0.65
+
+[[case]]
 id = "model-emph-strong"
 upstream_file = "../../typst/tests/suite/model/emph-strong.typ"
 upstream_test = "emph-syntax/emph-and-strong-call-in-word/strong-delta smoke"
