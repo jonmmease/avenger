@@ -177,6 +177,7 @@ pub(crate) enum MathCancelAngle {
 pub(crate) struct MathAccent {
     pub(crate) base: Vec<MathNode>,
     pub(crate) accent: char,
+    pub(crate) size: MathAccentSize,
     pub(crate) dotless: bool,
     pub(crate) byte_range: Range<usize>,
 }
@@ -197,6 +198,7 @@ pub(crate) struct MathCallOptions {
 
 pub(crate) type MathDelimitedSize = MathRelativeSize;
 pub(crate) type MathStretchSize = MathRelativeSize;
+pub(crate) type MathAccentSize = MathRelativeSize;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct MathRelativeSize {

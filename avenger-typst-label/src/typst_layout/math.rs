@@ -1371,6 +1371,7 @@ enum DelimiterTarget {
 }
 
 const DELIMITER_SHORT_FALL_EM: f32 = 0.1;
+const ACCENT_SHORT_FALL_EM: f32 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MathStretchAxis {
@@ -1803,6 +1804,16 @@ fn layout_simple_accent(
     let height = base.metrics.height;
     let baseline = base.metrics.baseline;
     let mut accent_atom = layout_accent_atom(font, accent.accent, font_size, script_level)?;
+    let accent_target_width = resolve_relative_math_size(accent.size, width, font_size).max(0.0);
+    let _ = stretch_single_glyph_variant(
+        font,
+        &mut accent_atom,
+        MathStretchAxis::Horizontal,
+        accent_target_width,
+        ACCENT_SHORT_FALL_EM * font_size,
+        false,
+        "math accent stretch variants",
+    )?;
     let base_attach = atom_top_accent_attachment(font, &base)?;
     let accent_attach = atom_top_accent_attachment(font, &accent_atom)?;
     let accent_x = base_attach - accent_attach;
@@ -3528,6 +3539,7 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
         MathNode::Accent(accent) => vec![MathNode::Accent(ast::MathAccent {
             base: style_math_nodes(&accent.base, selection),
             accent: accent.accent,
+            size: accent.size,
             dotless: accent.dotless,
             byte_range: accent.byte_range.clone(),
         })],
@@ -5686,6 +5698,37 @@ mod tests {
                 .collect();
             assert_eq!(text, expected, "{source}");
         }
+    }
+
+    #[test]
+    fn simple_row_can_emit_sized_math_accent_call() {
+        let options = MathLayoutOptions::default();
+
+        let sized = parse_math("arrow.l.r(A B C D, size: #200%)", 0).unwrap();
+        let sized_artifact =
+            try_typeset_simple_row_fragment(&sized, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("sized accent call should be handled by Typst row path");
+
+        let glyph_unicodes: Vec<&str> = sized_artifact
+            .pdf_text
+            .glyph_runs
+            .iter()
+            .flat_map(|run| &run.glyphs)
+            .map(|glyph| glyph.unicode.as_str())
+            .collect();
+        assert_eq!(
+            glyph_unicodes
+                .iter()
+                .filter(|unicode| **unicode == "\u{20e1}")
+                .count(),
+            1,
+            "assembled accent should expose one semantic arrow"
+        );
+        assert!(
+            glyph_unicodes.iter().any(|unicode| unicode.is_empty()),
+            "assembled accent should use non-semantic extender glyphs"
+        );
     }
 
     #[test]

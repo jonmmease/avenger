@@ -1594,6 +1594,8 @@ fn lower_math_accent_call<'a>(
     let mut lowered = Vec::new();
     let mut dotless = true;
     let mut saw_dotless = false;
+    let mut size = math_item::MathAccentSize::default();
+    let mut saw_size = false;
     for item in args.arg_items() {
         if item.ends_in_semicolon {
             return Err(unsupported(
@@ -1630,10 +1632,16 @@ fn lower_math_accent_call<'a>(
                         saw_dotless = true;
                     }
                     "size" => {
-                        return Err(unsupported(
+                        if saw_size {
+                            return Err(unsupported(position, "duplicate accent size option"));
+                        }
+                        size = parse_math_stretch_size(
+                            named.expr(),
+                            source,
                             position,
-                            "accent size option is not supported yet",
-                        ));
+                            "unsupported accent size value",
+                        )?;
+                        saw_size = true;
                     }
                     _ => return Err(unsupported(position, "unsupported accent option")),
                 }
@@ -1664,6 +1672,7 @@ fn lower_math_accent_call<'a>(
     Ok(vec![MathNode::Accent(MathAccent {
         base: lowered.remove(0).nodes,
         accent,
+        size,
         dotless,
         byte_range: range,
     })])

@@ -1381,11 +1381,14 @@ mod tests {
 
     #[test]
     fn parses_accent_dotless_option() {
-        let math = parse("hat(dotless: #false, i) + accent(dotless: #true, j, \".\")");
+        let math = parse("hat(dotless: #false, size: #150%, i) + accent(dotless: #true, j, \".\")");
 
         assert!(matches!(
             &math.nodes[0],
-            MathNode::Accent(accent) if accent.accent == '\u{0302}' && !accent.dotless
+            MathNode::Accent(accent)
+                if accent.accent == '\u{0302}'
+                    && !accent.dotless
+                    && (accent.size.relative - 1.5).abs() < f32::EPSILON
         ));
         assert!(matches!(
             &math.nodes[4],
@@ -1396,10 +1399,7 @@ mod tests {
     #[test]
     fn rejects_unsupported_accent_options() {
         for (source, message) in [
-            (
-                "hat(x, size: #150%)",
-                "accent size option is not supported yet",
-            ),
+            ("hat(x, size: #auto)", "unsupported accent size value"),
             ("hat(x, dotless: 1)", "unsupported accent dotless value"),
             ("accent(x, ., foo: #true)", "unsupported accent option"),
             ("accent(x)", "accent math expects a base and accent"),
