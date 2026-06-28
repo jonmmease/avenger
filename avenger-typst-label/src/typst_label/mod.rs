@@ -4,11 +4,11 @@ use indexmap::IndexMap;
 
 use crate::typst_eval::call::is_retained_markup_name;
 use crate::typst_eval::math::is_retained_math_name;
-use crate::typst_layout::engine::TypstEngineCore;
 use crate::typst_layout::frame::{
     LineLayoutArtifact, LineLayoutOptions, LineOutputOptions, PositionedTextLineRun,
     PositionedTextLineRunKind, TypesetMetrics,
 };
+use crate::typst_layout::line::TypstEngineCore;
 use crate::typst_library::{MathStyle, PlainTextStyle};
 use crate::typst_pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 pub use crate::typst_render::RasterImage;
