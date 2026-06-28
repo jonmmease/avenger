@@ -1193,6 +1193,10 @@ mod tests {
                 "cancel(x, stroke: #auto.none)",
                 "unsupported decoration stroke value",
             ),
+            (
+                "cancel(x, stroke: #(paint: gradient.linear(red, blue)))",
+                "unsupported decoration paint",
+            ),
         ] {
             let err = parse_math(source, 0).unwrap_err();
             assert!(

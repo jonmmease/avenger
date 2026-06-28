@@ -840,6 +840,27 @@ mod tests {
                 message: "unsupported stroke dictionary field"
             }
         );
+
+        let err =
+            parse_line("#underline(stroke: 1pt + gradient.linear(red, blue))[group]").unwrap_err();
+
+        assert_eq!(
+            err,
+            LabelError::UnsupportedSyntax {
+                position: 11,
+                message: "unsupported decoration paint"
+            }
+        );
+
+        let err = parse_line("#underline(stroke: pattern())[group]").unwrap_err();
+
+        assert_eq!(
+            err,
+            LabelError::UnsupportedSyntax {
+                position: 11,
+                message: "unsupported decoration paint"
+            }
+        );
     }
 
     #[test]

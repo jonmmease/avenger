@@ -418,6 +418,9 @@ fn parse_stroke_part_with_params(
             dash: None,
         });
     }
+    if is_non_solid_paint_expr(expr) {
+        return Err(unsupported(position, "unsupported decoration paint"));
+    }
     if matches!(expr, typst_ast::Expr::Auto(_)) {
         return Ok(DecorationStroke::default());
     }
@@ -723,6 +726,31 @@ fn parse_paint(
             .ok_or_else(|| unsupported(position, "unsupported decoration paint")),
         _ => Err(unsupported(position, "unsupported decoration paint")),
     }
+}
+
+fn is_non_solid_paint_expr(expr: typst_ast::Expr<'_>) -> bool {
+    code_expr_name(expr).is_some_and(|name| {
+        name == "gradient"
+            || name.starts_with("gradient.")
+            || name == "pattern"
+            || name.starts_with("pattern.")
+    })
+}
+
+fn code_expr_name(expr: typst_ast::Expr<'_>) -> Option<String> {
+    match expr {
+        typst_ast::Expr::Ident(ident) => Some(ident.as_str().to_string()),
+        typst_ast::Expr::FieldAccess(access) => code_field_access_name(access),
+        typst_ast::Expr::FuncCall(call) => code_expr_name(call.callee()),
+        _ => None,
+    }
+}
+
+fn code_field_access_name(access: typst_ast::FieldAccess<'_>) -> Option<String> {
+    let mut name = code_expr_name(access.target())?;
+    name.push('.');
+    name.push_str(access.field().as_str());
+    Some(name)
 }
 
 fn param_value_for_ident<'a>(
