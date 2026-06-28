@@ -12,8 +12,8 @@ use crate::style::{Color, FontWeight, MathFontSpec};
 use crate::types::{MathFragmentOptions, MathRunArtifact, TypesetMetrics};
 
 use super::ast::{
-    MathAccent, MathAst, MathCancel, MathCancelAngle, MathNode, MathOperator, MathShorthand,
-    MathText, MathTextKind,
+    MathAccent, MathAst, MathCancel, MathCancelAngle, MathFractionStyle, MathNode, MathOperator,
+    MathShorthand, MathText, MathTextKind,
 };
 use super::syntax::predefined_operator_text;
 
@@ -1276,8 +1276,9 @@ fn layout_simple_fraction(
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     layout_simple_fraction_nodes(
         font,
-        std::slice::from_ref(fraction.numerator.as_ref()),
-        std::slice::from_ref(fraction.denominator.as_ref()),
+        &fraction.numerator,
+        &fraction.denominator,
+        fraction.style,
         font_size,
         script_level,
     )
@@ -1296,6 +1297,7 @@ fn layout_simple_fraction_call(
         font,
         &numerator.nodes,
         &denominator.nodes,
+        MathFractionStyle::Vertical,
         font_size,
         script_level,
     )
@@ -1337,17 +1339,34 @@ fn layout_simple_fraction_nodes(
     font: &MathFont,
     numerator_nodes: &[MathNode],
     denominator_nodes: &[MathNode],
+    style: MathFractionStyle,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    layout_simple_stack_nodes(
-        font,
-        numerator_nodes,
-        denominator_nodes,
-        font_size,
-        script_level,
-        StackRule::Fraction,
-    )
+    match style {
+        MathFractionStyle::Vertical => layout_simple_stack_nodes(
+            font,
+            numerator_nodes,
+            denominator_nodes,
+            font_size,
+            script_level,
+            StackRule::Fraction,
+        ),
+        MathFractionStyle::Skewed => layout_simple_skewed_fraction_nodes(
+            font,
+            numerator_nodes,
+            denominator_nodes,
+            font_size,
+            script_level,
+        ),
+        MathFractionStyle::Horizontal => layout_simple_horizontal_fraction_nodes(
+            font,
+            numerator_nodes,
+            denominator_nodes,
+            font_size,
+            script_level,
+        ),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1527,6 +1546,182 @@ fn finalize_inline_frame_atom(
         shapes,
         draw_order,
     }))
+}
+
+fn layout_simple_horizontal_fraction_nodes(
+    font: &MathFont,
+    numerator_nodes: &[MathNode],
+    denominator_nodes: &[MathNode],
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let Some(numerator) =
+        layout_simple_nodes_as_atom(font, numerator_nodes, font_size, script_level)?
+    else {
+        return Ok(None);
+    };
+    let slash = layout_styled_atom_with_class(
+        font,
+        "/",
+        font_size,
+        script_style_feature(script_level),
+        SimpleMathClass::Binary,
+    )?;
+    let Some(denominator) =
+        layout_simple_nodes_as_atom(font, denominator_nodes, font_size, script_level)?
+    else {
+        return Ok(None);
+    };
+    let left_class = numerator.left_class;
+    let right_class = denominator.right_class;
+
+    Ok(Some(layout_atoms_without_spacing(
+        vec![numerator, slash, denominator],
+        left_class,
+        right_class,
+        true,
+    )))
+}
+
+fn layout_simple_skewed_fraction_nodes(
+    font: &MathFont,
+    numerator_nodes: &[MathNode],
+    denominator_nodes: &[MathNode],
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let child_font_size = script_font_size(font, font_size, script_level)?;
+    let Some(mut numerator) =
+        layout_fraction_child_nodes(font, numerator_nodes, child_font_size, script_level + 1)?
+    else {
+        return Ok(None);
+    };
+    let Some(mut denominator) =
+        layout_fraction_child_nodes(font, denominator_nodes, child_font_size, script_level + 1)?
+    else {
+        return Ok(None);
+    };
+
+    let vgap = math_constant(font, font_size, |constants| {
+        constants.skewed_fraction_vertical_gap().value
+    })?;
+    let hgap = math_constant(font, font_size, |constants| {
+        constants.skewed_fraction_horizontal_gap().value
+    })?;
+    let axis = math_constant(font, font_size, |constants| constants.axis_height().value)?;
+
+    let mut fraction_height = numerator.metrics.height + denominator.metrics.height + vgap;
+    let mut slash = layout_delimiter_atom_with_target(
+        font,
+        '⁄',
+        font_size,
+        script_level,
+        fraction_height,
+        SimpleMathClass::Binary,
+        true,
+    )?;
+    let vertical_offset = ((slash.metrics.height - fraction_height).max(0.0)) / 2.0;
+    fraction_height = fraction_height.max(slash.metrics.height);
+
+    let mut slash_x = numerator.metrics.width + hgap / 2.0 - slash.metrics.width / 2.0;
+    let slash_y = fraction_height / 2.0 - slash.metrics.height / 2.0;
+    let mut numerator_x = 0.0;
+    let numerator_y = vertical_offset;
+    let mut denominator_x = numerator_x + numerator.metrics.width + hgap;
+    let denominator_y = numerator_y + numerator.metrics.height + vgap;
+    let horizontal_offset = (-slash_x).max(0.0);
+    slash_x += horizontal_offset;
+    numerator_x += horizontal_offset;
+    denominator_x += horizontal_offset;
+
+    let width = (denominator_x + denominator.metrics.width)
+        .max(slash_x + slash.metrics.width)
+        .max(numerator_x + numerator.metrics.width);
+    let baseline = fraction_height / 2.0 + axis;
+    offset_atom_to_top_left(&mut numerator, numerator_x, numerator_y);
+    offset_atom_to_top_left(&mut denominator, denominator_x, denominator_y);
+    offset_atom_to_top_left(&mut slash, slash_x, slash_y);
+
+    let mut glyphs = Vec::new();
+    let mut shapes = Vec::new();
+    let mut draw_order = Vec::new();
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, numerator);
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, denominator);
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, slash);
+
+    Ok(Some(LaidOutMathAtom {
+        metrics: TypesetMetrics {
+            width,
+            height: fraction_height,
+            baseline,
+            ascent: baseline,
+            descent: fraction_height - baseline,
+        },
+        ink_ascent: baseline,
+        ink_descent: fraction_height - baseline,
+        left_class: SimpleMathClass::Normal,
+        right_class: SimpleMathClass::Normal,
+        italic_correction: 0.0,
+        script_kernable: true,
+        glyphs,
+        shapes,
+        draw_order,
+    }))
+}
+
+fn layout_atoms_without_spacing(
+    atoms: Vec<LaidOutMathAtom>,
+    left_class: SimpleMathClass,
+    right_class: SimpleMathClass,
+    script_kernable: bool,
+) -> LaidOutMathAtom {
+    let baseline = atoms
+        .iter()
+        .map(|atom| atom.metrics.baseline)
+        .fold(0.0, f32::max);
+    let descent = atoms
+        .iter()
+        .map(|atom| atom.metrics.descent)
+        .fold(0.0, f32::max);
+    let height = baseline + descent;
+    let mut width = 0.0;
+    let mut ink_ascent: f32 = 0.0;
+    let mut ink_descent: f32 = 0.0;
+    let mut glyphs = Vec::new();
+    let mut shapes = Vec::new();
+    let mut draw_order = Vec::new();
+
+    for mut atom in atoms {
+        let dy = baseline - atom.metrics.baseline;
+        ink_ascent = ink_ascent.max(atom.ink_ascent + dy);
+        ink_descent = ink_descent.max((atom.ink_descent - dy).max(0.0));
+        offset_atom(&mut atom, width, dy);
+        width += atom.metrics.width;
+        append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, atom);
+    }
+
+    LaidOutMathAtom {
+        metrics: TypesetMetrics {
+            width,
+            height,
+            baseline,
+            ascent: baseline,
+            descent,
+        },
+        ink_ascent,
+        ink_descent,
+        left_class,
+        right_class,
+        italic_correction: 0.0,
+        script_kernable,
+        glyphs,
+        shapes,
+        draw_order,
+    }
+}
+
+fn offset_atom_to_top_left(atom: &mut LaidOutMathAtom, x: f32, y: f32) {
+    offset_atom(atom, x, y + atom.metrics.ascent - atom.metrics.baseline);
 }
 
 fn layout_fraction_child(
@@ -2574,8 +2769,9 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
         }
         MathNode::Fraction(fraction) => {
             vec![MathNode::Fraction(super::ast::MathFraction {
-                numerator: Box::new(style_single_math_node(&fraction.numerator, selection)),
-                denominator: Box::new(style_single_math_node(&fraction.denominator, selection)),
+                numerator: style_math_nodes(&fraction.numerator, selection),
+                denominator: style_math_nodes(&fraction.denominator, selection),
+                style: fraction.style,
                 slash_range: fraction.slash_range.clone(),
                 byte_range: fraction.byte_range.clone(),
             })]
@@ -4018,6 +4214,40 @@ mod tests {
         );
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 4);
+    }
+
+    #[test]
+    fn simple_row_can_emit_frac_style_variants() {
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        for source in [
+            "frac(x + y, z, style: \"skewed\")",
+            "frac(x + y, z, style: \"horizontal\")",
+        ] {
+            let math = parse_math(source, 0).unwrap();
+            let artifact =
+                try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("{source} should be handled by Typst row path"));
+            let paths = artifact.paths.expect("fraction paths should exist");
+            assert!(
+                paths
+                    .items
+                    .iter()
+                    .all(|item| !matches!(item.kind, PathKind::MathShape)),
+                "{source} should not emit a vertical fraction rule"
+            );
+            let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+            assert!(
+                pdf.glyph_runs.len() >= 3,
+                "{source} should emit numerator, slash, and denominator glyphs"
+            );
+        }
     }
 
     #[test]

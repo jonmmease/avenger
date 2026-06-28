@@ -3,8 +3,9 @@ use crate::error::LabelError;
 
 use super::ast::{
     MathAccent, MathArg, MathAst, MathAttach, MathCall, MathCancel, MathCancelAngle,
-    MathCancelLength, MathCancelOptions, MathFraction, MathGroup, MathIdentifier, MathNode,
-    MathOperator, MathShorthand, MathSpace, MathStringLiteral, MathText, MathTextKind,
+    MathCancelLength, MathCancelOptions, MathFraction, MathFractionStyle, MathGroup,
+    MathIdentifier, MathNode, MathOperator, MathShorthand, MathSpace, MathStringLiteral, MathText,
+    MathTextKind,
 };
 
 use crate::syntax::ast::{self as typst_ast, AstNode, Unit};
@@ -211,8 +212,9 @@ fn lower_math_expr(
             );
             let byte_range = numerator.byte_range().start..denominator.byte_range().end;
             Ok(vec![MathNode::Fraction(MathFraction {
-                numerator: Box::new(numerator),
-                denominator: Box::new(denominator),
+                numerator: vec![numerator],
+                denominator: vec![denominator],
+                style: MathFractionStyle::Vertical,
                 slash_range,
                 byte_range,
             })])
@@ -339,6 +341,10 @@ fn lower_math_call(
         })]);
     }
 
+    if name == "frac" {
+        return lower_math_frac_call(call.args(), source, offset, range);
+    }
+
     if name == "attach" {
         return lower_math_attach_call(call.args(), source, offset, range);
     }
@@ -396,6 +402,112 @@ fn lower_math_call(
         byte_range: args_range,
     }));
     Ok(nodes)
+}
+
+fn lower_math_frac_call(
+    args: typst_ast::MathArgs<'_>,
+    source: &str,
+    offset: usize,
+    range: std::ops::Range<usize>,
+) -> Result<Vec<MathNode>, LabelError> {
+    let mut numerator = None;
+    let mut denominator = None;
+    let mut style = MathFractionStyle::Vertical;
+    let mut saw_style = false;
+
+    for item in args.arg_items() {
+        if item.ends_in_semicolon {
+            return Err(unsupported(
+                item.arg.to_untyped().range().end + offset,
+                "semicolon math arguments are not supported in Avenger Typst subset",
+            ));
+        }
+        match item.arg {
+            typst_ast::Arg::Pos(expr) => {
+                let nodes = lower_math_expr(expr, source, offset)?;
+                let byte_range = offset_range(expr.to_untyped().range(), offset);
+                if numerator.is_none() {
+                    numerator = Some((nodes, byte_range));
+                } else if denominator.is_none() {
+                    denominator = Some((nodes, byte_range));
+                } else {
+                    return Err(unsupported(
+                        expr.to_untyped().range().start + offset,
+                        "frac math expects numerator and denominator arguments",
+                    ));
+                }
+            }
+            typst_ast::Arg::Named(named) => {
+                let position = named_argument_position(named, source, offset);
+                match named.name().as_str() {
+                    "style" => {
+                        if saw_style {
+                            return Err(unsupported(position, "duplicate frac style option"));
+                        }
+                        style = parse_math_fraction_style(named.expr(), position)?;
+                        saw_style = true;
+                    }
+                    _ => return Err(unsupported(position, "unsupported frac option")),
+                }
+            }
+            typst_ast::Arg::Spread(spread) => {
+                return Err(unsupported(
+                    spread.to_untyped().range().start + offset,
+                    "spread math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+        }
+    }
+
+    let (numerator, numerator_range) = numerator.ok_or_else(|| {
+        unsupported(
+            range.start,
+            "frac math expects numerator and denominator arguments",
+        )
+    })?;
+    let (denominator, denominator_range) = denominator.ok_or_else(|| {
+        unsupported(
+            range.start,
+            "frac math expects numerator and denominator arguments",
+        )
+    })?;
+    if numerator.is_empty() || denominator.is_empty() {
+        return Err(unsupported(
+            range.start,
+            "frac math numerator and denominator must not be empty",
+        ));
+    }
+
+    Ok(vec![MathNode::Fraction(MathFraction {
+        numerator,
+        denominator,
+        style,
+        slash_range: numerator_range.end..denominator_range.start,
+        byte_range: range,
+    })])
+}
+
+fn parse_math_fraction_style(
+    expr: typst_ast::Expr<'_>,
+    position: usize,
+) -> Result<MathFractionStyle, LabelError> {
+    let style = match expr {
+        typst_ast::Expr::Str(string) => string.get(),
+        typst_ast::Expr::CodeBlock(block) => {
+            let exprs = block.body().exprs().collect::<Vec<_>>();
+            let [typst_ast::Expr::Str(string)] = &exprs[..] else {
+                return Err(unsupported(position, "unsupported frac style value"));
+            };
+            string.get()
+        }
+        _ => return Err(unsupported(position, "unsupported frac style value")),
+    };
+    match style.as_str() {
+        "vertical" => Ok(MathFractionStyle::Vertical),
+        "skewed" => Ok(MathFractionStyle::Skewed),
+        "horizontal" => Ok(MathFractionStyle::Horizontal),
+        _ => Err(unsupported(position, "unsupported frac style value")),
+    }
 }
 
 fn lower_math_attach_call(
@@ -1658,12 +1770,34 @@ mod tests {
             panic!("expected slash fraction");
         };
         assert!(matches!(
-            fraction.numerator.as_ref(),
-            MathNode::Call(call) if call.name == "sqrt"
+            fraction.numerator.as_slice(),
+            [MathNode::Call(call)] if call.name == "sqrt"
         ));
         assert!(matches!(
-            fraction.denominator.as_ref(),
-            MathNode::Group(group) if group.left == '(' && group.right == ')'
+            fraction.denominator.as_slice(),
+            [MathNode::Group(group)] if group.left == '(' && group.right == ')'
+        ));
+    }
+
+    #[test]
+    fn parses_frac_style_options() {
+        let math =
+            parse("frac(x, y) + frac(x, y, style: \"skewed\") + frac(x, y, style: \"horizontal\")");
+
+        assert!(matches!(
+            &math.nodes[0],
+            MathNode::Fraction(fraction)
+                if fraction.style == MathFractionStyle::Vertical
+                    && fraction.numerator.len() == 1
+                    && fraction.denominator.len() == 1
+        ));
+        assert!(matches!(
+            &math.nodes[4],
+            MathNode::Fraction(fraction) if fraction.style == MathFractionStyle::Skewed
+        ));
+        assert!(matches!(
+            &math.nodes[8],
+            MathNode::Fraction(fraction) if fraction.style == MathFractionStyle::Horizontal
         ));
     }
 
@@ -1899,7 +2033,10 @@ mod tests {
 
         assert!(matches!(
             &math.nodes[0],
-            MathNode::Call(call) if call.name == "frac" && call.args.len() == 2
+            MathNode::Fraction(fraction)
+                if fraction.style == MathFractionStyle::Vertical
+                    && fraction.numerator.len() == 1
+                    && fraction.denominator.len() == 1
         ));
         assert!(matches!(
             &math.nodes[4],
@@ -2109,7 +2246,7 @@ mod tests {
 
     #[test]
     fn rejects_named_call_arguments() {
-        let err = parse_math("frac(num: x, denom: y)", 5).unwrap_err();
+        let err = parse_math("sqrt(num: x)", 5).unwrap_err();
 
         assert_eq!(
             err,
@@ -2118,6 +2255,26 @@ mod tests {
                 message: "named math arguments are not supported in Avenger Typst subset"
             }
         );
+    }
+
+    #[test]
+    fn rejects_invalid_frac_options() {
+        for (source, position, message) in [
+            ("frac(x, y, foo: \"bar\")", 14, "unsupported frac option"),
+            (
+                "frac(x, y, style: \"diagonal\")",
+                16,
+                "unsupported frac style value",
+            ),
+            (
+                "frac(x, y, style: #true)",
+                16,
+                "unsupported frac style value",
+            ),
+        ] {
+            let err = parse_math(source, 0).unwrap_err();
+            assert_eq!(err, LabelError::UnsupportedSyntax { position, message });
+        }
     }
 
     #[test]

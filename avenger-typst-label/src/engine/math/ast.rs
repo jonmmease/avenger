@@ -110,10 +110,18 @@ pub(crate) struct MathAttach {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MathFraction {
-    pub(crate) numerator: Box<MathNode>,
-    pub(crate) denominator: Box<MathNode>,
+    pub(crate) numerator: Vec<MathNode>,
+    pub(crate) denominator: Vec<MathNode>,
+    pub(crate) style: MathFractionStyle,
     pub(crate) slash_range: Range<usize>,
     pub(crate) byte_range: Range<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MathFractionStyle {
+    Vertical,
+    Skewed,
+    Horizontal,
 }
 
 #[derive(Debug, Clone, PartialEq)]
