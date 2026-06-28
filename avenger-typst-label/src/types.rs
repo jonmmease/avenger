@@ -1,6 +1,6 @@
 use crate::label::LabelParams;
 use crate::limits::LabelLimits;
-use crate::style::{MathStyle, PlainTextStyle};
+use crate::typst_library::{MathStyle, PlainTextStyle};
 use crate::typst_pdf::{FontResource, PdfTextLayer};
 use crate::typst_render::{RasterImage, RasterRequest};
 use crate::typst_svg::PathArtifact;

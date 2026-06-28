@@ -4,8 +4,8 @@ use crate::engine::ast::DecorationStroke;
 use crate::engine::glyph_path::outline_glyph_path;
 use crate::error::LabelError;
 use crate::label::EngineOptions;
-use crate::style::{Color, FontWeight, MathFontSpec};
 use crate::types::{MathLayoutOptions, MathRunArtifact, TypesetMetrics};
+use crate::typst_library::{Color, FontWeight, MathFontSpec};
 use crate::typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
 use crate::typst_render::rasterize_path_artifact;
@@ -4009,7 +4009,7 @@ fn pdf_text_from_simple_row(
     font: &MathFont,
     layout: &SimpleRowLayout,
     source: &str,
-    fill: crate::style::Color,
+    fill: crate::typst_library::Color,
 ) -> Result<PdfArtifact, LabelError> {
     let face =
         ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| LabelError::Engine {
@@ -4079,7 +4079,7 @@ fn push_pdf_glyph_run(
     glyph_runs: &mut Vec<PdfGlyphRun>,
     font: FontResourceId,
     font_size: f32,
-    fill: crate::style::Color,
+    fill: crate::typst_library::Color,
     glyphs: &[LaidOutGlyph],
 ) {
     let mut text = String::new();
@@ -4145,7 +4145,7 @@ fn is_extended_shape(face: &ttf_parser::Face<'_>, glyph_id: ttf_parser::GlyphId)
 fn path_artifact_from_simple_row(
     font: &MathFont,
     layout: &SimpleRowLayout,
-    fill: crate::style::Color,
+    fill: crate::typst_library::Color,
 ) -> PathArtifact {
     let Ok(face) = ttf_parser::Face::parse(&font.data, font.face_index) else {
         return PathArtifact {

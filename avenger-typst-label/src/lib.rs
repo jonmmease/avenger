@@ -10,8 +10,8 @@ mod error;
 mod fonts;
 mod label;
 mod limits;
-mod style;
 mod types;
+mod typst_library;
 mod typst_pdf;
 mod typst_render;
 mod typst_svg;
@@ -33,7 +33,7 @@ pub use label::{
     PdfOptions, PdfPathItem, Point, RasterImage, RasterOptions, ShapeItem, Size, SvgLabel,
     SvgOptions, TextItem, TextItemKind, TextStyle, escape_text, pdf_items, rasterize, svg_items,
 };
-pub use style::{
+pub use typst_library::{
     Color, FontStyle, FontWeight, MathDisplayStyle, MathFontBytesId, MathFontSpec, MathStyle,
 };
 pub use typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};

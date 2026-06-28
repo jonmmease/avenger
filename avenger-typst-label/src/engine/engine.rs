@@ -352,8 +352,8 @@ fn empty_line_layout_artifact(source: &str, options: &LineLayoutOptions) -> Line
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style::{FontStyle, FontWeight};
     use crate::types::{LineOutputOptions, MathOutputOptions};
+    use crate::typst_library::{FontStyle, FontWeight};
 
     #[test]
     fn empty_text_line_uses_typst_engine() {

@@ -1,4 +1,4 @@
-use crate::style::Color;
+use crate::typst_library::Color;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

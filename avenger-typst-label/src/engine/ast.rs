@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::delimiter::MathDelimiterInfo;
-use crate::style::Color;
+use crate::typst_library::Color;
 use crate::typst_svg::{StrokeCap, StrokeJoin};
 
 #[derive(Debug, Clone, PartialEq)]

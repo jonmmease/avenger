@@ -1,6 +1,6 @@
 use std::{ops::Range, sync::Arc};
 
-use crate::style::Color;
+use crate::typst_library::Color;
 use crate::typst_svg::{Stroke, Transform};
 
 #[cfg(feature = "serde")]

@@ -1,10 +1,10 @@
 use crate::error::LabelError;
 use crate::label::{EngineOptions, LabelParamValue, LabelParams};
-use crate::style::{Color, FontStyle, FontWeight, PlainTextStyle};
 use crate::types::{
     LineLayoutArtifact, LineLayoutOptions, MathLayoutOptions, MathOutputOptions,
     PositionedTextLineRun, PositionedTextLineRunKind, TypesetMetrics,
 };
+use crate::typst_library::{Color, FontStyle, FontWeight, PlainTextStyle};
 use crate::typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
 use crate::typst_render::rasterize_path_artifact;
@@ -1270,7 +1270,7 @@ fn decoration_path_item(
         TextMarkupKind::Highlight => PathItem {
             path: PathData::rect(metrics.width, metrics.height),
             kind: PathKind::MathShape,
-            fill: Some(crate::style::Color::rgba(1.0, 0.9, 0.25, 0.35)),
+            fill: Some(crate::typst_library::Color::rgba(1.0, 0.9, 0.25, 0.35)),
             stroke: None,
             transform: Transform::IDENTITY,
             clip: None,

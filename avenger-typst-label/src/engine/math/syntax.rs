@@ -2475,7 +2475,7 @@ mod tests {
         };
         assert_eq!(
             cancel.options.stroke.paint,
-            Some(crate::style::Color::rgba(1.0, 0.0, 0.0, 1.0))
+            Some(crate::typst_library::Color::rgba(1.0, 0.0, 0.0, 1.0))
         );
         assert_eq!(
             cancel.options.stroke.thickness,

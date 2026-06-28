@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 use crate::label::EngineOptions;
-use crate::style::FontStyle;
+use crate::typst_library::FontStyle;
 
 pub(crate) struct EmbeddedFontFace {
     family: EmbeddedFontFamily,

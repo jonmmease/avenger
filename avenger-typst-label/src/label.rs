@@ -5,11 +5,11 @@ use indexmap::IndexMap;
 use crate::engine::engine::TypstEngineCore;
 use crate::engine::math::syntax::is_retained_math_name;
 use crate::engine::syntax::is_retained_markup_name;
-use crate::style::{MathStyle, PlainTextStyle};
 use crate::types::{
     LineLayoutArtifact, LineLayoutOptions, LineOutputOptions, PositionedTextLineRun,
     PositionedTextLineRunKind, TypesetMetrics,
 };
+use crate::typst_library::{MathStyle, PlainTextStyle};
 use crate::typst_pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 pub use crate::typst_render::RasterImage;
 use crate::typst_svg::{PathArtifact, PathImageItem, PathItem, PathKind, Transform};
