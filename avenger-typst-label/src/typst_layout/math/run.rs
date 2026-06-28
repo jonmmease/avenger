@@ -9,7 +9,7 @@ use crate::typst_library::math::item as ast;
 use crate::typst_library::text::content::DecorationStroke;
 use crate::typst_library::{Color, FontWeight, MathFontSpec};
 use crate::typst_svg::{
-    PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform,
+    DashPattern, PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform,
 };
 
 use crate::typst_eval::math::predefined_operator_text;
@@ -105,7 +105,8 @@ struct LaidOutStroke {
     width: f32,
     line_cap: crate::typst_svg::LineCap,
     line_join: crate::typst_svg::LineJoin,
-    dash: Option<Vec<f32>>,
+    dash: Option<DashPattern>,
+    miter_limit: f32,
 }
 
 impl LaidOutStroke {
@@ -116,6 +117,7 @@ impl LaidOutStroke {
             line_cap: crate::typst_svg::LineCap::Butt,
             line_join: crate::typst_svg::LineJoin::Miter,
             dash: None,
+            miter_limit: 4.0,
         }
     }
 
@@ -133,6 +135,7 @@ impl LaidOutStroke {
                 .dash
                 .as_ref()
                 .and_then(|dash| dash.resolve(width, font_size)),
+            miter_limit: stroke.miter_limit.unwrap_or(4.0),
         }
     }
 }

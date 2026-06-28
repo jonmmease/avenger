@@ -112,12 +112,20 @@ mod tests {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct DashPattern {
+    pub array: Vec<f32>,
+    pub phase: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Stroke {
     pub color: Color,
     pub width: f32,
     pub line_cap: LineCap,
     pub line_join: LineJoin,
-    pub dash: Option<Vec<f32>>,
+    pub dash: Option<DashPattern>,
+    pub miter_limit: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

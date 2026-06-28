@@ -423,6 +423,7 @@ fn compile_resolves_stroke_dict_param() {
         "dash".to_string(),
         LabelParamValue::Str("dashed".to_string()),
     );
+    stroke_param.insert("miter-limit".to_string(), LabelParamValue::Float(2.0));
 
     let mut options = LabelOptions::default();
     options.params.insert(
@@ -439,7 +440,10 @@ fn compile_resolves_stroke_dict_param() {
     assert_metrics_close(stroke.width, 2.0);
     assert_eq!(stroke.line_cap, LineCap::Round);
     assert_eq!(stroke.line_join, LineJoin::Bevel);
-    assert_eq!(stroke.dash.as_deref(), Some([3.0, 3.0].as_slice()));
+    let dash = stroke.dash.as_ref().expect("dash should resolve");
+    assert_eq!(dash.array.as_slice(), [3.0, 3.0].as_slice());
+    assert_eq!(dash.phase, 0.0);
+    assert_eq!(stroke.miter_limit, 2.0);
 }
 
 #[test]

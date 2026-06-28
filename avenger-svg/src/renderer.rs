@@ -651,10 +651,20 @@ impl SvgRenderer {
                 TextPathLineJoin::Round => "round",
             });
             document.body.push('"');
+            document.body.push_str(r#" stroke-miterlimit=""#);
+            push_number(
+                &mut document.body,
+                stroke.miter_limit,
+                self.options.precision,
+            )?;
+            document.body.push('"');
             if let Some(dash) = &stroke.dash {
-                if !dash.is_empty() {
+                if !dash.array.is_empty() {
+                    document.body.push_str(r#" stroke-dashoffset=""#);
+                    push_number(&mut document.body, dash.phase, self.options.precision)?;
+                    document.body.push('"');
                     document.body.push_str(r#" stroke-dasharray=""#);
-                    for (index, value) in dash.iter().enumerate() {
+                    for (index, value) in dash.array.iter().enumerate() {
                         if index > 0 {
                             document.body.push(' ');
                         }
@@ -1605,7 +1615,9 @@ mod tests {
         },
         scene_graph::SceneGraph,
     };
-    use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline};
+    use avenger_text::types::{
+        FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextSyntaxMode,
+    };
     use base64::{prelude::BASE64_STANDARD, Engine};
     use font_subset::FontReader;
 
@@ -1675,6 +1687,33 @@ mod tests {
 
         assert!(svg.contains(r#"<line x1="3" y1="5" x2="5" y2="7""#));
         assert!(svg.contains(r#"stroke-dasharray="2 1""#));
+    }
+
+    #[test]
+    fn renders_typst_text_decoration_dash_phase_and_miter_limit() {
+        let scene_graph = SceneGraph {
+            width: 160.0,
+            height: 60.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneTextMark {
+                text: ScalarOrArray::new_scalar(
+                    "#underline(stroke: (thickness: 1pt, dash: (array: (2pt, 1pt), phase: 0.5pt), miter-limit: 2))[x]"
+                        .to_string(),
+                ),
+                x: ScalarOrArray::new_scalar(10.0),
+                y: ScalarOrArray::new_scalar(30.0),
+                font_size: ScalarOrArray::new_scalar(14.0),
+                text_syntax: TextSyntaxMode::TypstMarkup,
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains(r#"stroke-dasharray="2 1""#));
+        assert!(svg.contains(r#"stroke-dashoffset="0.5""#));
+        assert!(svg.contains(r#"stroke-miterlimit="2""#));
     }
 
     #[test]

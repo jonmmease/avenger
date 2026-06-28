@@ -837,13 +837,13 @@ mod tests {
             }
         );
 
-        let err = parse_line("#underline(stroke: (miter-limit: 2))[group]").unwrap_err();
+        let err = parse_line("#underline(stroke: (miter-limit: 2pt))[group]").unwrap_err();
 
         assert_eq!(
             err,
             LabelError::UnsupportedSyntax {
                 position: 20,
-                message: "unsupported stroke dictionary field"
+                message: "unsupported stroke miter limit"
             }
         );
 
@@ -871,8 +871,9 @@ mod tests {
 
     #[test]
     fn parses_stroke_cap_join_and_dash() {
-        let line =
-            parse("#underline(stroke: (cap: \"round\", join: \"bevel\", dash: \"dotted\"))[x]");
+        let line = parse(
+            "#underline(stroke: (cap: \"round\", join: \"bevel\", dash: (array: (2pt, \"dot\"), phase: 0.5pt), miter-limit: 2))[x]",
+        );
 
         let LineNode::TextSpan(span) = &line.nodes[0] else {
             panic!("expected text span");
@@ -894,6 +895,16 @@ mod tests {
                 .map(|dash| dash.array.len()),
             Some(2)
         );
+        assert_eq!(
+            span.options
+                .decoration
+                .stroke
+                .dash
+                .as_ref()
+                .map(|dash| dash.phase),
+            Some(DecorationLength::Pt(0.5))
+        );
+        assert_eq!(span.options.decoration.stroke.miter_limit, Some(2.0));
     }
 
     #[test]

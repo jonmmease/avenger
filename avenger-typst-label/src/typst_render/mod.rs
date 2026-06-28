@@ -14,8 +14,8 @@ use crate::{
     label::LabelError,
     typst_library::Color,
     typst_svg::{
-        LineCap, LineJoin, PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem,
-        Transform,
+        DashPattern, LineCap, LineJoin, PathArtifact, PathCommand, PathData, PathImageFormat,
+        PathImageItem, Transform,
     },
 };
 
@@ -152,12 +152,11 @@ pub(crate) fn rasterize_path_artifact(
                 width: stroke.width * scale,
                 line_cap: tiny_line_cap(stroke.line_cap),
                 line_join: tiny_line_join(stroke.line_join),
-                dash: stroke.dash.as_ref().and_then(|dash| {
-                    tiny_skia::StrokeDash::new(
-                        dash.iter().map(|value| value * scale).collect(),
-                        0.0,
-                    )
-                }),
+                dash: stroke
+                    .dash
+                    .as_ref()
+                    .and_then(|dash| tiny_dash_pattern(dash, scale)),
+                miter_limit: stroke.miter_limit,
                 ..Default::default()
             };
             pixmap.stroke_path(&path, &paint, &tiny_stroke, draw_transform, None);
@@ -180,6 +179,52 @@ pub(crate) fn rasterize_path_artifact(
         origin_x: left_px as f32 / scale,
         origin_y: top_px as f32 / scale,
     })
+}
+
+#[cfg(feature = "raster")]
+fn tiny_dash_pattern(dash: &DashPattern, scale: f32) -> Option<tiny_skia::StrokeDash> {
+    let (array, phase) = tiny_dash_components(dash, scale)?;
+    tiny_skia::StrokeDash::new(array, phase)
+}
+
+#[cfg(feature = "raster")]
+fn tiny_dash_components(dash: &DashPattern, scale: f32) -> Option<(Vec<f32>, f32)> {
+    let pattern_len = dash.array.len();
+    if pattern_len == 0 {
+        return None;
+    }
+    let len = if pattern_len % 2 == 1 {
+        2 * pattern_len
+    } else {
+        pattern_len
+    };
+    let array = dash
+        .array
+        .iter()
+        .copied()
+        .cycle()
+        .take(len)
+        .map(|value| value * scale)
+        .collect();
+    Some((array, dash.phase * scale))
+}
+
+#[cfg(all(test, feature = "raster"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tiny_dash_components_repeat_odd_arrays_and_scale_phase() {
+        let dash = DashPattern {
+            array: vec![1.0, 2.0, 3.0],
+            phase: 0.5,
+        };
+
+        let (array, phase) = tiny_dash_components(&dash, 2.0).unwrap();
+
+        assert_eq!(array, vec![2.0, 4.0, 6.0, 2.0, 4.0, 6.0]);
+        assert_eq!(phase, 1.0);
+    }
 }
 
 #[cfg(feature = "raster")]

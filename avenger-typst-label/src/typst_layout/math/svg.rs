@@ -57,6 +57,7 @@ fn path_artifact_from_simple_row(
                             line_cap: shape.stroke.line_cap,
                             line_join: shape.stroke.line_join,
                             dash: shape.stroke.dash.clone(),
+                            miter_limit: shape.stroke.miter_limit,
                         }),
                         transform: Transform {
                             tx: shape.x,
@@ -77,4 +78,3 @@ fn path_artifact_from_simple_row(
         images: Vec::new(),
     }
 }
-

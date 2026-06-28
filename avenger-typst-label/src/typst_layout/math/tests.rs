@@ -512,9 +512,11 @@ mod tests {
         assert_eq!(stroke.line_cap, crate::typst_svg::LineCap::Round);
         assert_eq!(stroke.line_join, crate::typst_svg::LineJoin::Miter);
         let dash = stroke.dash.as_ref().expect("dash should be resolved");
-        assert_eq!(dash.len(), 2);
-        assert!((dash[0] - stroke.width).abs() < 1e-4);
-        assert!((dash[1] - 2.0).abs() < 1e-4);
+        assert_eq!(dash.array.len(), 2);
+        assert!((dash.array[0] - stroke.width).abs() < 1e-4);
+        assert!((dash.array[1] - 2.0).abs() < 1e-4);
+        assert_eq!(dash.phase, 0.0);
+        assert_eq!(stroke.miter_limit, 4.0);
     }
 
     #[test]

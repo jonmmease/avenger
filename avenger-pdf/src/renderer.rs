@@ -231,6 +231,8 @@ impl PdfRenderer {
                     stroke_cap: None,
                     stroke_join: None,
                     stroke_dash: None,
+                    stroke_dash_offset: 0.0,
+                    stroke_miter_limit: None,
                     gradients: &mark.gradients,
                 },
             )?;
@@ -260,6 +262,8 @@ impl PdfRenderer {
                     stroke_cap: Some(mark.stroke_cap),
                     stroke_join: Some(mark.stroke_join),
                     stroke_dash: None,
+                    stroke_dash_offset: 0.0,
+                    stroke_miter_limit: None,
                     gradients: &mark.gradients,
                 },
             )?;
@@ -289,6 +293,8 @@ impl PdfRenderer {
                     stroke_cap: None,
                     stroke_join: None,
                     stroke_dash: None,
+                    stroke_dash_offset: 0.0,
+                    stroke_miter_limit: None,
                     gradients: &mark.gradients,
                 },
             )?;
@@ -319,6 +325,8 @@ impl PdfRenderer {
                     stroke_cap: None,
                     stroke_join: None,
                     stroke_dash: None,
+                    stroke_dash_offset: 0.0,
+                    stroke_miter_limit: None,
                     gradients: &mark.gradients,
                 },
             )?;
@@ -343,6 +351,8 @@ impl PdfRenderer {
                 stroke_cap: Some(mark.stroke_cap),
                 stroke_join: Some(mark.stroke_join),
                 stroke_dash: mark.stroke_dash.as_deref(),
+                stroke_dash_offset: 0.0,
+                stroke_miter_limit: None,
                 gradients: &mark.gradients,
             },
         )
@@ -364,6 +374,8 @@ impl PdfRenderer {
                 stroke_cap: Some(mark.stroke_cap),
                 stroke_join: Some(mark.stroke_join),
                 stroke_dash: mark.stroke_dash.as_deref(),
+                stroke_dash_offset: 0.0,
+                stroke_miter_limit: None,
                 gradients: &mark.gradients,
             },
         )
@@ -406,6 +418,8 @@ impl PdfRenderer {
                     stroke_cap: Some(*stroke_cap),
                     stroke_join: None,
                     stroke_dash: stroke_dashes.get(index).map(|dash| dash.as_slice()),
+                    stroke_dash_offset: 0.0,
+                    stroke_miter_limit: None,
                     gradients: &mark.gradients,
                 },
             )?;
@@ -430,6 +444,8 @@ impl PdfRenderer {
                 stroke_cap: None,
                 stroke_join: None,
                 stroke_dash: None,
+                stroke_dash_offset: 0.0,
+                stroke_miter_limit: None,
                 gradients: &mark.gradients,
             },
         )
@@ -700,7 +716,13 @@ impl PdfRenderer {
                 stroke_dash: item
                     .stroke
                     .as_ref()
-                    .and_then(|stroke| stroke.dash.as_deref()),
+                    .and_then(|stroke| stroke.dash.as_ref().map(|dash| dash.array.as_slice())),
+                stroke_dash_offset: item
+                    .stroke
+                    .as_ref()
+                    .and_then(|stroke| stroke.dash.as_ref().map(|dash| dash.phase))
+                    .unwrap_or(0.0),
+                stroke_miter_limit: item.stroke.as_ref().map(|stroke| stroke.miter_limit),
                 gradients: &[],
             },
         );
@@ -725,6 +747,8 @@ impl PdfRenderer {
                 stroke_cap: Some(style.cap),
                 stroke_join: Some(style.join),
                 stroke_dash: style.dash,
+                stroke_dash_offset: 0.0,
+                stroke_miter_limit: None,
                 gradients: &[],
             },
         )?;
@@ -742,6 +766,8 @@ impl PdfRenderer {
                         stroke_cap: Some(style.cap),
                         stroke_join: Some(style.join),
                         stroke_dash: None,
+                        stroke_dash_offset: 0.0,
+                        stroke_miter_limit: None,
                         gradients: &[],
                     },
                 )?,
@@ -755,6 +781,8 @@ impl PdfRenderer {
                         stroke_cap: None,
                         stroke_join: None,
                         stroke_dash: None,
+                        stroke_dash_offset: 0.0,
+                        stroke_miter_limit: None,
                         gradients: &[],
                     },
                 )?,
@@ -852,6 +880,8 @@ struct PathStyle<'a> {
     stroke_cap: Option<StrokeCap>,
     stroke_join: Option<StrokeJoin>,
     stroke_dash: Option<&'a [f32]>,
+    stroke_dash_offset: f32,
+    stroke_miter_limit: Option<f32>,
     gradients: &'a [Gradient],
 }
 
@@ -1031,7 +1061,7 @@ fn stroke_from_style(
     Ok(Some(Stroke {
         paint,
         width,
-        miter_limit: 10.0,
+        miter_limit: style.stroke_miter_limit.unwrap_or(10.0),
         line_cap: style.stroke_cap.map(line_cap).unwrap_or_default(),
         line_join: style.stroke_join.map(line_join).unwrap_or_default(),
         opacity,
@@ -1040,7 +1070,7 @@ fn stroke_from_style(
             .filter(|dash| !dash.is_empty())
             .map(|dash| StrokeDash {
                 array: dash.to_vec(),
-                offset: 0.0,
+                offset: style.stroke_dash_offset,
             }),
     }))
 }
@@ -1698,6 +1728,36 @@ mod tests {
             .unwrap();
 
         assert!(pdf.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn stroke_from_style_preserves_dash_offset_and_miter_limit() {
+        let paint = ColorOrGradient::Color([0.1, 0.2, 0.3, 1.0]);
+        let dash = [2.0, 1.0];
+        let style = PathStyle {
+            fill: None,
+            stroke: Some(&paint),
+            stroke_width: Some(1.5),
+            stroke_cap: Some(StrokeCap::Round),
+            stroke_join: Some(StrokeJoin::Miter),
+            stroke_dash: Some(&dash),
+            stroke_dash_offset: 0.5,
+            stroke_miter_limit: Some(2.0),
+            gradients: &[],
+        };
+        let bbox = lyon_path::geom::Box2D::new(
+            lyon_path::geom::point(0.0, 0.0),
+            lyon_path::geom::point(10.0, 10.0),
+        );
+
+        let stroke = stroke_from_style(&style, &bbox)
+            .unwrap()
+            .expect("stroke should resolve");
+
+        assert_eq!(stroke.miter_limit, 2.0);
+        let dash = stroke.dash.expect("dash should resolve");
+        assert_eq!(dash.array.as_slice(), [2.0, 1.0].as_slice());
+        assert_eq!(dash.offset, 0.5);
     }
 
     #[test]

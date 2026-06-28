@@ -3,7 +3,7 @@ use std::ops::Range;
 use crate::typst_eval::delimiter::DelimiterInfo;
 use crate::typst_library::Color;
 use crate::typst_library::text::smartquote::SmartQuote;
-use crate::typst_svg::{LineCap, LineJoin};
+use crate::typst_svg::{DashPattern, LineCap, LineJoin};
 
 /// Label-scoped content tree.
 ///
@@ -141,6 +141,7 @@ pub(crate) struct DecorationStroke {
     pub(crate) line_cap: Option<LineCap>,
     pub(crate) line_join: Option<LineJoin>,
     pub(crate) dash: Option<DecorationDash>,
+    pub(crate) miter_limit: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -167,19 +168,22 @@ impl Default for DecorationLength {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct DecorationDash {
     pub(crate) array: Vec<DecorationDashLength>,
+    pub(crate) phase: DecorationLength,
 }
 
 impl DecorationDash {
-    pub(crate) fn resolve(&self, stroke_width: f32, font_size: f32) -> Option<Vec<f32>> {
+    pub(crate) fn resolve(&self, stroke_width: f32, font_size: f32) -> Option<DashPattern> {
         if self.array.is_empty() {
             return None;
         }
-        Some(
-            self.array
+        Some(DashPattern {
+            array: self
+                .array
                 .iter()
                 .map(|length| length.resolve(stroke_width, font_size).max(0.0))
                 .collect(),
-        )
+            phase: self.phase.resolve(font_size),
+        })
     }
 }
 

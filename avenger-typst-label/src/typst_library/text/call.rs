@@ -209,10 +209,7 @@ fn parse_stroke_dict(
                 stroke.merge(
                     DecorationStroke {
                         paint: Some(parse_paint(named.expr(), item_position, params)?),
-                        thickness: None,
-                        line_cap: None,
-                        line_join: None,
-                        dash: None,
+                        ..DecorationStroke::default()
                     },
                     item_position,
                 )?;
@@ -220,11 +217,8 @@ fn parse_stroke_dict(
             "thickness" => {
                 stroke.merge(
                     DecorationStroke {
-                        paint: None,
                         thickness: Some(parse_length(named.expr(), item_position, params)?),
-                        line_cap: None,
-                        line_join: None,
-                        dash: None,
+                        ..DecorationStroke::default()
                     },
                     item_position,
                 )?;
@@ -232,11 +226,8 @@ fn parse_stroke_dict(
             "cap" => {
                 stroke.merge(
                     DecorationStroke {
-                        paint: None,
-                        thickness: None,
                         line_cap: Some(parse_line_cap(named.expr(), item_position, params)?),
-                        line_join: None,
-                        dash: None,
+                        ..DecorationStroke::default()
                     },
                     item_position,
                 )?;
@@ -244,11 +235,8 @@ fn parse_stroke_dict(
             "join" => {
                 stroke.merge(
                     DecorationStroke {
-                        paint: None,
-                        thickness: None,
-                        line_cap: None,
                         line_join: Some(parse_line_join(named.expr(), item_position, params)?),
-                        dash: None,
+                        ..DecorationStroke::default()
                     },
                     item_position,
                 )?;
@@ -256,11 +244,17 @@ fn parse_stroke_dict(
             "dash" => {
                 stroke.merge(
                     DecorationStroke {
-                        paint: None,
-                        thickness: None,
-                        line_cap: None,
-                        line_join: None,
                         dash: Some(parse_dash(named.expr(), item_position, params)?),
+                        ..DecorationStroke::default()
+                    },
+                    item_position,
+                )?;
+            }
+            "miter-limit" => {
+                stroke.merge(
+                    DecorationStroke {
+                        miter_limit: Some(parse_miter_limit(named.expr(), item_position, params)?),
+                        ..DecorationStroke::default()
                     },
                     item_position,
                 )?;
@@ -287,19 +281,13 @@ fn parse_stroke_part_with_params(
     if let Ok(paint) = parse_paint(expr, position, params) {
         return Ok(DecorationStroke {
             paint: Some(paint),
-            thickness: None,
-            line_cap: None,
-            line_join: None,
-            dash: None,
+            ..DecorationStroke::default()
         });
     }
     if let Ok(thickness) = parse_length(expr, position, params) {
         return Ok(DecorationStroke {
-            paint: None,
             thickness: Some(thickness),
-            line_cap: None,
-            line_join: None,
-            dash: None,
+            ..DecorationStroke::default()
         });
     }
     if is_non_solid_paint_expr(expr) {
@@ -343,6 +331,14 @@ impl MergeDecorationStroke for DecorationStroke {
         if let Some(dash) = other.dash {
             if self.dash.replace(dash).is_some() {
                 return Err(unsupported(position, "duplicate decoration stroke dash"));
+            }
+        }
+        if let Some(miter_limit) = other.miter_limit {
+            if self.miter_limit.replace(miter_limit).is_some() {
+                return Err(unsupported(
+                    position,
+                    "duplicate decoration stroke miter limit",
+                ));
             }
         }
         Ok(())
@@ -527,22 +523,72 @@ fn parse_dash(
     match expr {
         typst_ast::Expr::Str(value) => named_dash(value.get().as_str())
             .ok_or_else(|| unsupported(position, "unsupported stroke dash value")),
-        typst_ast::Expr::Array(array) => {
-            let mut lengths = Vec::new();
-            for item in array.items() {
-                let typst_ast::ArrayItem::Pos(expr) = item else {
-                    return Err(unsupported(position, "unsupported stroke dash array item"));
-                };
-                lengths.push(parse_dash_length(expr, position, params)?);
-            }
-            Ok(DecorationDash { array: lengths })
-        }
-        typst_ast::Expr::Dict(_) => Err(unsupported(
-            position,
-            "stroke dash phase is not supported in Avenger labels",
-        )),
+        typst_ast::Expr::Array(array) => Ok(DecorationDash {
+            array: parse_dash_array(array, position, params)?,
+            phase: DecorationLength::default(),
+        }),
+        typst_ast::Expr::Dict(dict) => parse_dash_dict(dict, position, params),
         _ => Err(unsupported(position, "unsupported stroke dash value")),
     }
+}
+
+fn parse_dash_dict(
+    dict: typst_ast::Dict<'_>,
+    position: usize,
+    params: &LabelParams,
+) -> Result<DecorationDash, LabelError> {
+    let mut array = None;
+    let mut phase = DecorationLength::default();
+
+    for item in dict.items() {
+        let typst_ast::DictItem::Named(named) = item else {
+            return Err(unsupported(
+                position,
+                "unsupported stroke dash dictionary item",
+            ));
+        };
+        let item_position = named.to_untyped().range().start;
+        match named.name().as_str() {
+            "array" => {
+                if array.is_some() {
+                    return Err(unsupported(item_position, "duplicate stroke dash array"));
+                }
+                let typst_ast::Expr::Array(items) = named.expr() else {
+                    return Err(unsupported(item_position, "unsupported stroke dash array"));
+                };
+                array = Some(parse_dash_array(items, item_position, params)?);
+            }
+            "phase" => {
+                phase = parse_length(named.expr(), item_position, params)?;
+            }
+            _ => {
+                return Err(unsupported(
+                    item_position,
+                    "unsupported stroke dash dictionary field",
+                ));
+            }
+        }
+    }
+
+    Ok(DecorationDash {
+        array: array.ok_or_else(|| unsupported(position, "missing stroke dash array"))?,
+        phase,
+    })
+}
+
+fn parse_dash_array(
+    array: typst_ast::Array<'_>,
+    position: usize,
+    params: &LabelParams,
+) -> Result<Vec<DecorationDashLength>, LabelError> {
+    let mut lengths = Vec::new();
+    for item in array.items() {
+        let typst_ast::ArrayItem::Pos(expr) = item else {
+            return Err(unsupported(position, "unsupported stroke dash array item"));
+        };
+        lengths.push(parse_dash_length(expr, position, params)?);
+    }
+    Ok(lengths)
 }
 
 fn parse_dash_length(
@@ -574,7 +620,35 @@ fn named_dash(name: &str) -> Option<DecorationDash> {
         "loosely-dash-dotted" => vec![pt(3.0), pt(4.0), dot, pt(4.0)],
         _ => return None,
     };
-    Some(DecorationDash { array })
+    Some(DecorationDash {
+        array,
+        phase: DecorationLength::default(),
+    })
+}
+
+fn parse_miter_limit(
+    expr: typst_ast::Expr<'_>,
+    position: usize,
+    params: &LabelParams,
+) -> Result<f32, LabelError> {
+    if let Some(value) = param_value_for_ident(expr, params) {
+        return param_value_to_miter_limit(value, position);
+    }
+    parse_unitless_f32_text(&expr.to_untyped().full_text(), position)
+}
+
+fn parse_unitless_f32_text(text: &str, position: usize) -> Result<f32, LabelError> {
+    if text.chars().any(|ch| ch.is_ascii_alphabetic() || ch == '%') {
+        return Err(unsupported(position, "unsupported stroke miter limit"));
+    }
+    let value = text
+        .parse::<f32>()
+        .map_err(|_| unsupported(position, "unsupported stroke miter limit"))?;
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(unsupported(position, "unsupported stroke miter limit"))
+    }
 }
 
 fn parse_evade(
@@ -665,19 +739,13 @@ fn param_value_to_stroke_part(
     if let Ok(paint) = param_value_to_paint(value, position) {
         return Ok(DecorationStroke {
             paint: Some(paint),
-            thickness: None,
-            line_cap: None,
-            line_join: None,
-            dash: None,
+            ..DecorationStroke::default()
         });
     }
     if let Ok(thickness) = param_value_to_length(value, position) {
         return Ok(DecorationStroke {
-            paint: None,
             thickness: Some(thickness),
-            line_cap: None,
-            line_join: None,
-            dash: None,
+            ..DecorationStroke::default()
         });
     }
     if matches!(value, LabelParamValue::None) {
@@ -709,19 +777,13 @@ fn parse_stroke_literal_part(raw: &str, position: usize) -> Result<DecorationStr
     if let Some(paint) = named_color(raw) {
         return Ok(DecorationStroke {
             paint: Some(paint),
-            thickness: None,
-            line_cap: None,
-            line_join: None,
-            dash: None,
+            ..DecorationStroke::default()
         });
     }
     if let Some(thickness) = parse_length_literal(raw, position)? {
         return Ok(DecorationStroke {
-            paint: None,
             thickness: Some(thickness),
-            line_cap: None,
-            line_join: None,
-            dash: None,
+            ..DecorationStroke::default()
         });
     }
     Err(unsupported(
@@ -740,56 +802,48 @@ fn param_dict_to_stroke(
             "paint" => stroke.merge(
                 DecorationStroke {
                     paint: Some(param_value_to_paint(value, position)?),
-                    thickness: None,
-                    line_cap: None,
-                    line_join: None,
-                    dash: None,
+                    ..DecorationStroke::default()
                 },
                 position,
             )?,
             "thickness" => stroke.merge(
                 DecorationStroke {
-                    paint: None,
                     thickness: Some(param_value_to_length(value, position)?),
-                    line_cap: None,
-                    line_join: None,
-                    dash: None,
+                    ..DecorationStroke::default()
                 },
                 position,
             )?,
             "cap" => stroke.merge(
                 DecorationStroke {
-                    paint: None,
-                    thickness: None,
                     line_cap: Some(parse_cap_literal(
                         &param_value_to_string(value, position, "unsupported stroke cap value")?,
                         position,
                     )?),
-                    line_join: None,
-                    dash: None,
+                    ..DecorationStroke::default()
                 },
                 position,
             )?,
             "join" => stroke.merge(
                 DecorationStroke {
-                    paint: None,
-                    thickness: None,
-                    line_cap: None,
                     line_join: Some(parse_join_literal(
                         &param_value_to_string(value, position, "unsupported stroke join value")?,
                         position,
                     )?),
-                    dash: None,
+                    ..DecorationStroke::default()
                 },
                 position,
             )?,
             "dash" => stroke.merge(
                 DecorationStroke {
-                    paint: None,
-                    thickness: None,
-                    line_cap: None,
-                    line_join: None,
                     dash: Some(param_value_to_dash(value, position)?),
+                    ..DecorationStroke::default()
+                },
+                position,
+            )?,
+            "miter-limit" => stroke.merge(
+                DecorationStroke {
+                    miter_limit: Some(param_value_to_miter_limit(value, position)?),
+                    ..DecorationStroke::default()
                 },
                 position,
             )?,
@@ -882,8 +936,72 @@ fn param_value_to_dash(
                 _ => param_value_to_length(value, position).map(DecorationDashLength::Length),
             })
             .collect::<Result<Vec<_>, _>>()
-            .map(|array| DecorationDash { array }),
+            .map(|array| DecorationDash {
+                array,
+                phase: DecorationLength::default(),
+            }),
+        LabelParamValue::Dict(dict) => param_dict_to_dash(dict, position),
         _ => Err(unsupported(position, "unsupported stroke dash value")),
+    }
+}
+
+fn param_dict_to_dash(
+    dict: &indexmap::IndexMap<String, LabelParamValue>,
+    position: usize,
+) -> Result<DecorationDash, LabelError> {
+    let mut array = None;
+    let mut phase = DecorationLength::default();
+    for (name, value) in dict {
+        match name.as_str() {
+            "array" => {
+                if array.is_some() {
+                    return Err(unsupported(position, "duplicate stroke dash array"));
+                }
+                let LabelParamValue::Array(values) = value else {
+                    return Err(unsupported(position, "unsupported stroke dash array"));
+                };
+                array = Some(
+                    values
+                        .iter()
+                        .map(|value| match value {
+                            LabelParamValue::Str(value) if value == "dot" => {
+                                Ok(DecorationDashLength::LineWidth)
+                            }
+                            _ => param_value_to_length(value, position)
+                                .map(DecorationDashLength::Length),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+            }
+            "phase" => phase = param_value_to_length(value, position)?,
+            _ => {
+                return Err(unsupported(
+                    position,
+                    "unsupported stroke dash dictionary field",
+                ));
+            }
+        }
+    }
+    Ok(DecorationDash {
+        array: array.ok_or_else(|| unsupported(position, "missing stroke dash array"))?,
+        phase,
+    })
+}
+
+fn param_value_to_miter_limit(value: &LabelParamValue, position: usize) -> Result<f32, LabelError> {
+    let number = match value {
+        LabelParamValue::Int(value) => *value as f32,
+        LabelParamValue::Float(value) => *value as f32,
+        LabelParamValue::Str(value) => value
+            .trim()
+            .parse::<f32>()
+            .map_err(|_| unsupported(position, "unsupported stroke miter limit"))?,
+        _ => return Err(unsupported(position, "unsupported stroke miter limit")),
+    };
+    if number.is_finite() {
+        Ok(number)
+    } else {
+        Err(unsupported(position, "unsupported stroke miter limit"))
     }
 }
 

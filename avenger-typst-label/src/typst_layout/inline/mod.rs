@@ -1103,6 +1103,7 @@ fn line_decoration_item(
                 .dash
                 .as_ref()
                 .and_then(|dash| dash.resolve(stroke_width, font_size)),
+            miter_limit: options.stroke.miter_limit.unwrap_or(4.0),
         }),
         transform: Transform::IDENTITY,
         clip: None,
@@ -2047,9 +2048,11 @@ mod tests {
         let dash = stroke.dash.as_ref().expect("dash should be present");
 
         assert_eq!(stroke.line_join, crate::typst_svg::LineJoin::Bevel);
-        assert_eq!(dash.len(), 4);
-        assert!((dash[0] - 3.0).abs() < 1e-4);
-        assert!((dash[2] - stroke.width).abs() < 1e-4);
+        assert_eq!(dash.array.len(), 4);
+        assert!((dash.array[0] - 3.0).abs() < 1e-4);
+        assert!((dash.array[2] - stroke.width).abs() < 1e-4);
+        assert_eq!(dash.phase, 0.0);
+        assert_eq!(stroke.miter_limit, 4.0);
     }
 
     #[test]

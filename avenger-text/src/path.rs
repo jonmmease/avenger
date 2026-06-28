@@ -30,12 +30,19 @@ pub struct TextPathExtractionConfig<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct TextPathDashPattern {
+    pub array: Vec<f32>,
+    pub phase: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct TextPathStroke {
     pub color: [f32; 4],
     pub width: f32,
     pub line_cap: TextPathLineCap,
     pub line_join: TextPathLineJoin,
-    pub dash: Option<Vec<f32>>,
+    pub dash: Option<TextPathDashPattern>,
+    pub miter_limit: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -293,7 +300,11 @@ pub(crate) fn typst_path_item_to_text_path_item(
             width: stroke.width,
             line_cap: text_path_stroke_cap(stroke.line_cap),
             line_join: text_path_stroke_join(stroke.line_join),
-            dash: stroke.dash,
+            dash: stroke.dash.map(|dash| TextPathDashPattern {
+                array: dash.array,
+                phase: dash.phase,
+            }),
+            miter_limit: stroke.miter_limit,
         }),
         byte_range,
         kind,
@@ -490,6 +501,23 @@ mod tests {
             buffer.draw_items.as_slice(),
             [TextPathDrawItem::PlainRun(0), TextPathDrawItem::PathItem(0)]
         ));
+    }
+
+    #[test]
+    fn text_line_extractor_preserves_decoration_dash_phase_and_miter_limit() {
+        let typst = typst();
+        let extractor = TextPathExtractorImpl::new(typst, math_config());
+        let text = "#underline(stroke: (thickness: 1pt, dash: (array: (2pt, 1pt), phase: 0.5pt), miter-limit: 2))[important]".to_string();
+        let buffer = extractor.extract_text_paths(&config(&text)).unwrap();
+        let stroke = buffer.items[0]
+            .stroke
+            .as_ref()
+            .expect("decoration stroke should exist");
+        let dash = stroke.dash.as_ref().expect("dash should resolve");
+
+        assert_eq!(dash.array.as_slice(), [2.0, 1.0].as_slice());
+        assert_eq!(dash.phase, 0.5);
+        assert_eq!(stroke.miter_limit, 2.0);
     }
 
     #[test]
