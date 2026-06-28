@@ -71,18 +71,21 @@ fn allows_common_typst_math_fragments() {
 }
 
 #[test]
-fn rejects_matrix_math() {
-    let err = engine()
-        .compile("$mat(1, 2; 3, 4)$", &LabelOptions::default())
-        .unwrap_err();
+fn rejects_deferred_matrix_table_math() {
+    for source in ["$mat(1, 2; 3, 4)$", "$vec(1, 2, 3)$", "$cases(x, y)$"] {
+        let err = engine()
+            .compile(source, &LabelOptions::default())
+            .unwrap_err();
 
-    assert_eq!(
-        err,
-        LabelError::UnsupportedSyntax {
-            position: 1,
-            message: "matrix/table math is not supported in Avenger Typst subset"
-        }
-    );
+        assert_eq!(
+            err,
+            LabelError::UnsupportedSyntax {
+                position: 1,
+                message: "matrix/table math is not supported in Avenger Typst subset"
+            },
+            "{source}"
+        );
+    }
 }
 
 #[test]
