@@ -4,9 +4,8 @@
 //! Avenger-specific fallback, truncation, caching, and renderer integration
 //! live in `avenger-text` and higher-level crates.
 
-mod typst_diag;
+mod label;
 mod typst_eval;
-mod typst_label;
 mod typst_layout;
 mod typst_library;
 mod typst_pdf;
@@ -23,12 +22,13 @@ mod typst_timing;
 #[path = "typst_utils/lib.rs"]
 mod typst_utils;
 
-pub use typst_label::{
+pub use label::{
     CacheOptions, CompiledLabel, EngineOptions, FontOptions, Glyph, GroupItem, ImageItem,
     LabelEngine, LabelError, LabelFlags, LabelFrame, LabelFrameItem, LabelInitError, LabelLimits,
     LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, PdfDrawItem, PdfLabel,
     PdfOptions, PdfPathItem, Point, RasterImage, RasterOptions, ShapeItem, Size, SvgLabel,
-    SvgOptions, TextItem, TextItemKind, TextStyle, escape_text, pdf_items, rasterize, svg_items,
+    SvgOptions, TextItem, TextItemKind, TextStyle, escape_text, pdf_items, rasterize,
+    referenced_params, svg_items,
 };
 pub use typst_library::{
     Color, FontStyle, FontWeight, MathDisplayStyle, MathFontBytesId, MathFontSpec, MathStyle,

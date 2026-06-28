@@ -110,8 +110,8 @@ platform emoji font files, or upstream Typst render-reference images.
 Run from the repository root, always in release mode:
 
 ```sh
-cargo run --release -p avenger-typst-label --features raster --bin generate_upstream_png_refs
-cargo test --release -p avenger-typst-label --features raster upstream_png_parity -- --nocapture
+cargo run --release -p avenger-typst-label --features upstream-png-parity --bin generate_upstream_png_refs
+cargo test --release -p avenger-typst-label --features raster,upstream-png-parity upstream_png_parity -- --nocapture
 cargo test --release -p avenger-typst-label --features raster -- --nocapture
 ```
 

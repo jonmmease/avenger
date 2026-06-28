@@ -197,3 +197,23 @@ fn final_public_api_literal_fast_path_matches_escaped_markup() {
     assert_close(measured.width, literal.metrics.width);
     assert_close(measured.height, literal.metrics.height);
 }
+
+#[test]
+fn final_public_api_extracts_referenced_params() {
+    let source = "#upper[#series] #underline(stroke: series_color)[care] \
+        $y = #slope x + #intercept$ #series";
+    let expected = vec![
+        "series".to_string(),
+        "series_color".to_string(),
+        "slope".to_string(),
+        "intercept".to_string(),
+    ];
+
+    assert_eq!(
+        avenger_typst_label::referenced_params(source).unwrap(),
+        expected
+    );
+
+    let engine = LabelEngine::new(EngineOptions::default()).unwrap();
+    assert_eq!(engine.referenced_params(source).unwrap(), expected);
+}

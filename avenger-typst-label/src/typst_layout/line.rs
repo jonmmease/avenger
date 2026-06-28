@@ -1,6 +1,6 @@
-use crate::typst_diag::{LabelError, LabelInitError};
+use crate::label::EngineOptions;
+use crate::label::{LabelError, LabelInitError};
 use crate::typst_eval::LabelLimits;
-use crate::typst_label::EngineOptions;
 use crate::typst_layout::frame::{LineLayoutArtifact, LineLayoutOptions, TypesetMetrics};
 #[cfg(test)]
 use crate::typst_layout::frame::{MathLayoutOptions, MathRunArtifact};
@@ -136,7 +136,7 @@ fn line_contains_static_markup(line: &LabelContent) -> bool {
 fn validate_line_math(
     line: &LabelContent,
     limits: LabelLimits,
-    params: &crate::typst_label::LabelParams,
+    params: &crate::label::LabelParams,
 ) -> Result<(), LabelError> {
     let math_span_count = line
         .nodes
@@ -178,7 +178,7 @@ fn validate_line_math(
 fn strict_hash_precheck(
     source: &str,
     offset: usize,
-    params: &crate::typst_label::LabelParams,
+    params: &crate::label::LabelParams,
 ) -> Result<(), LabelError> {
     let mut escaped = false;
     for (idx, ch) in source.char_indices() {
@@ -208,7 +208,7 @@ fn strict_hash_precheck(
 fn allowed_param_ident_end(
     source: &str,
     idx: usize,
-    params: &crate::typst_label::LabelParams,
+    params: &crate::label::LabelParams,
 ) -> Option<usize> {
     let rest = source.get(idx + 1..)?;
     let mut chars = rest.char_indices();
@@ -555,11 +555,11 @@ mod tests {
     #[cfg(all(feature = "raster", target_os = "macos"))]
     #[test]
     fn named_emoji_alias_rasterizes_color_pixels_on_macos() {
-        let label = crate::typst_label::LabelEngine::new(EngineOptions::default())
+        let label = crate::label::LabelEngine::new(EngineOptions::default())
             .unwrap()
             .compile("Revenue #emoji.rocket", &Default::default())
             .unwrap();
-        let raster = crate::typst_label::rasterize(&label, &Default::default())
+        let raster = crate::label::rasterize(&label, &Default::default())
             .expect("raster output should be produced for emoji text");
 
         assert!(
@@ -1119,11 +1119,11 @@ mod tests {
     #[cfg(feature = "raster")]
     #[test]
     fn simple_row_math_fragment_raster_uses_typst_engine() {
-        let label = crate::typst_label::LabelEngine::new(EngineOptions::default())
+        let label = crate::label::LabelEngine::new(EngineOptions::default())
             .unwrap()
             .compile("$alpha + beta -> gamma$", &Default::default())
             .unwrap();
-        let raster = crate::typst_label::rasterize(&label, &Default::default())
+        let raster = crate::label::rasterize(&label, &Default::default())
             .expect("raster output should be produced for math text");
         assert!(raster.image.width > 0 && raster.image.height > 0);
     }
@@ -1221,11 +1221,11 @@ mod tests {
     #[cfg(feature = "raster")]
     #[test]
     fn mixed_text_math_raster_uses_typst_engine() {
-        let label = crate::typst_label::LabelEngine::new(EngineOptions::default())
+        let label = crate::label::LabelEngine::new(EngineOptions::default())
             .unwrap()
             .compile("Price \\$7, score $R^2$ = 0.94", &Default::default())
             .unwrap();
-        let raster = crate::typst_label::rasterize(&label, &Default::default())
+        let raster = crate::label::rasterize(&label, &Default::default())
             .expect("raster output should be produced for mixed text");
         assert!(raster.image.width > 0 && raster.image.height > 0);
     }

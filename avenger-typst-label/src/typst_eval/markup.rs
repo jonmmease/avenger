@@ -1,9 +1,9 @@
 use std::ops::Range;
 
-use crate::typst_diag::LabelError;
+use crate::label::LabelError;
+use crate::label::LabelParams;
 use crate::typst_eval::call::{parse_text_markup_option, text_span_kind};
 use crate::typst_eval::delimiter::{DelimiterDisplayHint, DelimiterInfo};
-use crate::typst_label::LabelParams;
 use crate::typst_library::symbols::{named_emoji, named_symbol};
 use crate::typst_library::text::content::{
     EmojiAlias, LabelContent, LabelParamRef, LineNode, MathSpan, PlainTextNode, SymbolAlias,
@@ -448,7 +448,7 @@ fn scratch_file_id() -> crate::typst_syntax::FileId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::typst_label::LabelParamValue;
+    use crate::label::LabelParamValue;
     use crate::typst_library::Color;
     use crate::typst_library::text::content::DecorationLength;
     use crate::typst_svg::{StrokeCap, StrokeJoin};

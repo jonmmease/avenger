@@ -1,4 +1,4 @@
-#![cfg(feature = "raster")]
+#![cfg(all(feature = "raster", feature = "upstream-png-parity"))]
 
 use std::{
     fs,
@@ -81,7 +81,7 @@ fn run_case(engine: &LabelEngine, fixtures_dir: &Path, case: &Case) -> Result<()
     let expected_path = fixtures_dir.join("ref").join(format!("{}.png", case.id));
     if !expected_path.is_file() {
         return Err(format!(
-            "missing upstream PNG reference for {}; run:\n  cargo run --release -p avenger-typst-label --features raster --bin generate_upstream_png_refs",
+            "missing upstream PNG reference for {}; run:\n  cargo run --release -p avenger-typst-label --features upstream-png-parity --bin generate_upstream_png_refs",
             case.id
         ));
     }

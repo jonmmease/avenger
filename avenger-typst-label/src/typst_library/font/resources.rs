@@ -2,7 +2,7 @@ use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
-use crate::typst_label::EngineOptions;
+use crate::label::EngineOptions;
 
 use super::FontStyle;
 

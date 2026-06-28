@@ -159,12 +159,11 @@ fn read_label_source(path: &Path) -> Result<String, Box<dyn Error>> {
 
 fn wrap_source(case: &Case, source: &str) -> String {
     format!(
-        r#"#set page(width: auto, height: auto, margin: 0pt, fill: white)
+        r#"#set page(width: auto, height: 120pt, margin: 20pt, fill: white)
+#set align(horizon)
 #set text(font: "{}", size: {}pt, weight: {}, fill: black)
 #show math.equation: set text(font: "{}", weight: {})
-#box(inset: 4pt)[
 {}
-]
 "#,
         case.text_font, case.font_size, case.font_weight, case.math_font, case.font_weight, source
     )

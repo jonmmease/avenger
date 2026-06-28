@@ -1,7 +1,7 @@
 use std::ops::Range;
 
-use crate::typst_diag::LabelError;
-use crate::typst_label::{LabelParamValue, LabelParams};
+use crate::label::LabelError;
+use crate::label::{LabelParamValue, LabelParams};
 use crate::typst_library::Color;
 use crate::typst_library::math::item as math_item;
 use crate::typst_library::math::item::{

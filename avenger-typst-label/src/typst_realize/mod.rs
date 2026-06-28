@@ -4,8 +4,8 @@
 //! `typst-layout`: flatten retained text/model/symbol markup and parameter
 //! values into renderable single-line text and math nodes.
 
-use crate::typst_diag::LabelError;
-use crate::typst_label::{LabelParamValue, LabelParams};
+use crate::label::LabelError;
+use crate::label::{LabelParamValue, LabelParams};
 use crate::typst_library::text::content::{
     LabelContent, LineNode, MathSpan, PlainTextNode, TextMarkupKind, TextMarkupOptions,
 };

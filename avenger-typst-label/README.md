@@ -6,12 +6,11 @@ including regular text, inline math, emoji, simple text markup, SVG/PDF-friendly
 metadata, and raster output.
 
 The implementation is owned by this crate, but the syntax and layout behavior
-should stay Typst-shaped. Parser and parser-support modules copied from upstream
-Typst live in private `src/typst_syntax`, `src/typst_timing`, and
-`src/typst_utils` modules. The rest of the crate is organized into private
-`typst_*` modules that mirror upstream Typst concepts at label scale. Public
-callers see only label frames and output artifacts, not Typst parser or document
-types.
+should stay Typst-shaped. Parser and parser-support modules copied or mirrored
+from upstream Typst live in private `src/typst_syntax`, `src/typst_timing`, and
+`src/typst_utils` modules. Upstream-like implementation modules use `typst_*`
+names; the Avenger-owned public facade lives in `src/label`. Public callers see
+only label frames and output artifacts, not Typst parser or document types.
 
 ## Kept Functionality
 
@@ -80,9 +79,11 @@ impl LabelEngine {
         text: &str,
         options: &LabelOptions,
     ) -> Result<LabelMetrics, LabelError>;
+    pub fn referenced_params(&self, source: &str) -> Result<Vec<String>, LabelError>;
 }
 
 pub fn escape_text(text: &str) -> String;
+pub fn referenced_params(source: &str) -> Result<Vec<String>, LabelError>;
 pub fn rasterize(label: &CompiledLabel, options: &RasterOptions) -> Result<RasterImage, LabelError>;
 pub fn svg_items(label: &CompiledLabel, options: &SvgOptions) -> Result<SvgLabel, LabelError>;
 pub fn pdf_items(label: &CompiledLabel, options: &PdfOptions) -> Result<PdfLabel, LabelError>;
@@ -131,7 +132,7 @@ source-level fork. The closest upstream source areas are:
 | Module | Typst source area | Relationship |
 | --- | --- | --- |
 | `src/typst_syntax/*` | `crates/typst-syntax/src/*` | Private copied parser/AST module, trimmed by policy through the evaluator and label tests |
-| `src/typst_timing/*` | `crates/typst-timing/src/*` | Private parser support used by copied syntax code |
+| `src/typst_timing/*` | `crates/typst-timing/src/*` | No-op parser support shim for copied syntax code |
 | `src/typst_utils/*` | `crates/typst-utils/src/*` | Private parser/support utilities retained only where needed |
 | `src/typst_eval/*` | `crates/typst-eval/src/*` | Static label evaluator for retained markup, math, literal arguments, and read-only params |
 | `src/typst_library/*` | `crates/typst-library/src/*` | Retained text, math, font, color, stroke, symbol, and compact content concepts |
@@ -140,13 +141,12 @@ source-level fork. The closest upstream source areas are:
 | `src/typst_svg/*` | `crates/typst-svg/src/*` | Vector/path/image artifacts consumed by Avenger SVG/text layers |
 | `src/typst_render/*` | `crates/typst-render/src/*` | Optional `tiny-skia` raster lowering for compiled label frames |
 | `src/typst_pdf/*` | `crates/typst-pdf/src/*` | PDF glyph/font/path metadata consumed by Avenger's direct PDF renderer |
-| `src/typst_diag/*` | Typst diagnostics concepts | Label-scoped errors and warnings |
-| `src/typst_label/*` | Avenger label facade | The public frame-first API boundary |
+| `src/label/*` | Avenger label facade | The public frame-first API boundary, including label-scoped errors and warnings |
 
-Every top-level implementation module other than `src/lib.rs` has been moved
-under these `typst_*` directories. Remaining compact internal names such as
-`ParsedLine` and `MathAst` represent label-scale Typst-equivalent content/IR
-concepts, not public compatibility shims.
+Every top-level implementation module other than `src/lib.rs` is either an
+upstream-shaped `typst_*` module or the Avenger-owned `label` facade. Remaining
+compact internal names such as `ParsedLine` and `MathAst` represent label-scale
+Typst-equivalent content/IR concepts, not public compatibility shims.
 
 ## Extraction Process
 

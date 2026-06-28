@@ -5,6 +5,9 @@
 //! compiled frame into raster, SVG, or PDF artifacts. Avenger fallback,
 //! truncation, cache keys, and renderer policy live outside this crate.
 
+mod error;
+mod warnings;
+
 use std::{
     hash::{Hash, Hasher},
     ops::Range,
@@ -15,6 +18,7 @@ use indexmap::IndexMap;
 
 use crate::typst_eval::call::is_retained_markup_name;
 use crate::typst_eval::math::is_retained_math_name;
+use crate::typst_eval::params::referenced_params as collect_referenced_params;
 use crate::typst_layout::frame::{
     LineLayoutArtifact, LineLayoutOptions, PositionedTextLineRun, PositionedTextLineRunKind,
     TypesetMetrics,
@@ -31,10 +35,10 @@ use crate::typst_render::RasterRequest;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub use crate::typst_diag::LabelWarning;
-pub use crate::typst_diag::{LabelError, LabelInitError};
 pub use crate::typst_eval::LabelLimits;
 pub use crate::typst_library::TextStyle;
+pub use error::{LabelError, LabelInitError};
+pub use warnings::LabelWarning;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -186,6 +190,14 @@ impl LabelEngine {
     ) -> Result<LabelMetrics, LabelError> {
         self.compile_text(text, options).map(|label| label.metrics)
     }
+
+    pub fn referenced_params(&self, source: &str) -> Result<Vec<String>, LabelError> {
+        referenced_params(source)
+    }
+}
+
+pub fn referenced_params(source: &str) -> Result<Vec<String>, LabelError> {
+    collect_referenced_params(source)
 }
 
 #[derive(Debug, Clone, PartialEq)]

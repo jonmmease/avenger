@@ -1246,18 +1246,12 @@ dependencies = [
  "image",
  "indexmap 2.14.0",
  "libm",
- "once_cell",
- "parking_lot",
  "portable-atomic",
- "rayon",
  "rustc-hash 2.1.2",
  "rustybuzz",
- "semver",
  "serde",
- "serde_json",
  "siphasher 1.0.3",
  "smallvec",
- "thin-vec",
  "thiserror 2.0.18",
  "tiny-skia",
  "toml 0.8.23",
@@ -7819,12 +7813,6 @@ dependencies = [
  "avenger-wgpu",
  "pollster 0.4.0",
 ]
-
-[[package]]
-name = "thin-vec"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0f7e269b48f0a7dd0146680fa24b50cc67fc0373f086a5b2f99bd084639b482"
 
 [[package]]
 name = "thiserror"

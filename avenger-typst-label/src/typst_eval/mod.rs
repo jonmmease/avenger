@@ -10,5 +10,6 @@ pub(crate) mod delimiter;
 pub mod limits;
 pub(crate) mod markup;
 pub(crate) mod math;
+pub(crate) mod params;
 
 pub use limits::LabelLimits;

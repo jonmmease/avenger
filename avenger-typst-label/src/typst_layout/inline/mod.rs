@@ -1,6 +1,6 @@
-use crate::typst_diag::LabelError;
-use crate::typst_diag::LabelWarning;
-use crate::typst_label::EngineOptions;
+use crate::label::EngineOptions;
+use crate::label::LabelError;
+use crate::label::LabelWarning;
 use crate::typst_layout::frame::{
     LineLayoutArtifact, LineLayoutOptions, MathLayoutOptions, PositionedTextLineRun,
     PositionedTextLineRunKind, TypesetMetrics,
@@ -1684,8 +1684,8 @@ fn typeset_segmented_plain_text_line(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::label::EngineOptions;
     use crate::typst_eval::markup::parse_line;
-    use crate::typst_label::EngineOptions;
     use crate::typst_layout::inline::font::build_text_fontdb;
 
     fn test_fontdb() -> fontdb::Database {

@@ -1,6 +1,6 @@
-use crate::typst_diag::LabelWarning;
+use crate::label::LabelParams;
+use crate::label::LabelWarning;
 use crate::typst_eval::LabelLimits;
-use crate::typst_label::LabelParams;
 use crate::typst_library::{MathStyle, TextStyle};
 use crate::typst_pdf::{FontResource, PdfTextLayer};
 use crate::typst_svg::PathArtifact;

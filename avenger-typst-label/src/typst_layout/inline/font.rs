@@ -1,8 +1,8 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::typst_diag::LabelError;
-use crate::typst_label::EngineOptions;
+use crate::label::EngineOptions;
+use crate::label::LabelError;
 use crate::typst_library::font::resources::{DEJAVU_SANS_MONO_FACES, EmbeddedFontFace, LATO_FACES};
 use crate::typst_library::{FontStyle, FontWeight, TextStyle};
 use crate::typst_pdf::{FontResource, FontResourceId};
