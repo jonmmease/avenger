@@ -4,19 +4,21 @@ use crate::typst_eval::call::{
     is_math_call_name as is_retained_math_call_name, is_math_delimiter_helper_call_name,
     is_math_delimiter_symbol_call_name, is_math_size_call_name,
     is_retained_math_name as is_retained_math_name_with, is_unsupported_math_table_call_name,
+    named_argument_position, parse_math_bool_literal_with_message, parse_math_cancel_angle,
+    parse_math_cancel_length, parse_math_delimited_size, parse_math_fraction_style,
+    parse_math_stretch_size, validate_math_binom_call_args, validate_math_class_call_args,
+    validate_math_mid_call_args,
 };
 use crate::typst_label::{LabelParamValue, LabelParams};
-use crate::typst_library::math::item as ast;
 use crate::typst_library::math::item::{
     MathAccent, MathArg, MathAst, MathAttach, MathCall, MathCallOptions, MathCancel,
-    MathCancelAngle, MathCancelLength, MathCancelOptions, MathDelimitedSize, MathFraction,
-    MathFractionStyle, MathGroup, MathIdentifier, MathNode, MathOperator, MathShorthand, MathSpace,
-    MathStretchSize, MathStringLiteral, MathText, MathTextKind,
+    MathCancelOptions, MathFraction, MathFractionStyle, MathGroup, MathIdentifier, MathNode,
+    MathOperator, MathShorthand, MathSpace, MathStringLiteral, MathText, MathTextKind,
 };
 
 use super::call::parse_decoration_stroke;
 
-use crate::typst_syntax::ast::{self as typst_ast, AstNode, Unit};
+use crate::typst_syntax::ast::{self as typst_ast, AstNode};
 use crate::typst_syntax::{
     RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
 };
@@ -625,29 +627,6 @@ fn lower_math_frac_call(
     })])
 }
 
-fn parse_math_fraction_style(
-    expr: typst_ast::Expr<'_>,
-    position: usize,
-) -> Result<MathFractionStyle, LabelError> {
-    let style = match expr {
-        typst_ast::Expr::Str(string) => string.get(),
-        typst_ast::Expr::CodeBlock(block) => {
-            let exprs = block.body().exprs().collect::<Vec<_>>();
-            let [typst_ast::Expr::Str(string)] = &exprs[..] else {
-                return Err(unsupported(position, "unsupported frac style value"));
-            };
-            string.get()
-        }
-        _ => return Err(unsupported(position, "unsupported frac style value")),
-    };
-    match style.as_str() {
-        "vertical" => Ok(MathFractionStyle::Vertical),
-        "skewed" => Ok(MathFractionStyle::Skewed),
-        "horizontal" => Ok(MathFractionStyle::Horizontal),
-        _ => Err(unsupported(position, "unsupported frac style value")),
-    }
-}
-
 fn lower_math_attach_call(
     args: typst_ast::MathArgs<'_>,
     source: &str,
@@ -1196,148 +1175,6 @@ fn lower_math_op_call_args(
     Ok((name, vec![body]))
 }
 
-fn parse_math_cancel_length(
-    expr: typst_ast::Expr<'_>,
-    source: &str,
-    position: usize,
-) -> Result<MathCancelLength, LabelError> {
-    let (value, unit) =
-        parse_math_numeric_literal(expr, source, position, "unsupported cancel length value")?;
-    let value = value as f32;
-    match unit {
-        Unit::Percent => Ok(MathCancelLength {
-            relative: value / 100.0,
-            absolute_em: 0.0,
-        }),
-        Unit::Em => Ok(MathCancelLength {
-            relative: 0.0,
-            absolute_em: value,
-        }),
-        _ => Err(unsupported(position, "unsupported cancel length value")),
-    }
-}
-
-fn parse_math_cancel_angle(
-    expr: typst_ast::Expr<'_>,
-    source: &str,
-    position: usize,
-) -> Result<MathCancelAngle, LabelError> {
-    if is_math_auto_literal(expr, source) {
-        return Ok(MathCancelAngle::Auto);
-    }
-    let (value, unit) =
-        parse_math_numeric_literal(expr, source, position, "unsupported cancel angle value")?;
-    match unit {
-        Unit::Deg => Ok(MathCancelAngle::Degrees(value as f32)),
-        Unit::Rad => Ok(MathCancelAngle::Degrees((value as f32).to_degrees())),
-        _ => Err(unsupported(position, "unsupported cancel angle value")),
-    }
-}
-
-fn parse_math_delimited_size(
-    expr: typst_ast::Expr<'_>,
-    source: &str,
-    position: usize,
-    message: &'static str,
-) -> Result<MathDelimitedSize, LabelError> {
-    parse_math_relative_size(expr, source, position, message)
-}
-
-fn parse_math_stretch_size(
-    expr: typst_ast::Expr<'_>,
-    source: &str,
-    position: usize,
-    message: &'static str,
-) -> Result<MathStretchSize, LabelError> {
-    parse_math_relative_size(expr, source, position, message)
-}
-
-fn parse_math_relative_size(
-    expr: typst_ast::Expr<'_>,
-    source: &str,
-    position: usize,
-    message: &'static str,
-) -> Result<ast::MathRelativeSize, LabelError> {
-    let (value, unit) = parse_math_numeric_literal(expr, source, position, message)?;
-    let value = value as f32;
-    match unit {
-        Unit::Percent => Ok(ast::MathRelativeSize {
-            relative: value / 100.0,
-            absolute_em: 0.0,
-            absolute_pt: 0.0,
-        }),
-        Unit::Em => Ok(ast::MathRelativeSize {
-            relative: 0.0,
-            absolute_em: value,
-            absolute_pt: 0.0,
-        }),
-        Unit::Pt => Ok(ast::MathRelativeSize {
-            relative: 0.0,
-            absolute_em: 0.0,
-            absolute_pt: value,
-        }),
-        _ => Err(unsupported(position, message)),
-    }
-}
-
-fn parse_math_numeric_literal(
-    expr: typst_ast::Expr<'_>,
-    source: &str,
-    position: usize,
-    message: &'static str,
-) -> Result<(f64, Unit), LabelError> {
-    let raw = source
-        .get(expr.to_untyped().range())
-        .unwrap_or_default()
-        .trim();
-    match expr {
-        typst_ast::Expr::Numeric(value) => Ok(value.get()),
-        typst_ast::Expr::CodeBlock(block) => {
-            let exprs = block.body().exprs().collect::<Vec<_>>();
-            if let [typst_ast::Expr::Numeric(value)] = &exprs[..] {
-                Ok(value.get())
-            } else {
-                parse_raw_math_numeric_literal(raw).ok_or_else(|| unsupported(position, message))
-            }
-        }
-        _ => parse_raw_math_numeric_literal(raw).ok_or_else(|| unsupported(position, message)),
-    }
-}
-
-fn is_math_auto_literal(expr: typst_ast::Expr<'_>, source: &str) -> bool {
-    let raw = source
-        .get(expr.to_untyped().range())
-        .unwrap_or_default()
-        .trim()
-        .trim_start_matches('#');
-    match expr {
-        typst_ast::Expr::Ident(ident) => ident.as_str() == "auto",
-        typst_ast::Expr::CodeBlock(block) => {
-            let exprs = block.body().exprs().collect::<Vec<_>>();
-            matches!(&exprs[..], [typst_ast::Expr::Ident(ident)] if ident.as_str() == "auto")
-                || raw == "auto"
-        }
-        _ => raw == "auto",
-    }
-}
-
-fn parse_raw_math_numeric_literal(raw: &str) -> Option<(f64, Unit)> {
-    let raw = raw.trim().trim_start_matches('#');
-    let unit = ["deg", "rad", "em", "pt", "%"]
-        .iter()
-        .find(|unit| raw.ends_with(**unit))?;
-    let value = raw[..raw.len() - unit.len()].trim().parse().ok()?;
-    let unit = match *unit {
-        "deg" => Unit::Deg,
-        "rad" => Unit::Rad,
-        "em" => Unit::Em,
-        "pt" => Unit::Pt,
-        "%" => Unit::Percent,
-        _ => return None,
-    };
-    Some((value, unit))
-}
-
 fn lower_math_call_args(
     args: typst_ast::MathArgs<'_>,
     source: &str,
@@ -1430,81 +1267,6 @@ fn lower_math_size_call_args(
     }
     body.map(|body| vec![body])
         .ok_or_else(|| unsupported(position, "math size call expects one body argument"))
-}
-
-fn parse_math_bool_literal_with_message(
-    expr: typst_ast::Expr<'_>,
-    position: usize,
-    message: &'static str,
-) -> Result<bool, LabelError> {
-    match expr {
-        typst_ast::Expr::Bool(value) => Ok(value.get()),
-        typst_ast::Expr::CodeBlock(block) => {
-            let exprs = block.body().exprs().collect::<Vec<_>>();
-            let [typst_ast::Expr::Bool(value)] = &exprs[..] else {
-                return Err(unsupported(position, message));
-            };
-            Ok(value.get())
-        }
-        _ => Err(unsupported(position, message)),
-    }
-}
-
-fn validate_math_class_call_args(args: &[MathArg], position: usize) -> Result<(), LabelError> {
-    let [class_arg, body_arg] = args else {
-        return Err(unsupported(
-            position,
-            "class math expects a class name and body",
-        ));
-    };
-    let [MathNode::StringLiteral(class)] = &class_arg.nodes[..] else {
-        return Err(unsupported(
-            class_arg.byte_range.start,
-            "math class name must be a string literal",
-        ));
-    };
-    if !is_supported_math_class_name(&class.text) {
-        return Err(unsupported(
-            class.byte_range.start,
-            "unsupported math class name",
-        ));
-    }
-    if body_arg.nodes.is_empty() {
-        return Err(unsupported(
-            body_arg.byte_range.start,
-            "class math body must not be empty",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_math_binom_call_args(args: &[MathArg], position: usize) -> Result<(), LabelError> {
-    if args.len() < 2 {
-        return Err(unsupported(
-            position,
-            "binom math expects upper and at least one lower argument",
-        ));
-    }
-    if args.iter().any(|arg| arg.nodes.is_empty()) {
-        return Err(unsupported(
-            position,
-            "binom math arguments must not be empty",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_math_mid_call_args(args: &[MathArg], position: usize) -> Result<(), LabelError> {
-    if args.is_empty() {
-        return Err(unsupported(position, "mid expects a body argument"));
-    }
-    if args.len() != 1 {
-        return Err(unsupported(
-            position,
-            "mid expects exactly one body argument",
-        ));
-    }
-    Ok(())
 }
 
 fn lower_math_args_as_group_body(
@@ -1673,14 +1435,6 @@ fn shorthand_replacement(source: &str) -> Option<&'static str> {
         .iter()
         .find(|(candidate, _)| *candidate == source)
         .map(|(_, replacement)| *replacement)
-}
-
-fn named_argument_position(named: typst_ast::Named<'_>, source: &str, offset: usize) -> usize {
-    let range = named.to_untyped().range();
-    source[range.clone()]
-        .find(':')
-        .map(|idx| offset + range.start + idx)
-        .unwrap_or(offset + range.start)
 }
 
 fn is_operator_text(text: &str) -> bool {
@@ -1865,23 +1619,6 @@ const ACCENT_ALIASES: &[(char, &[&str])] = &[
     ('\u{20d1}', &["⇀"]),
 ];
 
-fn is_supported_math_class_name(name: &str) -> bool {
-    matches!(
-        name,
-        "normal"
-            | "alphabetic"
-            | "binary"
-            | "unary"
-            | "vary"
-            | "relation"
-            | "opening"
-            | "closing"
-            | "fence"
-            | "punctuation"
-            | "large"
-    )
-}
-
 pub(crate) fn named_math_symbol(name: &str) -> Option<&'static str> {
     match name {
         "alpha" => Some("α"),
@@ -2057,6 +1794,7 @@ pub(crate) fn predefined_operator_text(name: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typst_library::math::item::MathCancelAngle;
 
     fn parse(source: &str) -> MathAst {
         parse_math(source, 0).unwrap()
