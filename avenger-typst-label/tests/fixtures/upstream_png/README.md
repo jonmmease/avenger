@@ -14,6 +14,26 @@ by upstream Typst for the same single-line label snippets.
 - Keep snippets label-sized and single-line where possible. Do not copy
   Typst's full page-level render refs into this tree.
 
+## Agent Instructions
+
+Use this suite when an agent needs to validate that `avenger-typst-label`
+matches upstream Typst for supported single-line label features. Build or
+extend only the PNG path first. The generator may depend on a local upstream
+Typst checkout at `../typst`, but the Rust test must be offline and compare
+against checked-in references only.
+
+Agent checklist:
+
+1. Read this README and `cases.toml` before editing.
+2. Add one supported feature family at a time.
+3. Add label-only snippets under `src/{id}.typ`.
+4. Add matching `[[case]]` entries with upstream file/test attribution.
+5. Regenerate references with the release-mode generator.
+6. Inspect every changed `ref/*.png` directly or in a temporary mosaic.
+7. Run the PNG parity test in release mode.
+8. If label-engine code changed, run the full crate raster suite.
+9. Stage only suite files and intentional crate metadata.
+
 ## Layout
 
 - `cases.toml`: one manifest entry per case.

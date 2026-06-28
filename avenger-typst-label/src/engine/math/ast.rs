@@ -185,7 +185,30 @@ pub(crate) struct MathAccent {
 pub(crate) struct MathCall {
     pub(crate) name: String,
     pub(crate) args: Vec<MathArg>,
+    pub(crate) options: MathCallOptions,
     pub(crate) byte_range: Range<usize>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct MathCallOptions {
+    pub(crate) delimiter_size: Option<MathDelimitedSize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct MathDelimitedSize {
+    pub(crate) relative: f32,
+    pub(crate) absolute_em: f32,
+    pub(crate) absolute_pt: f32,
+}
+
+impl Default for MathDelimitedSize {
+    fn default() -> Self {
+        Self {
+            relative: 1.0,
+            absolute_em: 0.0,
+            absolute_pt: 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

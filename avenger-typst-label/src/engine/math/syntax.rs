@@ -2,10 +2,10 @@ use crate::engine::syntax::parse_decoration_stroke;
 use crate::error::LabelError;
 
 use super::ast::{
-    MathAccent, MathArg, MathAst, MathAttach, MathCall, MathCancel, MathCancelAngle,
-    MathCancelLength, MathCancelOptions, MathFraction, MathFractionStyle, MathGroup,
-    MathIdentifier, MathNode, MathOperator, MathShorthand, MathSpace, MathStringLiteral, MathText,
-    MathTextKind,
+    MathAccent, MathArg, MathAst, MathAttach, MathCall, MathCallOptions, MathCancel,
+    MathCancelAngle, MathCancelLength, MathCancelOptions, MathDelimitedSize, MathFraction,
+    MathFractionStyle, MathGroup, MathIdentifier, MathNode, MathOperator, MathShorthand, MathSpace,
+    MathStringLiteral, MathText, MathTextKind,
 };
 
 use crate::syntax::ast::{self as typst_ast, AstNode, Unit};
@@ -314,6 +314,7 @@ fn lower_math_root(
     Ok(vec![MathNode::Call(MathCall {
         name: name.to_string(),
         args,
+        options: MathCallOptions::default(),
         byte_range: offset_range(root.to_untyped().range(), offset),
     })])
 }
@@ -337,6 +338,7 @@ fn lower_math_call(
         return Ok(vec![MathNode::Call(MathCall {
             name,
             args,
+            options: MathCallOptions::default(),
             byte_range: range,
         })]);
     }
@@ -363,6 +365,7 @@ fn lower_math_call(
         return Ok(vec![MathNode::Call(MathCall {
             name,
             args,
+            options: MathCallOptions::default(),
             byte_range: range,
         })]);
     }
@@ -372,12 +375,20 @@ fn lower_math_call(
         return Ok(vec![MathNode::Call(MathCall {
             name,
             args,
+            options: MathCallOptions::default(),
             byte_range: range,
         })]);
     }
 
     if is_math_call_name(&name) {
-        let args = lower_math_call_args(call.args(), source, offset)?;
+        let (args, options) = if name == "lr" || is_math_delimiter_helper_call_name(&name) {
+            lower_math_delimited_call_args(&name, call.args(), source, offset, range.start)?
+        } else {
+            (
+                lower_math_call_args(call.args(), source, offset)?,
+                MathCallOptions::default(),
+            )
+        };
         if name == "class" {
             validate_math_class_call_args(&args, range.start)?;
         } else if name == "binom" {
@@ -386,6 +397,7 @@ fn lower_math_call(
         return Ok(vec![MathNode::Call(MathCall {
             name,
             args,
+            options,
             byte_range: range,
         })]);
     }
@@ -598,6 +610,79 @@ fn lower_math_attach_call(
         primes: 0,
         byte_range: range,
     })])
+}
+
+fn lower_math_delimited_call_args(
+    name: &str,
+    args: typst_ast::MathArgs<'_>,
+    source: &str,
+    offset: usize,
+    position: usize,
+) -> Result<(Vec<MathArg>, MathCallOptions), LabelError> {
+    let mut lowered = Vec::new();
+    let mut delimiter_size = None;
+
+    for item in args.arg_items() {
+        if item.ends_in_semicolon {
+            return Err(unsupported(
+                item.arg.to_untyped().range().end + offset,
+                "semicolon math arguments are not supported in Avenger Typst subset",
+            ));
+        }
+        match item.arg {
+            typst_ast::Arg::Pos(expr) => {
+                let byte_range = offset_range(expr.to_untyped().range(), offset);
+                lowered.push(MathArg {
+                    nodes: lower_math_expr(expr, source, offset)?,
+                    byte_range,
+                });
+            }
+            typst_ast::Arg::Named(named) => {
+                let name_position = named_argument_position(named, source, offset);
+                if named.name().as_str() != "size" {
+                    let message = if name == "lr" {
+                        "unsupported lr option"
+                    } else {
+                        "unsupported delimiter option"
+                    };
+                    return Err(unsupported(name_position, message));
+                }
+                if delimiter_size.is_some() {
+                    return Err(unsupported(
+                        name_position,
+                        "duplicate delimiter size option",
+                    ));
+                }
+                delimiter_size = Some(parse_math_delimited_size(
+                    named.expr(),
+                    source,
+                    name_position,
+                    "unsupported delimiter size value",
+                )?);
+            }
+            typst_ast::Arg::Spread(spread) => {
+                return Err(unsupported(
+                    spread.to_untyped().range().start + offset,
+                    "spread math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+        }
+    }
+
+    if lowered.is_empty() {
+        return Err(unsupported(
+            position,
+            "delimiter call expects a body argument",
+        ));
+    }
+    if lowered.len() != 1 {
+        return Err(unsupported(
+            position,
+            "delimiter call expects exactly one body argument",
+        ));
+    }
+
+    Ok((lowered, MathCallOptions { delimiter_size }))
 }
 
 fn lower_math_attachment_mode_call_args(
@@ -942,6 +1027,34 @@ fn parse_math_cancel_angle(
         Unit::Deg => Ok(MathCancelAngle::Degrees(value as f32)),
         Unit::Rad => Ok(MathCancelAngle::Degrees((value as f32).to_degrees())),
         _ => Err(unsupported(position, "unsupported cancel angle value")),
+    }
+}
+
+fn parse_math_delimited_size(
+    expr: typst_ast::Expr<'_>,
+    source: &str,
+    position: usize,
+    message: &'static str,
+) -> Result<MathDelimitedSize, LabelError> {
+    let (value, unit) = parse_math_numeric_literal(expr, source, position, message)?;
+    let value = value as f32;
+    match unit {
+        Unit::Percent => Ok(MathDelimitedSize {
+            relative: value / 100.0,
+            absolute_em: 0.0,
+            absolute_pt: 0.0,
+        }),
+        Unit::Em => Ok(MathDelimitedSize {
+            relative: 0.0,
+            absolute_em: value,
+            absolute_pt: 0.0,
+        }),
+        Unit::Pt => Ok(MathDelimitedSize {
+            relative: 0.0,
+            absolute_em: 0.0,
+            absolute_pt: value,
+        }),
+        _ => Err(unsupported(position, message)),
     }
 }
 
@@ -1478,6 +1591,10 @@ fn is_math_size_call_name(name: &str) -> bool {
     matches!(name, "display" | "inline" | "script" | "sscript")
 }
 
+fn is_math_delimiter_helper_call_name(name: &str) -> bool {
+    matches!(name, "abs" | "norm" | "floor" | "ceil" | "round")
+}
+
 fn is_math_accent_call_name(name: &str) -> bool {
     name == "accent" || named_accent_char(name).is_some()
 }
@@ -1827,6 +1944,68 @@ mod tests {
             &math.nodes[0],
             MathNode::Call(call) if call.name == "binom" && call.args.len() == 4
         ));
+    }
+
+    #[test]
+    fn parses_delimiter_size_options() {
+        let math = parse("lr(size: #240%, |x|) + abs(x, size: #2em) + norm(v, size: #18pt)");
+
+        let MathNode::Call(lr) = &math.nodes[0] else {
+            panic!("lr should lower to a typed call");
+        };
+        assert_eq!(lr.name, "lr");
+        assert_eq!(lr.args.len(), 1);
+        let lr_size = lr
+            .options
+            .delimiter_size
+            .expect("lr size option should be retained");
+        assert!((lr_size.relative - 2.4).abs() < f32::EPSILON);
+        assert!((lr_size.absolute_em - 0.0).abs() < f32::EPSILON);
+        assert!((lr_size.absolute_pt - 0.0).abs() < f32::EPSILON);
+
+        let MathNode::Call(abs) = &math.nodes[4] else {
+            panic!("abs should lower to a typed call");
+        };
+        assert_eq!(abs.name, "abs");
+        let abs_size = abs
+            .options
+            .delimiter_size
+            .expect("abs size option should be retained");
+        assert!((abs_size.relative - 0.0).abs() < f32::EPSILON);
+        assert!((abs_size.absolute_em - 2.0).abs() < f32::EPSILON);
+        assert!((abs_size.absolute_pt - 0.0).abs() < f32::EPSILON);
+
+        let MathNode::Call(norm) = &math.nodes[8] else {
+            panic!("norm should lower to a typed call");
+        };
+        assert_eq!(norm.name, "norm");
+        let norm_size = norm
+            .options
+            .delimiter_size
+            .expect("norm size option should be retained");
+        assert!((norm_size.relative - 0.0).abs() < f32::EPSILON);
+        assert!((norm_size.absolute_em - 0.0).abs() < f32::EPSILON);
+        assert!((norm_size.absolute_pt - 18.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn rejects_invalid_delimiter_size_options() {
+        for (source, message) in [
+            ("lr(|x|, foo: #true)", "unsupported lr option"),
+            ("abs(x, foo: #true)", "unsupported delimiter option"),
+            ("abs(x, size: #auto)", "unsupported delimiter size value"),
+            ("abs(x, size: #45deg)", "unsupported delimiter size value"),
+            (
+                "abs(x, y)",
+                "delimiter call expects exactly one body argument",
+            ),
+        ] {
+            let err = parse_math(source, 0).unwrap_err();
+            assert!(
+                format!("{err}").contains(message),
+                "{source}: expected {message}, got {err}"
+            );
+        }
     }
 
     #[test]

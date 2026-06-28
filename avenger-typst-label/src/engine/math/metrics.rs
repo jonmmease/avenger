@@ -674,6 +674,7 @@ fn layout_simple_group(
         group.right,
         font_size,
         script_level,
+        None,
     )
 }
 
@@ -688,7 +689,15 @@ fn layout_simple_delimited_call(
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
-    layout_simple_delimited_nodes(font, left, &arg.nodes, right, font_size, script_level)
+    layout_simple_delimited_nodes(
+        font,
+        left,
+        &arg.nodes,
+        right,
+        font_size,
+        script_level,
+        call.options.delimiter_size,
+    )
 }
 
 fn layout_simple_lr_call(
@@ -703,7 +712,15 @@ fn layout_simple_lr_call(
     let Some((left, body_nodes, right)) = lr_call_delimited_body(&arg.nodes) else {
         return Ok(None);
     };
-    layout_simple_delimited_nodes(font, left, body_nodes, right, font_size, script_level)
+    layout_simple_delimited_nodes(
+        font,
+        left,
+        body_nodes,
+        right,
+        font_size,
+        script_level,
+        call.options.delimiter_size,
+    )
 }
 
 fn lr_call_delimited_body(nodes: &[MathNode]) -> Option<(char, &[MathNode], char)> {
@@ -762,6 +779,7 @@ fn layout_simple_delimited_nodes(
     right: char,
     font_size: f32,
     script_level: u8,
+    explicit_size: Option<super::ast::MathDelimitedSize>,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let Some(body) = layout_simple_nodes_as_atom(font, body_nodes, font_size, script_level)? else {
         return Ok(None);
@@ -774,6 +792,7 @@ fn layout_simple_delimited_nodes(
         font_size,
         script_level,
         DelimiterTarget::Ink,
+        explicit_size,
     )
     .map(Some)
 }
@@ -786,11 +805,16 @@ fn layout_simple_delimited_atom(
     font_size: f32,
     script_level: u8,
     target: DelimiterTarget,
+    explicit_size: Option<super::ast::MathDelimitedSize>,
 ) -> Result<LaidOutMathAtom, LabelError> {
-    let delimiter_target_height = match target {
+    let natural_target_height = match target {
         DelimiterTarget::Ink => body.ink_ascent + body.ink_descent,
         DelimiterTarget::Frame => body.metrics.height,
     };
+    let delimiter_target_height = explicit_size
+        .map(|size| resolve_delimited_size(size, natural_target_height, font_size))
+        .unwrap_or(natural_target_height)
+        .max(0.0);
     let mut left = layout_delimiter_atom_with_target(
         font,
         left,
@@ -867,11 +891,21 @@ fn layout_simple_delimited_atom(
     })
 }
 
+fn resolve_delimited_size(
+    size: super::ast::MathDelimitedSize,
+    natural_target_height: f32,
+    font_size: f32,
+) -> f32 {
+    size.relative * natural_target_height + size.absolute_em * font_size + size.absolute_pt
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DelimiterTarget {
     Ink,
     Frame,
 }
+
+const DELIMITER_SHORT_FALL_EM: f32 = 0.1;
 
 fn layout_delimiter_atom_with_target(
     font: &MathFont,
@@ -890,7 +924,9 @@ fn layout_delimiter_atom_with_target(
         class,
     )?;
 
-    if !force_variant && target_height <= atom.metrics.height {
+    let short_target_height = (target_height - DELIMITER_SHORT_FALL_EM * font_size).max(0.0);
+    let stretch_advance = atom.ink_ascent + atom.ink_descent;
+    if !force_variant && short_target_height <= stretch_advance {
         return Ok(atom);
     }
 
@@ -908,7 +944,7 @@ fn layout_delimiter_atom_with_target(
     };
 
     let scale = font_size / face.units_per_em() as f32;
-    let target_units = target_height / scale;
+    let target_units = short_target_height / scale;
     let base_glyph = glyph.glyph_id;
     let mut variant_glyph = glyph.glyph_id;
     let mut variant_advance = None;
@@ -929,6 +965,17 @@ fn layout_delimiter_atom_with_target(
         .map(|advance| advance as f32 * scale)
         .or_else(|| variant_advance.map(|advance| advance as f32 * scale))
         .unwrap_or(glyph.x_advance);
+    if let Some(bounds) = face.glyph_bounding_box(variant_glyph) {
+        let ascent = bounds.y_max.max(0) as f32 * scale;
+        let descent = (-bounds.y_min).max(0) as f32 * scale;
+        atom.metrics.height = ascent + descent;
+        atom.metrics.baseline = ascent;
+        atom.metrics.ascent = ascent;
+        atom.metrics.descent = descent;
+        atom.ink_ascent = ascent;
+        atom.ink_descent = descent;
+        glyph.y = ascent;
+    }
     atom.metrics.width = glyph.x_advance;
     Ok(atom)
 }
@@ -1335,6 +1382,7 @@ fn layout_simple_binom_call(
         font_size,
         script_level,
         DelimiterTarget::Frame,
+        None,
     )
     .map(Some)
 }
@@ -2826,6 +2874,7 @@ fn style_math_node(node: &MathNode, selection: MathStyleSelection) -> Vec<MathNo
                         byte_range: arg.byte_range.clone(),
                     })
                     .collect(),
+                options: call.options,
                 byte_range: call.byte_range.clone(),
             })]
         }
@@ -4627,6 +4676,80 @@ mod tests {
             .map(|glyph| glyph.unicode.as_str())
             .collect();
         assert_eq!(text, "|𝑥+𝑦|");
+    }
+
+    #[test]
+    fn simple_row_applies_lr_delimiter_size_option() {
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let plain = parse_math("lr(|x|)", 0).unwrap();
+        let sized = parse_math("lr(size: #240%, |x|)", 0).unwrap();
+        let plain_artifact =
+            try_typeset_simple_row_fragment(&plain, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("plain lr call should be handled by Typst row path");
+        let sized_artifact =
+            try_typeset_simple_row_fragment(&sized, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("sized lr call should be handled by Typst row path");
+
+        assert!(
+            sized_artifact.metrics.height > plain_artifact.metrics.height + 3.0,
+            "explicit delimiter size should increase line height: plain={:?}, sized={:?}",
+            plain_artifact.metrics,
+            sized_artifact.metrics
+        );
+        assert_eq!(
+            sized_artifact
+                .paths
+                .as_ref()
+                .expect("sized lr paths should exist")
+                .items
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn simple_row_applies_delimiter_helper_size_option() {
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let plain = parse_math("abs(x)", 0).unwrap();
+        let sized = parse_math("abs(x, size: #2em)", 0).unwrap();
+        let plain_artifact =
+            try_typeset_simple_row_fragment(&plain, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("plain abs call should be handled by Typst row path");
+        let sized_artifact =
+            try_typeset_simple_row_fragment(&sized, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("sized abs call should be handled by Typst row path");
+
+        assert!(
+            sized_artifact.metrics.height > plain_artifact.metrics.height + 5.0,
+            "explicit delimiter size should increase helper height: plain={:?}, sized={:?}",
+            plain_artifact.metrics,
+            sized_artifact.metrics
+        );
+        assert_eq!(
+            sized_artifact
+                .paths
+                .as_ref()
+                .expect("sized abs paths should exist")
+                .items
+                .len(),
+            3
+        );
     }
 
     #[test]
