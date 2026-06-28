@@ -1083,7 +1083,10 @@ fn param_value_to_length(
     position: usize,
 ) -> Result<DecorationLength, LabelError> {
     let LabelParamValue::Str(value) = value else {
-        return Err(unsupported(position, "unsupported decoration length"));
+        return Err(unsupported(
+            position,
+            "label parameter cannot be cast to decoration length",
+        ));
     };
     parse_length_literal(value, position)?.ok_or_else(|| {
         unsupported(
@@ -1316,6 +1319,10 @@ mod tests {
 
     fn parse(source: &str) -> ParsedLine {
         parse_line(source).unwrap()
+    }
+
+    fn parse_with_params(source: &str, params: &LabelParams) -> ParsedLine {
+        parse_line_with_params(source, params).unwrap()
     }
 
     #[test]
@@ -1569,6 +1576,97 @@ mod tests {
         assert_eq!(span.options.decoration.extent, DecorationLength::Pt(3.0));
         assert!(span.options.decoration.background);
         assert_eq!(span.options.decoration.evade, Some(false));
+    }
+
+    #[test]
+    fn parses_non_stroke_decoration_option_params() {
+        let mut params = LabelParams::new();
+        params.insert(
+            "underline_offset".to_string(),
+            LabelParamValue::Str("2pt".to_string()),
+        );
+        params.insert(
+            "underline_extent".to_string(),
+            LabelParamValue::Str("-0.5em".to_string()),
+        );
+        params.insert(
+            "underline_background".to_string(),
+            LabelParamValue::Bool(true),
+        );
+        params.insert("underline_evade".to_string(), LabelParamValue::Bool(false));
+
+        let line = parse_with_params(
+            "#underline(offset: underline_offset, extent: underline_extent, background: underline_background, evade: underline_evade)[care]",
+            &params,
+        );
+
+        let LineNode::TextSpan(span) = &line.nodes[0] else {
+            panic!("expected text span");
+        };
+        assert_eq!(span.kind, TextMarkupKind::Underline);
+        assert_eq!(
+            span.options.decoration.offset,
+            Some(DecorationLength::Pt(2.0))
+        );
+        assert_eq!(span.options.decoration.extent, DecorationLength::Em(-0.5));
+        assert!(span.options.decoration.background);
+        assert_eq!(span.options.decoration.evade, Some(false));
+    }
+
+    #[test]
+    fn parses_script_smallcaps_and_strong_option_params() {
+        let mut params = LabelParams::new();
+        params.insert("use_typographic".to_string(), LabelParamValue::Bool(false));
+        params.insert(
+            "script_baseline".to_string(),
+            LabelParamValue::Str("-0.25em".to_string()),
+        );
+        params.insert(
+            "script_size".to_string(),
+            LabelParamValue::Str("8pt".to_string()),
+        );
+        params.insert("all_caps".to_string(), LabelParamValue::Bool(true));
+        params.insert("weight_delta".to_string(), LabelParamValue::Int(150));
+
+        let line = parse_with_params(
+            "#super(typographic: use_typographic, baseline: script_baseline, size: script_size)[N] \
+             #smallcaps(all: all_caps)[UNICEF] \
+             #strong(delta: weight_delta)[bold]",
+            &params,
+        );
+
+        assert_eq!(line.nodes.len(), 5);
+        assert!(matches!(&line.nodes[0], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Superscript
+                && !span.options.script.typographic
+                && span.options.script.baseline == Some(DecorationLength::Em(-0.25))
+                && span.options.script.size == Some(DecorationLength::Pt(8.0))
+        ));
+        assert!(matches!(&line.nodes[2], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Smallcaps
+                && span.options.smallcaps.all
+        ));
+        assert!(matches!(&line.nodes[4], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Strong
+                && span.options.strong.delta == 150
+        ));
+    }
+
+    #[test]
+    fn rejects_invalid_non_stroke_option_param_casts() {
+        let mut params = LabelParams::new();
+        params.insert("badlength".to_string(), LabelParamValue::Bool(true));
+
+        let err =
+            parse_line_with_params("#underline(offset: badlength)[care]", &params).unwrap_err();
+
+        assert_eq!(
+            err,
+            LabelError::UnsupportedSyntax {
+                position: 11,
+                message: "label parameter cannot be cast to decoration length"
+            }
+        );
     }
 
     #[test]
