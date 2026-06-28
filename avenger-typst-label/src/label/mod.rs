@@ -19,7 +19,6 @@ use std::{
 
 use indexmap::IndexMap;
 
-use crate::typst_eval::call::is_retained_markup_name;
 use crate::typst_eval::markup::parse_line_with_params;
 use crate::typst_eval::math::is_retained_math_name;
 use crate::typst_eval::math::parse_math_with_params;
@@ -29,6 +28,7 @@ use crate::typst_layout::frame::{
 };
 use crate::typst_layout::line::TypstEngineCore;
 use crate::typst_library::MathStyle;
+use crate::typst_library::text::call::is_retained_markup_name;
 use crate::typst_library::text::content::{LabelContent, LineNode};
 pub use crate::typst_render::RasterImage;
 use crate::typst_svg::{PathArtifact, PathImageItem, PathItem, PathKind, Transform};

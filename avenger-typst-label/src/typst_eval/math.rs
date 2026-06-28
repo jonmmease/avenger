@@ -1,8 +1,7 @@
 use crate::label::LabelError;
 use crate::label::{LabelParamValue, LabelParams};
-use crate::typst_eval::call::{
-    MathCallLoweringContext, is_retained_math_name as is_retained_math_name_with, lower_math_call,
-};
+use crate::typst_eval::call::{MathCallLoweringContext, lower_math_call};
+use crate::typst_library::math::call::is_retained_math_name as is_retained_math_name_with;
 use crate::typst_library::math::item::{
     MathArg, MathAst, MathAttach, MathCall, MathCallOptions, MathFraction, MathFractionStyle,
     MathGroup, MathIdentifier, MathNode, MathOperator, MathShorthand, MathSpace, MathStringLiteral,

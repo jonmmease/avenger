@@ -2,9 +2,9 @@ use std::ops::Range;
 
 use crate::label::LabelError;
 use crate::label::LabelParams;
-use crate::typst_eval::call::{parse_text_markup_option, text_span_kind};
 use crate::typst_eval::delimiter::{DelimiterDisplayHint, DelimiterInfo};
 use crate::typst_library::symbols::{named_emoji, named_symbol};
+use crate::typst_library::text::call::{parse_text_markup_option, text_span_kind};
 use crate::typst_library::text::content::{
     EmojiAlias, LabelContent, LabelParamRef, LineNode, MathSpan, PlainTextNode, SymbolAlias,
     TextMarkupKind, TextMarkupOptions, TextMarkupSpan,

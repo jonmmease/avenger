@@ -1,7 +1,9 @@
 use indexmap::IndexSet;
 
 use crate::label::{LabelError, LabelParamValue, LabelParams};
-use crate::typst_eval::call::{is_retained_markup_name, parse_text_markup_option, text_span_kind};
+use crate::typst_library::text::call::{
+    is_retained_markup_name, parse_text_markup_option, text_span_kind,
+};
 use crate::typst_library::text::content::{TextMarkupKind, TextMarkupOptions};
 use crate::typst_syntax::ast::{self as typst_ast, AstNode};
 use crate::typst_syntax::{
