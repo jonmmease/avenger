@@ -332,6 +332,16 @@ fn lower_math_call(
         return lower_math_attach_call(call.args(), source, offset, range);
     }
 
+    if name == "scripts" || name == "limits" {
+        let (name, args) =
+            lower_math_attachment_mode_call_args(&name, call.args(), source, offset, range.start)?;
+        return Ok(vec![MathNode::Call(MathCall {
+            name,
+            args,
+            byte_range: range,
+        })]);
+    }
+
     if is_math_size_call_name(&name) {
         let args = lower_math_size_call_args(call.args(), source, offset, range.start)?;
         return Ok(vec![MathNode::Call(MathCall {
@@ -457,6 +467,78 @@ fn lower_math_attach_call(
     })])
 }
 
+fn lower_math_attachment_mode_call_args(
+    name: &str,
+    args: typst_ast::MathArgs<'_>,
+    source: &str,
+    offset: usize,
+    position: usize,
+) -> Result<(String, Vec<MathArg>), LabelError> {
+    let mut body = None;
+    let mut limits_inline = true;
+    for item in args.arg_items() {
+        if item.ends_in_semicolon {
+            return Err(unsupported(
+                item.arg.to_untyped().range().end + offset,
+                "semicolon math arguments are not supported in Avenger Typst subset",
+            ));
+        }
+        match item.arg {
+            typst_ast::Arg::Pos(expr) => {
+                if body.is_some() {
+                    return Err(unsupported(
+                        expr.to_untyped().range().start + offset,
+                        "math attachment mode call expects one body argument",
+                    ));
+                }
+                let byte_range = offset_range(expr.to_untyped().range(), offset);
+                body = Some(MathArg {
+                    nodes: lower_math_expr(expr, source, offset)?,
+                    byte_range,
+                });
+            }
+            typst_ast::Arg::Named(named) => {
+                if name != "limits" || named.name().as_str() != "inline" {
+                    let message = if name == "limits" {
+                        "unsupported limits option"
+                    } else {
+                        "unsupported scripts option"
+                    };
+                    return Err(unsupported(
+                        named_argument_position(named, source, offset),
+                        message,
+                    ));
+                }
+                let item_position = named.to_untyped().range().start + offset;
+                limits_inline = parse_math_bool_literal_with_message(
+                    named.expr(),
+                    item_position,
+                    "unsupported limits inline value",
+                )?;
+            }
+            typst_ast::Arg::Spread(spread) => {
+                return Err(unsupported(
+                    spread.to_untyped().range().start + offset,
+                    "spread math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+        }
+    }
+
+    let body = body.ok_or_else(|| {
+        unsupported(
+            position,
+            "math attachment mode call expects one body argument",
+        )
+    })?;
+    let lowered_name = if name == "limits" && !limits_inline {
+        "limits_display".to_string()
+    } else {
+        name.to_string()
+    };
+    Ok((lowered_name, vec![body]))
+}
+
 fn lower_math_call_args(
     args: typst_ast::MathArgs<'_>,
     source: &str,
@@ -531,7 +613,11 @@ fn lower_math_size_call_args(
                     ));
                 }
                 let item_position = named.to_untyped().range().start + offset;
-                parse_math_bool_literal(named.expr(), item_position)?;
+                parse_math_bool_literal_with_message(
+                    named.expr(),
+                    item_position,
+                    "unsupported math size cramped value",
+                )?;
             }
             typst_ast::Arg::Spread(spread) => {
                 return Err(unsupported(
@@ -545,17 +631,21 @@ fn lower_math_size_call_args(
         .ok_or_else(|| unsupported(position, "math size call expects one body argument"))
 }
 
-fn parse_math_bool_literal(expr: typst_ast::Expr<'_>, position: usize) -> Result<bool, LabelError> {
+fn parse_math_bool_literal_with_message(
+    expr: typst_ast::Expr<'_>,
+    position: usize,
+    message: &'static str,
+) -> Result<bool, LabelError> {
     match expr {
         typst_ast::Expr::Bool(value) => Ok(value.get()),
         typst_ast::Expr::CodeBlock(block) => {
             let exprs = block.body().exprs().collect::<Vec<_>>();
             let [typst_ast::Expr::Bool(value)] = &exprs[..] else {
-                return Err(unsupported(position, "unsupported math size cramped value"));
+                return Err(unsupported(position, message));
             };
             Ok(value.get())
         }
-        _ => Err(unsupported(position, "unsupported math size cramped value")),
+        _ => Err(unsupported(position, message)),
     }
 }
 
@@ -1094,6 +1184,8 @@ mod tests {
             "J_n(x)",
             "sum_(i=0)^n i",
             "lim_(x -> oo) f(x)",
+            "limits(A)_1^2",
+            "scripts(sum)_1^2",
             "sin(x)",
             "op(\"custom\")",
             "abs(x)",
@@ -1144,6 +1236,39 @@ mod tests {
             &math.nodes[4],
             MathNode::Attach(attach) if attach.primes == 2
         ));
+    }
+
+    #[test]
+    fn parses_attachment_mode_calls() {
+        let limits = parse("limits(A)_1^2");
+        assert!(matches!(
+            &limits.nodes[0],
+            MathNode::Attach(attach)
+                if matches!(attach.base.as_ref(), MathNode::Call(call) if call.name == "limits" && call.args.len() == 1)
+        ));
+
+        let display_limits = parse("limits(A, inline: #false)_1^2");
+        assert!(matches!(
+            &display_limits.nodes[0],
+            MathNode::Attach(attach)
+                if matches!(attach.base.as_ref(), MathNode::Call(call) if call.name == "limits_display" && call.args.len() == 1)
+        ));
+
+        let scripts = parse("scripts(sum)_1^2");
+        assert!(matches!(
+            &scripts.nodes[0],
+            MathNode::Attach(attach)
+                if matches!(attach.base.as_ref(), MathNode::Call(call) if call.name == "scripts" && call.args.len() == 1)
+        ));
+    }
+
+    #[test]
+    fn rejects_unsupported_attachment_mode_options() {
+        let err = parse_math("limits(A, inline: #auto)", 0).unwrap_err();
+        assert!(format!("{err}").contains("unsupported limits inline value"));
+
+        let err = parse_math("scripts(A, inline: #true)", 0).unwrap_err();
+        assert!(format!("{err}").contains("unsupported scripts option"));
     }
 
     #[test]

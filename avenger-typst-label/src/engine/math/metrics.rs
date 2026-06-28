@@ -349,6 +349,9 @@ fn layout_simple_node(
     }
 
     if let MathNode::Call(call) = node {
+        if let Some(mode) = MathAttachmentMode::from_call_name(&call.name) {
+            return layout_simple_attachment_mode_call(font, call, mode, font_size, script_level);
+        }
         if let Some(atom) = layout_simple_operator_call(font, call, font_size, script_level)? {
             return Ok(Some(atom));
         }
@@ -1425,12 +1428,50 @@ const CANCEL_LENGTH_EXTRA_EM: f32 = 0.3;
 const SCRIPT_SLOT_PAIR_GAP_EM: f32 = 0.08;
 const PRIME_CHAR: char = '′';
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MathAttachmentMode {
+    Scripts,
+    Limits,
+}
+
+impl MathAttachmentMode {
+    fn from_call_name(name: &str) -> Option<Self> {
+        match name {
+            "scripts" | "limits_display" => Some(Self::Scripts),
+            "limits" => Some(Self::Limits),
+            _ => None,
+        }
+    }
+
+    fn from_base_node(node: &MathNode) -> Self {
+        if let MathNode::Call(call) = node {
+            Self::from_call_name(&call.name).unwrap_or(Self::Scripts)
+        } else {
+            Self::Scripts
+        }
+    }
+}
+
+fn layout_simple_attachment_mode_call(
+    font: &MathFont,
+    call: &super::ast::MathCall,
+    _mode: MathAttachmentMode,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)
+}
+
 fn layout_simple_attach(
     font: &MathFont,
     attach: &super::ast::MathAttach,
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let mode = MathAttachmentMode::from_base_node(&attach.base);
     let Some(base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
         return Ok(None);
     };
@@ -1447,7 +1488,7 @@ fn layout_simple_attach(
         return Ok(None);
     }
 
-    layout_simple_attach_parts(font, font_size, base, slots)
+    layout_simple_attach_parts(font, font_size, base, slots, mode)
 }
 
 fn layout_simple_attach_with_bottom_continuation(
@@ -1460,6 +1501,7 @@ fn layout_simple_attach_with_bottom_continuation(
     let Some([bottom_node]) = attach.bottom.as_deref() else {
         return Ok(None);
     };
+    let mode = MathAttachmentMode::from_base_node(&attach.base);
     let Some(base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
         return Ok(None);
     };
@@ -1480,7 +1522,7 @@ fn layout_simple_attach_with_bottom_continuation(
     }
     slots.bottom = bottom;
 
-    layout_simple_attach_parts(font, font_size, base, slots)
+    layout_simple_attach_parts(font, font_size, base, slots, mode)
 }
 
 fn is_identifier_subscript_group_continuation(
@@ -1591,6 +1633,23 @@ fn attach_slots_missing_requested(
 }
 
 fn layout_simple_attach_parts(
+    font: &MathFont,
+    font_size: f32,
+    base: LaidOutMathAtom,
+    slots: LaidOutAttachSlots,
+    mode: MathAttachmentMode,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    match mode {
+        MathAttachmentMode::Scripts => {
+            layout_simple_script_attach_parts(font, font_size, base, slots)
+        }
+        MathAttachmentMode::Limits => {
+            layout_simple_limit_attach_parts(font, font_size, base, slots)
+        }
+    }
+}
+
+fn layout_simple_script_attach_parts(
     font: &MathFont,
     font_size: f32,
     base: LaidOutMathAtom,
@@ -1757,6 +1816,91 @@ fn layout_simple_attach_parts(
     }))
 }
 
+fn layout_simple_limit_attach_parts(
+    font: &MathFont,
+    font_size: f32,
+    base: LaidOutMathAtom,
+    mut slots: LaidOutAttachSlots,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    if slots.top.is_none() && slots.bottom.is_none() {
+        return layout_simple_script_attach_parts(font, font_size, base, slots);
+    }
+
+    let top = slots.top.take();
+    let bottom = slots.bottom.take();
+    let Some(mut base) = layout_simple_script_attach_parts(font, font_size, base, slots)? else {
+        return Ok(None);
+    };
+    let (upper_shift, lower_shift) =
+        compute_limit_shifts(font, font_size, &base, top.as_ref(), bottom.as_ref())?;
+    let width = base
+        .metrics
+        .width
+        .max(top.as_ref().map_or(0.0, |top| top.metrics.width))
+        .max(bottom.as_ref().map_or(0.0, |bottom| bottom.metrics.width));
+
+    let baseline = base.metrics.baseline.max(
+        top.as_ref()
+            .map_or(0.0, |top| upper_shift + top.metrics.baseline),
+    );
+    let base_left_class = base.left_class;
+    let base_right_class = base.right_class;
+    let base_italic_correction = base.italic_correction;
+    let base_script_kernable = base.script_kernable;
+    let base_y = baseline - base.metrics.baseline;
+    let base_x = (width - base.metrics.width) / 2.0;
+    let mut height = base_y + base.metrics.height;
+    let mut ink_ascent = base.ink_ascent;
+    let mut ink_descent = base.ink_descent;
+
+    let mut glyphs = Vec::new();
+    let mut shapes = Vec::new();
+    let mut draw_order = Vec::new();
+
+    if let Some(mut top) = top {
+        let top_baseline = baseline - upper_shift;
+        let top_y = top_baseline - top.metrics.baseline;
+        let top_x = (width - top.metrics.width) / 2.0;
+        height = height.max(top_y + top.metrics.height);
+        ink_ascent = ink_ascent.max(baseline - top_y + top.ink_ascent - top.metrics.baseline);
+        offset_atom(&mut top, top_x, top_y);
+        append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, top);
+    }
+
+    offset_atom(&mut base, base_x, base_y);
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, base);
+
+    if let Some(mut bottom) = bottom {
+        let bottom_baseline = baseline + lower_shift;
+        let bottom_y = bottom_baseline - bottom.metrics.baseline;
+        let bottom_x = (width - bottom.metrics.width) / 2.0;
+        height = height.max(bottom_y + bottom.metrics.height);
+        ink_descent =
+            ink_descent.max(bottom_y + bottom.metrics.baseline + bottom.ink_descent - baseline);
+        offset_atom(&mut bottom, bottom_x, bottom_y);
+        append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, bottom);
+    }
+
+    Ok(Some(LaidOutMathAtom {
+        metrics: TypesetMetrics {
+            width,
+            height,
+            baseline,
+            ascent: baseline,
+            descent: height - baseline,
+        },
+        ink_ascent,
+        ink_descent,
+        left_class: base_left_class,
+        right_class: base_right_class,
+        italic_correction: base_italic_correction,
+        script_kernable: base_script_kernable,
+        glyphs,
+        shapes,
+        draw_order,
+    }))
+}
+
 fn combine_script_slots(
     font_size: f32,
     first: Option<LaidOutMathAtom>,
@@ -1897,6 +2041,25 @@ fn compute_script_shifts(
     let _ = base;
 
     Ok((shift_up, shift_down))
+}
+
+fn compute_limit_shifts(
+    font: &MathFont,
+    font_size: f32,
+    base: &LaidOutMathAtom,
+    top: Option<&LaidOutMathAtom>,
+    bottom: Option<&LaidOutMathAtom>,
+) -> Result<(f32, f32), LabelError> {
+    let upper_gap_min = math_constant(font, font_size, |constants| {
+        constants.upper_limit_gap_min().value
+    })?;
+    let lower_gap_min = math_constant(font, font_size, |constants| {
+        constants.lower_limit_gap_min().value
+    })?;
+
+    let upper_shift = top.map_or(0.0, |top| base.ink_ascent + upper_gap_min + top.ink_descent);
+    let lower_shift = bottom.map_or(0.0, |_| base.ink_descent + lower_gap_min);
+    Ok((upper_shift, lower_shift))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3483,6 +3646,44 @@ mod tests {
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 2);
         assert!(pdf.glyph_runs[1].font_size < pdf.glyph_runs[0].font_size);
+    }
+
+    #[test]
+    fn simple_row_can_force_limits_and_scripts() {
+        let config = EngineOptions::default();
+        let font =
+            load_default_math_font(&config, &MathFontSpec::LeteSansMath, &FontWeight::Normal)
+                .expect("default math font should load");
+        let font_size = 20.0;
+        let limits = parse_math("limits(A)_1^2", 0).unwrap();
+        let scripts = parse_math("scripts(A)_1^2", 0).unwrap();
+        let display_limits = parse_math("limits(A, inline: #false)_1^2", 0).unwrap();
+
+        let limits_metrics = layout_simple_row(&font, &limits, font_size)
+            .unwrap()
+            .expect("limits row should layout")
+            .metrics;
+        let scripts_metrics = layout_simple_row(&font, &scripts, font_size)
+            .unwrap()
+            .expect("scripts row should layout")
+            .metrics;
+        let display_limits_metrics = layout_simple_row(&font, &display_limits, font_size)
+            .unwrap()
+            .expect("display-only limits row should layout as scripts in labels")
+            .metrics;
+
+        assert!(
+            limits_metrics.height > scripts_metrics.height + font_size * 0.4,
+            "forced limits should create a taller inline label box"
+        );
+        assert!(
+            limits_metrics.width < scripts_metrics.width,
+            "forced limits should center top/bottom attachments instead of widening side scripts"
+        );
+        assert!(
+            (display_limits_metrics.width - scripts_metrics.width).abs() < font_size * 0.05,
+            "display-only limits should use side scripts in Avenger's inline label context"
+        );
     }
 
     #[test]
