@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use crate::typst_diag::LabelError;
 use crate::typst_eval::call::{parse_text_markup_option, text_span_kind};
-use crate::typst_eval::delimiter::{MathDelimiterInfo, MathDisplayHint};
+use crate::typst_eval::delimiter::{DelimiterDisplayHint, DelimiterInfo};
 use crate::typst_label::LabelParams;
 use crate::typst_library::text::content::{
     EmojiAlias, LabelParamRef, LineNode, MathSpan, ParsedLine, PlainTextNode, SymbolAlias,
@@ -364,12 +364,12 @@ fn push_plain(nodes: &mut Vec<LineNode>, text: &str, range: Range<usize>) {
     }));
 }
 
-fn math_delimiter_info(full_range: Range<usize>) -> MathDelimiterInfo {
-    MathDelimiterInfo {
+fn math_delimiter_info(full_range: Range<usize>) -> DelimiterInfo {
+    DelimiterInfo {
         opening_range: full_range.start..full_range.start + 1,
         closing_range: full_range.end.saturating_sub(1)..full_range.end,
         full_range,
-        display_hint: MathDisplayHint::Inline,
+        display_hint: DelimiterDisplayHint::Inline,
     }
 }
 

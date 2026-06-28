@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::typst_eval::delimiter::MathDelimiterInfo;
+use crate::typst_eval::delimiter::DelimiterInfo;
 use crate::typst_library::Color;
 use crate::typst_svg::{StrokeCap, StrokeJoin};
 
@@ -30,7 +30,7 @@ pub(crate) struct PlainTextNode {
 pub(crate) struct MathSpan {
     pub(crate) source: String,
     pub(crate) source_range: Range<usize>,
-    pub(crate) delimiter: MathDelimiterInfo,
+    pub(crate) delimiter: DelimiterInfo,
 }
 
 #[derive(Debug, Clone, PartialEq)]
