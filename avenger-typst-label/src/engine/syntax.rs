@@ -423,11 +423,7 @@ fn parse_bool(expr: typst_ast::Expr<'_>, position: usize) -> Result<bool, LabelE
 fn parse_evade(expr: typst_ast::Expr<'_>, position: usize) -> Result<Option<bool>, LabelError> {
     match expr {
         typst_ast::Expr::Auto(_) => Ok(None),
-        typst_ast::Expr::Bool(value) if !value.get() => Ok(Some(false)),
-        typst_ast::Expr::Bool(_) => Err(unsupported(
-            position,
-            "decoration evade is not yet supported",
-        )),
+        typst_ast::Expr::Bool(value) => Ok(Some(value.get())),
         _ => Err(unsupported(position, "unsupported decoration evade value")),
     }
 }
@@ -689,13 +685,13 @@ mod tests {
             }
         );
 
-        let err = parse_line("#underline(evade: true)[group]").unwrap_err();
+        let err = parse_line("#underline(stroke: (cap: \"round\"))[group]").unwrap_err();
 
         assert_eq!(
             err,
             LabelError::UnsupportedSyntax {
-                position: 11,
-                message: "decoration evade is not yet supported"
+                position: 20,
+                message: "unsupported stroke dictionary field"
             }
         );
     }

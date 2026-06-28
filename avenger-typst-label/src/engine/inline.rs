@@ -1,6 +1,6 @@
 use crate::error::LabelError;
 use crate::label::EngineOptions;
-use crate::paths::{PathArtifact, PathData, PathItem, PathKind, Stroke, Transform};
+use crate::paths::{PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform};
 use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
@@ -398,12 +398,19 @@ fn try_typeset_mixed_metrics_text_line(
                     .outputs
                     .positioned_runs
                     .then(|| {
+                        let glyph_paths = glyph_outline_paths_from_shaped(
+                            &text_face,
+                            &shaped,
+                            run_font_size,
+                            glyph_baseline_y,
+                        );
                         decoration_path_artifact(
                             decoration,
                             metrics,
                             run_font_size,
                             options.text_style.fill,
                             Some(&text_face),
+                            &glyph_paths,
                         )
                     })
                     .flatten();
@@ -801,6 +808,49 @@ fn is_color_emoji_family(family: &str) -> bool {
     )
 }
 
+fn glyph_outline_paths_from_shaped(
+    face: &TextFace,
+    shaped: &ShapedText,
+    font_size: f32,
+    glyph_baseline_y: f32,
+) -> Vec<PathData> {
+    shaped
+        .glyphs
+        .iter()
+        .filter_map(|glyph| {
+            let path = face.outline_glyph_path(
+                glyph.glyph_id,
+                font_size,
+                glyph.x,
+                glyph_baseline_y + glyph.y,
+            );
+            (!path.commands.is_empty()).then_some(path)
+        })
+        .collect()
+}
+
+fn glyph_outline_paths_from_segmented(
+    segmented: &SegmentedText,
+    font_size: f32,
+    glyph_baseline_y: f32,
+) -> Vec<PathData> {
+    segmented
+        .runs
+        .iter()
+        .flat_map(|run| {
+            run.shaped.glyphs.iter().filter_map(|glyph| {
+                let path = run.face.outline_glyph_path(
+                    glyph.glyph_id,
+                    font_size,
+                    run.x + glyph.x,
+                    glyph_baseline_y + glyph.y,
+                );
+                (!path.commands.is_empty()).then_some(path)
+            })
+        })
+        .collect()
+}
+
 fn plain_path_artifact_from_shaped(
     face: &TextFace,
     shaped: &ShapedText,
@@ -812,13 +862,8 @@ fn plain_path_artifact_from_shaped(
 ) -> PathArtifact {
     let mut items = Vec::new();
     let mut images = Vec::new();
-    if decoration.is_some_and(TextDecoration::is_background) {
-        if let Some(highlight) =
-            decoration_path_item(decoration.unwrap(), metrics, font_size, fill, None)
-        {
-            items.push(highlight);
-        }
-    }
+    let mut glyph_items = Vec::new();
+    let mut glyph_paths = Vec::new();
 
     for (glyph_index, glyph) in shaped.glyphs.iter().enumerate() {
         if let Some(image) = face.raster_glyph_image(
@@ -836,7 +881,8 @@ fn plain_path_artifact_from_shaped(
                 glyph_baseline_y + glyph.y,
             );
             if !path.commands.is_empty() {
-                items.push(PathItem {
+                glyph_paths.push(path.clone());
+                glyph_items.push(PathItem {
                     path,
                     kind: PathKind::GlyphOutline {
                         glyph_run: 0,
@@ -851,8 +897,29 @@ fn plain_path_artifact_from_shaped(
         }
     }
 
+    if decoration.is_some_and(TextDecoration::is_background) {
+        if let Some(highlight) = decoration_path_item(
+            decoration.unwrap(),
+            metrics,
+            font_size,
+            fill,
+            None,
+            &glyph_paths,
+        ) {
+            items.push(highlight);
+        }
+    }
+    items.extend(glyph_items);
+
     if let Some(decoration) = decoration.filter(|decoration| decoration.is_foreground()) {
-        if let Some(item) = decoration_path_item(decoration, metrics, font_size, fill, Some(face)) {
+        if let Some(item) = decoration_path_item(
+            decoration,
+            metrics,
+            font_size,
+            fill,
+            Some(face),
+            &glyph_paths,
+        ) {
             items.push(item);
         }
     }
@@ -875,13 +942,8 @@ fn plain_path_artifact_from_segmented(
 ) -> PathArtifact {
     let mut items = Vec::new();
     let mut images = Vec::new();
-    if decoration.is_some_and(TextDecoration::is_background) {
-        if let Some(highlight) =
-            decoration_path_item(decoration.unwrap(), metrics, font_size, fill, None)
-        {
-            items.push(highlight);
-        }
-    }
+    let mut glyph_items = Vec::new();
+    let mut glyph_paths = Vec::new();
 
     for (run_index, run) in segmented.runs.iter().enumerate() {
         for (glyph_index, glyph) in run.shaped.glyphs.iter().enumerate() {
@@ -900,7 +962,8 @@ fn plain_path_artifact_from_segmented(
                     glyph_baseline_y + glyph.y,
                 );
                 if !path.commands.is_empty() {
-                    items.push(PathItem {
+                    glyph_paths.push(path.clone());
+                    glyph_items.push(PathItem {
                         path,
                         kind: PathKind::GlyphOutline {
                             glyph_run: run_index,
@@ -916,9 +979,25 @@ fn plain_path_artifact_from_segmented(
         }
     }
 
+    if decoration.is_some_and(TextDecoration::is_background) {
+        if let Some(highlight) = decoration_path_item(
+            decoration.unwrap(),
+            metrics,
+            font_size,
+            fill,
+            None,
+            &glyph_paths,
+        ) {
+            items.push(highlight);
+        }
+    }
+    items.extend(glyph_items);
+
     if let Some(decoration) = decoration.filter(|decoration| decoration.is_foreground()) {
         let face = segmented.runs.first().map(|run| &run.face);
-        if let Some(item) = decoration_path_item(decoration, metrics, font_size, fill, face) {
+        if let Some(item) =
+            decoration_path_item(decoration, metrics, font_size, fill, face, &glyph_paths)
+        {
             items.push(item);
         }
     }
@@ -937,12 +1016,15 @@ fn decoration_path_artifact(
     font_size: f32,
     fill: Color,
     face: Option<&TextFace>,
+    glyph_paths: &[PathData],
 ) -> Option<PathArtifact> {
-    decoration_path_item(decoration, metrics, font_size, fill, face).map(|item| PathArtifact {
-        logical_width: metrics.width,
-        logical_height: metrics.height,
-        items: vec![item],
-        images: Vec::new(),
+    decoration_path_item(decoration, metrics, font_size, fill, face, glyph_paths).map(|item| {
+        PathArtifact {
+            logical_width: metrics.width,
+            logical_height: metrics.height,
+            items: vec![item],
+            images: Vec::new(),
+        }
     })
 }
 
@@ -952,6 +1034,7 @@ fn decoration_path_item(
     font_size: f32,
     fill: Color,
     face: Option<&TextFace>,
+    glyph_paths: &[PathData],
 ) -> Option<PathItem> {
     let kind = decoration.kind;
     let item = match kind {
@@ -970,6 +1053,8 @@ fn decoration_path_item(
             fill,
             decoration.options,
             font_size,
+            glyph_paths,
+            true,
         ),
         TextMarkupKind::Strike => line_decoration_item(
             metrics.width,
@@ -978,6 +1063,8 @@ fn decoration_path_item(
             fill,
             decoration.options,
             font_size,
+            glyph_paths,
+            false,
         ),
         TextMarkupKind::Overline => line_decoration_item(
             metrics.width,
@@ -986,6 +1073,8 @@ fn decoration_path_item(
             fill,
             decoration.options,
             font_size,
+            glyph_paths,
+            true,
         ),
         TextMarkupKind::Subscript | TextMarkupKind::Superscript => return None,
     };
@@ -1017,6 +1106,8 @@ fn line_decoration_item(
     fill: Color,
     options: TextDecorationOptions,
     font_size: f32,
+    glyph_paths: &[PathData],
+    default_evade: bool,
 ) -> PathItem {
     let position = options
         .offset
@@ -1024,16 +1115,10 @@ fn line_decoration_item(
         .unwrap_or(line.position);
     let extent = options.extent.resolve(font_size);
     let y = metrics.baseline - position;
+    let evade = options.evade.unwrap_or(default_evade);
+    let path = line_decoration_path(width, y, extent, evade, font_size, glyph_paths);
     PathItem {
-        path: PathData {
-            commands: vec![
-                crate::paths::PathCommand::MoveTo { x: -extent, y },
-                crate::paths::PathCommand::LineTo {
-                    x: width + extent,
-                    y,
-                },
-            ],
-        },
+        path,
         kind: PathKind::MathShape,
         fill: None,
         stroke: Some(Stroke {
@@ -1047,6 +1132,201 @@ fn line_decoration_item(
         transform: Transform::IDENTITY,
         clip: None,
     }
+}
+
+fn line_decoration_path(
+    width: f32,
+    y: f32,
+    extent: f32,
+    evade: bool,
+    font_size: f32,
+    glyph_paths: &[PathData],
+) -> PathData {
+    let start = -extent;
+    let end = width + extent;
+    if !evade {
+        return line_decoration_segments([(start, end)], y);
+    }
+
+    let gap_padding = 0.08 * font_size;
+    let min_width = 0.162 * font_size;
+    let mut intersections = Vec::new();
+    intersections.push(start - gap_padding);
+    intersections.push(end + gap_padding);
+    for path in glyph_paths {
+        intersections.extend(path_horizontal_intersections(path, y, 0.0, width));
+    }
+    sort_and_dedup_positions(&mut intersections);
+
+    let mut segments = Vec::new();
+    for edge in intersections.windows(2) {
+        let l = edge[0];
+        let r = edge[1];
+        if r - l < gap_padding {
+            continue;
+        }
+        let from = (l + gap_padding).max(start);
+        let to = (r - gap_padding).min(end);
+        if to - from >= min_width {
+            segments.push((from, to));
+        }
+    }
+    line_decoration_segments(segments, y)
+}
+
+fn line_decoration_segments<I>(segments: I, y: f32) -> PathData
+where
+    I: IntoIterator<Item = (f32, f32)>,
+{
+    let mut commands = Vec::new();
+    for (from, to) in segments {
+        if to <= from {
+            continue;
+        }
+        commands.push(PathCommand::MoveTo { x: from, y });
+        commands.push(PathCommand::LineTo { x: to, y });
+    }
+    PathData { commands }
+}
+
+#[derive(Clone, Copy)]
+struct PathPoint {
+    x: f32,
+    y: f32,
+}
+
+fn path_horizontal_intersections(path: &PathData, y: f32, x_min: f32, x_max: f32) -> Vec<f32> {
+    let mut intersections = Vec::new();
+    let mut current = None;
+    let mut contour_start = None;
+
+    for command in &path.commands {
+        match *command {
+            PathCommand::MoveTo { x, y } => {
+                let point = PathPoint { x, y };
+                current = Some(point);
+                contour_start = Some(point);
+            }
+            PathCommand::LineTo { x, y: next_y } => {
+                let next = PathPoint { x, y: next_y };
+                if let Some(from) = current {
+                    push_line_intersection(&mut intersections, from, next, y, x_min, x_max);
+                }
+                current = Some(next);
+            }
+            PathCommand::QuadTo {
+                x1,
+                y1,
+                x,
+                y: next_y,
+            } => {
+                let control = PathPoint { x: x1, y: y1 };
+                let next = PathPoint { x, y: next_y };
+                if let Some(from) = current {
+                    push_curve_intersections(&mut intersections, y, x_min, x_max, 16, |t| {
+                        quad_point(from, control, next, t)
+                    });
+                }
+                current = Some(next);
+            }
+            PathCommand::CubicTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y: next_y,
+            } => {
+                let control1 = PathPoint { x: x1, y: y1 };
+                let control2 = PathPoint { x: x2, y: y2 };
+                let next = PathPoint { x, y: next_y };
+                if let Some(from) = current {
+                    push_curve_intersections(&mut intersections, y, x_min, x_max, 24, |t| {
+                        cubic_point(from, control1, control2, next, t)
+                    });
+                }
+                current = Some(next);
+            }
+            PathCommand::Close => {
+                if let (Some(from), Some(next)) = (current, contour_start) {
+                    push_line_intersection(&mut intersections, from, next, y, x_min, x_max);
+                }
+                current = contour_start;
+            }
+        }
+    }
+
+    sort_and_dedup_positions(&mut intersections);
+    intersections
+}
+
+fn push_curve_intersections<F>(
+    intersections: &mut Vec<f32>,
+    y: f32,
+    x_min: f32,
+    x_max: f32,
+    steps: usize,
+    mut point_at: F,
+) where
+    F: FnMut(f32) -> PathPoint,
+{
+    let mut previous = point_at(0.0);
+    for step in 1..=steps {
+        let t = step as f32 / steps as f32;
+        let next = point_at(t);
+        push_line_intersection(intersections, previous, next, y, x_min, x_max);
+        previous = next;
+    }
+}
+
+fn push_line_intersection(
+    intersections: &mut Vec<f32>,
+    from: PathPoint,
+    to: PathPoint,
+    y: f32,
+    x_min: f32,
+    x_max: f32,
+) {
+    let dy = to.y - from.y;
+    if dy.abs() <= f32::EPSILON {
+        return;
+    }
+    let crosses = (from.y <= y && y < to.y) || (to.y <= y && y < from.y);
+    if !crosses {
+        return;
+    }
+    let t = (y - from.y) / dy;
+    let x = from.x + (to.x - from.x) * t;
+    if x >= x_min && x <= x_max {
+        intersections.push(x);
+    }
+}
+
+fn quad_point(p0: PathPoint, p1: PathPoint, p2: PathPoint, t: f32) -> PathPoint {
+    let mt = 1.0 - t;
+    PathPoint {
+        x: mt * mt * p0.x + 2.0 * mt * t * p1.x + t * t * p2.x,
+        y: mt * mt * p0.y + 2.0 * mt * t * p1.y + t * t * p2.y,
+    }
+}
+
+fn cubic_point(p0: PathPoint, p1: PathPoint, p2: PathPoint, p3: PathPoint, t: f32) -> PathPoint {
+    let mt = 1.0 - t;
+    PathPoint {
+        x: mt * mt * mt * p0.x
+            + 3.0 * mt * mt * t * p1.x
+            + 3.0 * mt * t * t * p2.x
+            + t * t * t * p3.x,
+        y: mt * mt * mt * p0.y
+            + 3.0 * mt * mt * t * p1.y
+            + 3.0 * mt * t * t * p2.y
+            + t * t * t * p3.y,
+    }
+}
+
+fn sort_and_dedup_positions(values: &mut Vec<f32>) {
+    values.sort_by(|a, b| a.total_cmp(b));
+    values.dedup_by(|a, b| (*a - *b).abs() <= 0.01);
 }
 
 fn plain_pdf_text_from_shaped(
@@ -1358,12 +1638,15 @@ fn typeset_plain_text_line(
         .outputs
         .positioned_runs
         .then(|| {
+            let glyph_paths =
+                glyph_outline_paths_from_shaped(&face, &shaped, font_size, metrics.baseline);
             decoration_path_artifact(
                 decoration?,
                 metrics,
                 font_size,
                 options.text_style.fill,
                 Some(&face),
+                &glyph_paths,
             )
         })
         .flatten();
@@ -1439,13 +1722,26 @@ fn typeset_segmented_plain_text_line(
     #[cfg(not(feature = "raster"))]
     let raster = None;
     let positioned_runs = options.outputs.positioned_runs.then(|| {
-        positioned_plain_runs_from_segmented(
+        let mut runs = positioned_plain_runs_from_segmented(
             plain,
             &segmented,
             &options.text_style,
             metrics.baseline,
             true,
-        )
+        );
+        if let (Some(decoration), Some(first)) = (decoration, runs.first_mut()) {
+            let glyph_paths =
+                glyph_outline_paths_from_segmented(&segmented, font_size, metrics.baseline);
+            first.paths = decoration_path_artifact(
+                decoration,
+                metrics,
+                font_size,
+                options.text_style.fill,
+                segmented.runs.first().map(|run| &run.face),
+                &glyph_paths,
+            );
+        }
+        runs
     });
 
     Ok(Some(TextLineArtifact {
@@ -1466,7 +1762,6 @@ mod tests {
     use crate::engine::font::build_text_fontdb;
     use crate::engine::syntax::parse_line;
     use crate::label::EngineOptions;
-    use crate::paths::PathCommand;
     use crate::types::TextLineOutputRequest;
 
     fn test_fontdb() -> fontdb::Database {
@@ -1484,6 +1779,10 @@ mod tests {
             .iter()
             .find(|item| item.stroke.is_some())
             .expect("stroke path should be present")
+    }
+
+    fn stroke_commands(paths: &PathArtifact) -> &[PathCommand] {
+        &first_stroke_item(paths).path.commands
     }
 
     #[test]
@@ -1764,6 +2063,84 @@ mod tests {
 
         assert!(matches!(paths.items[0].kind, PathKind::MathShape));
         assert!(paths.items[0].stroke.is_some());
+    }
+
+    #[test]
+    fn underline_evade_splits_descender_segments() {
+        let fontdb = test_fontdb();
+        let line = render_line("#underline(evade: true, offset: 2pt)[group]");
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        let artifact = try_typeset_plain_text_line(
+            "#underline(evade: true, offset: 2pt)[group]",
+            &line,
+            &options,
+            &fontdb,
+        )
+        .unwrap()
+        .expect("supported static decoration should use fast path");
+        let paths = artifact.paths.expect("decorated paths should exist");
+
+        assert!(
+            stroke_commands(&paths).len() > 2,
+            "evading underline should emit multiple line subpaths"
+        );
+    }
+
+    #[test]
+    fn underline_evade_false_draws_continuous_line() {
+        let fontdb = test_fontdb();
+        let line = render_line("#underline(evade: false, offset: 2pt)[group]");
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        let artifact = try_typeset_plain_text_line(
+            "#underline(evade: false, offset: 2pt)[group]",
+            &line,
+            &options,
+            &fontdb,
+        )
+        .unwrap()
+        .expect("supported static decoration should use fast path");
+        let paths = artifact.paths.expect("decorated paths should exist");
+
+        assert_eq!(stroke_commands(&paths).len(), 2);
+    }
+
+    #[test]
+    fn underline_evades_by_default_like_typst() {
+        let fontdb = test_fontdb();
+        let line = render_line("#underline(offset: 2pt)[group]");
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        let artifact =
+            try_typeset_plain_text_line("#underline(offset: 2pt)[group]", &line, &options, &fontdb)
+                .unwrap()
+                .expect("supported static decoration should use fast path");
+        let paths = artifact.paths.expect("decorated paths should exist");
+
+        assert!(
+            stroke_commands(&paths).len() > 2,
+            "Typst defaults underline evade to true"
+        );
+    }
+
+    #[test]
+    fn strike_does_not_evade_by_default() {
+        let fontdb = test_fontdb();
+        let line = render_line("#strike(offset: -4pt)[group]");
+        let mut options = TextLineOptions::default();
+        options.outputs.paths = true;
+
+        let artifact =
+            try_typeset_plain_text_line("#strike(offset: -4pt)[group]", &line, &options, &fontdb)
+                .unwrap()
+                .expect("supported static decoration should use fast path");
+        let paths = artifact.paths.expect("decorated paths should exist");
+
+        assert_eq!(stroke_commands(&paths).len(), 2);
     }
 
     #[test]
