@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::delimiter::{MathDelimiterInfo, MathDelimiterOptions, MathDisplayHint};
+use crate::delimiter::{MathDelimiterInfo, MathDisplayHint};
 use crate::error::LabelError;
 
 use super::ast::{
@@ -12,10 +12,7 @@ use crate::syntax::{
     RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
 };
 
-pub(crate) fn parse_line(
-    source: &str,
-    _delimiters: &MathDelimiterOptions,
-) -> Result<ParsedLine, LabelError> {
+pub(crate) fn parse_line(source: &str) -> Result<ParsedLine, LabelError> {
     let mut root = crate::syntax::parse(source);
     synthesize_ranges(&mut root, source.len())?;
     reject_syntax_errors(&root)?;
@@ -336,7 +333,7 @@ mod tests {
     use super::*;
 
     fn parse(source: &str) -> ParsedLine {
-        parse_line(source, &MathDelimiterOptions::default()).unwrap()
+        parse_line(source).unwrap()
     }
 
     #[test]
@@ -353,7 +350,7 @@ mod tests {
 
     #[test]
     fn canonical_typst_unmatched_dollar_errors() {
-        let err = parse_line("cost $5", &MathDelimiterOptions::default()).unwrap_err();
+        let err = parse_line("cost $5").unwrap_err();
         assert!(matches!(err, LabelError::Syntax { .. }));
     }
 
@@ -405,11 +402,7 @@ mod tests {
 
     #[test]
     fn rejects_static_command_options() {
-        let err = parse_line(
-            "#underline(stroke: red)[important]",
-            &MathDelimiterOptions::default(),
-        )
-        .unwrap_err();
+        let err = parse_line("#underline(stroke: red)[important]").unwrap_err();
 
         assert_eq!(
             err,
@@ -422,7 +415,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_hash_commands() {
-        let err = parse_line("#let x = 1", &MathDelimiterOptions::default()).unwrap_err();
+        let err = parse_line("#let x = 1").unwrap_err();
 
         assert!(matches!(
             err,
@@ -435,7 +428,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_emoji_aliases() {
-        let err = parse_line("#emoji.not.real", &MathDelimiterOptions::default()).unwrap_err();
+        let err = parse_line("#emoji.not.real").unwrap_err();
 
         assert_eq!(
             err,

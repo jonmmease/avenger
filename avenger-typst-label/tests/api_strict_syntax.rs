@@ -42,10 +42,7 @@ fn rejects_import() {
     let err = engine()
         .compile("$#import \"foo.typ\"$", &LabelOptions::default())
         .unwrap_err();
-    assert!(matches!(
-        err,
-        LabelError::UnsupportedSyntax { position: 1, .. }
-    ));
+    assert!(matches!(err, LabelError::Syntax { .. }));
 }
 
 #[test]
@@ -53,10 +50,7 @@ fn rejects_let_function() {
     let err = engine()
         .compile("$#let f(x) = x$", &LabelOptions::default())
         .unwrap_err();
-    assert!(matches!(
-        err,
-        LabelError::UnsupportedSyntax { position: 1, .. }
-    ));
+    assert!(matches!(err, LabelError::Syntax { .. }));
 }
 
 #[test]

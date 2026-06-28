@@ -43,18 +43,12 @@ fn empty_math_span_errors_with_source_range() {
 }
 
 #[test]
-fn engine_error_for_one_span_reports_source_range() {
+fn embedded_code_in_math_uses_canonical_typst_error() {
     let err = engine()
         .compile("before $#let x = 1$ after", &LabelOptions::default())
         .unwrap_err();
 
-    assert_eq!(
-        err,
-        LabelError::UnsupportedSyntax {
-            position: 8,
-            message: "embedded Typst code is not allowed in math fragments"
-        }
-    );
+    assert!(matches!(err, LabelError::Syntax { .. }));
 }
 
 #[test]

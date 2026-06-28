@@ -1411,7 +1411,6 @@ fn typeset_segmented_plain_text_line(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::delimiter::MathDelimiterOptions;
     use crate::engine::font::build_text_fontdb;
     use crate::engine::syntax::parse_line;
     use crate::label::EngineOptions;
@@ -1423,7 +1422,7 @@ mod tests {
     }
 
     fn render_line(source: &str) -> RenderLine {
-        let line = parse_line(source, &MathDelimiterOptions::default()).unwrap();
+        let line = parse_line(source).unwrap();
         line_with_rendered_static_markup(&line).expect("test line should be renderable")
     }
 

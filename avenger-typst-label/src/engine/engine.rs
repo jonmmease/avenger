@@ -1,6 +1,7 @@
 use crate::engine::font::build_text_fontdb;
 use crate::error::{LabelError, LabelInitError};
 use crate::label::EngineOptions;
+use crate::limits::LabelLimits;
 use crate::paths::PathArtifact;
 use crate::pdf::PdfTextLayer;
 #[cfg(test)]
@@ -58,8 +59,8 @@ impl TypstEngineCore {
 
         let line = match options.syntax {
             MathSyntaxMode::TypstFragmentStrict => {
-                let line = parse_line(source, &options.delimiters)?;
-                validate_line_math(&line)?;
+                let line = parse_line(source)?;
+                validate_line_math(&line, options.limits)?;
                 line
             }
             MathSyntaxMode::PlainText => plain_text_line(source),
@@ -114,13 +115,88 @@ fn line_contains_static_markup(line: &ParsedLine) -> bool {
     nodes_contain_static_markup(&line.nodes)
 }
 
-fn validate_line_math(line: &ParsedLine) -> Result<(), LabelError> {
-    for node in &line.nodes {
-        if let LineNode::Math(math) = node {
-            parse_math(&math.source, math.source_range.start)?;
+fn validate_line_math(line: &ParsedLine, limits: LabelLimits) -> Result<(), LabelError> {
+    let math_span_count = line
+        .nodes
+        .iter()
+        .filter(|node| matches!(node, LineNode::Math(_)))
+        .count();
+    if math_span_count > limits.max_math_spans {
+        return Err(LabelError::TooManyMathSpans {
+            actual: math_span_count,
+            limit: limits.max_math_spans,
+        });
+    }
+
+    for math in line.nodes.iter().filter_map(|node| match node {
+        LineNode::Math(math) => Some(math),
+        _ => None,
+    }) {
+        if math.source.trim().is_empty() {
+            return Err(LabelError::EmptyMathFragment {
+                start: math.source_range.start,
+                end: math.source_range.end,
+            });
+        }
+
+        let depth = max_grouping_depth(&math.source);
+        if depth > limits.max_math_depth {
+            return Err(LabelError::MathDepthExceeded {
+                actual: depth,
+                limit: limits.max_math_depth,
+            });
+        }
+
+        strict_hash_precheck(&math.source, math.source_range.start)?;
+        parse_math(&math.source, math.source_range.start)?;
+    }
+    Ok(())
+}
+
+fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), LabelError> {
+    let mut escaped = false;
+    for (idx, ch) in source.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '#' {
+            return Err(LabelError::UnsupportedSyntax {
+                position: offset + idx,
+                message: "embedded Typst code is not allowed in math fragments",
+            });
         }
     }
     Ok(())
+}
+
+fn max_grouping_depth(source: &str) -> usize {
+    let mut escaped = false;
+    let mut depth = 0usize;
+    let mut max_depth = 0usize;
+    for ch in source.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        match ch {
+            '(' | '[' | '{' => {
+                depth += 1;
+                max_depth = max_depth.max(depth);
+            }
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    max_depth
 }
 
 fn nodes_contain_static_markup(nodes: &[LineNode]) -> bool {

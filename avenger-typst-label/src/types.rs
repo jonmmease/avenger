@@ -1,4 +1,3 @@
-use crate::delimiter::MathDelimiterOptions;
 use crate::limits::LabelLimits;
 use crate::paths::PathArtifact;
 use crate::pdf::{FontResource, PdfTextLayer};
@@ -86,7 +85,6 @@ pub struct TextLineOptions {
     pub text_style: PlainTextStyle,
     pub math_style: MathStyle,
     pub outputs: TextLineOutputRequest,
-    pub delimiters: MathDelimiterOptions,
     pub syntax: MathSyntaxMode,
     pub limits: LabelLimits,
 }
@@ -97,7 +95,6 @@ impl Default for TextLineOptions {
             text_style: PlainTextStyle::default(),
             math_style: MathStyle::default(),
             outputs: TextLineOutputRequest::default(),
-            delimiters: MathDelimiterOptions::default(),
             syntax: MathSyntaxMode::TypstFragmentStrict,
             limits: LabelLimits::default(),
         }
