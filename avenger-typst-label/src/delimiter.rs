@@ -1,4 +1,4 @@
-use crate::error::MathTypesetError;
+use crate::error::LabelError;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -68,7 +68,7 @@ pub(crate) enum ParsedSegment {
 pub(crate) fn parse_segments(
     source: &str,
     options: &MathDelimiterOptions,
-) -> Result<Vec<ParsedSegment>, MathTypesetError> {
+) -> Result<Vec<ParsedSegment>, LabelError> {
     let mut segments = Vec::new();
     let mut plain = String::new();
     let mut plain_start = 0usize;
@@ -111,7 +111,7 @@ pub(crate) fn parse_segments(
                         plain.push(ch);
                     }
                     UnmatchedDelimiterPolicy::Error => {
-                        return Err(MathTypesetError::UnmatchedDelimiter { position: idx });
+                        return Err(LabelError::UnmatchedDelimiter { position: idx });
                     }
                 },
             }

@@ -1,10 +1,10 @@
 use crate::delimiter::MathDelimiterOptions;
-use crate::limits::MathLimits;
+use crate::limits::LabelLimits;
 use crate::paths::PathArtifact;
 use crate::pdf::{FontResource, PdfTextLayer};
 use crate::raster::{RasterImage, RasterRequest};
 use crate::style::{MathStyle, PlainTextStyle};
-use crate::warnings::MathTypesetWarning;
+use crate::warnings::LabelWarning;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -46,7 +46,7 @@ pub struct MathFragmentOptions {
     pub style: MathStyle,
     pub outputs: MathOutputRequest,
     pub syntax: MathSyntaxMode,
-    pub limits: MathLimits,
+    pub limits: LabelLimits,
 }
 
 impl Default for MathFragmentOptions {
@@ -55,7 +55,7 @@ impl Default for MathFragmentOptions {
             style: MathStyle::default(),
             outputs: MathOutputRequest::default(),
             syntax: MathSyntaxMode::TypstFragmentStrict,
-            limits: MathLimits::default(),
+            limits: LabelLimits::default(),
         }
     }
 }
@@ -88,7 +88,7 @@ pub struct TextLineOptions {
     pub outputs: TextLineOutputRequest,
     pub delimiters: MathDelimiterOptions,
     pub syntax: MathSyntaxMode,
-    pub limits: MathLimits,
+    pub limits: LabelLimits,
 }
 
 impl Default for TextLineOptions {
@@ -99,7 +99,7 @@ impl Default for TextLineOptions {
             outputs: TextLineOutputRequest::default(),
             delimiters: MathDelimiterOptions::default(),
             syntax: MathSyntaxMode::TypstFragmentStrict,
-            limits: MathLimits::default(),
+            limits: LabelLimits::default(),
         }
     }
 }
@@ -122,7 +122,7 @@ pub struct MathRunArtifact {
     pub raster: Option<RasterImage>,
     pub pdf_text: Option<PdfTextLayer>,
     pub font_resources: Vec<FontResource>,
-    pub warnings: Vec<MathTypesetWarning>,
+    pub warnings: Vec<LabelWarning>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -135,7 +135,7 @@ pub struct TextLineArtifact {
     pub pdf_text: Option<PdfTextLayer>,
     pub positioned_runs: Vec<PositionedTextLineRun>,
     pub font_resources: Vec<FontResource>,
-    pub warnings: Vec<MathTypesetWarning>,
+    pub warnings: Vec<LabelWarning>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

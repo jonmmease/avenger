@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::api::TypstEngineConfig;
 use crate::engine::glyph_path::outline_glyph_path;
-use crate::error::MathTypesetError;
+use crate::error::LabelError;
 use crate::paths::{PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform};
 use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
@@ -16,7 +16,7 @@ pub(crate) fn try_typeset_simple_row_fragment(
     math: &MathAst,
     options: &MathFragmentOptions,
     config: &TypstEngineConfig,
-) -> Result<Option<MathRunArtifact>, MathTypesetError> {
+) -> Result<Option<MathRunArtifact>, LabelError> {
     #[cfg(not(feature = "raster"))]
     if options.outputs.raster.is_some() {
         return Ok(None);
@@ -153,7 +153,7 @@ fn layout_simple_row(
     font: &MathFont,
     math: &MathAst,
     font_size: f32,
-) -> Result<Option<SimpleRowLayout>, MathTypesetError> {
+) -> Result<Option<SimpleRowLayout>, LabelError> {
     let Some(atom) = layout_simple_nodes_as_atom(font, &math.nodes, font_size, 0)? else {
         return Ok(None);
     };
@@ -168,7 +168,7 @@ fn layout_simple_nodes_as_atom(
     nodes: &[MathNode],
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let mut atoms = Vec::new();
     let mut index = 0usize;
     while index < nodes.len() {
@@ -319,7 +319,7 @@ fn layout_simple_node(
     node: &MathNode,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if let Some(atom) = simple_atom(node) {
         let layout = if atom.text_operator {
             layout_operator_atom(font, &atom.styled_text, font_size, script_level)?
@@ -389,7 +389,7 @@ fn layout_simple_variant_call(
     selection: MathStyleSelection,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
@@ -402,7 +402,7 @@ fn layout_simple_operator_call(
     call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if call.name == "op" {
         let [arg] = &call.args[..] else {
             return Ok(None);
@@ -440,7 +440,7 @@ fn layout_simple_group(
     group: &super::ast::MathGroup,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     layout_simple_delimited_nodes(
         font,
         group.left,
@@ -458,7 +458,7 @@ fn layout_simple_delimited_call(
     right: char,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
@@ -470,7 +470,7 @@ fn layout_simple_lr_call(
     call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
@@ -536,7 +536,7 @@ fn layout_simple_delimited_nodes(
     right: char,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let Some(body) = layout_simple_nodes_as_atom(font, body_nodes, font_size, script_level)? else {
         return Ok(None);
     };
@@ -560,7 +560,7 @@ fn layout_simple_delimited_atom(
     font_size: f32,
     script_level: u8,
     target: DelimiterTarget,
-) -> Result<LaidOutMathAtom, MathTypesetError> {
+) -> Result<LaidOutMathAtom, LabelError> {
     let delimiter_target_height = match target {
         DelimiterTarget::Ink => body.ink_ascent + body.ink_descent,
         DelimiterTarget::Frame => body.metrics.height,
@@ -655,7 +655,7 @@ fn layout_delimiter_atom_with_target(
     target_height: f32,
     class: SimpleMathClass,
     force_variant: bool,
-) -> Result<LaidOutMathAtom, MathTypesetError> {
+) -> Result<LaidOutMathAtom, LabelError> {
     let mut atom = layout_styled_atom_with_class(
         font,
         &delimiter.to_string(),
@@ -723,7 +723,7 @@ fn layout_simple_sqrt(
     call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
@@ -735,7 +735,7 @@ fn layout_simple_root(
     call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [index, radicand] = &call.args[..] else {
         return Ok(None);
     };
@@ -753,7 +753,7 @@ fn layout_simple_cancel_call(
     call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
@@ -802,7 +802,7 @@ fn layout_simple_accent_call(
     accent: char,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [arg] = &call.args[..] else {
         return Ok(None);
     };
@@ -866,7 +866,7 @@ fn layout_simple_radical(
     index_nodes: Option<&[MathNode]>,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let Some(mut radicand) =
         layout_simple_nodes_as_atom(font, radicand_nodes, font_size, script_level)?
     else {
@@ -977,7 +977,7 @@ fn layout_simple_fraction(
     fraction: &super::ast::MathFraction,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     layout_simple_fraction_nodes(
         font,
         std::slice::from_ref(fraction.numerator.as_ref()),
@@ -992,7 +992,7 @@ fn layout_simple_fraction_call(
     call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [numerator, denominator] = &call.args[..] else {
         return Ok(None);
     };
@@ -1010,7 +1010,7 @@ fn layout_simple_binom_call(
     call: &super::ast::MathCall,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let [top, bottom] = &call.args[..] else {
         return Ok(None);
     };
@@ -1043,7 +1043,7 @@ fn layout_simple_fraction_nodes(
     denominator_nodes: &[MathNode],
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     layout_simple_stack_nodes(
         font,
         numerator_nodes,
@@ -1067,7 +1067,7 @@ fn layout_simple_stack_nodes(
     font_size: f32,
     script_level: u8,
     rule: StackRule,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let child_font_size = script_font_size(font, font_size, script_level)?;
     let Some(mut numerator) =
         layout_fraction_child_nodes(font, numerator_nodes, child_font_size, script_level + 1)?
@@ -1159,7 +1159,7 @@ fn layout_simple_no_rule_stack(
     mut numerator: LaidOutMathAtom,
     mut denominator: LaidOutMathAtom,
     font_size: f32,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let shift_up = math_constant(font, font_size, |constants| {
         constants.stack_top_shift_up().value
     })?;
@@ -1201,7 +1201,7 @@ fn finalize_inline_frame_atom(
     draw_order: Vec<LaidOutDrawItem>,
     font: &MathFont,
     font_size: f32,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let final_ascent =
         font_cap_height(font, font_size)?.max(baseline - INLINE_MATH_LEADING_SLACK_EM * font_size);
     let final_descent = (height - baseline - INLINE_MATH_LEADING_SLACK_EM * font_size).max(0.0);
@@ -1238,7 +1238,7 @@ fn layout_fraction_child(
     node: &MathNode,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if let MathNode::Group(group) = node {
         return layout_simple_nodes_as_atom(font, &group.body, font_size, script_level);
     }
@@ -1250,7 +1250,7 @@ fn layout_fraction_child_nodes(
     nodes: &[MathNode],
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if let [node] = nodes {
         return layout_fraction_child(font, node, font_size, script_level);
     }
@@ -1267,7 +1267,7 @@ fn layout_simple_attach(
     attach: &super::ast::MathAttach,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if attach.primes > 0 {
         return Ok(None);
     }
@@ -1301,7 +1301,7 @@ fn layout_simple_attach_with_bottom_continuation(
     group: &super::ast::MathGroup,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if attach.primes > 0 {
         return Ok(None);
     }
@@ -1344,7 +1344,7 @@ fn layout_simple_attach_parts(
     base: LaidOutMathAtom,
     top: Option<LaidOutMathAtom>,
     bottom: Option<LaidOutMathAtom>,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     let (shift_up, shift_down) =
         compute_script_shifts(font, font_size, &base, top.as_ref(), bottom.as_ref())?;
     let space_after_script = math_constant(font, font_size, |constants| {
@@ -1436,18 +1436,14 @@ fn layout_script_child(
     node: &MathNode,
     font_size: f32,
     script_level: u8,
-) -> Result<Option<LaidOutMathAtom>, MathTypesetError> {
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
     if let MathNode::Group(group) = node {
         return layout_simple_nodes_as_atom(font, &group.body, font_size, script_level);
     }
     layout_simple_node(font, node, font_size, script_level)
 }
 
-fn script_font_size(
-    font: &MathFont,
-    font_size: f32,
-    script_level: u8,
-) -> Result<f32, MathTypesetError> {
+fn script_font_size(font: &MathFont, font_size: f32, script_level: u8) -> Result<f32, LabelError> {
     let face = parse_math_face(font, "math script constants")?;
     let (script_percent, script_script_percent) = face
         .tables()
@@ -1475,7 +1471,7 @@ fn compute_script_shifts(
     base: &LaidOutMathAtom,
     top: Option<&LaidOutMathAtom>,
     bottom: Option<&LaidOutMathAtom>,
-) -> Result<(f32, f32), MathTypesetError> {
+) -> Result<(f32, f32), LabelError> {
     let sup_shift_up = math_constant(font, font_size, |constants| {
         constants.superscript_shift_up().value
     })?;
@@ -1550,7 +1546,7 @@ fn math_kern(
     script: &LaidOutMathAtom,
     shift: f32,
     corner: ScriptCorner,
-) -> Result<f32, MathTypesetError> {
+) -> Result<f32, LabelError> {
     if !base.script_kernable || !script.script_kernable {
         return Ok(0.0);
     }
@@ -1593,7 +1589,7 @@ fn kern_at_height(
     glyph: Option<&LaidOutGlyph>,
     corner: ScriptCorner,
     height: f32,
-) -> Result<f32, MathTypesetError> {
+) -> Result<f32, LabelError> {
     let Some(glyph) = glyph else {
         return Ok(0.0);
     };
@@ -1638,7 +1634,7 @@ fn math_constant(
     font: &MathFont,
     font_size: f32,
     constant: impl FnOnce(ttf_parser::math::Constants<'_>) -> i16,
-) -> Result<f32, MathTypesetError> {
+) -> Result<f32, LabelError> {
     let face = parse_math_face(font, "math constants")?;
     let value = face
         .tables()
@@ -1652,7 +1648,7 @@ fn math_constant(
 fn math_percent(
     font: &MathFont,
     constant: impl FnOnce(ttf_parser::math::Constants<'_>) -> i16,
-) -> Result<f32, MathTypesetError> {
+) -> Result<f32, LabelError> {
     let face = parse_math_face(font, "math percentage constant")?;
     let value = face
         .tables()
@@ -1663,7 +1659,7 @@ fn math_percent(
     Ok(value as f32 / 100.0)
 }
 
-fn font_cap_height(font: &MathFont, font_size: f32) -> Result<f32, MathTypesetError> {
+fn font_cap_height(font: &MathFont, font_size: f32) -> Result<f32, LabelError> {
     let face = parse_math_face(font, "font cap height")?;
     Ok(face
         .capital_height()
@@ -1728,16 +1724,15 @@ fn layout_operator_atom(
     text: &str,
     font_size: f32,
     script_level: u8,
-) -> Result<LaidOutMathAtom, MathTypesetError> {
-    let face = ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| {
-        MathTypesetError::Engine {
+) -> Result<LaidOutMathAtom, LabelError> {
+    let face =
+        ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| LabelError::Engine {
             start: 0,
             end: text.len(),
             message: "failed to parse Typst math font".to_string(),
-        }
-    })?;
+        })?;
     let Some(rusty) = rustybuzz::Face::from_slice(&font.data, font.face_index) else {
-        return Err(MathTypesetError::Engine {
+        return Err(LabelError::Engine {
             start: 0,
             end: text.len(),
             message: "failed to shape Typst math font".to_string(),
@@ -2583,8 +2578,8 @@ fn math_font_from_data(data: Vec<u8>) -> Option<MathFont> {
 fn parse_math_face<'a>(
     font: &'a MathFont,
     context: &str,
-) -> Result<ttf_parser::Face<'a>, MathTypesetError> {
-    ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| MathTypesetError::Engine {
+) -> Result<ttf_parser::Face<'a>, LabelError> {
+    ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| LabelError::Engine {
         start: 0,
         end: 0,
         message: format!("failed to parse Typst math font for {context}"),
@@ -2597,16 +2592,15 @@ fn layout_styled_atom_with_class(
     font_size: f32,
     script_style: Option<u32>,
     class: SimpleMathClass,
-) -> Result<LaidOutMathAtom, MathTypesetError> {
-    let face = ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| {
-        MathTypesetError::Engine {
+) -> Result<LaidOutMathAtom, LabelError> {
+    let face =
+        ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| LabelError::Engine {
             start: 0,
             end: text.len(),
             message: "failed to parse Typst math font".to_string(),
-        }
-    })?;
+        })?;
     let Some(rusty) = rustybuzz::Face::from_slice(&font.data, font.face_index) else {
-        return Err(MathTypesetError::Engine {
+        return Err(LabelError::Engine {
             start: 0,
             end: text.len(),
             message: "failed to shape Typst math font".to_string(),
@@ -2708,7 +2702,7 @@ fn layout_accent_atom(
     accent: char,
     font_size: f32,
     script_level: u8,
-) -> Result<LaidOutMathAtom, MathTypesetError> {
+) -> Result<LaidOutMathAtom, LabelError> {
     layout_styled_atom_with_class(
         font,
         &accent.to_string(),
@@ -2718,10 +2712,7 @@ fn layout_accent_atom(
     )
 }
 
-fn atom_top_accent_attachment(
-    font: &MathFont,
-    atom: &LaidOutMathAtom,
-) -> Result<f32, MathTypesetError> {
+fn atom_top_accent_attachment(font: &MathFont, atom: &LaidOutMathAtom) -> Result<f32, LabelError> {
     if atom.glyphs.len() == 1 && atom.shapes.is_empty() {
         let glyph = &atom.glyphs[0];
         if let Some(attachment) = top_accent_attachment(font, glyph)? {
@@ -2731,10 +2722,7 @@ fn atom_top_accent_attachment(
     Ok((atom.metrics.width + atom.italic_correction) / 2.0)
 }
 
-fn top_accent_attachment(
-    font: &MathFont,
-    glyph: &LaidOutGlyph,
-) -> Result<Option<f32>, MathTypesetError> {
+fn top_accent_attachment(font: &MathFont, glyph: &LaidOutGlyph) -> Result<Option<f32>, LabelError> {
     let face = parse_math_face(font, "top accent attachment")?;
     let Some(value) = face
         .tables()
@@ -2760,14 +2748,13 @@ fn pdf_text_from_simple_row(
     layout: &SimpleRowLayout,
     source: &str,
     fill: crate::style::Color,
-) -> Result<PdfArtifact, MathTypesetError> {
-    let face = ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| {
-        MathTypesetError::Engine {
+) -> Result<PdfArtifact, LabelError> {
+    let face =
+        ttf_parser::Face::parse(&font.data, font.face_index).map_err(|_| LabelError::Engine {
             start: 0,
             end: source.len(),
             message: "failed to parse Typst math font for PDF glyph output".to_string(),
-        }
-    })?;
+        })?;
     let font_id = FontResourceId(0);
     let font_resources = vec![FontResource {
         id: font_id,

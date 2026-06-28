@@ -1,5 +1,5 @@
 use crate::api::TypstEngineConfig;
-use crate::error::MathTypesetError;
+use crate::error::LabelError;
 use crate::paths::{PathArtifact, PathData, PathItem, PathKind, Stroke, Transform};
 use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
@@ -9,7 +9,7 @@ use crate::types::{
     MathFragmentOptions, MathOutputRequest, PositionedTextLineRun, PositionedTextLineRunKind,
     TextLineArtifact, TextLineOptions, TypesetMetrics,
 };
-use crate::warnings::MathTypesetWarning;
+use crate::warnings::LabelWarning;
 
 use super::ast::{LineNode, MathSpan, ParsedLine, PlainTextNode, TextMarkupKind};
 use super::font::{
@@ -25,7 +25,7 @@ pub(crate) fn try_typeset_text_line(
     options: &TextLineOptions,
     config: &TypstEngineConfig,
     fontdb: &fontdb::Database,
-) -> Result<Option<TextLineArtifact>, MathTypesetError> {
+) -> Result<Option<TextLineArtifact>, LabelError> {
     let Some(line) = line_with_rendered_static_markup(line) else {
         return Ok(None);
     };
@@ -174,7 +174,7 @@ fn shape_plain_text_for_style(
     font_size: f32,
     features: &[rustybuzz::Feature],
     fontdb: &fontdb::Database,
-) -> Result<Option<SegmentedText>, MathTypesetError> {
+) -> Result<Option<SegmentedText>, LabelError> {
     shape_plain_text_with_fallback(fontdb, style, text, font_size, features)
 }
 
@@ -183,7 +183,7 @@ fn try_typeset_plain_text_line(
     line: &RenderLine,
     options: &TextLineOptions,
     fontdb: &fontdb::Database,
-) -> Result<Option<TextLineArtifact>, MathTypesetError> {
+) -> Result<Option<TextLineArtifact>, LabelError> {
     #[cfg(not(feature = "raster"))]
     if options.outputs.raster.is_some() {
         return Ok(None);
@@ -234,7 +234,7 @@ fn try_typeset_mixed_metrics_text_line(
     options: &TextLineOptions,
     config: &TypstEngineConfig,
     fontdb: &fontdb::Database,
-) -> Result<Option<TextLineArtifact>, MathTypesetError> {
+) -> Result<Option<TextLineArtifact>, LabelError> {
     #[cfg(not(feature = "raster"))]
     if options.outputs.raster.is_some() {
         return Ok(None);
@@ -562,7 +562,7 @@ fn try_typeset_mixed_metrics_text_line(
         pdf_text,
         positioned_runs,
         font_resources,
-        warnings: Vec::<MathTypesetWarning>::new(),
+        warnings: Vec::<LabelWarning>::new(),
     }))
 }
 
@@ -1252,7 +1252,7 @@ fn typeset_plain_text_line(
     decoration: Option<TextMarkupKind>,
     options: &TextLineOptions,
     face: TextFace,
-) -> Result<Option<TextLineArtifact>, MathTypesetError> {
+) -> Result<Option<TextLineArtifact>, LabelError> {
     let font_size = options.text_style.font_size.max(1.0);
     let shaped = face.shaped_text(&plain.text, font_size);
     let metrics = TypesetMetrics {
@@ -1338,7 +1338,7 @@ fn typeset_plain_text_line(
         pdf_text,
         positioned_runs: positioned_runs.unwrap_or_default(),
         font_resources,
-        warnings: Vec::<MathTypesetWarning>::new(),
+        warnings: Vec::<LabelWarning>::new(),
     }))
 }
 
@@ -1348,7 +1348,7 @@ fn typeset_segmented_plain_text_line(
     decoration: Option<TextMarkupKind>,
     options: &TextLineOptions,
     segmented: SegmentedText,
-) -> Result<Option<TextLineArtifact>, MathTypesetError> {
+) -> Result<Option<TextLineArtifact>, LabelError> {
     let font_size = options.text_style.font_size.max(1.0);
     let metrics = metrics_from_segmented_text(&segmented, 0.0);
     let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
@@ -1404,7 +1404,7 @@ fn typeset_segmented_plain_text_line(
         pdf_text,
         positioned_runs: positioned_runs.unwrap_or_default(),
         font_resources,
-        warnings: Vec::<MathTypesetWarning>::new(),
+        warnings: Vec::<LabelWarning>::new(),
     }))
 }
 

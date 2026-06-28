@@ -2,7 +2,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::api::TypstEngineConfig;
-use crate::error::MathTypesetError;
+use crate::error::LabelError;
 use crate::fonts::{EmbeddedFontFace, LATO_FACES};
 use crate::paths::{PathData, PathImageFormat, PathImageItem, Transform};
 use crate::pdf::{FontResource, FontResourceId};
@@ -157,7 +157,7 @@ impl TextFace {
     pub(crate) fn for_plain_style(
         style: &PlainTextStyle,
         fontdb: &fontdb::Database,
-    ) -> Result<Option<Self>, MathTypesetError> {
+    ) -> Result<Option<Self>, LabelError> {
         if let Some((family, faces)) = embedded_text_family(&style.font_family) {
             return embedded_text_face(style, family, faces);
         }
@@ -169,7 +169,7 @@ impl TextFace {
         style: &PlainTextStyle,
         text: &str,
         fontdb: &fontdb::Database,
-    ) -> Result<Option<Self>, MathTypesetError> {
+    ) -> Result<Option<Self>, LabelError> {
         if let Some(primary) = Self::for_plain_style(style, fontdb)? {
             if !primary.shaped_text(text, style.font_size).has_missing_glyph {
                 return Ok(Some(primary));
@@ -460,7 +460,7 @@ pub(crate) fn shape_plain_text_with_fallback(
     text: &str,
     font_size: f32,
     features: &[rustybuzz::Feature],
-) -> Result<Option<SegmentedText>, MathTypesetError> {
+) -> Result<Option<SegmentedText>, LabelError> {
     let Some(primary) = TextFace::for_plain_style(style, fontdb)?
         .or_else(|| fontdb_face_for_style_and_text(fontdb, style, text))
     else {
@@ -615,12 +615,12 @@ fn embedded_text_face(
     style: &PlainTextStyle,
     family: &'static str,
     faces: &'static [EmbeddedFontFace],
-) -> Result<Option<TextFace>, MathTypesetError> {
+) -> Result<Option<TextFace>, LabelError> {
     let face = select_embedded_face(faces, &style.font_weight, style.font_style).ok_or(
-        MathTypesetError::UnsupportedOutput("plain text requires an embedded font face"),
+        LabelError::UnsupportedOutput("plain text requires an embedded font face"),
     )?;
     let data = face.decompressed_data();
-    ttf_parser::Face::parse(&data, 0).map_err(|_| MathTypesetError::Engine {
+    ttf_parser::Face::parse(&data, 0).map_err(|_| LabelError::Engine {
         start: 0,
         end: 0,
         message: format!("failed to parse embedded font {}", face.name),

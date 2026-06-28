@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "raster")]
 use crate::{
-    error::MathTypesetError,
+    error::LabelError,
     paths::{PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, Transform},
     style::Color,
 };
@@ -43,11 +43,11 @@ pub struct RasterImage {
 pub(crate) fn rasterize_path_artifact(
     artifact: &PathArtifact,
     request: RasterRequest,
-) -> Result<RasterImage, MathTypesetError> {
+) -> Result<RasterImage, LabelError> {
     let scale = if request.scale.is_finite() && request.scale > 0.0 {
         request.scale
     } else {
-        return Err(MathTypesetError::UnsupportedOutput(
+        return Err(LabelError::UnsupportedOutput(
             "raster scale must be finite and positive",
         ));
     };
@@ -58,7 +58,7 @@ pub(crate) fn rasterize_path_artifact(
 
     for item in &artifact.items {
         if item.clip.is_some() {
-            return Err(MathTypesetError::UnsupportedOutput(
+            return Err(LabelError::UnsupportedOutput(
                 "clipped Typst paths are not supported in raster output yet",
             ));
         }
@@ -70,7 +70,7 @@ pub(crate) fn rasterize_path_artifact(
         let transformed =
             path.clone()
                 .transform(transform)
-                .ok_or(MathTypesetError::UnsupportedOutput(
+                .ok_or(LabelError::UnsupportedOutput(
                     "non-finite Typst path transform is not supported in raster output",
                 ))?;
         let mut item_bounds = transformed.bounds();
@@ -80,7 +80,7 @@ pub(crate) fn rasterize_path_artifact(
             item_bounds =
                 item_bounds
                     .outset(outset, outset)
-                    .ok_or(MathTypesetError::UnsupportedOutput(
+                    .ok_or(LabelError::UnsupportedOutput(
                         "invalid Typst math stroke bounds in raster output",
                     ))?;
         }
@@ -96,7 +96,7 @@ pub(crate) fn rasterize_path_artifact(
         let transform = tiny_transform_from_math_transform(image.transform);
         let transformed = rect
             .transform(transform)
-            .ok_or(MathTypesetError::UnsupportedOutput(
+            .ok_or(LabelError::UnsupportedOutput(
                 "non-finite Typst image glyph transform is not supported in raster output",
             ))?;
         bounds.include_rect(transformed);
@@ -114,9 +114,9 @@ pub(crate) fn rasterize_path_artifact(
     let width = (right_px - left_px).max(1) as u32;
     let height = (bottom_px - top_px).max(1) as u32;
 
-    let mut pixmap = tiny_skia::Pixmap::new(width, height).ok_or(
-        MathTypesetError::UnsupportedOutput("raster dimensions are too large"),
-    )?;
+    let mut pixmap = tiny_skia::Pixmap::new(width, height).ok_or(LabelError::UnsupportedOutput(
+        "raster dimensions are too large",
+    ))?;
 
     for (path, item) in draw_items {
         let item_transform = tiny_transform_from_math_transform(item.transform);
@@ -170,26 +170,26 @@ fn draw_image_item(
     scale: f32,
     left_px: i32,
     top_px: i32,
-) -> Result<(), MathTypesetError> {
+) -> Result<(), LabelError> {
     let PathImageFormat::Png = image.format;
     let decoded = image::load_from_memory_with_format(&image.data, image::ImageFormat::Png)
-        .map_err(|_| MathTypesetError::UnsupportedOutput("failed to decode Typst PNG glyph"))?
+        .map_err(|_| LabelError::UnsupportedOutput("failed to decode Typst PNG glyph"))?
         .into_rgba8();
     let (width, height) = decoded.dimensions();
     let Some(size) = tiny_skia::IntSize::from_wh(width, height) else {
-        return Err(MathTypesetError::UnsupportedOutput(
+        return Err(LabelError::UnsupportedOutput(
             "Typst PNG glyph dimensions are too large",
         ));
     };
     let source = tiny_skia::Pixmap::from_vec(premultiply_rgba(decoded.into_raw()), size).ok_or(
-        MathTypesetError::UnsupportedOutput("Typst PNG glyph data did not match its dimensions"),
+        LabelError::UnsupportedOutput("Typst PNG glyph data did not match its dimensions"),
     )?;
     if image.transform.xx != 1.0
         || image.transform.yx != 0.0
         || image.transform.xy != 0.0
         || image.transform.yy != 1.0
     {
-        return Err(MathTypesetError::UnsupportedOutput(
+        return Err(LabelError::UnsupportedOutput(
             "transformed Typst PNG glyphs are not supported in raster output yet",
         ));
     }

@@ -5,8 +5,6 @@ use indexmap::IndexMap;
 use crate::api::{TypstCacheConfig, TypstEngineConfig};
 use crate::delimiter::{ParsedSegment, parse_segments};
 use crate::engine::engine::TypstEngineCore;
-use crate::error::{MathTypesetError, TypstInitError};
-use crate::limits::MathLimits;
 use crate::paths::{PathArtifact, PathImageItem, PathItem, PathKind, Transform};
 use crate::pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 pub use crate::raster::RasterImage;
@@ -15,7 +13,6 @@ use crate::types::{
     MathSyntaxMode, PositionedTextLineRun, PositionedTextLineRunKind, TextLineArtifact,
     TextLineOptions, TextLineOutputRequest, TypesetMetrics,
 };
-use crate::warnings::MathTypesetWarning;
 
 #[cfg(feature = "raster")]
 use crate::raster::RasterRequest;
@@ -23,10 +20,9 @@ use crate::raster::RasterRequest;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub type LabelInitError = TypstInitError;
-pub type LabelError = MathTypesetError;
-pub type LabelWarning = MathTypesetWarning;
-pub type LabelLimits = MathLimits;
+pub use crate::error::{LabelError, LabelInitError};
+pub use crate::limits::LabelLimits;
+pub use crate::warnings::LabelWarning;
 pub type TextStyle = PlainTextStyle;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -867,9 +863,9 @@ fn glyphs_from_pdf_text(pdf_text: Option<&PdfTextLayer>) -> Vec<Glyph> {
         .collect()
 }
 
-fn validate_source_limits(source: &str, limits: MathLimits) -> Result<(), MathTypesetError> {
+fn validate_source_limits(source: &str, limits: LabelLimits) -> Result<(), LabelError> {
     if source.len() > limits.max_source_bytes {
-        return Err(MathTypesetError::SourceTooLarge {
+        return Err(LabelError::SourceTooLarge {
             actual: source.len(),
             limit: limits.max_source_bytes,
         });
@@ -879,14 +875,14 @@ fn validate_source_limits(source: &str, limits: MathLimits) -> Result<(), MathTy
 
 fn validate_math_segments(
     segments: &[ParsedSegment],
-    limits: MathLimits,
-) -> Result<(), MathTypesetError> {
+    limits: LabelLimits,
+) -> Result<(), LabelError> {
     let math_span_count = segments
         .iter()
         .filter(|segment| matches!(segment, ParsedSegment::Math { .. }))
         .count();
     if math_span_count > limits.max_math_spans {
-        return Err(MathTypesetError::TooManyMathSpans {
+        return Err(LabelError::TooManyMathSpans {
             actual: math_span_count,
             limit: limits.max_math_spans,
         });
@@ -908,11 +904,11 @@ fn validate_math_segments(
 
 fn validate_math_fragment(
     source: &str,
-    limits: MathLimits,
+    limits: LabelLimits,
     range: Range<usize>,
-) -> Result<(), MathTypesetError> {
+) -> Result<(), LabelError> {
     if source.trim().is_empty() {
-        return Err(MathTypesetError::EmptyMathFragment {
+        return Err(LabelError::EmptyMathFragment {
             start: range.start,
             end: range.end,
         });
@@ -921,7 +917,7 @@ fn validate_math_fragment(
     strict_hash_precheck(source, range.start)?;
     let depth = max_grouping_depth(source);
     if depth > limits.max_math_depth {
-        return Err(MathTypesetError::MathDepthExceeded {
+        return Err(LabelError::MathDepthExceeded {
             actual: depth,
             limit: limits.max_math_depth,
         });
@@ -931,7 +927,7 @@ fn validate_math_fragment(
     Ok(())
 }
 
-fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), MathTypesetError> {
+fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), LabelError> {
     let mut escaped = false;
     for (idx, ch) in source.char_indices() {
         if escaped {
@@ -943,7 +939,7 @@ fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), MathTypesetEr
             continue;
         }
         if ch == '#' {
-            return Err(MathTypesetError::UnsupportedSyntax {
+            return Err(LabelError::UnsupportedSyntax {
                 position: offset + idx,
                 message: "embedded Typst code is not allowed in math fragments",
             });
@@ -952,7 +948,7 @@ fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), MathTypesetEr
     Ok(())
 }
 
-fn validate_math_parse(source: &str, offset: usize) -> Result<(), MathTypesetError> {
+fn validate_math_parse(source: &str, offset: usize) -> Result<(), LabelError> {
     crate::engine::math::syntax::parse_math(source, offset).map(|_| ())
 }
 

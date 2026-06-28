@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::delimiter::{MathDelimiterInfo, MathDelimiterOptions, MathDisplayHint};
-use crate::error::MathTypesetError;
+use crate::error::LabelError;
 
 use super::ast::{
     EmojiAlias, LineNode, MathSpan, ParsedLine, PlainTextNode, TextMarkupKind, TextMarkupSpan,
@@ -15,13 +15,13 @@ use crate::syntax::{
 pub(crate) fn parse_line(
     source: &str,
     _delimiters: &MathDelimiterOptions,
-) -> Result<ParsedLine, MathTypesetError> {
+) -> Result<ParsedLine, LabelError> {
     let mut root = crate::syntax::parse(source);
     synthesize_ranges(&mut root, source.len())?;
     reject_syntax_errors(&root)?;
     let markup = root
         .cast::<typst_ast::Markup>()
-        .ok_or_else(|| MathTypesetError::Engine {
+        .ok_or_else(|| LabelError::Engine {
             start: 0,
             end: source.len(),
             message: "Typst parser did not return a markup root".to_string(),
@@ -39,7 +39,7 @@ fn lower_markup(
     markup: typst_ast::Markup<'_>,
     source: &str,
     nodes: &mut Vec<LineNode>,
-) -> Result<(), MathTypesetError> {
+) -> Result<(), LabelError> {
     for expr in markup.exprs() {
         lower_markup_expr(expr, source, nodes)?;
     }
@@ -50,7 +50,7 @@ fn lower_markup_expr(
     expr: typst_ast::Expr<'_>,
     source: &str,
     nodes: &mut Vec<LineNode>,
-) -> Result<(), MathTypesetError> {
+) -> Result<(), LabelError> {
     match expr {
         typst_ast::Expr::Text(text) => {
             push_plain(nodes, text.get().as_str(), text.to_untyped().range());
@@ -105,7 +105,7 @@ fn lower_static_call(
     call: typst_ast::FuncCall<'_>,
     source: &str,
     nodes: &mut Vec<LineNode>,
-) -> Result<(), MathTypesetError> {
+) -> Result<(), LabelError> {
     let range = expand_hash_range(source, call.to_untyped().range());
     let Some(name) = code_expr_name(call.callee()) else {
         return Err(unsupported(range.start, "unsupported static text command"));
@@ -170,7 +170,7 @@ fn lower_static_field_access(
     access: typst_ast::FieldAccess<'_>,
     source: &str,
     nodes: &mut Vec<LineNode>,
-) -> Result<(), MathTypesetError> {
+) -> Result<(), LabelError> {
     let range = expand_hash_range(source, access.to_untyped().range());
     let Some(name) = code_field_access_name(access) else {
         return Err(unsupported(range.start, "unsupported static text command"));
@@ -257,7 +257,7 @@ fn expand_hash_range(source: &str, range: Range<usize>) -> Range<usize> {
     }
 }
 
-fn reject_syntax_errors(root: &SyntaxNode) -> Result<(), MathTypesetError> {
+fn reject_syntax_errors(root: &SyntaxNode) -> Result<(), LabelError> {
     if !root.diagnosis().errors {
         return Ok(());
     }
@@ -269,7 +269,7 @@ fn reject_syntax_errors(root: &SyntaxNode) -> Result<(), MathTypesetError> {
     let position = first_error_range(root)
         .map(|range| range.start)
         .unwrap_or_default();
-    Err(MathTypesetError::Syntax { position, message })
+    Err(LabelError::Syntax { position, message })
 }
 
 fn first_error_range(node: &SyntaxNode) -> Option<Range<usize>> {
@@ -279,7 +279,7 @@ fn first_error_range(node: &SyntaxNode) -> Option<Range<usize>> {
     node.children().find_map(first_error_range)
 }
 
-fn unsupported_markup_expr(source: &str, expr: typst_ast::Expr<'_>) -> MathTypesetError {
+fn unsupported_markup_expr(source: &str, expr: typst_ast::Expr<'_>) -> LabelError {
     let range = expr.to_untyped().range();
     let expanded = expand_hash_range(source, range.clone());
     if expanded.start != range.start {
@@ -292,8 +292,8 @@ fn unsupported_markup_expr(source: &str, expr: typst_ast::Expr<'_>) -> MathTypes
     }
 }
 
-fn unsupported(position: usize, message: &'static str) -> MathTypesetError {
-    MathTypesetError::UnsupportedSyntax { position, message }
+fn unsupported(position: usize, message: &'static str) -> LabelError {
+    LabelError::UnsupportedSyntax { position, message }
 }
 
 trait SyntaxNodeRange {
@@ -309,14 +309,14 @@ impl SyntaxNodeRange for SyntaxNode {
     }
 }
 
-fn synthesize_ranges(root: &mut SyntaxNode, source_len: usize) -> Result<(), MathTypesetError> {
-    let mapper = RangeMapper::new([0..source_len]).map_err(|message| MathTypesetError::Engine {
+fn synthesize_ranges(root: &mut SyntaxNode, source_len: usize) -> Result<(), LabelError> {
+    let mapper = RangeMapper::new([0..source_len]).map_err(|message| LabelError::Engine {
         start: 0,
         end: source_len,
         message: message.to_string(),
     })?;
     root.synthesize_mapped(scratch_file_id(), &mapper)
-        .map_err(|message| MathTypesetError::Engine {
+        .map_err(|message| LabelError::Engine {
             start: 0,
             end: source_len,
             message: message.to_string(),
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn canonical_typst_unmatched_dollar_errors() {
         let err = parse_line("cost $5", &MathDelimiterOptions::default()).unwrap_err();
-        assert!(matches!(err, MathTypesetError::Syntax { .. }));
+        assert!(matches!(err, LabelError::Syntax { .. }));
     }
 
     #[test]
@@ -413,7 +413,7 @@ mod tests {
 
         assert_eq!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 0,
                 message: "static text commands do not support Typst-style options"
             }
@@ -426,7 +426,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 0,
                 message: "unsupported static text command"
             }
@@ -439,7 +439,7 @@ mod tests {
 
         assert_eq!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 0,
                 message: "unknown emoji alias"
             }

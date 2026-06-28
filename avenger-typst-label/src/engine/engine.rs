@@ -1,6 +1,6 @@
 use crate::api::TypstEngineConfig;
 use crate::engine::font::build_text_fontdb;
-use crate::error::{MathTypesetError, TypstInitError};
+use crate::error::{LabelError, LabelInitError};
 use crate::paths::PathArtifact;
 use crate::pdf::PdfTextLayer;
 use crate::types::{
@@ -27,7 +27,7 @@ impl std::fmt::Debug for TypstEngineCore {
 }
 
 impl TypstEngineCore {
-    pub(crate) fn new(config: &TypstEngineConfig) -> Result<Self, TypstInitError> {
+    pub(crate) fn new(config: &TypstEngineConfig) -> Result<Self, LabelInitError> {
         Ok(Self {
             config: config.clone(),
             text_fontdb: std::sync::Arc::new(build_text_fontdb(config)),
@@ -38,7 +38,7 @@ impl TypstEngineCore {
         &self,
         source: &str,
         options: &MathFragmentOptions,
-    ) -> Result<MathRunArtifact, MathTypesetError> {
+    ) -> Result<MathRunArtifact, LabelError> {
         let math = parse_math(source, 0)?;
         if let Some(artifact) = try_typeset_simple_row_fragment(&math, options, &self.config)? {
             return Ok(artifact);
@@ -50,7 +50,7 @@ impl TypstEngineCore {
         &self,
         source: &str,
         options: &TextLineOptions,
-    ) -> Result<TextLineArtifact, MathTypesetError> {
+    ) -> Result<TextLineArtifact, LabelError> {
         if source.is_empty() && options.outputs.raster.is_none() {
             return Ok(empty_text_line_artifact(source, options));
         }
@@ -73,7 +73,7 @@ impl TypstEngineCore {
             return Ok(artifact);
         }
         if line_contains_static_markup(&line) {
-            return Err(MathTypesetError::UnsupportedOutput(
+            return Err(LabelError::UnsupportedOutput(
                 "static text markup is parsed but not rendered yet",
             ));
         }
@@ -82,14 +82,14 @@ impl TypstEngineCore {
     }
 }
 
-fn unsupported_fragment() -> Result<MathRunArtifact, MathTypesetError> {
-    Err(MathTypesetError::UnsupportedOutput(
+fn unsupported_fragment() -> Result<MathRunArtifact, LabelError> {
+    Err(LabelError::UnsupportedOutput(
         "this Typst math subset is not supported yet",
     ))
 }
 
-fn unsupported_text_line() -> Result<TextLineArtifact, MathTypesetError> {
-    Err(MathTypesetError::UnsupportedOutput(
+fn unsupported_text_line() -> Result<TextLineArtifact, LabelError> {
+    Err(LabelError::UnsupportedOutput(
         "this Typst text-line subset is not supported yet",
     ))
 }
@@ -112,7 +112,7 @@ fn line_contains_static_markup(line: &ParsedLine) -> bool {
     nodes_contain_static_markup(&line.nodes)
 }
 
-fn validate_line_math(line: &ParsedLine) -> Result<(), MathTypesetError> {
+fn validate_line_math(line: &ParsedLine) -> Result<(), LabelError> {
     for node in &line.nodes {
         if let LineNode::Math(math) = node {
             parse_math(&math.source, math.source_range.start)?;
@@ -443,7 +443,7 @@ mod tests {
 
         assert_eq!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 0,
                 message: "unsupported static text command"
             }
@@ -462,7 +462,7 @@ mod tests {
 
         assert_eq!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 0,
                 message: "static text commands do not support Typst-style options"
             }
@@ -538,7 +538,7 @@ mod tests {
 
         assert_eq!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 0,
                 message: "matrix/table math is not supported in Avenger Typst subset"
             }
@@ -1025,7 +1025,7 @@ mod tests {
 
         assert_eq!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 8,
                 message: "matrix/table math is not supported in Avenger Typst subset"
             }

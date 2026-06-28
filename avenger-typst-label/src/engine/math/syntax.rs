@@ -1,4 +1,4 @@
-use crate::error::MathTypesetError;
+use crate::error::LabelError;
 
 use super::ast::{
     MathArg, MathAst, MathAttach, MathCall, MathFraction, MathGroup, MathIdentifier, MathNode,
@@ -10,7 +10,7 @@ use crate::syntax::{
     RangeMapper, RootedPath, SpanKind, SyntaxKind, SyntaxNode, VirtualPath, VirtualRoot,
 };
 
-pub(crate) fn parse_math(source: &str, offset: usize) -> Result<MathAst, MathTypesetError> {
+pub(crate) fn parse_math(source: &str, offset: usize) -> Result<MathAst, LabelError> {
     if let Some((idx, _)) = source
         .char_indices()
         .find(|(_, ch)| matches!(ch, '\n' | '\r'))
@@ -25,7 +25,7 @@ pub(crate) fn parse_math(source: &str, offset: usize) -> Result<MathAst, MathTyp
     reject_syntax_errors(&root, offset)?;
     let math = root
         .cast::<typst_ast::Math>()
-        .ok_or_else(|| MathTypesetError::Engine {
+        .ok_or_else(|| LabelError::Engine {
             start: offset,
             end: offset + source.len(),
             message: "Typst parser did not return a math root".to_string(),
@@ -41,7 +41,7 @@ fn lower_math(
     math: typst_ast::Math<'_>,
     source: &str,
     offset: usize,
-) -> Result<Vec<MathNode>, MathTypesetError> {
+) -> Result<Vec<MathNode>, LabelError> {
     let mut nodes = Vec::new();
     for expr in math.exprs() {
         nodes.extend(lower_math_expr(expr, source, offset)?);
@@ -53,7 +53,7 @@ fn lower_math_expr(
     expr: typst_ast::Expr<'_>,
     source: &str,
     offset: usize,
-) -> Result<Vec<MathNode>, MathTypesetError> {
+) -> Result<Vec<MathNode>, LabelError> {
     let range = expr.to_untyped().range();
     match expr {
         typst_ast::Expr::Math(math) => lower_math(math, source, offset),
@@ -229,7 +229,7 @@ fn lower_math_expr_as_single(
     expr: typst_ast::Expr<'_>,
     source: &str,
     offset: usize,
-) -> Result<MathNode, MathTypesetError> {
+) -> Result<MathNode, LabelError> {
     let range = expr.to_untyped().range();
     let mut nodes = lower_math_expr(expr, source, offset)?;
     if nodes.len() == 1 {
@@ -255,7 +255,7 @@ fn lower_script_expr(
     expr: typst_ast::Expr<'_>,
     source: &str,
     offset: usize,
-) -> Result<(MathNode, Vec<MathNode>), MathTypesetError> {
+) -> Result<(MathNode, Vec<MathNode>), LabelError> {
     let range = expr.to_untyped().range();
     let mut nodes = lower_math_expr(expr, source, offset)?;
     nodes.retain(|node| !matches!(node, MathNode::Space(_)));
@@ -273,7 +273,7 @@ fn lower_math_root(
     root: typst_ast::MathRoot<'_>,
     source: &str,
     offset: usize,
-) -> Result<Vec<MathNode>, MathTypesetError> {
+) -> Result<Vec<MathNode>, LabelError> {
     let radicand = lower_math_expr_as_single(root.radicand(), source, offset)?;
     let radicand_range = radicand.byte_range();
     let mut args = Vec::new();
@@ -306,7 +306,7 @@ fn lower_math_call(
     call: typst_ast::MathCall<'_>,
     source: &str,
     offset: usize,
-) -> Result<Vec<MathNode>, MathTypesetError> {
+) -> Result<Vec<MathNode>, LabelError> {
     let name = math_access_name(call.callee());
     let range = offset_range(call.to_untyped().range(), offset);
     if is_unsupported_math_table_call_name(&name) {
@@ -345,7 +345,7 @@ fn lower_math_call_args(
     args: typst_ast::MathArgs<'_>,
     source: &str,
     offset: usize,
-) -> Result<Vec<MathArg>, MathTypesetError> {
+) -> Result<Vec<MathArg>, LabelError> {
     let mut lowered = Vec::new();
     for item in args.arg_items() {
         if item.ends_in_semicolon {
@@ -383,7 +383,7 @@ fn lower_math_args_as_group_body(
     args: typst_ast::MathArgs<'_>,
     source: &str,
     offset: usize,
-) -> Result<Vec<MathNode>, MathTypesetError> {
+) -> Result<Vec<MathNode>, LabelError> {
     let mut body = Vec::new();
     for item in args.content_items() {
         match item {
@@ -443,7 +443,7 @@ fn lower_math_access_as_nodes(
     access: typst_ast::MathAccess<'_>,
     source: &str,
     offset: usize,
-) -> Result<Vec<MathNode>, MathTypesetError> {
+) -> Result<Vec<MathNode>, LabelError> {
     match access {
         typst_ast::MathAccess::MathIdent(ident) => {
             let name = ident.as_str().to_string();
@@ -486,7 +486,7 @@ fn lower_math_access_as_nodes(
     }
 }
 
-fn delimiter_char(expr: typst_ast::Expr<'_>, source: &str) -> Result<char, MathTypesetError> {
+fn delimiter_char(expr: typst_ast::Expr<'_>, source: &str) -> Result<char, LabelError> {
     let range = expr.to_untyped().range();
     source[range.clone()]
         .chars()
@@ -577,7 +577,7 @@ fn is_identifier_text(text: &str) -> bool {
     !text.is_empty() && text.chars().all(char::is_alphabetic)
 }
 
-fn reject_syntax_errors(root: &SyntaxNode, offset: usize) -> Result<(), MathTypesetError> {
+fn reject_syntax_errors(root: &SyntaxNode, offset: usize) -> Result<(), LabelError> {
     if !root.diagnosis().errors {
         return Ok(());
     }
@@ -589,7 +589,7 @@ fn reject_syntax_errors(root: &SyntaxNode, offset: usize) -> Result<(), MathType
     let position = first_error_range(root)
         .map(|range| offset + range.start)
         .unwrap_or(offset);
-    Err(MathTypesetError::Syntax { position, message })
+    Err(LabelError::Syntax { position, message })
 }
 
 fn first_error_range(node: &SyntaxNode) -> Option<std::ops::Range<usize>> {
@@ -599,16 +599,12 @@ fn first_error_range(node: &SyntaxNode) -> Option<std::ops::Range<usize>> {
     node.children().find_map(first_error_range)
 }
 
-fn unsupported_expr(
-    expr: typst_ast::Expr<'_>,
-    offset: usize,
-    message: &'static str,
-) -> MathTypesetError {
+fn unsupported_expr(expr: typst_ast::Expr<'_>, offset: usize, message: &'static str) -> LabelError {
     unsupported(expr.to_untyped().range().start + offset, message)
 }
 
-fn unsupported(position: usize, message: &'static str) -> MathTypesetError {
-    MathTypesetError::UnsupportedSyntax { position, message }
+fn unsupported(position: usize, message: &'static str) -> LabelError {
+    LabelError::UnsupportedSyntax { position, message }
 }
 
 trait SyntaxNodeRange {
@@ -628,14 +624,14 @@ fn synthesize_ranges(
     root: &mut SyntaxNode,
     source_len: usize,
     offset: usize,
-) -> Result<(), MathTypesetError> {
-    let mapper = RangeMapper::new([0..source_len]).map_err(|message| MathTypesetError::Engine {
+) -> Result<(), LabelError> {
+    let mapper = RangeMapper::new([0..source_len]).map_err(|message| LabelError::Engine {
         start: offset,
         end: offset + source_len,
         message: message.to_string(),
     })?;
     root.synthesize_mapped(scratch_file_id(), &mapper)
-        .map_err(|message| MathTypesetError::Engine {
+        .map_err(|message| LabelError::Engine {
             start: offset,
             end: offset + source_len,
             message: message.to_string(),
@@ -1009,7 +1005,7 @@ mod tests {
 
             assert_eq!(
                 err,
-                MathTypesetError::UnsupportedSyntax {
+                LabelError::UnsupportedSyntax {
                     position,
                     message: "matrix/table math is not supported in Avenger Typst subset"
                 },
@@ -1024,7 +1020,7 @@ mod tests {
 
         assert_eq!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 6,
                 message: "semicolon math arguments are not supported in Avenger Typst subset"
             }
@@ -1037,7 +1033,7 @@ mod tests {
 
         assert_eq!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 6,
                 message: "semicolon math arguments are not supported in Avenger Typst subset"
             }
@@ -1050,7 +1046,7 @@ mod tests {
 
         assert_eq!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 6,
                 message: "multi-line math is not supported in Avenger Typst subset"
             }
@@ -1063,7 +1059,7 @@ mod tests {
 
         assert_eq!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 7,
                 message: "math alignment markers are not supported in Avenger Typst subset"
             }
@@ -1076,7 +1072,7 @@ mod tests {
 
         assert_eq!(
             err,
-            MathTypesetError::UnsupportedSyntax {
+            LabelError::UnsupportedSyntax {
                 position: 13,
                 message: "named math arguments are not supported in Avenger Typst subset"
             }
@@ -1087,6 +1083,6 @@ mod tests {
     fn rejects_unterminated_groups() {
         let err = parse_math("sqrt(x", 0).unwrap_err();
 
-        assert!(matches!(err, MathTypesetError::Syntax { .. }));
+        assert!(matches!(err, LabelError::Syntax { .. }));
     }
 }

@@ -1,13 +1,13 @@
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
-pub enum TypstInitError {
+pub enum LabelInitError {
     #[error("requested Typst backend is unavailable: {0}")]
     BackendUnavailable(&'static str),
 }
 
 #[derive(Debug, Error, PartialEq)]
-pub enum MathTypesetError {
+pub enum LabelError {
     #[error("source is {actual} bytes, exceeding max_source_bytes={limit}")]
     SourceTooLarge { actual: usize, limit: usize },
 
@@ -23,7 +23,7 @@ pub enum MathTypesetError {
     #[error("empty math fragment at byte range {start}..{end}")]
     EmptyMathFragment { start: usize, end: usize },
 
-    #[error("unsupported strict math syntax at byte {position}: {message}")]
+    #[error("unsupported Typst label syntax at byte {position}: {message}")]
     UnsupportedSyntax {
         position: usize,
         message: &'static str,
