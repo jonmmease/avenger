@@ -451,7 +451,7 @@ mod tests {
     use crate::label::LabelParamValue;
     use crate::typst_library::Color;
     use crate::typst_library::text::content::DecorationLength;
-    use crate::typst_svg::{StrokeCap, StrokeJoin};
+    use crate::typst_svg::{LineCap, LineJoin};
 
     fn parse(source: &str) -> LabelContent {
         parse_line(source).unwrap()
@@ -873,11 +873,11 @@ mod tests {
         };
         assert_eq!(
             span.options.decoration.stroke.line_cap,
-            Some(StrokeCap::Round)
+            Some(LineCap::Round)
         );
         assert_eq!(
             span.options.decoration.stroke.line_join,
-            Some(StrokeJoin::Bevel)
+            Some(LineJoin::Bevel)
         );
         assert_eq!(
             span.options

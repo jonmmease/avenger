@@ -525,18 +525,18 @@ fn pdf_text_for_run(
 
 fn glyph_run_belongs_to_run(glyph_run: &PdfGlyphRun, run: &PositionedTextLineRun) -> bool {
     glyph_run.glyphs.iter().any(|glyph| {
-        let center_x = glyph.transform.dx + glyph.x_advance / 2.0;
+        let center_x = glyph.transform.tx + glyph.x_advance / 2.0;
         value_is_in_run_x_range(center_x, run)
     })
 }
 
 fn path_item_belongs_to_run(item: &PathItem, run: &PositionedTextLineRun) -> bool {
-    let center_x = transformed_path_center_x(item).unwrap_or(item.transform.dx);
+    let center_x = transformed_path_center_x(item).unwrap_or(item.transform.tx);
     value_is_in_run_x_range(center_x, run)
 }
 
 fn image_item_belongs_to_run(image: &PathImageItem, run: &PositionedTextLineRun) -> bool {
-    value_is_in_run_x_range(image.transform.dx + image.width / 2.0, run)
+    value_is_in_run_x_range(image.transform.tx + image.width / 2.0, run)
 }
 
 fn value_is_in_run_x_range(x: f32, run: &PositionedTextLineRun) -> bool {
@@ -550,7 +550,7 @@ fn transformed_path_center_x(item: &PathItem) -> Option<f32> {
     let mut max_x = f32::NEG_INFINITY;
     for command in &item.path.commands {
         for (x, y) in command_points(command) {
-            let x = item.transform.xx * x + item.transform.xy * y + item.transform.dx;
+            let x = item.transform.sx * x + item.transform.kx * y + item.transform.tx;
             min_x = min_x.min(x);
             max_x = max_x.max(x);
         }

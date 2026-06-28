@@ -412,4 +412,3 @@ fn layout_simple_size_call(
         math_size,
     )
 }
-

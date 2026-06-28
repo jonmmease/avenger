@@ -100,8 +100,8 @@ fn push_pdf_glyph_run(
                 x_advance: glyph.x_advance,
                 y_advance: 0.0,
                 transform: Transform {
-                    dx: glyph.x,
-                    dy: glyph.y,
+                    tx: glyph.x,
+                    ty: glyph.y,
                     ..Transform::IDENTITY
                 },
             })

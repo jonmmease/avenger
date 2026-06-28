@@ -1,6 +1,6 @@
 use avenger_typst_label::{
-    Color, LabelEngine, LabelError, LabelFrameItem, LabelOptions, LabelParamValue, PdfOptions,
-    Stroke, StrokeCap, StrokeJoin, SvgOptions, TextItemKind, escape_text, pdf_items, svg_items,
+    Color, LabelEngine, LabelError, LabelFrameItem, LabelOptions, LabelParamValue, LineCap,
+    LineJoin, PdfOptions, Stroke, SvgOptions, TextItemKind, escape_text, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
 
@@ -403,8 +403,8 @@ fn compile_resolves_stroke_dict_param() {
 
     assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
     assert_metrics_close(stroke.width, 2.0);
-    assert_eq!(stroke.line_cap, StrokeCap::Round);
-    assert_eq!(stroke.line_join, StrokeJoin::Bevel);
+    assert_eq!(stroke.line_cap, LineCap::Round);
+    assert_eq!(stroke.line_join, LineJoin::Bevel);
     assert_eq!(stroke.dash.as_deref(), Some([3.0, 3.0].as_slice()));
 }
 

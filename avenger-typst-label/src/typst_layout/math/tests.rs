@@ -10,7 +10,7 @@ mod tests {
         let mut max_y = f32::NEG_INFINITY;
         for command in &item.path.commands {
             let mut include = |y: f32| {
-                let y = y + item.transform.dy;
+                let y = y + item.transform.ty;
                 min_y = min_y.min(y);
                 max_y = max_y.max(y);
             };
@@ -50,8 +50,8 @@ mod tests {
                     PathCommand::MoveTo { x: x0, y: y0 },
                     PathCommand::LineTo { x: x1, y: y1 },
                 ] => Some((
-                    (x0 + item.transform.dx, y0 + item.transform.dy),
-                    (x1 + item.transform.dx, y1 + item.transform.dy),
+                    (x0 + item.transform.tx, y0 + item.transform.ty),
+                    (x1 + item.transform.tx, y1 + item.transform.ty),
                 )),
                 _ => None,
             })
@@ -452,8 +452,8 @@ mod tests {
 
         assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
         assert!((stroke.width - options.style.font_size * 0.25).abs() < 1e-4);
-        assert_eq!(stroke.line_cap, crate::typst_svg::StrokeCap::Round);
-        assert_eq!(stroke.line_join, crate::typst_svg::StrokeJoin::Miter);
+        assert_eq!(stroke.line_cap, crate::typst_svg::LineCap::Round);
+        assert_eq!(stroke.line_join, crate::typst_svg::LineJoin::Miter);
         let dash = stroke.dash.as_ref().expect("dash should be resolved");
         assert_eq!(dash.len(), 2);
         assert!((dash[0] - stroke.width).abs() < 1e-4);

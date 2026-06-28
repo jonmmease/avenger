@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use crate::typst_eval::delimiter::DelimiterInfo;
 use crate::typst_library::Color;
-use crate::typst_svg::{StrokeCap, StrokeJoin};
+use crate::typst_svg::{LineCap, LineJoin};
 
 /// Label-scoped content tree.
 ///
@@ -130,8 +130,8 @@ pub(crate) struct TextDecorationOptions {
 pub(crate) struct DecorationStroke {
     pub(crate) paint: Option<Color>,
     pub(crate) thickness: Option<DecorationLength>,
-    pub(crate) line_cap: Option<StrokeCap>,
-    pub(crate) line_join: Option<StrokeJoin>,
+    pub(crate) line_cap: Option<LineCap>,
+    pub(crate) line_join: Option<LineJoin>,
     pub(crate) dash: Option<DecorationDash>,
 }
 

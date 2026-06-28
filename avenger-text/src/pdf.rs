@@ -124,7 +124,7 @@ impl TextPdfExtractorImpl {
                 avenger_typst_label::PdfDrawItem::GlyphRun(index) => {
                     let mut run = pdf.glyph_runs[index].clone();
                     for glyph in &mut run.glyphs {
-                        glyph.transform.dy += y_offset;
+                        glyph.transform.ty += y_offset;
                     }
                     let index = output.glyph_runs.len();
                     output.glyph_runs.push(run);
@@ -224,7 +224,7 @@ mod tests {
     #[test]
     fn pdf_glyph_baseline_is_offset_into_padded_line_bounds() {
         let buffer = engine().extract_pdf(&pdf_config("X Position")).unwrap();
-        let first_glyph_y = buffer.glyph_runs[0].glyphs[0].transform.dy;
+        let first_glyph_y = buffer.glyph_runs[0].glyphs[0].transform.ty;
 
         assert!(
             (first_glyph_y - buffer.bounds.ascent).abs() < 0.001,

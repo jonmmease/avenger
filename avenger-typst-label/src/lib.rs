@@ -33,6 +33,6 @@ pub use label::{
 pub use typst_library::{Color, FontStyle, FontWeight, MathFontBytesId, MathFontSpec, MathStyle};
 pub use typst_render::{RasterRequest, RgbaImageData};
 pub use typst_svg::{
-    PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, PathItem, PathKind,
-    Stroke, StrokeCap, StrokeJoin, Transform,
+    LineCap, LineJoin, PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem,
+    PathItem, PathKind, Stroke, Transform,
 };

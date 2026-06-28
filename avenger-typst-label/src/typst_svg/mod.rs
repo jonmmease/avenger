@@ -13,22 +13,22 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Transform {
-    pub xx: f32,
-    pub yx: f32,
-    pub xy: f32,
-    pub yy: f32,
-    pub dx: f32,
-    pub dy: f32,
+    pub sx: f32,
+    pub ky: f32,
+    pub kx: f32,
+    pub sy: f32,
+    pub tx: f32,
+    pub ty: f32,
 }
 
 impl Transform {
     pub const IDENTITY: Self = Self {
-        xx: 1.0,
-        yx: 0.0,
-        xy: 0.0,
-        yy: 1.0,
-        dx: 0.0,
-        dy: 0.0,
+        sx: 1.0,
+        ky: 0.0,
+        kx: 0.0,
+        sy: 1.0,
+        tx: 0.0,
+        ty: 0.0,
     };
 }
 
@@ -94,14 +94,14 @@ impl PathData {
 pub struct Stroke {
     pub color: Color,
     pub width: f32,
-    pub line_cap: StrokeCap,
-    pub line_join: StrokeJoin,
+    pub line_cap: LineCap,
+    pub line_join: LineJoin,
     pub dash: Option<Vec<f32>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum StrokeCap {
+pub enum LineCap {
     #[default]
     Butt,
     Round,
@@ -110,7 +110,7 @@ pub enum StrokeCap {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum StrokeJoin {
+pub enum LineJoin {
     Bevel,
     #[default]
     Miter,

@@ -25,7 +25,7 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_text::{
-    path::{TextPathItem, TextPathKind, TextPathStrokeCap, TextPathStrokeJoin},
+    path::{TextPathItem, TextPathKind, TextPathLineCap, TextPathLineJoin},
     pdf::{TextPdfBuffer, TextPdfDrawItem, TextPdfExtractionConfig},
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
     FontResolutionOptions, MissingFontPolicy, TextEngine,
@@ -825,19 +825,19 @@ impl PdfRenderer {
     }
 }
 
-fn text_path_stroke_cap(cap: TextPathStrokeCap) -> StrokeCap {
+fn text_path_stroke_cap(cap: TextPathLineCap) -> StrokeCap {
     match cap {
-        TextPathStrokeCap::Butt => StrokeCap::Butt,
-        TextPathStrokeCap::Round => StrokeCap::Round,
-        TextPathStrokeCap::Square => StrokeCap::Square,
+        TextPathLineCap::Butt => StrokeCap::Butt,
+        TextPathLineCap::Round => StrokeCap::Round,
+        TextPathLineCap::Square => StrokeCap::Square,
     }
 }
 
-fn text_path_stroke_join(join: TextPathStrokeJoin) -> StrokeJoin {
+fn text_path_stroke_join(join: TextPathLineJoin) -> StrokeJoin {
     match join {
-        TextPathStrokeJoin::Bevel => StrokeJoin::Bevel,
-        TextPathStrokeJoin::Miter => StrokeJoin::Miter,
-        TextPathStrokeJoin::Round => StrokeJoin::Round,
+        TextPathLineJoin::Bevel => StrokeJoin::Bevel,
+        TextPathLineJoin::Miter => StrokeJoin::Miter,
+        TextPathLineJoin::Round => StrokeJoin::Round,
     }
 }
 
@@ -1377,8 +1377,8 @@ fn krilla_glyphs_from_run(run: &PdfGlyphRun) -> Result<Vec<KrillaGlyph>, Avenger
                 "non-translation PDF glyph transforms are not supported".to_string(),
             ));
         }
-        let glyph_x = glyph.transform.dx + glyph.x;
-        let glyph_y = glyph.transform.dy + glyph.y;
+        let glyph_x = glyph.transform.tx + glyph.x;
+        let glyph_y = glyph.transform.ty + glyph.y;
         glyphs.push(KrillaGlyph::new(
             GlyphId::new(glyph.glyph_id as u32),
             glyph.x_advance / font_size,
@@ -1401,10 +1401,10 @@ fn krilla_glyphs_from_run(run: &PdfGlyphRun) -> Result<Vec<KrillaGlyph>, Avenger
 
 fn is_translation_only(transform: avenger_typst_label::Transform) -> bool {
     const EPSILON: f32 = 1.0e-5;
-    (transform.xx - 1.0).abs() < EPSILON
-        && transform.yx.abs() < EPSILON
-        && transform.xy.abs() < EPSILON
-        && (transform.yy - 1.0).abs() < EPSILON
+    (transform.sx - 1.0).abs() < EPSILON
+        && transform.ky.abs() < EPSILON
+        && transform.kx.abs() < EPSILON
+        && (transform.sy - 1.0).abs() < EPSILON
 }
 
 fn text_leader_path(path: &TextLeaderPath) -> LyonPath {
@@ -1869,8 +1869,8 @@ mod tests {
                 x_advance: 10.0,
                 y_advance: 0.0,
                 transform: avenger_typst_label::Transform {
-                    dx: 3.0,
-                    dy: 12.0,
+                    tx: 3.0,
+                    ty: 12.0,
                     ..avenger_typst_label::Transform::IDENTITY
                 },
             }],

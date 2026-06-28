@@ -11,7 +11,7 @@ use crate::typst_library::text::content::{
     DecorationDash, DecorationDashLength, DecorationLength, DecorationStroke, TextMarkupKind,
     TextMarkupOptions,
 };
-use crate::typst_svg::{StrokeCap, StrokeJoin};
+use crate::typst_svg::{LineCap, LineJoin};
 
 use crate::typst_syntax::ast::{self as typst_ast, AstNode};
 use crate::typst_syntax::{SpanKind, SyntaxNode};
@@ -478,7 +478,7 @@ fn parse_line_cap(
     expr: typst_ast::Expr<'_>,
     position: usize,
     params: &LabelParams,
-) -> Result<StrokeCap, LabelError> {
+) -> Result<LineCap, LabelError> {
     let value = if let Some(value) = param_value_for_ident(expr, params) {
         param_value_to_string(value, position, "unsupported stroke cap value")?
     } else {
@@ -488,9 +488,9 @@ fn parse_line_cap(
         value.get().to_string()
     };
     match value.as_str() {
-        "butt" => Ok(StrokeCap::Butt),
-        "round" => Ok(StrokeCap::Round),
-        "square" => Ok(StrokeCap::Square),
+        "butt" => Ok(LineCap::Butt),
+        "round" => Ok(LineCap::Round),
+        "square" => Ok(LineCap::Square),
         _ => Err(unsupported(position, "unsupported stroke cap value")),
     }
 }
@@ -499,7 +499,7 @@ fn parse_line_join(
     expr: typst_ast::Expr<'_>,
     position: usize,
     params: &LabelParams,
-) -> Result<StrokeJoin, LabelError> {
+) -> Result<LineJoin, LabelError> {
     let value = if let Some(value) = param_value_for_ident(expr, params) {
         param_value_to_string(value, position, "unsupported stroke join value")?
     } else {
@@ -509,9 +509,9 @@ fn parse_line_join(
         value.get().to_string()
     };
     match value.as_str() {
-        "bevel" => Ok(StrokeJoin::Bevel),
-        "miter" => Ok(StrokeJoin::Miter),
-        "round" => Ok(StrokeJoin::Round),
+        "bevel" => Ok(LineJoin::Bevel),
+        "miter" => Ok(LineJoin::Miter),
+        "round" => Ok(LineJoin::Round),
         _ => Err(unsupported(position, "unsupported stroke join value")),
     }
 }
@@ -887,20 +887,20 @@ fn param_value_to_dash(
     }
 }
 
-fn parse_cap_literal(value: &str, position: usize) -> Result<StrokeCap, LabelError> {
+fn parse_cap_literal(value: &str, position: usize) -> Result<LineCap, LabelError> {
     match value.trim() {
-        "butt" => Ok(StrokeCap::Butt),
-        "round" => Ok(StrokeCap::Round),
-        "square" => Ok(StrokeCap::Square),
+        "butt" => Ok(LineCap::Butt),
+        "round" => Ok(LineCap::Round),
+        "square" => Ok(LineCap::Square),
         _ => Err(unsupported(position, "unsupported stroke cap value")),
     }
 }
 
-fn parse_join_literal(value: &str, position: usize) -> Result<StrokeJoin, LabelError> {
+fn parse_join_literal(value: &str, position: usize) -> Result<LineJoin, LabelError> {
     match value.trim() {
-        "bevel" => Ok(StrokeJoin::Bevel),
-        "miter" => Ok(StrokeJoin::Miter),
-        "round" => Ok(StrokeJoin::Round),
+        "bevel" => Ok(LineJoin::Bevel),
+        "miter" => Ok(LineJoin::Miter),
+        "round" => Ok(LineJoin::Round),
         _ => Err(unsupported(position, "unsupported stroke join value")),
     }
 }

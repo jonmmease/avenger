@@ -1336,8 +1336,8 @@ fn plain_pdf_text_from_shaped(
                         x_advance: glyph.x_advance,
                         y_advance: glyph.y_advance,
                         transform: Transform {
-                            dx: glyph.x,
-                            dy: glyph_baseline_y + glyph.y,
+                            tx: glyph.x,
+                            ty: glyph_baseline_y + glyph.y,
                             ..Transform::IDENTITY
                         },
                     })
@@ -1386,8 +1386,8 @@ fn plain_pdf_text_from_segmented(
                     x_advance: glyph.x_advance,
                     y_advance: glyph.y_advance,
                     transform: Transform {
-                        dx: run.x + glyph.x,
-                        dy: glyph_baseline_y + glyph.y,
+                        tx: run.x + glyph.x,
+                        ty: glyph_baseline_y + glyph.y,
                         ..Transform::IDENTITY
                     },
                 })
@@ -1438,12 +1438,12 @@ fn offset_path_artifact(
     paths.logical_width = logical_width;
     paths.logical_height = logical_height;
     for item in &mut paths.items {
-        item.transform.dx += dx;
-        item.transform.dy += dy;
+        item.transform.tx += dx;
+        item.transform.ty += dy;
     }
     for image in &mut paths.images {
-        image.transform.dx += dx;
-        image.transform.dy += dy;
+        image.transform.tx += dx;
+        image.transform.ty += dy;
     }
     paths
 }
@@ -1498,8 +1498,8 @@ fn offset_pdf_text_layer(
     pdf_text.semantic_text = semantic_text.to_string();
     for run in &mut pdf_text.glyph_runs {
         for glyph in &mut run.glyphs {
-            glyph.transform.dx += dx;
-            glyph.transform.dy += dy;
+            glyph.transform.tx += dx;
+            glyph.transform.ty += dy;
         }
     }
     pdf_text
@@ -2024,8 +2024,8 @@ mod tests {
 
         assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
         assert!((stroke.width - font_size * 0.4).abs() < 1e-4);
-        assert_eq!(stroke.line_cap, crate::typst_svg::StrokeCap::Round);
-        assert_eq!(stroke.line_join, crate::typst_svg::StrokeJoin::Miter);
+        assert_eq!(stroke.line_cap, crate::typst_svg::LineCap::Round);
+        assert_eq!(stroke.line_join, crate::typst_svg::LineJoin::Miter);
     }
 
     #[test]
@@ -2046,7 +2046,7 @@ mod tests {
         let stroke = first_stroke_item(&paths).stroke.as_ref().unwrap();
         let dash = stroke.dash.as_ref().expect("dash should be present");
 
-        assert_eq!(stroke.line_join, crate::typst_svg::StrokeJoin::Bevel);
+        assert_eq!(stroke.line_join, crate::typst_svg::LineJoin::Bevel);
         assert_eq!(dash.len(), 4);
         assert!((dash[0] - 3.0).abs() < 1e-4);
         assert!((dash[2] - stroke.width).abs() < 1e-4);

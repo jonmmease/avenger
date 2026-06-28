@@ -14,7 +14,7 @@ use crate::{
     label::LabelError,
     typst_library::Color,
     typst_svg::{
-        PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, StrokeCap, StrokeJoin,
+        LineCap, LineJoin, PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem,
         Transform,
     },
 };
@@ -202,10 +202,10 @@ fn draw_image_item(
     let source = tiny_skia::Pixmap::from_vec(premultiply_rgba(decoded.data), size).ok_or(
         LabelError::UnsupportedOutput("Typst PNG glyph data did not match its dimensions"),
     )?;
-    if image.transform.xx != 1.0
-        || image.transform.yx != 0.0
-        || image.transform.xy != 0.0
-        || image.transform.yy != 1.0
+    if image.transform.sx != 1.0
+        || image.transform.ky != 0.0
+        || image.transform.kx != 0.0
+        || image.transform.sy != 1.0
     {
         return Err(LabelError::UnsupportedOutput(
             "transformed Typst PNG glyphs are not supported in raster output yet",
@@ -214,8 +214,8 @@ fn draw_image_item(
     let sx = image.width * scale / width as f32;
     let sy = image.height * scale / height as f32;
     let transform = tiny_skia::Transform::from_scale(sx, sy).post_translate(
-        image.transform.dx * scale - left_px as f32,
-        image.transform.dy * scale - top_px as f32,
+        image.transform.tx * scale - left_px as f32,
+        image.transform.ty * scale - top_px as f32,
     );
 
     pixmap.draw_pixmap(
@@ -361,12 +361,12 @@ fn tiny_path_from_math_path(path: &PathData) -> Option<tiny_skia::Path> {
 #[cfg(feature = "raster")]
 fn tiny_transform_from_math_transform(transform: Transform) -> tiny_skia::Transform {
     tiny_skia::Transform::from_row(
-        transform.xx,
-        transform.yx,
-        transform.xy,
-        transform.yy,
-        transform.dx,
-        transform.dy,
+        transform.sx,
+        transform.ky,
+        transform.kx,
+        transform.sy,
+        transform.tx,
+        transform.ty,
     )
 }
 
@@ -383,20 +383,20 @@ fn paint_from_color(color: Color) -> tiny_skia::Paint<'static> {
 }
 
 #[cfg(feature = "raster")]
-fn tiny_line_cap(cap: StrokeCap) -> tiny_skia::LineCap {
+fn tiny_line_cap(cap: LineCap) -> tiny_skia::LineCap {
     match cap {
-        StrokeCap::Butt => tiny_skia::LineCap::Butt,
-        StrokeCap::Round => tiny_skia::LineCap::Round,
-        StrokeCap::Square => tiny_skia::LineCap::Square,
+        LineCap::Butt => tiny_skia::LineCap::Butt,
+        LineCap::Round => tiny_skia::LineCap::Round,
+        LineCap::Square => tiny_skia::LineCap::Square,
     }
 }
 
 #[cfg(feature = "raster")]
-fn tiny_line_join(join: StrokeJoin) -> tiny_skia::LineJoin {
+fn tiny_line_join(join: LineJoin) -> tiny_skia::LineJoin {
     match join {
-        StrokeJoin::Bevel => tiny_skia::LineJoin::Bevel,
-        StrokeJoin::Miter => tiny_skia::LineJoin::Miter,
-        StrokeJoin::Round => tiny_skia::LineJoin::Round,
+        LineJoin::Bevel => tiny_skia::LineJoin::Bevel,
+        LineJoin::Miter => tiny_skia::LineJoin::Miter,
+        LineJoin::Round => tiny_skia::LineJoin::Round,
     }
 }
 

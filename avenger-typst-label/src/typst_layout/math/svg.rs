@@ -59,8 +59,8 @@ fn path_artifact_from_simple_row(
                             dash: shape.stroke.dash.clone(),
                         }),
                         transform: Transform {
-                            dx: shape.x,
-                            dy: shape.y,
+                            tx: shape.x,
+                            ty: shape.y,
                             ..Transform::IDENTITY
                         },
                         clip: None,

@@ -33,13 +33,13 @@ pub struct TextPathExtractionConfig<'a> {
 pub struct TextPathStroke {
     pub color: [f32; 4],
     pub width: f32,
-    pub line_cap: TextPathStrokeCap,
-    pub line_join: TextPathStrokeJoin,
+    pub line_cap: TextPathLineCap,
+    pub line_join: TextPathLineJoin,
     pub dash: Option<Vec<f32>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TextPathStrokeCap {
+pub enum TextPathLineCap {
     #[default]
     Butt,
     Round,
@@ -47,7 +47,7 @@ pub enum TextPathStrokeCap {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TextPathStrokeJoin {
+pub enum TextPathLineJoin {
     Bevel,
     #[default]
     Miter,
@@ -300,19 +300,19 @@ pub(crate) fn typst_path_item_to_text_path_item(
     }
 }
 
-fn text_path_stroke_cap(cap: avenger_typst_label::StrokeCap) -> TextPathStrokeCap {
+fn text_path_stroke_cap(cap: avenger_typst_label::LineCap) -> TextPathLineCap {
     match cap {
-        avenger_typst_label::StrokeCap::Butt => TextPathStrokeCap::Butt,
-        avenger_typst_label::StrokeCap::Round => TextPathStrokeCap::Round,
-        avenger_typst_label::StrokeCap::Square => TextPathStrokeCap::Square,
+        avenger_typst_label::LineCap::Butt => TextPathLineCap::Butt,
+        avenger_typst_label::LineCap::Round => TextPathLineCap::Round,
+        avenger_typst_label::LineCap::Square => TextPathLineCap::Square,
     }
 }
 
-fn text_path_stroke_join(join: avenger_typst_label::StrokeJoin) -> TextPathStrokeJoin {
+fn text_path_stroke_join(join: avenger_typst_label::LineJoin) -> TextPathLineJoin {
     match join {
-        avenger_typst_label::StrokeJoin::Bevel => TextPathStrokeJoin::Bevel,
-        avenger_typst_label::StrokeJoin::Miter => TextPathStrokeJoin::Miter,
-        avenger_typst_label::StrokeJoin::Round => TextPathStrokeJoin::Round,
+        avenger_typst_label::LineJoin::Bevel => TextPathLineJoin::Bevel,
+        avenger_typst_label::LineJoin::Miter => TextPathLineJoin::Miter,
+        avenger_typst_label::LineJoin::Round => TextPathLineJoin::Round,
     }
 }
 
@@ -331,12 +331,12 @@ fn typst_image_item_to_text_path_image_item(
         width: image.width,
         height: image.height,
         transform: [
-            image.transform.xx,
-            image.transform.yx,
-            image.transform.xy,
-            image.transform.yy,
-            image.transform.dx + x_offset,
-            image.transform.dy + y_offset,
+            image.transform.sx,
+            image.transform.ky,
+            image.transform.kx,
+            image.transform.sy,
+            image.transform.tx + x_offset,
+            image.transform.ty + y_offset,
         ],
         byte_range,
     }
@@ -391,8 +391,8 @@ fn transform_math_point(
     y_offset: f32,
 ) -> lyon_path::math::Point {
     point(
-        x_offset + transform.xx * x + transform.xy * y + transform.dx,
-        y_offset + transform.yx * x + transform.yy * y + transform.dy,
+        x_offset + transform.sx * x + transform.kx * y + transform.tx,
+        y_offset + transform.ky * x + transform.sy * y + transform.ty,
     )
 }
 

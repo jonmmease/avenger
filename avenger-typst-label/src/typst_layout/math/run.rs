@@ -103,8 +103,8 @@ struct LaidOutShape {
 struct LaidOutStroke {
     paint: Option<Color>,
     width: f32,
-    line_cap: crate::typst_svg::StrokeCap,
-    line_join: crate::typst_svg::StrokeJoin,
+    line_cap: crate::typst_svg::LineCap,
+    line_join: crate::typst_svg::LineJoin,
     dash: Option<Vec<f32>>,
 }
 
@@ -113,8 +113,8 @@ impl LaidOutStroke {
         Self {
             paint: None,
             width,
-            line_cap: crate::typst_svg::StrokeCap::Butt,
-            line_join: crate::typst_svg::StrokeJoin::Miter,
+            line_cap: crate::typst_svg::LineCap::Butt,
+            line_join: crate::typst_svg::LineJoin::Miter,
             dash: None,
         }
     }

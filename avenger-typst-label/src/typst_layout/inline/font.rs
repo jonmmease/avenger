@@ -429,8 +429,8 @@ impl TextFace {
             width,
             height,
             transform: Transform {
-                dx: x - x_offset,
-                dy: y - (height + y_offset),
+                tx: x - x_offset,
+                ty: y - (height + y_offset),
                 ..Transform::IDENTITY
             },
         })
