@@ -1,9 +1,9 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::error::LabelError;
 use crate::fonts::{DEJAVU_SANS_MONO_FACES, EmbeddedFontFace, LATO_FACES};
 use crate::label::EngineOptions;
+use crate::typst_diag::LabelError;
 use crate::typst_library::{FontStyle, FontWeight, PlainTextStyle};
 use crate::typst_pdf::{FontResource, FontResourceId};
 use crate::typst_svg::{PathData, PathImageFormat, PathImageItem, Transform};

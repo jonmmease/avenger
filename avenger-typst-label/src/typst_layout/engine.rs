@@ -1,5 +1,5 @@
-use crate::error::{LabelError, LabelInitError};
 use crate::label::EngineOptions;
+use crate::typst_diag::{LabelError, LabelInitError};
 use crate::typst_eval::LabelLimits;
 use crate::typst_layout::frame::{LineLayoutArtifact, LineLayoutOptions, TypesetMetrics};
 #[cfg(test)]

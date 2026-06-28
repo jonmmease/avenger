@@ -20,9 +20,9 @@ use crate::typst_render::RasterRequest;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub use crate::error::{LabelError, LabelInitError};
+pub use crate::typst_diag::LabelWarning;
+pub use crate::typst_diag::{LabelError, LabelInitError};
 pub use crate::typst_eval::LabelLimits;
-pub use crate::warnings::LabelWarning;
 pub type TextStyle = PlainTextStyle;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

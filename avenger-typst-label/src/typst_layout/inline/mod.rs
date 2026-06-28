@@ -1,5 +1,6 @@
-use crate::error::LabelError;
 use crate::label::{EngineOptions, LabelParamValue, LabelParams};
+use crate::typst_diag::LabelError;
+use crate::typst_diag::LabelWarning;
 use crate::typst_layout::frame::{
     LineLayoutArtifact, LineLayoutOptions, MathLayoutOptions, MathOutputOptions,
     PositionedTextLineRun, PositionedTextLineRunKind, TypesetMetrics,
@@ -11,7 +12,6 @@ use crate::typst_render::rasterize_path_artifact;
 use crate::typst_svg::{
     PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform,
 };
-use crate::warnings::LabelWarning;
 
 pub(crate) mod font;
 

@@ -5,9 +5,9 @@
 //! live in `avenger-text` and higher-level crates.
 
 mod delimiter;
-mod error;
 mod fonts;
 mod label;
+mod typst_diag;
 mod typst_eval;
 mod typst_layout;
 mod typst_library;
@@ -23,7 +23,6 @@ mod typst_timing;
 #[allow(dead_code, unused_imports, unused_macros)]
 #[path = "typst_utils/lib.rs"]
 mod typst_utils;
-mod warnings;
 
 pub use label::{
     CacheOptions, CompiledLabel, EngineOptions, FontOptions, Glyph, GroupItem, ImageItem,

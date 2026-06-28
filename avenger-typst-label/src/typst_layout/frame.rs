@@ -1,10 +1,10 @@
 use crate::label::LabelParams;
+use crate::typst_diag::LabelWarning;
 use crate::typst_eval::LabelLimits;
 use crate::typst_library::{MathStyle, PlainTextStyle};
 use crate::typst_pdf::{FontResource, PdfTextLayer};
 use crate::typst_render::{RasterImage, RasterRequest};
 use crate::typst_svg::PathArtifact;
-use crate::warnings::LabelWarning;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
