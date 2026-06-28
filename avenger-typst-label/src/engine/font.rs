@@ -4,8 +4,8 @@ use std::sync::Arc;
 use crate::api::TypstEngineConfig;
 use crate::error::MathTypesetError;
 use crate::fonts::{EmbeddedFontFace, LATO_FACES};
-use crate::paths::{MathImageFormat, MathImageItem, MathPathData, MathTransform};
-use crate::pdf::{MathFontResource, MathFontResourceId};
+use crate::paths::{PathData, PathImageFormat, PathImageItem, Transform};
+use crate::pdf::{FontResource, FontResourceId};
 use crate::style::{FontStyle, FontWeight, PlainTextStyle};
 use unicode_bidi::BidiInfo;
 use unicode_script::{Script, UnicodeScript};
@@ -370,9 +370,9 @@ impl TextFace {
         font_size: f32,
         x: f32,
         y: f32,
-    ) -> MathPathData {
+    ) -> PathData {
         let Some(face) = self.parsed_face() else {
-            return MathPathData {
+            return PathData {
                 commands: Vec::new(),
             };
         };
@@ -385,7 +385,7 @@ impl TextFace {
         font_size: f32,
         x: f32,
         y: f32,
-    ) -> Option<MathImageItem> {
+    ) -> Option<PathImageItem> {
         let face = self.parsed_face()?;
         let raster_image = face
             .glyph_raster_image(glyph_id, u16::MAX)
@@ -406,22 +406,22 @@ impl TextFace {
             y_offset -= 0.128 * font_size.max(1.0);
         }
 
-        Some(MathImageItem {
+        Some(PathImageItem {
             data: raster_image.data.to_vec(),
-            format: MathImageFormat::Png,
+            format: PathImageFormat::Png,
             width,
             height,
-            transform: MathTransform {
+            transform: Transform {
                 dx: x - x_offset,
                 dy: y - (height + y_offset),
-                ..MathTransform::IDENTITY
+                ..Transform::IDENTITY
             },
         })
     }
 
-    pub(crate) fn font_resource(&self, id: MathFontResourceId) -> MathFontResource {
+    pub(crate) fn font_resource(&self, id: FontResourceId) -> FontResource {
         let face = self.parsed_face();
-        MathFontResource {
+        FontResource {
             id,
             family: self
                 .family_name
@@ -913,7 +913,7 @@ mod tests {
         let face = TextFace::for_plain_style(&style, &fontdb)
             .unwrap()
             .expect("default sans-serif should resolve");
-        let resource = face.font_resource(MathFontResourceId(0));
+        let resource = face.font_resource(FontResourceId(0));
 
         assert_eq!(resource.postscript_name.as_deref(), Some("Lato-Medium"));
     }
@@ -1052,7 +1052,7 @@ mod tests {
             .iter()
             .find(|run| run.text.contains('🚀'))
             .expect("emoji should be shaped in a fallback run");
-        let resource = emoji_run.face.font_resource(MathFontResourceId(0));
+        let resource = emoji_run.face.font_resource(FontResourceId(0));
         assert_eq!(resource.family, "Apple Color Emoji");
         let emoji_glyph = emoji_run
             .shaped
@@ -1070,7 +1070,7 @@ mod tests {
             )
             .expect("Apple Color Emoji glyph should expose a PNG bitmap");
 
-        assert_eq!(image.format, crate::paths::MathImageFormat::Png);
+        assert_eq!(image.format, crate::paths::PathImageFormat::Png);
         assert!(image.data.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert!(image.width > 0.0);
         assert!(image.height > 0.0);
@@ -1084,6 +1084,6 @@ mod tests {
             .unwrap()
             .expect("default sans-serif should resolve");
 
-        assert_eq!(face.font_resource(MathFontResourceId(0)).family, "Lato");
+        assert_eq!(face.font_resource(FontResourceId(0)).family, "Lato");
     }
 }

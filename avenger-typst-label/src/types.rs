@@ -1,8 +1,8 @@
 use crate::delimiter::MathDelimiterOptions;
 use crate::limits::MathLimits;
-use crate::paths::MathPathArtifact;
-use crate::pdf::{MathFontResource, MathPdfTextLayer};
-use crate::raster::{MathRasterArtifact, RasterRequest};
+use crate::paths::PathArtifact;
+use crate::pdf::{FontResource, PdfTextLayer};
+use crate::raster::{RasterImage, RasterRequest};
 use crate::style::{MathStyle, PlainTextStyle};
 use crate::warnings::MathTypesetWarning;
 
@@ -118,10 +118,10 @@ pub struct TypesetMetrics {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MathRunArtifact {
     pub metrics: TypesetMetrics,
-    pub paths: Option<MathPathArtifact>,
-    pub raster: Option<MathRasterArtifact>,
-    pub pdf_text: Option<MathPdfTextLayer>,
-    pub font_resources: Vec<MathFontResource>,
+    pub paths: Option<PathArtifact>,
+    pub raster: Option<RasterImage>,
+    pub pdf_text: Option<PdfTextLayer>,
+    pub font_resources: Vec<FontResource>,
     pub warnings: Vec<MathTypesetWarning>,
 }
 
@@ -130,11 +130,11 @@ pub struct MathRunArtifact {
 pub struct TextLineArtifact {
     pub source: String,
     pub metrics: TypesetMetrics,
-    pub paths: Option<MathPathArtifact>,
-    pub raster: Option<MathRasterArtifact>,
-    pub pdf_text: Option<MathPdfTextLayer>,
+    pub paths: Option<PathArtifact>,
+    pub raster: Option<RasterImage>,
+    pub pdf_text: Option<PdfTextLayer>,
     pub positioned_runs: Vec<PositionedTextLineRun>,
-    pub font_resources: Vec<MathFontResource>,
+    pub font_resources: Vec<FontResource>,
     pub warnings: Vec<MathTypesetWarning>,
 }
 
@@ -159,7 +159,7 @@ pub struct PositionedTextLineRun {
     /// Baseline coordinate for plain text in the tight Typst line frame.
     pub y: f32,
     pub metrics: TypesetMetrics,
-    pub paths: Option<MathPathArtifact>,
-    pub pdf_text: Option<MathPdfTextLayer>,
-    pub font_resources: Vec<MathFontResource>,
+    pub paths: Option<PathArtifact>,
+    pub pdf_text: Option<PdfTextLayer>,
+    pub font_resources: Vec<FontResource>,
 }

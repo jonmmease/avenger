@@ -33,8 +33,8 @@ pub enum TextPdfDrawItem {
 pub struct TextPdfBuffer {
     pub bounds: TextBounds,
     pub semantic_text: String,
-    pub font_resources: Vec<avenger_typst_label::MathFontResource>,
-    pub glyph_runs: Vec<avenger_typst_label::MathPdfGlyphRun>,
+    pub font_resources: Vec<avenger_typst_label::FontResource>,
+    pub glyph_runs: Vec<avenger_typst_label::PdfGlyphRun>,
     pub items: Vec<TextPathItem>,
     pub draw_items: Vec<TextPdfDrawItem>,
 }
@@ -151,7 +151,7 @@ impl TextPdfExtractorImpl {
 
 #[cfg(test)]
 pub(crate) fn validate_glyph_run_text_ranges(
-    glyph_runs: &[avenger_typst_label::MathPdfGlyphRun],
+    glyph_runs: &[avenger_typst_label::PdfGlyphRun],
 ) -> bool {
     glyph_runs.iter().all(|run| {
         run.glyphs.iter().all(|glyph| {

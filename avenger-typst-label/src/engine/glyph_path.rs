@@ -1,4 +1,4 @@
-use crate::paths::{MathPathCommand, MathPathData};
+use crate::paths::{PathCommand, PathData};
 
 pub(crate) fn outline_glyph_path(
     face: &ttf_parser::Face<'_>,
@@ -6,9 +6,9 @@ pub(crate) fn outline_glyph_path(
     font_size: f32,
     x_offset: f32,
     y_offset: f32,
-) -> MathPathData {
+) -> PathData {
     let mut builder = GlyphPathBuilder {
-        path: MathPathData::default(),
+        path: PathData::default(),
         scale: font_size / face.units_per_em() as f32,
         x_offset,
         y_offset,
@@ -18,7 +18,7 @@ pub(crate) fn outline_glyph_path(
 }
 
 struct GlyphPathBuilder {
-    path: MathPathData,
+    path: PathData,
     scale: f32,
     x_offset: f32,
     y_offset: f32,
@@ -36,12 +36,12 @@ impl GlyphPathBuilder {
 impl ttf_parser::OutlineBuilder for GlyphPathBuilder {
     fn move_to(&mut self, x: f32, y: f32) {
         let (x, y) = self.point(x, y);
-        self.path.commands.push(MathPathCommand::MoveTo { x, y });
+        self.path.commands.push(PathCommand::MoveTo { x, y });
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
         let (x, y) = self.point(x, y);
-        self.path.commands.push(MathPathCommand::LineTo { x, y });
+        self.path.commands.push(PathCommand::LineTo { x, y });
     }
 
     fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
@@ -49,14 +49,14 @@ impl ttf_parser::OutlineBuilder for GlyphPathBuilder {
         let (x, y) = self.point(x, y);
         self.path
             .commands
-            .push(MathPathCommand::QuadTo { x1, y1, x, y });
+            .push(PathCommand::QuadTo { x1, y1, x, y });
     }
 
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
         let (x1, y1) = self.point(x1, y1);
         let (x2, y2) = self.point(x2, y2);
         let (x, y) = self.point(x, y);
-        self.path.commands.push(MathPathCommand::CubicTo {
+        self.path.commands.push(PathCommand::CubicTo {
             x1,
             y1,
             x2,
@@ -67,6 +67,6 @@ impl ttf_parser::OutlineBuilder for GlyphPathBuilder {
     }
 
     fn close(&mut self) {
-        self.path.commands.push(MathPathCommand::Close);
+        self.path.commands.push(PathCommand::Close);
     }
 }

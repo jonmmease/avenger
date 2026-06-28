@@ -35,12 +35,10 @@ pub use label::{
     SvgOptions, TextItem, TextItemKind, TextStyle, escape_text, pdf_items, rasterize, svg_items,
 };
 pub use paths::{
-    MathImageFormat, MathImageItem, MathPathArtifact, MathPathCommand, MathPathData, MathPathItem,
-    MathPathKind, MathStroke, MathTransform,
+    PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, PathItem, PathKind,
+    Stroke, Transform,
 };
-pub use pdf::{
-    MathFontResource, MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer,
-};
+pub use pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 pub use raster::RgbaImageData;
 pub use style::{
     Color, FontStyle, FontWeight, MathDisplayStyle, MathFontBytesId, MathFontSpec, MathStyle,

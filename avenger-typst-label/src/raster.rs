@@ -4,10 +4,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "raster")]
 use crate::{
     error::MathTypesetError,
-    paths::{
-        MathImageFormat, MathImageItem, MathPathArtifact, MathPathCommand, MathPathData,
-        MathTransform,
-    },
+    paths::{PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, Transform},
     style::Color,
 };
 
@@ -33,7 +30,7 @@ pub struct RgbaImageData {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct MathRasterArtifact {
+pub struct RasterImage {
     pub image: RgbaImageData,
     pub scale: f32,
     pub logical_width: f32,
@@ -44,14 +41,14 @@ pub struct MathRasterArtifact {
 
 #[cfg(feature = "raster")]
 pub(crate) fn rasterize_path_artifact(
-    artifact: &MathPathArtifact,
+    artifact: &PathArtifact,
     request: RasterRequest,
-) -> Result<MathRasterArtifact, MathTypesetError> {
+) -> Result<RasterImage, MathTypesetError> {
     let scale = if request.scale.is_finite() && request.scale > 0.0 {
         request.scale
     } else {
         return Err(MathTypesetError::UnsupportedOutput(
-            "math raster scale must be finite and positive",
+            "raster scale must be finite and positive",
         ));
     };
 
@@ -62,7 +59,7 @@ pub(crate) fn rasterize_path_artifact(
     for item in &artifact.items {
         if item.clip.is_some() {
             return Err(MathTypesetError::UnsupportedOutput(
-                "clipped Typst math paths are not supported in raster output yet",
+                "clipped Typst paths are not supported in raster output yet",
             ));
         }
 
@@ -74,7 +71,7 @@ pub(crate) fn rasterize_path_artifact(
             path.clone()
                 .transform(transform)
                 .ok_or(MathTypesetError::UnsupportedOutput(
-                    "non-finite Typst math path transform is not supported in raster output",
+                    "non-finite Typst path transform is not supported in raster output",
                 ))?;
         let mut item_bounds = transformed.bounds();
 
@@ -118,7 +115,7 @@ pub(crate) fn rasterize_path_artifact(
     let height = (bottom_px - top_px).max(1) as u32;
 
     let mut pixmap = tiny_skia::Pixmap::new(width, height).ok_or(
-        MathTypesetError::UnsupportedOutput("math raster dimensions are too large"),
+        MathTypesetError::UnsupportedOutput("raster dimensions are too large"),
     )?;
 
     for (path, item) in draw_items {
@@ -152,7 +149,7 @@ pub(crate) fn rasterize_path_artifact(
         draw_image_item(&mut pixmap, image, scale, left_px, top_px)?;
     }
 
-    Ok(MathRasterArtifact {
+    Ok(RasterImage {
         image: RgbaImageData {
             width,
             height,
@@ -169,12 +166,12 @@ pub(crate) fn rasterize_path_artifact(
 #[cfg(feature = "raster")]
 fn draw_image_item(
     pixmap: &mut tiny_skia::Pixmap,
-    image: &MathImageItem,
+    image: &PathImageItem,
     scale: f32,
     left_px: i32,
     top_px: i32,
 ) -> Result<(), MathTypesetError> {
-    let MathImageFormat::Png = image.format;
+    let PathImageFormat::Png = image.format;
     let decoded = image::load_from_memory_with_format(&image.data, image::ImageFormat::Png)
         .map_err(|_| MathTypesetError::UnsupportedOutput("failed to decode Typst PNG glyph"))?
         .into_rgba8();
@@ -226,8 +223,8 @@ fn premultiply_rgba(mut data: Vec<u8>) -> Vec<u8> {
 }
 
 #[cfg(feature = "raster")]
-fn empty_raster_artifact(artifact: &MathPathArtifact, scale: f32) -> MathRasterArtifact {
-    MathRasterArtifact {
+fn empty_raster_artifact(artifact: &PathArtifact, scale: f32) -> RasterImage {
+    RasterImage {
         image: RgbaImageData {
             width: 1,
             height: 1,
@@ -242,15 +239,15 @@ fn empty_raster_artifact(artifact: &MathPathArtifact, scale: f32) -> MathRasterA
 }
 
 #[cfg(feature = "raster")]
-fn tiny_path_from_math_path(path: &MathPathData) -> Option<tiny_skia::Path> {
+fn tiny_path_from_math_path(path: &PathData) -> Option<tiny_skia::Path> {
     let mut builder = tiny_skia::PathBuilder::new();
 
     for command in &path.commands {
         match *command {
-            MathPathCommand::MoveTo { x, y } => builder.move_to(x, y),
-            MathPathCommand::LineTo { x, y } => builder.line_to(x, y),
-            MathPathCommand::QuadTo { x1, y1, x, y } => builder.quad_to(x1, y1, x, y),
-            MathPathCommand::CubicTo {
+            PathCommand::MoveTo { x, y } => builder.move_to(x, y),
+            PathCommand::LineTo { x, y } => builder.line_to(x, y),
+            PathCommand::QuadTo { x1, y1, x, y } => builder.quad_to(x1, y1, x, y),
+            PathCommand::CubicTo {
                 x1,
                 y1,
                 x2,
@@ -258,7 +255,7 @@ fn tiny_path_from_math_path(path: &MathPathData) -> Option<tiny_skia::Path> {
                 x,
                 y,
             } => builder.cubic_to(x1, y1, x2, y2, x, y),
-            MathPathCommand::Close => builder.close(),
+            PathCommand::Close => builder.close(),
         }
     }
 
@@ -266,7 +263,7 @@ fn tiny_path_from_math_path(path: &MathPathData) -> Option<tiny_skia::Path> {
 }
 
 #[cfg(feature = "raster")]
-fn tiny_transform_from_math_transform(transform: MathTransform) -> tiny_skia::Transform {
+fn tiny_transform_from_math_transform(transform: Transform) -> tiny_skia::Transform {
     tiny_skia::Transform::from_row(
         transform.xx,
         transform.yx,

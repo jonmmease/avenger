@@ -212,7 +212,7 @@ impl TextPathExtractorImpl {
                     if shape.text_kind == Some(avenger_typst_label::TextItemKind::Plain)
                         && matches!(
                             shape.item.kind,
-                            avenger_typst_label::MathPathKind::GlyphOutline { .. }
+                            avenger_typst_label::PathKind::GlyphOutline { .. }
                         )
                     {
                         continue;
@@ -254,14 +254,14 @@ impl TextPathExtractorImpl {
 }
 
 pub(crate) fn typst_path_item_to_text_path_item(
-    item: avenger_typst_label::MathPathItem,
+    item: avenger_typst_label::PathItem,
     byte_range: Range<usize>,
     x_offset: f32,
     y_offset: f32,
 ) -> TextPathItem {
     let kind = match item.kind {
-        avenger_typst_label::MathPathKind::GlyphOutline { .. } => TextPathKind::MathGlyph,
-        avenger_typst_label::MathPathKind::MathShape => TextPathKind::MathShape,
+        avenger_typst_label::PathKind::GlyphOutline { .. } => TextPathKind::MathGlyph,
+        avenger_typst_label::PathKind::MathShape => TextPathKind::MathShape,
     };
     TextPathItem {
         path: math_path_data_to_lyon_path(&item.path, item.transform, x_offset, y_offset),
@@ -276,13 +276,13 @@ pub(crate) fn typst_path_item_to_text_path_item(
 }
 
 fn typst_image_item_to_text_path_image_item(
-    image: avenger_typst_label::MathImageItem,
+    image: avenger_typst_label::PathImageItem,
     byte_range: Range<usize>,
     x_offset: f32,
     y_offset: f32,
 ) -> TextPathImageItem {
     let format = match image.format {
-        avenger_typst_label::MathImageFormat::Png => TextPathImageFormat::Png,
+        avenger_typst_label::PathImageFormat::Png => TextPathImageFormat::Png,
     };
     TextPathImageItem {
         data: image.data,
@@ -302,27 +302,27 @@ fn typst_image_item_to_text_path_image_item(
 }
 
 fn math_path_data_to_lyon_path(
-    path: &avenger_typst_label::MathPathData,
-    transform: avenger_typst_label::MathTransform,
+    path: &avenger_typst_label::PathData,
+    transform: avenger_typst_label::Transform,
     x_offset: f32,
     y_offset: f32,
 ) -> Path {
     let mut builder = Path::builder();
     for command in &path.commands {
         match *command {
-            avenger_typst_label::MathPathCommand::MoveTo { x, y } => {
+            avenger_typst_label::PathCommand::MoveTo { x, y } => {
                 builder.begin(transform_math_point(transform, x, y, x_offset, y_offset));
             }
-            avenger_typst_label::MathPathCommand::LineTo { x, y } => {
+            avenger_typst_label::PathCommand::LineTo { x, y } => {
                 builder.line_to(transform_math_point(transform, x, y, x_offset, y_offset));
             }
-            avenger_typst_label::MathPathCommand::QuadTo { x1, y1, x, y } => {
+            avenger_typst_label::PathCommand::QuadTo { x1, y1, x, y } => {
                 builder.quadratic_bezier_to(
                     transform_math_point(transform, x1, y1, x_offset, y_offset),
                     transform_math_point(transform, x, y, x_offset, y_offset),
                 );
             }
-            avenger_typst_label::MathPathCommand::CubicTo {
+            avenger_typst_label::PathCommand::CubicTo {
                 x1,
                 y1,
                 x2,
@@ -336,14 +336,14 @@ fn math_path_data_to_lyon_path(
                     transform_math_point(transform, x, y, x_offset, y_offset),
                 );
             }
-            avenger_typst_label::MathPathCommand::Close => builder.close(),
+            avenger_typst_label::PathCommand::Close => builder.close(),
         }
     }
     builder.build()
 }
 
 fn transform_math_point(
-    transform: avenger_typst_label::MathTransform,
+    transform: avenger_typst_label::Transform,
     x: f32,
     y: f32,
     x_offset: f32,

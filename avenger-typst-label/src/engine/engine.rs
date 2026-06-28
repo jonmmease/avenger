@@ -1,8 +1,8 @@
 use crate::api::TypstEngineConfig;
 use crate::engine::font::build_text_fontdb;
 use crate::error::{MathTypesetError, TypstInitError};
-use crate::paths::MathPathArtifact;
-use crate::pdf::MathPdfTextLayer;
+use crate::paths::PathArtifact;
+use crate::pdf::PdfTextLayer;
 use crate::types::{
     MathFragmentOptions, MathRunArtifact, MathSyntaxMode, TextLineArtifact, TextLineOptions,
     TypesetMetrics,
@@ -136,13 +136,13 @@ fn empty_text_line_artifact(source: &str, options: &TextLineOptions) -> TextLine
         ascent: 0.0,
         descent: 0.0,
     };
-    let paths = options.outputs.paths.then(|| MathPathArtifact {
+    let paths = options.outputs.paths.then(|| PathArtifact {
         logical_width: 0.0,
         logical_height: 0.0,
         items: Vec::new(),
         images: Vec::new(),
     });
-    let pdf_text = options.outputs.pdf_text_layer.then(|| MathPdfTextLayer {
+    let pdf_text = options.outputs.pdf_text_layer.then(|| PdfTextLayer {
         logical_width: 0.0,
         logical_height: 0.0,
         semantic_text: source.to_string(),

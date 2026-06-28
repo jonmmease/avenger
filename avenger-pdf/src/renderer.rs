@@ -30,7 +30,7 @@ use avenger_text::{
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
     FontResolutionOptions, MissingFontPolicy, TextEngine,
 };
-use avenger_typst_label::{MathFontResource, MathFontResourceId, MathPdfGlyphRun};
+use avenger_typst_label::{FontResource, FontResourceId, PdfGlyphRun};
 use itertools::izip;
 use krilla::{
     color::rgb,
@@ -629,7 +629,7 @@ impl PdfRenderer {
         &self,
         surface: &mut Surface<'_>,
         buffer: &TextPdfBuffer,
-        run: &MathPdfGlyphRun,
+        run: &PdfGlyphRun,
         x: f32,
         y: f32,
         font_cache: &mut PdfFontCache,
@@ -850,7 +850,7 @@ struct PdfFontCache {
 }
 
 impl PdfFontCache {
-    fn font_for(&mut self, resource: &MathFontResource) -> Result<KrillaFont, AvengerPdfError> {
+    fn font_for(&mut self, resource: &FontResource) -> Result<KrillaFont, AvengerPdfError> {
         let key = FontCacheKey::from_resource(resource);
         if let Some(font) = self.fonts.get(&key) {
             return Ok(font.clone());
@@ -886,7 +886,7 @@ struct FontCacheKey {
 }
 
 impl FontCacheKey {
-    fn from_resource(resource: &MathFontResource) -> Self {
+    fn from_resource(resource: &FontResource) -> Self {
         Self {
             face_index: resource.face_index,
             data_ptr: resource.data.as_ref().as_ptr() as usize,
@@ -1351,8 +1351,8 @@ fn push_circular_arc_path(
 
 fn font_resource(
     buffer: &TextPdfBuffer,
-    id: MathFontResourceId,
-) -> Result<&MathFontResource, AvengerPdfError> {
+    id: FontResourceId,
+) -> Result<&FontResource, AvengerPdfError> {
     buffer
         .font_resources
         .iter()
@@ -1362,7 +1362,7 @@ fn font_resource(
         })
 }
 
-fn krilla_glyphs_from_run(run: &MathPdfGlyphRun) -> Result<Vec<KrillaGlyph>, AvengerPdfError> {
+fn krilla_glyphs_from_run(run: &PdfGlyphRun) -> Result<Vec<KrillaGlyph>, AvengerPdfError> {
     let font_size = run.font_size.max(0.0001);
     let use_run_actual_text = !run.text.is_ascii();
     let mut cursor_x = 0.0;
@@ -1397,7 +1397,7 @@ fn krilla_glyphs_from_run(run: &MathPdfGlyphRun) -> Result<Vec<KrillaGlyph>, Ave
     Ok(glyphs)
 }
 
-fn is_translation_only(transform: avenger_typst_label::MathTransform) -> bool {
+fn is_translation_only(transform: avenger_typst_label::Transform) -> bool {
     const EPSILON: f32 = 1.0e-5;
     (transform.xx - 1.0).abs() < EPSILON
         && transform.yx.abs() < EPSILON
@@ -1852,13 +1852,13 @@ mod tests {
 
     #[test]
     fn converts_pdf_glyph_y_offsets_to_krilla_coordinates() {
-        let run = MathPdfGlyphRun {
-            font: MathFontResourceId(0),
+        let run = PdfGlyphRun {
+            font: FontResourceId(0),
             font_size: 10.0,
             fill: avenger_typst_label::Color::BLACK,
             stroke: None,
             text: "A".to_string(),
-            glyphs: vec![avenger_typst_label::MathPdfGlyph {
+            glyphs: vec![avenger_typst_label::PdfGlyph {
                 glyph_id: 1,
                 unicode: "A".to_string(),
                 text_range: 0..1,
@@ -1866,10 +1866,10 @@ mod tests {
                 y: 0.0,
                 x_advance: 10.0,
                 y_advance: 0.0,
-                transform: avenger_typst_label::MathTransform {
+                transform: avenger_typst_label::Transform {
                     dx: 3.0,
                     dy: 12.0,
-                    ..avenger_typst_label::MathTransform::IDENTITY
+                    ..avenger_typst_label::Transform::IDENTITY
                 },
             }],
         };

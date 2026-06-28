@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct MathTransform {
+pub struct Transform {
     pub xx: f32,
     pub yx: f32,
     pub xy: f32,
@@ -14,7 +14,7 @@ pub struct MathTransform {
     pub dy: f32,
 }
 
-impl MathTransform {
+impl Transform {
     pub const IDENTITY: Self = Self {
         xx: 1.0,
         yx: 0.0,
@@ -25,7 +25,7 @@ impl MathTransform {
     };
 }
 
-impl Default for MathTransform {
+impl Default for Transform {
     fn default() -> Self {
         Self::IDENTITY
     }
@@ -33,7 +33,7 @@ impl Default for MathTransform {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum MathPathCommand {
+pub enum PathCommand {
     MoveTo {
         x: f32,
         y: f32,
@@ -61,22 +61,22 @@ pub enum MathPathCommand {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct MathPathData {
-    pub commands: Vec<MathPathCommand>,
+pub struct PathData {
+    pub commands: Vec<PathCommand>,
 }
 
-impl MathPathData {
+impl PathData {
     pub fn rect(width: f32, height: f32) -> Self {
         Self {
             commands: vec![
-                MathPathCommand::MoveTo { x: 0.0, y: 0.0 },
-                MathPathCommand::LineTo { x: width, y: 0.0 },
-                MathPathCommand::LineTo {
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo { x: width, y: 0.0 },
+                PathCommand::LineTo {
                     x: width,
                     y: height,
                 },
-                MathPathCommand::LineTo { x: 0.0, y: height },
-                MathPathCommand::Close,
+                PathCommand::LineTo { x: 0.0, y: height },
+                PathCommand::Close,
             ],
         }
     }
@@ -84,14 +84,14 @@ impl MathPathData {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct MathStroke {
+pub struct Stroke {
     pub color: Color,
     pub width: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum MathPathKind {
+pub enum PathKind {
     GlyphOutline {
         glyph_run: usize,
         glyph_index: usize,
@@ -101,36 +101,36 @@ pub enum MathPathKind {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct MathPathItem {
-    pub path: MathPathData,
-    pub kind: MathPathKind,
+pub struct PathItem {
+    pub path: PathData,
+    pub kind: PathKind,
     pub fill: Option<Color>,
-    pub stroke: Option<MathStroke>,
-    pub transform: MathTransform,
-    pub clip: Option<MathPathData>,
+    pub stroke: Option<Stroke>,
+    pub transform: Transform,
+    pub clip: Option<PathData>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum MathImageFormat {
+pub enum PathImageFormat {
     Png,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct MathImageItem {
+pub struct PathImageItem {
     pub data: Vec<u8>,
-    pub format: MathImageFormat,
+    pub format: PathImageFormat,
     pub width: f32,
     pub height: f32,
-    pub transform: MathTransform,
+    pub transform: Transform,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct MathPathArtifact {
+pub struct PathArtifact {
     pub logical_width: f32,
     pub logical_height: f32,
-    pub items: Vec<MathPathItem>,
-    pub images: Vec<MathImageItem>,
+    pub items: Vec<PathItem>,
+    pub images: Vec<PathImageItem>,
 }

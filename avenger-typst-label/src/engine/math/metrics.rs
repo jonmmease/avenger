@@ -3,13 +3,8 @@ use std::sync::Arc;
 use crate::api::TypstEngineConfig;
 use crate::engine::glyph_path::outline_glyph_path;
 use crate::error::MathTypesetError;
-use crate::paths::{
-    MathPathArtifact, MathPathCommand, MathPathData, MathPathItem, MathPathKind, MathStroke,
-    MathTransform,
-};
-use crate::pdf::{
-    MathFontResource, MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer,
-};
+use crate::paths::{PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform};
+use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
 use crate::style::{FontWeight, MathFontSpec};
@@ -123,7 +118,7 @@ struct LaidOutGlyph {
 
 #[derive(Debug, Clone)]
 struct LaidOutShape {
-    path: MathPathData,
+    path: PathData,
     x: f32,
     y: f32,
     stroke_width: f32,
@@ -136,8 +131,8 @@ enum LaidOutDrawItem {
 }
 
 struct PdfArtifact {
-    text_layer: MathPdfTextLayer,
-    font_resources: Vec<MathFontResource>,
+    text_layer: PdfTextLayer,
+    font_resources: Vec<FontResource>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -778,13 +773,13 @@ fn layout_simple_cancel_call(
         let delta_x = width * half_scale;
         let delta_y = height * half_scale;
         body.shapes.push(LaidOutShape {
-            path: MathPathData {
+            path: PathData {
                 commands: vec![
-                    MathPathCommand::MoveTo {
+                    PathCommand::MoveTo {
                         x: center_x - delta_x,
                         y: center_y + delta_y,
                     },
-                    MathPathCommand::LineTo {
+                    PathCommand::LineTo {
                         x: center_x + delta_x,
                         y: center_y - delta_y,
                     },
@@ -956,10 +951,10 @@ fn layout_simple_radical(
     }
     append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, sqrt);
     shapes.push(LaidOutShape {
-        path: MathPathData {
+        path: PathData {
             commands: vec![
-                MathPathCommand::MoveTo { x: 0.0, y: 0.0 },
-                MathPathCommand::LineTo {
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo {
                     x: line_width,
                     y: 0.0,
                 },
@@ -1138,10 +1133,10 @@ fn layout_simple_stack_nodes(
     append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, denominator);
     if rule == StackRule::Fraction {
         shapes.push(LaidOutShape {
-            path: MathPathData {
+            path: PathData {
                 commands: vec![
-                    MathPathCommand::MoveTo { x: 0.0, y: 0.0 },
-                    MathPathCommand::LineTo {
+                    PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    PathCommand::LineTo {
                         x: line_width,
                         y: 0.0,
                     },
@@ -2773,8 +2768,8 @@ fn pdf_text_from_simple_row(
             message: "failed to parse Typst math font for PDF glyph output".to_string(),
         }
     })?;
-    let font_id = MathFontResourceId(0);
-    let font_resources = vec![MathFontResource {
+    let font_id = FontResourceId(0);
+    let font_resources = vec![FontResource {
         id: font_id,
         family: font_name(&face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
             .or_else(|| font_name(&face, ttf_parser::name_id::FAMILY))
@@ -2821,7 +2816,7 @@ fn pdf_text_from_simple_row(
     }
 
     Ok(PdfArtifact {
-        text_layer: MathPdfTextLayer {
+        text_layer: PdfTextLayer {
             logical_width: layout.metrics.width,
             logical_height: layout.metrics.height,
             semantic_text: source.to_string(),
@@ -2832,8 +2827,8 @@ fn pdf_text_from_simple_row(
 }
 
 fn push_pdf_glyph_run(
-    glyph_runs: &mut Vec<MathPdfGlyphRun>,
-    font: MathFontResourceId,
+    glyph_runs: &mut Vec<PdfGlyphRun>,
+    font: FontResourceId,
     font_size: f32,
     fill: crate::style::Color,
     glyphs: &[LaidOutGlyph],
@@ -2846,7 +2841,7 @@ fn push_pdf_glyph_run(
         glyph_text_ranges.push(start..text.len());
     }
 
-    glyph_runs.push(MathPdfGlyphRun {
+    glyph_runs.push(PdfGlyphRun {
         font,
         font_size,
         fill,
@@ -2855,7 +2850,7 @@ fn push_pdf_glyph_run(
         glyphs: glyphs
             .iter()
             .zip(glyph_text_ranges)
-            .map(|(glyph, text_range)| MathPdfGlyph {
+            .map(|(glyph, text_range)| PdfGlyph {
                 glyph_id: glyph.glyph_id.0,
                 unicode: glyph.unicode.clone(),
                 text_range,
@@ -2863,10 +2858,10 @@ fn push_pdf_glyph_run(
                 y: 0.0,
                 x_advance: glyph.x_advance,
                 y_advance: 0.0,
-                transform: MathTransform {
+                transform: Transform {
                     dx: glyph.x,
                     dy: glyph.y,
-                    ..MathTransform::IDENTITY
+                    ..Transform::IDENTITY
                 },
             })
             .collect(),
@@ -2902,9 +2897,9 @@ fn path_artifact_from_simple_row(
     font: &MathFont,
     layout: &SimpleRowLayout,
     fill: crate::style::Color,
-) -> MathPathArtifact {
+) -> PathArtifact {
     let Ok(face) = ttf_parser::Face::parse(&font.data, font.face_index) else {
-        return MathPathArtifact {
+        return PathArtifact {
             logical_width: layout.metrics.width,
             logical_height: layout.metrics.height,
             items: Vec::new(),
@@ -2929,15 +2924,15 @@ fn path_artifact_from_simple_row(
                         glyph.y,
                     );
                     if !path.commands.is_empty() {
-                        items.push(MathPathItem {
+                        items.push(PathItem {
                             path,
-                            kind: MathPathKind::GlyphOutline {
+                            kind: PathKind::GlyphOutline {
                                 glyph_run,
                                 glyph_index: 0,
                             },
                             fill: Some(fill),
                             stroke: None,
-                            transform: MathTransform::IDENTITY,
+                            transform: Transform::IDENTITY,
                             clip: None,
                         });
                     }
@@ -2947,18 +2942,18 @@ fn path_artifact_from_simple_row(
                     let Some(shape) = atom.shapes.get(index) else {
                         continue;
                     };
-                    items.push(MathPathItem {
+                    items.push(PathItem {
                         path: shape.path.clone(),
-                        kind: MathPathKind::MathShape,
+                        kind: PathKind::MathShape,
                         fill: None,
-                        stroke: Some(MathStroke {
+                        stroke: Some(Stroke {
                             color: fill,
                             width: shape.stroke_width,
                         }),
-                        transform: MathTransform {
+                        transform: Transform {
                             dx: shape.x,
                             dy: shape.y,
-                            ..MathTransform::IDENTITY
+                            ..Transform::IDENTITY
                         },
                         clip: None,
                     });
@@ -2967,7 +2962,7 @@ fn path_artifact_from_simple_row(
         }
     }
 
-    MathPathArtifact {
+    PathArtifact {
         logical_width: layout.metrics.width,
         logical_height: layout.metrics.height,
         items,
@@ -3084,7 +3079,7 @@ mod tests {
             paths
                 .items
                 .iter()
-                .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some())
+                .any(|item| matches!(item.kind, PathKind::MathShape) && item.stroke.is_some())
         );
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 4);
@@ -3109,7 +3104,7 @@ mod tests {
             paths
                 .items
                 .iter()
-                .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some())
+                .any(|item| matches!(item.kind, PathKind::MathShape) && item.stroke.is_some())
         );
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 4);
@@ -3135,7 +3130,7 @@ mod tests {
             paths
                 .items
                 .iter()
-                .all(|item| !matches!(item.kind, MathPathKind::MathShape))
+                .all(|item| !matches!(item.kind, PathKind::MathShape))
         );
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         let text: String = pdf
@@ -3163,11 +3158,8 @@ mod tests {
                 .expect("simple cancel call should be handled by Typst row path");
         let paths = artifact.paths.expect("cancel paths should exist");
         assert_eq!(paths.items.len(), 2);
-        assert!(matches!(
-            paths.items[0].kind,
-            MathPathKind::GlyphOutline { .. }
-        ));
-        assert!(matches!(paths.items[1].kind, MathPathKind::MathShape));
+        assert!(matches!(paths.items[0].kind, PathKind::GlyphOutline { .. }));
+        assert!(matches!(paths.items[1].kind, PathKind::MathShape));
         assert!(paths.items[1].stroke.is_some());
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 1);
@@ -3189,7 +3181,7 @@ mod tests {
                 .expect("simple sqrt should be handled by Typst row path");
         let paths = artifact.paths.expect("sqrt paths should exist");
         assert_eq!(paths.items.len(), 3);
-        assert!(matches!(paths.items[1].kind, MathPathKind::MathShape));
+        assert!(matches!(paths.items[1].kind, PathKind::MathShape));
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 2);
     }
@@ -3210,7 +3202,7 @@ mod tests {
                 .expect("simple indexed root should be handled by Typst row path");
         let paths = artifact.paths.expect("root paths should exist");
         assert_eq!(paths.items.len(), 4);
-        assert!(matches!(paths.items[2].kind, MathPathKind::MathShape));
+        assert!(matches!(paths.items[2].kind, PathKind::MathShape));
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 3);
         assert!(pdf.glyph_runs[0].font_size < pdf.glyph_runs[1].font_size);

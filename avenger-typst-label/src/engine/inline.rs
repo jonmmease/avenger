@@ -1,11 +1,7 @@
 use crate::api::TypstEngineConfig;
 use crate::error::MathTypesetError;
-use crate::paths::{
-    MathPathArtifact, MathPathData, MathPathItem, MathPathKind, MathStroke, MathTransform,
-};
-use crate::pdf::{
-    MathFontResource, MathFontResourceId, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer,
-};
+use crate::paths::{PathArtifact, PathData, PathItem, PathKind, Stroke, Transform};
+use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]
 use crate::raster::rasterize_path_artifact;
 use crate::style::{Color, PlainTextStyle};
@@ -375,7 +371,7 @@ fn try_typeset_mixed_metrics_text_line(
                     })
                     .flatten();
                 let (pdf_text, font_resources) = if options.outputs.pdf_text_layer {
-                    let font_id = MathFontResourceId(0);
+                    let font_id = FontResourceId(0);
                     (
                         Some(plain_pdf_text_from_shaped(
                             &decorated.text,
@@ -577,10 +573,10 @@ struct MixedRunPart {
     text_style: Option<PlainTextStyle>,
     baseline_shift: f32,
     metrics: TypesetMetrics,
-    paths: Option<MathPathArtifact>,
-    positioned_paths: Option<MathPathArtifact>,
-    pdf_text: Option<MathPdfTextLayer>,
-    font_resources: Vec<MathFontResource>,
+    paths: Option<PathArtifact>,
+    positioned_paths: Option<PathArtifact>,
+    pdf_text: Option<PdfTextLayer>,
+    font_resources: Vec<FontResource>,
     positioned_plain_runs: Vec<PositionedTextLineRun>,
 }
 
@@ -754,7 +750,7 @@ fn merge_adjacent_positioned_plain_runs(
 
 fn positioned_plain_text_style(text_style: &PlainTextStyle, face: &TextFace) -> PlainTextStyle {
     let mut run_style = text_style.clone();
-    let family = face.font_resource(MathFontResourceId(0)).family;
+    let family = face.font_resource(FontResourceId(0)).family;
     if is_color_emoji_family(&family) {
         run_style.font_family = family;
     }
@@ -776,7 +772,7 @@ fn plain_path_artifact_from_shaped(
     font_size: f32,
     fill: Color,
     decoration: Option<TextMarkupKind>,
-) -> MathPathArtifact {
+) -> PathArtifact {
     let mut items = Vec::new();
     let mut images = Vec::new();
     if matches!(decoration, Some(TextMarkupKind::Highlight)) {
@@ -803,15 +799,15 @@ fn plain_path_artifact_from_shaped(
                 glyph_baseline_y + glyph.y,
             );
             if !path.commands.is_empty() {
-                items.push(MathPathItem {
+                items.push(PathItem {
                     path,
-                    kind: MathPathKind::GlyphOutline {
+                    kind: PathKind::GlyphOutline {
                         glyph_run: 0,
                         glyph_index,
                     },
                     fill: Some(fill),
                     stroke: None,
-                    transform: MathTransform::IDENTITY,
+                    transform: Transform::IDENTITY,
                     clip: None,
                 });
             }
@@ -827,7 +823,7 @@ fn plain_path_artifact_from_shaped(
         }
     }
 
-    MathPathArtifact {
+    PathArtifact {
         logical_width: metrics.width,
         logical_height: metrics.height,
         items,
@@ -842,7 +838,7 @@ fn plain_path_artifact_from_segmented(
     font_size: f32,
     fill: Color,
     decoration: Option<TextMarkupKind>,
-) -> MathPathArtifact {
+) -> PathArtifact {
     let mut items = Vec::new();
     let mut images = Vec::new();
     if matches!(decoration, Some(TextMarkupKind::Highlight)) {
@@ -870,15 +866,15 @@ fn plain_path_artifact_from_segmented(
                     glyph_baseline_y + glyph.y,
                 );
                 if !path.commands.is_empty() {
-                    items.push(MathPathItem {
+                    items.push(PathItem {
                         path,
-                        kind: MathPathKind::GlyphOutline {
+                        kind: PathKind::GlyphOutline {
                             glyph_run: run_index,
                             glyph_index,
                         },
                         fill: Some(fill),
                         stroke: None,
-                        transform: MathTransform::IDENTITY,
+                        transform: Transform::IDENTITY,
                         clip: None,
                     });
                 }
@@ -896,7 +892,7 @@ fn plain_path_artifact_from_segmented(
         }
     }
 
-    MathPathArtifact {
+    PathArtifact {
         logical_width: metrics.width,
         logical_height: metrics.height,
         items,
@@ -910,8 +906,8 @@ fn decoration_path_artifact(
     font_size: f32,
     fill: Color,
     face: Option<&TextFace>,
-) -> Option<MathPathArtifact> {
-    decoration_path_item(kind, metrics, font_size, fill, face).map(|item| MathPathArtifact {
+) -> Option<PathArtifact> {
+    decoration_path_item(kind, metrics, font_size, fill, face).map(|item| PathArtifact {
         logical_width: metrics.width,
         logical_height: metrics.height,
         items: vec![item],
@@ -925,14 +921,14 @@ fn decoration_path_item(
     font_size: f32,
     fill: Color,
     face: Option<&TextFace>,
-) -> Option<MathPathItem> {
+) -> Option<PathItem> {
     let item = match kind {
-        TextMarkupKind::Highlight => MathPathItem {
-            path: MathPathData::rect(metrics.width, metrics.height),
-            kind: MathPathKind::MathShape,
+        TextMarkupKind::Highlight => PathItem {
+            path: PathData::rect(metrics.width, metrics.height),
+            kind: PathKind::MathShape,
             fill: Some(crate::style::Color::rgba(1.0, 0.9, 0.25, 0.35)),
             stroke: None,
-            transform: MathTransform::IDENTITY,
+            transform: Transform::IDENTITY,
             clip: None,
         },
         TextMarkupKind::Underline => line_decoration_item(
@@ -981,22 +977,22 @@ fn line_decoration_item(
     metrics: TypesetMetrics,
     line: TextDecorationLineMetrics,
     fill: Color,
-) -> MathPathItem {
+) -> PathItem {
     let y = metrics.baseline - line.position;
-    MathPathItem {
-        path: MathPathData {
+    PathItem {
+        path: PathData {
             commands: vec![
-                crate::paths::MathPathCommand::MoveTo { x: 0.0, y },
-                crate::paths::MathPathCommand::LineTo { x: width, y },
+                crate::paths::PathCommand::MoveTo { x: 0.0, y },
+                crate::paths::PathCommand::LineTo { x: width, y },
             ],
         },
-        kind: MathPathKind::MathShape,
+        kind: PathKind::MathShape,
         fill: None,
-        stroke: Some(MathStroke {
+        stroke: Some(Stroke {
             color: fill,
             width: line.thickness,
         }),
-        transform: MathTransform::IDENTITY,
+        transform: Transform::IDENTITY,
         clip: None,
     }
 }
@@ -1008,14 +1004,14 @@ fn plain_pdf_text_from_shaped(
     glyph_baseline_y: f32,
     font_size: f32,
     fill: Color,
-    font_id: MathFontResourceId,
-) -> MathPdfTextLayer {
-    MathPdfTextLayer {
+    font_id: FontResourceId,
+) -> PdfTextLayer {
+    PdfTextLayer {
         logical_width: metrics.width,
         logical_height: metrics.height,
         semantic_text: semantic_text.to_string(),
         glyph_runs: (!shaped.glyphs.is_empty())
-            .then(|| MathPdfGlyphRun {
+            .then(|| PdfGlyphRun {
                 font: font_id,
                 font_size,
                 fill,
@@ -1024,7 +1020,7 @@ fn plain_pdf_text_from_shaped(
                 glyphs: shaped
                     .glyphs
                     .iter()
-                    .map(|glyph| MathPdfGlyph {
+                    .map(|glyph| PdfGlyph {
                         glyph_id: glyph.glyph_id.0,
                         unicode: glyph.unicode.clone(),
                         text_range: glyph.byte_range.clone(),
@@ -1032,10 +1028,10 @@ fn plain_pdf_text_from_shaped(
                         y: 0.0,
                         x_advance: glyph.x_advance,
                         y_advance: glyph.y_advance,
-                        transform: MathTransform {
+                        transform: Transform {
                             dx: glyph.x,
                             dy: glyph_baseline_y + glyph.y,
-                            ..MathTransform::IDENTITY
+                            ..Transform::IDENTITY
                         },
                     })
                     .collect(),
@@ -1052,7 +1048,7 @@ fn plain_pdf_text_from_segmented(
     glyph_baseline_y: f32,
     font_size: f32,
     fill: Color,
-) -> (MathPdfTextLayer, Vec<MathFontResource>) {
+) -> (PdfTextLayer, Vec<FontResource>) {
     let mut font_resources = Vec::new();
     let mut glyph_runs = Vec::new();
 
@@ -1062,9 +1058,9 @@ fn plain_pdf_text_from_segmented(
         }
         let font = intern_font_resource(
             &mut font_resources,
-            run.face.font_resource(MathFontResourceId(0)),
+            run.face.font_resource(FontResourceId(0)),
         );
-        glyph_runs.push(MathPdfGlyphRun {
+        glyph_runs.push(PdfGlyphRun {
             font,
             font_size,
             fill,
@@ -1074,7 +1070,7 @@ fn plain_pdf_text_from_segmented(
                 .shaped
                 .glyphs
                 .iter()
-                .map(|glyph| MathPdfGlyph {
+                .map(|glyph| PdfGlyph {
                     glyph_id: glyph.glyph_id.0,
                     unicode: glyph.unicode.clone(),
                     text_range: glyph.byte_range.clone(),
@@ -1082,10 +1078,10 @@ fn plain_pdf_text_from_segmented(
                     y: 0.0,
                     x_advance: glyph.x_advance,
                     y_advance: glyph.y_advance,
-                    transform: MathTransform {
+                    transform: Transform {
                         dx: run.x + glyph.x,
                         dy: glyph_baseline_y + glyph.y,
-                        ..MathTransform::IDENTITY
+                        ..Transform::IDENTITY
                     },
                 })
                 .collect(),
@@ -1093,7 +1089,7 @@ fn plain_pdf_text_from_segmented(
     }
 
     (
-        MathPdfTextLayer {
+        PdfTextLayer {
             logical_width: metrics.width,
             logical_height: metrics.height,
             semantic_text: semantic_text.to_string(),
@@ -1103,7 +1099,7 @@ fn plain_pdf_text_from_segmented(
     )
 }
 
-fn full_line_path_artifact(parts: &[MixedRunPart], metrics: TypesetMetrics) -> MathPathArtifact {
+fn full_line_path_artifact(parts: &[MixedRunPart], metrics: TypesetMetrics) -> PathArtifact {
     let mut items = Vec::new();
     let mut images = Vec::new();
     let mut x = 0.0;
@@ -1117,7 +1113,7 @@ fn full_line_path_artifact(parts: &[MixedRunPart], metrics: TypesetMetrics) -> M
         x += part.metrics.width;
     }
 
-    MathPathArtifact {
+    PathArtifact {
         logical_width: metrics.width,
         logical_height: metrics.height,
         items,
@@ -1126,12 +1122,12 @@ fn full_line_path_artifact(parts: &[MixedRunPart], metrics: TypesetMetrics) -> M
 }
 
 fn offset_path_artifact(
-    mut paths: MathPathArtifact,
+    mut paths: PathArtifact,
     dx: f32,
     dy: f32,
     logical_width: f32,
     logical_height: f32,
-) -> MathPathArtifact {
+) -> PathArtifact {
     paths.logical_width = logical_width;
     paths.logical_height = logical_height;
     for item in &mut paths.items {
@@ -1149,7 +1145,7 @@ fn full_line_pdf_text(
     source: &str,
     parts: &[MixedRunPart],
     metrics: TypesetMetrics,
-) -> (Option<MathPdfTextLayer>, Vec<MathFontResource>) {
+) -> (Option<PdfTextLayer>, Vec<FontResource>) {
     let mut glyph_runs = Vec::new();
     let mut font_resources = Vec::new();
     let mut x = 0.0;
@@ -1172,7 +1168,7 @@ fn full_line_pdf_text(
     }
 
     (
-        Some(MathPdfTextLayer {
+        Some(PdfTextLayer {
             logical_width: metrics.width,
             logical_height: metrics.height,
             semantic_text: source.to_string(),
@@ -1183,13 +1179,13 @@ fn full_line_pdf_text(
 }
 
 fn offset_pdf_text_layer(
-    mut pdf_text: MathPdfTextLayer,
+    mut pdf_text: PdfTextLayer,
     dx: f32,
     dy: f32,
     logical_width: f32,
     logical_height: f32,
     semantic_text: &str,
-) -> MathPdfTextLayer {
+) -> PdfTextLayer {
     pdf_text.logical_width = logical_width;
     pdf_text.logical_height = logical_height;
     pdf_text.semantic_text = semantic_text.to_string();
@@ -1203,9 +1199,9 @@ fn offset_pdf_text_layer(
 }
 
 fn remap_pdf_fonts(
-    pdf_text: &mut MathPdfTextLayer,
-    source_resources: &[MathFontResource],
-    target_resources: &mut Vec<MathFontResource>,
+    pdf_text: &mut PdfTextLayer,
+    source_resources: &[FontResource],
+    target_resources: &mut Vec<FontResource>,
 ) {
     let mut id_map = Vec::new();
     for resource in source_resources {
@@ -1215,7 +1211,7 @@ fn remap_pdf_fonts(
             .map(|existing| existing.id)
             .unwrap_or_else(|| {
                 let mut resource = resource.clone();
-                resource.id = MathFontResourceId(target_resources.len() as u32);
+                resource.id = FontResourceId(target_resources.len() as u32);
                 let id = resource.id;
                 target_resources.push(resource);
                 id
@@ -1230,21 +1226,21 @@ fn remap_pdf_fonts(
     }
 }
 
-fn same_font_resource(a: &MathFontResource, b: &MathFontResource) -> bool {
+fn same_font_resource(a: &FontResource, b: &FontResource) -> bool {
     a.face_index == b.face_index && a.variations == b.variations && a.data == b.data
 }
 
 fn intern_font_resource(
-    font_resources: &mut Vec<MathFontResource>,
-    mut resource: MathFontResource,
-) -> MathFontResourceId {
+    font_resources: &mut Vec<FontResource>,
+    mut resource: FontResource,
+) -> FontResourceId {
     if let Some(existing) = font_resources
         .iter()
         .find(|existing| same_font_resource(existing, &resource))
     {
         return existing.id;
     }
-    resource.id = MathFontResourceId(font_resources.len() as u32);
+    resource.id = FontResourceId(font_resources.len() as u32);
     let id = resource.id;
     font_resources.push(resource);
     id
@@ -1266,7 +1262,7 @@ fn typeset_plain_text_line(
         ascent: shaped.metrics.ascent,
         descent: shaped.metrics.descent,
     };
-    let font_id = MathFontResourceId(0);
+    let font_id = FontResourceId(0);
     let font_resources = options
         .outputs
         .pdf_text_layer
@@ -1419,7 +1415,7 @@ mod tests {
     use crate::delimiter::MathDelimiterOptions;
     use crate::engine::font::build_text_fontdb;
     use crate::engine::syntax::parse_line;
-    use crate::paths::MathPathCommand;
+    use crate::paths::PathCommand;
     use crate::types::TextLineOutputRequest;
 
     fn test_fontdb() -> fontdb::Database {
@@ -1608,7 +1604,7 @@ mod tests {
             paths
                 .items
                 .iter()
-                .any(|item| matches!(item.kind, MathPathKind::MathShape) && item.stroke.is_some())
+                .any(|item| matches!(item.kind, PathKind::MathShape) && item.stroke.is_some())
         }));
         assert!(artifact.pdf_text.is_some());
     }
@@ -1641,7 +1637,7 @@ mod tests {
             .find(|item| item.stroke.is_some())
             .expect("underline stroke should be present");
         let y = match underline.path.commands.first() {
-            Some(MathPathCommand::MoveTo { y, .. }) => *y,
+            Some(PathCommand::MoveTo { y, .. }) => *y,
             other => panic!("expected underline to start with MoveTo, got {other:?}"),
         };
 
@@ -1663,7 +1659,7 @@ mod tests {
             .expect("supported static highlight should use fast path");
         let paths = artifact.paths.expect("highlight paths should exist");
 
-        assert!(matches!(paths.items[0].kind, MathPathKind::MathShape));
+        assert!(matches!(paths.items[0].kind, PathKind::MathShape));
         assert!(paths.items[0].fill.is_some());
     }
 }

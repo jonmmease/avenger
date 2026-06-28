@@ -7,9 +7,9 @@ use crate::delimiter::{ParsedSegment, parse_segments};
 use crate::engine::engine::TypstEngineCore;
 use crate::error::{MathTypesetError, TypstInitError};
 use crate::limits::MathLimits;
-use crate::paths::{MathImageItem, MathPathArtifact, MathPathItem, MathPathKind, MathTransform};
-use crate::pdf::{MathFontResource, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer};
-use crate::raster::MathRasterArtifact;
+use crate::paths::{PathArtifact, PathImageItem, PathItem, PathKind, Transform};
+use crate::pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
+pub use crate::raster::RasterImage;
 use crate::style::{MathFontConfig, MathStrictness, MathStyle, PlainTextStyle};
 use crate::types::{
     MathSyntaxMode, PositionedTextLineRun, PositionedTextLineRunKind, TextLineArtifact,
@@ -28,7 +28,6 @@ pub type LabelError = MathTypesetError;
 pub type LabelWarning = MathTypesetWarning;
 pub type LabelLimits = MathLimits;
 pub type TextStyle = PlainTextStyle;
-pub type RasterImage = MathRasterArtifact;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -306,13 +305,13 @@ impl LabelFrame {
 fn push_missing_aggregate_shape_items(
     items: &mut Vec<(Point, LabelFrameItem)>,
     byte_range: Range<usize>,
-    paths: Option<&MathPathArtifact>,
+    paths: Option<&PathArtifact>,
 ) {
     let Some(paths) = paths else {
         return;
     };
     for item in &paths.items {
-        if !matches!(item.kind, MathPathKind::MathShape) {
+        if !matches!(item.kind, PathKind::MathShape) {
             continue;
         }
         if frame_contains_path_item(items, item) {
@@ -329,7 +328,7 @@ fn push_missing_aggregate_shape_items(
     }
 }
 
-fn frame_contains_path_item(items: &[(Point, LabelFrameItem)], path: &MathPathItem) -> bool {
+fn frame_contains_path_item(items: &[(Point, LabelFrameItem)], path: &PathItem) -> bool {
     items.iter().any(|(_, item)| match item {
         LabelFrameItem::Shape(shape) => &shape.item == path,
         LabelFrameItem::Group(group) => frame_contains_path_item(&group.items, path),
@@ -340,9 +339,9 @@ fn frame_contains_path_item(items: &[(Point, LabelFrameItem)], path: &MathPathIt
 fn push_plain_run_items(
     items: &mut Vec<(Point, LabelFrameItem)>,
     run: &PositionedTextLineRun,
-    paths: Option<&MathPathArtifact>,
-    pdf_text: Option<MathPdfTextLayer>,
-    font_resources: Vec<MathFontResource>,
+    paths: Option<&PathArtifact>,
+    pdf_text: Option<PdfTextLayer>,
+    font_resources: Vec<FontResource>,
 ) {
     let mut foreground_shapes = Vec::new();
     let mut images = Vec::new();
@@ -383,8 +382,8 @@ fn push_text_item(
     items: &mut Vec<(Point, LabelFrameItem)>,
     run: &PositionedTextLineRun,
     kind: TextItemKind,
-    pdf_text: Option<MathPdfTextLayer>,
-    font_resources: Vec<MathFontResource>,
+    pdf_text: Option<PdfTextLayer>,
+    font_resources: Vec<FontResource>,
 ) {
     let point = Point { x: run.x, y: run.y };
     items.push((
@@ -406,7 +405,7 @@ fn push_path_items(
     items: &mut Vec<(Point, LabelFrameItem)>,
     byte_range: Range<usize>,
     text_kind: TextItemKind,
-    paths: Option<&MathPathArtifact>,
+    paths: Option<&PathArtifact>,
 ) {
     if let Some(paths) = paths {
         for item in &paths.items {
@@ -433,9 +432,9 @@ fn push_path_items(
 
 fn paths_for_run(
     run: &PositionedTextLineRun,
-    aggregate: Option<&MathPathArtifact>,
-) -> Option<MathPathArtifact> {
-    let mut paths = run.paths.clone().unwrap_or_else(|| MathPathArtifact {
+    aggregate: Option<&PathArtifact>,
+) -> Option<PathArtifact> {
+    let mut paths = run.paths.clone().unwrap_or_else(|| PathArtifact {
         logical_width: run.metrics.width,
         logical_height: run.metrics.height,
         items: Vec::new(),
@@ -464,9 +463,9 @@ fn paths_for_run(
 
 fn pdf_text_for_run(
     run: &PositionedTextLineRun,
-    aggregate: Option<&MathPdfTextLayer>,
-    aggregate_resources: &[MathFontResource],
-) -> (Option<MathPdfTextLayer>, Vec<MathFontResource>) {
+    aggregate: Option<&PdfTextLayer>,
+    aggregate_resources: &[FontResource],
+) -> (Option<PdfTextLayer>, Vec<FontResource>) {
     if let Some(aggregate) = aggregate {
         let glyph_runs = aggregate
             .glyph_runs
@@ -476,7 +475,7 @@ fn pdf_text_for_run(
             .collect::<Vec<_>>();
         if !glyph_runs.is_empty() {
             return (
-                Some(MathPdfTextLayer {
+                Some(PdfTextLayer {
                     logical_width: run.metrics.width,
                     logical_height: run.metrics.height,
                     semantic_text: run.text.clone(),
@@ -490,19 +489,19 @@ fn pdf_text_for_run(
     (run.pdf_text.clone(), run.font_resources.clone())
 }
 
-fn glyph_run_belongs_to_run(glyph_run: &MathPdfGlyphRun, run: &PositionedTextLineRun) -> bool {
+fn glyph_run_belongs_to_run(glyph_run: &PdfGlyphRun, run: &PositionedTextLineRun) -> bool {
     glyph_run.glyphs.iter().any(|glyph| {
         let center_x = glyph.transform.dx + glyph.x_advance / 2.0;
         value_is_in_run_x_range(center_x, run)
     })
 }
 
-fn path_item_belongs_to_run(item: &MathPathItem, run: &PositionedTextLineRun) -> bool {
+fn path_item_belongs_to_run(item: &PathItem, run: &PositionedTextLineRun) -> bool {
     let center_x = transformed_path_center_x(item).unwrap_or(item.transform.dx);
     value_is_in_run_x_range(center_x, run)
 }
 
-fn image_item_belongs_to_run(image: &MathImageItem, run: &PositionedTextLineRun) -> bool {
+fn image_item_belongs_to_run(image: &PathImageItem, run: &PositionedTextLineRun) -> bool {
     value_is_in_run_x_range(image.transform.dx + image.width / 2.0, run)
 }
 
@@ -512,7 +511,7 @@ fn value_is_in_run_x_range(x: f32, run: &PositionedTextLineRun) -> bool {
     x >= left && x <= right
 }
 
-fn transformed_path_center_x(item: &MathPathItem) -> Option<f32> {
+fn transformed_path_center_x(item: &PathItem) -> Option<f32> {
     let mut min_x = f32::INFINITY;
     let mut max_x = f32::NEG_INFINITY;
     for command in &item.path.commands {
@@ -525,12 +524,13 @@ fn transformed_path_center_x(item: &MathPathItem) -> Option<f32> {
     min_x.is_finite().then_some((min_x + max_x) / 2.0)
 }
 
-fn command_points(command: &crate::paths::MathPathCommand) -> Vec<(f32, f32)> {
+fn command_points(command: &crate::paths::PathCommand) -> Vec<(f32, f32)> {
     match *command {
-        crate::paths::MathPathCommand::MoveTo { x, y }
-        | crate::paths::MathPathCommand::LineTo { x, y } => vec![(x, y)],
-        crate::paths::MathPathCommand::QuadTo { x1, y1, x, y } => vec![(x1, y1), (x, y)],
-        crate::paths::MathPathCommand::CubicTo {
+        crate::paths::PathCommand::MoveTo { x, y } | crate::paths::PathCommand::LineTo { x, y } => {
+            vec![(x, y)]
+        }
+        crate::paths::PathCommand::QuadTo { x1, y1, x, y } => vec![(x1, y1), (x, y)],
+        crate::paths::PathCommand::CubicTo {
             x1,
             y1,
             x2,
@@ -538,7 +538,7 @@ fn command_points(command: &crate::paths::MathPathCommand) -> Vec<(f32, f32)> {
             x,
             y,
         } => vec![(x1, y1), (x2, y2), (x, y)],
-        crate::paths::MathPathCommand::Close => Vec::new(),
+        crate::paths::PathCommand::Close => Vec::new(),
     }
 }
 
@@ -595,8 +595,8 @@ pub struct TextItem {
     pub style: Option<TextStyle>,
     pub metrics: LabelMetrics,
     pub glyphs: Vec<Glyph>,
-    pub pdf_text: Option<MathPdfTextLayer>,
-    pub font_resources: Vec<MathFontResource>,
+    pub pdf_text: Option<PdfTextLayer>,
+    pub font_resources: Vec<FontResource>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -609,11 +609,11 @@ pub struct Glyph {
     pub y: f32,
     pub x_advance: f32,
     pub y_advance: f32,
-    pub transform: MathTransform,
+    pub transform: Transform,
 }
 
-impl From<&MathPdfGlyph> for Glyph {
-    fn from(glyph: &MathPdfGlyph) -> Self {
+impl From<&PdfGlyph> for Glyph {
+    fn from(glyph: &PdfGlyph) -> Self {
         Self {
             glyph_id: glyph.glyph_id,
             unicode: glyph.unicode.clone(),
@@ -632,14 +632,14 @@ impl From<&MathPdfGlyph> for Glyph {
 pub struct ShapeItem {
     pub byte_range: Range<usize>,
     pub text_kind: Option<TextItemKind>,
-    pub item: MathPathItem,
+    pub item: PathItem,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ImageItem {
     pub byte_range: Range<usize>,
-    pub image: MathImageItem,
+    pub image: PathImageItem,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -669,7 +669,7 @@ pub struct SvgOptions {}
 pub struct SvgLabel {
     pub metrics: LabelMetrics,
     pub items: Vec<(Point, LabelFrameItem)>,
-    pub font_resources: Vec<MathFontResource>,
+    pub font_resources: Vec<FontResource>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -681,8 +681,8 @@ pub struct PdfOptions {}
 pub struct PdfLabel {
     pub metrics: LabelMetrics,
     pub semantic_text: String,
-    pub font_resources: Vec<MathFontResource>,
-    pub glyph_runs: Vec<MathPdfGlyphRun>,
+    pub font_resources: Vec<FontResource>,
+    pub glyph_runs: Vec<PdfGlyphRun>,
     pub path_items: Vec<PdfPathItem>,
     pub draw_items: Vec<PdfDrawItem>,
 }
@@ -691,7 +691,7 @@ pub struct PdfLabel {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PdfPathItem {
     pub byte_range: Range<usize>,
-    pub item: MathPathItem,
+    pub item: PathItem,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -725,7 +725,7 @@ pub fn rasterize(
 
 #[cfg(feature = "raster")]
 fn rasterize_paths(
-    paths: &MathPathArtifact,
+    paths: &PathArtifact,
     options: RasterOptions,
 ) -> Result<RasterImage, LabelError> {
     crate::raster::rasterize_path_artifact(
@@ -738,7 +738,7 @@ fn rasterize_paths(
 
 #[cfg(not(feature = "raster"))]
 fn rasterize_paths(
-    _paths: &MathPathArtifact,
+    _paths: &PathArtifact,
     _options: RasterOptions,
 ) -> Result<RasterImage, LabelError> {
     Err(LabelError::UnsupportedOutput(
@@ -769,8 +769,8 @@ pub fn pdf_items(label: &CompiledLabel, _options: &PdfOptions) -> Result<PdfLabe
     Ok(output)
 }
 
-fn frame_path_artifact(frame: &LabelFrame) -> MathPathArtifact {
-    let mut artifact = MathPathArtifact {
+fn frame_path_artifact(frame: &LabelFrame) -> PathArtifact {
+    let mut artifact = PathArtifact {
         logical_width: frame.size.x,
         logical_height: frame.size.y,
         items: Vec::new(),
@@ -780,7 +780,7 @@ fn frame_path_artifact(frame: &LabelFrame) -> MathPathArtifact {
     artifact
 }
 
-fn collect_frame_paths(items: &[(Point, LabelFrameItem)], artifact: &mut MathPathArtifact) {
+fn collect_frame_paths(items: &[(Point, LabelFrameItem)], artifact: &mut PathArtifact) {
     for (_, item) in items {
         match item {
             LabelFrameItem::Shape(shape) => artifact.items.push(shape.item.clone()),
@@ -791,7 +791,7 @@ fn collect_frame_paths(items: &[(Point, LabelFrameItem)], artifact: &mut MathPat
     }
 }
 
-fn frame_font_resources(frame: &LabelFrame) -> Vec<MathFontResource> {
+fn frame_font_resources(frame: &LabelFrame) -> Vec<FontResource> {
     let mut resources = Vec::new();
     collect_frame_font_resources(&frame.items, &mut resources);
     resources.sort_by_key(|resource| resource.id.0);
@@ -801,7 +801,7 @@ fn frame_font_resources(frame: &LabelFrame) -> Vec<MathFontResource> {
 
 fn collect_frame_font_resources(
     items: &[(Point, LabelFrameItem)],
-    resources: &mut Vec<MathFontResource>,
+    resources: &mut Vec<FontResource>,
 ) {
     for (_, item) in items {
         match item {
@@ -828,8 +828,7 @@ fn collect_pdf_items(items: &[(Point, LabelFrameItem)], output: &mut PdfLabel) {
                 }
             }
             LabelFrameItem::Shape(shape) => {
-                if matches!(shape.item.kind, MathPathKind::MathShape) || shape.item.stroke.is_some()
-                {
+                if matches!(shape.item.kind, PathKind::MathShape) || shape.item.stroke.is_some() {
                     let index = output.path_items.len();
                     output.path_items.push(PdfPathItem {
                         byte_range: shape.byte_range.clone(),
@@ -860,7 +859,7 @@ fn text_line_options(options: &LabelOptions, syntax: MathSyntaxMode) -> TextLine
     }
 }
 
-fn glyphs_from_pdf_text(pdf_text: Option<&MathPdfTextLayer>) -> Vec<Glyph> {
+fn glyphs_from_pdf_text(pdf_text: Option<&PdfTextLayer>) -> Vec<Glyph> {
     pdf_text
         .into_iter()
         .flat_map(|pdf_text| pdf_text.glyph_runs.iter())
