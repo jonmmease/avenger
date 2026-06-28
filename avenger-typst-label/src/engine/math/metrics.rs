@@ -424,6 +424,9 @@ fn layout_simple_node(
         if let Some(selection) = MathStyleSelection::from_call_name(&call.name) {
             return layout_simple_variant_call(font, call, selection, font_size, script_level);
         }
+        if call.name == "stretch" {
+            return layout_simple_stretch_call(font, call, font_size, script_level);
+        }
         if let Some((left, right)) = delimiter_call_chars(&call.name) {
             return layout_simple_delimited_call(font, call, left, right, font_size, script_level);
         }
@@ -604,6 +607,55 @@ fn layout_simple_variant_call(
     };
     let styled_nodes = style_math_nodes(&arg.nodes, selection);
     layout_simple_nodes_as_atom(font, &styled_nodes, font_size, script_level)
+}
+
+fn layout_simple_stretch_call(
+    font: &MathFont,
+    call: &super::ast::MathCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let Some(mut atom) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    else {
+        return Ok(None);
+    };
+
+    if atom.glyphs.len() != 1 || !atom.shapes.is_empty() {
+        return Ok(Some(atom));
+    }
+
+    let size = call.options.stretch_size.unwrap_or_default();
+    let horizontal_target =
+        resolve_relative_math_size(size, atom.metrics.width, font_size).max(0.0);
+    if stretch_single_glyph_variant(
+        font,
+        &mut atom,
+        MathStretchAxis::Horizontal,
+        horizontal_target,
+        0.0,
+        false,
+        "math stretch variants",
+    )?
+    .is_some()
+    {
+        return Ok(Some(atom));
+    }
+
+    let vertical_target =
+        resolve_relative_math_size(size, atom.ink_ascent + atom.ink_descent, font_size).max(0.0);
+    let _ = stretch_single_glyph_variant(
+        font,
+        &mut atom,
+        MathStretchAxis::Vertical,
+        vertical_target,
+        0.0,
+        false,
+        "math stretch variants",
+    )?;
+    Ok(Some(atom))
 }
 
 fn layout_simple_operator_call(
@@ -812,7 +864,7 @@ fn layout_simple_delimited_atom(
         DelimiterTarget::Frame => body.metrics.height,
     };
     let delimiter_target_height = explicit_size
-        .map(|size| resolve_delimited_size(size, natural_target_height, font_size))
+        .map(|size| resolve_relative_math_size(size, natural_target_height, font_size))
         .unwrap_or(natural_target_height)
         .max(0.0);
     let mut left = layout_delimiter_atom_with_target(
@@ -891,8 +943,8 @@ fn layout_simple_delimited_atom(
     })
 }
 
-fn resolve_delimited_size(
-    size: super::ast::MathDelimitedSize,
+fn resolve_relative_math_size(
+    size: super::ast::MathRelativeSize,
     natural_target_height: f32,
     font_size: f32,
 ) -> f32 {
@@ -906,6 +958,12 @@ enum DelimiterTarget {
 }
 
 const DELIMITER_SHORT_FALL_EM: f32 = 0.1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MathStretchAxis {
+    Horizontal,
+    Vertical,
+}
 
 fn layout_delimiter_atom_with_target(
     font: &MathFont,
@@ -924,27 +982,56 @@ fn layout_delimiter_atom_with_target(
         class,
     )?;
 
-    let short_target_height = (target_height - DELIMITER_SHORT_FALL_EM * font_size).max(0.0);
-    let stretch_advance = atom.ink_ascent + atom.ink_descent;
-    if !force_variant && short_target_height <= stretch_advance {
-        return Ok(atom);
+    let _ = stretch_single_glyph_variant(
+        font,
+        &mut atom,
+        MathStretchAxis::Vertical,
+        target_height,
+        DELIMITER_SHORT_FALL_EM * font_size,
+        force_variant,
+        "delimiter variants",
+    )?;
+    Ok(atom)
+}
+
+fn stretch_single_glyph_variant(
+    font: &MathFont,
+    atom: &mut LaidOutMathAtom,
+    axis: MathStretchAxis,
+    target_size: f32,
+    short_fall: f32,
+    force_variant: bool,
+    context: &'static str,
+) -> Result<Option<()>, LabelError> {
+    let face = parse_math_face(font, context)?;
+    let Some(glyph) = atom.glyphs.first_mut() else {
+        return Ok(None);
+    };
+    let Some(construction) =
+        face.tables()
+            .math
+            .and_then(|math| math.variants)
+            .and_then(|variants| match axis {
+                MathStretchAxis::Horizontal => {
+                    variants.horizontal_constructions.get(glyph.glyph_id)
+                }
+                MathStretchAxis::Vertical => variants.vertical_constructions.get(glyph.glyph_id),
+            })
+    else {
+        return Ok(None);
+    };
+
+    let short_target_size = (target_size - short_fall).max(0.0);
+    let stretch_advance = match axis {
+        MathStretchAxis::Horizontal => glyph.x_advance,
+        MathStretchAxis::Vertical => atom.ink_ascent + atom.ink_descent,
+    };
+    if !force_variant && short_target_size <= stretch_advance {
+        return Ok(Some(()));
     }
 
-    let face = parse_math_face(font, "delimiter variants")?;
-    let Some(glyph) = atom.glyphs.first_mut() else {
-        return Ok(atom);
-    };
-    let Some(construction) = face
-        .tables()
-        .math
-        .and_then(|math| math.variants)
-        .and_then(|variants| variants.vertical_constructions.get(glyph.glyph_id))
-    else {
-        return Ok(atom);
-    };
-
-    let scale = font_size / face.units_per_em() as f32;
-    let target_units = short_target_height / scale;
+    let scale = glyph.font_size / face.units_per_em() as f32;
+    let target_units = short_target_size / scale;
     let base_glyph = glyph.glyph_id;
     let mut variant_glyph = glyph.glyph_id;
     let mut variant_advance = None;
@@ -977,7 +1064,7 @@ fn layout_delimiter_atom_with_target(
         glyph.y = ascent;
     }
     atom.metrics.width = glyph.x_advance;
-    Ok(atom)
+    Ok(Some(()))
 }
 
 fn delimiter_call_chars(name: &str) -> Option<(char, char)> {
@@ -4845,6 +4932,38 @@ mod tests {
                 .collect();
             assert_eq!(text, expected, "{source}");
         }
+    }
+
+    #[test]
+    fn simple_row_can_emit_vertical_stretch_call() {
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let plain = parse_math("stretch(|)", 0).unwrap();
+        let stretched = parse_math("stretch(|, size: #2em)", 0).unwrap();
+        let plain_artifact =
+            try_typeset_simple_row_fragment(&plain, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("plain vertical stretch call should be handled by Typst row path");
+        let stretched_artifact =
+            try_typeset_simple_row_fragment(&stretched, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("stretched bar call should be handled by Typst row path");
+
+        assert!(
+            stretched_artifact.metrics.height > plain_artifact.metrics.height + 5.0,
+            "vertical stretch should increase height: plain={:?}, stretched={:?}",
+            plain_artifact.metrics,
+            stretched_artifact.metrics
+        );
+        let paths = stretched_artifact
+            .paths
+            .expect("stretched bar paths should exist");
+        assert_eq!(paths.items.len(), 1);
     }
 
     #[test]

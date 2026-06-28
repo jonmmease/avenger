@@ -192,16 +192,20 @@ pub(crate) struct MathCall {
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct MathCallOptions {
     pub(crate) delimiter_size: Option<MathDelimitedSize>,
+    pub(crate) stretch_size: Option<MathStretchSize>,
 }
 
+pub(crate) type MathDelimitedSize = MathRelativeSize;
+pub(crate) type MathStretchSize = MathRelativeSize;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct MathDelimitedSize {
+pub(crate) struct MathRelativeSize {
     pub(crate) relative: f32,
     pub(crate) absolute_em: f32,
     pub(crate) absolute_pt: f32,
 }
 
-impl Default for MathDelimitedSize {
+impl Default for MathRelativeSize {
     fn default() -> Self {
         Self {
             relative: 1.0,

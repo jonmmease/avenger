@@ -5,7 +5,7 @@ use super::ast::{
     MathAccent, MathArg, MathAst, MathAttach, MathCall, MathCallOptions, MathCancel,
     MathCancelAngle, MathCancelLength, MathCancelOptions, MathDelimitedSize, MathFraction,
     MathFractionStyle, MathGroup, MathIdentifier, MathNode, MathOperator, MathShorthand, MathSpace,
-    MathStringLiteral, MathText, MathTextKind,
+    MathStretchSize, MathStringLiteral, MathText, MathTextKind,
 };
 
 use crate::syntax::ast::{self as typst_ast, AstNode, Unit};
@@ -383,6 +383,8 @@ fn lower_math_call(
     if is_math_call_name(&name) {
         let (args, options) = if name == "lr" || is_math_delimiter_helper_call_name(&name) {
             lower_math_delimited_call_args(&name, call.args(), source, offset, range.start)?
+        } else if name == "stretch" {
+            lower_math_stretch_call_args(call.args(), source, offset, range.start)?
         } else {
             (
                 lower_math_call_args(call.args(), source, offset)?,
@@ -682,7 +684,80 @@ fn lower_math_delimited_call_args(
         ));
     }
 
-    Ok((lowered, MathCallOptions { delimiter_size }))
+    Ok((
+        lowered,
+        MathCallOptions {
+            delimiter_size,
+            ..MathCallOptions::default()
+        },
+    ))
+}
+
+fn lower_math_stretch_call_args(
+    args: typst_ast::MathArgs<'_>,
+    source: &str,
+    offset: usize,
+    position: usize,
+) -> Result<(Vec<MathArg>, MathCallOptions), LabelError> {
+    let mut lowered = Vec::new();
+    let mut stretch_size = None;
+
+    for item in args.arg_items() {
+        if item.ends_in_semicolon {
+            return Err(unsupported(
+                item.arg.to_untyped().range().end + offset,
+                "semicolon math arguments are not supported in Avenger Typst subset",
+            ));
+        }
+        match item.arg {
+            typst_ast::Arg::Pos(expr) => {
+                let byte_range = offset_range(expr.to_untyped().range(), offset);
+                lowered.push(MathArg {
+                    nodes: lower_math_expr(expr, source, offset)?,
+                    byte_range,
+                });
+            }
+            typst_ast::Arg::Named(named) => {
+                let name_position = named_argument_position(named, source, offset);
+                if named.name().as_str() != "size" {
+                    return Err(unsupported(name_position, "unsupported stretch option"));
+                }
+                if stretch_size.is_some() {
+                    return Err(unsupported(name_position, "duplicate stretch size option"));
+                }
+                stretch_size = Some(parse_math_stretch_size(
+                    named.expr(),
+                    source,
+                    name_position,
+                    "unsupported stretch size value",
+                )?);
+            }
+            typst_ast::Arg::Spread(spread) => {
+                return Err(unsupported(
+                    spread.to_untyped().range().start + offset,
+                    "spread math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+        }
+    }
+
+    if lowered.is_empty() {
+        return Err(unsupported(position, "stretch expects a body argument"));
+    }
+    if lowered.len() != 1 {
+        return Err(unsupported(
+            position,
+            "stretch expects exactly one body argument",
+        ));
+    }
+
+    Ok((
+        lowered,
+        MathCallOptions {
+            stretch_size,
+            ..MathCallOptions::default()
+        },
+    ))
 }
 
 fn lower_math_attachment_mode_call_args(
@@ -1036,20 +1111,38 @@ fn parse_math_delimited_size(
     position: usize,
     message: &'static str,
 ) -> Result<MathDelimitedSize, LabelError> {
+    parse_math_relative_size(expr, source, position, message)
+}
+
+fn parse_math_stretch_size(
+    expr: typst_ast::Expr<'_>,
+    source: &str,
+    position: usize,
+    message: &'static str,
+) -> Result<MathStretchSize, LabelError> {
+    parse_math_relative_size(expr, source, position, message)
+}
+
+fn parse_math_relative_size(
+    expr: typst_ast::Expr<'_>,
+    source: &str,
+    position: usize,
+    message: &'static str,
+) -> Result<super::ast::MathRelativeSize, LabelError> {
     let (value, unit) = parse_math_numeric_literal(expr, source, position, message)?;
     let value = value as f32;
     match unit {
-        Unit::Percent => Ok(MathDelimitedSize {
+        Unit::Percent => Ok(super::ast::MathRelativeSize {
             relative: value / 100.0,
             absolute_em: 0.0,
             absolute_pt: 0.0,
         }),
-        Unit::Em => Ok(MathDelimitedSize {
+        Unit::Em => Ok(super::ast::MathRelativeSize {
             relative: 0.0,
             absolute_em: value,
             absolute_pt: 0.0,
         }),
-        Unit::Pt => Ok(MathDelimitedSize {
+        Unit::Pt => Ok(super::ast::MathRelativeSize {
             relative: 0.0,
             absolute_em: 0.0,
             absolute_pt: value,
@@ -1579,6 +1672,7 @@ fn is_math_call_name(name: &str) -> bool {
             | "inline"
             | "script"
             | "sscript"
+            | "stretch"
     ) || predefined_operator_text(name).is_some()
         || is_math_accent_call_name(name)
 }
@@ -1884,6 +1978,7 @@ mod tests {
             "floor(x)",
             "ceil(x)",
             "round(x)",
+            "stretch(->, size: #200%)",
             "alpha + beta -> gamma",
             "alpha + pi + sum",
             "x(t)",
@@ -1998,6 +2093,58 @@ mod tests {
             (
                 "abs(x, y)",
                 "delimiter call expects exactly one body argument",
+            ),
+        ] {
+            let err = parse_math(source, 0).unwrap_err();
+            assert!(
+                format!("{err}").contains(message),
+                "{source}: expected {message}, got {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn parses_stretch_size_options() {
+        let math = parse("stretch(->, size: #200%) + stretch(|, size: #2em)");
+
+        let MathNode::Call(horizontal) = &math.nodes[0] else {
+            panic!("stretch should lower to a typed call");
+        };
+        assert_eq!(horizontal.name, "stretch");
+        assert_eq!(horizontal.args.len(), 1);
+        let horizontal_size = horizontal
+            .options
+            .stretch_size
+            .expect("stretch size option should be retained");
+        assert!((horizontal_size.relative - 2.0).abs() < f32::EPSILON);
+        assert!((horizontal_size.absolute_em - 0.0).abs() < f32::EPSILON);
+        assert!((horizontal_size.absolute_pt - 0.0).abs() < f32::EPSILON);
+
+        let MathNode::Call(vertical) = &math.nodes[4] else {
+            panic!("second stretch should lower to a typed call");
+        };
+        assert_eq!(vertical.name, "stretch");
+        let vertical_size = vertical
+            .options
+            .stretch_size
+            .expect("vertical stretch size option should be retained");
+        assert!((vertical_size.relative - 0.0).abs() < f32::EPSILON);
+        assert!((vertical_size.absolute_em - 2.0).abs() < f32::EPSILON);
+        assert!((vertical_size.absolute_pt - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn rejects_invalid_stretch_options() {
+        for (source, message) in [
+            ("stretch(->, foo: #true)", "unsupported stretch option"),
+            ("stretch(->, size: #auto)", "unsupported stretch size value"),
+            (
+                "stretch(->, size: #45deg)",
+                "unsupported stretch size value",
+            ),
+            (
+                "stretch(->, x)",
+                "stretch expects exactly one body argument",
             ),
         ] {
             let err = parse_math(source, 0).unwrap_err();
