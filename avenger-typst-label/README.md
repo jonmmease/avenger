@@ -198,3 +198,22 @@ target/release/typst-label-math-png-probe target/typst-label-math-png-probe/math
 
 This lays out one Typst math label and rasterizes it to PNG without pulling in
 `avenger-text`, `avenger-wgpu`, or chart crates.
+
+## Validation
+
+Run crate validation in release mode:
+
+```bash
+cargo test --release -p avenger-typst-label -- --nocapture
+```
+
+The crate also has an optional upstream PNG parity corpus. The Rust integration
+test is offline and compares against checked-in reference PNGs:
+
+```bash
+cargo test --release -p avenger-typst-label --features raster,upstream-png-parity --test upstream_png_parity -- --nocapture
+```
+
+The reference generator is the only parity path that expects an upstream Typst
+checkout at `../typst`. See `tests/fixtures/upstream_png/README.md` for fixture
+maintenance, reference generation, and failure artifact details.

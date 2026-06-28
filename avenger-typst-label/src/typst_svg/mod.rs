@@ -75,17 +75,38 @@ pub struct PathData {
 impl PathData {
     pub fn rect(width: f32, height: f32) -> Self {
         Self {
+            // Match upstream typst-svg rectangle winding.
             commands: vec![
                 PathCommand::MoveTo { x: 0.0, y: 0.0 },
-                PathCommand::LineTo { x: width, y: 0.0 },
+                PathCommand::LineTo { x: 0.0, y: height },
                 PathCommand::LineTo {
                     x: width,
                     y: height,
                 },
-                PathCommand::LineTo { x: 0.0, y: height },
+                PathCommand::LineTo { x: width, y: 0.0 },
                 PathCommand::Close,
             ],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PathCommand, PathData};
+
+    #[test]
+    fn rect_matches_upstream_typst_svg_winding() {
+        let commands = PathData::rect(12.0, 8.0).commands;
+        assert!(matches!(
+            commands.as_slice(),
+            [
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo { x: 0.0, y: 8.0 },
+                PathCommand::LineTo { x: 12.0, y: 8.0 },
+                PathCommand::LineTo { x: 12.0, y: 0.0 },
+                PathCommand::Close,
+            ]
+        ));
     }
 }
 

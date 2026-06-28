@@ -49,6 +49,20 @@ math layout concerns:
 Because these files are `include!` partials, private items are still in one Rust
 module. This keeps the split traceable while avoiding visibility churn.
 
+## Parity Validation
+
+Use Rust tests, not GitHub Actions wiring, to validate upstream parity for this
+crate. The focused command is:
+
+```bash
+cargo test --release -p avenger-typst-label --features raster,upstream-png-parity --test upstream_png_parity -- --nocapture
+```
+
+The test harness is offline and reads checked-in PNG references from
+`tests/fixtures/upstream_png/ref`. The reference generator is the only path that
+requires `../typst`; fixture operation and failure artifacts are documented in
+`tests/fixtures/upstream_png/README.md`.
+
 ## Porting Rules
 
 - Start from upstream behavior and tests, then reduce to the label subset.
