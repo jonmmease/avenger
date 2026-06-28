@@ -45,3 +45,15 @@ text_font = "Lato"
 math_font = "Lete Sans Math"
 pixel_tolerance = 6
 min_similarity = 0.70
+
+[[case]]
+id = "text-smallcaps"
+upstream_file = "../../typst/tests/suite/text/smallcaps.typ"
+upstream_test = "smallcaps-all"
+source = "text-smallcaps.typ"
+font_size = 20.0
+font_weight = 500
+text_font = "Lato"
+math_font = "Lete Sans Math"
+pixel_tolerance = 6
+min_similarity = 0.65

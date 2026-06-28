@@ -647,6 +647,53 @@ mod tests {
     }
 
     #[test]
+    fn static_smallcaps_uses_typst_engine() {
+        let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
+        let mut options = TextLineOptions::default();
+        options.outputs = TextLineOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+            positioned_runs: true,
+        };
+
+        let smallcaps = engine
+            .typeset_markup_line(
+                "#smallcaps[Smallcaps] #smallcaps(all: true)[UNICEF]",
+                &options,
+            )
+            .unwrap();
+
+        assert_eq!(
+            smallcaps
+                .positioned_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Smallcaps", " ", "UNICEF"]
+        );
+        assert!(smallcaps.paths.is_some());
+        assert_eq!(
+            smallcaps
+                .pdf_text
+                .as_ref()
+                .map(|pdf| pdf.semantic_text.as_str()),
+            Some("#smallcaps[Smallcaps] #smallcaps(all: true)[UNICEF]")
+        );
+        assert!(
+            smallcaps.metrics.width > 0.0,
+            "smallcaps labels should produce normal text metrics"
+        );
+        assert!(
+            smallcaps
+                .pdf_text
+                .as_ref()
+                .is_some_and(|pdf| pdf.glyph_runs.iter().any(|run| run.text == "Smallcaps")),
+            "smallcaps text should remain PDF text rather than path-only output"
+        );
+    }
+
+    #[test]
     fn static_subscript_and_superscript_use_typst_engine() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
         let mut options = TextLineOptions::default();

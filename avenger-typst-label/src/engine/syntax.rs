@@ -242,6 +242,7 @@ fn text_span_kind(name: &str) -> Option<TextMarkupKind> {
         "highlight" => Some(TextMarkupKind::Highlight),
         "lower" => Some(TextMarkupKind::Lower),
         "upper" => Some(TextMarkupKind::Upper),
+        "smallcaps" => Some(TextMarkupKind::Smallcaps),
         _ => None,
     }
 }
@@ -252,6 +253,20 @@ fn parse_text_markup_option(
     options: &mut TextMarkupOptions,
 ) -> Result<(), LabelError> {
     let position = named.to_untyped().range().start;
+    if kind == TextMarkupKind::Smallcaps {
+        match named.name().as_str() {
+            "all" => {
+                options.smallcaps.all = parse_bool_with_message(
+                    named.expr(),
+                    position,
+                    "unsupported smallcaps boolean value",
+                )?;
+            }
+            _ => return Err(unsupported(position, "unsupported smallcaps option")),
+        }
+        return Ok(());
+    }
+
     if !kind.is_line_decoration() {
         return Err(unsupported(
             position,
@@ -506,12 +521,17 @@ fn length_from_unit(
 }
 
 fn parse_bool(expr: typst_ast::Expr<'_>, position: usize) -> Result<bool, LabelError> {
+    parse_bool_with_message(expr, position, "unsupported decoration boolean value")
+}
+
+fn parse_bool_with_message(
+    expr: typst_ast::Expr<'_>,
+    position: usize,
+    message: &'static str,
+) -> Result<bool, LabelError> {
     match expr {
         typst_ast::Expr::Bool(value) => Ok(value.get()),
-        _ => Err(unsupported(
-            position,
-            "unsupported decoration boolean value",
-        )),
+        _ => Err(unsupported(position, message)),
     }
 }
 
@@ -817,6 +837,23 @@ mod tests {
         assert!(matches!(&line.nodes[2], LineNode::TextSpan(span)
             if span.kind == TextMarkupKind::Upper
                 && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "loud")
+        ));
+    }
+
+    #[test]
+    fn parses_smallcaps_static_text() {
+        let line = parse("#smallcaps[Smallcaps] #smallcaps(all: true)[UNICEF]");
+
+        assert_eq!(line.nodes.len(), 3);
+        assert!(matches!(&line.nodes[0], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Smallcaps
+                && !span.options.smallcaps.all
+                && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "Smallcaps")
+        ));
+        assert!(matches!(&line.nodes[2], LineNode::TextSpan(span)
+            if span.kind == TextMarkupKind::Smallcaps
+                && span.options.smallcaps.all
+                && matches!(&span.body[..], [LineNode::Plain(plain)] if plain.text == "UNICEF")
         ));
     }
 

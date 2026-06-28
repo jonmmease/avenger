@@ -51,6 +51,7 @@ pub(crate) enum TextMarkupKind {
     Highlight,
     Lower,
     Upper,
+    Smallcaps,
 }
 
 impl TextMarkupKind {
@@ -66,6 +67,12 @@ impl TextMarkupKind {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct TextMarkupOptions {
     pub(crate) decoration: TextDecorationOptions,
+    pub(crate) smallcaps: TextSmallcapsOptions,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct TextSmallcapsOptions {
+    pub(crate) all: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

@@ -197,7 +197,8 @@ fn supported_decoration_kind(kind: TextMarkupKind) -> Option<TextMarkupKind> {
         | TextMarkupKind::Superscript
         | TextMarkupKind::Highlight
         | TextMarkupKind::Lower
-        | TextMarkupKind::Upper => Some(kind),
+        | TextMarkupKind::Upper
+        | TextMarkupKind::Smallcaps => Some(kind),
     }
 }
 
@@ -210,7 +211,8 @@ fn transform_static_text(kind: TextMarkupKind, text: &str) -> String {
         | TextMarkupKind::Overline
         | TextMarkupKind::Subscript
         | TextMarkupKind::Superscript
-        | TextMarkupKind::Highlight => text.to_string(),
+        | TextMarkupKind::Highlight
+        | TextMarkupKind::Smallcaps => text.to_string(),
     }
 }
 
@@ -273,6 +275,7 @@ fn try_typeset_plain_text_line(
             else {
                 return Ok(None);
             };
+            let features = text_features_for_static_run(decorated.kind, &decorated.options);
             typeset_plain_text_line(
                 source,
                 &PlainTextNode {
@@ -280,6 +283,7 @@ fn try_typeset_plain_text_line(
                     byte_range: decorated.byte_range.clone(),
                 },
                 Some(decoration),
+                &features,
                 options,
                 face,
             )
@@ -402,8 +406,14 @@ fn try_typeset_mixed_metrics_text_line(
                 let baseline_shift = script
                     .map(|script| text_face.script_baseline_shift(text_font_size, script))
                     .unwrap_or(0.0);
-                let shaped =
-                    shape_text_for_static_run(&text_face, &decorated.text, run_font_size, script);
+                let features = text_features_for_static_run(decorated.kind, &decorated.options);
+                let shaped = shape_text_for_static_run(
+                    &text_face,
+                    &decorated.text,
+                    run_font_size,
+                    script,
+                    &features,
+                );
                 let metrics = shifted_text_metrics(&shaped, baseline_shift);
                 let glyph_baseline_y = metrics.baseline + baseline_shift;
                 let paths =
@@ -657,7 +667,8 @@ fn text_script_for_kind(kind: TextMarkupKind) -> Option<TextScript> {
         | TextMarkupKind::Overline
         | TextMarkupKind::Highlight
         | TextMarkupKind::Lower
-        | TextMarkupKind::Upper => None,
+        | TextMarkupKind::Upper
+        | TextMarkupKind::Smallcaps => None,
     }
 }
 
@@ -676,19 +687,11 @@ fn shape_text_for_static_run(
     text: &str,
     font_size: f32,
     script: Option<TextScript>,
+    features: &[rustybuzz::Feature],
 ) -> ShapedText {
-    let Some(script) = script else {
-        return face.shaped_text(text, font_size);
-    };
-    let tag = match script {
-        TextScript::Subscript => b"subs",
-        TextScript::Superscript => b"sups",
-    };
-    let features = [rustybuzz::Feature::new(
-        rustybuzz::ttf_parser::Tag::from_bytes(tag),
-        1,
-        ..,
-    )];
+    if script.is_none() {
+        return face.shaped_text_with_features(text, font_size, features);
+    }
     let shaped_with_feature = face.shaped_text_with_features(text, font_size, &features);
     let shaped_without_feature = face.shaped_text(text, font_size);
 
@@ -697,6 +700,39 @@ fn shape_text_for_static_run(
     } else {
         shaped_without_feature
     }
+}
+
+fn text_features_for_static_run(
+    kind: TextMarkupKind,
+    options: &TextMarkupOptions,
+) -> Vec<rustybuzz::Feature> {
+    let mut features = Vec::new();
+    let mut push_feature = |tag: &[u8; 4]| {
+        features.push(rustybuzz::Feature::new(
+            rustybuzz::ttf_parser::Tag::from_bytes(tag),
+            1,
+            ..,
+        ));
+    };
+
+    match kind {
+        TextMarkupKind::Subscript => push_feature(b"subs"),
+        TextMarkupKind::Superscript => push_feature(b"sups"),
+        TextMarkupKind::Smallcaps => {
+            push_feature(b"smcp");
+            if options.smallcaps.all {
+                push_feature(b"c2sc");
+            }
+        }
+        TextMarkupKind::Underline
+        | TextMarkupKind::Strike
+        | TextMarkupKind::Overline
+        | TextMarkupKind::Highlight
+        | TextMarkupKind::Lower
+        | TextMarkupKind::Upper => {}
+    }
+
+    features
 }
 
 fn shaped_feature_changed_glyphs(a: &ShapedText, b: &ShapedText) -> bool {
@@ -1122,7 +1158,8 @@ fn decoration_path_item(
         TextMarkupKind::Subscript
         | TextMarkupKind::Superscript
         | TextMarkupKind::Lower
-        | TextMarkupKind::Upper => return None,
+        | TextMarkupKind::Upper
+        | TextMarkupKind::Smallcaps => return None,
     };
     Some(item)
 }
@@ -1143,7 +1180,8 @@ fn decoration_line(
         | TextMarkupKind::Subscript
         | TextMarkupKind::Superscript
         | TextMarkupKind::Lower
-        | TextMarkupKind::Upper => TextDecorationMetrics::fallback(font_size).underline,
+        | TextMarkupKind::Upper
+        | TextMarkupKind::Smallcaps => TextDecorationMetrics::fallback(font_size).underline,
     }
 }
 
@@ -1638,11 +1676,12 @@ fn typeset_plain_text_line(
     source: &str,
     plain: &PlainTextNode,
     decoration: Option<TextDecoration>,
+    features: &[rustybuzz::Feature],
     options: &TextLineOptions,
     face: TextFace,
 ) -> Result<Option<TextLineArtifact>, LabelError> {
     let font_size = options.text_style.font_size.max(1.0);
-    let shaped = face.shaped_text(&plain.text, font_size);
+    let shaped = face.shaped_text_with_features(&plain.text, font_size, features);
     let metrics = TypesetMetrics {
         width: shaped.metrics.width,
         height: shaped.metrics.height,
