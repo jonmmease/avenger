@@ -6,7 +6,7 @@ use crate::paths::PathArtifact;
 use crate::pdf::PdfTextLayer;
 #[cfg(test)]
 use crate::types::{MathFragmentOptions, MathRunArtifact};
-use crate::types::{MathSyntaxMode, TextLineArtifact, TextLineOptions, TypesetMetrics};
+use crate::types::{TextLineArtifact, TextLineOptions, TypesetMetrics};
 
 use crate::engine::ast::{LineNode, ParsedLine, PlainTextNode};
 use crate::engine::inline::try_typeset_text_line;
@@ -48,7 +48,7 @@ impl TypstEngineCore {
         unsupported_fragment()
     }
 
-    pub(crate) fn typeset_text_line(
+    pub(crate) fn typeset_markup_line(
         &self,
         source: &str,
         options: &TextLineOptions,
@@ -57,17 +57,33 @@ impl TypstEngineCore {
             return Ok(empty_text_line_artifact(source, options));
         }
 
-        let line = match options.syntax {
-            MathSyntaxMode::TypstFragmentStrict => {
-                let line = parse_line(source)?;
-                validate_line_math(&line, options.limits)?;
-                line
-            }
-            MathSyntaxMode::PlainText => plain_text_line(source),
-        };
+        let line = parse_line(source)?;
+        validate_line_math(&line, options.limits)?;
+        self.typeset_parsed_line(source, &line, options)
+    }
+
+    pub(crate) fn typeset_plain_line(
+        &self,
+        source: &str,
+        options: &TextLineOptions,
+    ) -> Result<TextLineArtifact, LabelError> {
+        if source.is_empty() && options.outputs.raster.is_none() {
+            return Ok(empty_text_line_artifact(source, options));
+        }
+
+        let line = plain_text_line(source);
+        self.typeset_parsed_line(source, &line, options)
+    }
+
+    fn typeset_parsed_line(
+        &self,
+        source: &str,
+        line: &ParsedLine,
+        options: &TextLineOptions,
+    ) -> Result<TextLineArtifact, LabelError> {
         if let Some(artifact) = try_typeset_text_line(
             source,
-            &line,
+            line,
             options,
             &self.config,
             self.text_fontdb.as_ref(),
@@ -256,7 +272,7 @@ mod tests {
             pdf_text_layer: true,
             positioned_runs: true,
         };
-        let artifact = engine.typeset_text_line("", &options).unwrap();
+        let artifact = engine.typeset_markup_line("", &options).unwrap();
 
         assert_eq!(artifact.metrics.width, 0.0);
         assert!(
@@ -280,7 +296,7 @@ mod tests {
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
-        let artifact = engine.typeset_text_line("Hello", &options).unwrap();
+        let artifact = engine.typeset_markup_line("Hello", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
         assert!(
@@ -297,7 +313,7 @@ mod tests {
         let mut options = TextLineOptions::default();
         options.outputs.paths = true;
 
-        let artifact = engine.typeset_text_line("Revenue 🚀", &options).unwrap();
+        let artifact = engine.typeset_markup_line("Revenue 🚀", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
@@ -315,7 +331,7 @@ mod tests {
             positioned_runs: true,
         };
 
-        let Ok(artifact) = engine.typeset_text_line("Fallback font", &options) else {
+        let Ok(artifact) = engine.typeset_markup_line("Fallback font", &options) else {
             return;
         };
 
@@ -338,7 +354,7 @@ mod tests {
             positioned_runs: true,
         };
 
-        let Ok(artifact) = engine.typeset_text_line("Hello 温度", &options) else {
+        let Ok(artifact) = engine.typeset_markup_line("Hello 温度", &options) else {
             return;
         };
 
@@ -367,7 +383,7 @@ mod tests {
             positioned_runs: true,
         };
 
-        let artifact = engine.typeset_text_line("Hello 温度", &options).unwrap();
+        let artifact = engine.typeset_markup_line("Hello 温度", &options).unwrap();
         let Some(pdf_text) = artifact.pdf_text.as_ref() else {
             return;
         };
@@ -392,7 +408,7 @@ mod tests {
             positioned_runs: true,
         };
 
-        let artifact = engine.typeset_text_line("שלום", &options).unwrap();
+        let artifact = engine.typeset_markup_line("שלום", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
@@ -410,11 +426,10 @@ mod tests {
     #[test]
     fn plain_text_syntax_treats_invalid_math_as_literal_text() {
         let engine = TypstEngineCore::new(&EngineOptions::default()).unwrap();
-        let mut options = TextLineOptions::default();
-        options.syntax = MathSyntaxMode::PlainText;
+        let options = TextLineOptions::default();
 
         let artifact = engine
-            .typeset_text_line("before $x^$ after", &options)
+            .typeset_plain_line("before $x^$ after", &options)
             .unwrap();
 
         assert!(artifact.metrics.width > 0.0);
@@ -431,7 +446,7 @@ mod tests {
             positioned_runs: true,
         };
 
-        let artifact = engine.typeset_text_line("Family 👨‍👩‍👧‍👦", &options).unwrap();
+        let artifact = engine.typeset_markup_line("Family 👨‍👩‍👧‍👦", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
         assert!(artifact.paths.is_some());
@@ -458,7 +473,7 @@ mod tests {
         };
 
         let artifact = engine
-            .typeset_text_line("Revenue #emoji.rocket", &options)
+            .typeset_markup_line("Revenue #emoji.rocket", &options)
             .unwrap();
 
         assert_eq!(artifact.source, "Revenue #emoji.rocket");
@@ -487,7 +502,7 @@ mod tests {
         };
 
         let artifact = engine
-            .typeset_text_line("Revenue #emoji.rocket", &options)
+            .typeset_markup_line("Revenue #emoji.rocket", &options)
             .unwrap();
         let raster = artifact
             .raster
@@ -516,7 +531,7 @@ mod tests {
         options.outputs.paths = false;
 
         let err = engine
-            .typeset_text_line("#let x = 1", &options)
+            .typeset_markup_line("#let x = 1", &options)
             .unwrap_err();
 
         assert_eq!(
@@ -535,7 +550,7 @@ mod tests {
         options.outputs.paths = false;
 
         let err = engine
-            .typeset_text_line("#underline(stroke: red)[important]", &options)
+            .typeset_markup_line("#underline(stroke: red)[important]", &options)
             .unwrap_err();
 
         assert_eq!(
@@ -559,7 +574,7 @@ mod tests {
         };
 
         let artifact = engine
-            .typeset_text_line("#underline[important]", &options)
+            .typeset_markup_line("#underline[important]", &options)
             .unwrap();
 
         assert_eq!(artifact.positioned_runs.len(), 1);
@@ -580,7 +595,7 @@ mod tests {
         };
 
         let artifact = engine
-            .typeset_text_line("H#sub[2]O #super[\\*]", &options)
+            .typeset_markup_line("H#sub[2]O #super[\\*]", &options)
             .unwrap();
 
         assert_eq!(artifact.positioned_runs.len(), 4);
@@ -1098,7 +1113,7 @@ mod tests {
         options.outputs.paths = false;
 
         let err = engine
-            .typeset_text_line("before $mat(1, 2; 3, 4)$ after", &options)
+            .typeset_markup_line("before $mat(1, 2; 3, 4)$ after", &options)
             .unwrap_err();
 
         assert_eq!(
@@ -1121,7 +1136,7 @@ mod tests {
             positioned_runs: true,
         };
 
-        let artifact = engine.typeset_text_line("Hello", &options).unwrap();
+        let artifact = engine.typeset_markup_line("Hello", &options).unwrap();
 
         assert!(artifact.metrics.width > 0.0);
         assert_eq!(artifact.positioned_runs.len(), 1);
@@ -1139,7 +1154,7 @@ mod tests {
             positioned_runs: true,
         };
 
-        let artifact = engine.typeset_text_line("Hello", &options).unwrap();
+        let artifact = engine.typeset_markup_line("Hello", &options).unwrap();
 
         assert_eq!(artifact.positioned_runs.len(), 1);
         assert_eq!(artifact.font_resources.len(), 1);
@@ -1163,7 +1178,7 @@ mod tests {
         };
 
         let artifact = engine
-            .typeset_text_line("Price \\$7, score $R^2$ = 0.94", &options)
+            .typeset_markup_line("Price \\$7, score $R^2$ = 0.94", &options)
             .unwrap();
 
         assert!(artifact.metrics.width > 0.0);
@@ -1181,7 +1196,7 @@ mod tests {
         options.outputs.positioned_runs = true;
 
         let artifact = engine
-            .typeset_text_line("Price \\$7, score $R^2$ = 0.94", &options)
+            .typeset_markup_line("Price \\$7, score $R^2$ = 0.94", &options)
             .unwrap();
 
         assert!(artifact.paths.is_some());
@@ -1201,7 +1216,7 @@ mod tests {
         };
 
         let artifact = engine
-            .typeset_text_line("Price \\$7, score $R^2$ = 0.94", &options)
+            .typeset_markup_line("Price \\$7, score $R^2$ = 0.94", &options)
             .unwrap();
 
         assert_eq!(artifact.font_resources.len(), 2);
@@ -1230,7 +1245,7 @@ mod tests {
         };
 
         let artifact = engine
-            .typeset_text_line("Price \\$7, score $R^2$ = 0.94", &options)
+            .typeset_markup_line("Price \\$7, score $R^2$ = 0.94", &options)
             .unwrap();
 
         assert!(artifact.paths.is_none());

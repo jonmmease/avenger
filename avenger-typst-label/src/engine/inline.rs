@@ -250,7 +250,6 @@ fn try_typeset_mixed_metrics_text_line(
             raster: None,
             pdf_text_layer: options.outputs.pdf_text_layer,
         },
-        syntax: options.syntax,
         limits: options.limits,
     };
     let mut run_parts = Vec::new();

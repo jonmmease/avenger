@@ -8,8 +8,8 @@ use crate::pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 pub use crate::raster::RasterImage;
 use crate::style::{MathStyle, PlainTextStyle};
 use crate::types::{
-    MathSyntaxMode, PositionedTextLineRun, PositionedTextLineRunKind, TextLineArtifact,
-    TextLineOptions, TextLineOutputRequest, TypesetMetrics,
+    PositionedTextLineRun, PositionedTextLineRunKind, TextLineArtifact, TextLineOptions,
+    TextLineOutputRequest, TypesetMetrics,
 };
 
 #[cfg(feature = "raster")]
@@ -115,10 +115,9 @@ impl LabelEngine {
         options: &LabelOptions,
     ) -> Result<CompiledLabel, LabelError> {
         validate_source_limits(source, options.limits)?;
-        let artifact = self.inner.typeset_text_line(
-            source,
-            &text_line_options(options, MathSyntaxMode::TypstFragmentStrict),
-        )?;
+        let artifact = self
+            .inner
+            .typeset_markup_line(source, &text_line_options(options))?;
         Ok(CompiledLabel::from_artifact(
             artifact,
             label_has_markup(source),
@@ -141,7 +140,7 @@ impl LabelEngine {
         validate_source_limits(text, options.limits)?;
         let artifact = self
             .inner
-            .typeset_text_line(text, &text_line_options(options, MathSyntaxMode::PlainText))?;
+            .typeset_plain_line(text, &text_line_options(options))?;
         Ok(CompiledLabel::from_artifact(artifact, false))
     }
 
@@ -817,7 +816,7 @@ fn collect_pdf_items(items: &[(Point, LabelFrameItem)], output: &mut PdfLabel) {
     }
 }
 
-fn text_line_options(options: &LabelOptions, syntax: MathSyntaxMode) -> TextLineOptions {
+fn text_line_options(options: &LabelOptions) -> TextLineOptions {
     TextLineOptions {
         text_style: options.text.clone(),
         math_style: options.math.clone(),
@@ -827,7 +826,6 @@ fn text_line_options(options: &LabelOptions, syntax: MathSyntaxMode) -> TextLine
             pdf_text_layer: true,
             positioned_runs: true,
         },
-        syntax,
         limits: options.limits,
     }
 }

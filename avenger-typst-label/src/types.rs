@@ -8,19 +8,6 @@ use crate::warnings::LabelWarning;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum MathSyntaxMode {
-    TypstFragmentStrict,
-    PlainText,
-}
-
-impl Default for MathSyntaxMode {
-    fn default() -> Self {
-        Self::TypstFragmentStrict
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MathOutputRequest {
@@ -44,7 +31,6 @@ impl Default for MathOutputRequest {
 pub struct MathFragmentOptions {
     pub style: MathStyle,
     pub outputs: MathOutputRequest,
-    pub syntax: MathSyntaxMode,
     pub limits: LabelLimits,
 }
 
@@ -53,7 +39,6 @@ impl Default for MathFragmentOptions {
         Self {
             style: MathStyle::default(),
             outputs: MathOutputRequest::default(),
-            syntax: MathSyntaxMode::TypstFragmentStrict,
             limits: LabelLimits::default(),
         }
     }
@@ -85,7 +70,6 @@ pub struct TextLineOptions {
     pub text_style: PlainTextStyle,
     pub math_style: MathStyle,
     pub outputs: TextLineOutputRequest,
-    pub syntax: MathSyntaxMode,
     pub limits: LabelLimits,
 }
 
@@ -95,7 +79,6 @@ impl Default for TextLineOptions {
             text_style: PlainTextStyle::default(),
             math_style: MathStyle::default(),
             outputs: TextLineOutputRequest::default(),
-            syntax: MathSyntaxMode::TypstFragmentStrict,
             limits: LabelLimits::default(),
         }
     }
