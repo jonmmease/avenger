@@ -1662,6 +1662,7 @@ fn delimiter_call_chars(name: &str) -> Option<(char, char)> {
         "brace.l" => Some(('{', '}')),
         "bracket.l" => Some(('[', ']')),
         "chevron.l" => Some(('⟨', '⟩')),
+        "bar" => Some(('|', '|')),
         "bar.double" => Some(('‖', '‖')),
         _ => None,
     }
@@ -5386,6 +5387,7 @@ mod tests {
             ("brace.l(x)", "{𝑥}"),
             ("bracket.l(x)", "[𝑥]"),
             ("chevron.l(x)", "⟨𝑥⟩"),
+            ("bar(x)", "|𝑥|"),
             ("bar.double(x)", "‖𝑥‖"),
         ] {
             let math = parse_math(source, 0).unwrap();

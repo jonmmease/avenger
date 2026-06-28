@@ -149,7 +149,14 @@ pub(crate) fn is_math_delimiter_helper_call_name(name: &str) -> bool {
 pub(crate) fn is_math_delimiter_symbol_call_name(name: &str) -> bool {
     matches!(
         name,
-        "ceil.l" | "floor.l" | "paren.l" | "brace.l" | "bracket.l" | "chevron.l" | "bar.double"
+        "ceil.l"
+            | "floor.l"
+            | "paren.l"
+            | "brace.l"
+            | "bracket.l"
+            | "chevron.l"
+            | "bar"
+            | "bar.double"
     )
 }
 

@@ -717,7 +717,7 @@ pub(crate) fn named_accent_char(name: &str) -> Option<char> {
         "acute" => Some('\u{0301}'),
         "hat" => Some('\u{0302}'),
         "tilde" => Some('\u{0303}'),
-        "macron" | "bar" => Some('\u{0304}'),
+        "macron" => Some('\u{0304}'),
         "dash" => Some('\u{0305}'),
         "breve" => Some('\u{0306}'),
         "dot" => Some('\u{0307}'),
@@ -1009,6 +1009,7 @@ mod tests {
             "brace.l(x)",
             "bracket.l(x)",
             "chevron.l(x)",
+            "bar(x)",
             "bar.double(x)",
             "stretch(->, size: #200%)",
             "alpha + beta -> gamma",
@@ -1138,6 +1139,7 @@ mod tests {
             "paren.l(x)",
             "brace.l(x)",
             "chevron.l(x)",
+            "bar(x)",
             "bar.double(x)",
         ] {
             let math = parse(source);
