@@ -380,6 +380,8 @@ fn lower_math_call(
         let args = lower_math_call_args(call.args(), source, offset)?;
         if name == "class" {
             validate_math_class_call_args(&args, range.start)?;
+        } else if name == "binom" {
+            validate_math_binom_call_args(&args, range.start)?;
         }
         return Ok(vec![MathNode::Call(MathCall {
             name,
@@ -1139,6 +1141,22 @@ fn validate_math_class_call_args(args: &[MathArg], position: usize) -> Result<()
     Ok(())
 }
 
+fn validate_math_binom_call_args(args: &[MathArg], position: usize) -> Result<(), LabelError> {
+    if args.len() < 2 {
+        return Err(unsupported(
+            position,
+            "binom math expects upper and at least one lower argument",
+        ));
+    }
+    if args.iter().any(|arg| arg.nodes.is_empty()) {
+        return Err(unsupported(
+            position,
+            "binom math arguments must not be empty",
+        ));
+    }
+    Ok(())
+}
+
 fn lower_math_args_as_group_body(
     args: typst_ast::MathArgs<'_>,
     source: &str,
@@ -1802,6 +1820,16 @@ mod tests {
     }
 
     #[test]
+    fn parses_variadic_binom_call() {
+        let math = parse("binom(n, k_1, k_2, k_3)");
+
+        assert!(matches!(
+            &math.nodes[0],
+            MathNode::Call(call) if call.name == "binom" && call.args.len() == 4
+        ));
+    }
+
+    #[test]
     fn parses_scripts_and_primes() {
         let math = parse("x_i^2 + x''");
 
@@ -2088,6 +2116,18 @@ mod tests {
             let err = parse_math(source, 0).unwrap_err();
             assert_eq!(err, LabelError::UnsupportedSyntax { position, message });
         }
+    }
+
+    #[test]
+    fn rejects_invalid_binom_calls() {
+        let err = parse_math("binom(n)", 0).unwrap_err();
+        assert_eq!(
+            err,
+            LabelError::UnsupportedSyntax {
+                position: 0,
+                message: "binom math expects upper and at least one lower argument"
+            }
+        );
     }
 
     #[test]

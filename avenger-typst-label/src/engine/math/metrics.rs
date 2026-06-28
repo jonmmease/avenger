@@ -1309,13 +1309,17 @@ fn layout_simple_binom_call(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let [top, bottom] = &call.args[..] else {
+    let [top, lower @ ..] = &call.args[..] else {
         return Ok(None);
     };
+    if lower.is_empty() {
+        return Ok(None);
+    }
+    let bottom_nodes = binom_lower_nodes(lower);
     let Some(stack) = layout_simple_stack_nodes(
         font,
         &top.nodes,
-        &bottom.nodes,
+        &bottom_nodes,
         font_size,
         script_level,
         StackRule::None,
@@ -1333,6 +1337,21 @@ fn layout_simple_binom_call(
         DelimiterTarget::Frame,
     )
     .map(Some)
+}
+
+fn binom_lower_nodes(lower: &[super::ast::MathArg]) -> Vec<MathNode> {
+    let mut nodes = Vec::new();
+    for (index, arg) in lower.iter().enumerate() {
+        if index > 0 {
+            let previous = &lower[index - 1];
+            nodes.push(MathNode::Operator(MathOperator {
+                operator: ",".to_string(),
+                byte_range: previous.byte_range.end..arg.byte_range.start,
+            }));
+        }
+        nodes.extend(arg.nodes.clone());
+    }
+    nodes
 }
 
 fn layout_simple_fraction_nodes(
@@ -4279,6 +4298,37 @@ mod tests {
             .map(|glyph| glyph.unicode.as_str())
             .collect();
         assert_eq!(text, "(𝑛𝑘)");
+    }
+
+    #[test]
+    fn simple_row_can_emit_variadic_binom_lower_terms() {
+        let math = parse_math("binom(n, k_1, k_2, k_3)", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("variadic binom call should be handled by Typst row path");
+        let paths = artifact.paths.expect("binom paths should exist");
+        assert!(
+            paths
+                .items
+                .iter()
+                .all(|item| !matches!(item.kind, PathKind::MathShape))
+        );
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        let text: String = pdf
+            .glyph_runs
+            .iter()
+            .flat_map(|run| &run.glyphs)
+            .map(|glyph| glyph.unicode.as_str())
+            .collect();
+        assert!(text.contains("𝑘"));
+        assert_eq!(text.matches(',').count(), 2);
     }
 
     #[test]
