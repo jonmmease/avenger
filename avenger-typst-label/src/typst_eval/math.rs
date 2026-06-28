@@ -1490,17 +1490,18 @@ mod tests {
 
     #[test]
     fn rejects_matrix_calls() {
-        for (source, position) in [
-            ("mat(1, 2; 3, 4)", 10),
-            ("vec(1, 2, 3)", 10),
-            ("cases(x, y)", 10),
+        for (source, feature, position) in [
+            ("mat(1, 2; 3, 4)", "mat", 10),
+            ("vec(1, 2, 3)", "vec", 10),
+            ("cases(x, y)", "cases", 10),
         ] {
             let err = parse_math(source, 10).unwrap_err();
 
             assert_eq!(
                 err,
-                LabelError::UnsupportedSyntax {
+                LabelError::UnsupportedFeature {
                     position,
+                    feature: feature.to_string(),
                     message: "matrix/table math is not supported in Avenger Typst subset"
                 },
                 "{source}"

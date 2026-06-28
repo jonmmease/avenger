@@ -26,6 +26,13 @@ pub enum LabelError {
         message: &'static str,
     },
 
+    #[error("unsupported Typst label feature {feature:?} at byte {position}: {message}")]
+    UnsupportedFeature {
+        position: usize,
+        feature: String,
+        message: &'static str,
+    },
+
     #[error("label parameter name {name:?} collides with retained Typst {namespace} name")]
     ParameterNameCollision {
         name: String,

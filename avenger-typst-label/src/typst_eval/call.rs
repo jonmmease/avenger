@@ -1015,8 +1015,9 @@ pub(crate) fn lower_math_call<'a>(
     let name = math_access_name(call.callee());
     let range = offset_range(call.to_untyped().range(), offset);
     if is_unsupported_math_table_call_name(&name) {
-        return Err(unsupported(
+        return Err(unsupported_feature(
             range.start,
+            &name,
             "matrix/table math is not supported in Avenger Typst subset",
         ));
     }
@@ -2215,6 +2216,14 @@ fn is_supported_math_class_name(name: &str) -> bool {
 
 fn unsupported(position: usize, message: &'static str) -> LabelError {
     LabelError::UnsupportedSyntax { position, message }
+}
+
+fn unsupported_feature(position: usize, feature: &str, message: &'static str) -> LabelError {
+    LabelError::UnsupportedFeature {
+        position,
+        feature: feature.to_string(),
+        message,
+    }
 }
 
 trait SyntaxNodeRange {

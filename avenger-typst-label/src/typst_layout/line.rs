@@ -885,8 +885,9 @@ mod tests {
 
         assert_eq!(
             err,
-            LabelError::UnsupportedSyntax {
+            LabelError::UnsupportedFeature {
                 position: 0,
+                feature: "mat".to_string(),
                 message: "matrix/table math is not supported in Avenger Typst subset"
             }
         );
@@ -1138,8 +1139,9 @@ mod tests {
 
         assert_eq!(
             err,
-            LabelError::UnsupportedSyntax {
+            LabelError::UnsupportedFeature {
                 position: 8,
+                feature: "mat".to_string(),
                 message: "matrix/table math is not supported in Avenger Typst subset"
             }
         );

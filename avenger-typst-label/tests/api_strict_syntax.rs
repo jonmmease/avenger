@@ -95,15 +95,20 @@ fn allows_common_typst_math_fragments() {
 
 #[test]
 fn rejects_deferred_matrix_table_math() {
-    for source in ["$mat(1, 2; 3, 4)$", "$vec(1, 2, 3)$", "$cases(x, y)$"] {
+    for (source, feature) in [
+        ("$mat(1, 2; 3, 4)$", "mat"),
+        ("$vec(1, 2, 3)$", "vec"),
+        ("$cases(x, y)$", "cases"),
+    ] {
         let err = engine()
             .compile(source, &LabelOptions::default())
             .unwrap_err();
 
         assert_eq!(
             err,
-            LabelError::UnsupportedSyntax {
+            LabelError::UnsupportedFeature {
                 position: 1,
+                feature: feature.to_string(),
                 message: "matrix/table math is not supported in Avenger Typst subset"
             },
             "{source}"
