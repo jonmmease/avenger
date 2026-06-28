@@ -1461,9 +1461,19 @@ impl MathAttachmentMode {
         }
     }
 
-    fn from_base_node(node: &MathNode) -> Self {
+    fn explicit_from_base_node(node: &MathNode) -> Option<Self> {
         if let MathNode::Call(call) = node {
-            Self::from_call_name(&call.name).unwrap_or(Self::Scripts)
+            Self::from_call_name(&call.name)
+        } else {
+            None
+        }
+    }
+
+    fn default_for_base(base: &LaidOutMathAtom) -> Self {
+        if base.left_class == SimpleMathClass::Relation
+            && base.right_class == SimpleMathClass::Relation
+        {
+            Self::Limits
         } else {
             Self::Scripts
         }
@@ -1489,10 +1499,11 @@ fn layout_simple_attach(
     font_size: f32,
     script_level: u8,
 ) -> Result<Option<LaidOutMathAtom>, LabelError> {
-    let mode = MathAttachmentMode::from_base_node(&attach.base);
     let Some(base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
         return Ok(None);
     };
+    let mode = MathAttachmentMode::explicit_from_base_node(&attach.base)
+        .unwrap_or_else(|| MathAttachmentMode::default_for_base(&base));
     let script_font_size = script_font_size(font, font_size, script_level)?;
     let slots = layout_attach_slots(font, attach, script_font_size, script_level + 1)?;
     let slots = attach_slots_with_primes(
@@ -1519,10 +1530,11 @@ fn layout_simple_attach_with_bottom_continuation(
     let Some([bottom_node]) = attach.bottom.as_deref() else {
         return Ok(None);
     };
-    let mode = MathAttachmentMode::from_base_node(&attach.base);
     let Some(base) = layout_simple_node(font, &attach.base, font_size, script_level)? else {
         return Ok(None);
     };
+    let mode = MathAttachmentMode::explicit_from_base_node(&attach.base)
+        .unwrap_or_else(|| MathAttachmentMode::default_for_base(&base));
     let script_font_size = script_font_size(font, font_size, script_level)?;
     let mut slots = layout_attach_slots(font, attach, script_font_size, script_level + 1)?;
     slots = attach_slots_with_primes(
@@ -3691,6 +3703,44 @@ mod tests {
         assert!(
             (display_limits_metrics.width - scripts_metrics.width).abs() < font_size * 0.05,
             "display-only limits should use side scripts in Avenger's inline label context"
+        );
+    }
+
+    #[test]
+    fn simple_row_relation_class_defaults_to_limits() {
+        let config = EngineOptions::default();
+        let font =
+            load_default_math_font(&config, &MathFontSpec::LeteSansMath, &FontWeight::Normal)
+                .expect("default math font should load");
+        let font_size = 20.0;
+        let relation_limits = parse_math("class(\"relation\", x)_a^b", 0).unwrap();
+        let forced_scripts = parse_math("scripts(class(\"relation\", x))_a^b", 0).unwrap();
+        let normal_scripts = parse_math("class(\"normal\", x)_a^b", 0).unwrap();
+
+        let relation_metrics = layout_simple_row(&font, &relation_limits, font_size)
+            .unwrap()
+            .expect("relation class row should layout")
+            .metrics;
+        let forced_scripts_metrics = layout_simple_row(&font, &forced_scripts, font_size)
+            .unwrap()
+            .expect("forced scripts row should layout")
+            .metrics;
+        let normal_metrics = layout_simple_row(&font, &normal_scripts, font_size)
+            .unwrap()
+            .expect("normal class row should layout")
+            .metrics;
+
+        assert!(
+            relation_metrics.height > forced_scripts_metrics.height + font_size * 0.25,
+            "relation class should place top/bottom attachments as centered limits by default"
+        );
+        assert!(
+            relation_metrics.width < forced_scripts_metrics.width,
+            "relation class limits should avoid widening the row with a side script"
+        );
+        assert!(
+            (normal_metrics.width - forced_scripts_metrics.width).abs() < font_size * 0.05,
+            "normal class should keep ordinary side script placement"
         );
     }
 
