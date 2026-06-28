@@ -62,6 +62,7 @@ fn allows_common_typst_math_fragments() {
         "$binom(n, k)$",
         "$cancel(x)$",
         "$a class(\"relation\", !) b$",
+        "$script(a / b, cramped: #true) + sscript(c / d)$",
     ];
 
     for sample in samples {

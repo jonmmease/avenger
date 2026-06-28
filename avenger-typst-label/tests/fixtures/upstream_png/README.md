@@ -42,6 +42,26 @@ The test harness does not call upstream Typst. If a comparison fails, it writes
 `expected.png`, `actual.png`, and `diff.png` under
 `target/tests/upstream_png_parity/{case_id}/`.
 
+## Agent Build Checklist
+
+When building or extending this suite:
+
+1. Keep this PNG-only. Do not add SVG/PDF fixtures, chart baselines,
+   scenegraph tests, browser tests, or renderer integration here.
+2. Add or update `cases.toml` first, with upstream file/test attribution.
+3. Add label-only snippets under `src/{id}.typ`.
+4. Run the generator in release mode to create `ref/{id}.png`.
+5. Visually inspect every generated reference directly or in a temporary
+   mosaic. It must be non-blank, unclipped, and visibly exercise the intended
+   feature.
+6. Run the parity test in release mode.
+7. For generator/comparator changes, perturb one ref, confirm the test writes
+   useful `expected.png`, `actual.png`, and `diff.png` artifacts, then
+   restore/regenerate the ref.
+8. Commit only `cases.toml`, `src/{id}.typ`, `ref/{id}.png`, the generator,
+   the test harness, and required crate metadata. Never commit `target/`
+   artifacts or upstream Typst render-reference images.
+
 ## Adding A Case
 
 1. Add a small snippet to `src/{id}.typ`.

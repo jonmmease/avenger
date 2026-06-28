@@ -316,6 +316,15 @@ fn lower_math_call(
         ));
     }
 
+    if is_math_size_call_name(&name) {
+        let args = lower_math_size_call_args(call.args(), source, offset, range.start)?;
+        return Ok(vec![MathNode::Call(MathCall {
+            name,
+            args,
+            byte_range: range,
+        })]);
+    }
+
     if is_math_call_name(&name) {
         let args = lower_math_call_args(call.args(), source, offset)?;
         if name == "class" {
@@ -380,6 +389,70 @@ fn lower_math_call_args(
         }
     }
     Ok(lowered)
+}
+
+fn lower_math_size_call_args(
+    args: typst_ast::MathArgs<'_>,
+    source: &str,
+    offset: usize,
+    position: usize,
+) -> Result<Vec<MathArg>, LabelError> {
+    let mut body = None;
+    for item in args.arg_items() {
+        if item.ends_in_semicolon {
+            return Err(unsupported(
+                item.arg.to_untyped().range().end + offset,
+                "semicolon math arguments are not supported in Avenger Typst subset",
+            ));
+        }
+        match item.arg {
+            typst_ast::Arg::Pos(expr) => {
+                if body.is_some() {
+                    return Err(unsupported(
+                        expr.to_untyped().range().start + offset,
+                        "math size call expects one body argument",
+                    ));
+                }
+                let byte_range = offset_range(expr.to_untyped().range(), offset);
+                body = Some(MathArg {
+                    nodes: lower_math_expr(expr, source, offset)?,
+                    byte_range,
+                });
+            }
+            typst_ast::Arg::Named(named) => {
+                if named.name().as_str() != "cramped" {
+                    return Err(unsupported(
+                        named_argument_position(named, source, offset),
+                        "unsupported math size option",
+                    ));
+                }
+                let item_position = named.to_untyped().range().start + offset;
+                parse_math_bool_literal(named.expr(), item_position)?;
+            }
+            typst_ast::Arg::Spread(spread) => {
+                return Err(unsupported(
+                    spread.to_untyped().range().start + offset,
+                    "spread math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+        }
+    }
+    body.map(|body| vec![body])
+        .ok_or_else(|| unsupported(position, "math size call expects one body argument"))
+}
+
+fn parse_math_bool_literal(expr: typst_ast::Expr<'_>, position: usize) -> Result<bool, LabelError> {
+    match expr {
+        typst_ast::Expr::Bool(value) => Ok(value.get()),
+        typst_ast::Expr::CodeBlock(block) => {
+            let exprs = block.body().exprs().collect::<Vec<_>>();
+            let [typst_ast::Expr::Bool(value)] = &exprs[..] else {
+                return Err(unsupported(position, "unsupported math size cramped value"));
+            };
+            Ok(value.get())
+        }
+        _ => Err(unsupported(position, "unsupported math size cramped value")),
+    }
 }
 
 fn validate_math_class_call_args(args: &[MathArg], position: usize) -> Result<(), LabelError> {
@@ -729,11 +802,19 @@ fn is_math_call_name(name: &str) -> bool {
             | "upright"
             | "italic"
             | "bold"
+            | "display"
+            | "inline"
+            | "script"
+            | "sscript"
     )
 }
 
 fn is_unsupported_math_table_call_name(name: &str) -> bool {
     matches!(name, "mat" | "vec" | "cases")
+}
+
+fn is_math_size_call_name(name: &str) -> bool {
+    matches!(name, "display" | "inline" | "script" | "sscript")
 }
 
 fn is_supported_math_class_name(name: &str) -> bool {
@@ -1050,6 +1131,52 @@ mod tests {
                 "class(\"relation\")",
                 0,
                 "class math expects a class name and body",
+            ),
+        ] {
+            let err = parse_math(source, 0).unwrap_err();
+            assert_eq!(err, LabelError::UnsupportedSyntax { position, message });
+        }
+    }
+
+    #[test]
+    fn parses_math_size_calls_with_literal_cramped_option() {
+        let math = parse("display(a/b) + inline(a/b) + script(a/b, cramped: #true) + sscript(a/b)");
+
+        assert!(matches!(
+            &math.nodes[0],
+            MathNode::Call(call) if call.name == "display" && call.args.len() == 1
+        ));
+        assert!(matches!(
+            &math.nodes[4],
+            MathNode::Call(call) if call.name == "inline" && call.args.len() == 1
+        ));
+        assert!(matches!(
+            &math.nodes[8],
+            MathNode::Call(call) if call.name == "script" && call.args.len() == 1
+        ));
+        assert!(matches!(
+            &math.nodes[12],
+            MathNode::Call(call) if call.name == "sscript" && call.args.len() == 1
+        ));
+    }
+
+    #[test]
+    fn rejects_invalid_math_size_call_options() {
+        for (source, position, message) in [
+            (
+                "script(a/b, tight: true)",
+                17,
+                "unsupported math size option",
+            ),
+            (
+                "script(a/b, cramped: #auto)",
+                12,
+                "unsupported math size cramped value",
+            ),
+            (
+                "script(a/b, c/d)",
+                12,
+                "math size call expects one body argument",
             ),
         ] {
             let err = parse_math(source, 0).unwrap_err();

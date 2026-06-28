@@ -361,6 +361,9 @@ fn layout_simple_node(
         if call.name == "class" {
             return layout_simple_class_call(font, call, font_size, script_level);
         }
+        if let Some(size) = MathSizeCall::from_name(&call.name) {
+            return layout_simple_size_call(font, call, size, font_size, script_level);
+        }
         if let Some(selection) = MathStyleSelection::from_call_name(&call.name) {
             return layout_simple_variant_call(font, call, selection, font_size, script_level);
         }
@@ -410,6 +413,33 @@ fn layout_simple_class_call(
     atom.left_class = class;
     atom.right_class = class;
     Ok(Some(atom))
+}
+
+fn layout_simple_size_call(
+    font: &MathFont,
+    call: &super::ast::MathCall,
+    size: MathSizeCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let (font_size, script_level) = match size {
+        MathSizeCall::Display | MathSizeCall::Inline => (font_size, script_level),
+        MathSizeCall::Script => (
+            script_font_size(font, font_size, script_level)?,
+            script_level + 1,
+        ),
+        MathSizeCall::ScriptScript => {
+            let script_size = script_font_size(font, font_size, script_level)?;
+            (
+                script_font_size(font, script_size, script_level + 1)?,
+                script_level + 2,
+            )
+        }
+    };
+    layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)
 }
 
 fn layout_simple_variant_call(
@@ -2083,6 +2113,26 @@ fn simple_math_class_from_name(name: &str) -> Option<SimpleMathClass> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MathSizeCall {
+    Display,
+    Inline,
+    Script,
+    ScriptScript,
+}
+
+impl MathSizeCall {
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "display" => Some(Self::Display),
+            "inline" => Some(Self::Inline),
+            "script" => Some(Self::Script),
+            "sscript" => Some(Self::ScriptScript),
+            _ => None,
+        }
+    }
+}
+
 fn resolved_left_class(
     previous: Option<SimpleMathClass>,
     class: SimpleMathClass,
@@ -3582,5 +3632,36 @@ mod tests {
             relation_width > normal_width + font_size * 0.1,
             "relation class should add more spacing than the default binary-vary operator"
         );
+    }
+
+    #[test]
+    fn simple_row_math_size_calls_scale_body() {
+        let config = EngineOptions::default();
+        let font =
+            load_default_math_font(&config, &MathFontSpec::LeteSansMath, &FontWeight::Normal)
+                .expect("default math font should load");
+        let font_size = 20.0;
+        let inline = parse_math("inline(x)", 0).unwrap();
+        let script = parse_math("script(x)", 0).unwrap();
+        let sscript = parse_math("sscript(x)", 0).unwrap();
+
+        let inline_width = layout_simple_row(&font, &inline, font_size)
+            .unwrap()
+            .expect("inline row should layout")
+            .metrics
+            .width;
+        let script_width = layout_simple_row(&font, &script, font_size)
+            .unwrap()
+            .expect("script row should layout")
+            .metrics
+            .width;
+        let sscript_width = layout_simple_row(&font, &sscript, font_size)
+            .unwrap()
+            .expect("sscript row should layout")
+            .metrics
+            .width;
+
+        assert!(script_width < inline_width);
+        assert!(sscript_width < script_width);
     }
 }

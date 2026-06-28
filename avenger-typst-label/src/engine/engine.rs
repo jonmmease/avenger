@@ -180,7 +180,7 @@ fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), LabelError> {
             escaped = true;
             continue;
         }
-        if ch == '#' {
+        if ch == '#' && !is_embedded_bool_literal(source, idx) {
             return Err(LabelError::UnsupportedSyntax {
                 position: offset + idx,
                 message: "embedded Typst code is not allowed in math fragments",
@@ -188,6 +188,10 @@ fn strict_hash_precheck(source: &str, offset: usize) -> Result<(), LabelError> {
         }
     }
     Ok(())
+}
+
+fn is_embedded_bool_literal(source: &str, idx: usize) -> bool {
+    source[idx..].starts_with("#true") || source[idx..].starts_with("#false")
 }
 
 fn max_grouping_depth(source: &str) -> usize {
