@@ -5,7 +5,6 @@
 //! live in `avenger-text` and higher-level crates.
 
 mod delimiter;
-mod engine;
 mod error;
 mod fonts;
 mod label;
