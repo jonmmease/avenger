@@ -14,6 +14,25 @@ by upstream Typst for the same single-line label snippets.
 - Keep snippets label-sized and single-line where possible. Do not copy
   Typst's full page-level render refs into this tree.
 
+## Immediate Agent Handoff
+
+For the first build, keep the agent on the PNG oracle only:
+
+```text
+Build the upstream Typst PNG parity suite for avenger-typst-label.
+
+Scope is PNG only. Do not add SVG/PDF parity, chart baselines, scenegraph
+tests, browser tests, renderer integration, or future PDF/text embedding
+validation.
+
+Create the manifest-driven fixture tree, upstream reference generator, and
+offline Rust parity test under avenger-typst-label. Start with exactly two or
+three smoke cases, regenerate checked-in upstream PNG refs in release mode,
+inspect every generated PNG, prove one intentional reference perturbation
+fails with useful expected/actual/diff artifacts, restore the ref, rerun the
+suite, and commit only the suite files and curated PNG refs.
+```
+
 ## Agent Instructions
 
 Use this suite when an agent needs to validate that `avenger-typst-label`
