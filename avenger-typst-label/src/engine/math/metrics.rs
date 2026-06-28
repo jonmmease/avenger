@@ -4,12 +4,14 @@ use crate::engine::ast::DecorationStroke;
 use crate::engine::glyph_path::outline_glyph_path;
 use crate::error::LabelError;
 use crate::label::EngineOptions;
-use crate::paths::{PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform};
-use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
-#[cfg(feature = "raster")]
-use crate::raster::rasterize_path_artifact;
 use crate::style::{Color, FontWeight, MathFontSpec};
 use crate::types::{MathLayoutOptions, MathRunArtifact, TypesetMetrics};
+use crate::typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
+#[cfg(feature = "raster")]
+use crate::typst_render::rasterize_path_artifact;
+use crate::typst_svg::{
+    PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform,
+};
 
 use super::ast::{
     MathAccent, MathAst, MathCancel, MathCancelAngle, MathFractionStyle, MathNode, MathOperator,
@@ -133,8 +135,8 @@ struct LaidOutShape {
 struct LaidOutStroke {
     paint: Option<Color>,
     width: f32,
-    line_cap: crate::paths::StrokeCap,
-    line_join: crate::paths::StrokeJoin,
+    line_cap: crate::typst_svg::StrokeCap,
+    line_join: crate::typst_svg::StrokeJoin,
     dash: Option<Vec<f32>>,
 }
 
@@ -143,8 +145,8 @@ impl LaidOutStroke {
         Self {
             paint: None,
             width,
-            line_cap: crate::paths::StrokeCap::Butt,
-            line_join: crate::paths::StrokeJoin::Miter,
+            line_cap: crate::typst_svg::StrokeCap::Butt,
+            line_join: crate::typst_svg::StrokeJoin::Miter,
             dash: None,
         }
     }
@@ -4298,7 +4300,7 @@ mod tests {
         let mut options = MathLayoutOptions::default();
         options.outputs = MathOutputOptions {
             paths: false,
-            raster: Some(crate::raster::RasterRequest::default()),
+            raster: Some(crate::typst_render::RasterRequest::default()),
             pdf_text_layer: false,
         };
 
@@ -4338,7 +4340,7 @@ mod tests {
         let mut options = MathLayoutOptions::default();
         options.outputs = MathOutputOptions {
             paths: false,
-            raster: Some(crate::raster::RasterRequest { scale: 2.0 }),
+            raster: Some(crate::typst_render::RasterRequest { scale: 2.0 }),
             pdf_text_layer: false,
         };
 
@@ -4756,8 +4758,8 @@ mod tests {
 
         assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
         assert!((stroke.width - options.style.font_size * 0.25).abs() < 1e-4);
-        assert_eq!(stroke.line_cap, crate::paths::StrokeCap::Round);
-        assert_eq!(stroke.line_join, crate::paths::StrokeJoin::Miter);
+        assert_eq!(stroke.line_cap, crate::typst_svg::StrokeCap::Round);
+        assert_eq!(stroke.line_join, crate::typst_svg::StrokeJoin::Miter);
         let dash = stroke.dash.as_ref().expect("dash should be resolved");
         assert_eq!(dash.len(), 2);
         assert!((dash[0] - stroke.width).abs() < 1e-4);
@@ -4862,7 +4864,7 @@ mod tests {
         let mut options = MathLayoutOptions::default();
         options.outputs = MathOutputOptions {
             paths: false,
-            raster: Some(crate::raster::RasterRequest { scale: 2.0 }),
+            raster: Some(crate::typst_render::RasterRequest { scale: 2.0 }),
             pdf_text_layer: false,
         };
 

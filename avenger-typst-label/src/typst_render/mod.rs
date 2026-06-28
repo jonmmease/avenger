@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "raster")]
 use crate::{
     error::LabelError,
-    paths::{
+    style::Color,
+    typst_svg::{
         PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, StrokeCap, StrokeJoin,
         Transform,
     },
-    style::Color,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]

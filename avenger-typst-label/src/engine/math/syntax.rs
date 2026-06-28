@@ -2483,7 +2483,7 @@ mod tests {
         );
         assert_eq!(
             cancel.options.stroke.line_cap,
-            Some(crate::paths::StrokeCap::Round)
+            Some(crate::typst_svg::StrokeCap::Round)
         );
     }
 

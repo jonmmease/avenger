@@ -2,11 +2,11 @@ use crate::engine::font::build_text_fontdb;
 use crate::error::{LabelError, LabelInitError};
 use crate::label::EngineOptions;
 use crate::limits::LabelLimits;
-use crate::paths::PathArtifact;
-use crate::pdf::PdfTextLayer;
 use crate::types::{LineLayoutArtifact, LineLayoutOptions, TypesetMetrics};
 #[cfg(test)]
 use crate::types::{MathLayoutOptions, MathRunArtifact};
+use crate::typst_pdf::PdfTextLayer;
+use crate::typst_svg::PathArtifact;
 
 use crate::engine::ast::{LineNode, ParsedLine, PlainTextNode};
 use crate::engine::inline::try_layout_text_line;
@@ -1459,7 +1459,7 @@ mod tests {
         let mut options = MathLayoutOptions::default();
         options.outputs = MathOutputOptions {
             paths: false,
-            raster: Some(crate::raster::RasterRequest { scale: 1.5 }),
+            raster: Some(crate::typst_render::RasterRequest { scale: 1.5 }),
             pdf_text_layer: false,
         };
 
@@ -1603,7 +1603,7 @@ mod tests {
         let mut options = LineLayoutOptions::default();
         options.outputs = LineOutputOptions {
             paths: false,
-            raster: Some(crate::raster::RasterRequest { scale: 1.5 }),
+            raster: Some(crate::typst_render::RasterRequest { scale: 1.5 }),
             pdf_text_layer: false,
             positioned_runs: false,
         };

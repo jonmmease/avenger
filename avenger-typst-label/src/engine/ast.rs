@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use crate::delimiter::MathDelimiterInfo;
-use crate::paths::{StrokeCap, StrokeJoin};
 use crate::style::Color;
+use crate::typst_svg::{StrokeCap, StrokeJoin};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ParsedLine {

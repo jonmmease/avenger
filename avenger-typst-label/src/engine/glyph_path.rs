@@ -1,4 +1,4 @@
-use crate::paths::{PathCommand, PathData};
+use crate::typst_svg::{PathCommand, PathData};
 
 pub(crate) fn outline_glyph_path(
     face: &ttf_parser::Face<'_>,

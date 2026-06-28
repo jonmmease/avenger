@@ -4,9 +4,9 @@ use std::sync::Arc;
 use crate::error::LabelError;
 use crate::fonts::{DEJAVU_SANS_MONO_FACES, EmbeddedFontFace, LATO_FACES};
 use crate::label::EngineOptions;
-use crate::paths::{PathData, PathImageFormat, PathImageItem, Transform};
-use crate::pdf::{FontResource, FontResourceId};
 use crate::style::{FontStyle, FontWeight, PlainTextStyle};
+use crate::typst_pdf::{FontResource, FontResourceId};
+use crate::typst_svg::{PathData, PathImageFormat, PathImageItem, Transform};
 use unicode_bidi::BidiInfo;
 use unicode_script::{Script, UnicodeScript};
 use unicode_segmentation::UnicodeSegmentation;
@@ -1097,7 +1097,7 @@ mod tests {
             )
             .expect("Apple Color Emoji glyph should expose a PNG bitmap");
 
-        assert_eq!(image.format, crate::paths::PathImageFormat::Png);
+        assert_eq!(image.format, crate::typst_svg::PathImageFormat::Png);
         assert!(image.data.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert!(image.width > 0.0);
         assert!(image.height > 0.0);

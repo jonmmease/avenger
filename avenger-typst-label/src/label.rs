@@ -5,17 +5,17 @@ use indexmap::IndexMap;
 use crate::engine::engine::TypstEngineCore;
 use crate::engine::math::syntax::is_retained_math_name;
 use crate::engine::syntax::is_retained_markup_name;
-use crate::paths::{PathArtifact, PathImageItem, PathItem, PathKind, Transform};
-use crate::pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
-pub use crate::raster::RasterImage;
 use crate::style::{MathStyle, PlainTextStyle};
 use crate::types::{
     LineLayoutArtifact, LineLayoutOptions, LineOutputOptions, PositionedTextLineRun,
     PositionedTextLineRunKind, TypesetMetrics,
 };
+use crate::typst_pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
+pub use crate::typst_render::RasterImage;
+use crate::typst_svg::{PathArtifact, PathImageItem, PathItem, PathKind, Transform};
 
 #[cfg(feature = "raster")]
-use crate::raster::RasterRequest;
+use crate::typst_render::RasterRequest;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -500,13 +500,14 @@ fn transformed_path_center_x(item: &PathItem) -> Option<f32> {
     min_x.is_finite().then_some((min_x + max_x) / 2.0)
 }
 
-fn command_points(command: &crate::paths::PathCommand) -> Vec<(f32, f32)> {
+fn command_points(command: &crate::typst_svg::PathCommand) -> Vec<(f32, f32)> {
     match *command {
-        crate::paths::PathCommand::MoveTo { x, y } | crate::paths::PathCommand::LineTo { x, y } => {
+        crate::typst_svg::PathCommand::MoveTo { x, y }
+        | crate::typst_svg::PathCommand::LineTo { x, y } => {
             vec![(x, y)]
         }
-        crate::paths::PathCommand::QuadTo { x1, y1, x, y } => vec![(x1, y1), (x, y)],
-        crate::paths::PathCommand::CubicTo {
+        crate::typst_svg::PathCommand::QuadTo { x1, y1, x, y } => vec![(x1, y1), (x, y)],
+        crate::typst_svg::PathCommand::CubicTo {
             x1,
             y1,
             x2,
@@ -514,7 +515,7 @@ fn command_points(command: &crate::paths::PathCommand) -> Vec<(f32, f32)> {
             x,
             y,
         } => vec![(x1, y1), (x2, y2), (x, y)],
-        crate::paths::PathCommand::Close => Vec::new(),
+        crate::typst_svg::PathCommand::Close => Vec::new(),
     }
 }
 
@@ -704,7 +705,7 @@ fn rasterize_paths(
     paths: &PathArtifact,
     options: RasterOptions,
 ) -> Result<RasterImage, LabelError> {
-    crate::raster::rasterize_path_artifact(
+    crate::typst_render::rasterize_path_artifact(
         paths,
         RasterRequest {
             scale: options.scale,

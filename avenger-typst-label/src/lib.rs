@@ -10,11 +10,11 @@ mod error;
 mod fonts;
 mod label;
 mod limits;
-mod paths;
-mod pdf;
-mod raster;
 mod style;
 mod types;
+mod typst_pdf;
+mod typst_render;
+mod typst_svg;
 #[allow(dead_code, unused_imports, unused_macros)]
 #[path = "typst_syntax/lib.rs"]
 mod typst_syntax;
@@ -33,12 +33,12 @@ pub use label::{
     PdfOptions, PdfPathItem, Point, RasterImage, RasterOptions, ShapeItem, Size, SvgLabel,
     SvgOptions, TextItem, TextItemKind, TextStyle, escape_text, pdf_items, rasterize, svg_items,
 };
-pub use paths::{
-    PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, PathItem, PathKind,
-    Stroke, StrokeCap, StrokeJoin, Transform,
-};
-pub use pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
-pub use raster::{RasterRequest, RgbaImageData};
 pub use style::{
     Color, FontStyle, FontWeight, MathDisplayStyle, MathFontBytesId, MathFontSpec, MathStyle,
+};
+pub use typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
+pub use typst_render::{RasterRequest, RgbaImageData};
+pub use typst_svg::{
+    PathArtifact, PathCommand, PathData, PathImageFormat, PathImageItem, PathItem, PathKind,
+    Stroke, StrokeCap, StrokeJoin, Transform,
 };

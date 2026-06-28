@@ -1,13 +1,15 @@
 use crate::error::LabelError;
 use crate::label::{EngineOptions, LabelParamValue, LabelParams};
-use crate::paths::{PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform};
-use crate::pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
-#[cfg(feature = "raster")]
-use crate::raster::rasterize_path_artifact;
 use crate::style::{Color, FontStyle, FontWeight, PlainTextStyle};
 use crate::types::{
     LineLayoutArtifact, LineLayoutOptions, MathLayoutOptions, MathOutputOptions,
     PositionedTextLineRun, PositionedTextLineRunKind, TypesetMetrics,
+};
+use crate::typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
+#[cfg(feature = "raster")]
+use crate::typst_render::rasterize_path_artifact;
+use crate::typst_svg::{
+    PathArtifact, PathCommand, PathData, PathItem, PathKind, Stroke, Transform,
 };
 use crate::warnings::LabelWarning;
 
@@ -2084,7 +2086,7 @@ mod tests {
         let fontdb = test_fontdb();
         let line = render_line("Hello");
         let mut options = LineLayoutOptions::default();
-        options.outputs.raster = Some(crate::raster::RasterRequest::default());
+        options.outputs.raster = Some(crate::typst_render::RasterRequest::default());
 
         assert!(
             try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
@@ -2100,7 +2102,7 @@ mod tests {
         let line = render_line("Hello");
         let mut options = LineLayoutOptions::default();
         options.outputs.paths = false;
-        options.outputs.raster = Some(crate::raster::RasterRequest { scale: 2.0 });
+        options.outputs.raster = Some(crate::typst_render::RasterRequest { scale: 2.0 });
 
         let artifact = try_typeset_plain_text_line("Hello", &line, &options, &fontdb)
             .unwrap()
@@ -2417,8 +2419,8 @@ mod tests {
 
         assert_eq!(stroke.color, Color::rgba(0.5, 0.0, 0.0, 1.0));
         assert!((stroke.width - font_size * 0.4).abs() < 1e-4);
-        assert_eq!(stroke.line_cap, crate::paths::StrokeCap::Round);
-        assert_eq!(stroke.line_join, crate::paths::StrokeJoin::Miter);
+        assert_eq!(stroke.line_cap, crate::typst_svg::StrokeCap::Round);
+        assert_eq!(stroke.line_join, crate::typst_svg::StrokeJoin::Miter);
     }
 
     #[test]
@@ -2440,7 +2442,7 @@ mod tests {
         let stroke = first_stroke_item(&paths).stroke.as_ref().unwrap();
         let dash = stroke.dash.as_ref().expect("dash should be present");
 
-        assert_eq!(stroke.line_join, crate::paths::StrokeJoin::Bevel);
+        assert_eq!(stroke.line_join, crate::typst_svg::StrokeJoin::Bevel);
         assert_eq!(dash.len(), 4);
         assert!((dash[0] - 3.0).abs() < 1e-4);
         assert!((dash[2] - stroke.width).abs() < 1e-4);

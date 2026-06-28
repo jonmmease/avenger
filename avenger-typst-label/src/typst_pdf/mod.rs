@@ -1,7 +1,7 @@
 use std::{ops::Range, sync::Arc};
 
-use crate::paths::{Stroke, Transform};
 use crate::style::Color;
+use crate::typst_svg::{Stroke, Transform};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

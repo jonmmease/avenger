@@ -3,8 +3,8 @@ use std::ops::Range;
 use crate::delimiter::{MathDelimiterInfo, MathDisplayHint};
 use crate::error::LabelError;
 use crate::label::{LabelParamValue, LabelParams};
-use crate::paths::{StrokeCap, StrokeJoin};
 use crate::style::Color;
+use crate::typst_svg::{StrokeCap, StrokeJoin};
 
 use super::ast::{
     DecorationDash, DecorationDashLength, DecorationLength, DecorationStroke, EmojiAlias,
