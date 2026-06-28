@@ -1,6 +1,6 @@
 use avenger_typst_label::{
-    LabelEngine, LabelError, LabelFrameItem, LabelOptions, PdfOptions, PositionedTextLineRunKind,
-    SvgOptions, escape_text, pdf_items, svg_items,
+    LabelEngine, LabelError, LabelFrameItem, LabelOptions, PdfOptions, SvgOptions, TextItemKind,
+    escape_text, pdf_items, svg_items,
 };
 
 #[cfg(feature = "raster")]
@@ -65,7 +65,7 @@ fn compile_text_unmatched_dollar_succeeds() {
 #[test]
 fn compile_mixed_label_returns_ordered_frame_items() {
     let label = engine()
-        .compile("Price \\$7, score $R^2$ = 0.94", &LabelOptions::default())
+        .compile("Price \\$7, ratio $a / b$ = 0.94", &LabelOptions::default())
         .unwrap();
 
     assert!(label.metrics.width > 0.0);
@@ -91,25 +91,29 @@ fn compile_mixed_label_returns_ordered_frame_items() {
 #[test]
 fn svg_and_pdf_lowerers_consume_compiled_label() {
     let label = engine()
-        .compile("Price \\$7, score $R^2$ = 0.94", &LabelOptions::default())
+        .compile(
+            "Price \\$7, ratio $frac(a, b)$ = 0.94",
+            &LabelOptions::default(),
+        )
         .unwrap();
 
     let svg = svg_items(&label, &SvgOptions::default()).unwrap();
-    assert!(svg.paths.is_some());
+    assert!(svg.items.iter().any(
+        |(_, item)| matches!(item, LabelFrameItem::Text(text) if text.kind == TextItemKind::Plain)
+    ));
+    assert!(svg.items.iter().any(
+        |(_, item)| matches!(item, LabelFrameItem::Text(text) if text.kind == TextItemKind::Math)
+    ));
     assert!(
-        svg.positioned_runs
+        svg.items
             .iter()
-            .any(|run| run.kind == PositionedTextLineRunKind::Plain)
-    );
-    assert!(
-        svg.positioned_runs
-            .iter()
-            .any(|run| run.kind == PositionedTextLineRunKind::Math)
+            .any(|(_, item)| matches!(item, LabelFrameItem::Shape(_)))
     );
 
     let pdf = pdf_items(&label, &PdfOptions::default()).unwrap();
-    assert!(pdf.text.is_some());
-    assert!(pdf.paths.is_some());
+    assert!(!pdf.glyph_runs.is_empty());
+    assert!(!pdf.path_items.is_empty());
+    assert!(!pdf.draw_items.is_empty());
     assert!(!pdf.font_resources.is_empty());
 }
 

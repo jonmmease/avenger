@@ -30,9 +30,9 @@ mod warnings;
 pub use label::{
     CacheOptions, CompiledLabel, EngineOptions, FontOptions, Glyph, GroupItem, ImageItem,
     LabelEngine, LabelError, LabelFlags, LabelFrame, LabelFrameItem, LabelInitError, LabelLimits,
-    LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, PdfLabel, PdfOptions,
-    Point, RasterImage, RasterOptions, ShapeItem, Size, SvgLabel, SvgOptions, TextItem, TextStyle,
-    escape_text, pdf_items, rasterize, svg_items,
+    LabelMetrics, LabelOptions, LabelParamValue, LabelParams, LabelWarning, PdfDrawItem, PdfLabel,
+    PdfOptions, PdfPathItem, Point, RasterImage, RasterOptions, ShapeItem, Size, SvgLabel,
+    SvgOptions, TextItem, TextItemKind, TextStyle, escape_text, pdf_items, rasterize, svg_items,
 };
 pub use paths::{
     MathImageFormat, MathImageItem, MathPathArtifact, MathPathCommand, MathPathData, MathPathItem,

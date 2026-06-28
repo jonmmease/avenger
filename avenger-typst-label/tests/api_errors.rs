@@ -80,8 +80,8 @@ fn default_engine_produces_paths() {
     let svg = avenger_typst_label::svg_items(&label, &Default::default()).unwrap();
 
     assert!(
-        svg.paths
-            .as_ref()
-            .is_some_and(|paths| !paths.items.is_empty())
+        svg.items
+            .iter()
+            .any(|(_, item)| matches!(item, avenger_typst_label::LabelFrameItem::Shape(_)))
     );
 }

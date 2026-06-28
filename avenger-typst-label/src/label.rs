@@ -7,8 +7,8 @@ use crate::delimiter::{ParsedSegment, parse_segments};
 use crate::engine::engine::TypstEngineCore;
 use crate::error::{MathTypesetError, TypstInitError};
 use crate::limits::MathLimits;
-use crate::paths::{MathImageItem, MathPathArtifact, MathTransform};
-use crate::pdf::{MathFontResource, MathPdfGlyph, MathPdfTextLayer};
+use crate::paths::{MathImageItem, MathPathArtifact, MathPathItem, MathPathKind, MathTransform};
+use crate::pdf::{MathFontResource, MathPdfGlyph, MathPdfGlyphRun, MathPdfTextLayer};
 use crate::raster::MathRasterArtifact;
 use crate::style::{MathFontConfig, MathStrictness, MathStyle, PlainTextStyle};
 use crate::types::{
@@ -189,7 +189,6 @@ pub struct CompiledLabel {
     pub metrics: LabelMetrics,
     pub flags: LabelFlags,
     pub warnings: Vec<LabelWarning>,
-    artifact: TextLineArtifact,
 }
 
 impl CompiledLabel {
@@ -208,28 +207,17 @@ impl CompiledLabel {
             metrics,
             flags,
             warnings: artifact.warnings.clone(),
-            artifact,
         }
     }
 
     pub fn semantic_text(&self) -> String {
-        if !self.artifact.positioned_runs.is_empty() {
-            return self
-                .artifact
-                .positioned_runs
-                .iter()
-                .map(|run| run.text.as_str())
-                .collect();
+        let mut text = String::new();
+        collect_semantic_text(&self.frame.items, &mut text);
+        if text.is_empty() {
+            self.source.clone()
+        } else {
+            text
         }
-        self.artifact
-            .pdf_text
-            .as_ref()
-            .map(|pdf_text| pdf_text.semantic_text.clone())
-            .unwrap_or_else(|| self.source.clone())
-    }
-
-    pub(crate) fn artifact(&self) -> &TextLineArtifact {
-        &self.artifact
     }
 }
 
@@ -274,33 +262,35 @@ impl LabelFrame {
     fn from_artifact(artifact: &TextLineArtifact) -> Self {
         let mut items = Vec::new();
         for run in &artifact.positioned_runs {
-            let point = Point { x: run.x, y: run.y };
+            let paths = paths_for_run(run, artifact.paths.as_ref());
+            let (pdf_text, font_resources) =
+                pdf_text_for_run(run, artifact.pdf_text.as_ref(), &artifact.font_resources);
             match run.kind {
                 PositionedTextLineRunKind::Plain => {
-                    items.push((
-                        point,
-                        LabelFrameItem::Text(TextItem {
-                            text: run.text.clone(),
-                            byte_range: run.byte_range.clone(),
-                            style: run.text_style.clone(),
-                            metrics: LabelMetrics::from(run.metrics),
-                            glyphs: glyphs_from_pdf_text(run.pdf_text.as_ref()),
-                        }),
-                    ));
+                    push_plain_run_items(&mut items, run, paths.as_ref(), pdf_text, font_resources);
                 }
                 PositionedTextLineRunKind::Math => {
-                    if let Some(paths) = run.paths.clone() {
-                        items.push((
-                            point,
-                            LabelFrameItem::Shape(ShapeItem {
-                                byte_range: run.byte_range.clone(),
-                                paths,
-                            }),
-                        ));
-                    }
+                    push_text_item(
+                        &mut items,
+                        run,
+                        TextItemKind::Math,
+                        pdf_text,
+                        font_resources,
+                    );
+                    push_path_items(
+                        &mut items,
+                        run.byte_range.clone(),
+                        TextItemKind::Math,
+                        paths.as_ref(),
+                    );
                 }
             }
         }
+        push_missing_aggregate_shape_items(
+            &mut items,
+            0..artifact.source.len(),
+            artifact.paths.as_ref(),
+        );
 
         Self {
             size: Size {
@@ -313,11 +303,264 @@ impl LabelFrame {
     }
 }
 
+fn push_missing_aggregate_shape_items(
+    items: &mut Vec<(Point, LabelFrameItem)>,
+    byte_range: Range<usize>,
+    paths: Option<&MathPathArtifact>,
+) {
+    let Some(paths) = paths else {
+        return;
+    };
+    for item in &paths.items {
+        if !matches!(item.kind, MathPathKind::MathShape) {
+            continue;
+        }
+        if frame_contains_path_item(items, item) {
+            continue;
+        }
+        items.push((
+            Point::ZERO,
+            LabelFrameItem::Shape(ShapeItem {
+                byte_range: byte_range.clone(),
+                text_kind: None,
+                item: item.clone(),
+            }),
+        ));
+    }
+}
+
+fn frame_contains_path_item(items: &[(Point, LabelFrameItem)], path: &MathPathItem) -> bool {
+    items.iter().any(|(_, item)| match item {
+        LabelFrameItem::Shape(shape) => &shape.item == path,
+        LabelFrameItem::Group(group) => frame_contains_path_item(&group.items, path),
+        LabelFrameItem::Text(_) | LabelFrameItem::Image(_) => false,
+    })
+}
+
+fn push_plain_run_items(
+    items: &mut Vec<(Point, LabelFrameItem)>,
+    run: &PositionedTextLineRun,
+    paths: Option<&MathPathArtifact>,
+    pdf_text: Option<MathPdfTextLayer>,
+    font_resources: Vec<MathFontResource>,
+) {
+    let mut foreground_shapes = Vec::new();
+    let mut images = Vec::new();
+
+    if let Some(paths) = paths {
+        for item in &paths.items {
+            let shape = (
+                Point::ZERO,
+                LabelFrameItem::Shape(ShapeItem {
+                    byte_range: run.byte_range.clone(),
+                    text_kind: Some(TextItemKind::Plain),
+                    item: item.clone(),
+                }),
+            );
+            if item.fill.is_some() && item.stroke.is_none() {
+                items.push(shape);
+            } else {
+                foreground_shapes.push(shape);
+            }
+        }
+        for image in &paths.images {
+            images.push((
+                Point::ZERO,
+                LabelFrameItem::Image(ImageItem {
+                    byte_range: run.byte_range.clone(),
+                    image: image.clone(),
+                }),
+            ));
+        }
+    }
+
+    push_text_item(items, run, TextItemKind::Plain, pdf_text, font_resources);
+    items.extend(images);
+    items.extend(foreground_shapes);
+}
+
+fn push_text_item(
+    items: &mut Vec<(Point, LabelFrameItem)>,
+    run: &PositionedTextLineRun,
+    kind: TextItemKind,
+    pdf_text: Option<MathPdfTextLayer>,
+    font_resources: Vec<MathFontResource>,
+) {
+    let point = Point { x: run.x, y: run.y };
+    items.push((
+        point,
+        LabelFrameItem::Text(TextItem {
+            kind,
+            text: run.text.clone(),
+            byte_range: run.byte_range.clone(),
+            style: run.text_style.clone(),
+            metrics: LabelMetrics::from(run.metrics),
+            glyphs: glyphs_from_pdf_text(pdf_text.as_ref()),
+            pdf_text,
+            font_resources,
+        }),
+    ));
+}
+
+fn push_path_items(
+    items: &mut Vec<(Point, LabelFrameItem)>,
+    byte_range: Range<usize>,
+    text_kind: TextItemKind,
+    paths: Option<&MathPathArtifact>,
+) {
+    if let Some(paths) = paths {
+        for item in &paths.items {
+            items.push((
+                Point::ZERO,
+                LabelFrameItem::Shape(ShapeItem {
+                    byte_range: byte_range.clone(),
+                    text_kind: Some(text_kind),
+                    item: item.clone(),
+                }),
+            ));
+        }
+        for image in &paths.images {
+            items.push((
+                Point::ZERO,
+                LabelFrameItem::Image(ImageItem {
+                    byte_range: byte_range.clone(),
+                    image: image.clone(),
+                }),
+            ));
+        }
+    }
+}
+
+fn paths_for_run(
+    run: &PositionedTextLineRun,
+    aggregate: Option<&MathPathArtifact>,
+) -> Option<MathPathArtifact> {
+    let mut paths = run.paths.clone().unwrap_or_else(|| MathPathArtifact {
+        logical_width: run.metrics.width,
+        logical_height: run.metrics.height,
+        items: Vec::new(),
+        images: Vec::new(),
+    });
+
+    if let Some(aggregate) = aggregate {
+        for item in &aggregate.items {
+            if path_item_belongs_to_run(item, run)
+                && !paths.items.iter().any(|existing| existing == item)
+            {
+                paths.items.push(item.clone());
+            }
+        }
+        for image in &aggregate.images {
+            if image_item_belongs_to_run(image, run)
+                && !paths.images.iter().any(|existing| existing == image)
+            {
+                paths.images.push(image.clone());
+            }
+        }
+    }
+
+    (!paths.items.is_empty() || !paths.images.is_empty()).then_some(paths)
+}
+
+fn pdf_text_for_run(
+    run: &PositionedTextLineRun,
+    aggregate: Option<&MathPdfTextLayer>,
+    aggregate_resources: &[MathFontResource],
+) -> (Option<MathPdfTextLayer>, Vec<MathFontResource>) {
+    if let Some(aggregate) = aggregate {
+        let glyph_runs = aggregate
+            .glyph_runs
+            .iter()
+            .filter(|glyph_run| glyph_run_belongs_to_run(glyph_run, run))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !glyph_runs.is_empty() {
+            return (
+                Some(MathPdfTextLayer {
+                    logical_width: run.metrics.width,
+                    logical_height: run.metrics.height,
+                    semantic_text: run.text.clone(),
+                    glyph_runs,
+                }),
+                aggregate_resources.to_vec(),
+            );
+        }
+    }
+
+    (run.pdf_text.clone(), run.font_resources.clone())
+}
+
+fn glyph_run_belongs_to_run(glyph_run: &MathPdfGlyphRun, run: &PositionedTextLineRun) -> bool {
+    glyph_run.glyphs.iter().any(|glyph| {
+        let center_x = glyph.transform.dx + glyph.x_advance / 2.0;
+        value_is_in_run_x_range(center_x, run)
+    })
+}
+
+fn path_item_belongs_to_run(item: &MathPathItem, run: &PositionedTextLineRun) -> bool {
+    let center_x = transformed_path_center_x(item).unwrap_or(item.transform.dx);
+    value_is_in_run_x_range(center_x, run)
+}
+
+fn image_item_belongs_to_run(image: &MathImageItem, run: &PositionedTextLineRun) -> bool {
+    value_is_in_run_x_range(image.transform.dx + image.width / 2.0, run)
+}
+
+fn value_is_in_run_x_range(x: f32, run: &PositionedTextLineRun) -> bool {
+    let left = run.x - 0.5;
+    let right = run.x + run.metrics.width + 0.5;
+    x >= left && x <= right
+}
+
+fn transformed_path_center_x(item: &MathPathItem) -> Option<f32> {
+    let mut min_x = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    for command in &item.path.commands {
+        for (x, y) in command_points(command) {
+            let x = item.transform.xx * x + item.transform.xy * y + item.transform.dx;
+            min_x = min_x.min(x);
+            max_x = max_x.max(x);
+        }
+    }
+    min_x.is_finite().then_some((min_x + max_x) / 2.0)
+}
+
+fn command_points(command: &crate::paths::MathPathCommand) -> Vec<(f32, f32)> {
+    match *command {
+        crate::paths::MathPathCommand::MoveTo { x, y }
+        | crate::paths::MathPathCommand::LineTo { x, y } => vec![(x, y)],
+        crate::paths::MathPathCommand::QuadTo { x1, y1, x, y } => vec![(x1, y1), (x, y)],
+        crate::paths::MathPathCommand::CubicTo {
+            x1,
+            y1,
+            x2,
+            y2,
+            x,
+            y,
+        } => vec![(x1, y1), (x2, y2), (x, y)],
+        crate::paths::MathPathCommand::Close => Vec::new(),
+    }
+}
+
+fn collect_semantic_text(items: &[(Point, LabelFrameItem)], output: &mut String) {
+    for (_, item) in items {
+        match item {
+            LabelFrameItem::Text(text) => output.push_str(&text.text),
+            LabelFrameItem::Group(group) => collect_semantic_text(&group.items, output),
+            LabelFrameItem::Shape(_) | LabelFrameItem::Image(_) => {}
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Point {
     pub x: f32,
     pub y: f32,
+}
+
+impl Point {
+    pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -336,14 +579,24 @@ pub enum LabelFrameItem {
     Group(GroupItem),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum TextItemKind {
+    Plain,
+    Math,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TextItem {
+    pub kind: TextItemKind,
     pub text: String,
     pub byte_range: Range<usize>,
     pub style: Option<TextStyle>,
     pub metrics: LabelMetrics,
     pub glyphs: Vec<Glyph>,
+    pub pdf_text: Option<MathPdfTextLayer>,
+    pub font_resources: Vec<MathFontResource>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -378,7 +631,8 @@ impl From<&MathPdfGlyph> for Glyph {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ShapeItem {
     pub byte_range: Range<usize>,
-    pub paths: MathPathArtifact,
+    pub text_kind: Option<TextItemKind>,
+    pub item: MathPathItem,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -415,8 +669,6 @@ pub struct SvgOptions {}
 pub struct SvgLabel {
     pub metrics: LabelMetrics,
     pub items: Vec<(Point, LabelFrameItem)>,
-    pub positioned_runs: Vec<PositionedTextLineRun>,
-    pub paths: Option<MathPathArtifact>,
     pub font_resources: Vec<MathFontResource>,
 }
 
@@ -428,9 +680,25 @@ pub struct PdfOptions {}
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PdfLabel {
     pub metrics: LabelMetrics,
-    pub text: Option<MathPdfTextLayer>,
-    pub paths: Option<MathPathArtifact>,
+    pub semantic_text: String,
     pub font_resources: Vec<MathFontResource>,
+    pub glyph_runs: Vec<MathPdfGlyphRun>,
+    pub path_items: Vec<PdfPathItem>,
+    pub draw_items: Vec<PdfDrawItem>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct PdfPathItem {
+    pub byte_range: Range<usize>,
+    pub item: MathPathItem,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum PdfDrawItem {
+    GlyphRun(usize),
+    PathItem(usize),
 }
 
 pub fn escape_text(text: &str) -> String {
@@ -451,14 +719,8 @@ pub fn rasterize(
     label: &CompiledLabel,
     options: &RasterOptions,
 ) -> Result<RasterImage, LabelError> {
-    let paths = label
-        .artifact()
-        .paths
-        .as_ref()
-        .ok_or(LabelError::UnsupportedOutput(
-            "compiled label does not contain path data for rasterization",
-        ))?;
-    rasterize_paths(paths, *options)
+    let paths = frame_path_artifact(&label.frame);
+    rasterize_paths(&paths, *options)
 }
 
 #[cfg(feature = "raster")]
@@ -485,24 +747,101 @@ fn rasterize_paths(
 }
 
 pub fn svg_items(label: &CompiledLabel, _options: &SvgOptions) -> Result<SvgLabel, LabelError> {
-    let artifact = label.artifact();
     Ok(SvgLabel {
         metrics: label.metrics,
         items: label.frame.items.clone(),
-        positioned_runs: artifact.positioned_runs.clone(),
-        paths: artifact.paths.clone(),
-        font_resources: artifact.font_resources.clone(),
+        font_resources: frame_font_resources(&label.frame),
     })
 }
 
 pub fn pdf_items(label: &CompiledLabel, _options: &PdfOptions) -> Result<PdfLabel, LabelError> {
-    let artifact = label.artifact();
-    Ok(PdfLabel {
+    let mut output = PdfLabel {
         metrics: label.metrics,
-        text: artifact.pdf_text.clone(),
-        paths: artifact.paths.clone(),
-        font_resources: artifact.font_resources.clone(),
-    })
+        semantic_text: label.semantic_text(),
+        font_resources: Vec::new(),
+        glyph_runs: Vec::new(),
+        path_items: Vec::new(),
+        draw_items: Vec::new(),
+    };
+    collect_pdf_items(&label.frame.items, &mut output);
+    output.font_resources.sort_by_key(|resource| resource.id.0);
+    output.font_resources.dedup_by_key(|resource| resource.id.0);
+    Ok(output)
+}
+
+fn frame_path_artifact(frame: &LabelFrame) -> MathPathArtifact {
+    let mut artifact = MathPathArtifact {
+        logical_width: frame.size.x,
+        logical_height: frame.size.y,
+        items: Vec::new(),
+        images: Vec::new(),
+    };
+    collect_frame_paths(&frame.items, &mut artifact);
+    artifact
+}
+
+fn collect_frame_paths(items: &[(Point, LabelFrameItem)], artifact: &mut MathPathArtifact) {
+    for (_, item) in items {
+        match item {
+            LabelFrameItem::Shape(shape) => artifact.items.push(shape.item.clone()),
+            LabelFrameItem::Image(image) => artifact.images.push(image.image.clone()),
+            LabelFrameItem::Group(group) => collect_frame_paths(&group.items, artifact),
+            LabelFrameItem::Text(_) => {}
+        }
+    }
+}
+
+fn frame_font_resources(frame: &LabelFrame) -> Vec<MathFontResource> {
+    let mut resources = Vec::new();
+    collect_frame_font_resources(&frame.items, &mut resources);
+    resources.sort_by_key(|resource| resource.id.0);
+    resources.dedup_by_key(|resource| resource.id.0);
+    resources
+}
+
+fn collect_frame_font_resources(
+    items: &[(Point, LabelFrameItem)],
+    resources: &mut Vec<MathFontResource>,
+) {
+    for (_, item) in items {
+        match item {
+            LabelFrameItem::Text(text) => resources.extend(text.font_resources.iter().cloned()),
+            LabelFrameItem::Group(group) => collect_frame_font_resources(&group.items, resources),
+            LabelFrameItem::Shape(_) | LabelFrameItem::Image(_) => {}
+        }
+    }
+}
+
+fn collect_pdf_items(items: &[(Point, LabelFrameItem)], output: &mut PdfLabel) {
+    for (_, item) in items {
+        match item {
+            LabelFrameItem::Text(text) => {
+                output
+                    .font_resources
+                    .extend(text.font_resources.iter().cloned());
+                if let Some(pdf_text) = &text.pdf_text {
+                    for run in &pdf_text.glyph_runs {
+                        let index = output.glyph_runs.len();
+                        output.glyph_runs.push(run.clone());
+                        output.draw_items.push(PdfDrawItem::GlyphRun(index));
+                    }
+                }
+            }
+            LabelFrameItem::Shape(shape) => {
+                if matches!(shape.item.kind, MathPathKind::MathShape) || shape.item.stroke.is_some()
+                {
+                    let index = output.path_items.len();
+                    output.path_items.push(PdfPathItem {
+                        byte_range: shape.byte_range.clone(),
+                        item: shape.item.clone(),
+                    });
+                    output.draw_items.push(PdfDrawItem::PathItem(index));
+                }
+            }
+            LabelFrameItem::Group(group) => collect_pdf_items(&group.items, output),
+            LabelFrameItem::Image(_) => {}
+        }
+    }
 }
 
 fn text_line_options(options: &LabelOptions, syntax: MathSyntaxMode) -> TextLineOptions {

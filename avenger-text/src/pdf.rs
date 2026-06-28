@@ -108,38 +108,40 @@ impl TextPdfExtractorImpl {
             result.has_math_spans,
         );
         let y_offset = bounds.ascent - tight_bounds.ascent;
-        let text_len = text.len();
         let mut output = TextPdfBuffer::new(bounds, text);
         let pdf = avenger_typst_label::pdf_items(
             &result.label,
             &avenger_typst_label::PdfOptions::default(),
         )?;
-
-        if let Some(pdf_text) = pdf.text {
-            output.semantic_text = result.label.semantic_text();
-            for mut run in pdf_text.glyph_runs {
-                for glyph in &mut run.glyphs {
-                    glyph.transform.dy += y_offset;
-                }
-                let index = output.glyph_runs.len();
-                output.glyph_runs.push(run);
-                output.draw_items.push(TextPdfDrawItem::GlyphRun(index));
-            }
-        }
+        output.semantic_text = pdf.semantic_text;
         output.font_resources = pdf.font_resources;
 
-        if let Some(paths) = pdf.paths {
-            for item in paths.items {
-                if !matches!(item.kind, avenger_typst_label::MathPathKind::MathShape) {
-                    continue;
+        for item in pdf.draw_items {
+            match item {
+                avenger_typst_label::PdfDrawItem::GlyphRun(index) => {
+                    let mut run = pdf.glyph_runs[index].clone();
+                    for glyph in &mut run.glyphs {
+                        glyph.transform.dy += y_offset;
+                    }
+                    let index = output.glyph_runs.len();
+                    output.glyph_runs.push(run);
+                    output.draw_items.push(TextPdfDrawItem::GlyphRun(index));
                 }
-                let item = typst_path_item_to_text_path_item(item, 0..text_len, 0.0, y_offset);
-                if item.kind != TextPathKind::MathShape {
-                    continue;
+                avenger_typst_label::PdfDrawItem::PathItem(index) => {
+                    let path = &pdf.path_items[index];
+                    let item = typst_path_item_to_text_path_item(
+                        path.item.clone(),
+                        path.byte_range.clone(),
+                        0.0,
+                        y_offset,
+                    );
+                    if item.kind != TextPathKind::MathShape {
+                        continue;
+                    }
+                    let index = output.items.len();
+                    output.items.push(item);
+                    output.draw_items.push(TextPdfDrawItem::PathItem(index));
                 }
-                let index = output.items.len();
-                output.items.push(item);
-                output.draw_items.push(TextPdfDrawItem::PathItem(index));
             }
         }
 
