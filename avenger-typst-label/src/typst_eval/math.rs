@@ -14,7 +14,7 @@ use crate::typst_library::math::item::{
     MathStretchSize, MathStringLiteral, MathText, MathTextKind,
 };
 
-use super::markup::parse_decoration_stroke;
+use super::call::parse_decoration_stroke;
 
 use crate::typst_syntax::ast::{self as typst_ast, AstNode, Unit};
 use crate::typst_syntax::{
