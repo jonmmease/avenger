@@ -360,6 +360,12 @@ fn text_span_kind(name: &str) -> Option<TextMarkupKind> {
     }
 }
 
+pub(crate) fn is_retained_markup_name(name: &str) -> bool {
+    text_span_kind(name).is_some()
+        || matches!(name, "auto" | "true" | "false" | "none" | "sym" | "emoji")
+        || named_color(name).is_some()
+}
+
 fn parse_text_markup_option(
     kind: TextMarkupKind,
     named: typst_ast::Named<'_>,

@@ -3,6 +3,8 @@ use std::{ops::Range, path::PathBuf};
 use indexmap::IndexMap;
 
 use crate::engine::engine::TypstEngineCore;
+use crate::engine::math::syntax::is_retained_math_name;
+use crate::engine::syntax::is_retained_markup_name;
 use crate::paths::{PathArtifact, PathImageItem, PathItem, PathKind, Transform};
 use crate::pdf::{FontResource, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 pub use crate::raster::RasterImage;
@@ -115,6 +117,7 @@ impl LabelEngine {
         options: &LabelOptions,
     ) -> Result<CompiledLabel, LabelError> {
         validate_source_limits(source, options.limits)?;
+        validate_label_params(&options.params)?;
         let artifact = self
             .inner
             .typeset_markup_line(source, &text_line_options(options))?;
@@ -845,6 +848,24 @@ fn validate_source_limits(source: &str, limits: LabelLimits) -> Result<(), Label
             actual: source.len(),
             limit: limits.max_source_bytes,
         });
+    }
+    Ok(())
+}
+
+fn validate_label_params(params: &LabelParams) -> Result<(), LabelError> {
+    for name in params.keys() {
+        if is_retained_markup_name(name) {
+            return Err(LabelError::ParameterNameCollision {
+                name: name.clone(),
+                namespace: "text",
+            });
+        }
+        if is_retained_math_name(name) {
+            return Err(LabelError::ParameterNameCollision {
+                name: name.clone(),
+                namespace: "math",
+            });
+        }
     }
     Ok(())
 }

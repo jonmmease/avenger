@@ -206,17 +206,73 @@ fn math_names_stay_in_math_namespace_when_params_exist() {
     let baseline = engine.compile(source, &LabelOptions::default()).unwrap();
 
     let mut options = LabelOptions::default();
-    for name in ["alpha", "frac", "sqrt", "bold"] {
-        options
-            .params
-            .insert(name.to_string(), LabelParamValue::Str("param".to_string()));
-    }
+    options.params.insert(
+        "series_name".to_string(),
+        LabelParamValue::Str("param".to_string()),
+    );
 
     let with_params = engine.compile(source, &options).unwrap();
 
     assert_metrics_close(with_params.metrics.width, baseline.metrics.width);
     assert_metrics_close(with_params.metrics.height, baseline.metrics.height);
     assert_metrics_close(with_params.metrics.baseline, baseline.metrics.baseline);
+}
+
+#[test]
+fn compile_rejects_param_names_colliding_with_text_names() {
+    for name in ["upper", "emoji", "sym", "red"] {
+        let mut options = LabelOptions::default();
+        options
+            .params
+            .insert(name.to_string(), LabelParamValue::Str("param".to_string()));
+
+        let err = engine().compile("label", &options).unwrap_err();
+
+        assert_eq!(
+            err,
+            LabelError::ParameterNameCollision {
+                name: name.to_string(),
+                namespace: "text"
+            }
+        );
+    }
+}
+
+#[test]
+fn compile_rejects_param_names_colliding_with_math_names() {
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "frac".to_string(),
+        LabelParamValue::Str("param".to_string()),
+    );
+
+    let err = engine().compile("$x$", &options).unwrap_err();
+
+    assert_eq!(
+        err,
+        LabelError::ParameterNameCollision {
+            name: "frac".to_string(),
+            namespace: "math"
+        }
+    );
+}
+
+#[test]
+fn compile_text_allows_param_names_colliding_with_markup_names() {
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "upper".to_string(),
+        LabelParamValue::Str("param".to_string()),
+    );
+    options.params.insert(
+        "frac".to_string(),
+        LabelParamValue::Str("param".to_string()),
+    );
+
+    let label = engine().compile_text("#upper and frac", &options).unwrap();
+
+    assert_eq!(label.semantic_text(), "#upper and frac");
+    assert!(!label.flags.has_markup);
 }
 
 #[test]

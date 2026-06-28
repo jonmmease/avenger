@@ -26,6 +26,12 @@ pub enum LabelError {
         message: &'static str,
     },
 
+    #[error("label parameter name {name:?} collides with retained Typst {namespace} name")]
+    ParameterNameCollision {
+        name: String,
+        namespace: &'static str,
+    },
+
     #[error("Typst syntax error at byte {position}: {message}")]
     Syntax { position: usize, message: String },
 

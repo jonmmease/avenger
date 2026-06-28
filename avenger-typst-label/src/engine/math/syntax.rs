@@ -1824,6 +1824,13 @@ fn is_math_call_name(name: &str) -> bool {
         || is_math_delimiter_symbol_call_name(name)
 }
 
+pub(crate) fn is_retained_math_name(name: &str) -> bool {
+    matches!(name, "op" | "attach" | "cancel" | "scripts" | "limits")
+        || is_math_call_name(name)
+        || is_unsupported_math_table_call_name(name)
+        || named_math_symbol(name).is_some()
+}
+
 fn is_unsupported_math_table_call_name(name: &str) -> bool {
     matches!(name, "mat" | "vec" | "cases")
 }
