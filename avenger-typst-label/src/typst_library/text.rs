@@ -1,3 +1,5 @@
+pub(crate) mod content;
+
 use super::{Color, FontStyle, FontWeight};
 
 #[cfg(feature = "serde")]

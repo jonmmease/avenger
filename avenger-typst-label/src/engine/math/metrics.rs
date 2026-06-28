@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use crate::engine::ast::DecorationStroke;
 use crate::engine::glyph_path::outline_glyph_path;
 use crate::error::LabelError;
 use crate::label::EngineOptions;
 use crate::types::{MathLayoutOptions, MathRunArtifact, TypesetMetrics};
+use crate::typst_library::text::content::DecorationStroke;
 use crate::typst_library::{Color, FontWeight, MathFontSpec};
 use crate::typst_pdf::{FontResource, FontResourceId, PdfGlyph, PdfGlyphRun, PdfTextLayer};
 #[cfg(feature = "raster")]

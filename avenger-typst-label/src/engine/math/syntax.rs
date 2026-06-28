@@ -2479,7 +2479,9 @@ mod tests {
         );
         assert_eq!(
             cancel.options.stroke.thickness,
-            Some(crate::engine::ast::DecorationLength::Em(0.25))
+            Some(crate::typst_library::text::content::DecorationLength::Em(
+                0.25,
+            ))
         );
         assert_eq!(
             cancel.options.stroke.line_cap,

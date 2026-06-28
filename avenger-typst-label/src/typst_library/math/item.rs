@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::engine::ast::DecorationStroke;
+use crate::typst_library::text::content::DecorationStroke;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MathAst {
