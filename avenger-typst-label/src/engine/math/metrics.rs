@@ -364,6 +364,9 @@ fn layout_simple_node(
         if let Some(size) = MathSizeCall::from_name(&call.name) {
             return layout_simple_size_call(font, call, size, font_size, script_level);
         }
+        if let Some(position) = MathLineCall::from_name(&call.name) {
+            return layout_simple_line_call(font, call, position, font_size, script_level);
+        }
         if let Some(selection) = MathStyleSelection::from_call_name(&call.name) {
             return layout_simple_variant_call(font, call, selection, font_size, script_level);
         }
@@ -440,6 +443,105 @@ fn layout_simple_size_call(
         }
     };
     layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)
+}
+
+fn layout_simple_line_call(
+    font: &MathFont,
+    call: &super::ast::MathCall,
+    position: MathLineCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let [arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let Some(mut body) = layout_simple_nodes_as_atom(font, &arg.nodes, font_size, script_level)?
+    else {
+        return Ok(None);
+    };
+
+    let (sep, thickness, gap) = match position {
+        MathLineCall::Below => (
+            math_constant(font, font_size, |constants| {
+                constants.underbar_extra_descender().value
+            })?,
+            math_constant(font, font_size, |constants| {
+                constants.underbar_rule_thickness().value
+            })?,
+            math_constant(font, font_size, |constants| {
+                constants.underbar_vertical_gap().value
+            })?,
+        ),
+        MathLineCall::Above => (
+            math_constant(font, font_size, |constants| {
+                constants.overbar_extra_ascender().value
+            })?,
+            math_constant(font, font_size, |constants| {
+                constants.overbar_rule_thickness().value
+            })?,
+            math_constant(font, font_size, |constants| {
+                constants.overbar_vertical_gap().value
+            })?,
+        ),
+    };
+
+    let body_width = body.metrics.width;
+    let body_height = body.metrics.height;
+    let extra_height = sep + thickness + gap;
+    let (line_y, baseline) = match position {
+        MathLineCall::Below => (body_height + gap + thickness / 2.0, body.metrics.baseline),
+        MathLineCall::Above => {
+            offset_atom(&mut body, 0.0, extra_height);
+            (sep + thickness / 2.0, body.metrics.baseline + extra_height)
+        }
+    };
+    let line_width = match position {
+        MathLineCall::Below => (body_width - body.italic_correction).max(0.0),
+        MathLineCall::Above => body_width,
+    };
+
+    let left_class = body.left_class;
+    let right_class = body.right_class;
+    let italic_correction = body.italic_correction;
+    let script_kernable = body.script_kernable;
+    let mut glyphs = Vec::new();
+    let mut shapes = Vec::new();
+    let mut draw_order = Vec::new();
+    append_atom_items(&mut glyphs, &mut shapes, &mut draw_order, body);
+    shapes.push(LaidOutShape {
+        path: PathData {
+            commands: vec![
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo {
+                    x: line_width,
+                    y: 0.0,
+                },
+            ],
+        },
+        x: 0.0,
+        y: line_y,
+        stroke_width: thickness,
+    });
+    draw_order.push(LaidOutDrawItem::Shape(shapes.len() - 1));
+
+    let Some(mut atom) = finalize_inline_frame_atom(
+        body_width,
+        body_height + extra_height,
+        baseline,
+        glyphs,
+        shapes,
+        draw_order,
+        font,
+        font_size,
+    )?
+    else {
+        return Ok(None);
+    };
+    atom.left_class = left_class;
+    atom.right_class = right_class;
+    atom.italic_correction = italic_correction;
+    atom.script_kernable = script_kernable;
+    Ok(Some(atom))
 }
 
 fn layout_simple_variant_call(
@@ -2133,6 +2235,22 @@ impl MathSizeCall {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MathLineCall {
+    Below,
+    Above,
+}
+
+impl MathLineCall {
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "underline" => Some(Self::Below),
+            "overline" => Some(Self::Above),
+            _ => None,
+        }
+    }
+}
+
 fn resolved_left_class(
     previous: Option<SimpleMathClass>,
     class: SimpleMathClass,
@@ -3264,6 +3382,31 @@ mod tests {
         assert!(matches!(paths.items[1].kind, PathKind::MathShape));
         let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
         assert_eq!(pdf.glyph_runs.len(), 2);
+    }
+
+    #[test]
+    fn simple_row_can_emit_math_underline_overline_paths() {
+        let math = parse_math("overline(underline(x + y))", 0).unwrap();
+        let mut options = MathFragmentOptions::default();
+        options.outputs = MathOutputRequest {
+            paths: true,
+            raster: None,
+            pdf_text_layer: true,
+        };
+
+        let artifact = try_typeset_simple_row_fragment(&math, &options, &EngineOptions::default())
+            .unwrap()
+            .expect("simple math underline/overline should be handled by Typst row path");
+        let paths = artifact.paths.expect("line paths should exist");
+        let shape_count = paths
+            .items
+            .iter()
+            .filter(|item| matches!(item.kind, PathKind::MathShape))
+            .count();
+        assert_eq!(shape_count, 2);
+        assert!(paths.items.iter().any(|item| item.stroke.is_some()));
+        let pdf = artifact.pdf_text.expect("PDF glyph metadata should exist");
+        assert_eq!(pdf.glyph_runs.len(), 3);
     }
 
     #[test]

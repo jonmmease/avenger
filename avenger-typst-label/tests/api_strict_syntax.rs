@@ -63,6 +63,7 @@ fn allows_common_typst_math_fragments() {
         "$cancel(x)$",
         "$a class(\"relation\", !) b$",
         "$script(a / b, cramped: #true) + sscript(c / d)$",
+        "$overline(underline(x + y))$",
     ];
 
     for sample in samples {

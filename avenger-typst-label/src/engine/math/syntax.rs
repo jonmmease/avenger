@@ -777,6 +777,8 @@ fn is_math_call_name(name: &str) -> bool {
             | "mid"
             | "cancel"
             | "class"
+            | "underline"
+            | "overline"
             | "op"
             | "sin"
             | "cos"
@@ -1094,7 +1096,9 @@ mod tests {
 
     #[test]
     fn parses_whitelisted_function_calls() {
-        let math = parse("frac(x, y) + op(\"custom\") + bb(R) + scr(P) + class(\"relation\", !)");
+        let math = parse(
+            "frac(x, y) + op(\"custom\") + bb(R) + scr(P) + class(\"relation\", !) + overline(underline(x))",
+        );
 
         assert!(matches!(
             &math.nodes[0],
@@ -1115,6 +1119,10 @@ mod tests {
         assert!(matches!(
             &math.nodes[16],
             MathNode::Call(call) if call.name == "class" && call.args.len() == 2
+        ));
+        assert!(matches!(
+            &math.nodes[20],
+            MathNode::Call(call) if call.name == "overline" && call.args.len() == 1
         ));
     }
 
