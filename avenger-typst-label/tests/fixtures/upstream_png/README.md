@@ -42,6 +42,40 @@ The test harness does not call upstream Typst. If a comparison fails, it writes
 `expected.png`, `actual.png`, and `diff.png` under
 `target/tests/upstream_png_parity/{case_id}/`.
 
+## Build Existing Suite
+
+Use this path when the suite already exists and an agent is adding cases or
+updating references for implemented label behavior:
+
+1. Run `git status --short` and identify unrelated dirty files before editing.
+2. Read `cases.toml` and this README. Keep the suite PNG-only.
+3. Add or update one feature family at a time. Prefer unit tests first, then add
+   small label-only snippets under `src/{id}.typ`.
+4. Add matching `[[case]]` entries with upstream file/test attribution.
+5. Run the reference generator:
+
+   ```sh
+   cargo run --release -p avenger-typst-label --features raster --bin generate_upstream_png_refs
+   ```
+
+6. Inspect every changed `ref/*.png` directly or in a temporary mosaic. Confirm
+   each image is non-blank, unclipped, uses the intended Lato/Lete Sans Math
+   fonts, and visibly exercises the intended feature.
+7. Run the parity test:
+
+   ```sh
+   cargo test --release -p avenger-typst-label --features raster upstream_png_parity -- --nocapture
+   ```
+
+8. If label-engine code changed, run the full crate raster suite:
+
+   ```sh
+   cargo test --release -p avenger-typst-label --features raster -- --nocapture
+   ```
+
+9. Review `git diff` and stage only the intentional generator/test changes,
+   `cases.toml`, source snippets, and curated `ref/*.png` files.
+
 ## Agent Build Checklist
 
 When building or extending this suite:
@@ -73,6 +107,11 @@ avenger-typst-label.
 Scope is PNG only. Do not add SVG/PDF parity, chart baselines, scenegraph
 tests, browser tests, or renderer integration. Keep everything inside
 avenger-typst-label and behind the existing raster feature.
+
+If the suite already exists, follow the "Build Existing Suite" section in
+tests/fixtures/upstream_png/README.md. If it does not exist, follow the
+"Build From Zero" section. In both cases, start with PNG only; SVG/PDF parity
+is intentionally deferred.
 
 Use upstream Typst only in the reference generator. The integration test must
 be offline and must compare Avenger raster output against checked-in curated

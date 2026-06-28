@@ -346,6 +346,15 @@ fn lower_math_call(
         return lower_math_cancel_call(call.args(), source, offset, range);
     }
 
+    if is_math_accent_call_name(&name) {
+        let args = lower_math_accent_call_args(&name, call.args(), source, offset, range.start)?;
+        return Ok(vec![MathNode::Call(MathCall {
+            name,
+            args,
+            byte_range: range,
+        })]);
+    }
+
     if name == "scripts" || name == "limits" {
         let (name, args) =
             lower_math_attachment_mode_call_args(&name, call.args(), source, offset, range.start)?;
@@ -633,6 +642,66 @@ fn lower_math_cancel_call(
         options,
         byte_range: range,
     })])
+}
+
+fn lower_math_accent_call_args(
+    name: &str,
+    args: typst_ast::MathArgs<'_>,
+    source: &str,
+    offset: usize,
+    position: usize,
+) -> Result<Vec<MathArg>, LabelError> {
+    let expected_positional = if name == "accent" { 2 } else { 1 };
+    let mut lowered = Vec::new();
+    for item in args.arg_items() {
+        if item.ends_in_semicolon {
+            return Err(unsupported(
+                item.arg.to_untyped().range().end + offset,
+                "semicolon math arguments are not supported in Avenger Typst subset",
+            ));
+        }
+        match item.arg {
+            typst_ast::Arg::Pos(expr) => {
+                if lowered.len() == expected_positional {
+                    return Err(unsupported(
+                        expr.to_untyped().range().start + offset,
+                        "accent math received too many positional arguments",
+                    ));
+                }
+                let byte_range = offset_range(expr.to_untyped().range(), offset);
+                lowered.push(MathArg {
+                    nodes: lower_math_expr(expr, source, offset)?,
+                    byte_range,
+                });
+            }
+            typst_ast::Arg::Named(named) => {
+                let message = match named.name().as_str() {
+                    "size" => "accent size option is not supported yet",
+                    "dotless" => "accent dotless option is not supported yet",
+                    _ => "unsupported accent option",
+                };
+                return Err(unsupported(
+                    named_argument_position(named, source, offset),
+                    message,
+                ));
+            }
+            typst_ast::Arg::Spread(spread) => {
+                return Err(unsupported(
+                    spread.to_untyped().range().start + offset,
+                    "spread math arguments are not supported in Avenger Typst subset",
+                ));
+            }
+        }
+    }
+    if lowered.len() != expected_positional {
+        let message = if name == "accent" {
+            "accent math expects a base and accent"
+        } else {
+            "accent math expects one body argument"
+        };
+        return Err(unsupported(position, message));
+    }
+    Ok(lowered)
 }
 
 fn lower_math_op_call_args(
@@ -1217,16 +1286,9 @@ fn is_math_call_name(name: &str) -> bool {
             | "round"
             | "lr"
             | "mid"
-            | "cancel"
             | "class"
             | "underline"
             | "overline"
-            | "hat"
-            | "tilde"
-            | "dot"
-            | "ddot"
-            | "bar"
-            | "arrow"
             | "bb"
             | "cal"
             | "frak"
@@ -1242,6 +1304,7 @@ fn is_math_call_name(name: &str) -> bool {
             | "script"
             | "sscript"
     ) || predefined_operator_text(name).is_some()
+        || is_math_accent_call_name(name)
 }
 
 fn is_unsupported_math_table_call_name(name: &str) -> bool {
@@ -1251,6 +1314,64 @@ fn is_unsupported_math_table_call_name(name: &str) -> bool {
 fn is_math_size_call_name(name: &str) -> bool {
     matches!(name, "display" | "inline" | "script" | "sscript")
 }
+
+fn is_math_accent_call_name(name: &str) -> bool {
+    name == "accent" || named_accent_char(name).is_some()
+}
+
+pub(crate) fn named_accent_char(name: &str) -> Option<char> {
+    match name {
+        "grave" => Some('\u{0300}'),
+        "acute" => Some('\u{0301}'),
+        "hat" => Some('\u{0302}'),
+        "tilde" => Some('\u{0303}'),
+        "macron" | "bar" => Some('\u{0304}'),
+        "dash" => Some('\u{0305}'),
+        "breve" => Some('\u{0306}'),
+        "dot" => Some('\u{0307}'),
+        "dot.double" | "ddot" | "diaer" => Some('\u{0308}'),
+        "dot.triple" => Some('\u{20db}'),
+        "dot.quad" => Some('\u{20dc}'),
+        "circle" => Some('\u{030a}'),
+        "acute.double" => Some('\u{030b}'),
+        "caron" => Some('\u{030c}'),
+        "arrow" | "arrow.r" => Some('\u{20d7}'),
+        "arrow.l" => Some('\u{20d6}'),
+        "arrow.l.r" => Some('\u{20e1}'),
+        "harpoon" => Some('\u{20d1}'),
+        "harpoon.lt" => Some('\u{20d0}'),
+        _ => None,
+    }
+}
+
+pub(crate) fn normalize_accent_text(value: &str) -> Option<char> {
+    named_accent_char(value).or_else(|| {
+        ACCENT_ALIASES
+            .iter()
+            .find_map(|(accent, aliases)| aliases.contains(&value).then_some(*accent))
+            .or_else(|| value.parse::<char>().ok())
+    })
+}
+
+const ACCENT_ALIASES: &[(char, &[&str])] = &[
+    ('\u{0300}', &["`"]),
+    ('\u{0301}', &["´"]),
+    ('\u{0302}', &["^", "ˆ"]),
+    ('\u{0303}', &["~", "∼", "˜"]),
+    ('\u{0304}', &["¯"]),
+    ('\u{0305}', &["-", "–", "‾", "−"]),
+    ('\u{0306}', &["˘"]),
+    ('\u{0307}', &[".", "˙", "⋅"]),
+    ('\u{0308}', &["¨"]),
+    ('\u{030a}', &["∘", "○"]),
+    ('\u{030b}', &["˝"]),
+    ('\u{030c}', &["ˇ"]),
+    ('\u{20d6}', &["←"]),
+    ('\u{20d7}', &["→", "⟶"]),
+    ('\u{20e1}', &["↔", "↔\u{fe0e}", "⟷"]),
+    ('\u{20d0}', &["↼"]),
+    ('\u{20d1}', &["⇀"]),
+];
 
 fn is_supported_math_class_name(name: &str) -> bool {
     matches!(
@@ -1604,6 +1725,50 @@ mod tests {
                 "cancel(x, stroke: #red)",
                 "cancel stroke option is not supported yet",
             ),
+        ] {
+            let err = parse_math(source, 0).unwrap_err();
+            assert!(
+                format!("{err}").contains(message),
+                "{source}: expected {message}, got {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn parses_accent_calls() {
+        let math = parse("grave(a) + dot.double(a) + arrow.l.r(Z) + accent(v, <-)");
+
+        assert!(matches!(
+            &math.nodes[0],
+            MathNode::Call(call) if call.name == "grave" && call.args.len() == 1
+        ));
+        assert!(matches!(
+            &math.nodes[4],
+            MathNode::Call(call) if call.name == "dot.double" && call.args.len() == 1
+        ));
+        assert!(matches!(
+            &math.nodes[8],
+            MathNode::Call(call) if call.name == "arrow.l.r" && call.args.len() == 1
+        ));
+        assert!(matches!(
+            &math.nodes[12],
+            MathNode::Call(call) if call.name == "accent" && call.args.len() == 2
+        ));
+    }
+
+    #[test]
+    fn rejects_unsupported_accent_options() {
+        for (source, message) in [
+            (
+                "hat(x, size: #150%)",
+                "accent size option is not supported yet",
+            ),
+            (
+                "hat(x, dotless: #false)",
+                "accent dotless option is not supported yet",
+            ),
+            ("accent(x, ., foo: #true)", "unsupported accent option"),
+            ("accent(x)", "accent math expects a base and accent"),
         ] {
             let err = parse_math(source, 0).unwrap_err();
             assert!(

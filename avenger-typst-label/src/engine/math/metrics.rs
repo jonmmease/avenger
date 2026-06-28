@@ -14,7 +14,7 @@ use super::ast::{
     MathAst, MathCancel, MathCancelAngle, MathNode, MathOperator, MathShorthand, MathText,
     MathTextKind,
 };
-use super::syntax::predefined_operator_text;
+use super::syntax::{named_accent_char, normalize_accent_text, predefined_operator_text};
 
 pub(crate) fn try_typeset_simple_row_fragment(
     math: &MathAst,
@@ -393,7 +393,10 @@ fn layout_simple_node(
         if call.name == "root" {
             return layout_simple_root(font, call, font_size, script_level);
         }
-        if let Some(accent) = accent_call_char(&call.name) {
+        if call.name == "accent" {
+            return layout_simple_generic_accent_call(font, call, font_size, script_level);
+        }
+        if let Some(accent) = named_accent_char(&call.name) {
             return layout_simple_accent_call(font, call, accent, font_size, script_level);
         }
     }
@@ -1063,16 +1066,39 @@ fn layout_simple_accent_call(
     }))
 }
 
-fn accent_call_char(name: &str) -> Option<char> {
-    match name {
-        "hat" => Some('\u{0302}'),
-        "tilde" => Some('\u{0303}'),
-        "dot" => Some('\u{0307}'),
-        "ddot" => Some('\u{0308}'),
-        "bar" => Some('\u{0304}'),
-        "arrow" => Some('\u{20d7}'),
-        _ => None,
-    }
+fn layout_simple_generic_accent_call(
+    font: &MathFont,
+    call: &super::ast::MathCall,
+    font_size: f32,
+    script_level: u8,
+) -> Result<Option<LaidOutMathAtom>, LabelError> {
+    let [base_arg, accent_arg] = &call.args[..] else {
+        return Ok(None);
+    };
+    let Some(accent) = accent_arg_char(accent_arg) else {
+        return Ok(None);
+    };
+    let call = super::ast::MathCall {
+        name: call.name.clone(),
+        args: vec![base_arg.clone()],
+        byte_range: call.byte_range.clone(),
+    };
+    layout_simple_accent_call(font, &call, accent, font_size, script_level)
+}
+
+fn accent_arg_char(arg: &super::ast::MathArg) -> Option<char> {
+    let [node] = &arg.nodes[..] else {
+        return None;
+    };
+    let text = match node {
+        MathNode::StringLiteral(string) => string.text.as_str(),
+        MathNode::Identifier(identifier) => identifier.symbol.unwrap_or(&identifier.name),
+        MathNode::Operator(operator) => operator.operator.as_str(),
+        MathNode::Shorthand(shorthand) => shorthand.replacement,
+        MathNode::Text(text) => text.text.as_str(),
+        _ => return None,
+    };
+    normalize_accent_text(text)
 }
 
 fn layout_simple_radical(
@@ -4332,12 +4358,29 @@ mod tests {
         };
 
         for (source, expected) in [
+            ("grave(a)", "𝑎\u{0300}"),
+            ("acute(b)", "𝑏\u{0301}"),
             ("hat(x)", "𝑥\u{0302}"),
             ("tilde(x)", "𝑥\u{0303}"),
+            ("macron(x)", "𝑥\u{0304}"),
+            ("dash(x)", "𝑥\u{0305}"),
+            ("breve(x)", "𝑥\u{0306}"),
             ("dot(x)", "𝑥\u{0307}"),
+            ("dot.double(x)", "𝑥\u{0308}"),
             ("ddot(x)", "𝑥\u{0308}"),
-            ("bar(x)", "𝑥\u{0304}"),
+            ("dot.triple(x)", "𝑥\u{20db}"),
+            ("dot.quad(x)", "𝑥\u{20dc}"),
+            ("circle(x)", "𝑥\u{030a}"),
+            ("acute.double(x)", "𝑥\u{030b}"),
+            ("caron(x)", "𝑥\u{030c}"),
             ("arrow(v)", "𝑣\u{20d7}"),
+            ("arrow.l(v)", "𝑣\u{20d6}"),
+            ("arrow.l.r(v)", "𝑣\u{20e1}"),
+            ("harpoon(v)", "𝑣\u{20d1}"),
+            ("harpoon.lt(v)", "𝑣\u{20d0}"),
+            ("accent(v, <-)", "𝑣\u{20d6}"),
+            ("accent(v, \".\")", "𝑣\u{0307}"),
+            ("accent(v, arrow.l.r)", "𝑣\u{20e1}"),
         ] {
             let math = parse_math(source, 0).unwrap();
             let artifact =
