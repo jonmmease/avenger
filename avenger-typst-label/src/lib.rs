@@ -10,6 +10,7 @@ mod typst_label;
 mod typst_layout;
 mod typst_library;
 mod typst_pdf;
+mod typst_realize;
 mod typst_render;
 mod typst_svg;
 #[allow(dead_code, unused_imports, unused_macros)]
