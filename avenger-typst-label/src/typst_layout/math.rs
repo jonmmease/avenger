@@ -1378,6 +1378,8 @@ enum MathStretchAxis {
     Vertical,
 }
 
+const MATH_GLYPH_ASSEMBLY_MAX_REPEATS: usize = 1024;
+
 fn layout_delimiter_atom_with_target(
     font: &MathFont,
     delimiter: char,
@@ -1417,7 +1419,7 @@ fn stretch_single_glyph_variant(
     context: &'static str,
 ) -> Result<Option<()>, LabelError> {
     let face = parse_math_face(font, context)?;
-    let Some(glyph) = atom.glyphs.first_mut() else {
+    let Some(base_glyph) = atom.glyphs.first().cloned() else {
         return Ok(None);
     };
     let Some(construction) =
@@ -1426,9 +1428,11 @@ fn stretch_single_glyph_variant(
             .and_then(|math| math.variants)
             .and_then(|variants| match axis {
                 MathStretchAxis::Horizontal => {
-                    variants.horizontal_constructions.get(glyph.glyph_id)
+                    variants.horizontal_constructions.get(base_glyph.glyph_id)
                 }
-                MathStretchAxis::Vertical => variants.vertical_constructions.get(glyph.glyph_id),
+                MathStretchAxis::Vertical => {
+                    variants.vertical_constructions.get(base_glyph.glyph_id)
+                }
             })
     else {
         return Ok(None);
@@ -1436,29 +1440,70 @@ fn stretch_single_glyph_variant(
 
     let short_target_size = (target_size - short_fall).max(0.0);
     let stretch_advance = match axis {
-        MathStretchAxis::Horizontal => glyph.x_advance,
+        MathStretchAxis::Horizontal => base_glyph.x_advance,
         MathStretchAxis::Vertical => atom.ink_ascent + atom.ink_descent,
     };
     if !force_variant && short_target_size <= stretch_advance {
         return Ok(Some(()));
     }
 
-    let scale = glyph.font_size / face.units_per_em() as f32;
+    let scale = base_glyph.font_size / face.units_per_em() as f32;
     let target_units = short_target_size / scale;
-    let base_glyph = glyph.glyph_id;
-    let mut variant_glyph = glyph.glyph_id;
-    let mut variant_advance = None;
+    let mut variant_glyph = base_glyph.glyph_id;
+    let mut variant_advance = match axis {
+        MathStretchAxis::Horizontal => Some(base_glyph.x_advance / scale),
+        MathStretchAxis::Vertical => Some((atom.ink_ascent + atom.ink_descent) / scale),
+    };
     for variant in construction.variants {
-        if variant.variant_glyph == base_glyph {
-            continue;
-        }
         variant_glyph = variant.variant_glyph;
-        variant_advance = Some(variant.advance_measurement);
+        variant_advance = Some(variant.advance_measurement as f32);
         if variant.advance_measurement as f32 >= target_units {
             break;
         }
     }
 
+    let variant_reaches_target = variant_advance.is_some_and(|advance| target_units <= advance);
+    if variant_reaches_target || construction.assembly.is_none() {
+        let Some(glyph) = atom.glyphs.first_mut() else {
+            return Ok(None);
+        };
+        glyph.glyph_id = variant_glyph;
+        glyph.x_advance = face
+            .glyph_hor_advance(variant_glyph)
+            .map(|advance| advance as f32 * scale)
+            .or_else(|| variant_advance.map(|advance| advance as f32 * scale))
+            .unwrap_or(glyph.x_advance);
+        if let Some(bounds) = face.glyph_bounding_box(variant_glyph) {
+            let ascent = bounds.y_max.max(0) as f32 * scale;
+            let descent = (-bounds.y_min).max(0) as f32 * scale;
+            atom.metrics.height = ascent + descent;
+            atom.metrics.baseline = ascent;
+            atom.metrics.ascent = ascent;
+            atom.metrics.descent = descent;
+            atom.ink_ascent = ascent;
+            atom.ink_descent = descent;
+            glyph.y = ascent;
+        }
+        atom.metrics.width = glyph.x_advance;
+        return Ok(Some(()));
+    }
+
+    if axis == MathStretchAxis::Horizontal
+        && let Some(assembly) = construction.assembly
+        && assemble_horizontal_glyph_from_math_parts(
+            &face,
+            atom,
+            &base_glyph,
+            assembly,
+            target_units,
+        )
+    {
+        return Ok(Some(()));
+    }
+
+    let Some(glyph) = atom.glyphs.first_mut() else {
+        return Ok(None);
+    };
     glyph.glyph_id = variant_glyph;
     glyph.x_advance = face
         .glyph_hor_advance(variant_glyph)
@@ -1478,6 +1523,129 @@ fn stretch_single_glyph_variant(
     }
     atom.metrics.width = glyph.x_advance;
     Ok(Some(()))
+}
+
+fn assemble_horizontal_glyph_from_math_parts(
+    face: &ttf_parser::Face<'_>,
+    atom: &mut LaidOutMathAtom,
+    base_glyph: &LaidOutGlyph,
+    assembly: ttf_parser::math::GlyphAssembly<'_>,
+    target_units: f32,
+) -> bool {
+    let Some(math) = face.tables().math else {
+        return false;
+    };
+    let Some(variants) = math.variants else {
+        return false;
+    };
+    let scale = base_glyph.font_size / face.units_per_em() as f32;
+    let min_overlap = variants.min_connector_overlap as f32;
+    let mut repeat = 0usize;
+    let (full_units, ratio, repeat) = loop {
+        let mut full = 0.0f32;
+        let mut growable = 0.0f32;
+        let mut parts = repeated_math_parts(assembly, repeat).into_iter().peekable();
+
+        while let Some(part) = parts.next() {
+            let mut advance = part.full_advance as f32;
+            if let Some(next) = parts.peek() {
+                let max_overlap = part.end_connector_length.min(next.start_connector_length) as f32;
+                advance -= max_overlap;
+                growable += (max_overlap - min_overlap).max(0.0);
+            }
+            full += advance;
+        }
+
+        let mut ratio = 0.0;
+        if full < target_units && growable > 0.0 {
+            let delta = target_units - full;
+            ratio = (delta / growable).min(1.0);
+            full += ratio * growable;
+        }
+
+        if target_units <= full || repeat >= MATH_GLYPH_ASSEMBLY_MAX_REPEATS {
+            break (full, ratio, repeat);
+        }
+        repeat += 1;
+    };
+    let mut cursor = 0.0f32;
+    let mut glyphs = Vec::new();
+    let mut parts = repeated_math_parts(assembly, repeat).into_iter().peekable();
+    let mut first_part = true;
+    while let Some(part) = parts.next() {
+        let mut advance_units = part.full_advance as f32;
+        if let Some(next) = parts.peek() {
+            let max_overlap = part.end_connector_length.min(next.start_connector_length) as f32;
+            advance_units -= max_overlap;
+            advance_units += ratio * (max_overlap - min_overlap);
+        }
+
+        let mut glyph = base_glyph.clone();
+        glyph.glyph_id = part.glyph_id;
+        glyph.unicode = if first_part {
+            base_glyph.unicode.clone()
+        } else {
+            String::new()
+        };
+        glyph.x_advance = advance_units * scale;
+        glyph.x = base_glyph.x + cursor * scale;
+        glyph.y = base_glyph.y;
+        glyphs.push(glyph);
+        cursor += advance_units;
+        first_part = false;
+    }
+
+    if glyphs.is_empty() {
+        return false;
+    }
+
+    let (ascent, descent) = glyphs
+        .iter()
+        .filter_map(|glyph| face.glyph_bounding_box(glyph.glyph_id))
+        .map(|bounds| {
+            (
+                bounds.y_max.max(0) as f32 * scale,
+                (-bounds.y_min).max(0) as f32 * scale,
+            )
+        })
+        .fold(
+            (0.0f32, 0.0f32),
+            |(max_ascent, max_descent), (ascent, descent)| {
+                (max_ascent.max(ascent), max_descent.max(descent))
+            },
+        );
+    for glyph in &mut glyphs {
+        glyph.y = ascent;
+    }
+    atom.metrics.width = full_units * scale;
+    atom.metrics.height = ascent + descent;
+    atom.metrics.baseline = ascent;
+    atom.metrics.ascent = ascent;
+    atom.metrics.descent = descent;
+    atom.ink_ascent = ascent;
+    atom.ink_descent = descent;
+    atom.italic_correction = assembly.italics_correction.value as f32 * scale;
+    atom.glyphs = glyphs;
+    atom.draw_order = (0..atom.glyphs.len()).map(LaidOutDrawItem::Glyph).collect();
+    true
+}
+
+fn repeated_math_parts(
+    assembly: ttf_parser::math::GlyphAssembly<'_>,
+    repeat: usize,
+) -> Vec<ttf_parser::math::GlyphPart> {
+    assembly
+        .parts
+        .into_iter()
+        .flat_map(|part| {
+            let count = if part.part_flags.extender() {
+                repeat
+            } else {
+                1
+            };
+            std::iter::repeat_n(part, count)
+        })
+        .collect()
 }
 
 fn delimiter_call_chars(name: &str) -> Option<(char, char)> {
@@ -5434,6 +5602,41 @@ mod tests {
         );
         let paths = stretched_artifact.paths;
         assert_eq!(paths.items.len(), 1);
+    }
+
+    #[test]
+    fn simple_row_can_emit_horizontal_stretch_call() {
+        let options = MathLayoutOptions::default();
+
+        let plain = parse_math("stretch(->)", 0).unwrap();
+        let stretched = parse_math("stretch(->, size: #200%)", 0).unwrap();
+        let plain_artifact =
+            try_typeset_simple_row_fragment(&plain, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("plain horizontal stretch call should be handled by Typst row path");
+        let stretched_artifact =
+            try_typeset_simple_row_fragment(&stretched, &options, &EngineOptions::default())
+                .unwrap()
+                .expect("stretched arrow call should be handled by Typst row path");
+
+        assert!(
+            stretched_artifact.metrics.width > plain_artifact.metrics.width + 5.0,
+            "horizontal stretch should increase width: plain={:?}, stretched={:?}",
+            plain_artifact.metrics,
+            stretched_artifact.metrics
+        );
+        assert!(
+            stretched_artifact.paths.items.len() > 1,
+            "horizontal assembly should emit multiple glyph outlines"
+        );
+        let glyph_text: String = stretched_artifact
+            .pdf_text
+            .glyph_runs
+            .iter()
+            .flat_map(|run| &run.glyphs)
+            .map(|glyph| glyph.unicode.as_str())
+            .collect();
+        assert_eq!(glyph_text, "→");
     }
 
     #[test]
