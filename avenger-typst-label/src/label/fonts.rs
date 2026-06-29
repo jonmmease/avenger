@@ -1,114 +1,40 @@
+#[cfg(test)]
 use std::io::{Cursor, Read};
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use crate::label::EngineOptions;
-use crate::typst_library::FontStyle;
+use crate::typst_library::MathFontBytesId;
 
-pub(crate) struct EmbeddedFontFace {
-    family: EmbeddedFontFamily,
-    pub(crate) name: &'static str,
-    index: usize,
-    pub(crate) weight: u16,
-    pub(crate) style: FontStyle,
-    pub(crate) compressed_data: &'static [u8],
-}
-
-impl EmbeddedFontFace {
-    pub(crate) fn decompressed_data(&self) -> Arc<[u8]> {
-        match self.family {
-            EmbeddedFontFamily::Lato => decompressed_lato_faces()[self.index].clone(),
-            EmbeddedFontFamily::DejaVuSansMono => {
-                decompressed_dejavu_sans_mono_faces()[self.index].clone()
-            }
-        }
+pub(crate) fn load_registered_fonts_into_fontdb(
+    fontdb: &mut fontdb::Database,
+    config: &EngineOptions,
+) {
+    for font in &config.fonts.registered_fonts {
+        fontdb.load_font_data(font.data.to_vec());
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EmbeddedFontFamily {
-    Lato,
-    DejaVuSansMono,
-}
-
-pub(crate) struct EmbeddedMathFontFace {
-    pub(crate) name: &'static str,
-    index: usize,
-    pub(crate) weight: u16,
-    pub(crate) compressed_data: &'static [u8],
-}
-
-impl EmbeddedMathFontFace {
-    pub(crate) fn decompressed_data(&self) -> Arc<[u8]> {
-        decompressed_math_faces()[self.index].clone()
+#[cfg(test)]
+pub(crate) fn load_test_fonts_into_fontdb(fontdb: &mut fontdb::Database) {
+    for (_name, compressed_data) in TEST_FONTS {
+        let data = decompress_test_font(compressed_data);
+        fontdb.load_font_data(data);
     }
+    fontdb.set_sans_serif_family("Lato");
+    fontdb.set_monospace_family("DejaVu Sans Mono");
 }
 
-pub(crate) const LATO_FACES: &[EmbeddedFontFace] = &[
-    EmbeddedFontFace {
-        family: EmbeddedFontFamily::Lato,
-        name: "Lato-Light",
-        index: 0,
-        weight: 300,
-        style: FontStyle::Normal,
-        compressed_data: include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Light.ttf.br"),
-    },
-    EmbeddedFontFace {
-        family: EmbeddedFontFamily::Lato,
-        name: "Lato-Italic",
-        index: 1,
-        weight: 400,
-        style: FontStyle::Italic,
-        compressed_data: include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Italic.ttf.br"),
-    },
-    EmbeddedFontFace {
-        family: EmbeddedFontFamily::Lato,
-        name: "Lato-Medium",
-        index: 2,
-        weight: 500,
-        style: FontStyle::Normal,
-        compressed_data: include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Medium.ttf.br"),
-    },
-    EmbeddedFontFace {
-        family: EmbeddedFontFamily::Lato,
-        name: "Lato-Bold",
-        index: 3,
-        weight: 700,
-        style: FontStyle::Normal,
-        compressed_data: include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Bold.ttf.br"),
-    },
-];
-
-pub(crate) const DEJAVU_SANS_MONO_FACES: &[EmbeddedFontFace] = &[EmbeddedFontFace {
-    family: EmbeddedFontFamily::DejaVuSansMono,
-    name: "DejaVuSansMono",
-    index: 0,
-    weight: 400,
-    style: FontStyle::Normal,
-    compressed_data: include_bytes!(
-        "../../../avenger-chart/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br"
-    ),
-}];
-
-pub(crate) fn bundled_math_fonts() -> &'static [EmbeddedMathFontFace] {
-    &[
-        EmbeddedMathFontFace {
-            name: "LeteSansMath",
-            index: 0,
-            weight: 400,
-            compressed_data: include_bytes!(
-                "../../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath.otf.br"
-            ),
-        },
-        EmbeddedMathFontFace {
-            name: "LeteSansMath-Bold",
-            index: 1,
-            weight: 700,
-            compressed_data: include_bytes!(
-                "../../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br"
-            ),
-        },
-    ]
+pub(crate) fn registered_font_data(
+    config: &EngineOptions,
+    id: MathFontBytesId,
+) -> Option<(Arc<[u8]>, u32)> {
+    config
+        .fonts
+        .registered_fonts
+        .iter()
+        .find(|font| font.id == id)
+        .map(|font| (font.data.clone(), font.face_index))
 }
 
 pub(crate) fn candidate_math_font_paths(config: &EngineOptions) -> Vec<PathBuf> {
@@ -119,76 +45,21 @@ pub(crate) fn candidate_math_font_paths(config: &EngineOptions) -> Vec<PathBuf> 
         }
     };
 
-    for path in hardcoded_math_font_paths() {
-        push(path.into());
+    for dir in &config.fonts.extra_font_dirs {
+        collect_font_paths(dir.clone(), &mut push, true);
     }
 
-    for dir in system_font_dirs() {
-        collect_font_paths(dir, &mut push, !config.fonts.extra_font_families.is_empty());
+    if config.fonts.load_system_fonts {
+        for path in hardcoded_math_font_paths() {
+            push(path.into());
+        }
+
+        for dir in system_font_dirs() {
+            collect_font_paths(dir, &mut push, !config.fonts.extra_font_families.is_empty());
+        }
     }
 
     paths
-}
-
-fn decompress_brotli_font(name: &str, compressed_data: &[u8]) -> std::io::Result<Vec<u8>> {
-    let mut reader = brotli::Decompressor::new(Cursor::new(compressed_data), 4096);
-    let mut data = Vec::new();
-    reader.read_to_end(&mut data)?;
-    if data.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("embedded font {name} decompressed to empty data"),
-        ));
-    }
-    Ok(data)
-}
-
-fn decompressed_lato_faces() -> &'static [Arc<[u8]>] {
-    static DECOMPRESSED_FACES: OnceLock<Vec<Arc<[u8]>>> = OnceLock::new();
-    DECOMPRESSED_FACES.get_or_init(|| {
-        LATO_FACES
-            .iter()
-            .map(|face| {
-                Arc::<[u8]>::from(
-                    decompress_brotli_font(face.name, face.compressed_data).unwrap_or_else(|err| {
-                        panic!("failed to decompress embedded font {}: {err}", face.name)
-                    }),
-                )
-            })
-            .collect()
-    })
-}
-
-fn decompressed_dejavu_sans_mono_faces() -> &'static [Arc<[u8]>] {
-    static DECOMPRESSED_FACES: OnceLock<Vec<Arc<[u8]>>> = OnceLock::new();
-    DECOMPRESSED_FACES.get_or_init(|| {
-        DEJAVU_SANS_MONO_FACES
-            .iter()
-            .map(|face| {
-                Arc::<[u8]>::from(
-                    decompress_brotli_font(face.name, face.compressed_data).unwrap_or_else(|err| {
-                        panic!("failed to decompress embedded font {}: {err}", face.name)
-                    }),
-                )
-            })
-            .collect()
-    })
-}
-
-fn decompressed_math_faces() -> &'static [Arc<[u8]>] {
-    static DECOMPRESSED_FACES: OnceLock<Vec<Arc<[u8]>>> = OnceLock::new();
-    DECOMPRESSED_FACES.get_or_init(|| {
-        bundled_math_fonts()
-            .iter()
-            .map(|face| {
-                Arc::<[u8]>::from(
-                    decompress_brotli_font(face.name, face.compressed_data).unwrap_or_else(|err| {
-                        panic!("failed to decompress embedded font {}: {err}", face.name)
-                    }),
-                )
-            })
-            .collect()
-    })
 }
 
 fn hardcoded_math_font_paths() -> &'static [&'static str] {
@@ -238,4 +109,47 @@ fn collect_font_paths(dir: PathBuf, push: &mut impl FnMut(PathBuf), include_all_
             push(path);
         }
     }
+}
+
+#[cfg(test)]
+const TEST_FONTS: &[(&str, &[u8])] = &[
+    (
+        "Lato-Light",
+        include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Light.ttf.br"),
+    ),
+    (
+        "Lato-Italic",
+        include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Italic.ttf.br"),
+    ),
+    (
+        "Lato-Medium",
+        include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Medium.ttf.br"),
+    ),
+    (
+        "Lato-Bold",
+        include_bytes!("../../../avenger-chart/fonts/Lato/Lato-Bold.ttf.br"),
+    ),
+    (
+        "DejaVuSansMono",
+        include_bytes!("../../../avenger-chart/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br"),
+    ),
+    (
+        "LeteSansMath",
+        include_bytes!("../../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath.otf.br"),
+    ),
+    (
+        "LeteSansMath-Bold",
+        include_bytes!("../../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br"),
+    ),
+];
+
+#[cfg(test)]
+fn decompress_test_font(compressed_data: &[u8]) -> Vec<u8> {
+    let mut reader = brotli::Decompressor::new(Cursor::new(compressed_data), 4096);
+    let mut data = Vec::new();
+    reader
+        .read_to_end(&mut data)
+        .expect("test font should decompress");
+    assert!(!data.is_empty(), "test font should not decompress empty");
+    data
 }

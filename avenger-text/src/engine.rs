@@ -42,6 +42,10 @@ impl TextEngine {
         let mut options = avenger_typst_label::EngineOptions::default();
         options.fonts.load_system_fonts = font_resolution.load_system_fonts;
         options.fonts.extra_font_dirs = font_resolution.extra_font_dirs.clone();
+        options.fonts.registered_fonts = font_resolution.registered_fonts.clone();
+        options.fonts.default_sans_serif_family = font_resolution.default_sans_serif_family.clone();
+        options.fonts.default_monospace_family = font_resolution.default_monospace_family.clone();
+        options.fonts.default_math_family = font_resolution.default_math_family.clone();
         Ok(Self::new(
             avenger_typst_label::LabelEngine::new(options)?,
             math,

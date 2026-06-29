@@ -1,7 +1,6 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::label::fonts::{DEJAVU_SANS_MONO_FACES, EmbeddedFontFace, LATO_FACES};
 use crate::label::{EngineOptions, FontResource, FontResourceId, LabelError};
 use crate::typst_library::{FontStyle, FontWeight, TextStyle};
 use crate::typst_svg::{PathData, PathImageFormat, PathImageItem, Transform};
@@ -158,10 +157,6 @@ impl TextFace {
         style: &TextStyle,
         fontdb: &fontdb::Database,
     ) -> Result<Option<Self>, LabelError> {
-        if let Some((family, faces)) = embedded_text_family(&style.font_family) {
-            return embedded_text_face(style, family, faces);
-        }
-
         Ok(fontdb_face_for_style_and_text(fontdb, style, ""))
     }
 
@@ -614,14 +609,17 @@ pub(crate) enum TextScript {
 
 pub(crate) fn build_text_fontdb(config: &EngineOptions) -> fontdb::Database {
     let mut db = fontdb::Database::new();
-    for face in LATO_FACES {
-        db.load_font_data(face.decompressed_data().to_vec());
+    crate::label::fonts::load_registered_fonts_into_fontdb(&mut db, config);
+    #[cfg(test)]
+    if config.fonts.registered_fonts.is_empty() {
+        crate::label::fonts::load_test_fonts_into_fontdb(&mut db);
     }
-    for face in DEJAVU_SANS_MONO_FACES {
-        db.load_font_data(face.decompressed_data().to_vec());
+    if let Some(family) = &config.fonts.default_sans_serif_family {
+        db.set_sans_serif_family(family);
     }
-    db.set_sans_serif_family("Lato");
-    db.set_monospace_family("DejaVu Sans Mono");
+    if let Some(family) = &config.fonts.default_monospace_family {
+        db.set_monospace_family(family);
+    }
     if config.fonts.load_system_fonts {
         db.load_system_fonts();
     }
@@ -629,29 +627,6 @@ pub(crate) fn build_text_fontdb(config: &EngineOptions) -> fontdb::Database {
         db.load_fonts_dir(dir);
     }
     db
-}
-
-fn embedded_text_face(
-    style: &TextStyle,
-    family: &'static str,
-    faces: &'static [EmbeddedFontFace],
-) -> Result<Option<TextFace>, LabelError> {
-    let face = select_embedded_face(faces, &style.font_weight, style.font_style).ok_or(
-        LabelError::UnsupportedOutput("plain text requires an embedded font face"),
-    )?;
-    let data = face.decompressed_data();
-    ttf_parser::Face::parse(&data, 0).map_err(|_| LabelError::Engine {
-        start: 0,
-        end: 0,
-        message: format!("failed to parse embedded font {}", face.name),
-    })?;
-
-    Ok(Some(TextFace {
-        data: TextFontData::Shared(data),
-        face_index: 0,
-        family_name: Some(family.to_string()),
-        postscript_name: None,
-    }))
 }
 
 fn fontdb_face_for_style_and_text(
@@ -854,44 +829,12 @@ fn font_family_name(face: &ttf_parser::Face<'_>) -> Option<String> {
         .or_else(|| font_name(face, ttf_parser::name_id::FAMILY))
 }
 
-fn select_embedded_face(
-    faces: &'static [EmbeddedFontFace],
-    weight: &FontWeight,
-    style: FontStyle,
-) -> Option<&'static EmbeddedFontFace> {
-    let target_weight = font_weight_number(weight);
-    faces
-        .iter()
-        .filter(|face| face.style == style)
-        .min_by_key(|face| {
-            (
-                face.weight.abs_diff(target_weight),
-                face.weight < target_weight,
-            )
-        })
-}
-
 fn font_weight_number(weight: &FontWeight) -> u16 {
     match weight {
         FontWeight::Normal => 400,
         FontWeight::Bold => 700,
         FontWeight::Number(value) => (*value).clamp(1, 1000),
     }
-}
-
-fn embedded_text_family(font_family: &str) -> Option<(&'static str, &'static [EmbeddedFontFace])> {
-    font_family.split(',').find_map(|family| {
-        let family = family.trim().trim_matches('"').trim_matches('\'');
-        if family.eq_ignore_ascii_case("sans-serif") || family.eq_ignore_ascii_case("Lato") {
-            Some(("Lato", LATO_FACES))
-        } else if family.eq_ignore_ascii_case("monospace")
-            || family.eq_ignore_ascii_case("DejaVu Sans Mono")
-        {
-            Some(("DejaVu Sans Mono", DEJAVU_SANS_MONO_FACES))
-        } else {
-            None
-        }
-    })
 }
 
 fn font_scale(face: &ttf_parser::Face<'_>, font_size: f32) -> f32 {

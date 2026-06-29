@@ -442,7 +442,8 @@ impl SvgRenderer {
     }
 
     fn text_engine(&self) -> Result<TextEngine, AvengerSvgError> {
-        TextEngine::with_default_config().map_err(|err| AvengerSvgError::Text(err.to_string()))
+        TextEngine::with_font_resolution(&self.options.font_resolution)
+            .map_err(|err| AvengerSvgError::Text(err.to_string()))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1599,6 +1600,11 @@ fn close_single_point_subpath(
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{Cursor, Read},
+        sync::Arc,
+    };
+
     use avenger_color::{ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient};
     use avenger_common::value::ScalarOrArray;
     use avenger_image::RgbaImage;
@@ -1623,6 +1629,66 @@ mod tests {
 
     use super::*;
 
+    fn test_renderer() -> SvgRenderer {
+        SvgRenderer::new().with_options(SvgRenderOptions {
+            font_resolution: test_font_resolution(),
+            ..Default::default()
+        })
+    }
+
+    fn test_font_resolution() -> avenger_text::FontResolutionOptions {
+        avenger_text::FontResolutionOptions {
+            load_system_fonts: true,
+            registered_fonts: test_registered_fonts(),
+            default_sans_serif_family: Some("Lato".to_string()),
+            default_monospace_family: Some("DejaVu Sans Mono".to_string()),
+            default_math_family: Some("Lete Sans Math".to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn test_registered_fonts() -> Vec<avenger_text::RegisteredFont> {
+        test_font_data()
+            .iter()
+            .enumerate()
+            .map(|(index, data)| {
+                avenger_text::RegisteredFont::new(
+                    avenger_text::MathFontBytesId((index + 1) as u64),
+                    data.clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn test_font_data() -> &'static [Arc<[u8]>] {
+        static FONTS: std::sync::OnceLock<Vec<Arc<[u8]>>> = std::sync::OnceLock::new();
+        FONTS.get_or_init(|| {
+            TEST_COMPRESSED_FONTS
+                .iter()
+                .map(|data| decompress_font(data))
+                .collect()
+        })
+    }
+
+    fn decompress_font(compressed_data: &[u8]) -> Arc<[u8]> {
+        let mut reader = brotli::Decompressor::new(Cursor::new(compressed_data), 4096);
+        let mut data = Vec::new();
+        reader
+            .read_to_end(&mut data)
+            .expect("test font should decompress");
+        Arc::<[u8]>::from(data)
+    }
+
+    const TEST_COMPRESSED_FONTS: &[&[u8]] = &[
+        include_bytes!("../../avenger-chart/fonts/Lato/Lato-Light.ttf.br"),
+        include_bytes!("../../avenger-chart/fonts/Lato/Lato-Italic.ttf.br"),
+        include_bytes!("../../avenger-chart/fonts/Lato/Lato-Medium.ttf.br"),
+        include_bytes!("../../avenger-chart/fonts/Lato/Lato-Bold.ttf.br"),
+        include_bytes!("../../avenger-chart/fonts/DejaVu_Sans_Mono/DejaVuSansMono.ttf.br"),
+        include_bytes!("../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath.otf.br"),
+        include_bytes!("../../avenger-chart/fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br"),
+    ];
+
     #[test]
     fn renders_simple_rect_svg_that_usvg_can_parse() {
         let scene_graph = SceneGraph {
@@ -1641,7 +1707,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.starts_with(r#"<svg xmlns="http://www.w3.org/2000/svg""#));
         assert!(svg.contains(r##"fill="#ff0000""##));
@@ -1657,7 +1723,7 @@ mod tests {
             marks: vec![],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(
             r##"<rect x="0" y="0" width="20" height="10" fill="#ffffff" stroke="none"/>"##
@@ -1683,7 +1749,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(r#"<line x1="3" y1="5" x2="5" y2="7""#));
         assert!(svg.contains(r#"stroke-dasharray="2 1""#));
@@ -1709,7 +1775,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(r#"stroke-dasharray="2 1""#));
         assert!(svg.contains(r#"stroke-dashoffset="0.5""#));
@@ -1735,7 +1801,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(r##"fill="#0000ff""##));
     }
@@ -1770,7 +1836,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(r#"<clipPath id="svg-clip-0" clipPathUnits="userSpaceOnUse"><rect x="4" y="6" width="5" height="6"/></clipPath>"#));
         assert!(svg.contains(r#"clip-path="url(#svg-clip-0)""#));
@@ -1825,7 +1891,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(r#"<linearGradient id="svg-gradient-0" gradientUnits="objectBoundingBox" x1="0" y1="0" x2="1" y2="0">"#));
         assert!(svg.contains(r#"<pattern id="svg-gradient-1" viewBox="0 0 1 1" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">"#));
@@ -1874,7 +1940,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(
             r#"<linearGradient id="svg-gradient-0" gradientUnits="objectBoundingBox" x1="0" y1="1" x2="0" y2="0">"#
@@ -1902,7 +1968,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert_eq!(svg.matches("<path ").count(), 2);
         assert!(svg.contains(r##"fill="#00ff00""##));
@@ -1934,7 +2000,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(r#"<image x="3" y="5" width="4" height="5""#));
         assert!(svg.contains(r#"preserveAspectRatio="none""#));
@@ -1976,7 +2042,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains("<path "));
         assert!(svg.contains(r##"fill="#ff0000""##));
@@ -2007,7 +2073,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(r##" fill="#ff0000" fill-opacity="0.5" text-anchor="start" dominant-baseline="alphabetic""##));
         assert!(svg.contains("<style><![CDATA[\n@font-face"));
@@ -2040,7 +2106,7 @@ mod tests {
             }
             .into()],
         };
-        let math_svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let math_svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(math_svg.contains("<path "));
         assert!(math_svg.contains("<text "));
@@ -2068,7 +2134,7 @@ mod tests {
             }
             .into()],
         };
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains("<text "));
         assert!(svg.contains("Mood "));
@@ -2097,6 +2163,7 @@ mod tests {
         };
         let svg = SvgRenderer::new()
             .with_options(SvgRenderOptions {
+                font_resolution: test_font_resolution(),
                 rasterize_color_emoji: true,
                 ..Default::default()
             })
@@ -2128,7 +2195,7 @@ mod tests {
             }
             .into()],
         };
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(">H</text>"));
         assert!(svg.contains(">2</text>"));
@@ -2165,7 +2232,7 @@ mod tests {
             .with_options(SvgRenderOptions {
                 font_resolution: avenger_text::FontResolutionOptions {
                     missing_font: avenger_text::MissingFontPolicy::Fallback,
-                    ..Default::default()
+                    ..test_font_resolution()
                 },
                 ..Default::default()
             })
@@ -2196,7 +2263,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains("\u{2026}</text>"));
         assert!(!svg.contains("Long label text</text>"));
@@ -2284,7 +2351,7 @@ mod tests {
             .into()],
         };
 
-        let svg = SvgRenderer::new().render_scene_graph(&scene_graph).unwrap();
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert_eq!(svg.matches("<path ").count(), 1);
         assert!(svg.contains(r##"fill="#0000ff" fill-opacity="0.5" stroke="none""##));

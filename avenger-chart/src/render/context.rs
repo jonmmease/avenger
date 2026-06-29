@@ -13,10 +13,7 @@ use std::{
 };
 
 use avenger_scenegraph::marks::group::Clip;
-use avenger_text::{
-    default_text_engine,
-    measurement::{TextBounds, TextMeasurementConfig},
-};
+use avenger_text::measurement::{TextBounds, TextMeasurementConfig};
 use datafusion::{
     arrow::datatypes::DataType, common::ScalarValue, dataframe::DataFrame, prelude::SessionContext,
 };
@@ -1110,7 +1107,7 @@ impl EvaluationContext {
         config: &TextMeasurementConfig<'_>,
     ) -> Result<TextBounds, AvengerChartError> {
         self.measure_text_bounds_cached(config, TEXT_MEASUREMENT_CACHE_TAG, |config| {
-            default_text_engine().measure_bounds(config)
+            crate::fonts::default_chart_text_engine().measure_bounds(config)
         })
     }
 
@@ -1151,7 +1148,7 @@ impl EvaluationContext {
                 bounds
             } else {
                 self.record_text_measurement_cache_miss();
-                let bounds = default_text_engine()
+                let bounds = crate::fonts::default_chart_text_engine()
                     .measure_bounds_with_plain_fallback_or_approx(&effective_config);
                 cache
                     .lock()
@@ -1171,7 +1168,8 @@ impl EvaluationContext {
                 syntax_mode: config.syntax_mode,
                 params: &text_params,
             };
-            default_text_engine().measure_bounds_with_plain_fallback_or_approx(&effective_config)
+            crate::fonts::default_chart_text_engine()
+                .measure_bounds_with_plain_fallback_or_approx(&effective_config)
         }
     }
 

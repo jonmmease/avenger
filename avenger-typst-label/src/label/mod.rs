@@ -15,6 +15,7 @@ use std::{
     hash::{Hash, Hasher},
     ops::Range,
     path::PathBuf,
+    sync::Arc,
 };
 
 use indexmap::IndexMap;
@@ -40,7 +41,7 @@ use crate::typst_render::RasterRequest;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub use crate::typst_library::TextStyle;
+pub use crate::typst_library::{MathFontBytesId, TextStyle};
 pub use error::{LabelError, LabelInitError};
 pub use pdf::{
     FontResource, FontResourceId, PdfDrawItem, PdfGlyph, PdfGlyphRun, PdfLabel, PdfOptions,
@@ -70,6 +71,11 @@ pub struct FontOptions {
     pub load_system_fonts: bool,
     pub extra_font_dirs: Vec<PathBuf>,
     pub extra_font_families: Vec<String>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub registered_fonts: Vec<RegisteredFont>,
+    pub default_sans_serif_family: Option<String>,
+    pub default_monospace_family: Option<String>,
+    pub default_math_family: Option<String>,
 }
 
 impl Default for FontOptions {
@@ -78,7 +84,33 @@ impl Default for FontOptions {
             load_system_fonts: true,
             extra_font_dirs: Vec::new(),
             extra_font_families: Vec::new(),
+            registered_fonts: Vec::new(),
+            default_sans_serif_family: None,
+            default_monospace_family: None,
+            default_math_family: None,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredFont {
+    pub id: MathFontBytesId,
+    pub data: Arc<[u8]>,
+    pub face_index: u32,
+}
+
+impl RegisteredFont {
+    pub fn new(id: MathFontBytesId, data: impl Into<Arc<[u8]>>) -> Self {
+        Self {
+            id,
+            data: data.into(),
+            face_index: 0,
+        }
+    }
+
+    pub fn with_face_index(mut self, face_index: u32) -> Self {
+        self.face_index = face_index;
+        self
     }
 }
 

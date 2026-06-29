@@ -109,6 +109,7 @@ pub mod doc;
 pub mod error;
 pub mod event;
 pub mod facet;
+pub mod fonts;
 pub mod guide;
 pub mod layout;
 pub mod legend;

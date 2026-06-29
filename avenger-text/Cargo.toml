@@ -18,7 +18,6 @@ ordered-float = { workspace = true }
 svgtypes = { workspace = true }
 ttf-parser = { workspace = true }
 fontdb = { workspace = true }
-brotli = { workspace = true }
 
 [dependencies.avenger-typst-label]
 path = "../avenger-typst-label"

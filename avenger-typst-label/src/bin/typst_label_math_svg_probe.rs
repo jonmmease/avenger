@@ -1,8 +1,8 @@
 use std::{error::Error, path::PathBuf};
 
 use avenger_typst_label::{
-    svg_items, Color, EngineOptions, FontWeight, LabelEngine, LabelFrameItem, LabelOptions,
-    LineCap, LineJoin, PathCommand, PathItem, Point, Stroke, SvgOptions, TextItemKind, Transform,
+    Color, EngineOptions, FontWeight, LabelEngine, LabelFrameItem, LabelOptions, LineCap, LineJoin,
+    PathCommand, PathItem, Point, Stroke, SvgOptions, TextItemKind, Transform, svg_items,
 };
 
 const PRECISION: usize = 3;

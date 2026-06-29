@@ -32,8 +32,12 @@ impl Default for WgpuRenderer {
 impl WgpuRenderer {
     /// Create a renderer with default settings (scale = 1.0).
     pub fn new() -> Self {
+        let canvas_config = CanvasConfig {
+            font_resolution: crate::fonts::default_font_resolution(),
+            ..Default::default()
+        };
         Self {
-            canvas_config: CanvasConfig::default(),
+            canvas_config,
             scale: 1.0,
         }
     }

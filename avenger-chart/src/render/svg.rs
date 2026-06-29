@@ -47,8 +47,12 @@ impl Default for SvgRenderer {
 impl SvgRenderer {
     /// Create a renderer with default SVG options.
     pub fn new() -> Self {
+        let options = avenger_svg::SvgRenderOptions {
+            font_resolution: crate::fonts::default_font_resolution(),
+            ..Default::default()
+        };
         Self {
-            scene_renderer: avenger_svg::SvgRenderer::new(),
+            scene_renderer: avenger_svg::SvgRenderer::new().with_options(options),
             image_resource_resolver: Arc::new(ImageResourceCache::new()),
             image_resource_load_options: ImageResourceLoadOptions::default(),
         }

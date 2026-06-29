@@ -12,7 +12,7 @@ use crate::typst_eval::math::parse_math;
 use crate::typst_layout::inline::font::build_text_fontdb;
 use crate::typst_layout::inline::try_layout_text_line;
 #[cfg(test)]
-use crate::typst_layout::math::try_typeset_simple_row_fragment;
+use crate::typst_layout::math::try_typeset_simple_row_fragment_with_fontdb;
 use crate::typst_library::text::content::{LabelContent, LineNode, PlainTextNode};
 
 #[derive(Clone)]
@@ -42,7 +42,12 @@ impl TypstEngineCore {
         options: &MathLayoutOptions,
     ) -> Result<MathRunArtifact, LabelError> {
         let math = parse_math(source, 0)?;
-        if let Some(artifact) = try_typeset_simple_row_fragment(&math, options, &self.config)? {
+        if let Some(artifact) = try_typeset_simple_row_fragment_with_fontdb(
+            &math,
+            options,
+            &self.config,
+            self.text_fontdb.as_ref(),
+        )? {
             return Ok(artifact);
         }
         unsupported_fragment()

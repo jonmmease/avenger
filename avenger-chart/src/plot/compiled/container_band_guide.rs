@@ -9,7 +9,7 @@ use std::sync::Arc as StdArc;
 use avenger_color::ColorOrGradient;
 use avenger_scenegraph::marks::{mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::{
-    TextEngine, default_text_engine,
+    TextEngine,
     measurement::TextMeasurementConfig,
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline},
 };
@@ -74,7 +74,7 @@ pub(crate) struct ContainerBandGuideRenderConfig {
 pub(crate) fn measure_container_band_guide_slab(
     config: &ContainerBandGuideMeasurementConfig,
 ) -> f32 {
-    let text_engine = default_text_engine();
+    let text_engine = crate::fonts::default_chart_text_engine();
     measure_container_band_guide_slab_uncached(config, &text_engine)
 }
 
@@ -123,7 +123,7 @@ pub(crate) fn render_container_band_guide_slab(
     theme: &Theme,
     theme_params: &IndexMap<String, ScalarValue>,
 ) -> Vec<SceneMark> {
-    let text_engine = default_text_engine();
+    let text_engine = crate::fonts::default_chart_text_engine();
     let mut marks = Vec::new();
     let label_dimensions = measure_label_dimensions(
         &config.labels,

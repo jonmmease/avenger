@@ -5,13 +5,13 @@ use std::{
 };
 
 use typst_upstream::{
+    Features, Library, LibraryExt, World,
     diag::{FileError, FileResult},
     foundations::{Bytes, Datetime, Duration, Smart},
     layout::{Abs, Margin, PageElem},
     syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot},
     text::{Font, FontBook, TextElem, TextSize},
     utils::LazyHash,
-    Features, Library, LibraryExt, World,
 };
 
 fn main() -> Result<(), Box<dyn Error>> {

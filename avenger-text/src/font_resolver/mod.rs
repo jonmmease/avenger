@@ -20,14 +20,22 @@ pub trait FontResolver: Send + Sync {
 pub struct FontResolutionOptions {
     pub load_system_fonts: bool,
     pub extra_font_dirs: Vec<PathBuf>,
+    pub registered_fonts: Vec<avenger_typst_label::RegisteredFont>,
+    pub default_sans_serif_family: Option<String>,
+    pub default_monospace_family: Option<String>,
+    pub default_math_family: Option<String>,
     pub missing_font: MissingFontPolicy,
 }
 
 impl Default for FontResolutionOptions {
     fn default() -> Self {
         Self {
-            load_system_fonts: false,
+            load_system_fonts: true,
             extra_font_dirs: Vec::new(),
+            registered_fonts: Vec::new(),
+            default_sans_serif_family: None,
+            default_monospace_family: None,
+            default_math_family: None,
             missing_font: MissingFontPolicy::Error,
         }
     }
@@ -92,7 +100,7 @@ impl FontResolver for FontdbFontResolver {
         self.generic_families
             .get("sans-serif")
             .cloned()
-            .unwrap_or_else(|| "Lato".to_string())
+            .unwrap_or_else(|| "sans-serif".to_string())
     }
 
     fn resolve_generic_family(&self, generic: &str) -> Option<String> {
@@ -163,20 +171,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn option_resolver_uses_bundled_lato_sans_serif_when_system_fonts_are_disabled() {
+    fn option_resolver_uses_system_fonts_by_default() {
         let resolver = FontdbFontResolver::with_font_resolution(&FontResolutionOptions::default());
 
-        assert_eq!(
-            resolver.resolve_generic_family("sans-serif").as_deref(),
-            Some("Lato")
-        );
-        assert_eq!(
+        assert!(resolver.resolve_generic_family("sans-serif").is_some());
+        assert_ne!(
             resolver.select_available_font(vec!["sans-serif".to_string()]),
-            "Lato"
+            "sans-serif"
         );
+    }
+
+    #[test]
+    fn option_resolver_uses_generic_name_when_fonts_are_disabled() {
+        let resolver = FontdbFontResolver::with_font_resolution(&FontResolutionOptions {
+            load_system_fonts: false,
+            ..Default::default()
+        });
+
+        assert_eq!(resolver.resolve_generic_family("sans-serif"), None);
         assert_eq!(
             resolver.select_available_font(vec!["Missing Font".to_string()]),
-            "Lato"
+            "sans-serif"
         );
     }
 

@@ -220,6 +220,10 @@ impl Canvas for RendererCanvasAdapter<'_> {
         self.renderer.dimensions()
     }
 
+    fn font_resolution(&self) -> &avenger_text::FontResolutionOptions {
+        self.renderer.font_resolution()
+    }
+
     fn texture_format(&self) -> TextureFormat {
         self.renderer.texture_format()
     }
@@ -270,7 +274,8 @@ impl AvengerRendererCore {
     ) -> Self {
         let multi_render_resources =
             MultiMarkRenderResources::new(device, texture_format, sample_count);
-        let text_atlas_builder = make_text_atlas_builder(&config.text_builder_ctor);
+        let text_atlas_builder =
+            make_text_atlas_builder(&config.text_builder_ctor, &config.font_resolution);
 
         Self {
             dimensions,
@@ -302,6 +307,10 @@ impl AvengerRendererCore {
 
     pub(crate) fn sample_count(&self) -> u32 {
         self.sample_count
+    }
+
+    pub(crate) fn font_resolution(&self) -> &avenger_text::FontResolutionOptions {
+        &self.config.font_resolution
     }
 
     pub(crate) fn image_resource_status(&self) -> &WgpuImageResourceStatus {
@@ -567,7 +576,8 @@ impl AvengerRendererCore {
         // Reset the shared text atlas so each frame starts clean (matches the old
         // per-renderer reset-per-frame semantics). `TextAtlasBuilder` has no reset
         // method, so replace it with a fresh builder via the same ctor.
-        self.text_atlas_builder = make_text_atlas_builder(&self.config.text_builder_ctor);
+        self.text_atlas_builder =
+            make_text_atlas_builder(&self.config.text_builder_ctor, &self.config.font_resolution);
     }
 
     pub(crate) fn make_frame_overlay_command(
@@ -665,20 +675,23 @@ impl AvengerRendererCore {
 /// otherwise use the default text rasterizer.
 pub(crate) fn make_text_atlas_builder(
     text_builder_ctor: &Option<TextBuildCtor>,
+    font_resolution: &avenger_text::FontResolutionOptions,
 ) -> Box<dyn TextAtlasBuilderTrait> {
     if let Some(text_builder_ctor) = text_builder_ctor {
         text_builder_ctor()
     } else {
-        make_default_text_atlas_builder()
+        make_default_text_atlas_builder(font_resolution)
     }
 }
 
-fn make_default_text_atlas_builder() -> Box<dyn TextAtlasBuilderTrait> {
+fn make_default_text_atlas_builder(
+    font_resolution: &avenger_text::FontResolutionOptions,
+) -> Box<dyn TextAtlasBuilderTrait> {
     use crate::marks::text::TextAtlasBuilder;
     use std::sync::Arc;
 
-    let text_engine =
-        avenger_text::TextEngine::with_default_config().expect("failed to initialize text engine");
+    let text_engine = avenger_text::TextEngine::with_font_resolution(font_resolution)
+        .expect("failed to initialize text engine");
     Box::new(TextAtlasBuilder::new(Arc::new(text_engine)))
 }
 
@@ -687,11 +700,14 @@ mod text_raster_tests {
     use avenger_common::canvas::CanvasDimensions;
     use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 
-    use crate::{marks::text::TextInstance, renderer::make_text_atlas_builder};
+    use crate::{
+        canvas::CanvasConfig, marks::text::TextInstance, renderer::make_text_atlas_builder,
+    };
 
     #[test]
     fn text_atlas_builder_registers_whole_mixed_label() {
-        let mut builder = make_text_atlas_builder(&None);
+        let config = CanvasConfig::default();
+        let mut builder = make_text_atlas_builder(&None, &config.font_resolution);
 
         let text = "speed $v^2$".to_string();
         let color = [0.1, 0.2, 0.3, 1.0];
@@ -716,6 +732,7 @@ mod text_raster_tests {
                     font_style: &font_style,
                     limit: f32::INFINITY,
                     syntax_mode: TextSyntaxMode::TypstMarkup,
+                    params: avenger_text::empty_label_params(),
                     use_nearest_filter: false,
                 },
                 CanvasDimensions {

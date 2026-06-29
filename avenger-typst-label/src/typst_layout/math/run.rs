@@ -18,23 +18,33 @@ use ast::{
     MathShorthand, MathSpacing, MathText, MathTextKind,
 };
 
+#[cfg(test)]
 pub(crate) fn try_typeset_simple_row_fragment(
     math: &MathAst,
     options: &MathLayoutOptions,
     config: &EngineOptions,
 ) -> Result<Option<MathRunArtifact>, LabelError> {
-    if !matches!(
-        options.style.font,
-        MathFontSpec::LeteSansMath | MathFontSpec::NewComputerModernMath
-    ) {
-        return Ok(None);
-    }
+    let fontdb = crate::typst_layout::inline::font::build_text_fontdb(config);
+    try_typeset_simple_row_fragment_with_fontdb(math, options, config, &fontdb)
+}
+
+pub(crate) fn try_typeset_simple_row_fragment_with_fontdb(
+    math: &MathAst,
+    options: &MathLayoutOptions,
+    config: &EngineOptions,
+    fontdb: &fontdb::Database,
+) -> Result<Option<MathRunArtifact>, LabelError> {
     if !config.fonts.extra_font_families.is_empty() {
         return Ok(None);
     }
 
     let Some(font) =
-        load_default_math_font(config, &options.style.font, &options.style.font_weight)
+        load_default_math_font_with_fontdb(
+            config,
+            fontdb,
+            &options.style.font,
+            &options.style.font_weight,
+        )
     else {
         return Ok(None);
     };

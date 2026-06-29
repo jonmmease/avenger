@@ -420,6 +420,24 @@ fn escape_css_string(value: &str) -> String {
 mod tests {
     use super::*;
 
+    fn caveat_font_options() -> FontResolutionOptions {
+        FontResolutionOptions {
+            extra_font_dirs: vec![std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../avenger-vega-test-data/fonts/Caveat/static")],
+            default_sans_serif_family: Some("Caveat".to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn caveat_regular_len() -> usize {
+        std::fs::metadata(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../avenger-vega-test-data/fonts/Caveat/static/Caveat-Regular.ttf"),
+        )
+        .expect("Caveat fixture should exist")
+        .len() as usize
+    }
+
     #[test]
     fn parses_named_font_family_before_generic_fallbacks() {
         let options = FontResolutionOptions::default();
@@ -450,14 +468,14 @@ mod tests {
     }
 
     #[test]
-    fn embeds_subset_woff2_css_for_bundled_fonts() {
+    fn embeds_subset_woff2_css_for_configured_fonts() {
         let mut collector = SvgFontCollector::default();
-        let options = FontResolutionOptions::default();
+        let options = caveat_font_options();
         collector
             .collect_text(
-                "Lato",
+                "Caveat",
                 &FontWeight::Name(FontWeightNameSpec::Bold),
-                &FontStyle::Italic,
+                &FontStyle::Normal,
                 "Axis",
                 &options,
             )
@@ -466,8 +484,8 @@ mod tests {
         let css = collector.font_face_css(&options).unwrap();
 
         assert!(css.contains("@font-face"));
-        assert!(css.contains("font-family: \"Lato\";"));
-        assert!(css.contains("font-style: italic;"));
+        assert!(css.contains("font-family: \"Caveat\";"));
+        assert!(css.contains("font-style: normal;"));
         assert!(css.contains("font-weight: 700;"));
         assert!(css.contains("data:font/woff2;base64,"));
     }
@@ -475,10 +493,10 @@ mod tests {
     #[test]
     fn resolves_to_first_available_named_font_family() {
         let mut collector = SvgFontCollector::default();
-        let options = FontResolutionOptions::default();
+        let options = caveat_font_options();
         collector
             .collect_text(
-                "\"Missing Display Face\", \"Lato\", sans-serif",
+                "\"Missing Display Face\", \"Caveat\", sans-serif",
                 &FontWeight::Name(FontWeightNameSpec::Normal),
                 &FontStyle::Normal,
                 "Axis",
@@ -488,34 +506,21 @@ mod tests {
 
         let css = collector.font_face_css(&options).unwrap();
 
-        assert!(css.contains("font-family: \"Lato\";"));
+        assert!(css.contains("font-family: \"Caveat\";"));
         assert!(!css.contains("font-family: \"Missing Display Face\";"));
     }
 
     #[test]
-    fn embeds_four_bundled_weight_style_faces_in_deterministic_order() {
+    fn embeds_configured_weight_faces_in_deterministic_order() {
         let mut collector = SvgFontCollector::default();
-        let options = FontResolutionOptions::default();
-        for (weight, style) in [
-            (
-                FontWeight::Name(FontWeightNameSpec::Bold),
-                FontStyle::Italic,
-            ),
-            (
-                FontWeight::Name(FontWeightNameSpec::Normal),
-                FontStyle::Italic,
-            ),
-            (
-                FontWeight::Name(FontWeightNameSpec::Bold),
-                FontStyle::Normal,
-            ),
-            (
-                FontWeight::Name(FontWeightNameSpec::Normal),
-                FontStyle::Normal,
-            ),
+        let options = caveat_font_options();
+        for weight in [
+            FontWeight::Name(FontWeightNameSpec::Normal),
+            FontWeight::Name(FontWeightNameSpec::Bold),
+            FontWeight::Number(500.0),
         ] {
             collector
-                .collect_text("Lato", &weight, &style, "Axis", &options)
+                .collect_text("Caveat", &weight, &FontStyle::Normal, "Axis", &options)
                 .unwrap();
         }
 
@@ -523,29 +528,25 @@ mod tests {
         let regular = css
             .find("font-style: normal;\n  font-weight: 400;")
             .unwrap();
-        let italic = css
-            .find("font-style: italic;\n  font-weight: 400;")
+        let medium = css
+            .find("font-style: normal;\n  font-weight: 500;")
             .unwrap();
         let bold = css
             .find("font-style: normal;\n  font-weight: 700;")
             .unwrap();
-        let bold_italic = css
-            .find("font-style: italic;\n  font-weight: 700;")
-            .unwrap();
 
-        assert_eq!(css.matches("@font-face").count(), 4);
-        assert!(regular < italic);
-        assert!(italic < bold);
-        assert!(bold < bold_italic);
+        assert_eq!(css.matches("@font-face").count(), 3);
+        assert!(regular < medium);
+        assert!(medium < bold);
     }
 
     #[test]
     fn subset_woff2_css_is_materially_smaller_than_full_font() {
         let mut collector = SvgFontCollector::default();
-        let options = FontResolutionOptions::default();
+        let options = caveat_font_options();
         collector
             .collect_text(
-                "Lato",
+                "Caveat",
                 &FontWeight::Name(FontWeightNameSpec::Normal),
                 &FontStyle::Normal,
                 "Axis",
@@ -555,13 +556,8 @@ mod tests {
 
         let css = collector.font_face_css(&options).unwrap();
         let subset = first_woff2_payload(&css);
-        let medium_font = avenger_text::fonts::embedded_fonts()
-            .iter()
-            .find(|font| font.name == "Lato-Medium")
-            .expect("medium Lato face should be embedded");
-        let medium_font_data = medium_font.decompressed_data();
 
-        assert!(subset.len() < medium_font_data.len() / 2);
+        assert!(subset.len() < caveat_regular_len() / 2);
     }
 
     #[test]

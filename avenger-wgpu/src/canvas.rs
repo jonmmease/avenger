@@ -22,7 +22,6 @@ use avenger_scenegraph::{
     scene_graph::SceneGraph,
 };
 use avenger_text::{
-    default_text_engine,
     measurement::{truncate_text_to_limit_with, TextMeasurementConfig},
     types::TextSyntaxMode,
     FontResolutionOptions, TextEngine,
@@ -130,6 +129,8 @@ pub trait Canvas {
     fn device(&self) -> &Device;
     fn queue(&self) -> &Queue;
     fn dimensions(&self) -> CanvasDimensions;
+
+    fn font_resolution(&self) -> &FontResolutionOptions;
 
     fn texture_format(&self) -> TextureFormat;
 
@@ -292,12 +293,13 @@ pub trait Canvas {
         origin: [f32; 2],
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
-        // Register every glyph run into the shared (per-canvas) text atlas. This
-        // mirrors the loop that previously lived in `MultiMarkRenderer::add_text_mark`;
-        // only the location of the call moved (the register_text math is unchanged), so
-        // glyph bitmaps and baked UVs — and therefore rendered pixels — are identical.
+        // Register every text line into the shared per-canvas atlas before marks are
+        // batched, then reuse the same configured text engine for leader geometry.
         let dimensions = self.dimensions();
-        let text_engine = default_text_engine();
+        let text_engine =
+            TextEngine::with_font_resolution(self.font_resolution()).map_err(|err| {
+                AvengerWgpuError::TextError(format!("failed to initialize text engine: {err}"))
+            })?;
         let leader_stroke_dash_values = mark
             .leader_stroke_dash
             .as_ref()
@@ -1060,6 +1062,10 @@ impl Canvas for WindowCanvas<'_> {
         self.renderer.dimensions()
     }
 
+    fn font_resolution(&self) -> &FontResolutionOptions {
+        self.renderer.font_resolution()
+    }
+
     fn texture_format(&self) -> TextureFormat {
         self.renderer.texture_format()
     }
@@ -1270,6 +1276,10 @@ impl Canvas for PngCanvas {
 
     fn dimensions(&self) -> CanvasDimensions {
         self.renderer.dimensions()
+    }
+
+    fn font_resolution(&self) -> &FontResolutionOptions {
+        self.renderer.font_resolution()
     }
 
     fn texture_format(&self) -> TextureFormat {

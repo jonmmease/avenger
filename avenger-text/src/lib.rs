@@ -10,7 +10,7 @@ pub mod rasterization;
 mod text_line;
 pub mod types;
 
-pub use avenger_typst_label::{LabelParamValue, LabelParams};
+pub use avenger_typst_label::{LabelParamValue, LabelParams, MathFontBytesId, RegisteredFont};
 pub use engine::{default_text_engine, TextEngine};
 pub use font_resolver::{FontResolutionOptions, FontResolver, MissingFontPolicy};
 pub use math::{empty_label_params, label_params_fingerprint};

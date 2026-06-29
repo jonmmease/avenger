@@ -26,9 +26,9 @@ pub use label::{
     GroupItem, ImageItem, LabelEngine, LabelError, LabelFlags, LabelFrame, LabelFrameItem,
     LabelInitError, LabelLimits, LabelMetrics, LabelOptions, LabelParamValue, LabelParams,
     LabelWarning, PdfDrawItem, PdfGlyph, PdfGlyphRun, PdfLabel, PdfOptions, PdfPathItem,
-    PdfTextLayer, Point, RasterImage, RasterOptions, ShapeItem, Size, SvgLabel, SvgOptions,
-    TextItem, TextItemKind, TextStyle, escape_text, pdf_items, rasterize, referenced_params,
-    svg_items,
+    PdfTextLayer, Point, RasterImage, RasterOptions, RegisteredFont, ShapeItem, Size, SvgLabel,
+    SvgOptions, TextItem, TextItemKind, TextStyle, escape_text, pdf_items, rasterize,
+    referenced_params, svg_items,
 };
 pub use typst_library::{Color, FontStyle, FontWeight, MathFontBytesId, MathFontSpec, MathStyle};
 pub use typst_render::{RasterRequest, RgbaImageData};

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use avenger_color::ColorOrGradient;
 use avenger_scenegraph::marks::{mark::SceneMark, text::SceneTextMark};
 use avenger_text::{
-    TextEngine, default_text_engine,
+    TextEngine,
     measurement::{TextBounds, TextMeasurementConfig},
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
 };
@@ -124,7 +124,7 @@ pub(crate) fn measure_container_label_slab(
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
 ) -> f32 {
-    let text_engine = default_text_engine();
+    let text_engine = crate::fonts::default_chart_text_engine();
     let Some(max_label_extent) =
         measured_container_labels(items, &label_style(theme, params), &text_engine)
             .into_iter()
@@ -149,7 +149,7 @@ pub(crate) fn render_container_labels(
     theme: &Theme,
     params: &IndexMap<String, ScalarValue>,
 ) -> Vec<SceneMark> {
-    let text_engine = default_text_engine();
+    let text_engine = crate::fonts::default_chart_text_engine();
     let style = label_style(theme, params);
     let measured = measured_container_labels(items, &style, &text_engine);
     if measured.is_empty() {

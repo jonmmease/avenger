@@ -371,74 +371,7 @@ fn plain_line_bounds(tight: TextBounds, font_size: f32) -> TextBounds {
 }
 
 fn typst_font_metrics(config: &FontMetricsConfig) -> FontMetrics {
-    embedded_lato_font_metrics(config).unwrap_or_else(|| FontMetrics::fallback(config.font_size))
-}
-
-fn embedded_lato_font_metrics(config: &FontMetricsConfig) -> Option<FontMetrics> {
-    let data = embedded_lato_face_data(config.font_weight, config.font_style)?;
-    let face = ttf_parser::Face::parse(&data, 0).ok()?;
-    Some(metrics_from_ttf_face(&face, config.font_size))
-}
-
-fn embedded_lato_face_data(font_weight: FontWeight, font_style: FontStyle) -> Option<Vec<u8>> {
-    let target_weight = font_weight_number(font_weight);
-    crate::fonts::embedded_fonts()
-        .iter()
-        .filter_map(|font| {
-            let (weight, style) = lato_face_info(font.name)?;
-            if style != font_style {
-                return None;
-            }
-            let data = font.decompressed_data();
-            Some((data, weight.abs_diff(target_weight), weight < target_weight))
-        })
-        .min_by_key(|(_, distance, lighter_than_target)| (*distance, *lighter_than_target))
-        .map(|(data, _, _)| data.to_vec())
-}
-
-fn lato_face_info(name: &str) -> Option<(u16, FontStyle)> {
-    let style = if name.ends_with("Italic") {
-        FontStyle::Italic
-    } else {
-        FontStyle::Normal
-    };
-    let weight = if name.contains("Light") {
-        300
-    } else if name.contains("Medium") {
-        500
-    } else if name.contains("Bold") {
-        700
-    } else if name.ends_with("Italic") {
-        400
-    } else {
-        return None;
-    };
-    Some((weight, style))
-}
-
-fn font_weight_number(weight: FontWeight) -> u16 {
-    match weight {
-        FontWeight::Name(FontWeightNameSpec::Normal) => 400,
-        FontWeight::Name(FontWeightNameSpec::Bold) => 700,
-        FontWeight::Number(value) => value.round().clamp(1.0, 1000.0) as u16,
-    }
-}
-
-fn metrics_from_ttf_face(face: &ttf_parser::Face<'_>, font_size: f32) -> FontMetrics {
-    let scale = font_size / face.units_per_em() as f32;
-    let ascent = face.ascender().max(0) as f32 * scale;
-    let descent = (-face.descender()).max(0) as f32 * scale;
-    let height = ascent + descent;
-    let line_gap = face.line_gap().max(0) as f32 * scale;
-    let line_height = (height + line_gap).max(height).max(font_size);
-
-    FontMetrics {
-        ascent,
-        descent,
-        height,
-        line_gap,
-        line_height,
-    }
+    FontMetrics::fallback(config.font_size)
 }
 
 fn typst_font_weight(weight: FontWeight) -> avenger_typst_label::FontWeight {
@@ -541,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn typst_font_metrics_use_embedded_face_metrics() {
+    fn typst_font_metrics_use_generic_fallback_metrics() {
         let metrics = typst_font_metrics(&FontMetricsConfig {
             font: "sans-serif",
             font_size: 16.0,
@@ -551,7 +484,7 @@ mod tests {
 
         assert!(metrics.ascent > 0.0);
         assert!(metrics.descent > 0.0);
-        assert!(metrics.height > 16.0);
+        assert_eq!(metrics.height, 16.0);
         assert!(metrics.line_height >= metrics.height);
     }
 

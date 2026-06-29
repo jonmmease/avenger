@@ -63,6 +63,7 @@ datafusion-proto-common = "48.0.1"
 prost = "0.13"
 futures = { workspace = true }
 base64 = { workspace = true }
+brotli = { workspace = true }
 arrow = { workspace = true }
 tokio = { workspace = true, default-features = false }
 palette = { workspace = true }

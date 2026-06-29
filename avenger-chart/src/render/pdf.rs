@@ -32,8 +32,12 @@ impl Default for PdfRenderer {
 impl PdfRenderer {
     /// Create a renderer with default PDF options.
     pub fn new() -> Self {
+        let options = avenger_pdf::PdfRenderOptions {
+            font_resolution: crate::fonts::default_font_resolution(),
+            ..Default::default()
+        };
         Self {
-            scene_renderer: avenger_pdf::PdfRenderer::new(),
+            scene_renderer: avenger_pdf::PdfRenderer::new().with_options(options),
             image_resource_resolver: Arc::new(ImageResourceCache::new()),
             image_resource_load_options: ImageResourceLoadOptions::default(),
         }

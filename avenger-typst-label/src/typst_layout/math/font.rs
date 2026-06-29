@@ -6,26 +6,31 @@ struct MathFont {
     face_index: u32,
 }
 
+#[cfg(test)]
 fn load_default_math_font(
     config: &EngineOptions,
     spec: &MathFontSpec,
     weight: &FontWeight,
 ) -> Option<MathFont> {
-    if matches!(spec, MathFontSpec::LeteSansMath) {
-        let target_weight = font_weight_number(weight);
-        let mut bundled = crate::label::fonts::bundled_math_fonts()
-            .iter()
-            .collect::<Vec<_>>();
-        bundled.sort_by_key(|face| {
-            (
-                face.weight.abs_diff(target_weight),
-                face.weight < target_weight,
-            )
-        });
-        for face in bundled {
-            if let Some(font) = math_font_from_data(face.decompressed_data().to_vec()) {
-                return Some(font);
-            }
+    let fontdb = crate::typst_layout::inline::font::build_text_fontdb(config);
+    load_default_math_font_with_fontdb(config, &fontdb, spec, weight)
+}
+
+fn load_default_math_font_with_fontdb(
+    config: &EngineOptions,
+    fontdb: &fontdb::Database,
+    spec: &MathFontSpec,
+    weight: &FontWeight,
+) -> Option<MathFont> {
+    if let MathFontSpec::FontBytes(id) = spec {
+        if let Some((data, face_index)) = crate::label::fonts::registered_font_data(config, *id) {
+            return math_font_from_face_data(data.to_vec(), face_index);
+        }
+    }
+
+    for family in math_font_family_candidates(config, spec) {
+        if let Some(font) = math_font_from_fontdb(fontdb, &family, weight) {
+            return Some(font);
         }
     }
 
@@ -40,6 +45,77 @@ fn load_default_math_font(
     None
 }
 
+fn math_font_family_candidates(config: &EngineOptions, spec: &MathFontSpec) -> Vec<String> {
+    let mut families = Vec::new();
+    let mut push = |family: &str| {
+        if !families
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(family))
+        {
+            families.push(family.to_string());
+        }
+    };
+
+    match spec {
+        MathFontSpec::LeteSansMath => {
+            if let Some(family) = &config.fonts.default_math_family {
+                push(family);
+            }
+            push("Lete Sans Math");
+            push("LeteSansMath");
+        }
+        MathFontSpec::NewComputerModernMath => {
+            push("New Computer Modern Math");
+            push("NewCMMath");
+        }
+        MathFontSpec::Family(family) => push(family),
+        MathFontSpec::FontBytes(_) => {}
+    }
+
+    families
+}
+
+fn math_font_from_fontdb(
+    fontdb: &fontdb::Database,
+    family: &str,
+    weight: &FontWeight,
+) -> Option<MathFont> {
+    let families = [fontdb::Family::Name(family)];
+    let query = fontdb::Query {
+        families: &families,
+        weight: fontdb::Weight(font_weight_number(weight)),
+        stretch: fontdb::Stretch::Normal,
+        style: fontdb::Style::Normal,
+    };
+    if let Some(font) = fontdb
+        .query(&query)
+        .and_then(|id| math_font_from_fontdb_id(fontdb, id))
+    {
+        return Some(font);
+    }
+
+    fontdb
+        .faces()
+        .filter(|face| {
+            face.families
+                .iter()
+                .any(|(candidate, _)| candidate.eq_ignore_ascii_case(family))
+        })
+        .filter_map(|face| math_font_from_fontdb_id(fontdb, face.id))
+        .find(|font| {
+            ttf_parser::Face::parse(&font.data, font.face_index)
+                .ok()
+                .and_then(|face| face.tables().math)
+                .is_some()
+        })
+}
+
+fn math_font_from_fontdb_id(fontdb: &fontdb::Database, id: fontdb::ID) -> Option<MathFont> {
+    fontdb.with_face_data(id, |data, face_index| {
+        math_font_from_face_data(data.to_vec(), face_index)
+    })?
+}
+
 fn font_weight_number(weight: &FontWeight) -> u16 {
     match weight {
         FontWeight::Normal => 400,
@@ -51,14 +127,17 @@ fn font_weight_number(weight: &FontWeight) -> u16 {
 fn math_font_from_data(data: Vec<u8>) -> Option<MathFont> {
     let face_count = ttf_parser::fonts_in_collection(&data).unwrap_or(1);
     for face_index in 0..face_count {
-        let Ok(face) = ttf_parser::Face::parse(&data, face_index) else {
-            continue;
-        };
-        if face.tables().math.is_some() {
-            return Some(MathFont { data, face_index });
+        if let Some(font) = math_font_from_face_data(data.clone(), face_index) {
+            return Some(font);
         }
     }
     None
+}
+
+fn math_font_from_face_data(data: Vec<u8>, face_index: u32) -> Option<MathFont> {
+    let face = ttf_parser::Face::parse(&data, face_index).ok()?;
+    face.tables().math?;
+    Some(MathFont { data, face_index })
 }
 
 fn parse_math_face<'a>(
