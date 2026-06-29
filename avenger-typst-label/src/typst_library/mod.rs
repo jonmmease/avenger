@@ -5,6 +5,7 @@
 //! text/math content models.
 
 pub mod font;
+pub(crate) mod foundations;
 pub mod math;
 pub mod symbols;
 pub mod text;

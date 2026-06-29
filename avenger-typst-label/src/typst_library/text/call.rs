@@ -5,8 +5,9 @@
 //! smallcaps, emph, strong, raw, symbols, and emoji. The evaluator calls into
 //! this module instead of owning function defaults itself.
 
-use crate::label::{LabelError, LabelParamValue, LabelParams};
+use crate::label::LabelError;
 use crate::typst_library::Color;
+use crate::typst_library::foundations::{Dict, Scope, Value};
 use crate::typst_library::text::content::{
     DecorationDash, DecorationDashLength, DecorationLength, DecorationStroke, TextMarkupKind,
     TextMarkupOptions,
@@ -65,7 +66,7 @@ pub(crate) fn named_color(name: &str) -> Option<Color> {
 pub(crate) fn parse_text_markup_option(
     kind: TextMarkupKind,
     named: typst_ast::Named<'_>,
-    params: &LabelParams,
+    params: &Scope,
     options: &mut TextMarkupOptions,
 ) -> Result<(), LabelError> {
     let position = named.to_untyped().range().start;
@@ -157,13 +158,13 @@ pub(crate) fn parse_decoration_stroke(
     expr: typst_ast::Expr<'_>,
     position: usize,
 ) -> Result<DecorationStroke, LabelError> {
-    parse_decoration_stroke_with_params(expr, position, &LabelParams::default())
+    parse_decoration_stroke_with_params(expr, position, &Scope::default())
 }
 
 fn parse_decoration_stroke_with_params(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<DecorationStroke, LabelError> {
     match expr {
         typst_ast::Expr::Ident(ident) => {
@@ -196,7 +197,7 @@ fn parse_decoration_stroke_with_params(
 fn parse_stroke_dict(
     dict: typst_ast::Dict<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<DecorationStroke, LabelError> {
     let mut stroke = DecorationStroke::default();
     for item in dict.items() {
@@ -273,7 +274,7 @@ fn parse_stroke_dict(
 fn parse_stroke_part_with_params(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<DecorationStroke, LabelError> {
     if let Some(value) = param_value_for_ident(expr, params) {
         return param_value_to_stroke_part(value, position);
@@ -348,9 +349,9 @@ impl MergeDecorationStroke for DecorationStroke {
 fn parse_auto_or_length(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<Option<DecorationLength>, LabelError> {
-    if let Some(LabelParamValue::Str(value)) = param_value_for_ident(expr, params) {
+    if let Some(Value::Str(value)) = param_value_for_ident(expr, params) {
         if value.trim() == "auto" {
             return Ok(None);
         }
@@ -364,7 +365,7 @@ fn parse_auto_or_length(
 fn parse_length(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<DecorationLength, LabelError> {
     if let Some(value) = param_value_for_ident(expr, params) {
         return param_value_to_length(value, position);
@@ -415,7 +416,7 @@ fn length_from_unit(
 fn parse_bool(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<bool, LabelError> {
     parse_bool_with_message(
         expr,
@@ -428,12 +429,12 @@ fn parse_bool(
 fn parse_bool_with_message(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
     message: &'static str,
 ) -> Result<bool, LabelError> {
     if let Some(value) = param_value_for_ident(expr, params) {
         return match value {
-            LabelParamValue::Bool(value) => Ok(*value),
+            Value::Bool(value) => Ok(*value),
             _ => Err(unsupported(position, message)),
         };
     }
@@ -446,12 +447,12 @@ fn parse_bool_with_message(
 fn parse_i64_with_message(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
     message: &'static str,
 ) -> Result<i64, LabelError> {
     if let Some(value) = param_value_for_ident(expr, params) {
         return match value {
-            LabelParamValue::Int(value) => Ok(*value),
+            Value::Int(value) => Ok(*value),
             _ => Err(unsupported(position, message)),
         };
     }
@@ -473,7 +474,7 @@ fn parse_i64_with_message(
 fn parse_line_cap(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<LineCap, LabelError> {
     let value = if let Some(value) = param_value_for_ident(expr, params) {
         param_value_to_string(value, position, "unsupported stroke cap value")?
@@ -494,7 +495,7 @@ fn parse_line_cap(
 fn parse_line_join(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<LineJoin, LabelError> {
     let value = if let Some(value) = param_value_for_ident(expr, params) {
         param_value_to_string(value, position, "unsupported stroke join value")?
@@ -515,7 +516,7 @@ fn parse_line_join(
 fn parse_dash(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<DecorationDash, LabelError> {
     if let Some(value) = param_value_for_ident(expr, params) {
         return param_value_to_dash(value, position);
@@ -535,7 +536,7 @@ fn parse_dash(
 fn parse_dash_dict(
     dict: typst_ast::Dict<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<DecorationDash, LabelError> {
     let mut array = None;
     let mut phase = DecorationLength::default();
@@ -579,7 +580,7 @@ fn parse_dash_dict(
 fn parse_dash_array(
     array: typst_ast::Array<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<Vec<DecorationDashLength>, LabelError> {
     let mut lengths = Vec::new();
     for item in array.items() {
@@ -594,7 +595,7 @@ fn parse_dash_array(
 fn parse_dash_length(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<DecorationDashLength, LabelError> {
     match expr {
         typst_ast::Expr::Str(value) if value.get().as_str() == "dot" => {
@@ -629,7 +630,7 @@ fn named_dash(name: &str) -> Option<DecorationDash> {
 fn parse_miter_limit(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<f32, LabelError> {
     if let Some(value) = param_value_for_ident(expr, params) {
         return param_value_to_miter_limit(value, position);
@@ -654,13 +655,13 @@ fn parse_unitless_f32_text(text: &str, position: usize) -> Result<f32, LabelErro
 fn parse_evade(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<Option<bool>, LabelError> {
     if let Some(value) = param_value_for_ident(expr, params) {
         return match value {
-            LabelParamValue::None => Ok(None),
-            LabelParamValue::Bool(value) => Ok(Some(*value)),
-            LabelParamValue::Str(value) if value == "auto" => Ok(None),
+            Value::None => Ok(None),
+            Value::Bool(value) => Ok(Some(*value)),
+            Value::Str(value) if value == "auto" => Ok(None),
             _ => Err(unsupported(position, "unsupported decoration evade value")),
         };
     }
@@ -674,7 +675,7 @@ fn parse_evade(
 fn parse_paint(
     expr: typst_ast::Expr<'_>,
     position: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<Color, LabelError> {
     if let Some(value) = param_value_for_ident(expr, params) {
         return param_value_to_paint(value, position);
@@ -711,29 +712,23 @@ fn code_field_access_name(access: typst_ast::FieldAccess<'_>) -> Option<String> 
     Some(name)
 }
 
-fn param_value_for_ident<'a>(
-    expr: typst_ast::Expr<'_>,
-    params: &'a LabelParams,
-) -> Option<&'a LabelParamValue> {
+fn param_value_for_ident<'a>(expr: typst_ast::Expr<'_>, params: &'a Scope) -> Option<&'a Value> {
     let typst_ast::Expr::Ident(ident) = expr else {
         return None;
     };
     params.get(ident.as_str())
 }
 
-fn param_value_to_stroke(
-    value: &LabelParamValue,
-    position: usize,
-) -> Result<DecorationStroke, LabelError> {
+fn param_value_to_stroke(value: &Value, position: usize) -> Result<DecorationStroke, LabelError> {
     match value {
-        LabelParamValue::Str(value) => parse_stroke_literal(value, position),
-        LabelParamValue::Dict(dict) => param_dict_to_stroke(dict, position),
+        Value::Str(value) => parse_stroke_literal(value, position),
+        Value::Dict(dict) => param_dict_to_stroke(dict, position),
         _ => param_value_to_stroke_part(value, position),
     }
 }
 
 fn param_value_to_stroke_part(
-    value: &LabelParamValue,
+    value: &Value,
     position: usize,
 ) -> Result<DecorationStroke, LabelError> {
     if let Ok(paint) = param_value_to_paint(value, position) {
@@ -748,7 +743,7 @@ fn param_value_to_stroke_part(
             ..DecorationStroke::default()
         });
     }
-    if matches!(value, LabelParamValue::None) {
+    if matches!(value, Value::None) {
         return Ok(DecorationStroke::default());
     }
     Err(unsupported(
@@ -792,10 +787,7 @@ fn parse_stroke_literal_part(raw: &str, position: usize) -> Result<DecorationStr
     ))
 }
 
-fn param_dict_to_stroke(
-    dict: &indexmap::IndexMap<String, LabelParamValue>,
-    position: usize,
-) -> Result<DecorationStroke, LabelError> {
+fn param_dict_to_stroke(dict: &Dict, position: usize) -> Result<DecorationStroke, LabelError> {
     let mut stroke = DecorationStroke::default();
     for (name, value) in dict {
         match name.as_str() {
@@ -855,18 +847,15 @@ fn param_dict_to_stroke(
     Ok(stroke)
 }
 
-fn param_value_to_paint(value: &LabelParamValue, position: usize) -> Result<Color, LabelError> {
-    let LabelParamValue::Str(value) = value else {
+fn param_value_to_paint(value: &Value, position: usize) -> Result<Color, LabelError> {
+    let Value::Str(value) = value else {
         return Err(unsupported(position, "unsupported decoration paint"));
     };
     named_color(value.trim()).ok_or_else(|| unsupported(position, "unsupported decoration paint"))
 }
 
-fn param_value_to_length(
-    value: &LabelParamValue,
-    position: usize,
-) -> Result<DecorationLength, LabelError> {
-    let LabelParamValue::Str(value) = value else {
+fn param_value_to_length(value: &Value, position: usize) -> Result<DecorationLength, LabelError> {
+    let Value::Str(value) = value else {
         return Err(unsupported(
             position,
             "label parameter cannot be cast to decoration length",
@@ -910,29 +899,24 @@ fn split_number_unit(raw: &str) -> Option<(&str, &str)> {
 }
 
 fn param_value_to_string(
-    value: &LabelParamValue,
+    value: &Value,
     position: usize,
     message: &'static str,
 ) -> Result<String, LabelError> {
     match value {
-        LabelParamValue::Str(value) => Ok(value.clone()),
+        Value::Str(value) => Ok(value.clone()),
         _ => Err(unsupported(position, message)),
     }
 }
 
-fn param_value_to_dash(
-    value: &LabelParamValue,
-    position: usize,
-) -> Result<DecorationDash, LabelError> {
+fn param_value_to_dash(value: &Value, position: usize) -> Result<DecorationDash, LabelError> {
     match value {
-        LabelParamValue::Str(value) => named_dash(value.trim())
+        Value::Str(value) => named_dash(value.trim())
             .ok_or_else(|| unsupported(position, "unsupported stroke dash value")),
-        LabelParamValue::Array(values) => values
+        Value::Array(values) => values
             .iter()
             .map(|value| match value {
-                LabelParamValue::Str(value) if value == "dot" => {
-                    Ok(DecorationDashLength::LineWidth)
-                }
+                Value::Str(value) if value == "dot" => Ok(DecorationDashLength::LineWidth),
                 _ => param_value_to_length(value, position).map(DecorationDashLength::Length),
             })
             .collect::<Result<Vec<_>, _>>()
@@ -940,15 +924,12 @@ fn param_value_to_dash(
                 array,
                 phase: DecorationLength::default(),
             }),
-        LabelParamValue::Dict(dict) => param_dict_to_dash(dict, position),
+        Value::Dict(dict) => param_dict_to_dash(dict, position),
         _ => Err(unsupported(position, "unsupported stroke dash value")),
     }
 }
 
-fn param_dict_to_dash(
-    dict: &indexmap::IndexMap<String, LabelParamValue>,
-    position: usize,
-) -> Result<DecorationDash, LabelError> {
+fn param_dict_to_dash(dict: &Dict, position: usize) -> Result<DecorationDash, LabelError> {
     let mut array = None;
     let mut phase = DecorationLength::default();
     for (name, value) in dict {
@@ -957,14 +938,14 @@ fn param_dict_to_dash(
                 if array.is_some() {
                     return Err(unsupported(position, "duplicate stroke dash array"));
                 }
-                let LabelParamValue::Array(values) = value else {
+                let Value::Array(values) = value else {
                     return Err(unsupported(position, "unsupported stroke dash array"));
                 };
                 array = Some(
                     values
                         .iter()
                         .map(|value| match value {
-                            LabelParamValue::Str(value) if value == "dot" => {
+                            Value::Str(value) if value == "dot" => {
                                 Ok(DecorationDashLength::LineWidth)
                             }
                             _ => param_value_to_length(value, position)
@@ -988,11 +969,11 @@ fn param_dict_to_dash(
     })
 }
 
-fn param_value_to_miter_limit(value: &LabelParamValue, position: usize) -> Result<f32, LabelError> {
+fn param_value_to_miter_limit(value: &Value, position: usize) -> Result<f32, LabelError> {
     let number = match value {
-        LabelParamValue::Int(value) => *value as f32,
-        LabelParamValue::Float(value) => *value as f32,
-        LabelParamValue::Str(value) => value
+        Value::Int(value) => *value as f32,
+        Value::Float(value) => *value as f32,
+        Value::Str(value) => value
             .trim()
             .parse::<f32>()
             .map_err(|_| unsupported(position, "unsupported stroke miter limit"))?,

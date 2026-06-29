@@ -28,6 +28,7 @@ use crate::typst_layout::frame::{
 };
 use crate::typst_layout::line::TypstEngineCore;
 use crate::typst_library::MathStyle;
+use crate::typst_library::foundations::{Dict, Scope, Value};
 use crate::typst_library::text::call::is_retained_markup_name;
 use crate::typst_library::text::content::{LabelContent, LineNode};
 pub use crate::typst_render::RasterImage;
@@ -41,7 +42,6 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::typst_library::TextStyle;
 pub use error::{LabelError, LabelInitError};
-pub(crate) use params::render_label_param;
 pub use pdf::{
     FontResource, FontResourceId, PdfDrawItem, PdfGlyph, PdfGlyphRun, PdfLabel, PdfOptions,
     PdfPathItem, PdfTextLayer,
@@ -180,11 +180,17 @@ impl LabelEngine {
     ) -> Result<CompiledLabel, LabelError> {
         validate_source_limits(source, options.limits)?;
         validate_label_params(&options.params)?;
-        let line = parse_line_with_params(source, &options.params)?;
-        validate_line_math(&line, options.limits, &options.params)?;
-        let artifact =
-            self.inner
-                .typeset_parsed_line(source, &line, &line_layout_options(options))?;
+        let layout_options = line_layout_options(options);
+        let line = parse_line_with_params(source, &layout_options.params)?;
+        validate_line_math(
+            &line,
+            options.limits,
+            &options.params,
+            &layout_options.params,
+        )?;
+        let artifact = self
+            .inner
+            .typeset_parsed_line(source, &line, &layout_options)?;
         Ok(CompiledLabel::from_artifact(
             artifact,
             label_has_markup(source),
@@ -876,8 +882,36 @@ fn line_layout_options(options: &LabelOptions) -> LineLayoutOptions {
     LineLayoutOptions {
         text_style: options.text.clone(),
         math_style: options.math.clone(),
-        params: options.params.clone(),
+        params: scope_from_label_params(&options.params),
         limits: options.limits,
+    }
+}
+
+fn scope_from_label_params(params: &LabelParams) -> Scope {
+    Scope::new(
+        params
+            .iter()
+            .map(|(name, value)| (name.clone(), value_from_label_param(value)))
+            .collect::<Dict>(),
+    )
+}
+
+fn value_from_label_param(value: &LabelParamValue) -> Value {
+    match value {
+        LabelParamValue::None => Value::None,
+        LabelParamValue::Bool(value) => Value::Bool(*value),
+        LabelParamValue::Int(value) => Value::Int(*value),
+        LabelParamValue::Float(value) => Value::Float(*value),
+        LabelParamValue::Str(value) => Value::Str(value.clone()),
+        LabelParamValue::Array(values) => {
+            Value::Array(values.iter().map(value_from_label_param).collect())
+        }
+        LabelParamValue::Dict(values) => Value::Dict(
+            values
+                .iter()
+                .map(|(name, value)| (name.clone(), value_from_label_param(value)))
+                .collect(),
+        ),
     }
 }
 
@@ -921,6 +955,7 @@ fn validate_line_math(
     line: &LabelContent,
     limits: LabelLimits,
     params: &LabelParams,
+    scope: &Scope,
 ) -> Result<(), LabelError> {
     let math_span_count = line
         .nodes
@@ -954,7 +989,7 @@ fn validate_line_math(
         }
 
         strict_hash_precheck(&math.source, math.source_range.start, params)?;
-        parse_math_with_params(&math.source, math.source_range.start, params)?;
+        parse_math_with_params(&math.source, math.source_range.start, scope)?;
     }
     Ok(())
 }

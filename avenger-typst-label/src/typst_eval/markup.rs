@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use crate::label::LabelError;
-use crate::label::LabelParams;
 use crate::typst_eval::delimiter::{DelimiterDisplayHint, DelimiterInfo};
+use crate::typst_library::foundations::Scope;
 use crate::typst_library::symbols::{named_emoji, named_symbol};
 use crate::typst_library::text::call::{parse_text_markup_option, text_span_kind};
 use crate::typst_library::text::content::{
@@ -18,12 +18,12 @@ use crate::typst_syntax::{
 
 #[cfg(test)]
 pub(crate) fn parse_line(source: &str) -> Result<LabelContent, LabelError> {
-    parse_line_with_params(source, &LabelParams::default())
+    parse_line_with_params(source, &Scope::default())
 }
 
 pub(crate) fn parse_line_with_params(
     source: &str,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<LabelContent, LabelError> {
     let mut root = crate::typst_syntax::parse(source);
     synthesize_ranges(&mut root, source.len())?;
@@ -47,7 +47,7 @@ pub(crate) fn parse_line_with_params(
 fn lower_markup(
     markup: typst_ast::Markup<'_>,
     source: &str,
-    params: &LabelParams,
+    params: &Scope,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     for expr in markup.exprs() {
@@ -59,7 +59,7 @@ fn lower_markup(
 fn lower_markup_expr(
     expr: typst_ast::Expr<'_>,
     source: &str,
-    params: &LabelParams,
+    params: &Scope,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     match expr {
@@ -152,7 +152,7 @@ fn lower_markup_expr(
 fn lower_static_call(
     call: typst_ast::FuncCall<'_>,
     source: &str,
-    params: &LabelParams,
+    params: &Scope,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     let range = expand_hash_range(source, call.to_untyped().range());
@@ -278,7 +278,7 @@ fn lower_markup_span(
     body_markup: typst_ast::Markup<'_>,
     byte_range: Range<usize>,
     source: &str,
-    params: &LabelParams,
+    params: &Scope,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     let body_range = body_markup.to_untyped().range();
@@ -454,8 +454,8 @@ fn scratch_file_id() -> crate::typst_syntax::FileId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::label::LabelParamValue;
     use crate::typst_library::Color;
+    use crate::typst_library::foundations::Value;
     use crate::typst_library::text::content::DecorationLength;
     use crate::typst_svg::{LineCap, LineJoin};
 
@@ -463,8 +463,17 @@ mod tests {
         parse_line(source).unwrap()
     }
 
-    fn parse_with_params(source: &str, params: &LabelParams) -> LabelContent {
+    fn parse_with_params(source: &str, params: &Scope) -> LabelContent {
         parse_line_with_params(source, params).unwrap()
+    }
+
+    fn scope(values: impl IntoIterator<Item = (&'static str, Value)>) -> Scope {
+        Scope::new(
+            values
+                .into_iter()
+                .map(|(name, value)| (name.to_string(), value))
+                .collect(),
+        )
     }
 
     #[test]
@@ -736,20 +745,12 @@ mod tests {
 
     #[test]
     fn parses_non_stroke_decoration_option_params() {
-        let mut params = LabelParams::new();
-        params.insert(
-            "underline_offset".to_string(),
-            LabelParamValue::Str("2pt".to_string()),
-        );
-        params.insert(
-            "underline_extent".to_string(),
-            LabelParamValue::Str("-0.5em".to_string()),
-        );
-        params.insert(
-            "underline_background".to_string(),
-            LabelParamValue::Bool(true),
-        );
-        params.insert("underline_evade".to_string(), LabelParamValue::Bool(false));
+        let params = scope([
+            ("underline_offset", Value::Str("2pt".to_string())),
+            ("underline_extent", Value::Str("-0.5em".to_string())),
+            ("underline_background", Value::Bool(true)),
+            ("underline_evade", Value::Bool(false)),
+        ]);
 
         let line = parse_with_params(
             "#underline(offset: underline_offset, extent: underline_extent, background: underline_background, evade: underline_evade)[care]",
@@ -771,18 +772,13 @@ mod tests {
 
     #[test]
     fn parses_script_smallcaps_and_strong_option_params() {
-        let mut params = LabelParams::new();
-        params.insert("use_typographic".to_string(), LabelParamValue::Bool(false));
-        params.insert(
-            "script_baseline".to_string(),
-            LabelParamValue::Str("-0.25em".to_string()),
-        );
-        params.insert(
-            "script_size".to_string(),
-            LabelParamValue::Str("8pt".to_string()),
-        );
-        params.insert("all_caps".to_string(), LabelParamValue::Bool(true));
-        params.insert("weight_delta".to_string(), LabelParamValue::Int(150));
+        let params = scope([
+            ("use_typographic", Value::Bool(false)),
+            ("script_baseline", Value::Str("-0.25em".to_string())),
+            ("script_size", Value::Str("8pt".to_string())),
+            ("all_caps", Value::Bool(true)),
+            ("weight_delta", Value::Int(150)),
+        ]);
 
         let line = parse_with_params(
             "#super(typographic: use_typographic, baseline: script_baseline, size: script_size)[N] \
@@ -810,8 +806,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_non_stroke_option_param_casts() {
-        let mut params = LabelParams::new();
-        params.insert("badlength".to_string(), LabelParamValue::Bool(true));
+        let params = scope([("badlength", Value::Bool(true))]);
 
         let err =
             parse_line_with_params("#underline(offset: badlength)[care]", &params).unwrap_err();

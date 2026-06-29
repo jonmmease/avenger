@@ -4,7 +4,8 @@
 //! `typst-layout`: flatten retained text/model/symbol markup and parameter
 //! values into renderable single-line text and math nodes.
 
-use crate::label::{LabelError, LabelParams, render_label_param};
+use crate::label::LabelError;
+use crate::typst_library::foundations::{Scope, Value};
 use crate::typst_library::text::content::{
     LabelContent, LineNode, MathSpan, PlainTextNode, TextMarkupKind, TextMarkupOptions,
 };
@@ -40,7 +41,7 @@ pub(crate) struct TextMarkupRun {
 
 pub(crate) fn realize_static_markup_line(
     line: &LabelContent,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<Option<RenderLine>, LabelError> {
     let mut nodes: Vec<RenderNode> = Vec::new();
     let mut pending_plain = String::new();
@@ -95,7 +96,7 @@ pub(crate) fn realize_static_markup_line(
                 );
             }
             LineNode::Param(param) => {
-                let text = render_label_param(param.name.as_str(), params, param.byte_range.start)?;
+                let text = render_scope_param(param.name.as_str(), params, param.byte_range.start)?;
                 push_pending_text(
                     &mut pending_plain,
                     &mut pending_start,
@@ -238,7 +239,7 @@ struct RealizedStaticBody {
 
 fn render_static_body(
     nodes: &[LineNode],
-    params: &LabelParams,
+    params: &Scope,
     quote_context: &mut QuoteContext,
 ) -> Result<Option<RealizedStaticBody>, LabelError> {
     let mut text = String::new();
@@ -259,7 +260,7 @@ fn render_static_body(
             }
             LineNode::Param(param) => {
                 let rendered =
-                    render_label_param(param.name.as_str(), params, param.byte_range.start)?;
+                    render_scope_param(param.name.as_str(), params, param.byte_range.start)?;
                 text.push_str(&rendered);
                 quote_context.push_text(&rendered);
             }
@@ -283,4 +284,40 @@ fn render_static_body(
         }
     }
     Ok(Some(RealizedStaticBody { text, nested }))
+}
+
+fn render_scope_param(name: &str, params: &Scope, position: usize) -> Result<String, LabelError> {
+    let Some(value) = params.get(name) else {
+        return Err(LabelError::UnsupportedSyntax {
+            position,
+            message: "unknown label parameter",
+        });
+    };
+    scope_value_to_text(value, position)
+}
+
+fn scope_value_to_text(value: &Value, position: usize) -> Result<String, LabelError> {
+    match value {
+        Value::None => Ok(String::new()),
+        Value::Bool(value) => Ok(value.to_string()),
+        Value::Int(value) => Ok(value.to_string()),
+        Value::Float(value) if value.is_finite() => Ok(format_f64(*value)),
+        Value::Float(_) => Err(LabelError::UnsupportedSyntax {
+            position,
+            message: "non-finite label parameter is not supported",
+        }),
+        Value::Str(value) => Ok(value.clone()),
+        Value::Array(_) | Value::Dict(_) => Err(LabelError::UnsupportedSyntax {
+            position,
+            message: "label parameter value cannot be rendered as text",
+        }),
+    }
+}
+
+fn format_f64(value: f64) -> String {
+    let mut text = value.to_string();
+    if text == "-0" {
+        text = "0".to_string();
+    }
+    text
 }

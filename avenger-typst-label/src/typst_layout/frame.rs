@@ -1,4 +1,5 @@
-use crate::label::{FontResource, LabelLimits, LabelParams, LabelWarning, PdfTextLayer};
+use crate::label::{FontResource, LabelLimits, LabelWarning, PdfTextLayer};
+use crate::typst_library::foundations::Scope;
 use crate::typst_library::{MathStyle, TextStyle};
 use crate::typst_svg::PathArtifact;
 
@@ -26,7 +27,7 @@ impl Default for MathLayoutOptions {
 pub struct LineLayoutOptions {
     pub text_style: TextStyle,
     pub math_style: MathStyle,
-    pub params: LabelParams,
+    pub params: Scope,
     pub limits: LabelLimits,
 }
 
@@ -35,7 +36,7 @@ impl Default for LineLayoutOptions {
         Self {
             text_style: TextStyle::default(),
             math_style: MathStyle::default(),
-            params: LabelParams::default(),
+            params: Scope::default(),
             limits: LabelLimits::default(),
         }
     }

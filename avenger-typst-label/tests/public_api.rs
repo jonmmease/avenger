@@ -4,6 +4,7 @@ use avenger_typst_label::{
     SvgOptions, TextItemKind, escape_text, pdf_items, svg_items,
 };
 use indexmap::IndexMap;
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "raster")]
 use avenger_typst_label::{RasterOptions, rasterize};
@@ -215,4 +216,55 @@ fn final_public_api_extracts_referenced_params() {
 
     let engine = LabelEngine::new(EngineOptions::default()).unwrap();
     assert_eq!(engine.referenced_params(source).unwrap(), expected);
+}
+
+#[test]
+fn typst_mirrored_modules_do_not_depend_on_public_label_params() {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let src_dir = manifest_dir.join("src");
+    let mut sources = Vec::new();
+    collect_typst_sources(&src_dir, &mut sources);
+
+    let forbidden = ["LabelParams", "LabelParamValue", "render_label_param"];
+    let mut matches = Vec::new();
+    for path in sources {
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (index, line) in text.lines().enumerate() {
+            if forbidden.iter().any(|needle| line.contains(needle)) {
+                matches.push(format!("{}:{}: {line}", path.display(), index + 1));
+            }
+        }
+    }
+
+    assert!(
+        matches.is_empty(),
+        "mirrored typst modules should use typst_library::foundations::Scope, not public label params:\n{}",
+        matches.join("\n")
+    );
+}
+
+fn collect_typst_sources(dir: &Path, sources: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            let is_typst_dir = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == "typst_library" || name.starts_with("typst_"));
+            if is_typst_dir {
+                collect_rs_sources(&path, sources);
+            }
+        }
+    }
+}
+
+fn collect_rs_sources(dir: &Path, sources: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            collect_rs_sources(&path, sources);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            sources.push(path);
+        }
+    }
 }

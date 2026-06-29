@@ -1,6 +1,6 @@
 use crate::label::LabelError;
-use crate::label::{LabelParamValue, LabelParams};
 use crate::typst_eval::call::{MathCallLoweringContext, lower_math_call};
+use crate::typst_library::foundations::{Scope, Value};
 use crate::typst_library::math::call::{
     is_math_differential_name, is_retained_math_name as is_retained_math_name_with,
 };
@@ -18,13 +18,13 @@ use crate::typst_syntax::{
 
 #[cfg(test)]
 pub(crate) fn parse_math(source: &str, offset: usize) -> Result<MathAst, LabelError> {
-    parse_math_with_params(source, offset, &LabelParams::default())
+    parse_math_with_params(source, offset, &Scope::default())
 }
 
 pub(crate) fn parse_math_with_params(
     source: &str,
     offset: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<MathAst, LabelError> {
     if let Some((idx, _)) = source
         .char_indices()
@@ -56,7 +56,7 @@ fn lower_math(
     math: typst_ast::Math<'_>,
     source: &str,
     offset: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<Vec<MathNode>, LabelError> {
     let mut nodes = Vec::new();
     for expr in math.exprs() {
@@ -68,7 +68,7 @@ fn lower_math(
 struct MathEvalContext<'a> {
     source: &'a str,
     offset: usize,
-    params: &'a LabelParams,
+    params: &'a Scope,
 }
 
 impl<'a> MathCallLoweringContext<'a> for MathEvalContext<'a> {
@@ -112,7 +112,7 @@ fn lower_math_expr(
     expr: typst_ast::Expr<'_>,
     source: &str,
     offset: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<Vec<MathNode>, LabelError> {
     let range = expr.to_untyped().range();
     match expr {
@@ -322,42 +322,42 @@ fn lower_math_param_ident(
     ident: typst_ast::Ident<'_>,
     source: &str,
     offset: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<Vec<MathNode>, LabelError> {
     let local_range = expand_hash_range(source, ident.to_untyped().range());
     let range = offset_range(local_range, offset);
     let Some(value) = params.get(ident.as_str()) else {
         return Err(unsupported(range.start, "unknown label parameter"));
     };
-    label_param_to_math_nodes(value, range)
+    scope_value_to_math_nodes(value, range)
 }
 
-fn label_param_to_math_nodes(
-    value: &LabelParamValue,
+fn scope_value_to_math_nodes(
+    value: &Value,
     byte_range: std::ops::Range<usize>,
 ) -> Result<Vec<MathNode>, LabelError> {
     match value {
-        LabelParamValue::None => Ok(Vec::new()),
-        LabelParamValue::Bool(value) => Ok(vec![math_text(
+        Value::None => Ok(Vec::new()),
+        Value::Bool(value) => Ok(vec![math_text(
             value.to_string(),
             MathTextKind::Grapheme,
             byte_range,
         )]),
-        LabelParamValue::Int(value) => Ok(vec![math_text(
+        Value::Int(value) => Ok(vec![math_text(
             value.to_string(),
             MathTextKind::Number,
             byte_range,
         )]),
-        LabelParamValue::Float(value) if value.is_finite() => Ok(vec![math_text(
+        Value::Float(value) if value.is_finite() => Ok(vec![math_text(
             format_f64(*value),
             MathTextKind::Number,
             byte_range,
         )]),
-        LabelParamValue::Float(_) => Err(LabelError::UnsupportedSyntax {
+        Value::Float(_) => Err(LabelError::UnsupportedSyntax {
             position: byte_range.start,
             message: "non-finite label parameter is not supported",
         }),
-        LabelParamValue::Str(value) => Ok(vec![math_text(
+        Value::Str(value) => Ok(vec![math_text(
             value.clone(),
             if is_plain_numeric_text(value) {
                 MathTextKind::Number
@@ -366,12 +366,10 @@ fn label_param_to_math_nodes(
             },
             byte_range,
         )]),
-        LabelParamValue::Array(_) | LabelParamValue::Dict(_) => {
-            Err(LabelError::UnsupportedSyntax {
-                position: byte_range.start,
-                message: "label parameter value cannot be rendered as math",
-            })
-        }
+        Value::Array(_) | Value::Dict(_) => Err(LabelError::UnsupportedSyntax {
+            position: byte_range.start,
+            message: "label parameter value cannot be rendered as math",
+        }),
     }
 }
 
@@ -429,7 +427,7 @@ fn lower_math_expr_as_single(
     expr: typst_ast::Expr<'_>,
     source: &str,
     offset: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<MathNode, LabelError> {
     let range = expr.to_untyped().range();
     let mut nodes = lower_math_expr(expr, source, offset, params)?;
@@ -456,7 +454,7 @@ fn lower_script_expr(
     expr: typst_ast::Expr<'_>,
     source: &str,
     offset: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<(Vec<MathNode>, Vec<MathNode>), LabelError> {
     let range = expr.to_untyped().range();
     if script_expr_is_parenthesized_group(source, range.clone()) {
@@ -500,7 +498,7 @@ fn lower_math_root(
     root: typst_ast::MathRoot<'_>,
     source: &str,
     offset: usize,
-    params: &LabelParams,
+    params: &Scope,
 ) -> Result<Vec<MathNode>, LabelError> {
     let radicand = lower_math_expr_as_single(root.radicand(), source, offset, params)?;
     let radicand_range = radicand.byte_range();
@@ -831,9 +829,10 @@ mod tests {
 
     #[test]
     fn resolves_embedded_math_params() {
-        let mut params = LabelParams::new();
-        params.insert("slope".to_string(), LabelParamValue::Float(2.5));
-        params.insert("intercept".to_string(), LabelParamValue::Int(7));
+        let mut values = indexmap::IndexMap::new();
+        values.insert("slope".to_string(), Value::Float(2.5));
+        values.insert("intercept".to_string(), Value::Int(7));
+        let params = Scope::new(values);
 
         let math = parse_math_with_params("y = #slope x + #intercept", 0, &params).unwrap();
         let text = math
