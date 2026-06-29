@@ -197,12 +197,41 @@ When adding or changing functionality:
 The crate includes a tiny release probe for the direct label engine path:
 
 ```bash
-cargo build --release -p avenger-typst-label --features raster --bin typst-label-math-png-probe
-target/release/typst-label-math-png-probe target/typst-label-math-png-probe/math-label.png
+cargo build --profile release-size -p avenger-typst-label --bin typst-label-math-svg-probe
+target/release-size/typst-label-math-svg-probe \
+  target/typst-label-math-svg-probe/math-label.svg \
+  scratch/font-subset-output
 ```
 
-This lays out one Typst math label and rasterizes it to PNG without pulling in
-`avenger-text`, `avenger-wgpu`, or chart crates.
+This lays out one Typst math label and exports SVG path artifacts without
+pulling in `avenger-text`, `avenger-wgpu`, chart crates, or the optional raster
+feature.
+
+There is also an optional comparison probe that performs the same
+math-label-to-SVG operation with upstream Typst crates from `../typst`:
+
+```bash
+cargo build --profile release-size -p avenger-typst-label \
+  --features upstream-typst-probe \
+  --bin upstream-typst-math-svg-probe
+target/release-size/upstream-typst-math-svg-probe \
+  target/upstream-typst-math-svg-probe/math-label.svg \
+  scratch/font-subset-output
+```
+
+As of the current SVG-only probes, both paths use disk-loaded Lato and Lete Sans
+Math fonts and avoid the optional `avenger-typst-label` raster feature. The
+measured `release-size` binaries are:
+
+| Probe | Size | Notes |
+| --- | ---: | --- |
+| `typst-label-math-svg-probe` | 1,250,160 bytes / 1.19 MiB | Lightweight label engine plus SVG path artifact export. |
+| `upstream-typst-math-svg-probe` | 17,002,560 bytes / 16.21 MiB | Upstream `typst`, `typst-layout`, and `typst-svg` path. |
+
+That makes the upstream comparison binary about 13.6x larger, with the
+lightweight path saving about 15.0 MiB for this operation. Upstream `typst-svg`
+still brings `tiny-skia-path` through its vector/image plumbing, but this probe
+does not pull the full `tiny-skia` rasterizer or `typst-render`.
 
 ## Validation
 
