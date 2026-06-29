@@ -5,7 +5,9 @@ use avenger_wgpu::canvas::CanvasConfig;
 use datafusion::arrow::array::{ArrayRef, Float64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::common::ScalarValue;
 use datafusion::prelude::*;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 const CATEGORY: &str = "typst_math";
@@ -266,6 +268,119 @@ async fn assert_typst_math_wgpu(compiled: CompiledPlot, ctx: &SessionContext, ba
         baseline_name,
         0.9999,
         CanvasConfig::default(),
+    )
+    .await;
+}
+
+async fn assert_typst_math_wgpu_with_params(
+    compiled: CompiledPlot,
+    ctx: &SessionContext,
+    baseline_name: &str,
+    params: IndexMap<String, ScalarValue>,
+) {
+    assert_visual_match_with_canvas_config_and_sidecars(
+        Arc::new(compiled),
+        ctx,
+        Some(params),
+        CATEGORY,
+        baseline_name,
+        0.9999,
+        CanvasConfig::default(),
+    )
+    .await;
+}
+
+fn param_markup_visual_params() -> IndexMap<String, ScalarValue> {
+    let mut params = IndexMap::new();
+    params.insert(
+        "title_word".to_string(),
+        ScalarValue::Utf8(Some("model fit".to_string())),
+    );
+    params.insert("r_sq".to_string(), ScalarValue::Float64(Some(0.94)));
+    params.insert(
+        "subtitle_color".to_string(),
+        ScalarValue::Utf8(Some("red".to_string())),
+    );
+    params.insert(
+        "subtitle_word".to_string(),
+        ScalarValue::Utf8(Some("checked inputs".to_string())),
+    );
+    params.insert(
+        "x_unit".to_string(),
+        ScalarValue::Utf8(Some("seconds".to_string())),
+    );
+    params.insert(
+        "y_unit".to_string(),
+        ScalarValue::Utf8(Some("amplitude".to_string())),
+    );
+    params.insert(
+        "legend_word".to_string(),
+        ScalarValue::Utf8(Some("family".to_string())),
+    );
+    params.insert(
+        "note_word".to_string(),
+        ScalarValue::Utf8(Some("forecast".to_string())),
+    );
+    params.insert("slope".to_string(), ScalarValue::Float64(Some(0.17)));
+    params.insert("intercept".to_string(), ScalarValue::Float64(Some(0.42)));
+    params
+}
+
+#[tokio::test]
+async fn param_driven_typst_markup() {
+    let ctx = SessionContext::new();
+    let line_df = damped_oscillator_data(&ctx);
+    let annotation_df = label_dataframe(
+        &ctx,
+        vec![(0.15, 0.66, "Note #note_word: $#slope x + #intercept$")],
+    );
+
+    let plot = Plot::<Cartesian>::new()
+        .configure_title("Param title #title_word: $R^2 = #r_sq$", |t| t.typst())
+        .configure_subtitle(
+            "Subtitle #underline(stroke: subtitle_color)[#subtitle_word]",
+            |s| s.typst(),
+        )
+        .data(line_df)
+        .mark(
+            Line::new()
+                .x_with(col("x"), |c| {
+                    c.scale(|s| s.domain((0.0, 8.0)))
+                        .axis(|axis| axis.title("Time $t$ in #x_unit").typst().grid(true))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((-1.05, 1.05)))
+                        .axis(|axis| axis.title("Response #y_unit $y(t)$").typst().grid(true))
+                })
+                .stroke_with(col("series"), |c| {
+                    c.scale_with::<Ordinal>(|s| s)
+                        .legend(|legend| legend.title("Legend #legend_word").typst())
+                })
+                .stroke_width(2.0)
+                .order(col("order")),
+        )
+        .mark(
+            Text::new()
+                .data(annotation_df)
+                .x(col("x"))
+                .y(col("y"))
+                .text(col("label"))
+                .typst()
+                .align("left")
+                .baseline("middle")
+                .font_size(13.0)
+                .color("#111827"),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile param-driven Typst markup plot");
+    assert_typst_math_wgpu_with_params(
+        compiled,
+        &ctx,
+        "param_driven_typst_markup",
+        param_markup_visual_params(),
     )
     .await;
 }

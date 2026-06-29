@@ -24,7 +24,8 @@ use crate::{
     coerce_stroke_join_channel_values_with_renderer, coerce_text_align_channel,
     coerce_text_baseline_channel, coerce_text_channel, evaluate_item_assignments,
     item_bbox_column_name, item_channel_column_name, item_channel_name_from_column,
-    item_data_column_name, item_data_name_from_column, stroke_rendering,
+    item_data_column_name, item_data_name_from_column, scalar_params_for_label_sources_lenient,
+    stroke_rendering,
 };
 
 #[doc(hidden)]
@@ -267,6 +268,26 @@ where
 }
 
 #[doc(hidden)]
+pub fn apply_text_syntax_and_params(
+    mark: &mut SceneTextMark,
+    syntax_mode: TextSyntaxMode,
+    mark_context: &MarkRenderContext<'_>,
+) {
+    mark.text_syntax = syntax_mode;
+    if syntax_mode == TextSyntaxMode::Plain {
+        mark.text_params = avenger_text::empty_label_params().clone();
+        return;
+    }
+
+    let text_values = mark.text.as_vec(mark.len as usize, None);
+    mark.text_params = scalar_params_for_label_sources_lenient(
+        text_values.iter().map(String::as_str),
+        syntax_mode,
+        mark_context.params(),
+    );
+}
+
+#[doc(hidden)]
 pub fn apply_text_adjustments<M>(
     mark: &M,
     text_mark: SceneTextMark,
@@ -365,7 +386,7 @@ where
         zindex,
         true,
     )?;
-    adjusted_mark.text_syntax = text_mark.text_syntax;
+    apply_text_syntax_and_params(&mut adjusted_mark, text_mark.text_syntax, &mark_context);
     Ok(adjusted_mark)
 }
 

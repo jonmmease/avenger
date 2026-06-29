@@ -5,7 +5,7 @@ use avenger_chart_core::{
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererSelection, Mark,
     MarkRuntimeContext, PrimitiveMarkEffects, RenderedMarkData, ScaleTypePreference,
     default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
-    text_rendering::{apply_text_adjustments, build_scene_text_mark},
+    text_rendering::{apply_text_adjustments, apply_text_syntax_and_params, build_scene_text_mark},
 };
 use avenger_chart_marks::{Text, text_channel_defaults};
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
@@ -365,7 +365,7 @@ impl CompiledCartesianText {
             self.state.zindex,
             true,
         )?;
-        mark.text_syntax = self.syntax_mode;
+        apply_text_syntax_and_params(&mut mark, self.syntax_mode, &mark_context);
         apply_text_adjustments(
             self,
             mark,
