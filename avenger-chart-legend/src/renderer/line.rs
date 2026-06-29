@@ -209,6 +209,20 @@ impl LegendRenderer for CompiledLineLegend {
         } else {
             None
         };
+        let title_text_params = if let Some(title_text) = title.as_deref() {
+            avenger_chart_core::scalar_params_for_label_source(
+                title_text,
+                config.title_syntax_mode,
+                params,
+            )?
+        } else {
+            avenger_text::LabelParams::default()
+        };
+        let label_text_params = avenger_chart_core::scalar_params_for_label_sources_lenient(
+            text_values.iter().map(String::as_str),
+            config.label_syntax_mode,
+            params,
+        );
 
         // Evaluate symbol size (line length) from expression, theme, or default (16.0)
         let line_length =
@@ -231,7 +245,9 @@ impl LegendRenderer for CompiledLineLegend {
             title,
             text: ScalarOrArray::new_array(text_values),
             title_syntax_mode: config.title_syntax_mode,
+            title_text_params,
             label_syntax_mode: config.label_syntax_mode,
+            label_text_params,
             stroke_cap: self.stroke_cap,
             stroke_join: Some(self.stroke_join), // Add stroke_join to config
             inner_width: 0.0,

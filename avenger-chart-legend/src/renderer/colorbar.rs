@@ -175,6 +175,7 @@ impl LegendRenderer for CompiledColorbar {
             title_font_weight: None,
             title_color: None,
             title_syntax_mode: config.title_syntax_mode,
+            title_text_params: avenger_text::LabelParams::default(),
             label_font_family: None,
             label_font_size: None,
             label_font_weight: None,
@@ -404,6 +405,11 @@ impl LegendRenderer for CompiledColorbar {
         } else {
             String::new()
         };
+        legend_config.title_text_params = avenger_chart_core::scalar_params_for_label_source(
+            &title,
+            config.title_syntax_mode,
+            params,
+        )?;
 
         // Create the colorbar marks at origin [0, 0] (will be positioned by group origin)
         let plot_origin = [0.0, 0.0];

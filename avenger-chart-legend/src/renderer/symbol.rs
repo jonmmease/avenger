@@ -248,12 +248,28 @@ impl LegendRenderer for CompiledSymbolLegend {
         } else {
             None
         };
+        let title_text_params = if let Some(title_text) = title.as_deref() {
+            avenger_chart_core::scalar_params_for_label_source(
+                title_text,
+                config.title_syntax_mode,
+                params,
+            )?
+        } else {
+            avenger_text::LabelParams::default()
+        };
+        let label_text_params = avenger_chart_core::scalar_params_for_label_sources_lenient(
+            text_values.iter().map(String::as_str),
+            config.label_syntax_mode,
+            params,
+        );
 
         let mut legend_config = SymbolLegendConfig {
             title,
             text: ScalarOrArray::new_array(text_values.clone()),
             title_syntax_mode: config.title_syntax_mode,
+            title_text_params,
             label_syntax_mode: config.label_syntax_mode,
+            label_text_params,
             inner_width: 0.0, // Don't offset internally, we'll position the whole group
             inner_height: 100.0, // Will be calculated by legend
             outer_margin: 0.0, // Don't offset legend entries

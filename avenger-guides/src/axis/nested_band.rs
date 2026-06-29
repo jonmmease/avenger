@@ -491,7 +491,7 @@ fn make_title(
         font_weight: title_font_weight,
         font_style: FontStyle::Normal,
         syntax_mode: config.title_syntax_mode,
-        params: avenger_text::empty_label_params(),
+        params: &config.title_text_params,
     })?;
     let (x, y, align, baseline, angle) = match config.orientation {
         AxisOrientation::Left => (
@@ -538,6 +538,7 @@ fn make_title(
         font_weight: title_font_weight.into(),
         font: title_font_family.into(),
         text_syntax: config.title_syntax_mode,
+        text_params: config.title_text_params.clone(),
         ..Default::default()
     })
 }

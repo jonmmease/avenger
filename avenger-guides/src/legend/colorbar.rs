@@ -6,7 +6,7 @@ use avenger_text::{
     default_text_engine,
     measurement::TextMeasurementConfig,
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextSyntaxMode},
-    TextEngine,
+    LabelParams, TextEngine,
 };
 
 use crate::{
@@ -143,6 +143,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 title_font_family: config.title_font_family.clone(),
                 title_color: config.title_color,
                 title_syntax_mode: config.title_syntax_mode,
+                title_text_params: config.title_text_params.clone(),
                 label_font_size: config.label_font_size,
                 label_font_weight: config.label_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -373,6 +374,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 title_font_family: config.title_font_family.clone(),
                 title_color: config.title_color,
                 title_syntax_mode: config.title_syntax_mode,
+                title_text_params: config.title_text_params.clone(),
                 label_font_size: config.label_font_size,
                 label_font_weight: config.label_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -545,6 +547,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 title_font_family: config.title_font_family.clone(),
                 title_color: config.title_color,
                 title_syntax_mode: config.title_syntax_mode,
+                title_text_params: config.title_text_params.clone(),
                 label_font_size: config.label_font_size,
                 label_font_weight: config.label_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -767,6 +770,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 title_font_family: config.title_font_family.clone(),
                 title_color: config.title_color,
                 title_syntax_mode: config.title_syntax_mode,
+                title_text_params: config.title_text_params.clone(),
                 label_font_size: config.label_font_size,
                 label_font_weight: config.label_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -965,6 +969,7 @@ pub struct ColorbarConfig {
     pub title_font_weight: Option<FontWeight>,
     pub title_color: Option<[f32; 4]>,
     pub title_syntax_mode: TextSyntaxMode,
+    pub title_text_params: LabelParams,
 
     /// Typography configuration for axis labels
     pub label_font_family: Option<String>,
@@ -995,6 +1000,7 @@ impl Default for ColorbarConfig {
             title_font_weight: None,
             title_color: None,
             title_syntax_mode: TextSyntaxMode::Plain,
+            title_text_params: LabelParams::default(),
             label_font_family: None,
             label_font_size: None,
             label_font_weight: None,

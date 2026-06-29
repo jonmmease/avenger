@@ -147,6 +147,7 @@ async fn measure_text_bounds(
     // Evaluate the text expression to get the actual text
     let text_expr_df = text_expr.to_expr(ctx)?;
     let text_value = evaluate_string_expr(&text_expr_df, ctx, params).await?;
+    let text_params = eval_ctx.strict_label_params_for_source(&text_value, syntax_mode)?;
 
     let config = TextMeasurementConfig {
         text: &text_value,
@@ -155,7 +156,7 @@ async fn measure_text_bounds(
         font_weight,
         font_style: FontStyle::Normal,
         syntax_mode,
-        params: avenger_text::empty_label_params(),
+        params: &text_params,
     };
     let bounds = eval_ctx.measure_text_bounds(&config)?;
 

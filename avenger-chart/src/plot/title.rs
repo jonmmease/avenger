@@ -247,8 +247,10 @@ impl PlotSubtitle {
 mod tests {
     use super::*;
     use crate::cartesian::Cartesian;
-    use avenger_scenegraph::marks::mark::SceneMark;
+    use avenger_scenegraph::marks::{mark::SceneMark, text::SceneTextMark};
+    use datafusion::common::ScalarValue;
     use datafusion::prelude::SessionContext;
+    use std::sync::Arc;
 
     #[test]
     fn title_and_subtitle_default_to_plain_text() {
@@ -345,11 +347,60 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn typst_title_scene_mark_contains_only_referenced_params() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .configure_title("#series", |t| t.typst())
+            .compile(&ctx)
+            .await
+            .unwrap();
+        let mut params = indexmap::IndexMap::new();
+        params.insert(
+            "series".to_string(),
+            ScalarValue::Utf8(Some("Revenue".to_string())),
+        );
+        params.insert("unused".to_string(), ScalarValue::Date32(Some(1)));
+
+        let evaluated = compiled.evaluate(&ctx, Some(params)).await.unwrap();
+        let mut text_marks = Vec::new();
+        collect_text_marks(&evaluated.scene_graph.marks, &mut text_marks);
+        let title = text_marks
+            .iter()
+            .find(|mark| mark.text_syntax == TextSyntaxMode::TypstMarkup)
+            .expect("title text mark should exist");
+
+        assert!(title.text_params.contains_key("series"));
+        assert!(!title.text_params.contains_key("unused"));
+    }
+
+    #[tokio::test]
+    async fn typst_title_missing_param_errors() {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .configure_title("#series", |t| t.typst())
+            .compile(&ctx)
+            .await
+            .unwrap();
+
+        assert!(compiled.evaluate(&ctx, None).await.is_err());
+    }
+
     fn collect_text_syntax_modes(marks: &[SceneMark], modes: &mut Vec<TextSyntaxMode>) {
         for mark in marks {
             match mark {
                 SceneMark::Group(group) => collect_text_syntax_modes(&group.marks, modes),
                 SceneMark::Text(text) => modes.push(text.text_syntax),
+                _ => {}
+            }
+        }
+    }
+
+    fn collect_text_marks(marks: &[SceneMark], text_marks: &mut Vec<Arc<SceneTextMark>>) {
+        for mark in marks {
+            match mark {
+                SceneMark::Group(group) => collect_text_marks(&group.marks, text_marks),
+                SceneMark::Text(text) => text_marks.push(text.clone()),
                 _ => {}
             }
         }

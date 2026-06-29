@@ -1,4 +1,4 @@
-use avenger_text::types::TextSyntaxMode;
+use avenger_text::{types::TextSyntaxMode, LabelParams};
 
 #[derive(Debug, Clone, Copy)]
 pub enum AxisOrientation {
@@ -30,6 +30,7 @@ pub struct AxisConfig {
     pub label_font_family: Option<String>,
     pub title_font_family: Option<String>,
     pub title_syntax_mode: TextSyntaxMode,
+    pub title_text_params: LabelParams,
     pub title_visible: Option<bool>,
     pub labels_visible: Option<bool>,
     pub tick_count: Option<f32>,
@@ -72,6 +73,7 @@ impl Default for AxisConfig {
             label_font_family: None,
             title_font_family: None,
             title_syntax_mode: TextSyntaxMode::Plain,
+            title_text_params: LabelParams::default(),
             title_visible: None,
             labels_visible: None,
             tick_count: None,

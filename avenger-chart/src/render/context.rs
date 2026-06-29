@@ -13,7 +13,11 @@ use std::{
 };
 
 use avenger_scenegraph::marks::group::Clip;
-use avenger_text::measurement::{TextBounds, TextMeasurementConfig};
+use avenger_text::{
+    LabelParams,
+    measurement::{TextBounds, TextMeasurementConfig},
+    types::TextSyntaxMode,
+};
 use datafusion::{
     arrow::datatypes::DataType, common::ScalarValue, dataframe::DataFrame, prelude::SessionContext,
 };
@@ -1116,17 +1120,6 @@ impl EvaluationContext {
         config: &TextMeasurementConfig<'_>,
     ) -> TextBounds {
         if let Some(cache) = self.text_measurement_cache() {
-            let text_params = avenger_chart_core::scalar_params_to_label_params(self.params())
-                .unwrap_or_default();
-            let effective_config = TextMeasurementConfig {
-                text: config.text,
-                font: config.font,
-                font_size: config.font_size,
-                font_weight: config.font_weight,
-                font_style: config.font_style,
-                syntax_mode: config.syntax_mode,
-                params: &text_params,
-            };
             let key = TextMeasurementCacheKey::new(
                 config.text,
                 config.font,
@@ -1134,7 +1127,7 @@ impl EvaluationContext {
                 &config.font_weight,
                 &config.font_style,
                 config.syntax_mode,
-                effective_config.params,
+                config.params,
                 TEXT_MARK_MEASUREMENT_CACHE_TAG,
             );
             let cached = {
@@ -1149,7 +1142,7 @@ impl EvaluationContext {
             } else {
                 self.record_text_measurement_cache_miss();
                 let bounds = crate::fonts::default_chart_text_engine()
-                    .measure_bounds_with_plain_fallback_or_approx(&effective_config);
+                    .measure_bounds_with_plain_fallback_or_approx(config);
                 cache
                     .lock()
                     .expect("text measurement cache lock poisoned")
@@ -1157,19 +1150,8 @@ impl EvaluationContext {
                 bounds
             }
         } else {
-            let text_params = avenger_chart_core::scalar_params_to_label_params(self.params())
-                .unwrap_or_default();
-            let effective_config = TextMeasurementConfig {
-                text: config.text,
-                font: config.font,
-                font_size: config.font_size,
-                font_weight: config.font_weight,
-                font_style: config.font_style,
-                syntax_mode: config.syntax_mode,
-                params: &text_params,
-            };
             crate::fonts::default_chart_text_engine()
-                .measure_bounds_with_plain_fallback_or_approx(&effective_config)
+                .measure_bounds_with_plain_fallback_or_approx(config)
         }
     }
 
@@ -1181,26 +1163,15 @@ impl EvaluationContext {
             &TextMeasurementConfig<'_>,
         ) -> Result<TextBounds, avenger_text::error::AvengerTextError>,
     ) -> Result<TextBounds, AvengerChartError> {
-        let text_params = avenger_chart_core::scalar_params_to_label_params(self.params())?;
-        let effective_config = TextMeasurementConfig {
-            text: config.text,
-            font: config.font,
-            font_size: config.font_size,
-            font_weight: config.font_weight,
-            font_style: config.font_style,
-            syntax_mode: config.syntax_mode,
-            params: &text_params,
-        };
-
         if let Some(cache) = self.text_measurement_cache() {
             let key = TextMeasurementCacheKey::new(
-                effective_config.text,
-                effective_config.font,
-                effective_config.font_size,
-                &effective_config.font_weight,
-                &effective_config.font_style,
-                effective_config.syntax_mode,
-                effective_config.params,
+                config.text,
+                config.font,
+                config.font_size,
+                &config.font_weight,
+                &config.font_style,
+                config.syntax_mode,
+                config.params,
                 measurement_tag,
             );
             let cached = {
@@ -1214,7 +1185,7 @@ impl EvaluationContext {
                 Ok(bounds)
             } else {
                 self.record_text_measurement_cache_miss();
-                let bounds = measure(&effective_config)?;
+                let bounds = measure(config)?;
                 cache
                     .lock()
                     .expect("text measurement cache lock poisoned")
@@ -1222,8 +1193,29 @@ impl EvaluationContext {
                 Ok(bounds)
             }
         } else {
-            Ok(measure(&effective_config)?)
+            Ok(measure(config)?)
         }
+    }
+
+    pub(crate) fn strict_label_params_for_source(
+        &self,
+        source: &str,
+        syntax_mode: TextSyntaxMode,
+    ) -> Result<LabelParams, AvengerChartError> {
+        avenger_chart_core::scalar_params_for_label_source(source, syntax_mode, self.params())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn lenient_label_params_for_sources<'a>(
+        &self,
+        sources: impl IntoIterator<Item = &'a str>,
+        syntax_mode: TextSyntaxMode,
+    ) -> LabelParams {
+        avenger_chart_core::scalar_params_for_label_sources_lenient(
+            sources,
+            syntax_mode,
+            self.params(),
+        )
     }
 
     pub(crate) fn with_layout_profile(&self, layout_profile: Arc<LayoutProfileSnapshot>) -> Self {
@@ -2117,5 +2109,48 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn text_measurement_uses_supplied_config_params() {
+        let mut context_params = IndexMap::new();
+        context_params.insert(
+            "series".to_string(),
+            ScalarValue::Utf8(Some("Hidden".to_string())),
+        );
+        let ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(SessionContext::new()),
+            context_params,
+            Arc::new(EvaluatedFacetTree::empty()),
+        );
+        let font_weight =
+            avenger_text::types::FontWeight::Name(avenger_text::types::FontWeightNameSpec::Normal);
+        let mut supplied_params = avenger_text::LabelParams::default();
+        supplied_params.insert(
+            "series".to_string(),
+            avenger_text::LabelParamValue::Str("Visible".to_string()),
+        );
+        let supplied_config = avenger_text::measurement::TextMeasurementConfig {
+            text: "#series",
+            font: "sans-serif",
+            font_size: 12.0,
+            font_weight,
+            font_style: avenger_text::types::FontStyle::Normal,
+            syntax_mode: avenger_text::types::TextSyntaxMode::TypstMarkup,
+            params: &supplied_params,
+        };
+        let missing_config = avenger_text::measurement::TextMeasurementConfig {
+            text: "#series",
+            font: "sans-serif",
+            font_size: 12.0,
+            font_weight,
+            font_style: avenger_text::types::FontStyle::Normal,
+            syntax_mode: avenger_text::types::TextSyntaxMode::TypstMarkup,
+            params: avenger_text::empty_label_params(),
+        };
+
+        assert!(ctx.measure_text_bounds(&supplied_config).is_ok());
+        assert!(ctx.measure_text_bounds(&missing_config).is_err());
     }
 }

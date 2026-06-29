@@ -8,7 +8,7 @@ use avenger_chart_core::{
     axis_ownership_mode_from_params, collect_derived_scalar_ids, eval_to_scalars,
     evaluate_axis_position_expr, evaluate_bool_expr, evaluate_f32_expr, evaluate_string_expr,
     owner_for_edge, params_to_datafusion, project_container_edge_levels, resolve_derived_scalars,
-    serialization::DefaultLogicalExprNodeExt,
+    scalar_params_for_label_source, serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_guides::axis::{
     band::make_band_axis_marks,
@@ -693,6 +693,42 @@ pub async fn evaluate_cartesian_axis(
     let tick_start_step =
         evaluate_tick_spacing(axis, channel, ctx, params, sharing_context).await?;
 
+    let title = if let Some(title_node) = axis.title.as_option().and_then(|o| o.as_ref()) {
+        let title_expr =
+            resolve_axis_expr(title_node.to_default_expr(ctx)?, channel, sharing_context)?;
+        evaluate_string_expr(&title_expr, ctx, params).await?
+    } else {
+        String::new()
+    };
+    let nested_axis_level_configs = match scale.scale_impl.domain_kind() {
+        DomainKind::NestedCategorical => Some(
+            evaluate_nested_axis_level_configs(
+                nested_axis_levels,
+                channel,
+                ctx,
+                params,
+                sharing_context,
+            )
+            .await?,
+        ),
+        _ => None,
+    };
+    let mut title_text_params =
+        scalar_params_for_label_source(&title, axis.title_syntax_mode, params)?;
+    if let Some(level_configs) = &nested_axis_level_configs {
+        for level_title in level_configs
+            .values()
+            .filter_map(|config| config.title.as_ref())
+        {
+            let level_params =
+                scalar_params_for_label_source(level_title, axis.title_syntax_mode, params)?;
+            for (name, value) in level_params {
+                title_text_params.entry(name).or_insert(value);
+            }
+        }
+    }
+    let title = title.as_str();
+
     let axis_config = AxisConfig {
         orientation,
         dimensions: [plot_width, plot_height],
@@ -720,33 +756,11 @@ pub async fn evaluate_cartesian_axis(
         label_font_family,
         title_font_family,
         title_syntax_mode: axis.title_syntax_mode,
+        title_text_params,
         title_visible: Some(show_title),
         labels_visible,
         tick_count,
         tick_start_step,
-    };
-
-    let title = if let Some(title_node) = axis.title.as_option().and_then(|o| o.as_ref()) {
-        let title_expr =
-            resolve_axis_expr(title_node.to_default_expr(ctx)?, channel, sharing_context)?;
-        evaluate_string_expr(&title_expr, ctx, params).await?
-    } else {
-        String::new()
-    };
-    let title = title.as_str();
-
-    let nested_axis_level_configs = match scale.scale_impl.domain_kind() {
-        DomainKind::NestedCategorical => Some(
-            evaluate_nested_axis_level_configs(
-                nested_axis_levels,
-                channel,
-                ctx,
-                params,
-                sharing_context,
-            )
-            .await?,
-        ),
-        _ => None,
     };
 
     let domain_kind = scale.scale_impl.domain_kind();

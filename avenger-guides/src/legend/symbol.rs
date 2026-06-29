@@ -11,6 +11,7 @@ use avenger_text::{
     default_text_engine,
     measurement::TextMeasurementConfig,
     types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode},
+    LabelParams,
 };
 
 use crate::{
@@ -57,12 +58,14 @@ pub struct SymbolLegendConfig {
     pub title_font_size: Option<f32>,
     pub title_font_weight: Option<FontWeight>,
     pub title_syntax_mode: TextSyntaxMode,
+    pub title_text_params: LabelParams,
 
     /// Typography configuration for labels
     pub label_font_family: Option<String>,
     pub label_font_size: Option<f32>,
     pub label_font_weight: Option<FontWeight>,
     pub label_syntax_mode: TextSyntaxMode,
+    pub label_text_params: LabelParams,
 }
 
 impl Default for SymbolLegendConfig {
@@ -91,10 +94,12 @@ impl Default for SymbolLegendConfig {
             title_font_size: None,
             title_font_weight: None,
             title_syntax_mode: TextSyntaxMode::Plain,
+            title_text_params: LabelParams::default(),
             label_font_family: None,
             label_font_size: None,
             label_font_weight: None,
             label_syntax_mode: TextSyntaxMode::Plain,
+            label_text_params: LabelParams::default(),
         }
     }
 }
@@ -172,6 +177,68 @@ mod tests {
             hit_y + hit_height >= reserved_row_height,
             "symbol legend hit rect should preserve reserved row height"
         );
+    }
+
+    #[test]
+    fn symbol_legend_forwards_title_and_label_text_params() {
+        let mut title_text_params = LabelParams::default();
+        title_text_params.insert(
+            "series".to_string(),
+            avenger_text::LabelParamValue::Str("Revenue".to_string()),
+        );
+
+        let mut label_text_params = LabelParams::default();
+        label_text_params.insert("first".to_string(), avenger_text::LabelParamValue::Int(1));
+        label_text_params.insert("second".to_string(), avenger_text::LabelParamValue::Int(2));
+
+        let output = make_symbol_legend_itemized(&SymbolLegendConfig {
+            title: Some("#series".to_string()),
+            text: ScalarOrArray::new_array(vec!["#first".to_string(), "#second".to_string()]),
+            fill: ScalarOrArray::new_array(vec![
+                ColorOrGradient::Color([1.0, 0.0, 0.0, 1.0]),
+                ColorOrGradient::Color([0.0, 0.0, 1.0, 1.0]),
+            ]),
+            title_syntax_mode: TextSyntaxMode::TypstMarkup,
+            title_text_params: title_text_params.clone(),
+            label_syntax_mode: TextSyntaxMode::TypstMarkup,
+            label_text_params: label_text_params.clone(),
+            ..Default::default()
+        })
+        .expect("symbol legend renders");
+
+        let text_marks = collect_text_marks(&output.group.marks);
+        let title_mark = text_marks
+            .iter()
+            .find(|mark| mark.text.as_vec(1, None)[0] == "#series")
+            .expect("title text mark");
+        assert_eq!(title_mark.text_params, title_text_params);
+
+        for label in ["#first", "#second"] {
+            let label_mark = text_marks
+                .iter()
+                .find(|mark| mark.text.as_vec(1, None)[0] == label)
+                .expect("label text mark");
+            assert_eq!(label_mark.text_params, label_text_params);
+        }
+    }
+
+    fn collect_text_marks(marks: &[SceneMark]) -> Vec<&SceneTextMark> {
+        let mut text_marks = Vec::new();
+        collect_text_marks_into(marks, &mut text_marks);
+        text_marks
+    }
+
+    fn collect_text_marks_into<'a>(
+        marks: &'a [SceneMark],
+        text_marks: &mut Vec<&'a SceneTextMark>,
+    ) {
+        for mark in marks {
+            match mark {
+                SceneMark::Text(text) => text_marks.push(text),
+                SceneMark::Group(group) => collect_text_marks_into(&group.marks, text_marks),
+                _ => {}
+            }
+        }
     }
 }
 
@@ -257,7 +324,7 @@ pub fn make_symbol_legend_itemized(
             font_weight: title_font_weight,
             font_style: FontStyle::Normal,
             syntax_mode: config.title_syntax_mode,
-            params: avenger_text::empty_label_params(),
+            params: &config.title_text_params,
         };
         let title_bounds = text_engine.measure_bounds(&title_config)?;
 
@@ -276,6 +343,7 @@ pub fn make_symbol_legend_itemized(
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Top.into(),
             text_syntax: config.title_syntax_mode,
+            text_params: config.title_text_params.clone(),
             ..Default::default()
         };
         groups.push(SceneMark::Text(Arc::new(title_mark)).with_interactive(false));
@@ -304,6 +372,7 @@ pub fn make_symbol_legend_itemized(
             config.label_font_size,
             config.label_font_weight.as_ref(),
             config.label_syntax_mode,
+            &config.label_text_params,
         )?;
         let height = group.bounding_box().height();
         if i == 0 {
@@ -391,6 +460,7 @@ fn make_symbol_group(
     label_font_size: Option<f32>,
     label_font_weight: Option<&FontWeight>,
     label_syntax_mode: TextSyntaxMode,
+    label_text_params: &LabelParams,
 ) -> Result<SceneGroup, AvengerGuidesError> {
     //
     let mut single_symbol_mark = symbols_mark.single_symbol_mark(index);
@@ -429,6 +499,7 @@ fn make_symbol_group(
             .into(),
         color: ColorOrGradient::Color(label_color.unwrap_or([0.235, 0.235, 0.235, 1.0])).into(),
         text_syntax: label_syntax_mode,
+        text_params: label_text_params.clone(),
         ..Default::default()
     };
     let content_marks = vec![

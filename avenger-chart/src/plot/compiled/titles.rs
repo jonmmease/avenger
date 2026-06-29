@@ -44,6 +44,11 @@ impl CompiledPlot {
         let text_node: LogicalExprNode = title.text.clone();
         let text_expr = text_node.to_expr(ctx)?;
         let text_value = evaluate_string_expr(&text_expr, ctx, params).await?;
+        let text_params = avenger_chart_core::scalar_params_for_label_source(
+            &text_value,
+            title.syntax_mode,
+            params,
+        )?;
 
         // Evaluate font_size
         let font_size = match title.font_size.as_ref() {
@@ -110,7 +115,7 @@ impl CompiledPlot {
             clip: false,
             text: text_value.into(),
             text_syntax: title.syntax_mode,
-            text_params: avenger_chart_core::scalar_params_to_label_params(params)?,
+            text_params,
             x: x.into(),
             y: y.into(),
             color: ColorOrGradient::Color(
@@ -159,6 +164,11 @@ impl CompiledPlot {
         let text_node: LogicalExprNode = subtitle.text.clone();
         let text_expr = text_node.to_expr(ctx)?;
         let text_value = evaluate_string_expr(&text_expr, ctx, params).await?;
+        let text_params = avenger_chart_core::scalar_params_for_label_source(
+            &text_value,
+            subtitle.syntax_mode,
+            params,
+        )?;
 
         // Evaluate font_size
         let font_size = match subtitle.font_size.as_ref() {
@@ -225,7 +235,7 @@ impl CompiledPlot {
             clip: false,
             text: text_value.into(),
             text_syntax: subtitle.syntax_mode,
-            text_params: avenger_chart_core::scalar_params_to_label_params(params)?,
+            text_params,
             x: x.into(),
             y: y.into(),
             color: ColorOrGradient::Color(

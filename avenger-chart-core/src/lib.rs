@@ -314,7 +314,10 @@ pub use subplot_child_plot::{
     compile_positioned_subplot_mark, compile_positioned_subplot_mark_with_context,
     compile_subplot_payload, compile_subplot_payload_with_context,
 };
-pub use text_params::{scalar_params_to_label_params, scalar_value_to_label_param};
+pub use text_params::{
+    scalar_params_for_label_source, scalar_params_for_label_sources_lenient,
+    scalar_params_to_label_params, scalar_value_to_label_param,
+};
 pub use theme::{AngleUnit, CssRgba, LengthUnit, Theme, ThemeValue};
 pub use theme_context::ThemeContext;
 pub use time_context::{TimeContext, WeekStart};

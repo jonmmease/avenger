@@ -113,6 +113,15 @@ impl LegendRenderer for CompiledRectLegend {
         } else {
             None
         };
+        let title_text_params = if let Some(title_text) = title.as_deref() {
+            avenger_chart_core::scalar_params_for_label_source(
+                title_text,
+                config.title_syntax_mode,
+                params,
+            )?
+        } else {
+            avenger_text::LabelParams::default()
+        };
 
         // Evaluate symbol size (from expression, theme, or mark defaults)
         let symbol_size =
@@ -134,7 +143,9 @@ impl LegendRenderer for CompiledRectLegend {
             title,
             text: ScalarOrArray::new_scalar("".to_string()), // Will be set later
             title_syntax_mode: config.title_syntax_mode,
+            title_text_params,
             label_syntax_mode: config.label_syntax_mode,
+            label_text_params: avenger_text::LabelParams::default(),
             shape: ScalarOrArray::new_scalar(
                 SymbolShape::from_vega_str("square").unwrap_or_default(),
             ), // Always use square for rect marks
@@ -337,6 +348,12 @@ impl LegendRenderer for CompiledRectLegend {
                 .map(|v| v.as_scalar_string())
                 .collect::<Result<Vec<_>, _>>()?
         };
+        legend_config.label_text_params =
+            avenger_chart_core::scalar_params_for_label_sources_lenient(
+                text_values.iter().map(String::as_str),
+                config.label_syntax_mode,
+                params,
+            );
 
         // Add text to the legend config
         legend_config.text = ScalarOrArray::new_array(text_values);

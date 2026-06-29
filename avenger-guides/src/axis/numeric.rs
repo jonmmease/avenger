@@ -320,6 +320,56 @@ mod tests {
         let err = start_step_ticks(&scale, 0.0, 0.0).expect_err("invalid step");
         assert!(matches!(err, AvengerGuidesError::InvalidAxisTicks(_)));
     }
+
+    #[test]
+    fn numeric_axis_title_forwards_text_params() {
+        let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
+        let mut title_text_params = avenger_text::LabelParams::default();
+        title_text_params.insert(
+            "series".to_string(),
+            avenger_text::LabelParamValue::Str("Revenue".to_string()),
+        );
+
+        let axis = make_numeric_axis_marks(
+            &scale,
+            "#series",
+            [0.0, 0.0],
+            &AxisConfig {
+                title_syntax_mode: avenger_text::types::TextSyntaxMode::TypstMarkup,
+                title_text_params: title_text_params.clone(),
+                ..Default::default()
+            },
+        )
+        .expect("axis renders");
+
+        let text_marks = collect_text_marks(&axis);
+        let title_mark = text_marks
+            .iter()
+            .find(|mark| mark.text.as_vec(1, None)[0] == "#series")
+            .expect("title text mark");
+        assert_eq!(title_mark.text_params, title_text_params);
+    }
+
+    fn collect_text_marks(group: &SceneGroup) -> Vec<&SceneTextMark> {
+        let mut text_marks = Vec::new();
+        collect_text_marks_into(&group.marks, &mut text_marks);
+        text_marks
+    }
+
+    fn collect_text_marks_into<'a>(
+        marks: &'a [avenger_scenegraph::marks::mark::SceneMark],
+        text_marks: &mut Vec<&'a SceneTextMark>,
+    ) {
+        for mark in marks {
+            match mark {
+                avenger_scenegraph::marks::mark::SceneMark::Text(text) => text_marks.push(text),
+                avenger_scenegraph::marks::mark::SceneMark::Group(group) => {
+                    collect_text_marks_into(&group.marks, text_marks);
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 fn make_axis_line(
@@ -569,7 +619,7 @@ fn make_title(
         font_weight: title_font_weight,
         font_style: FontStyle::Normal,
         syntax_mode: config.title_syntax_mode,
-        params: avenger_text::empty_label_params(),
+        params: &config.title_text_params,
     })?;
 
     // Now the envelope is in the group's local coordinate system (origin = [0, 0])
@@ -637,6 +687,7 @@ fn make_title(
         font_weight: title_font_weight.into(),
         font: title_font_family.into(),
         text_syntax: config.title_syntax_mode,
+        text_params: config.title_text_params.clone(),
         ..Default::default()
     })
 }
