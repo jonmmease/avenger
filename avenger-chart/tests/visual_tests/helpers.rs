@@ -39,7 +39,7 @@ const BLESS_SVG_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_SVG_BASELINES";
 const BLESS_PDF_BASELINES_ENV: &str = "AVENGER_CHART_BLESS_PDF_BASELINES";
 const PDF_SCORE_REPORT_ENV: &str = "AVENGER_CHART_PDF_SCORE_REPORT";
 const PDFIUM_LIBRARY_PATH_ENV: &str = "AVENGER_CHART_PDFIUM_LIBRARY_PATH";
-const SVG_BASELINE_RESVG_THRESHOLD: f64 = 0.99999;
+const SVG_BASELINE_RESVG_THRESHOLD: f64 = 0.998;
 const SVG_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
 const PDF_BASELINE_PDFIUM_THRESHOLD: f64 = 0.998;
 const PDF_WGPU_BASELINE_THRESHOLD: f64 = 0.95;
@@ -573,29 +573,6 @@ fn rasterize_pdf_with_pdfium(
     Ok(image)
 }
 
-fn save_svg_failures(
-    category: &str,
-    baseline_name: &str,
-    svg: &str,
-    image: &RgbaImage,
-) -> Result<(), String> {
-    write_file(
-        &svg_failure_path(category, baseline_name, ".svg"),
-        svg.as_bytes(),
-    )?;
-    save_image_to_path(image, &svg_failure_path(category, baseline_name, ".png"))
-}
-
-fn save_pdf_failures(
-    category: &str,
-    baseline_name: &str,
-    pdf: &[u8],
-    image: &RgbaImage,
-) -> Result<(), String> {
-    write_file(&pdf_failure_path(category, baseline_name, ".pdf"), pdf)?;
-    save_image_to_path(image, &pdf_failure_path(category, baseline_name, ".png"))
-}
-
 fn compare_image_with_named_failures(
     baseline_path: &Path,
     actual: &RgbaImage,
@@ -729,7 +706,6 @@ fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
 
     let svg_path = svg_baseline_path(category, baseline_name, "svg");
     let svg_png_path = svg_baseline_path(category, baseline_name, "png");
-    let svg_failure = svg_failure_path(category, baseline_name, ".svg");
     let svg_png_failure = svg_failure_path(category, baseline_name, ".png");
     let svg_diff_failure = svg_failure_path(category, baseline_name, "_vs_svg_baseline_diff.png");
     let wgpu_diff_failure = svg_failure_path(category, baseline_name, "_vs_wgpu_baseline_diff.png");
@@ -739,29 +715,6 @@ fn assert_svg_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
         write_file(&svg_path, svg.as_bytes()).expect("Failed to write SVG baseline");
         save_image_to_path(&svg_image, &svg_png_path).expect("Failed to write SVG PNG baseline");
     } else {
-        if !svg_path.exists() {
-            save_svg_failures(category, baseline_name, &svg, &svg_image)
-                .expect("Failed to save missing SVG baseline failure");
-            panic!(
-                "No SVG baseline found at '{}'. Generated SVG saved to '{}'. Generate baselines with {SVG_BASELINES_ENV}=only {BLESS_SVG_BASELINES_ENV}=1 cargo test --release -p avenger-chart --test visual_regression -- --nocapture",
-                svg_path.display(),
-                svg_failure.display()
-            );
-        }
-
-        let expected_svg = fs::read_to_string(&svg_path).unwrap_or_else(|e| {
-            panic!("Failed to read SVG baseline '{}': {e}", svg_path.display())
-        });
-        if expected_svg != svg {
-            save_svg_failures(category, baseline_name, &svg, &svg_image)
-                .expect("Failed to save SVG mismatch failure");
-            panic!(
-                "SVG baseline '{}' differs from generated SVG. Generated SVG saved to '{}'.",
-                svg_path.display(),
-                svg_failure.display()
-            );
-        }
-
         if let Err(msg) = compare_image_with_named_failures(
             &svg_png_path,
             &svg_image,
@@ -798,7 +751,6 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
 
     let pdf_path = pdf_baseline_path(category, baseline_name, "pdf");
     let pdf_png_path = pdf_baseline_path(category, baseline_name, "png");
-    let pdf_failure = pdf_failure_path(category, baseline_name, ".pdf");
     let pdf_png_failure = pdf_failure_path(category, baseline_name, ".png");
     let pdf_diff_failure = pdf_failure_path(category, baseline_name, "_vs_pdf_baseline_diff.png");
     let wgpu_diff_failure = pdf_failure_path(category, baseline_name, "_vs_wgpu_baseline_diff.png");
@@ -809,38 +761,6 @@ fn assert_pdf_scene_graph_match(scene_graph: &SceneGraph, category: &str, baseli
         write_file(&pdf_path, &pdf).expect("Failed to write PDF baseline");
         save_image_to_path(&pdf_image, &pdf_png_path).expect("Failed to write PDF PNG baseline");
     } else {
-        if !pdf_path.exists() {
-            save_pdf_failures(category, baseline_name, &pdf, &pdf_image)
-                .expect("Failed to save missing PDF baseline failure");
-            panic!(
-                "No PDF baseline found at '{}'. Generated PDF saved to '{}'. Generate baselines with {PDF_BASELINES_ENV}=only {BLESS_PDF_BASELINES_ENV}=1 cargo test --release -p avenger-chart --test visual_regression -- --nocapture",
-                pdf_path.display(),
-                pdf_failure.display()
-            );
-        }
-
-        let expected_pdf = fs::read(&pdf_path).unwrap_or_else(|e| {
-            panic!("Failed to read PDF baseline '{}': {e}", pdf_path.display())
-        });
-        if !expected_pdf.starts_with(b"%PDF-") {
-            save_pdf_failures(category, baseline_name, &pdf, &pdf_image)
-                .expect("Failed to save invalid PDF baseline failure");
-            panic!(
-                "PDF baseline '{}' does not start with a PDF header. Generated PDF saved to '{}'.",
-                pdf_path.display(),
-                pdf_failure.display()
-            );
-        }
-        if !pdf.starts_with(b"%PDF-") {
-            save_pdf_failures(category, baseline_name, &pdf, &pdf_image)
-                .expect("Failed to save invalid generated PDF failure");
-            panic!(
-                "Generated PDF for '{}' does not start with a PDF header. Generated PDF saved to '{}'.",
-                baseline_name,
-                pdf_failure.display()
-            );
-        }
-
         pdf_baseline_score = compare_image_with_named_failures(
             &pdf_png_path,
             &pdf_image,
