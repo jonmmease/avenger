@@ -89,6 +89,26 @@ pub struct CurrencyFormat {
     pub accounting: CurrencyPattern,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CurrencyFormatSpec {
+    Normalized(CurrencyFormat),
+    Cldr(CldrCurrencyFormatSpec),
+    CldrSingle(String),
+}
+
+impl From<CurrencyFormat> for CurrencyFormatSpec {
+    fn from(value: CurrencyFormat) -> Self {
+        Self::Normalized(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CldrCurrencyFormatSpec {
+    pub standard: String,
+    pub accounting: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct CurrencyDisplayNames {
     pub symbol: Option<String>,
@@ -120,7 +140,7 @@ pub struct NumberLocaleSpec {
     pub digits: Option<[String; 10]>,
     pub decimal_pattern: Option<DecimalPatternSpec>,
     pub percent_pattern: Option<DecimalPatternSpec>,
-    pub currency: Option<CurrencyFormat>,
+    pub currency: Option<CurrencyFormatSpec>,
     pub currency_names: Option<BTreeMap<String, CurrencyDisplayNames>>,
     pub compact_short: Option<Vec<CompactTier>>,
     pub compact_long: Option<Vec<CompactTier>>,

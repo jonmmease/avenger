@@ -547,6 +547,18 @@ mod tests {
     }
 
     #[test]
+    fn default_date32_ticks_use_ldml_temporal_formatter() {
+        let start = Arc::new(arrow::array::Date32Array::from(vec![19723])) as ArrayRef;
+        let end = Arc::new(arrow::array::Date32Array::from(vec![19730])) as ArrayRef;
+        let scale = TimeScale::configured((start, end), (0.0, 100.0));
+        let ticks = Arc::new(arrow::array::Date32Array::from(vec![19727])) as ArrayRef;
+        let labels = make_tick_label_text(&ticks, &scale, &AxisConfig::default()).expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::Plain);
+        assert_eq!(labels.text.as_vec(1, None), vec!["Jan 5"]);
+    }
+
+    #[test]
     fn datetime_format_formats_date32_ticks_directly() {
         let start = Arc::new(arrow::array::Date32Array::from(vec![19723])) as ArrayRef;
         let end = Arc::new(arrow::array::Date32Array::from(vec![19730])) as ArrayRef;
@@ -667,6 +679,26 @@ mod tests {
         let scale = TimeScale::configured((start, end), (0.0, 100.0))
             .with_option("timezone", "America/New_York");
         let ticks = Arc::new(TimestampMillisecondArray::from(vec![1_704_067_200_000])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                tick_label: Some("#datefmt(value, \"y-MM-dd HH:mm\")".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.text.as_vec(1, None), vec!["2024-01-01 00:00"]);
+    }
+
+    #[test]
+    fn datefmt_tick_fragment_does_not_shift_date64_ticks() {
+        let start = Arc::new(Date64Array::from(vec![1_704_067_200_000])) as ArrayRef;
+        let end = Arc::new(Date64Array::from(vec![1_704_070_800_000])) as ArrayRef;
+        let scale = TimeScale::configured((start, end), (0.0, 100.0))
+            .with_option("timezone", "America/New_York");
+        let ticks = Arc::new(Date64Array::from(vec![1_704_067_200_000])) as ArrayRef;
         let labels = make_tick_label_text(
             &ticks,
             &scale,
@@ -1129,7 +1161,7 @@ pub(crate) fn make_tick_label_text(
 
     let Some(pattern) = config.format_number.as_ref() else {
         return Ok(TickLabelText {
-            text: scale.format(ticks)?,
+            text: format_default_tick_values(ticks, scale)?,
             syntax_mode: TextSyntaxMode::Plain,
         });
     };
@@ -1142,7 +1174,7 @@ pub(crate) fn make_tick_label_text(
             }
         }
         return Ok(TickLabelText {
-            text: scale.format(ticks)?,
+            text: format_default_tick_values(ticks, scale)?,
             syntax_mode: TextSyntaxMode::Plain,
         });
     }
@@ -1159,6 +1191,24 @@ pub(crate) fn make_tick_label_text(
     } else {
         format_bare_number_ticks(pattern, &nums, context)
     }
+}
+
+fn format_default_tick_values(
+    ticks: &ArrayRef,
+    scale: &ConfiguredScale,
+) -> Result<ScalarOrArray<String>, AvengerGuidesError> {
+    if is_temporal_type(ticks.data_type()) {
+        Ok(scale.scale_to_string(ticks)?)
+    } else {
+        Ok(scale.format(ticks)?)
+    }
+}
+
+fn is_temporal_type(data_type: &DataType) -> bool {
+    matches!(
+        data_type,
+        DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _)
+    )
 }
 
 struct NumberFormatEnvironment {

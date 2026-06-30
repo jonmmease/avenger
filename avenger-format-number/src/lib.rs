@@ -25,8 +25,9 @@ pub use format::{
     ResolvedNumberFormat,
 };
 pub use locale::{
-    CurrencyDisplay, CurrencyDisplayNames, CurrencyFormat, CurrencyPattern, DecimalPattern,
-    DecimalPatternSpec, GroupingSpec, LocaleId, NumberLocaleSpec, ResolvedNumberLocale,
+    CldrCurrencyFormatSpec, CurrencyDisplay, CurrencyDisplayNames, CurrencyFormat,
+    CurrencyFormatSpec, CurrencyPattern, DecimalPattern, DecimalPatternSpec, GroupingSpec,
+    LocaleId, NumberLocaleSpec, ResolvedNumberLocale,
 };
 pub use parser::parse_number_spec;
 pub use registry::NumberLocaleRegistry;

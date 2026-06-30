@@ -7,8 +7,9 @@ use crate::{
     error::FormatError,
     format::split_compact_pattern,
     locale::{
-        CurrencyDisplayNames, CurrencyFormat, CurrencyPattern, DecimalPattern, DecimalPatternSpec,
-        GroupingSpec, LocaleId, NumberLocaleSpec, ResolvedNumberLocale,
+        CldrCurrencyFormatSpec, CurrencyDisplayNames, CurrencyFormat, CurrencyFormatSpec,
+        CurrencyPattern, DecimalPattern, DecimalPatternSpec, GroupingSpec, LocaleId,
+        NumberLocaleSpec, ResolvedNumberLocale,
     },
 };
 
@@ -157,19 +158,18 @@ impl NumberLocaleRegistry {
             locale.percent_pattern = resolve_decimal_pattern(value)?;
         }
         if let Some(value) = spec.currency {
-            validate_currency_format(&value)?;
-            locale.currency = value;
+            locale.currency = resolve_currency_format(value)?;
         }
         if let Some(value) = spec.currency_names {
             validate_currency_names(&value)?;
             locale.currency_names.extend(value);
         }
         if let Some(value) = spec.compact_short {
-            validate_compact_tiers(&value)?;
+            let value = resolve_compact_tiers(value)?;
             locale.compact_short = value;
         }
         if let Some(value) = spec.compact_long {
-            validate_compact_tiers(&value)?;
+            let value = resolve_compact_tiers(value)?;
             locale.compact_long = value;
         }
 
@@ -203,7 +203,7 @@ fn builtin_de_de_spec() -> NumberLocaleSpec {
         permille: Some("\u{2030}".to_string()),
         nan: Some("NaN".to_string()),
         infinity: Some("\u{221e}".to_string()),
-        currency: Some(currency_suffix_format("\u{00a0}", false)),
+        currency: Some(currency_suffix_format("\u{00a0}", false).into()),
         currency_names: Some(currency_names([
             ("USD", "$", "$", "US-Dollar"),
             ("EUR", "\u{20ac}", "\u{20ac}", "Euro"),
@@ -252,7 +252,7 @@ fn builtin_fr_fr_spec() -> NumberLocaleSpec {
         permille: Some("\u{2030}".to_string()),
         nan: Some("NaN".to_string()),
         infinity: Some("\u{221e}".to_string()),
-        currency: Some(currency_suffix_format("\u{00a0}", true)),
+        currency: Some(currency_suffix_format("\u{00a0}", true).into()),
         currency_names: Some(currency_names([
             ("USD", "$US", "$", "dollars des \u{00c9}tats-Unis"),
             ("EUR", "\u{20ac}", "\u{20ac}", "euros"),
@@ -301,7 +301,7 @@ fn builtin_ja_jp_spec() -> NumberLocaleSpec {
         permille: Some("\u{2030}".to_string()),
         nan: Some("NaN".to_string()),
         infinity: Some("\u{221e}".to_string()),
-        currency: Some(currency_prefix_format()),
+        currency: Some(currency_prefix_format().into()),
         currency_names: Some(currency_names([
             ("USD", "$", "$", "\u{7c73}\u{30c9}\u{30eb}"),
             ("EUR", "\u{20ac}", "\u{20ac}", "\u{30e6}\u{30fc}\u{30ed}"),
@@ -409,6 +409,60 @@ fn resolve_decimal_pattern(pattern: DecimalPatternSpec) -> Result<DecimalPattern
     }
 }
 
+fn resolve_currency_format(format: CurrencyFormatSpec) -> Result<CurrencyFormat, FormatError> {
+    let format = match format {
+        CurrencyFormatSpec::Normalized(format) => format,
+        CurrencyFormatSpec::Cldr(source) => resolve_cldr_currency_format(source)?,
+        CurrencyFormatSpec::CldrSingle(pattern) => {
+            resolve_cldr_currency_format(CldrCurrencyFormatSpec {
+                standard: pattern,
+                accounting: None,
+            })?
+        }
+    };
+    validate_currency_format(&format)?;
+    Ok(format)
+}
+
+fn resolve_cldr_currency_format(
+    source: CldrCurrencyFormatSpec,
+) -> Result<CurrencyFormat, FormatError> {
+    let accounting = source.accounting.as_deref().unwrap_or(&source.standard);
+    Ok(CurrencyFormat {
+        standard: resolve_cldr_currency_pattern(&source.standard)?,
+        accounting: resolve_cldr_currency_pattern(accounting)?,
+    })
+}
+
+fn resolve_cldr_currency_pattern(pattern: &str) -> Result<CurrencyPattern, FormatError> {
+    let pattern = normalize_number_pattern(pattern)?;
+    Ok(CurrencyPattern {
+        positive_prefix: normalize_currency_sign_runs(&pattern.positive_prefix),
+        positive_suffix: normalize_currency_sign_runs(&pattern.positive_suffix),
+        negative_prefix: normalize_currency_sign_runs(&pattern.negative_prefix),
+        negative_suffix: normalize_currency_sign_runs(&pattern.negative_suffix),
+    })
+}
+
+fn normalize_currency_sign_runs(value: &str) -> String {
+    let mut output = String::new();
+    let mut in_currency_run = false;
+
+    for ch in value.chars() {
+        if ch == '\u{00a4}' {
+            if !in_currency_run {
+                output.push(ch);
+            }
+            in_currency_run = true;
+        } else {
+            output.push(ch);
+            in_currency_run = false;
+        }
+    }
+
+    output
+}
+
 fn validate_decimal_pattern(pattern: &DecimalPattern) -> Result<(), FormatError> {
     validate_affix("positive decimal prefix", &pattern.positive_prefix)?;
     validate_affix("positive decimal suffix", &pattern.positive_suffix)?;
@@ -469,6 +523,32 @@ fn validate_currency_names(
         }
     }
     Ok(())
+}
+
+fn resolve_compact_tiers(tiers: Vec<CompactTier>) -> Result<Vec<CompactTier>, FormatError> {
+    let tiers = tiers
+        .into_iter()
+        .map(|tier| {
+            Ok(CompactTier {
+                exponent: tier.exponent,
+                one: tier.one.map(normalize_compact_pattern).transpose()?,
+                other: normalize_compact_pattern(tier.other)?,
+            })
+        })
+        .collect::<Result<Vec<_>, FormatError>>()?;
+    validate_compact_tiers(&tiers)?;
+    Ok(tiers)
+}
+
+fn normalize_compact_pattern(pattern: String) -> Result<String, FormatError> {
+    if split_compact_pattern(&pattern).is_ok() {
+        return Ok(pattern);
+    }
+    let normalized = normalize_number_pattern(&pattern)?;
+    Ok(format!(
+        "{}{{0}}{}",
+        normalized.positive_prefix, normalized.positive_suffix
+    ))
 }
 
 fn validate_compact_tiers(tiers: &[CompactTier]) -> Result<(), FormatError> {
@@ -721,6 +801,120 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_json_cldr_currency_patterns() {
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json(
+                "currency-patterns",
+                r##"{
+                    "base": "en-US",
+                    "currency": {
+                        "standard": "¤¤ #,##0.00;-¤¤ #,##0.00",
+                        "accounting": "¤ #,##0.00;(¤ #,##0.00)"
+                    }
+                }"##,
+            )
+            .unwrap();
+
+        let locale = registry.resolve("currency-patterns").unwrap();
+        assert_eq!(locale.currency.standard.positive_prefix, "\u{00a4} ");
+        assert_eq!(locale.currency.standard.negative_prefix, "-\u{00a4} ");
+        assert_eq!(locale.currency.accounting.negative_prefix, "(\u{00a4} ");
+        assert_eq!(locale.currency.accounting.negative_suffix, ")");
+
+        let context = NumberFormatContext::new(&locale).with_registry(&registry);
+        assert_eq!(
+            format_number(
+                1234.5,
+                Some(",.2C[USD]"),
+                NumberFormatOverrides::default(),
+                context,
+            )
+            .unwrap()
+            .text,
+            "$ 1,234.50"
+        );
+        assert_eq!(
+            format_number(
+                -1234.5,
+                Some("(,.2C[USD]"),
+                NumberFormatOverrides::default(),
+                context,
+            )
+            .unwrap()
+            .text,
+            "($ 1,234.50)"
+        );
+    }
+
+    #[test]
+    fn normalizes_json_cldr_compact_patterns() {
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json(
+                "compact-patterns",
+                r##"{
+                    "base": "en-US",
+                    "compact_short": [
+                        { "exponent": 3, "one": "0K", "other": "0K" },
+                        { "exponent": 6, "one": "0M", "other": "0M" }
+                    ],
+                    "compact_long": [
+                        { "exponent": 3, "one": "0 thousand", "other": "0 thousand" },
+                        { "exponent": 6, "one": "0 million", "other": "0 million" }
+                    ]
+                }"##,
+            )
+            .unwrap();
+
+        let locale = registry.resolve("compact-patterns").unwrap();
+        assert_eq!(locale.compact_short[0].other, "{0}K");
+        assert_eq!(locale.compact_long[0].other, "{0} thousand");
+
+        let context = NumberFormatContext::new(&locale).with_registry(&registry);
+        assert_eq!(
+            format_number(
+                1234.5,
+                Some(".2S"),
+                NumberFormatOverrides::default(),
+                context,
+            )
+            .unwrap()
+            .text,
+            "1.2K"
+        );
+        assert_eq!(
+            format_number(
+                1_234_500.0,
+                Some(".2L"),
+                NumberFormatOverrides::default(),
+                context,
+            )
+            .unwrap()
+            .text,
+            "1.2 million"
+        );
+    }
+
+    #[test]
+    fn rejects_cldr_currency_pattern_without_currency_sign() {
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        let err = registry
+            .register_custom_locale_json(
+                "bad-currency-pattern",
+                r##"{
+                    "base": "en-US",
+                    "currency": {
+                        "standard": "#,##0.00",
+                        "accounting": "(#,##0.00)"
+                    }
+                }"##,
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("currency sign"));
+    }
+
+    #[test]
     fn rejects_missing_base_and_base_cycles() {
         let mut registry = NumberLocaleRegistry::with_builtins();
         let err = registry
@@ -798,6 +992,6 @@ mod tests {
                 },
             )
             .unwrap_err();
-        assert!(err.to_string().contains("{0}"));
+        assert!(err.to_string().contains("digit placeholders"));
     }
 }
