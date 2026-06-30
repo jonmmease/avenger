@@ -497,6 +497,25 @@ mod tests {
     }
 
     #[test]
+    fn tick_label_fragment_takes_precedence_over_format_number() {
+        let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![1200.0])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some(".0f".to_string()),
+                tick_label: Some("v=#numfmt(value, \".1e\")".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
+        assert_eq!(labels.text.as_vec(1, None), vec!["v=$1.2 times 10^(3)$"]);
+    }
+
+    #[test]
     fn numfmt_tick_fragment_uses_configured_builtin_locale() {
         let scale = LinearScale::configured((0.0, 2_000_000.0), (0.0, 100.0));
         let ticks = Arc::new(Float64Array::from(vec![1_200_000.0])) as ArrayRef;
@@ -861,6 +880,20 @@ pub(crate) fn make_tick_label_text(
     scale: &ConfiguredScale,
     config: &AxisConfig,
 ) -> Result<TickLabelText, AvengerGuidesError> {
+    if let Some(template) = config.tick_label.as_ref() {
+        if !ticks.data_type().is_numeric() {
+            return Err(AvengerGuidesError::InvalidAxisLabelFormat(
+                "tick_label fragments are only supported for numeric ticks".to_string(),
+            ));
+        }
+        let values = cast(ticks, &DataType::Float64)
+            .map_err(|err| AvengerGuidesError::InvalidScale(err.into()))?;
+        let values = values.as_primitive::<Float64Type>();
+        let nums: Vec<Option<f64>> = values.iter().collect();
+        let format_env = NumberFormatEnvironment::from_axis_config(config)?;
+        return format_numfmt_tick_fragment(template, &nums, format_env.context());
+    }
+
     let Some(pattern) = config.format_number.as_ref() else {
         return Ok(TickLabelText {
             text: scale.format(ticks)?,
