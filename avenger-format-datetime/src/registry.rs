@@ -8,6 +8,7 @@ use crate::{
         Widths7, Widths7Spec,
     },
     parser::parse_datetime_spec,
+    style::validate_datetime_glue_pattern,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -410,11 +411,11 @@ fn validate_glue_lengths(lengths: &Lengths) -> Result<(), DateTimeFormatError> {
         ("long", &lengths.long),
         ("full", &lengths.full),
     ] {
-        if !pattern.contains("{0}") || !pattern.contains("{1}") {
-            return Err(DateTimeFormatError::InvalidLocaleData(format!(
-                "datetime glue `{length}` must contain `{{0}}` and `{{1}}`"
-            )));
-        }
+        validate_datetime_glue_pattern(pattern).map_err(|err| {
+            DateTimeFormatError::InvalidLocaleData(format!(
+                "datetime glue `{length}` is invalid: {err}"
+            ))
+        })?;
     }
     Ok(())
 }
@@ -455,6 +456,29 @@ mod tests {
             )
             .unwrap();
         let locale = registry.resolve("test").unwrap();
+        assert_eq!(locale.months.abbrev[0], "Ja");
+        assert_eq!(locale.months.wide[0], "January");
+        assert_eq!(locale.date_patterns.long, "d MMMM y");
+    }
+
+    #[test]
+    fn registers_partial_custom_locale_from_json() {
+        let mut registry = DateTimeLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json(
+                "json-test",
+                r#"{
+                    "base": "en-US",
+                    "months": {
+                        "abbrev": ["Ja","Fe","Mr","Ap","My","Jn","Jl","Au","Se","Oc","No","De"]
+                    },
+                    "date_patterns": {
+                        "long": "d MMMM y"
+                    }
+                }"#,
+            )
+            .unwrap();
+        let locale = registry.resolve("json-test").unwrap();
         assert_eq!(locale.months.abbrev[0], "Ja");
         assert_eq!(locale.months.wide[0], "January");
         assert_eq!(locale.date_patterns.long, "d MMMM y");

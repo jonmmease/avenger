@@ -7,7 +7,7 @@ use crate::{
     locale::{Lengths, LocaleWeekday, ResolvedDateTimeLocale, Widths12, Widths2, Widths4, Widths7},
     parser::parse_datetime_spec,
     registry::DateTimeLocaleRegistry,
-    style::DateTimeStyleLength,
+    style::{render_datetime_glue, DateTimeStyleLength},
     timezone::parse_datetime_timezone,
 };
 
@@ -200,9 +200,11 @@ fn render_style_block(
                 overrides,
                 context,
             )?;
-            Ok(pattern_for_length(&context.locale.datetime_glue, length)
-                .replace("{1}", &date)
-                .replace("{0}", &time))
+            render_datetime_glue(
+                pattern_for_length(&context.locale.datetime_glue, length),
+                &date,
+                &time,
+            )
         }
     }
 }
@@ -557,6 +559,38 @@ mod tests {
             .text,
             "Jan 5, 2024, 12:00:00 AM"
         );
+    }
+
+    #[test]
+    fn formats_every_builtin_style_length_for_zoned_values() {
+        let locale = en_us();
+        let ctx = DateTimeFormatContext::new(&locale, Tz::UTC);
+        let value = Utc.with_ymd_and_hms(2024, 1, 5, 12, 34, 56).unwrap();
+
+        let cases = [
+            ("{date:short}", "1/5/24"),
+            ("{date:medium}", "Jan 5, 2024"),
+            ("{date:long}", "January 5, 2024"),
+            ("{date:full}", "Friday, January 5, 2024"),
+            ("{time:short}", "12:34 PM"),
+            ("{time:medium}", "12:34:56 PM"),
+            ("{time:long}", "12:34:56 PM GMT"),
+            ("{time:full}", "12:34:56 PM GMT"),
+            ("{datetime:short}", "1/5/24, 12:34 PM"),
+            ("{datetime:medium}", "Jan 5, 2024, 12:34:56 PM"),
+            ("{datetime:long}", "January 5, 2024 at 12:34:56 PM GMT"),
+            (
+                "{datetime:full}",
+                "Friday, January 5, 2024 at 12:34:56 PM GMT",
+            ),
+        ];
+
+        for (spec, expected) in cases {
+            let formatted =
+                format_zoned_datetime(value, Some(spec), DateTimeFormatOverrides::default(), ctx)
+                    .unwrap();
+            assert_eq!(formatted.text, expected, "{spec}");
+        }
     }
 
     #[test]

@@ -3,7 +3,7 @@ use crate::{
     currency::{currency_display_text, currency_metadata, validate_currency_code},
     digits::substitute_digits,
     error::FormatError,
-    locale::{CurrencyDisplay, ResolvedNumberLocale},
+    locale::{CurrencyDisplay, DecimalPattern, ResolvedNumberLocale},
     parser::parse_number_spec,
     registry::NumberLocaleRegistry,
     spec::{Align, DigitSpec, FormatType, NumberFormatSpec, SignPolicy, Symbol},
@@ -231,7 +231,6 @@ pub(crate) fn format_resolved_number(
         FormatType::Percent | FormatType::PercentRounded
     ) {
         scaled_value *= 100.0;
-        suffix.push_str(&context.locale.percent);
     }
 
     let mut raw_body = match effective_type {
@@ -326,7 +325,23 @@ pub(crate) fn format_resolved_number(
     }
 
     let is_negative = value.is_sign_negative() && !rounds_to_zero(&body, context.locale);
-    let text = apply_sign_and_padding(is_negative, &body, &prefix, &suffix, format, context.locale);
+    let pattern = if matches!(
+        effective_type,
+        FormatType::Percent | FormatType::PercentRounded
+    ) {
+        &context.locale.percent_pattern
+    } else {
+        &context.locale.decimal_pattern
+    };
+    let text = apply_pattern_affixes_and_padding(
+        is_negative,
+        &body,
+        &prefix,
+        &suffix,
+        format,
+        context.locale,
+        pattern,
+    );
     let text = substitute_digits(&text, context.locale);
 
     if let NumberTypesetting::Exponent {
@@ -394,7 +409,8 @@ fn format_currency_number(
         }
     }
 
-    let prefix = prefix_template.replace('\u{00a4}', &currency_display);
+    let prefix = localize_minus_affix(&prefix_template, context.locale)
+        .replace('\u{00a4}', &currency_display);
     let suffix = pattern_suffix.replace('\u{00a4}', &currency_display);
     let text = format!("{prefix}{body}{suffix}");
     let text = apply_padding_to_content(text, format);
@@ -523,6 +539,54 @@ fn apply_padding_to_content(content: String, format: &ResolvedNumberFormat) -> S
         }
         Align::AfterSign | Align::Right => format!("{padding}{content}"),
     }
+}
+
+fn apply_pattern_affixes_and_padding(
+    is_negative: bool,
+    body: &str,
+    prefix: &str,
+    suffix: &str,
+    format: &ResolvedNumberFormat,
+    locale: &ResolvedNumberLocale,
+    pattern: &DecimalPattern,
+) -> String {
+    let (pattern_prefix, pattern_suffix) = if is_negative {
+        if format.sign == SignPolicy::Parentheses {
+            (
+                format!("({}", pattern.positive_prefix),
+                format!("{})", pattern.positive_suffix),
+            )
+        } else {
+            (
+                localize_minus_affix(&pattern.negative_prefix, locale),
+                pattern.negative_suffix.clone(),
+            )
+        }
+    } else {
+        let mut positive_prefix = pattern.positive_prefix.clone();
+        match format.sign {
+            SignPolicy::Plus => positive_prefix = format!("{}{}", locale.plus, positive_prefix),
+            SignPolicy::Space => positive_prefix = format!(" {positive_prefix}"),
+            _ => {}
+        }
+        (positive_prefix, pattern.positive_suffix.clone())
+    };
+
+    apply_affixes_and_padding(
+        &pattern_prefix,
+        prefix,
+        body,
+        suffix,
+        &pattern_suffix,
+        format,
+    )
+}
+
+fn localize_minus_affix(affix: &str, locale: &ResolvedNumberLocale) -> String {
+    affix
+        .strip_prefix('-')
+        .map(|rest| format!("{}{}", locale.minus, rest))
+        .unwrap_or_else(|| affix.to_string())
 }
 
 fn effective_format_type(format: &ResolvedNumberFormat) -> FormatType {
@@ -784,6 +848,17 @@ fn apply_sign_and_padding(
         ""
     };
 
+    apply_affixes_and_padding(sign_prefix, prefix, body, suffix, sign_suffix, format)
+}
+
+fn apply_affixes_and_padding(
+    sign_prefix: &str,
+    prefix: &str,
+    body: &str,
+    suffix: &str,
+    sign_suffix: &str,
+    format: &ResolvedNumberFormat,
+) -> String {
     let content = format!("{sign_prefix}{prefix}{body}{suffix}{sign_suffix}");
     let Some(width) = format.width else {
         return content;
@@ -988,6 +1063,49 @@ mod tests {
     }
 
     #[test]
+    fn applies_normalized_decimal_and_percent_patterns() {
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json(
+                "patterns",
+                r##"{
+                    "base": "en-US",
+                    "decimal_pattern": "'~'#,##0 'items';('~'#,##0 'items')",
+                    "percent_pattern": "#,##0 percent;minus #,##0 percent"
+                }"##,
+            )
+            .unwrap();
+        let locale = registry.resolve("patterns").unwrap();
+        let context = NumberFormatContext::new(&locale);
+
+        let out =
+            format_number(12.0, Some(".0f"), NumberFormatOverrides::default(), context).unwrap();
+        assert_eq!(out.text, "~12 items");
+
+        let out = format_number(
+            -12.0,
+            Some(".0f"),
+            NumberFormatOverrides::default(),
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "(~12 items)");
+
+        let out =
+            format_number(0.12, Some(".0%"), NumberFormatOverrides::default(), context).unwrap();
+        assert_eq!(out.text, "12 percent");
+
+        let out = format_number(
+            -0.12,
+            Some(".0%"),
+            NumberFormatOverrides::default(),
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "minus 12 percent");
+    }
+
+    #[test]
     fn resolves_override_fields() {
         let locale = en_us();
         let out = format_number(
@@ -1058,6 +1176,39 @@ mod tests {
         )
         .unwrap();
         assert_eq!(out.text, "EUR1,234.50");
+
+        let out = format_number(
+            1234.5,
+            Some(",C"),
+            NumberFormatOverrides {
+                currency: Some("USD".to_string()),
+                ..Default::default()
+            },
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "$1,234.50");
+
+        let out = format_number(
+            1234.5,
+            Some(",C[EUR]"),
+            NumberFormatOverrides {
+                currency: Some("USD".to_string()),
+                ..Default::default()
+            },
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "$1,234.50");
+
+        let out = format_number(
+            1234.0,
+            Some(",.2~C[USD]"),
+            NumberFormatOverrides::default(),
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "$1,234");
     }
 
     #[test]
