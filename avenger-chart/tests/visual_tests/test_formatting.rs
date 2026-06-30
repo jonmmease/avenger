@@ -113,7 +113,7 @@ async fn axis_y_si_prefix() {
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
             .y_with(col("y"), |c| {
                 c.scale(|s| s.domain((0.0, 1.0e8)))
-                    .axis(|a| a.title("Population").format(".2s"))
+                    .axis(|a| a.title("Population").format(".2~s"))
             })
             .size(80.0)
             .fill_with("#e6550d", |c| c.no_legend()),
@@ -346,7 +346,7 @@ async fn colorbar_si_prefix() {
             .size(100.0)
             .fill_with(col("v"), |c| {
                 c.scale(|s| s.domain((0.0, 1.0e8)))
-                    .legend(|l| l.title("Population").format_number(".2s"))
+                    .legend(|l| l.title("Population").format_number(".2~s"))
             }),
     );
 

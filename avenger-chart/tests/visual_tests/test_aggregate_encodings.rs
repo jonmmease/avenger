@@ -191,7 +191,7 @@ async fn test_aggregate_movies_by_mpaa_rating() {
                 .x2_with(col("MPAA Rating"), |c| c.band(1.0)) // end of band
                 .y_with(lit(0.0), |c| {
                     // baseline at 0 with formatted axis
-                    c.axis(|a| a.format(".2s")) // SI prefix format with 2 significant digits
+                    c.axis(|a| a.format(".2~s")) // SI prefix format with trimmed fractional zeros
                 })
                 .y2(avg(col("Worldwide Gross"))) // aggregate dimension
                 .fill_with(avg(col("IMDB Rating")), |c| {
