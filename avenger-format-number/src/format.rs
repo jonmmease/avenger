@@ -1030,6 +1030,15 @@ mod tests {
         assert_eq!(out.text, "\u{00a5}1,234");
 
         let out = format_number(
+            1234.5678,
+            Some(",C[BHD]"),
+            NumberFormatOverrides::default(),
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "BHD1,234.568");
+
+        let out = format_number(
             -1234.5,
             Some("(,.1C[USD]"),
             NumberFormatOverrides::default(),
