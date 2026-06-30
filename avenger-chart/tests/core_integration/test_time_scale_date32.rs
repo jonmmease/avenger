@@ -54,6 +54,37 @@ async fn test_time_scale_with_date32_simple() -> Result<(), Box<dyn std::error::
 }
 
 #[tokio::test]
+async fn test_time_scale_with_date32_datetime_format() -> Result<(), Box<dyn std::error::Error>> {
+    let ctx = SessionContext::new();
+
+    let batch = RecordBatch::try_from_iter(vec![
+        (
+            "date",
+            Arc::new(Date32Array::from(vec![19723, 19724, 19725, 19726, 19727]))
+                as datafusion::arrow::array::ArrayRef,
+        ),
+        (
+            "value",
+            Arc::new(Float64Array::from(vec![10.0, 15.0, 12.0, 18.0, 14.0]))
+                as datafusion::arrow::array::ArrayRef,
+        ),
+    ])?;
+
+    let df = ctx.read_batch(batch)?;
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("date"), |c| {
+                c.scale_with::<Time>(|s| s)
+                    .axis(|axis| axis.title("Date").datetime_format("MMM d"))
+            })
+            .y_with(col("value"), |c| c.axis(|axis| axis.title("Value"))),
+    );
+
+    let _compiled = plot.compile(&ctx).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_time_scale_with_date32_and_expression() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = SessionContext::new();
 

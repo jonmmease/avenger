@@ -547,6 +547,51 @@ mod tests {
     }
 
     #[test]
+    fn datetime_format_formats_date32_ticks_directly() {
+        let start = Arc::new(arrow::array::Date32Array::from(vec![19723])) as ArrayRef;
+        let end = Arc::new(arrow::array::Date32Array::from(vec![19730])) as ArrayRef;
+        let scale = TimeScale::configured((start, end), (0.0, 100.0));
+        let ticks = Arc::new(arrow::array::Date32Array::from(vec![19727])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_datetime: Some("MMM d, y".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::Plain);
+        assert_eq!(labels.text.as_vec(1, None), vec!["Jan 5, 2024"]);
+    }
+
+    #[test]
+    fn datetime_format_rejects_strftime_specs() {
+        let start = Arc::new(arrow::array::Date32Array::from(vec![19723])) as ArrayRef;
+        let end = Arc::new(arrow::array::Date32Array::from(vec![19730])) as ArrayRef;
+        let scale = TimeScale::configured((start, end), (0.0, 100.0));
+        let ticks = Arc::new(arrow::array::Date32Array::from(vec![19727])) as ArrayRef;
+        let err = match make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_datetime: Some("%Y".to_string()),
+                ..Default::default()
+            },
+        ) {
+            Ok(_) => panic!("strftime specs should fail"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(
+            err,
+            AvengerGuidesError::InvalidAxisLabelFormat(message)
+                if message.contains("d3/strftime/chrono")
+        ));
+    }
+
+    #[test]
     fn datefmt_tick_fragment_uses_configured_locale_specs() {
         let start = Arc::new(arrow::array::Date32Array::from(vec![19723])) as ArrayRef;
         let end = Arc::new(arrow::array::Date32Array::from(vec![19730])) as ArrayRef;
@@ -1072,6 +1117,16 @@ pub(crate) fn make_tick_label_text(
         ));
     }
 
+    if let Some(spec) = config.format_datetime.as_ref() {
+        if let Some(values) = temporal_tick_values(ticks)? {
+            let format_env = DateTimeFormatEnvironment::from_axis_config(config, scale)?;
+            return format_datetime_ticks(spec, &values, format_env.context());
+        }
+        return Err(AvengerGuidesError::InvalidAxisLabelFormat(
+            "datetime_format is only supported for temporal ticks".to_string(),
+        ));
+    }
+
     let Some(pattern) = config.format_number.as_ref() else {
         return Ok(TickLabelText {
             text: scale.format(ticks)?,
@@ -1468,6 +1523,29 @@ fn format_datefmt_tick_fragment(
     })
 }
 
+fn format_datetime_ticks(
+    spec: &str,
+    values: &[Option<DatefmtTickValue>],
+    context: DateTimeFormatContext<'_>,
+) -> Result<TickLabelText, AvengerGuidesError> {
+    let text = values
+        .iter()
+        .map(|value| match value {
+            Some(value) => format_datetime_tick_value(
+                *value,
+                spec,
+                DateTimeFormatOverrides::default(),
+                context,
+            ),
+            None => Ok(String::new()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(TickLabelText {
+        text: ScalarOrArray::new_array(text),
+        syntax_mode: TextSyntaxMode::Plain,
+    })
+}
+
 struct DatefmtTickTemplate {
     pieces: Vec<DatefmtTickPiece>,
 }
@@ -1537,32 +1615,44 @@ fn format_datefmt_tick_fragment_value(
                 } else {
                     context
                 };
-                let formatted = match value {
-                    DatefmtTickValue::Date(value) => format_naive_datetime(
-                        NaiveDateTimeInput::Date(value),
-                        Some(&call.spec),
-                        call.overrides.clone(),
-                        call_context,
-                    ),
-                    DatefmtTickValue::DateTime(value) => format_naive_datetime(
-                        NaiveDateTimeInput::DateTime(value),
-                        Some(&call.spec),
-                        call.overrides.clone(),
-                        call_context,
-                    ),
-                    DatefmtTickValue::UtcDateTime(value) => format_zoned_datetime(
-                        value,
-                        Some(&call.spec),
-                        call.overrides.clone(),
-                        call_context,
-                    ),
-                }
-                .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
-                output.push_str(&escape_typst_markup_text(&formatted.text));
+                let formatted = format_datetime_tick_value(
+                    value,
+                    &call.spec,
+                    call.overrides.clone(),
+                    call_context,
+                )?;
+                output.push_str(&escape_typst_markup_text(&formatted));
             }
         }
     }
     Ok(output)
+}
+
+fn format_datetime_tick_value(
+    value: DatefmtTickValue,
+    spec: &str,
+    overrides: DateTimeFormatOverrides,
+    context: DateTimeFormatContext<'_>,
+) -> Result<String, AvengerGuidesError> {
+    let formatted = match value {
+        DatefmtTickValue::Date(value) => format_naive_datetime(
+            NaiveDateTimeInput::Date(value),
+            Some(spec),
+            overrides,
+            context,
+        ),
+        DatefmtTickValue::DateTime(value) => format_naive_datetime(
+            NaiveDateTimeInput::DateTime(value),
+            Some(spec),
+            overrides,
+            context,
+        ),
+        DatefmtTickValue::UtcDateTime(value) => {
+            format_zoned_datetime(value, Some(spec), overrides, context)
+        }
+    }
+    .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
+    Ok(formatted.text)
 }
 
 fn parse_numfmt_tick_call(

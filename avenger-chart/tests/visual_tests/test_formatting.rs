@@ -229,6 +229,53 @@ async fn axis_x_datefmt_ldml_ticks_and_title() {
 }
 
 #[tokio::test]
+async fn axis_x_datetime_format_ldml_ticks() {
+    let ctx = SessionContext::new();
+    let day = 86_400_000_i64;
+    let start = 1_704_067_200_000_i64;
+    let df = make_df_time_y(
+        &[
+            start,
+            start + day,
+            start + 2 * day,
+            start + 3 * day,
+            start + 4 * day,
+        ],
+        &[14.0, 18.0, 15.0, 21.0, 19.0],
+    );
+
+    let plot = Plot::<Cartesian>::new().data(df).mark(
+        Line::new()
+            .x_with(col("x"), |c| {
+                c.axis(|a| {
+                    a.title("Observation date")
+                        .tick_count(5.0)
+                        .datetime_format("MMM d")
+                })
+            })
+            .y_with(col("y"), |c| {
+                c.scale(|s| s.domain((0.0, 25.0)))
+                    .axis(|a| a.title("Temperature"))
+            })
+            .stroke("#276fbf")
+            .stroke_width(3.0),
+    );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile datetime_format LDML axis plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "format_axis_x_datetime_format_ldml_ticks",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn colorbar_percent() {
     let ctx = SessionContext::new();
     let df = make_df_xyv(

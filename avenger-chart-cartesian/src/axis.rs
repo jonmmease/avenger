@@ -58,6 +58,9 @@ pub struct CartesianAxis {
     pub format_number: Maybe<Option<LogicalExprNode>>,
     #[serde(default)]
     #[serde_as(as = "MaybeOptionalExpr")]
+    pub format_datetime: Maybe<Option<LogicalExprNode>>,
+    #[serde(default)]
+    #[serde_as(as = "MaybeOptionalExpr")]
     pub tick_label: Maybe<Option<LogicalExprNode>>,
     #[serde(default)]
     #[serde_as(as = "MaybeOptionalExpr")]
@@ -169,6 +172,15 @@ impl CartesianAxis {
         self
     }
 
+    pub fn datetime_format(mut self, format: impl IntoExpr) -> Self {
+        let expr = format.into_expr();
+        self.format_datetime = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(expr)
+                .expect("Failed to serialize datetime_format expr"),
+        ));
+        self
+    }
+
     pub fn number_locale(mut self, locale: impl IntoExpr) -> Self {
         let expr = locale.into_expr();
         self.number_locale = Maybe::Set(Some(
@@ -238,6 +250,9 @@ impl CartesianAxis {
         }
         if other.format_number.is_set() {
             self.format_number = other.format_number;
+        }
+        if other.format_datetime.is_set() {
+            self.format_datetime = other.format_datetime;
         }
         if other.tick_label.is_set() {
             self.tick_label = other.tick_label;
@@ -315,6 +330,7 @@ impl Axis for CartesianAxis {
             &self.tick_spacing,
             &self.label_angle,
             &self.format_number,
+            &self.format_datetime,
             &self.tick_label,
             &self.number_locale,
             &self.title_font_family,
@@ -340,6 +356,7 @@ impl Axis for CartesianAxis {
             tick_spacing: map_maybe_expr(self.tick_spacing.clone(), f)?,
             label_angle: map_maybe_expr(self.label_angle.clone(), f)?,
             format_number: map_maybe_expr(self.format_number.clone(), f)?,
+            format_datetime: map_maybe_expr(self.format_datetime.clone(), f)?,
             tick_label: map_maybe_expr(self.tick_label.clone(), f)?,
             number_locale: map_maybe_expr(self.number_locale.clone(), f)?,
             title_font_family: map_maybe_expr(self.title_font_family.clone(), f)?,
@@ -634,6 +651,14 @@ pub async fn evaluate_cartesian_axis(
         } else {
             None
         };
+    let format_datetime =
+        if let Some(format_node) = axis.format_datetime.as_option().and_then(|o| o.as_ref()) {
+            let format_expr =
+                resolve_axis_expr(format_node.to_default_expr(ctx)?, channel, sharing_context)?;
+            Some(evaluate_string_expr(&format_expr, ctx, params).await?)
+        } else {
+            None
+        };
     let tick_label = if let Some(label_node) = axis.tick_label.as_option().and_then(|o| o.as_ref())
     {
         let label_expr =
@@ -793,6 +818,7 @@ pub async fn evaluate_cartesian_axis(
         dimensions: [plot_width, plot_height],
         grid,
         format_number,
+        format_datetime,
         tick_label,
         number_locale,
         number_locale_registry: default_number_locale_registry,
@@ -1098,6 +1124,7 @@ mod tests {
             .title(repeat::column_title())
             .tick_count(repeat::column_index())
             .number_locale(repeat::column_title())
+            .datetime_format(repeat::column_title())
             .tick_label(repeat::column_title());
         let mapped = axis
             .map_exprs(&mut |expr| repeat::resolve_repeat_placeholders(expr, &repeat_context))
@@ -1151,6 +1178,18 @@ mod tests {
             .expect("number locale expr");
         assert_eq!(
             simplify_to_scalar_sync(number_locale).expect("number locale scalar"),
+            ScalarValue::Utf8(Some("Column B".to_string()))
+        );
+
+        let format_datetime = mapped
+            .format_datetime
+            .as_option()
+            .and_then(|node| node.as_ref())
+            .expect("datetime format")
+            .to_default_expr(&datafusion::prelude::SessionContext::new())
+            .expect("datetime format expr");
+        assert_eq!(
+            simplify_to_scalar_sync(format_datetime).expect("datetime format scalar"),
             ScalarValue::Utf8(Some("Column B".to_string()))
         );
     }
