@@ -23,6 +23,7 @@ pub struct TextPdfExtractionConfig<'a> {
     pub syntax_mode: TextSyntaxMode,
     pub params: &'a avenger_typst_label::LabelParams,
     pub number_locale: Option<&'a str>,
+    pub number_locale_specs: Option<&'a crate::NumberLocaleSpecs>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -90,6 +91,7 @@ impl TextPdfExtractorImpl {
                     syntax_mode: config.syntax_mode,
                     params: config.params,
                     number_locale: config.number_locale,
+                    number_locale_specs: config.number_locale_specs,
                 };
                 self.measure_text_bounds(&measurement)
                     .map(|bounds| bounds.width)
@@ -106,6 +108,7 @@ impl TextPdfExtractorImpl {
             config.color,
             config.params,
             config.number_locale,
+            config.number_locale_specs,
         )?;
         let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
         let bounds = bounds_from_metrics(
@@ -194,6 +197,7 @@ mod tests {
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
             number_locale: None,
+            number_locale_specs: None,
         }
     }
 
@@ -209,6 +213,7 @@ mod tests {
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
             number_locale: None,
+            number_locale_specs: None,
         }
     }
 

@@ -1,4 +1,4 @@
-use std::{any::Any, collections::BTreeMap};
+use std::{any::Any, collections::BTreeMap, sync::Arc};
 
 pub use avenger_chart_core::AxisPosition;
 use avenger_chart_core::{
@@ -10,6 +10,7 @@ use avenger_chart_core::{
     owner_for_edge, params_to_datafusion, project_container_edge_levels, resolve_derived_scalars,
     scalar_params_for_label_source, serialization::DefaultLogicalExprNodeExt,
 };
+use avenger_format_number::NumberLocaleRegistry;
 use avenger_guides::axis::{
     band::make_band_axis_marks,
     nested_band::{NestedBandAxisLevelConfig, make_nested_band_axis_marks},
@@ -19,7 +20,7 @@ use avenger_guides::axis::{
 };
 use avenger_scales::scales::{DomainKind, band::BandScale};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
-use avenger_text::types::TextSyntaxMode;
+use avenger_text::{NumberLocaleSpecs, types::TextSyntaxMode};
 use datafusion::{
     arrow::array::{Array, StructArray},
     common::ScalarValue,
@@ -550,6 +551,8 @@ pub async fn evaluate_cartesian_axis(
     child_frame_sharing_level: SharingLevel,
     nested_axis_levels: Option<&BTreeMap<usize, Box<CartesianAxis>>>,
     default_number_locale: &str,
+    default_number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
+    default_number_locale_specs: &NumberLocaleSpecs,
 ) -> Result<SceneMark, AvengerChartError> {
     let visible = if let Some(visible_node) = axis.visible.as_option().and_then(|o| o.as_ref()) {
         let visible_expr =
@@ -766,7 +769,8 @@ pub async fn evaluate_cartesian_axis(
         grid,
         format_number,
         number_locale,
-        number_locale_registry: None,
+        number_locale_registry: default_number_locale_registry,
+        number_locale_specs: default_number_locale_specs.clone(),
         title_font_size: theme.font_size(&title_ctx),
         domain_color,
         tick_color,

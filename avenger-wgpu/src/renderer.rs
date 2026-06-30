@@ -742,6 +742,7 @@ mod text_raster_tests {
                     syntax_mode: TextSyntaxMode::TypstMarkup,
                     params: avenger_text::empty_label_params(),
                     number_locale: None,
+                    number_locale_specs: &avenger_text::NumberLocaleSpecs::default(),
                     use_nearest_filter: false,
                 },
                 CanvasDimensions {

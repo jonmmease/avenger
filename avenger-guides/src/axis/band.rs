@@ -347,6 +347,7 @@ fn make_title(
         syntax_mode: config.title_syntax_mode,
         params: &config.title_text_params,
         number_locale: config.number_locale.as_deref(),
+        number_locale_specs: Some(&config.number_locale_specs),
     })?;
 
     // Now the envelope is in the group's local coordinate system (origin = [0, 0])
@@ -416,6 +417,7 @@ fn make_title(
         text_syntax: config.title_syntax_mode,
         text_params: config.title_text_params.clone(),
         number_locale: config.number_locale.clone(),
+        number_locale_specs: config.number_locale_specs.clone(),
         ..Default::default()
     })
 }

@@ -334,6 +334,7 @@ pub fn make_symbol_legend_itemized(
             syntax_mode: config.title_syntax_mode,
             params: &config.title_text_params,
             number_locale: None,
+            number_locale_specs: None,
         };
         let title_bounds = text_engine.measure_bounds(&title_config)?;
 

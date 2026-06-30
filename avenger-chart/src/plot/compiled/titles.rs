@@ -117,6 +117,7 @@ impl CompiledPlot {
             text_syntax: title.syntax_mode,
             text_params,
             number_locale: Some(self.formatting_context.resolved_number_locale().to_string()),
+            number_locale_specs: self.formatting_context.number_locale_specs().clone(),
             x: x.into(),
             y: y.into(),
             color: ColorOrGradient::Color(
@@ -238,6 +239,7 @@ impl CompiledPlot {
             text_syntax: subtitle.syntax_mode,
             text_params,
             number_locale: Some(self.formatting_context.resolved_number_locale().to_string()),
+            number_locale_specs: self.formatting_context.number_locale_specs().clone(),
             x: x.into(),
             y: y.into(),
             color: ColorOrGradient::Color(

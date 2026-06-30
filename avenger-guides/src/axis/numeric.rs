@@ -296,6 +296,7 @@ fn vertical_min_tick_spacing_px(config: &AxisConfig, text_engine: &TextEngine) -
 mod tests {
     use super::*;
     use arrow::array::Float64Array;
+    use avenger_format_number::{LocaleId, NumberLocaleSpec};
     use avenger_scales::scales::linear::LinearScale;
 
     fn values(array: &ArrayRef) -> Vec<f32> {
@@ -434,6 +435,37 @@ mod tests {
                 format_number: Some(",.1f".to_string()),
                 number_locale: Some("tick-test".to_string()),
                 number_locale_registry: Some(Arc::new(registry)),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::Plain);
+        assert_eq!(labels.text.as_vec(1, None), vec!["1_234~5"]);
+    }
+
+    #[test]
+    fn bare_tick_format_uses_custom_locale_specs() {
+        let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![1234.5])) as ArrayRef;
+        let mut number_locale_specs = avenger_text::NumberLocaleSpecs::default();
+        number_locale_specs.insert(
+            "tick-test".to_string(),
+            NumberLocaleSpec {
+                base: Some(LocaleId::new("en-US")),
+                decimal: Some("~".to_string()),
+                group: Some("_".to_string()),
+                ..Default::default()
+            },
+        );
+
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some(",.1f".to_string()),
+                number_locale: Some("tick-test".to_string()),
+                number_locale_specs,
                 ..Default::default()
             },
         )
@@ -864,10 +896,13 @@ struct NumberFormatEnvironment {
 
 impl NumberFormatEnvironment {
     fn from_axis_config(config: &AxisConfig) -> Result<Self, AvengerGuidesError> {
-        let registry = config
-            .number_locale_registry
-            .clone()
-            .unwrap_or_else(|| Arc::new(NumberLocaleRegistry::with_builtins()));
+        let registry = if let Some(registry) = &config.number_locale_registry {
+            registry.clone()
+        } else {
+            avenger_text::number_locale_registry_from_specs(Some(&config.number_locale_specs))
+                .map_err(AvengerGuidesError::InvalidAxisLabelFormat)?
+                .unwrap_or_else(|| Arc::new(NumberLocaleRegistry::with_builtins()))
+        };
         let locale_id = config.number_locale.as_deref().unwrap_or("en-US");
         let locale = registry
             .resolve(locale_id)
@@ -1496,6 +1531,7 @@ fn make_title(
         syntax_mode: config.title_syntax_mode,
         params: &config.title_text_params,
         number_locale: config.number_locale.as_deref(),
+        number_locale_specs: Some(&config.number_locale_specs),
     })?;
 
     // Now the envelope is in the group's local coordinate system (origin = [0, 0])
@@ -1565,6 +1601,7 @@ fn make_title(
         text_syntax: config.title_syntax_mode,
         text_params: config.title_text_params.clone(),
         number_locale: config.number_locale.clone(),
+        number_locale_specs: config.number_locale_specs.clone(),
         ..Default::default()
     })
 }

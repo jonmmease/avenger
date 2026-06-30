@@ -262,6 +262,7 @@ pub(crate) struct TextMeasurementCacheKey {
     syntax_mode: TextSyntaxMode,
     params: String,
     number_locale: Option<String>,
+    number_locale_specs: String,
     measurement: String,
 }
 
@@ -275,6 +276,7 @@ impl TextMeasurementCacheKey {
         syntax_mode: TextSyntaxMode,
         params: &avenger_text::LabelParams,
         number_locale: Option<&str>,
+        number_locale_specs: Option<&avenger_text::NumberLocaleSpecs>,
         measurement: &str,
     ) -> Self {
         Self {
@@ -286,6 +288,9 @@ impl TextMeasurementCacheKey {
             syntax_mode,
             params: avenger_text::label_params_fingerprint(params),
             number_locale: number_locale.map(str::to_string),
+            number_locale_specs: number_locale_specs
+                .map(avenger_text::number_locale_specs_fingerprint)
+                .unwrap_or_default(),
             measurement: measurement.to_string(),
         }
     }
@@ -2642,6 +2647,7 @@ mod tests {
             TextSyntaxMode::Plain,
             avenger_text::empty_label_params(),
             None,
+            None,
             "measurement",
         );
         let typst = TextMeasurementCacheKey::new(
@@ -2652,6 +2658,7 @@ mod tests {
             &FontStyle::default(),
             TextSyntaxMode::TypstMarkup,
             avenger_text::empty_label_params(),
+            None,
             None,
             "measurement",
         );

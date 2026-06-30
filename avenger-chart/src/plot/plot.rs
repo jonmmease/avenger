@@ -2019,15 +2019,31 @@ mod tests {
     #[tokio::test]
     async fn compile_preserves_formatting_context_number_locale() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
+        let number_locale_spec = avenger_text::NumberLocaleSpec {
+            decimal: Some("~".to_string()),
+            group: Some("_".to_string()),
+            ..Default::default()
+        };
         let compiled = Plot::<Cartesian>::new()
-            .formatting_context(FormattingContext::new().number_locale("de-DE"))
+            .formatting_context(
+                FormattingContext::new()
+                    .number_locale("custom")
+                    .number_locale_spec("custom", number_locale_spec.clone()),
+            )
             .mark(Symbol::new().x(lit(1.0)).y(lit(2.0)))
             .compile(&ctx)
             .await?;
 
         assert_eq!(
             compiled.formatting_context.resolved_number_locale(),
-            "de-DE"
+            "custom"
+        );
+        assert_eq!(
+            compiled
+                .formatting_context
+                .number_locale_specs()
+                .get("custom"),
+            Some(&number_locale_spec)
         );
         Ok(())
     }

@@ -448,6 +448,7 @@ impl MarkGeometryUtils for SceneTextMark {
                 syntax_mode: self.text_syntax,
                 params: avenger_text::empty_label_params(),
                 number_locale: None,
+                number_locale_specs: None,
             };
 
             let target = [target[0] + origin[0], target[1] + origin[1]];
@@ -534,6 +535,7 @@ fn truncate_text_to_limit(
             syntax_mode,
             params: avenger_text::empty_label_params(),
             number_locale: None,
+            number_locale_specs: None,
         };
         Ok::<_, std::convert::Infallible>(
             text_engine

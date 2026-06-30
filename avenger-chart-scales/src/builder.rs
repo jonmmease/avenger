@@ -28,6 +28,7 @@ use std::{
     sync::Arc,
 };
 
+use avenger_format_number::NumberLocaleRegistry;
 use avenger_scales::formatter::{DefaultFormatter, Formatters};
 use avenger_scales::scales::{
     ConfiguredScale, RangeKind, ScaleImpl,
@@ -164,6 +165,8 @@ pub struct ScaleBuilder {
     pub(crate) coordinate_domain_placeholders: HashSet<String>,
     /// Default locale id for configured scale number formatters.
     pub(crate) number_locale: Option<String>,
+    /// Custom locale registry for configured scale number formatters.
+    pub(crate) number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
 }
 
 /// Cached data for a single channel's scale
@@ -228,11 +231,13 @@ pub enum ChannelScaleData {
 fn apply_number_locale_to_configured_scale(
     configured: &mut ConfiguredScale,
     number_locale: Option<&str>,
+    number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
 ) {
-    if let Some(number_locale) = number_locale {
+    if number_locale.is_some() || number_locale_registry.is_some() {
         let mut formatters: Formatters = configured.config.context.formatters.clone();
         formatters.number = Arc::new(DefaultFormatter {
-            number_locale: Some(number_locale.to_string()),
+            number_locale: number_locale.map(str::to_string),
+            number_locale_registry,
             ..DefaultFormatter::default()
         });
         configured.config.context.formatters = formatters;
@@ -407,11 +412,20 @@ impl ScaleBuilder {
             explicit_ranges: HashMap::new(),
             coordinate_domain_placeholders: HashSet::new(),
             number_locale: None,
+            number_locale_registry: None,
         }
     }
 
     pub fn with_number_locale(mut self, locale: impl Into<String>) -> Self {
         self.number_locale = Some(locale.into());
+        self
+    }
+
+    pub fn with_number_locale_registry(
+        mut self,
+        registry: Option<Arc<NumberLocaleRegistry>>,
+    ) -> Self {
+        self.number_locale_registry = registry;
         self
     }
 
@@ -1095,6 +1109,7 @@ impl ScaleBuilder {
                     apply_number_locale_to_configured_scale(
                         &mut configured,
                         self.number_locale.as_deref(),
+                        self.number_locale_registry.clone(),
                     );
 
                     result.insert(
@@ -1174,6 +1189,7 @@ impl ScaleBuilder {
                             apply_number_locale_to_configured_scale(
                                 &mut configured,
                                 self.number_locale.as_deref(),
+                                self.number_locale_registry.clone(),
                             );
 
                             result.insert(
@@ -1240,6 +1256,7 @@ impl ScaleBuilder {
                     apply_number_locale_to_configured_scale(
                         &mut configured,
                         self.number_locale.as_deref(),
+                        self.number_locale_registry.clone(),
                     );
 
                     result.insert(
@@ -1318,6 +1335,7 @@ impl ScaleBuilder {
                     apply_number_locale_to_configured_scale(
                         &mut configured,
                         self.number_locale.as_deref(),
+                        self.number_locale_registry.clone(),
                     );
 
                     result.insert(

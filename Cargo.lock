@@ -654,6 +654,7 @@ dependencies = [
  "avenger-chart-marks",
  "avenger-color",
  "avenger-common",
+ "avenger-format-number",
  "avenger-geometry",
  "avenger-guides",
  "avenger-image",
@@ -677,6 +678,7 @@ dependencies = [
  "async-trait",
  "avenger-color",
  "avenger-common",
+ "avenger-format-number",
  "avenger-geometry",
  "avenger-guides",
  "avenger-resource",
@@ -880,6 +882,7 @@ dependencies = [
  "async-trait",
  "avenger-chart-core",
  "avenger-common",
+ "avenger-format-number",
  "avenger-scales",
  "avenger-scenegraph",
  "datafusion",
@@ -1237,6 +1240,7 @@ dependencies = [
 name = "avenger-text"
 version = "0.0.8"
 dependencies = [
+ "avenger-format-number",
  "avenger-typst-label",
  "brotli",
  "fontdb",
@@ -1244,6 +1248,7 @@ dependencies = [
  "lyon_path",
  "ordered-float 5.0.0",
  "serde",
+ "serde_json",
  "strum",
  "svgtypes 0.16.1",
  "thiserror 2.0.18",

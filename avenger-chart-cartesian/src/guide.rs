@@ -377,6 +377,18 @@ impl CompiledGuide for CartesianGuide {
             .eval()
             .map(|eval| eval.formatting_context().resolved_number_locale())
             .unwrap_or("en-US");
+        let default_number_locale_registry = match render_context.eval() {
+            Some(eval) => eval
+                .formatting_context()
+                .number_locale_registry()
+                .map_err(AvengerChartError::InvalidArgument)?,
+            None => None,
+        };
+        let empty_number_locale_specs = avenger_text::NumberLocaleSpecs::default();
+        let default_number_locale_specs = render_context
+            .eval()
+            .map(|eval| eval.formatting_context().number_locale_specs())
+            .unwrap_or(&empty_number_locale_specs);
 
         // Render background if specified (behind everything else)
         if let Some(bg_color) = self.get_background_color(theme, params, ctx).await {
@@ -479,6 +491,8 @@ impl CompiledGuide for CartesianGuide {
                     child_frame_sharing_level,
                     self.nested_axis_levels.get(channel),
                     default_number_locale,
+                    default_number_locale_registry.clone(),
+                    default_number_locale_specs,
                 )
                 .await?;
                 marks.push(axis_mark);

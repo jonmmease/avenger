@@ -214,6 +214,7 @@ mod tests {
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
             number_locale: None,
+            number_locale_specs: None,
         }
     }
 
@@ -229,6 +230,7 @@ mod tests {
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
             number_locale: None,
+            number_locale_specs: None,
         }
     }
 
@@ -244,6 +246,7 @@ mod tests {
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
             number_locale: None,
+            number_locale_specs: None,
         }
     }
 

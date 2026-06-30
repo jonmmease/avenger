@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-common = { path = "../avenger-common" }
+avenger-format-number = { path = "../avenger-format-number" }
 avenger-scales = { path = "../avenger-scales" }
 arrow = { workspace = true }
 datafusion = { workspace = true }

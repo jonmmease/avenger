@@ -2345,6 +2345,7 @@ fn fit_tree_label(
             syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
             params: avenger_text::empty_label_params(),
             number_locale: None,
+            number_locale_specs: None,
         };
         if let Some(service) = text_measurement_service {
             service.measure_text_bounds(&config).width

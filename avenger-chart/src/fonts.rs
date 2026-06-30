@@ -55,6 +55,7 @@ mod tests {
             syntax_mode: TextSyntaxMode::Plain,
             params: &params,
             number_locale: None,
+            number_locale_specs: None,
         };
 
         let chart_bounds = default_chart_text_engine()

@@ -59,6 +59,8 @@ pub struct TextMeasurementConfig<'a> {
     pub params: &'a avenger_typst_label::LabelParams,
     /// Optional number locale id available to Typst markup functions such as `#numfmt`.
     pub number_locale: Option<&'a str>,
+    /// Optional custom number locale specs available to Typst markup functions.
+    pub number_locale_specs: Option<&'a crate::NumberLocaleSpecs>,
 }
 
 /// Configuration needed for font-level metrics.

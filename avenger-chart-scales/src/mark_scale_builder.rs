@@ -8,6 +8,7 @@ use std::{
     sync::Arc,
 };
 
+use avenger_format_number::NumberLocaleRegistry;
 use avenger_scales::{
     formatter::{DefaultFormatter, Formatters},
     scales::{ConfiguredScale, DomainKind, RangeKind},
@@ -345,8 +346,13 @@ where
 {
     let ctx = eval_ctx.session_context.as_ref();
     let params = &eval_ctx.params;
+    let number_locale_registry = eval_ctx
+        .formatting_context()
+        .number_locale_registry()
+        .map_err(AvengerChartError::InvalidArgument)?;
     let mut builder = ScaleBuilder::new()
-        .with_number_locale(eval_ctx.formatting_context().resolved_number_locale());
+        .with_number_locale(eval_ctx.formatting_context().resolved_number_locale())
+        .with_number_locale_registry(number_locale_registry.clone());
 
     // Collect channels needing scales from marks
     let mut channels_with_scales = HashSet::new();
@@ -472,6 +478,7 @@ where
             params,
             theme,
             Some(eval_ctx.formatting_context().resolved_number_locale()),
+            number_locale_registry.clone(),
         ))
         .await?
         {
@@ -1537,6 +1544,7 @@ async fn build_temp_configured_scale(
     params: &IndexMap<String, ScalarValue>,
     theme: &Theme,
     number_locale: Option<&str>,
+    number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
 ) -> Result<Option<ConfiguredScaleWithSpec>, AvengerChartError> {
     match channel_builder {
         ChannelScaleData::Standard {
@@ -1577,7 +1585,11 @@ async fn build_temp_configured_scale(
             scale = Box::pin(scale.normalize_domain(width, height, ctx, params)).await?;
             let mut configured =
                 Box::pin(scale.create_configured_scale(width, height, ctx, params)).await?;
-            apply_number_locale_to_temp_configured_scale(&mut configured, number_locale);
+            apply_number_locale_to_temp_configured_scale(
+                &mut configured,
+                number_locale,
+                number_locale_registry.clone(),
+            );
 
             Ok(Some(
                 ConfiguredScaleWithSpec::new(scale, configured)
@@ -1621,7 +1633,11 @@ async fn build_temp_configured_scale(
             scale = Box::pin(scale.normalize_domain(width, height, ctx, params)).await?;
             let mut configured =
                 Box::pin(scale.create_configured_scale(width, height, ctx, params)).await?;
-            apply_number_locale_to_temp_configured_scale(&mut configured, number_locale);
+            apply_number_locale_to_temp_configured_scale(
+                &mut configured,
+                number_locale,
+                number_locale_registry.clone(),
+            );
 
             Ok(Some(
                 ConfiguredScaleWithSpec::new(scale, configured)
@@ -1638,11 +1654,13 @@ async fn build_temp_configured_scale(
 fn apply_number_locale_to_temp_configured_scale(
     configured: &mut ConfiguredScale,
     number_locale: Option<&str>,
+    number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
 ) {
-    if let Some(number_locale) = number_locale {
+    if number_locale.is_some() || number_locale_registry.is_some() {
         let mut formatters: Formatters = configured.config.context.formatters.clone();
         formatters.number = Arc::new(DefaultFormatter {
-            number_locale: Some(number_locale.to_string()),
+            number_locale: number_locale.map(str::to_string),
+            number_locale_registry,
             ..DefaultFormatter::default()
         });
         configured.config.context.formatters = formatters;

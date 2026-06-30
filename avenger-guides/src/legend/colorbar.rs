@@ -10,7 +10,7 @@ use avenger_text::{
     default_text_engine,
     measurement::TextMeasurementConfig,
     types::{FontStyle, FontWeight, FontWeightNameSpec, TextSyntaxMode},
-    LabelParams, TextEngine,
+    LabelParams, NumberLocaleSpecs, TextEngine,
 };
 
 use crate::{
@@ -57,6 +57,7 @@ fn colorbar_domain_label_text(
         format_number: config.format_number.clone(),
         number_locale: config.number_locale.clone(),
         number_locale_registry: config.number_locale_registry.clone(),
+        number_locale_specs: config.number_locale_specs.clone(),
         ..Default::default()
     };
     let tick_labels = make_tick_label_text(&ticks, scale, &axis_config)?;
@@ -107,6 +108,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
                     number_locale: config.number_locale.as_deref(),
+                    number_locale_specs: Some(&config.number_locale_specs),
                 });
             let max_bounds =
                 text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
@@ -118,6 +120,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
                     number_locale: config.number_locale.as_deref(),
+                    number_locale_specs: Some(&config.number_locale_specs),
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
@@ -153,6 +156,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 format_number: config.format_number.clone(),
                 number_locale: config.number_locale.clone(),
                 number_locale_registry: config.number_locale_registry.clone(),
+                number_locale_specs: config.number_locale_specs.clone(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -316,6 +320,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
                     number_locale: config.number_locale.as_deref(),
+                    number_locale_specs: Some(&config.number_locale_specs),
                 });
             let max_bounds =
                 text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
@@ -327,6 +332,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
                     number_locale: config.number_locale.as_deref(),
+                    number_locale_specs: Some(&config.number_locale_specs),
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
@@ -375,6 +381,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 format_number: config.format_number.clone(),
                 number_locale: config.number_locale.clone(),
                 number_locale_registry: config.number_locale_registry.clone(),
+                number_locale_specs: config.number_locale_specs.clone(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -517,6 +524,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
                     params: avenger_text::empty_label_params(),
                     number_locale: None,
+                    number_locale_specs: None,
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
@@ -551,6 +559,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 format_number: config.format_number.clone(),
                 number_locale: config.number_locale.clone(),
                 number_locale_registry: config.number_locale_registry.clone(),
+                number_locale_specs: config.number_locale_specs.clone(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -727,6 +736,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
                     params: avenger_text::empty_label_params(),
                     number_locale: None,
+                    number_locale_specs: None,
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
@@ -777,6 +787,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 format_number: config.format_number.clone(),
                 number_locale: config.number_locale.clone(),
                 number_locale_registry: config.number_locale_registry.clone(),
+                number_locale_specs: config.number_locale_specs.clone(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -975,6 +986,7 @@ pub struct ColorbarConfig {
     pub format_number: Option<String>,
     pub number_locale: Option<String>,
     pub number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
+    pub number_locale_specs: NumberLocaleSpecs,
     /// Optional background rect styling
     pub background_fill: Option<ColorOrGradient>,
     pub background_stroke: Option<ColorOrGradient>,
@@ -1011,6 +1023,7 @@ impl Default for ColorbarConfig {
             format_number: None,
             number_locale: None,
             number_locale_registry: None,
+            number_locale_specs: NumberLocaleSpecs::default(),
             background_fill: None,
             background_stroke: None,
             background_corner_radius: None,

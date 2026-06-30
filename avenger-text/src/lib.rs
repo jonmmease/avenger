@@ -10,10 +10,14 @@ pub mod rasterization;
 mod text_line;
 pub mod types;
 
+pub use avenger_format_number::NumberLocaleSpec;
 pub use avenger_typst_label::{
     referenced_params, LabelParamValue, LabelParams, MathFontBytesId, RegisteredFont,
 };
 pub use engine::{default_text_engine, TextEngine};
 pub use font_resolver::{FontResolutionOptions, FontResolver, MissingFontPolicy};
 pub use fonts::default_font_resolution;
-pub use math::{empty_label_params, label_params_fingerprint};
+pub use math::{
+    empty_label_params, label_params_fingerprint, number_locale_registry_from_specs,
+    number_locale_specs_fingerprint, NumberLocaleSpecs,
+};

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use avenger_format_number::NumberLocaleRegistry;
-use avenger_text::{types::TextSyntaxMode, LabelParams};
+use avenger_text::{types::TextSyntaxMode, LabelParams, NumberLocaleSpecs};
 
 #[derive(Debug, Clone, Copy)]
 pub enum AxisOrientation {
@@ -19,6 +19,7 @@ pub struct AxisConfig {
     pub format_number: Option<String>,
     pub number_locale: Option<String>,
     pub number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
+    pub number_locale_specs: NumberLocaleSpecs,
     pub title_font_size: Option<f32>,
     // Theming
     pub domain_color: Option<[f32; 4]>,
@@ -65,6 +66,7 @@ impl Default for AxisConfig {
             format_number: None,
             number_locale: None,
             number_locale_registry: None,
+            number_locale_specs: NumberLocaleSpecs::default(),
             title_font_size: None,
             domain_color: None,
             tick_color: None,

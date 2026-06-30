@@ -30,6 +30,8 @@ pub struct SceneTextMark {
     pub text_params: avenger_text::LabelParams,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number_locale: Option<String>,
+    #[serde(default, skip_serializing_if = "number_locale_specs_is_empty")]
+    pub number_locale_specs: avenger_text::NumberLocaleSpecs,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
     #[serde(default = "default_true_bool_channel")]
@@ -91,6 +93,7 @@ impl Hash for SceneTextMark {
         self.text_syntax.hash(state);
         avenger_text::label_params_fingerprint(&self.text_params).hash(state);
         self.number_locale.hash(state);
+        avenger_text::number_locale_specs_fingerprint(&self.number_locale_specs).hash(state);
         self.x.hash(state);
         self.y.hash(state);
         self.defined.hash(state);
@@ -126,6 +129,10 @@ impl Hash for SceneTextMark {
 
 fn text_params_is_empty(params: &avenger_text::LabelParams) -> bool {
     params.is_empty()
+}
+
+fn number_locale_specs_is_empty(specs: &avenger_text::NumberLocaleSpecs) -> bool {
+    specs.is_empty()
 }
 
 fn default_zero_f32_channel() -> ScalarOrArray<f32> {
@@ -317,6 +324,7 @@ impl Default for SceneTextMark {
             text_syntax: TextSyntaxMode::Plain,
             text_params: avenger_text::LabelParams::default(),
             number_locale: None,
+            number_locale_specs: avenger_text::NumberLocaleSpecs::default(),
             x: ScalarOrArray::new_scalar(0.0),
             y: ScalarOrArray::new_scalar(0.0),
             defined: ScalarOrArray::new_scalar(true),
@@ -388,11 +396,22 @@ mod tests {
     fn number_locale_defaults_and_serializes_as_kebab_case() {
         let default_value = serde_json::to_value(SceneTextMark::default()).unwrap();
         assert!(default_value.get("number-locale").is_none());
+        assert!(default_value.get("number-locale-specs").is_none());
 
         let mut mark = SceneTextMark::default();
         mark.number_locale = Some("de-DE".to_string());
+        mark.number_locale_specs.insert(
+            "custom".to_string(),
+            avenger_text::NumberLocaleSpec {
+                decimal: Some("~".to_string()),
+                group: Some("_".to_string()),
+                ..Default::default()
+            },
+        );
 
         let value = serde_json::to_value(mark).unwrap();
         assert_eq!(value["number-locale"], "de-DE");
+        assert_eq!(value["number-locale-specs"]["custom"]["decimal"], "~");
+        assert_eq!(value["number-locale-specs"]["custom"]["group"], "_");
     }
 }

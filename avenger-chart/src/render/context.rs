@@ -1154,6 +1154,7 @@ impl EvaluationContext {
                 config.syntax_mode,
                 config.params,
                 config.number_locale,
+                config.number_locale_specs,
                 TEXT_MARK_MEASUREMENT_CACHE_TAG,
             );
             let cached = {
@@ -1199,6 +1200,7 @@ impl EvaluationContext {
                 config.syntax_mode,
                 config.params,
                 config.number_locale,
+                config.number_locale_specs,
                 measurement_tag,
             );
             let cached = {
@@ -2095,6 +2097,7 @@ mod tests {
                 syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
                 params: avenger_text::empty_label_params(),
                 number_locale: None,
+                number_locale_specs: None,
             })
             .unwrap();
 
@@ -2125,6 +2128,7 @@ mod tests {
             syntax_mode: avenger_text::types::TextSyntaxMode::TypstMarkup,
             params: avenger_text::empty_label_params(),
             number_locale: None,
+            number_locale_specs: None,
         };
 
         assert!(ctx.measure_text_bounds(&config).is_err());
@@ -2176,6 +2180,7 @@ mod tests {
             syntax_mode: avenger_text::types::TextSyntaxMode::TypstMarkup,
             params: &supplied_params,
             number_locale: None,
+            number_locale_specs: None,
         };
         let missing_config = avenger_text::measurement::TextMeasurementConfig {
             text: "#series",
@@ -2186,6 +2191,7 @@ mod tests {
             syntax_mode: avenger_text::types::TextSyntaxMode::TypstMarkup,
             params: avenger_text::empty_label_params(),
             number_locale: None,
+            number_locale_specs: None,
         };
 
         assert!(ctx.measure_text_bounds(&supplied_config).is_ok());

@@ -146,6 +146,7 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
                 syntax_mode: text.syntax_mode,
                 params: text.params,
                 number_locale: text.number_locale,
+                number_locale_specs: Some(text.number_locale_specs),
             },
             dimensions.scale,
             &self.next_cache,
@@ -379,5 +380,6 @@ pub struct TextInstance<'a> {
     pub syntax_mode: TextSyntaxMode,
     pub params: &'a LabelParams,
     pub number_locale: Option<&'a str>,
+    pub number_locale_specs: &'a avenger_text::NumberLocaleSpecs,
     pub use_nearest_filter: bool,
 }

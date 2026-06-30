@@ -43,6 +43,7 @@ pub struct TextRasterizationConfig<'a> {
     pub syntax_mode: TextSyntaxMode,
     pub params: &'a avenger_typst_label::LabelParams,
     pub number_locale: Option<&'a str>,
+    pub number_locale_specs: Option<&'a crate::NumberLocaleSpecs>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -57,6 +58,7 @@ pub struct TextRasterCacheKey {
     pub markup: String,
     pub params: String,
     pub number_locale: Option<String>,
+    pub number_locale_specs: String,
 }
 
 #[derive(Clone)]

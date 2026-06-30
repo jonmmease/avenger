@@ -1,10 +1,13 @@
-use std::sync::OnceLock;
+use std::{collections::BTreeMap, sync::Arc, sync::OnceLock};
 
+use avenger_format_number::{NumberLocaleRegistry, NumberLocaleSpec};
 use avenger_typst_label::{LabelLimits, MathStyle};
 
 use crate::types::TextSyntaxMode;
 
 pub(crate) const DEFAULT_MARKUP_LINE_LEADING_FACTOR: f32 = 0.65;
+
+pub type NumberLocaleSpecs = BTreeMap<String, NumberLocaleSpec>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextMarkupConfig {
@@ -95,4 +98,31 @@ pub fn label_params_fingerprint(params: &avenger_typst_label::LabelParams) -> St
         out.push(';');
     }
     out
+}
+
+pub fn number_locale_specs_fingerprint(specs: &NumberLocaleSpecs) -> String {
+    if specs.is_empty() {
+        String::new()
+    } else {
+        serde_json::to_string(specs).unwrap_or_else(|_| format!("{specs:?}"))
+    }
+}
+
+pub fn number_locale_registry_from_specs(
+    specs: Option<&NumberLocaleSpecs>,
+) -> Result<Option<Arc<NumberLocaleRegistry>>, String> {
+    let Some(specs) = specs else {
+        return Ok(None);
+    };
+    if specs.is_empty() {
+        return Ok(None);
+    }
+
+    let mut registry = NumberLocaleRegistry::with_builtins();
+    for (id, spec) in specs {
+        registry
+            .register_custom_locale(id.clone(), spec.clone())
+            .map_err(|err| err.to_string())?;
+    }
+    Ok(Some(Arc::new(registry)))
 }

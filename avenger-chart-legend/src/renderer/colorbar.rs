@@ -168,6 +168,7 @@ impl LegendRenderer for CompiledColorbar {
             format_number: None,        // Will be set below after evaluating expression
             number_locale: None,
             number_locale_registry: None,
+            number_locale_specs: avenger_text::NumberLocaleSpecs::default(),
             background_fill: None,
             background_stroke: None,
             background_corner_radius: None,

@@ -42,6 +42,7 @@ impl TextLineMeasurer {
             [0.0, 0.0, 0.0, 1.0],
             config.params,
             config.number_locale,
+            config.number_locale_specs,
         )?;
         Ok(bounds_from_metrics(
             result.label.metrics,
@@ -91,6 +92,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
                 config.font_style,
                 config.params,
                 config.number_locale,
+                config.number_locale_specs,
             )
         })?;
         if raster_text.is_empty() {
@@ -122,6 +124,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             config.color,
             config.params,
             config.number_locale,
+            config.number_locale_specs,
         )?;
         let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
         let bounds = bounds_from_metrics(
@@ -144,6 +147,10 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             markup: format!("{:?}", math),
             params: crate::math::label_params_fingerprint(config.params),
             number_locale: config.number_locale.map(str::to_string),
+            number_locale_specs: config
+                .number_locale_specs
+                .map(crate::math::number_locale_specs_fingerprint)
+                .unwrap_or_default(),
         };
         let image = if cached_entries.contains_key(&cache_key) {
             None
@@ -196,6 +203,7 @@ fn measure_text_width_with_typst(
     font_style: FontStyle,
     params: &avenger_typst_label::LabelParams,
     number_locale: Option<&str>,
+    number_locale_specs: Option<&crate::NumberLocaleSpecs>,
 ) -> Result<f32, AvengerTextError> {
     Ok(typeset_line(
         typst,
@@ -208,6 +216,7 @@ fn measure_text_width_with_typst(
         [0.0, 0.0, 0.0, 1.0],
         params,
         number_locale,
+        number_locale_specs,
     )
     .map(|result| result.label.metrics.width)?)
 }
@@ -228,7 +237,16 @@ pub(crate) fn typeset_line(
     color: [f32; 4],
     params: &avenger_typst_label::LabelParams,
     number_locale: Option<&str>,
+    number_locale_specs: Option<&crate::NumberLocaleSpecs>,
 ) -> Result<TypesetLineResult, avenger_typst_label::LabelError> {
+    let number_locale_registry =
+        crate::math::number_locale_registry_from_specs(number_locale_specs).map_err(|message| {
+            avenger_typst_label::LabelError::Engine {
+                start: 0,
+                end: text.len(),
+                message,
+            }
+        })?;
     let options = label_options(
         math,
         text,
@@ -239,6 +257,7 @@ pub(crate) fn typeset_line(
         color,
         params,
         number_locale,
+        number_locale_registry,
     );
     let label = if math.syntax_mode == crate::types::TextSyntaxMode::Plain {
         typst.compile_text(text, &options)?
@@ -273,6 +292,7 @@ pub(crate) fn label_options(
     color: [f32; 4],
     params: &avenger_typst_label::LabelParams,
     number_locale: Option<&str>,
+    number_locale_registry: Option<std::sync::Arc<avenger_format_number::NumberLocaleRegistry>>,
 ) -> avenger_typst_label::LabelOptions {
     let mut math_style = math.math_style.clone();
     math_style.font_size = font_size;
@@ -295,7 +315,7 @@ pub(crate) fn label_options(
         math: math_style,
         params: params.clone(),
         number_locale: number_locale.map(str::to_string),
-        number_locale_registry: None,
+        number_locale_registry,
         limits: limits_for_text(text, math.limits),
     }
 }
@@ -435,6 +455,7 @@ mod tests {
             [0.0, 0.0, 0.0, 1.0],
             crate::empty_label_params(),
             None,
+            None,
         );
 
         assert_eq!(options.text.font_family, "sans-serif");
@@ -480,6 +501,7 @@ mod tests {
                 syntax_mode: TextSyntaxMode::Plain,
                 params: crate::empty_label_params(),
                 number_locale: None,
+                number_locale_specs: None,
             })
             .unwrap();
 
@@ -513,9 +535,42 @@ mod tests {
             [0.0, 0.0, 0.0, 1.0],
             crate::empty_label_params(),
             Some("de-DE"),
+            None,
         );
 
         assert_eq!(options.number_locale.as_deref(), Some("de-DE"));
+    }
+
+    #[test]
+    fn typst_numfmt_uses_number_locale_specs() {
+        let typst = avenger_typst_label::LabelEngine::new(Default::default()).unwrap();
+        let mut params = crate::LabelParams::default();
+        params.insert("value".to_string(), crate::LabelParamValue::Float(1234.5));
+        let mut number_locale_specs = crate::NumberLocaleSpecs::default();
+        number_locale_specs.insert(
+            "tick-test".to_string(),
+            crate::NumberLocaleSpec {
+                decimal: Some("~".to_string()),
+                group: Some("_".to_string()),
+                ..Default::default()
+            },
+        );
+
+        let result = typeset_line(
+            &typst,
+            &TextMarkupConfig::default().with_syntax_mode(TextSyntaxMode::TypstMarkup),
+            "#numfmt(value, \",.1f\")",
+            "sans-serif",
+            12.0,
+            WEIGHT,
+            STYLE,
+            [0.0, 0.0, 0.0, 1.0],
+            &params,
+            Some("tick-test"),
+            Some(&number_locale_specs),
+        );
+
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -540,6 +595,7 @@ mod tests {
                     syntax_mode: TextSyntaxMode::Plain,
                     params: crate::empty_label_params(),
                     number_locale: None,
+                    number_locale_specs: None,
                 },
                 1.0,
                 &HashMap::new(),
@@ -574,6 +630,7 @@ mod tests {
                     syntax_mode: TextSyntaxMode::Plain,
                     params: crate::empty_label_params(),
                     number_locale: None,
+                    number_locale_specs: None,
                 },
                 1.0,
                 &HashMap::new(),
