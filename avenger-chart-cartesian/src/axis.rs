@@ -54,6 +54,9 @@ pub struct CartesianAxis {
     pub label_angle: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub format_number: Maybe<Option<LogicalExprNode>>,
+    #[serde(default)]
+    #[serde_as(as = "MaybeOptionalExpr")]
+    pub number_locale: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
     pub title_font_family: Maybe<Option<LogicalExprNode>>,
     #[serde_as(as = "MaybeOptionalExpr")]
@@ -161,6 +164,15 @@ impl CartesianAxis {
         self
     }
 
+    pub fn number_locale(mut self, locale: impl IntoExpr) -> Self {
+        let expr = locale.into_expr();
+        self.number_locale = Maybe::Set(Some(
+            LogicalExprNode::from_default_expr(expr)
+                .expect("Failed to serialize number_locale expr"),
+        ));
+        self
+    }
+
     pub fn tick_label(self, label: impl IntoExpr) -> Self {
         self.format(label)
     }
@@ -217,6 +229,9 @@ impl CartesianAxis {
         }
         if other.format_number.is_set() {
             self.format_number = other.format_number;
+        }
+        if other.number_locale.is_set() {
+            self.number_locale = other.number_locale;
         }
         if other.title_font_family.is_set() {
             self.title_font_family = other.title_font_family;
@@ -288,6 +303,7 @@ impl Axis for CartesianAxis {
             &self.tick_spacing,
             &self.label_angle,
             &self.format_number,
+            &self.number_locale,
             &self.title_font_family,
             &self.label_font_family,
             &self.show_title,
@@ -311,6 +327,7 @@ impl Axis for CartesianAxis {
             tick_spacing: map_maybe_expr(self.tick_spacing.clone(), f)?,
             label_angle: map_maybe_expr(self.label_angle.clone(), f)?,
             format_number: map_maybe_expr(self.format_number.clone(), f)?,
+            number_locale: map_maybe_expr(self.number_locale.clone(), f)?,
             title_font_family: map_maybe_expr(self.title_font_family.clone(), f)?,
             label_font_family: map_maybe_expr(self.label_font_family.clone(), f)?,
             show_title: map_maybe_expr(self.show_title.clone(), f)?,
@@ -597,6 +614,15 @@ pub async fn evaluate_cartesian_axis(
             None
         };
 
+    let number_locale =
+        if let Some(locale_node) = axis.number_locale.as_option().and_then(|o| o.as_ref()) {
+            let locale_expr =
+                resolve_axis_expr(locale_node.to_default_expr(ctx)?, channel, sharing_context)?;
+            Some(evaluate_string_expr(&locale_expr, ctx, params).await?)
+        } else {
+            None
+        };
+
     let label_angle =
         if let Some(angle_node) = axis.label_angle.as_option().and_then(|o| o.as_ref()) {
             let angle_expr =
@@ -738,6 +764,8 @@ pub async fn evaluate_cartesian_axis(
         dimensions: [plot_width, plot_height],
         grid,
         format_number,
+        number_locale,
+        number_locale_registry: None,
         title_font_size: theme.font_size(&title_ctx),
         domain_color,
         tick_color,
@@ -1033,7 +1061,8 @@ mod tests {
             RepeatContext::new().with_column(resolved_repeat("col_b", col("b"), "Column B"), 2, 4);
         let axis = CartesianAxis::new()
             .title(repeat::column_title())
-            .tick_count(repeat::column_index());
+            .tick_count(repeat::column_index())
+            .number_locale(repeat::column_title());
         let mapped = axis
             .map_exprs(&mut |expr| repeat::resolve_repeat_placeholders(expr, &repeat_context))
             .expect("axis expressions resolve");
@@ -1064,6 +1093,18 @@ mod tests {
         assert_eq!(
             simplify_to_scalar_sync(tick_count).expect("tick count scalar"),
             ScalarValue::Int64(Some(2))
+        );
+
+        let number_locale = mapped
+            .number_locale
+            .as_option()
+            .and_then(|node| node.as_ref())
+            .expect("number locale")
+            .to_default_expr(&datafusion::prelude::SessionContext::new())
+            .expect("number locale expr");
+        assert_eq!(
+            simplify_to_scalar_sync(number_locale).expect("number locale scalar"),
+            ScalarValue::Utf8(Some("Column B".to_string()))
         );
     }
 

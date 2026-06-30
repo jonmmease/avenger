@@ -10,7 +10,7 @@ use avenger_common::value::ScalarOrArray;
 use avenger_format_number::{
     prepare_number_tick_format, Align, CurrencyDisplay, DigitSpec, ExponentMarker, FormatType,
     FormattedNumber, NumberFormatContext, NumberFormatOverrides, NumberLocaleRegistry,
-    NumberTypesetting, PreparedNumberTickFormat, SignPolicy, Symbol,
+    NumberTypesetting, PreparedNumberTickFormat, ResolvedNumberLocale, SignPolicy, Symbol,
 };
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
@@ -398,6 +398,52 @@ mod tests {
     }
 
     #[test]
+    fn bare_tick_format_uses_configured_builtin_locale() {
+        let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![1234.5])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some(",.1f".to_string()),
+                number_locale: Some("de-DE".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::Plain);
+        assert_eq!(labels.text.as_vec(1, None), vec!["1.234,5"]);
+    }
+
+    #[test]
+    fn bare_tick_format_uses_custom_locale_registry() {
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json(
+                "tick-test",
+                r#"{ "base": "en-US", "decimal": "~", "group": "_" }"#,
+            )
+            .expect("custom locale");
+        let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![1234.5])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some(",.1f".to_string()),
+                number_locale: Some("tick-test".to_string()),
+                number_locale_registry: Some(Arc::new(registry)),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::Plain);
+        assert_eq!(labels.text.as_vec(1, None), vec!["1_234~5"]);
+    }
+
+    #[test]
     fn numfmt_tick_fragment_uses_value_context() {
         let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
         let ticks = Arc::new(Float64Array::from(vec![1200.0])) as ArrayRef;
@@ -416,6 +462,25 @@ mod tests {
             labels.text.as_vec(1, None),
             vec!["v=$1.2 times 10^(3)$ m/s^2"]
         );
+    }
+
+    #[test]
+    fn numfmt_tick_fragment_uses_configured_builtin_locale() {
+        let scale = LinearScale::configured((0.0, 2_000_000.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![1_200_000.0])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some("#numfmt(value, \".1S\")".to_string()),
+                number_locale: Some("de-DE".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
+        assert_eq!(labels.text.as_vec(1, None), vec!["1,2\u{a0}Mio."]);
     }
 
     #[test]
@@ -782,23 +847,44 @@ pub(crate) fn make_tick_label_text(
         .map_err(|err| AvengerGuidesError::InvalidScale(err.into()))?;
     let values = values.as_primitive::<Float64Type>();
     let nums: Vec<Option<f64>> = values.iter().collect();
+    let format_env = NumberFormatEnvironment::from_axis_config(config)?;
+    let context = format_env.context();
 
     if pattern.contains("#numfmt") {
-        format_numfmt_tick_fragment(pattern, &nums)
+        format_numfmt_tick_fragment(pattern, &nums, context)
     } else {
-        format_bare_number_ticks(pattern, &nums)
+        format_bare_number_ticks(pattern, &nums, context)
+    }
+}
+
+struct NumberFormatEnvironment {
+    registry: Arc<NumberLocaleRegistry>,
+    locale: ResolvedNumberLocale,
+}
+
+impl NumberFormatEnvironment {
+    fn from_axis_config(config: &AxisConfig) -> Result<Self, AvengerGuidesError> {
+        let registry = config
+            .number_locale_registry
+            .clone()
+            .unwrap_or_else(|| Arc::new(NumberLocaleRegistry::with_builtins()));
+        let locale_id = config.number_locale.as_deref().unwrap_or("en-US");
+        let locale = registry
+            .resolve(locale_id)
+            .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
+        Ok(Self { registry, locale })
+    }
+
+    fn context(&self) -> NumberFormatContext<'_> {
+        NumberFormatContext::new(&self.locale).with_registry(self.registry.as_ref())
     }
 }
 
 fn format_bare_number_ticks(
     spec: &str,
     values: &[Option<f64>],
+    context: NumberFormatContext<'_>,
 ) -> Result<TickLabelText, AvengerGuidesError> {
-    let registry = NumberLocaleRegistry::with_builtins();
-    let locale = registry
-        .resolve("en-US")
-        .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
-    let context = NumberFormatContext::new(&locale).with_registry(&registry);
     let finite_values: Vec<f64> = values
         .iter()
         .filter_map(|value| *value)
@@ -846,12 +932,8 @@ fn format_bare_number_ticks(
 fn format_numfmt_tick_fragment(
     template: &str,
     values: &[Option<f64>],
+    context: NumberFormatContext<'_>,
 ) -> Result<TickLabelText, AvengerGuidesError> {
-    let registry = NumberLocaleRegistry::with_builtins();
-    let locale = registry
-        .resolve("en-US")
-        .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
-    let context = NumberFormatContext::new(&locale).with_registry(&registry);
     let finite_values: Vec<f64> = values
         .iter()
         .filter_map(|value| *value)

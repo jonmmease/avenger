@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Float64Array};
 use avenger_color::{ColorOrGradient, Gradient, LinearGradient};
+use avenger_format_number::NumberLocaleRegistry;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, rect::SceneRectMark};
@@ -54,6 +55,8 @@ fn colorbar_domain_label_text(
     ])) as ArrayRef;
     let axis_config = AxisConfig {
         format_number: config.format_number.clone(),
+        number_locale: config.number_locale.clone(),
+        number_locale_registry: config.number_locale_registry.clone(),
         ..Default::default()
     };
     let tick_labels = make_tick_label_text(&ticks, scale, &axis_config)?;
@@ -146,6 +149,8 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 dimensions: [gradient_width, 0.0],
                 grid: false,
                 format_number: config.format_number.clone(),
+                number_locale: config.number_locale.clone(),
+                number_locale_registry: config.number_locale_registry.clone(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -364,6 +369,8 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 dimensions: [gradient_width, 0.0],
                 grid: false,
                 format_number: config.format_number.clone(),
+                number_locale: config.number_locale.clone(),
+                number_locale_registry: config.number_locale_registry.clone(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -537,6 +544,8 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 dimensions: [0.0, gradient_height],
                 grid: false,
                 format_number: config.format_number.clone(),
+                number_locale: config.number_locale.clone(),
+                number_locale_registry: config.number_locale_registry.clone(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -760,6 +769,8 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 dimensions: [0.0, gradient_height],
                 grid: false,
                 format_number: config.format_number.clone(),
+                number_locale: config.number_locale.clone(),
+                number_locale_registry: config.number_locale_registry.clone(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -956,6 +967,8 @@ pub struct ColorbarConfig {
     pub colorbar_margin: Option<f32>,
     /// Optional numeric formatting string for colorbar tick labels
     pub format_number: Option<String>,
+    pub number_locale: Option<String>,
+    pub number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
     /// Optional background rect styling
     pub background_fill: Option<ColorOrGradient>,
     pub background_stroke: Option<ColorOrGradient>,
@@ -990,6 +1003,8 @@ impl Default for ColorbarConfig {
             colorbar_height: None,
             colorbar_margin: None,
             format_number: None,
+            number_locale: None,
+            number_locale_registry: None,
             background_fill: None,
             background_stroke: None,
             background_corner_radius: None,

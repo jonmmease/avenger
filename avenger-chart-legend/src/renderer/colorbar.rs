@@ -166,6 +166,8 @@ impl LegendRenderer for CompiledColorbar {
             colorbar_height: colorbar_height_param,
             colorbar_margin: Some(0.0), // No margin - align exactly with axis
             format_number: None,        // Will be set below after evaluating expression
+            number_locale: None,
+            number_locale_registry: None,
             background_fill: None,
             background_stroke: None,
             background_corner_radius: None,

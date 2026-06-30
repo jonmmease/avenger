@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use avenger_format_number::NumberLocaleRegistry;
 use avenger_text::{types::TextSyntaxMode, LabelParams};
 
 #[derive(Debug, Clone, Copy)]
@@ -14,6 +17,8 @@ pub struct AxisConfig {
     pub dimensions: [f32; 2],
     pub grid: bool,
     pub format_number: Option<String>,
+    pub number_locale: Option<String>,
+    pub number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
     pub title_font_size: Option<f32>,
     // Theming
     pub domain_color: Option<[f32; 4]>,
@@ -58,6 +63,8 @@ impl Default for AxisConfig {
             dimensions: [100.0, 100.0],
             grid: false,
             format_number: None,
+            number_locale: None,
+            number_locale_registry: None,
             title_font_size: None,
             domain_color: None,
             tick_color: None,
