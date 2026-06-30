@@ -6,8 +6,9 @@ use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 
 use crate::{
-    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternSymbol, ScaleRange, StripeDash,
-    StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer, theme::ThemeValue,
+    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation, PatternSymbol,
+    ScaleRange, StripeDash, StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+    theme::ThemeValue,
 };
 
 #[derive(Debug, Clone)]
@@ -209,7 +210,15 @@ fn parse_stripe_layer(
 ) -> Result<PatternLayer, PatternThemeError> {
     reject_unknown_fields(
         object,
-        &["type", "angle", "spacing", "stroke-width", "phase", "dash"],
+        &[
+            "type",
+            "operation",
+            "angle",
+            "spacing",
+            "stroke-width",
+            "phase",
+            "dash",
+        ],
         path,
     )?;
 
@@ -218,6 +227,7 @@ fn parse_stripe_layer(
         required_length_field(object, "spacing", params, base_font_size, path)?,
         required_length_field(object, "stroke-width", params, base_font_size, path)?,
     );
+    layer.operation = optional_operation_field(object, "operation", path)?.unwrap_or_default();
     layer.phase =
         optional_length_field(object, "phase", params, base_font_size, path)?.unwrap_or_default();
     layer.dash = match object.get("dash") {
@@ -256,8 +266,13 @@ fn parse_symbol_layer(
     base_font_size: f32,
     path: &str,
 ) -> Result<PatternLayer, PatternThemeError> {
-    reject_unknown_fields(object, &["type", "lattice", "symbol", "paint"], path)?;
+    reject_unknown_fields(
+        object,
+        &["type", "operation", "lattice", "symbol", "paint"],
+        path,
+    )?;
 
+    let operation = optional_operation_field(object, "operation", path)?.unwrap_or_default();
     let lattice = parse_symbol_lattice(
         required_field(object, "lattice", path)?,
         params,
@@ -278,6 +293,7 @@ fn parse_symbol_layer(
     )?;
 
     Ok(PatternLayer::Symbol(SymbolPatternLayer {
+        operation,
         lattice,
         symbol,
         paint,
@@ -418,6 +434,32 @@ fn optional_string_field<'a>(
         .get(field)
         .map(|value| expect_string(value, &format!("{}.{}", path, field)))
         .transpose()
+}
+
+fn optional_operation_field(
+    object: &IndexMap<String, ThemeValue>,
+    field: &str,
+    path: &str,
+) -> Result<Option<PatternLayerOperation>, PatternThemeError> {
+    object
+        .get(field)
+        .map(|value| parse_operation(value, &format!("{}.{}", path, field)))
+        .transpose()
+}
+
+fn parse_operation(
+    value: &ThemeValue,
+    path: &str,
+) -> Result<PatternLayerOperation, PatternThemeError> {
+    match expect_string(value, path)? {
+        "add" => Ok(PatternLayerOperation::Add),
+        "subtract" => Ok(PatternLayerOperation::Subtract),
+        "xor" => Ok(PatternLayerOperation::Xor),
+        _ => Err(PatternThemeError::new(
+            path,
+            "must be add, subtract, or xor",
+        )),
+    }
 }
 
 fn required_length_field(
@@ -610,6 +652,10 @@ mod tests {
                     ThemeValue::Array(vec![ThemeValue::Object(IndexMap::from([
                         ("type".to_string(), ThemeValue::String("stripe".to_string())),
                         (
+                            "operation".to_string(),
+                            ThemeValue::String("xor".to_string()),
+                        ),
+                        (
                             "angle".to_string(),
                             ThemeValue::Angle(45.0, crate::theme::AngleUnit::Deg),
                         ),
@@ -629,6 +675,10 @@ mod tests {
                 "layers".to_string(),
                 ThemeValue::Array(vec![ThemeValue::Object(IndexMap::from([
                     ("type".to_string(), ThemeValue::String("symbol".to_string())),
+                    (
+                        "operation".to_string(),
+                        ThemeValue::String("subtract".to_string()),
+                    ),
                     (
                         "lattice".to_string(),
                         ThemeValue::Object(IndexMap::from([
@@ -685,10 +735,47 @@ mod tests {
             &patterns[0].as_ref().unwrap().ink,
             PatternInk::AutoContrast { opacity } if (opacity - 0.13).abs() < f32::EPSILON
         ));
+        assert!(matches!(
+            &patterns[0].as_ref().unwrap().layers[0],
+            PatternLayer::Stripe(layer) if layer.operation == PatternLayerOperation::Xor
+        ));
         assert!(patterns[1].is_none());
         assert!(matches!(
             &patterns[2].as_ref().unwrap().layers[0],
-            PatternLayer::Symbol(_)
+            PatternLayer::Symbol(layer) if layer.operation == PatternLayerOperation::Subtract
+        ));
+    }
+
+    #[test]
+    fn missing_layer_operation_defaults_to_add() {
+        let value = ThemeValue::Object(IndexMap::from([(
+            "layers".to_string(),
+            ThemeValue::Array(vec![ThemeValue::Object(IndexMap::from([
+                ("type".to_string(), ThemeValue::String("stripe".to_string())),
+                (
+                    "angle".to_string(),
+                    ThemeValue::Angle(45.0, crate::theme::AngleUnit::Deg),
+                ),
+                (
+                    "spacing".to_string(),
+                    ThemeValue::Length(16.0, crate::theme::LengthUnit::Px),
+                ),
+                (
+                    "stroke-width".to_string(),
+                    ThemeValue::Length(1.25, crate::theme::LengthUnit::Px),
+                ),
+            ]))]),
+        )]));
+
+        let ScaleRange::Pattern(patterns) =
+            pattern_range_from_theme_value(value, &IndexMap::new(), 12.0).expect("valid range")
+        else {
+            panic!("expected pattern range");
+        };
+
+        assert!(matches!(
+            &patterns[0].as_ref().unwrap().layers[0],
+            PatternLayer::Stripe(layer) if layer.operation == PatternLayerOperation::Add
         ));
     }
 
@@ -719,6 +806,41 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("fill-pattern-discrete[0].layers[0].stroke-width"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn lowering_error_reports_invalid_operation_path() {
+        let value = ThemeValue::Array(vec![ThemeValue::Object(IndexMap::from([(
+            "layers".to_string(),
+            ThemeValue::Array(vec![ThemeValue::Object(IndexMap::from([
+                ("type".to_string(), ThemeValue::String("stripe".to_string())),
+                (
+                    "operation".to_string(),
+                    ThemeValue::String("erase".to_string()),
+                ),
+                (
+                    "angle".to_string(),
+                    ThemeValue::Angle(45.0, crate::theme::AngleUnit::Deg),
+                ),
+                (
+                    "spacing".to_string(),
+                    ThemeValue::Length(16.0, crate::theme::LengthUnit::Px),
+                ),
+                (
+                    "stroke-width".to_string(),
+                    ThemeValue::Length(1.25, crate::theme::LengthUnit::Px),
+                ),
+            ]))]),
+        )]))]);
+
+        let err = pattern_range_from_theme_value(value, &IndexMap::new(), 12.0)
+            .expect_err("invalid operation should report a path");
+
+        assert!(
+            err.to_string()
+                .contains("fill-pattern-discrete[0].layers[0].operation"),
             "unexpected error: {err}"
         );
     }

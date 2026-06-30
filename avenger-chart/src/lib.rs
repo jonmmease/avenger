@@ -146,8 +146,9 @@ pub use avenger_chart_core::{
     impl_supported_channels,
 };
 pub use avenger_scenegraph::marks::pattern::{
-    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternReferenceFrame, PatternSymbol,
-    StripeDash, StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
+    PatternReferenceFrame, PatternSymbol, StripeDash, StripePatternLayer, SymbolLattice2d,
+    SymbolPaint, SymbolPatternLayer,
 };
 
 #[cfg(test)]

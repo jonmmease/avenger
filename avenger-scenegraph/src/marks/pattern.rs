@@ -124,6 +124,19 @@ pub fn default_pattern_opacity() -> Alpha {
     0.18
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PatternLayerOperation {
+    #[default]
+    Add,
+    Subtract,
+    Xor,
+}
+
+fn is_add_operation(operation: &PatternLayerOperation) -> bool {
+    matches!(operation, PatternLayerOperation::Add)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum PatternLayer {
@@ -153,11 +166,21 @@ impl PatternLayer {
             Self::Symbol(layer) => layer.validate(),
         }
     }
+
+    pub fn operation(&self) -> PatternLayerOperation {
+        match self {
+            Self::Stripe(layer) => layer.operation,
+            Self::Symbol(layer) => layer.operation,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct StripePatternLayer {
+    #[serde(default, skip_serializing_if = "is_add_operation")]
+    pub operation: PatternLayerOperation,
+
     pub angle: Deg,
     pub spacing: Px,
     pub stroke_width: Px,
@@ -171,6 +194,7 @@ pub struct StripePatternLayer {
 
 impl Hash for StripePatternLayer {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        self.operation.hash(state);
         hash_f32(self.angle, state);
         hash_f32(self.spacing, state);
         hash_f32(self.stroke_width, state);
@@ -182,6 +206,7 @@ impl Hash for StripePatternLayer {
 impl StripePatternLayer {
     pub fn new(angle: Deg, spacing: Px, stroke_width: Px) -> Self {
         Self {
+            operation: PatternLayerOperation::Add,
             angle,
             spacing,
             stroke_width,
@@ -233,6 +258,9 @@ impl StripeDash {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SymbolPatternLayer {
+    #[serde(default, skip_serializing_if = "is_add_operation")]
+    pub operation: PatternLayerOperation,
+
     pub lattice: SymbolLattice2d,
     pub symbol: PatternSymbol,
     pub paint: SymbolPaint,
@@ -240,6 +268,7 @@ pub struct SymbolPatternLayer {
 
 impl Hash for SymbolPatternLayer {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        self.operation.hash(state);
         self.lattice.hash(state);
         self.symbol.hash(state);
         self.paint.hash(state);
@@ -458,6 +487,7 @@ fn hash_f32<H: Hasher>(value: f32, state: &mut H) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::hash_map::DefaultHasher;
 
     #[test]
     fn stripe_layer_serializes_with_internal_type_tag() {
@@ -468,6 +498,58 @@ mod tests {
         assert_eq!(value["angle"], 45.0);
         assert_eq!(value["spacing"], 16.0);
         assert_eq!(value["stroke-width"], 1.25);
+        assert!(value.get("operation").is_none());
+    }
+
+    #[test]
+    fn pattern_layer_operation_round_trips_explicit_values() {
+        for (operation, expected) in [
+            (PatternLayerOperation::Add, "add"),
+            (PatternLayerOperation::Subtract, "subtract"),
+            (PatternLayerOperation::Xor, "xor"),
+        ] {
+            let mut layer = StripePatternLayer::new(45.0, 16.0, 1.25);
+            layer.operation = operation;
+            let value = serde_json::to_value(PatternLayer::Stripe(layer)).unwrap();
+
+            if operation == PatternLayerOperation::Add {
+                assert!(value.get("operation").is_none());
+            } else {
+                assert_eq!(value["operation"], expected);
+            }
+
+            let mut value = value;
+            value["operation"] = serde_json::Value::String(expected.to_string());
+            let restored: PatternLayer = serde_json::from_value(value).unwrap();
+            assert_eq!(restored.operation(), operation);
+        }
+    }
+
+    #[test]
+    fn omitted_pattern_layer_operation_deserializes_to_add() {
+        let value = serde_json::json!({
+            "type": "stripe",
+            "angle": 45.0,
+            "spacing": 16.0,
+            "stroke-width": 1.25
+        });
+        let layer: PatternLayer = serde_json::from_value(value).unwrap();
+
+        assert_eq!(layer.operation(), PatternLayerOperation::Add);
+    }
+
+    #[test]
+    fn layer_hash_changes_when_operation_changes() {
+        let add = StripePatternLayer::new(45.0, 16.0, 1.25);
+        let mut subtract = add.clone();
+        subtract.operation = PatternLayerOperation::Subtract;
+
+        let mut add_hasher = DefaultHasher::new();
+        add.hash(&mut add_hasher);
+        let mut subtract_hasher = DefaultHasher::new();
+        subtract.hash(&mut subtract_hasher);
+
+        assert_ne!(add_hasher.finish(), subtract_hasher.finish());
     }
 
     #[test]

@@ -14,8 +14,8 @@ use lyon_tessellation::{
 };
 
 use crate::marks::pattern::{
-    PatternAnchor, PatternFill, PatternInk, PatternLayer, StripeDash, StripePatternLayer,
-    SymbolPaint, SymbolPatternLayer,
+    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation, StripeDash,
+    StripePatternLayer, SymbolPaint, SymbolPatternLayer,
 };
 
 const AUTO_CONTRAST_DARK_INK: [f32; 3] = [0.0, 0.0, 0.0];
@@ -112,6 +112,24 @@ pub struct PatternGeometry {
     pub coverage_path: Path,
 }
 
+#[derive(Debug, Clone)]
+pub struct PatternCoverageLayer {
+    pub operation: PatternLayerOperation,
+    /// Coverage for this source pattern layer.
+    pub coverage_path: Path,
+}
+
+#[derive(Debug, Clone)]
+pub struct LayeredPatternGeometry {
+    /// Straight-alpha RGBA pattern ink. Opacity has already been applied.
+    pub ink: [f32; 4],
+    /// One coverage path per non-empty source layer.
+    pub layers: Vec<PatternCoverageLayer>,
+    /// Compound coverage path for callers that still paint all layer coverage
+    /// together.
+    pub merged_coverage_path: Path,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PatternGeometryError {
     InvalidPattern,
@@ -122,6 +140,20 @@ pub fn build_pattern_geometry(
     pattern: &PatternFill,
     context: &PatternRenderContext<'_>,
 ) -> Result<Option<PatternGeometry>, PatternGeometryError> {
+    let Some(geometry) = build_layered_pattern_geometry(pattern, context)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(PatternGeometry {
+        ink: geometry.ink,
+        coverage_path: geometry.merged_coverage_path,
+    }))
+}
+
+pub fn build_layered_pattern_geometry(
+    pattern: &PatternFill,
+    context: &PatternRenderContext<'_>,
+) -> Result<Option<LayeredPatternGeometry>, PatternGeometryError> {
     if pattern.layers.is_empty() || context.host_bounds.is_empty() {
         return Ok(None);
     }
@@ -131,22 +163,40 @@ pub fn build_pattern_geometry(
         .map_err(|_| PatternGeometryError::InvalidPattern)?;
 
     let origin = resolve_origin(pattern.anchor.clone(), context)?;
-    let mut builder = Path::builder();
+    let mut merged_builder = Path::builder();
+    let mut layers = Vec::with_capacity(pattern.layers.len());
 
     for layer in &pattern.layers {
+        let mut layer_builder = Path::builder();
         match layer {
             PatternLayer::Stripe(stripe) => {
-                append_stripe_layer(&mut builder, stripe, origin, context.host_bounds);
+                append_stripe_layer(&mut layer_builder, stripe, origin, context.host_bounds);
             }
             PatternLayer::Symbol(symbol) => {
-                append_symbol_layer(&mut builder, symbol, origin, context.host_bounds)?;
+                append_symbol_layer(&mut layer_builder, symbol, origin, context.host_bounds)?;
             }
         }
+
+        let coverage_path = layer_builder.build();
+        if path_is_empty(&coverage_path) {
+            continue;
+        }
+
+        append_path(&mut merged_builder, &coverage_path);
+        layers.push(PatternCoverageLayer {
+            operation: layer.operation(),
+            coverage_path,
+        });
     }
 
-    Ok(Some(PatternGeometry {
+    if layers.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(LayeredPatternGeometry {
         ink: resolve_pattern_ink(&pattern.ink, context.host_fill, context.gradients),
-        coverage_path: builder.build(),
+        layers,
+        merged_coverage_path: merged_builder.build(),
     }))
 }
 
@@ -395,6 +445,12 @@ fn append_path(builder: &mut lyon_path::path::Builder, path: &Path) {
     }
 }
 
+fn path_is_empty(path: &Path) -> bool {
+    !path
+        .iter()
+        .any(|event| matches!(event, Event::Begin { .. }))
+}
+
 fn append_stroked_path_as_triangles(
     builder: &mut lyon_path::path::Builder,
     path: &Path,
@@ -606,6 +662,54 @@ mod tests {
     }
 
     #[test]
+    fn layered_geometry_preserves_source_layer_operations() {
+        let first = StripePatternLayer::new(0.0, 16.0, 2.0);
+        let mut second = StripePatternLayer::new(90.0, 16.0, 2.0);
+        second.operation = PatternLayerOperation::Subtract;
+        let fill = PatternFill {
+            anchor: PatternAnchor::Mark,
+            layers: vec![PatternLayer::Stripe(first), PatternLayer::Stripe(second)],
+            ..Default::default()
+        };
+        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
+        let geometry = build_layered_pattern_geometry(
+            &fill,
+            &context(PatternRect::new(0.0, 0.0, 32.0, 32.0), &host_fill, &[]),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(geometry.layers.len(), 2);
+        assert_eq!(geometry.layers[0].operation, PatternLayerOperation::Add);
+        assert_eq!(
+            geometry.layers[1].operation,
+            PatternLayerOperation::Subtract
+        );
+        assert_eq!(
+            begin_count(&geometry.merged_coverage_path),
+            begin_count(&geometry.layers[0].coverage_path)
+                + begin_count(&geometry.layers[1].coverage_path)
+        );
+    }
+
+    #[test]
+    fn layered_geometry_returns_none_for_empty_patterns() {
+        let fill = PatternFill {
+            anchor: PatternAnchor::Mark,
+            layers: Vec::new(),
+            ..Default::default()
+        };
+        let host_fill = ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0]);
+
+        assert!(build_layered_pattern_geometry(
+            &fill,
+            &context(PatternRect::new(0.0, 0.0, 32.0, 32.0), &host_fill, &[]),
+        )
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
     fn plot_and_mark_anchors_produce_different_origins() {
         let mut plot_pattern = stripe_pattern(StripePatternLayer::new(0.0, 16.0, 2.0));
         plot_pattern.anchor = PatternAnchor::Plot;
@@ -724,6 +828,7 @@ mod tests {
             anchor: PatternAnchor::Mark,
             layers: vec![PatternLayer::Symbol(
                 crate::marks::pattern::SymbolPatternLayer {
+                    operation: crate::marks::pattern::PatternLayerOperation::Add,
                     lattice: crate::marks::pattern::SymbolLattice2d {
                         u_spacing: 8.0,
                         u_angle: 0.0,
@@ -757,6 +862,7 @@ mod tests {
             anchor: PatternAnchor::Mark,
             layers: vec![PatternLayer::Symbol(
                 crate::marks::pattern::SymbolPatternLayer {
+                    operation: crate::marks::pattern::PatternLayerOperation::Add,
                     lattice: crate::marks::pattern::SymbolLattice2d {
                         u_spacing: 16.0,
                         u_angle: 0.0,
@@ -788,6 +894,7 @@ mod tests {
         let pattern = PatternFill {
             layers: vec![PatternLayer::Symbol(
                 crate::marks::pattern::SymbolPatternLayer {
+                    operation: crate::marks::pattern::PatternLayerOperation::Add,
                     lattice: crate::marks::pattern::SymbolLattice2d {
                         u_spacing: 8.0,
                         u_angle: 0.0,

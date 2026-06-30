@@ -12,7 +12,7 @@ use avenger_scenegraph::{
         line::SceneLineMark,
         mark::SceneMark,
         path::ScenePathMark,
-        pattern::{PatternFill, PatternReferenceFrame},
+        pattern::{PatternFill, PatternLayerOperation, PatternReferenceFrame},
         rect::SceneRectMark,
         rule::SceneRuleMark,
         symbol::SceneSymbolMark,
@@ -24,7 +24,8 @@ use avenger_scenegraph::{
         trail::SceneTrailMark,
     },
     pattern_geometry::{
-        build_pattern_geometry, PatternGeometryError, PatternRect, PatternRenderContext,
+        build_layered_pattern_geometry, LayeredPatternGeometry, PatternGeometryError, PatternRect,
+        PatternRenderContext,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -1170,7 +1171,7 @@ impl SvgRenderer {
             host_fill,
             gradients,
         };
-        let Some(geometry) = build_pattern_geometry(fill_pattern, &pattern_context)
+        let Some(geometry) = build_layered_pattern_geometry(fill_pattern, &pattern_context)
             .map_err(pattern_geometry_error_to_svg_error)?
         else {
             return Ok(());
@@ -1179,10 +1180,14 @@ impl SvgRenderer {
         let host_clip_id = document
             .defs
             .clip_id(&Clip::Path(host_path.clone()), self.options.precision)?;
-        let coverage_d = lyon_path_to_svg_d(&geometry.coverage_path, self.options.precision)?;
-        if coverage_d.is_empty() {
+        if geometry.ink[3] <= 0.0 {
             return Ok(());
         }
+
+        let mut opaque_ink = geometry.ink;
+        let opacity = opaque_ink[3].clamp(0.0, 1.0);
+        opaque_ink[3] = 1.0;
+        let pattern_fill = ColorOrGradient::Color(opaque_ink);
 
         if let Some(parent_clip_id) = parent_clip_id {
             document.body.push_str("<g");
@@ -1190,27 +1195,176 @@ impl SvgRenderer {
             document.body.push_str(">\n");
         }
 
-        let pattern_fill = ColorOrGradient::Color(geometry.ink);
-        self.write_path_element(
-            document,
-            &coverage_d,
-            PathStyle {
-                fill: Some(&pattern_fill),
-                stroke: None,
-                stroke_width: None,
-                stroke_cap: None,
-                stroke_join: None,
-                stroke_dash: None,
-                gradients,
-            },
-            host_clip_id.as_deref(),
-        )?;
+        if geometry
+            .layers
+            .iter()
+            .all(|layer| matches!(layer.operation, PatternLayerOperation::Add))
+        {
+            document.body.push_str("<g");
+            push_clip_attr(&mut document.body, host_clip_id.as_deref());
+            if opacity < 1.0 {
+                document.body.push_str(r#" opacity=""#);
+                push_number(&mut document.body, opacity, self.options.precision)?;
+                document.body.push('"');
+            }
+            document.body.push_str(">\n");
+
+            for layer in &geometry.layers {
+                let coverage_d = lyon_path_to_svg_d(&layer.coverage_path, self.options.precision)?;
+                self.write_path_element(
+                    document,
+                    &coverage_d,
+                    PathStyle {
+                        fill: Some(&pattern_fill),
+                        stroke: None,
+                        stroke_width: None,
+                        stroke_cap: None,
+                        stroke_join: None,
+                        stroke_dash: None,
+                        gradients,
+                    },
+                    None,
+                )?;
+            }
+
+            document.body.push_str("</g>\n");
+        } else {
+            let Some(mask_id) =
+                self.write_pattern_operation_mask(&mut document.defs, &geometry, host_bounds)?
+            else {
+                if parent_clip_id.is_some() {
+                    document.body.push_str("</g>\n");
+                }
+                return Ok(());
+            };
+            let host_d = lyon_path_to_svg_d(host_path, self.options.precision)?;
+            if !host_d.is_empty() {
+                let mut resolver = PaintContext {
+                    defs: &mut document.defs,
+                    gradients,
+                };
+                let pattern_fill = ColorOrGradient::Color(geometry.ink);
+                document.body.push_str(r#"<path d=""#);
+                document.body.push_str(&host_d);
+                document.body.push('"');
+                push_fill_attrs(
+                    &mut document.body,
+                    Some(&pattern_fill),
+                    &mut resolver,
+                    self.options.precision,
+                )?;
+                document.body.push_str(r#" stroke="none""#);
+                push_mask_attr(&mut document.body, &mask_id);
+                document.body.push_str("/>\n");
+            }
+        }
 
         if parent_clip_id.is_some() {
             document.body.push_str("</g>\n");
         }
 
         Ok(())
+    }
+
+    fn write_pattern_operation_mask(
+        &self,
+        defs: &mut SvgDefs,
+        geometry: &LayeredPatternGeometry,
+        bounds: PatternRect,
+    ) -> Result<Option<String>, AvengerSvgError> {
+        let mut previous_mask_id: Option<String> = None;
+
+        for layer in &geometry.layers {
+            let layer_d = lyon_path_to_svg_d(&layer.coverage_path, self.options.precision)?;
+            if layer_d.is_empty() {
+                continue;
+            }
+
+            let previous = previous_mask_id.as_deref();
+            let layer_clip_id =
+                if matches!(layer.operation, PatternLayerOperation::Xor) && previous.is_some() {
+                    defs.clip_id(
+                        &Clip::Path(layer.coverage_path.clone()),
+                        self.options.precision,
+                    )?
+                } else {
+                    None
+                };
+            let mask_id = defs.next_mask_id();
+
+            defs.body.push_str(r#"<mask id=""#);
+            defs.body.push_str(&mask_id);
+            defs.body.push_str(r#"" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" mask-type="luminance">"#);
+            defs.body.push('\n');
+            push_pattern_mask_rect(&mut defs.body, bounds, "black", self.options.precision)?;
+
+            match layer.operation {
+                PatternLayerOperation::Add => {
+                    if let Some(previous) = previous {
+                        push_masked_pattern_rect(
+                            &mut defs.body,
+                            bounds,
+                            "white",
+                            previous,
+                            self.options.precision,
+                        )?;
+                    }
+                    push_mask_path(&mut defs.body, &layer_d, "white");
+                }
+                PatternLayerOperation::Subtract => {
+                    if let Some(previous) = previous {
+                        push_masked_pattern_rect(
+                            &mut defs.body,
+                            bounds,
+                            "white",
+                            previous,
+                            self.options.precision,
+                        )?;
+                        push_mask_path(&mut defs.body, &layer_d, "black");
+                    }
+                }
+                PatternLayerOperation::Xor => {
+                    if let Some(previous) = previous {
+                        defs.body.push_str(r#"<g mask="url(#"#);
+                        defs.body.push_str(previous);
+                        defs.body.push_str(r#")">"#);
+                        defs.body.push('\n');
+                        push_pattern_mask_rect(
+                            &mut defs.body,
+                            bounds,
+                            "white",
+                            self.options.precision,
+                        )?;
+                        push_mask_path(&mut defs.body, &layer_d, "black");
+                        defs.body.push_str("</g>\n");
+
+                        push_mask_path(&mut defs.body, &layer_d, "white");
+                        if let Some(layer_clip_id) = layer_clip_id.as_deref() {
+                            defs.body.push_str("<g");
+                            push_clip_attr(&mut defs.body, Some(layer_clip_id));
+                            defs.body.push_str(r#" mask="url(#"#);
+                            defs.body.push_str(previous);
+                            defs.body.push_str(r#")">"#);
+                            defs.body.push('\n');
+                            push_pattern_mask_rect(
+                                &mut defs.body,
+                                bounds,
+                                "black",
+                                self.options.precision,
+                            )?;
+                            defs.body.push_str("</g>\n");
+                        }
+                    } else {
+                        push_mask_path(&mut defs.body, &layer_d, "white");
+                    }
+                }
+            }
+
+            defs.body.push_str("</mask>\n");
+            previous_mask_id = Some(mask_id);
+        }
+
+        Ok(previous_mask_id)
     }
 
     fn write_path_element(
@@ -1266,6 +1420,7 @@ struct SvgDefs {
     clip_ids: Vec<(Clip, String)>,
     next_gradient_id: usize,
     next_clip_id: usize,
+    next_mask_id: usize,
 }
 
 impl SvgDefs {
@@ -1440,6 +1595,12 @@ impl SvgDefs {
         self.body.push_str("</clipPath>\n");
         Ok(())
     }
+
+    fn next_mask_id(&mut self) -> String {
+        let id = format!("svg-mask-{}", self.next_mask_id);
+        self.next_mask_id += 1;
+        id
+    }
 }
 
 struct PaintContext<'a, 'b> {
@@ -1476,6 +1637,58 @@ fn push_clip_attr(output: &mut String, clip_id: Option<&str>) {
         output.push_str(clip_id);
         output.push_str(r#")""#);
     }
+}
+
+fn push_mask_attr(output: &mut String, mask_id: &str) {
+    output.push_str(r#" mask="url(#"#);
+    output.push_str(mask_id);
+    output.push_str(r#")""#);
+}
+
+fn push_pattern_mask_rect(
+    output: &mut String,
+    bounds: PatternRect,
+    fill: &str,
+    precision: usize,
+) -> Result<(), AvengerSvgError> {
+    output.push_str(r#"<rect x=""#);
+    push_number(output, bounds.min_x(), precision)?;
+    output.push_str(r#"" y=""#);
+    push_number(output, bounds.min_y(), precision)?;
+    output.push_str(r#"" width=""#);
+    push_number(output, bounds.width, precision)?;
+    output.push_str(r#"" height=""#);
+    push_number(output, bounds.height, precision)?;
+    output.push_str(r#"" fill=""#);
+    output.push_str(fill);
+    output.push_str(r#""/>"#);
+    output.push('\n');
+    Ok(())
+}
+
+fn push_masked_pattern_rect(
+    output: &mut String,
+    bounds: PatternRect,
+    fill: &str,
+    mask_id: &str,
+    precision: usize,
+) -> Result<(), AvengerSvgError> {
+    output.push_str(r#"<g mask="url(#"#);
+    output.push_str(mask_id);
+    output.push_str(r#")">"#);
+    output.push('\n');
+    push_pattern_mask_rect(output, bounds, fill, precision)?;
+    output.push_str("</g>\n");
+    Ok(())
+}
+
+fn push_mask_path(output: &mut String, d: &str, fill: &str) {
+    output.push_str(r#"<path d=""#);
+    output.push_str(d);
+    output.push_str(r#"" fill=""#);
+    output.push_str(fill);
+    output.push_str(r#"" stroke="none"/>"#);
+    output.push('\n');
 }
 
 fn push_gradient_unit(
@@ -1882,9 +2095,9 @@ mod tests {
             group::{Clip, SceneGroup},
             image::{SceneImageMark, SceneImageSource},
             pattern::{
-                PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternReferenceFrame,
-                PatternSymbol, StripePatternLayer, SymbolLattice2d, SymbolPaint,
-                SymbolPatternLayer,
+                PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
+                PatternReferenceFrame, PatternSymbol, StripePatternLayer, SymbolLattice2d,
+                SymbolPaint, SymbolPatternLayer,
             },
             rect::SceneRectMark,
             rule::SceneRuleMark,
@@ -2019,9 +2232,69 @@ mod tests {
         let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
 
         assert!(svg.contains(r##"fill="#ccccff""##));
-        assert!(svg.contains(r##"fill="#000000" fill-opacity="0.25""##));
+        assert!(svg.contains(r##"opacity="0.25""##));
+        assert!(svg.contains(r##"fill="#000000" stroke="none""##));
         assert!(svg.contains("<clipPath"));
         assert_eq!(svg.matches(r##"fill="#000000""##).count(), 1);
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn renders_mixed_pattern_layer_operation_masks() {
+        let mut xor_stripe = StripePatternLayer::new(90.0, 8.0, 2.0);
+        xor_stripe.operation = PatternLayerOperation::Xor;
+        let subtract_symbol = SymbolPatternLayer {
+            operation: PatternLayerOperation::Subtract,
+            lattice: SymbolLattice2d {
+                u_spacing: 12.0,
+                u_angle: 0.0,
+                v_spacing: 12.0,
+                v_angle: 90.0,
+                u_phase: 0.0,
+                v_phase: 0.0,
+            },
+            symbol: PatternSymbol {
+                shape: "circle".to_string(),
+                size: 16.0,
+                rotation: 0.0,
+            },
+            paint: SymbolPaint::Filled,
+        };
+        let pattern = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.25,
+            },
+            layers: vec![
+                PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0)),
+                PatternLayer::Stripe(xor_stripe),
+                PatternLayer::Symbol(subtract_symbol),
+            ],
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(4.0),
+                width: Some(ScalarOrArray::new_scalar(24.0)),
+                height: Some(ScalarOrArray::new_scalar(16.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
+                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains("<mask"));
+        assert!(svg.contains(r#"mask-type="luminance""#));
+        assert!(svg.contains(r#"mask="url(#svg-mask-"#));
+        assert!(svg.contains(r#"clip-path="url(#svg-clip-"#));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 
@@ -2098,6 +2371,7 @@ mod tests {
         let pattern = PatternFill {
             anchor: PatternAnchor::Mark,
             layers: vec![PatternLayer::Symbol(SymbolPatternLayer {
+                operation: Default::default(),
                 lattice: SymbolLattice2d {
                     u_spacing: 8.0,
                     u_angle: 0.0,

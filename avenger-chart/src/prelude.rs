@@ -116,8 +116,8 @@ pub use avenger_chart_core::{
     derived_scalar,
 };
 pub use avenger_scenegraph::marks::pattern::{
-    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternSymbol, StripeDash,
-    StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation, PatternSymbol,
+    StripeDash, StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
 };
 
 // Re-export channel config traits - ESSENTIAL for using channel methods

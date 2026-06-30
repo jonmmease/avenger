@@ -11,7 +11,7 @@ use avenger_scenegraph::{
         line::SceneLineMark,
         mark::SceneMark,
         path::ScenePathMark,
-        pattern::{PatternFill, PatternReferenceFrame},
+        pattern::{PatternFill, PatternLayerOperation, PatternReferenceFrame},
         rect::SceneRectMark,
         rule::SceneRuleMark,
         symbol::SceneSymbolMark,
@@ -23,7 +23,8 @@ use avenger_scenegraph::{
         trail::SceneTrailMark,
     },
     pattern_geometry::{
-        build_pattern_geometry, PatternGeometryError, PatternRect, PatternRenderContext,
+        build_layered_pattern_geometry, LayeredPatternGeometry, PatternGeometryError, PatternRect,
+        PatternRenderContext,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -40,12 +41,14 @@ use krilla::{
     color::rgb,
     geom::{PathBuilder, Point, Rect, Size, Transform},
     image::Image,
+    mask::{Mask, MaskType},
     num::NormalizedF32,
     page::PageSettings,
     paint::{
         Fill, FillRule, LineCap, LineJoin, LinearGradient, Paint, RadialGradient, SpreadMethod,
         Stop, Stroke, StrokeDash,
     },
+    stream::Stream,
     surface::Surface,
     text::{Font as KrillaFont, GlyphId, KrillaGlyph},
     Data, Document, SerializeSettings,
@@ -981,25 +984,131 @@ impl PdfRenderer {
             host_fill,
             gradients,
         };
-        let Some(geometry) = build_pattern_geometry(fill_pattern, &pattern_context)
+        let Some(geometry) = build_layered_pattern_geometry(fill_pattern, &pattern_context)
             .map_err(pattern_geometry_error_to_pdf_error)?
         else {
             return Ok(());
         };
 
-        let Some(fill) = color_fill(geometry.ink) else {
+        if geometry.ink[3] <= 0.0 {
             return Ok(());
-        };
-        let Some(coverage_path) = lyon_path_to_krilla(&geometry.coverage_path) else {
-            return Ok(());
-        };
+        }
 
         surface.push_clip_path(&host_clip_path, &FillRule::NonZero);
-        surface.set_fill(Some(fill));
-        surface.set_stroke(None);
-        surface.draw_path(&coverage_path);
+        if geometry
+            .layers
+            .iter()
+            .all(|layer| matches!(layer.operation, PatternLayerOperation::Add))
+        {
+            let mut opaque_ink = geometry.ink;
+            let opacity = opaque_ink[3].clamp(0.0, 1.0);
+            opaque_ink[3] = 1.0;
+            let Some(fill) = color_fill(opaque_ink) else {
+                surface.pop();
+                return Ok(());
+            };
+
+            surface.push_opacity(normalized(opacity));
+            surface.set_fill(Some(fill));
+            surface.set_stroke(None);
+            for layer in &geometry.layers {
+                let Some(coverage_path) = lyon_path_to_krilla(&layer.coverage_path) else {
+                    continue;
+                };
+                surface.draw_path(&coverage_path);
+            }
+            surface.pop();
+        } else {
+            let Some(mask_stream) =
+                self.build_pattern_operation_mask(surface, &geometry, host_bounds)?
+            else {
+                surface.pop();
+                return Ok(());
+            };
+            let mut opaque_ink = geometry.ink;
+            let opacity = opaque_ink[3].clamp(0.0, 1.0);
+            opaque_ink[3] = 1.0;
+            let Some(fill) = color_fill(opaque_ink) else {
+                surface.pop();
+                return Ok(());
+            };
+
+            surface.push_mask(Mask::new(mask_stream, MaskType::Luminosity));
+            surface.push_opacity(normalized(opacity));
+            surface.set_fill(Some(fill));
+            surface.set_stroke(None);
+            surface.draw_path(&host_clip_path);
+            surface.pop();
+            surface.pop();
+        }
         surface.pop();
         Ok(())
+    }
+
+    fn build_pattern_operation_mask(
+        &self,
+        surface: &mut Surface<'_>,
+        geometry: &LayeredPatternGeometry,
+        bounds: PatternRect,
+    ) -> Result<Option<Stream>, AvengerPdfError> {
+        let mut previous_mask: Option<Stream> = None;
+
+        for layer in &geometry.layers {
+            let Some(layer_path) = lyon_path_to_krilla(&layer.coverage_path) else {
+                continue;
+            };
+
+            let mut stream_builder = surface.stream_builder();
+            let mut mask_surface = stream_builder.surface();
+            draw_luminosity_mask_rect(&mut mask_surface, bounds, false);
+
+            match layer.operation {
+                PatternLayerOperation::Add => {
+                    if let Some(previous) = &previous_mask {
+                        draw_luminosity_previous_mask(
+                            &mut mask_surface,
+                            bounds,
+                            previous.clone(),
+                            true,
+                        );
+                    }
+                    draw_luminosity_mask_path(&mut mask_surface, &layer_path, true);
+                }
+                PatternLayerOperation::Subtract => {
+                    if let Some(previous) = &previous_mask {
+                        draw_luminosity_previous_mask(
+                            &mut mask_surface,
+                            bounds,
+                            previous.clone(),
+                            true,
+                        );
+                        draw_luminosity_mask_path(&mut mask_surface, &layer_path, false);
+                    }
+                }
+                PatternLayerOperation::Xor => {
+                    if let Some(previous) = &previous_mask {
+                        mask_surface.push_mask(Mask::new(previous.clone(), MaskType::Luminosity));
+                        draw_luminosity_mask_rect(&mut mask_surface, bounds, true);
+                        draw_luminosity_mask_path(&mut mask_surface, &layer_path, false);
+                        mask_surface.pop();
+
+                        draw_luminosity_mask_path(&mut mask_surface, &layer_path, true);
+                        mask_surface.push_clip_path(&layer_path, &FillRule::NonZero);
+                        mask_surface.push_mask(Mask::new(previous.clone(), MaskType::Luminosity));
+                        draw_luminosity_mask_rect(&mut mask_surface, bounds, false);
+                        mask_surface.pop();
+                        mask_surface.pop();
+                    } else {
+                        draw_luminosity_mask_path(&mut mask_surface, &layer_path, true);
+                    }
+                }
+            }
+
+            mask_surface.finish();
+            previous_mask = Some(stream_builder.finish());
+        }
+
+        Ok(previous_mask)
     }
 
     fn draw_path_with_style(
@@ -1161,6 +1270,49 @@ fn lyon_path_to_krilla(path: &LyonPath) -> Option<krilla::geom::Path> {
     }
 
     has_segments.then(|| builder.finish()).flatten()
+}
+
+fn pattern_rect_to_krilla(bounds: PatternRect) -> Option<krilla::geom::Path> {
+    if bounds.is_empty() {
+        return None;
+    }
+
+    let mut builder = PathBuilder::new();
+    builder.move_to(bounds.min_x(), bounds.min_y());
+    builder.line_to(bounds.max_x(), bounds.min_y());
+    builder.line_to(bounds.max_x(), bounds.max_y());
+    builder.line_to(bounds.min_x(), bounds.max_y());
+    builder.close();
+    builder.finish()
+}
+
+fn draw_luminosity_previous_mask(
+    surface: &mut Surface<'_>,
+    bounds: PatternRect,
+    mask_stream: Stream,
+    white: bool,
+) {
+    surface.push_mask(Mask::new(mask_stream, MaskType::Luminosity));
+    draw_luminosity_mask_rect(surface, bounds, white);
+    surface.pop();
+}
+
+fn draw_luminosity_mask_rect(surface: &mut Surface<'_>, bounds: PatternRect, white: bool) {
+    let Some(path) = pattern_rect_to_krilla(bounds) else {
+        return;
+    };
+    draw_luminosity_mask_path(surface, &path, white);
+}
+
+fn draw_luminosity_mask_path(surface: &mut Surface<'_>, path: &krilla::geom::Path, white: bool) {
+    surface.set_fill(Some(luminosity_mask_fill(white)));
+    surface.set_stroke(None);
+    surface.draw_path(path);
+}
+
+fn luminosity_mask_fill(white: bool) -> Fill {
+    let value = if white { 1.0 } else { 0.0 };
+    color_fill([value, value, value, 1.0]).expect("opaque grayscale fill is valid")
 }
 
 fn clip_to_krilla_path(clip: &Clip) -> Result<Option<krilla::geom::Path>, AvengerPdfError> {
@@ -1817,8 +1969,9 @@ mod tests {
         group::{Clip, SceneGroup},
         image::{SceneImageMark, SceneImageSource},
         pattern::{
-            PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternReferenceFrame,
-            PatternSymbol, StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+            PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
+            PatternReferenceFrame, PatternSymbol, StripePatternLayer, SymbolLattice2d, SymbolPaint,
+            SymbolPatternLayer,
         },
         rect::SceneRectMark,
         text::SceneTextMark,
@@ -2026,6 +2179,62 @@ mod tests {
     }
 
     #[test]
+    fn renders_mixed_pattern_layer_operation_masks() {
+        let mut xor_stripe = StripePatternLayer::new(90.0, 8.0, 2.0);
+        xor_stripe.operation = PatternLayerOperation::Xor;
+        let subtract_symbol = SymbolPatternLayer {
+            operation: PatternLayerOperation::Subtract,
+            lattice: SymbolLattice2d {
+                u_spacing: 12.0,
+                u_angle: 0.0,
+                v_spacing: 12.0,
+                v_angle: 90.0,
+                u_phase: 0.0,
+                v_phase: 0.0,
+            },
+            symbol: PatternSymbol {
+                shape: "circle".to_string(),
+                size: 16.0,
+                rotation: 0.0,
+            },
+            paint: SymbolPaint::Filled,
+        };
+        let pattern = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.25,
+            },
+            layers: vec![
+                PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0)),
+                PatternLayer::Stripe(xor_stripe),
+                PatternLayer::Symbol(subtract_symbol),
+            ],
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(4.0),
+                width: Some(ScalarOrArray::new_scalar(24.0)),
+                height: Some(ScalarOrArray::new_scalar(16.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
+                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let pdf = PdfRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(pdf.len() > 1000);
+    }
+
+    #[test]
     fn plot_anchored_fill_pattern_requires_reference_frame() {
         let pattern = PatternFill {
             layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
@@ -2098,6 +2307,7 @@ mod tests {
         let pattern = PatternFill {
             anchor: PatternAnchor::Mark,
             layers: vec![PatternLayer::Symbol(SymbolPatternLayer {
+                operation: Default::default(),
                 lattice: SymbolLattice2d {
                     u_spacing: 8.0,
                     u_angle: 0.0,

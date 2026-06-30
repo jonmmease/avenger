@@ -100,8 +100,9 @@ pub mod __private {
 
 pub use avenger_common::cursor::CursorStyle;
 pub use avenger_scenegraph::marks::pattern::{
-    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternReferenceFrame, PatternSymbol,
-    StripeDash, StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
+    PatternReferenceFrame, PatternSymbol, StripeDash, StripePatternLayer, SymbolLattice2d,
+    SymbolPaint, SymbolPatternLayer,
 };
 pub use axis::Axis;
 pub use axis_position::AxisPosition;

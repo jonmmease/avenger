@@ -15,7 +15,7 @@ use avenger_scenegraph::marks::{
     image::SceneImageMark,
     line::SceneLineMark,
     path::ScenePathMark,
-    pattern::{is_no_fill_pattern, PatternFill, PatternReferenceFrame},
+    pattern::{is_no_fill_pattern, PatternFill, PatternLayerOperation, PatternReferenceFrame},
     rect::SceneRectMark,
     rule::SceneRuleMark,
     stroke_dash::dash_paths,
@@ -24,7 +24,7 @@ use avenger_scenegraph::marks::{
     trail::SceneTrailMark,
 };
 use avenger_scenegraph::pattern_geometry::{
-    build_pattern_geometry, PatternGeometryError, PatternRect, PatternRenderContext,
+    build_layered_pattern_geometry, PatternGeometryError, PatternRect, PatternRenderContext,
 };
 use etagere::euclid::UnknownUnit;
 use image::DynamicImage;
@@ -66,6 +66,12 @@ pub const TEXT_TEXTURE_NEAREST_CODE: f32 = -4.0;
 
 const NORMALIZED_SYMBOL_STROKE_WIDTH: f32 = 0.1;
 const STENCIL_ATTACHMENT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Stencil8;
+const PATTERN_CLIP_BIT: u32 = 0x01;
+const PATTERN_HOST_BIT: u32 = 0x02;
+const PATTERN_MASK_BIT: u32 = 0x04;
+const PATTERN_PAINTED_BIT: u32 = 0x08;
+const PATTERN_LAYER_BIT: u32 = 0x10;
+const PATTERN_LAYER_PAINTED_BIT: u32 = 0x20;
 
 pub(crate) fn is_axis_aligned_angle(angle: f32) -> bool {
     let normalized = angle.rem_euclid(360.0);
@@ -123,8 +129,16 @@ pub struct MultiMarkBatch {
 }
 
 #[derive(Clone)]
+pub(crate) struct PatternOverlayOperationBatch {
+    pub(crate) indices_range: Range<u32>,
+    pub(crate) operation: PatternLayerOperation,
+}
+
+#[derive(Clone)]
 pub struct PatternOverlayBatch {
-    pub host_indices_range: Range<u32>,
+    pub(crate) host_indices_range: Range<u32>,
+    pub(crate) operations: Vec<PatternOverlayOperationBatch>,
+    pub(crate) paint_indices_range: Range<u32>,
 }
 
 /// Per-frame GPU resources for a `MultiMarkRenderer`, built once by `prepare()` and
@@ -178,8 +192,15 @@ pub struct MultiMarkRenderResources {
     render_pipeline: RenderPipeline,
     stencil_render_pipeline: RenderPipeline,
     stencil_pipeline: RenderPipeline,
-    stencil_increment_pipeline: RenderPipeline,
-    stencil_paint_increment_pipeline: RenderPipeline,
+    pattern_clip_pipeline: RenderPipeline,
+    pattern_host_pipeline: RenderPipeline,
+    pattern_host_clip_pipeline: RenderPipeline,
+    pattern_add_pipeline: RenderPipeline,
+    pattern_subtract_pipeline: RenderPipeline,
+    pattern_clear_layer_pipeline: RenderPipeline,
+    pattern_layer_pipeline: RenderPipeline,
+    pattern_xor_apply_pipeline: RenderPipeline,
+    pattern_paint_pipeline: RenderPipeline,
     sample_count: u32,
 }
 
@@ -243,12 +264,6 @@ impl MultiMarkRenderResources {
             pass_op: wgpu::StencilOperation::Replace,
             ..Default::default()
         };
-        let stencil_increment_face = wgpu::StencilFaceState {
-            compare: wgpu::CompareFunction::Equal,
-            pass_op: wgpu::StencilOperation::IncrementClamp,
-            ..Default::default()
-        };
-
         let stencil_render_pipeline = Self::make_render_pipeline(
             device,
             texture_format,
@@ -301,57 +316,122 @@ impl MultiMarkRenderResources {
             wgpu::ColorWrites::empty(),
             Default::default(),
         );
-        let stencil_increment_pipeline = Self::make_render_pipeline(
+        let pattern_clip_pipeline = Self::make_stencil_pipeline(
             device,
             texture_format,
             sample_count,
             &render_pipeline_layout,
             &shader,
-            Some(wgpu::DepthStencilState {
-                format: STENCIL_ATTACHMENT_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilState {
-                    front: stencil_increment_face,
-                    back: stencil_increment_face,
-                    read_mask: !0,
-                    write_mask: !0,
-                },
-                bias: Default::default(),
-            }),
+            wgpu::CompareFunction::Always,
+            wgpu::StencilOperation::Replace,
+            !0,
+            PATTERN_CLIP_BIT,
             None,
             wgpu::ColorWrites::empty(),
-            Default::default(),
         );
-        let stencil_paint_increment_pipeline = Self::make_render_pipeline(
+        let pattern_host_pipeline = Self::make_stencil_pipeline(
             device,
             texture_format,
             sample_count,
             &render_pipeline_layout,
             &shader,
-            Some(wgpu::DepthStencilState {
-                format: STENCIL_ATTACHMENT_FORMAT,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilState {
-                    front: stencil_increment_face,
-                    back: stencil_increment_face,
-                    read_mask: !0,
-                    write_mask: !0,
-                },
-                bias: Default::default(),
-            }),
+            wgpu::CompareFunction::Always,
+            wgpu::StencilOperation::Replace,
+            !0,
+            PATTERN_HOST_BIT,
+            None,
+            wgpu::ColorWrites::empty(),
+        );
+        let pattern_host_clip_pipeline = Self::make_stencil_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &render_pipeline_layout,
+            &shader,
+            wgpu::CompareFunction::Equal,
+            wgpu::StencilOperation::Replace,
+            PATTERN_CLIP_BIT,
+            PATTERN_HOST_BIT,
+            None,
+            wgpu::ColorWrites::empty(),
+        );
+        let pattern_add_pipeline = Self::make_stencil_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &render_pipeline_layout,
+            &shader,
+            wgpu::CompareFunction::Equal,
+            wgpu::StencilOperation::Replace,
+            PATTERN_HOST_BIT,
+            PATTERN_MASK_BIT,
+            None,
+            wgpu::ColorWrites::empty(),
+        );
+        let pattern_subtract_pipeline = Self::make_stencil_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &render_pipeline_layout,
+            &shader,
+            wgpu::CompareFunction::Equal,
+            wgpu::StencilOperation::Replace,
+            PATTERN_HOST_BIT,
+            PATTERN_MASK_BIT,
+            None,
+            wgpu::ColorWrites::empty(),
+        );
+        let pattern_clear_layer_pipeline = Self::make_stencil_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &render_pipeline_layout,
+            &shader,
+            wgpu::CompareFunction::Equal,
+            wgpu::StencilOperation::Replace,
+            PATTERN_HOST_BIT,
+            PATTERN_LAYER_BIT | PATTERN_LAYER_PAINTED_BIT,
+            None,
+            wgpu::ColorWrites::empty(),
+        );
+        let pattern_layer_pipeline = Self::make_stencil_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &render_pipeline_layout,
+            &shader,
+            wgpu::CompareFunction::Equal,
+            wgpu::StencilOperation::Replace,
+            PATTERN_HOST_BIT,
+            PATTERN_LAYER_BIT,
+            None,
+            wgpu::ColorWrites::empty(),
+        );
+        let pattern_xor_apply_pipeline = Self::make_stencil_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &render_pipeline_layout,
+            &shader,
+            wgpu::CompareFunction::Equal,
+            wgpu::StencilOperation::Invert,
+            PATTERN_LAYER_BIT | PATTERN_LAYER_PAINTED_BIT,
+            PATTERN_MASK_BIT | PATTERN_LAYER_PAINTED_BIT,
+            None,
+            wgpu::ColorWrites::empty(),
+        );
+        let pattern_paint_pipeline = Self::make_stencil_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &render_pipeline_layout,
+            &shader,
+            wgpu::CompareFunction::Equal,
+            wgpu::StencilOperation::Invert,
+            PATTERN_MASK_BIT | PATTERN_PAINTED_BIT,
+            PATTERN_PAINTED_BIT,
             Some(wgpu::BlendState::ALPHA_BLENDING),
             wgpu::ColorWrites::ALL,
-            wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
         );
         Self {
             uniform_layout,
@@ -360,8 +440,15 @@ impl MultiMarkRenderResources {
             render_pipeline,
             stencil_render_pipeline,
             stencil_pipeline,
-            stencil_increment_pipeline,
-            stencil_paint_increment_pipeline,
+            pattern_clip_pipeline,
+            pattern_host_pipeline,
+            pattern_host_clip_pipeline,
+            pattern_add_pipeline,
+            pattern_subtract_pipeline,
+            pattern_clear_layer_pipeline,
+            pattern_layer_pipeline,
+            pattern_xor_apply_pipeline,
+            pattern_paint_pipeline,
             sample_count,
         }
     }
@@ -416,6 +503,49 @@ impl MultiMarkRenderResources {
             multiview: None,
             cache: None,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_stencil_pipeline(
+        device: &Device,
+        texture_format: TextureFormat,
+        sample_count: u32,
+        render_pipeline_layout: &wgpu::PipelineLayout,
+        shader: &ShaderModule,
+        compare: wgpu::CompareFunction,
+        pass_op: wgpu::StencilOperation,
+        read_mask: u32,
+        write_mask: u32,
+        blend: Option<wgpu::BlendState>,
+        color_writes: wgpu::ColorWrites,
+    ) -> RenderPipeline {
+        let face = wgpu::StencilFaceState {
+            compare,
+            pass_op,
+            ..Default::default()
+        };
+        Self::make_render_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            render_pipeline_layout,
+            shader,
+            Some(wgpu::DepthStencilState {
+                format: STENCIL_ATTACHMENT_FORMAT,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Always,
+                stencil: wgpu::StencilState {
+                    front: face,
+                    back: face,
+                    read_mask,
+                    write_mask,
+                },
+                bias: Default::default(),
+            }),
+            blend,
+            color_writes,
+            Default::default(),
+        )
     }
 
     fn make_texture_bind_group_layout(device: &Device) -> BindGroupLayout {
@@ -710,11 +840,14 @@ impl MultiMarkRenderer {
             host_fill,
             gradients,
         };
-        let Some(geometry) = build_pattern_geometry(fill_pattern, &pattern_context)
+        let Some(geometry) = build_layered_pattern_geometry(fill_pattern, &pattern_context)
             .map_err(pattern_geometry_error_to_wgpu_error)?
         else {
             return Ok(());
         };
+        if geometry.ink[3] <= 0.0 {
+            return Ok(());
+        }
 
         let stencil_paint = ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0]);
         let (host_verts, host_indices) = tessellate_fill_path(host_path, &stencil_paint, &[])?;
@@ -722,19 +855,38 @@ impl MultiMarkRenderer {
             return Ok(());
         };
 
-        let (coverage_verts, coverage_indices) =
-            tessellate_pattern_coverage_path(&geometry.coverage_path, geometry.ink)?;
-        let Some(coverage_indices_range) = self.push_verts_inds(coverage_verts, coverage_indices)
-        else {
+        let mut operations = Vec::with_capacity(geometry.layers.len());
+        for layer in &geometry.layers {
+            let (coverage_verts, coverage_indices) =
+                tessellate_pattern_coverage_path(&layer.coverage_path, [0.0, 0.0, 0.0, 1.0])?;
+            if let Some(indices_range) = self.push_verts_inds(coverage_verts, coverage_indices) {
+                operations.push(PatternOverlayOperationBatch {
+                    indices_range,
+                    operation: layer.operation,
+                });
+            }
+        }
+
+        if operations.is_empty() {
+            return Ok(());
+        }
+
+        let (paint_verts, paint_indices) =
+            tessellate_pattern_coverage_path(&geometry.merged_coverage_path, geometry.ink)?;
+        let Some(paint_indices_range) = self.push_verts_inds(paint_verts, paint_indices) else {
             return Ok(());
         };
 
         let clip_indices_range = self.add_clip_path(clip, mark_clip)?;
         self.batches.push(MultiMarkBatch {
-            indices_range: coverage_indices_range.clone(),
+            indices_range: paint_indices_range.clone(),
             clip: clip.maybe_clip(mark_clip),
             clip_indices_range,
-            pattern_overlay: Some(PatternOverlayBatch { host_indices_range }),
+            pattern_overlay: Some(PatternOverlayBatch {
+                host_indices_range,
+                operations,
+                paint_indices_range,
+            }),
             image_atlas_index: None,
             gradient_atlas_index: None,
             text_atlas_index: None,
@@ -2156,35 +2308,57 @@ impl MultiMarkRenderer {
                 );
                 Self::apply_scissor(&mut rp, &batch.clip, scale, cw, ch);
 
-                let mut base_ref = 0;
                 if let Some(clip_indices_range) = batch.clip_indices_range.clone() {
-                    rp.set_stencil_reference(1);
-                    rp.set_pipeline(&resources.stencil_pipeline);
+                    rp.set_stencil_reference(PATTERN_CLIP_BIT);
+                    rp.set_pipeline(&resources.pattern_clip_pipeline);
                     rp.set_vertex_buffer(0, prepared.clip_vertex_buffer.slice(..));
                     rp.set_index_buffer(
                         prepared.clip_index_buffer.slice(..),
                         wgpu::IndexFormat::Uint32,
                     );
                     rp.draw_indexed(clip_indices_range, 0, 0..1);
-                    base_ref = 1;
                 }
 
-                rp.set_pipeline(&resources.stencil_increment_pipeline);
                 rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
                 rp.set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                rp.set_stencil_reference(base_ref);
+                if batch.clip_indices_range.is_some() {
+                    rp.set_pipeline(&resources.pattern_host_clip_pipeline);
+                    rp.set_stencil_reference(PATTERN_CLIP_BIT | PATTERN_HOST_BIT);
+                } else {
+                    rp.set_pipeline(&resources.pattern_host_pipeline);
+                    rp.set_stencil_reference(PATTERN_HOST_BIT);
+                }
                 rp.draw_indexed(pattern_overlay.host_indices_range.clone(), 0, 0..1);
 
-                // First isolate pattern coverage in stencil, then paint through
-                // the completed mask. Painting while mutating the same stencil
-                // value makes overlapping pattern layers order-dependent.
-                rp.set_pipeline(&resources.stencil_increment_pipeline);
-                rp.set_stencil_reference(base_ref + 1);
-                rp.draw_indexed(batch.indices_range.clone(), 0, 0..1);
+                for operation in &pattern_overlay.operations {
+                    match operation.operation {
+                        PatternLayerOperation::Add => {
+                            rp.set_pipeline(&resources.pattern_add_pipeline);
+                            rp.set_stencil_reference(PATTERN_HOST_BIT | PATTERN_MASK_BIT);
+                        }
+                        PatternLayerOperation::Subtract => {
+                            rp.set_pipeline(&resources.pattern_subtract_pipeline);
+                            rp.set_stencil_reference(PATTERN_HOST_BIT);
+                        }
+                        PatternLayerOperation::Xor => {
+                            rp.set_pipeline(&resources.pattern_clear_layer_pipeline);
+                            rp.set_stencil_reference(PATTERN_HOST_BIT);
+                            rp.draw_indexed(pattern_overlay.host_indices_range.clone(), 0, 0..1);
 
-                rp.set_pipeline(&resources.stencil_paint_increment_pipeline);
-                rp.set_stencil_reference(base_ref + 2);
-                rp.draw_indexed(batch.indices_range.clone(), 0, 0..1);
+                            rp.set_pipeline(&resources.pattern_layer_pipeline);
+                            rp.set_stencil_reference(PATTERN_HOST_BIT | PATTERN_LAYER_BIT);
+                            rp.draw_indexed(operation.indices_range.clone(), 0, 0..1);
+
+                            rp.set_pipeline(&resources.pattern_xor_apply_pipeline);
+                            rp.set_stencil_reference(PATTERN_LAYER_BIT);
+                        }
+                    }
+                    rp.draw_indexed(operation.indices_range.clone(), 0, 0..1);
+                }
+
+                rp.set_pipeline(&resources.pattern_paint_pipeline);
+                rp.set_stencil_reference(PATTERN_MASK_BIT);
+                rp.draw_indexed(pattern_overlay.paint_indices_range.clone(), 0, 0..1);
                 i += 1;
             } else if self.batches[bi].clip_indices_range.is_some() {
                 // Dedicated pass for a Path/stencil clip (fresh Clear(0) stencil).
@@ -3131,6 +3305,7 @@ mod tests {
         PatternFill {
             anchor: PatternAnchor::Mark,
             layers: vec![PatternLayer::Symbol(SymbolPatternLayer {
+                operation: Default::default(),
                 lattice: SymbolLattice2d {
                     u_spacing: 8.0,
                     u_angle: 0.0,

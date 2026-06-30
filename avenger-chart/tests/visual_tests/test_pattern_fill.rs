@@ -13,12 +13,12 @@ use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark,
         area::SceneAreaMark,
-        group::SceneGroup,
+        group::{Clip, SceneGroup},
         path::ScenePathMark,
         pattern::{
-            PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternReferenceFrame,
-            PatternSymbol, StripeDash, StripePatternLayer, SymbolLattice2d, SymbolPaint,
-            SymbolPatternLayer,
+            PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
+            PatternReferenceFrame, PatternSymbol, StripeDash, StripePatternLayer, SymbolLattice2d,
+            SymbolPaint, SymbolPatternLayer,
         },
         rect::SceneRectMark,
         symbol::SceneSymbolMark,
@@ -54,6 +54,30 @@ fn stripe(angle: f32, spacing: f32, stroke_width: f32) -> PatternLayer {
     PatternLayer::Stripe(StripePatternLayer::new(angle, spacing, stroke_width))
 }
 
+fn stripe_op(
+    angle: f32,
+    spacing: f32,
+    stroke_width: f32,
+    operation: PatternLayerOperation,
+) -> PatternLayer {
+    let mut layer = StripePatternLayer::new(angle, spacing, stroke_width);
+    layer.operation = operation;
+    PatternLayer::Stripe(layer)
+}
+
+fn stripe_op_with_phase(
+    angle: f32,
+    spacing: f32,
+    stroke_width: f32,
+    phase: f32,
+    operation: PatternLayerOperation,
+) -> PatternLayer {
+    let mut layer = StripePatternLayer::new(angle, spacing, stroke_width);
+    layer.phase = phase;
+    layer.operation = operation;
+    PatternLayer::Stripe(layer)
+}
+
 fn stripe_with_phase(angle: f32, spacing: f32, stroke_width: f32, phase: f32) -> PatternLayer {
     let mut layer = StripePatternLayer::new(angle, spacing, stroke_width);
     layer.phase = phase;
@@ -79,7 +103,28 @@ fn symbol_layer(
     u_phase: f32,
     v_phase: f32,
 ) -> PatternLayer {
+    symbol_layer_op(
+        shape,
+        paint,
+        u_angle,
+        v_angle,
+        u_phase,
+        v_phase,
+        PatternLayerOperation::Add,
+    )
+}
+
+fn symbol_layer_op(
+    shape: &str,
+    paint: SymbolPaint,
+    u_angle: f32,
+    v_angle: f32,
+    u_phase: f32,
+    v_phase: f32,
+    operation: PatternLayerOperation,
+) -> PatternLayer {
     PatternLayer::Symbol(SymbolPatternLayer {
+        operation,
         lattice: SymbolLattice2d {
             u_spacing: 13.0,
             u_angle,
@@ -92,6 +137,34 @@ fn symbol_layer(
             shape: shape.to_string(),
             size: 28.0,
             rotation: 18.0,
+        },
+        paint,
+    })
+}
+
+fn symbol_layer_custom_with_phase(
+    shape: &str,
+    paint: SymbolPaint,
+    operation: PatternLayerOperation,
+    spacing: f32,
+    size: f32,
+    u_phase: f32,
+    v_phase: f32,
+) -> PatternLayer {
+    PatternLayer::Symbol(SymbolPatternLayer {
+        operation,
+        lattice: SymbolLattice2d {
+            u_spacing: spacing,
+            u_angle: 0.0,
+            v_spacing: spacing,
+            v_angle: 90.0,
+            u_phase,
+            v_phase,
+        },
+        symbol: PatternSymbol {
+            shape: shape.to_string(),
+            size,
+            rotation: 0.0,
         },
         paint,
     })
@@ -409,6 +482,222 @@ async fn pattern_ink_opacity() {
 
     assert_scene_graph_visual_match_default(&scene_graph, BASELINE_CATEGORY, "pattern_ink_opacity")
         .await;
+}
+
+#[tokio::test]
+async fn pattern_layer_operation_matrix() {
+    let all_add = solid_pattern(
+        vec![
+            stripe(0.0, 12.0, 2.2),
+            symbol_layer_custom_with_phase(
+                "square",
+                SymbolPaint::Filled,
+                PatternLayerOperation::Add,
+                24.0,
+                30.0,
+                12.0,
+                12.0,
+            ),
+        ],
+        0.42,
+    );
+    let subtract = solid_pattern(
+        vec![
+            stripe(0.0, 12.0, 2.4),
+            symbol_layer_custom_with_phase(
+                "circle",
+                SymbolPaint::Filled,
+                PatternLayerOperation::Subtract,
+                24.0,
+                42.0,
+                12.0,
+                12.0,
+            ),
+        ],
+        0.44,
+    );
+    let outlined_holes = solid_pattern(
+        vec![
+            stripe(0.0, 12.0, 2.0),
+            stripe(90.0, 12.0, 2.0),
+            symbol_layer_custom_with_phase(
+                "circle",
+                SymbolPaint::Filled,
+                PatternLayerOperation::Subtract,
+                24.0,
+                38.0,
+                12.0,
+                12.0,
+            ),
+            symbol_layer_custom_with_phase(
+                "circle",
+                SymbolPaint::Open { stroke_width: 1.25 },
+                PatternLayerOperation::Add,
+                24.0,
+                38.0,
+                12.0,
+                12.0,
+            ),
+        ],
+        0.45,
+    );
+    let xor = solid_pattern(
+        vec![
+            stripe(0.0, 12.0, 2.2),
+            stripe_op(90.0, 12.0, 2.2, PatternLayerOperation::Xor),
+        ],
+        0.46,
+    );
+
+    let scene_graph = SceneGraph {
+        width: 240.0,
+        height: 72.0,
+        origin: [0.0, 0.0],
+        marks: vec![
+            rect_mark(
+                vec![12.0, 68.0, 124.0, 180.0],
+                vec![12.0, 12.0, 12.0, 12.0],
+                vec![48.0, 48.0, 48.0, 48.0],
+                vec![48.0, 48.0, 48.0, 48.0],
+                vec![
+                    ColorOrGradient::Color([0.82, 0.88, 0.96, 1.0]),
+                    ColorOrGradient::Color([0.92, 0.86, 0.74, 1.0]),
+                    ColorOrGradient::Color([0.82, 0.92, 0.84, 1.0]),
+                    ColorOrGradient::Color([0.93, 0.82, 0.9, 1.0]),
+                ],
+                vec![
+                    Some(all_add),
+                    Some(subtract),
+                    Some(outlined_holes),
+                    Some(xor),
+                ],
+            )
+            .into(),
+        ],
+    };
+
+    assert_scene_graph_visual_match_default(
+        &scene_graph,
+        BASELINE_CATEGORY,
+        "pattern_layer_operation_matrix",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn pattern_layer_operation_clipping() {
+    let clip_x = 12.0;
+    let clip_y = 12.0;
+    let clip_width = 180.0;
+    let clip_height = 72.0;
+    let pattern = PatternFill {
+        anchor: PatternAnchor::Plot,
+        ink: PatternInk::Solid {
+            color: [0.0, 0.0, 0.0, 1.0],
+            opacity: 0.5,
+        },
+        layers: vec![
+            stripe_with_phase(0.0, 16.0, 2.4, 8.0),
+            stripe_op_with_phase(90.0, 32.0, 2.4, 16.0, PatternLayerOperation::Xor),
+            symbol_layer_custom_with_phase(
+                "circle",
+                SymbolPaint::Filled,
+                PatternLayerOperation::Subtract,
+                32.0,
+                34.0,
+                16.0,
+                8.0,
+            ),
+            symbol_layer_custom_with_phase(
+                "circle",
+                SymbolPaint::Open { stroke_width: 1.1 },
+                PatternLayerOperation::Add,
+                32.0,
+                34.0,
+                16.0,
+                8.0,
+            ),
+        ],
+    };
+    let path = polygon_path(&[
+        [0.0, 24.0],
+        [88.0, 24.0],
+        [104.0, 48.0],
+        [88.0, 72.0],
+        [0.0, 72.0],
+    ]);
+
+    let scene_graph = SceneGraph {
+        width: 204.0,
+        height: 96.0,
+        origin: [0.0, 0.0],
+        marks: vec![
+            SceneGroup {
+                clip: Clip::Rect {
+                    x: clip_x,
+                    y: clip_y,
+                    width: clip_width,
+                    height: clip_height,
+                },
+                pattern_reference_frame: Some(PatternReferenceFrame {
+                    x: clip_x,
+                    y: clip_y,
+                    width: clip_width,
+                    height: clip_height,
+                }),
+                marks: vec![
+                    ScenePathMark {
+                        path: ScalarOrArray::new_scalar(path),
+                        fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([
+                            0.84, 0.9, 0.95, 1.0,
+                        ])),
+                        fill_pattern: ScalarOrArray::new_scalar(Some(pattern.clone())),
+                        stroke: ScalarOrArray::new_scalar(STROKE),
+                        stroke_width: Some(1.0),
+                        transform: ScalarOrArray::new_scalar(PathTransform::identity()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    SceneSymbolMark {
+                        shapes: vec![SymbolShape::from_vega_str("diamond").unwrap()],
+                        shape_index: ScalarOrArray::new_scalar(0),
+                        x: ScalarOrArray::new_scalar(178.0),
+                        y: ScalarOrArray::new_scalar(48.0),
+                        size: ScalarOrArray::new_scalar(3000.0),
+                        fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([
+                            0.94, 0.86, 0.78, 1.0,
+                        ])),
+                        fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                        stroke: ScalarOrArray::new_scalar(STROKE),
+                        stroke_width: Some(1.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into(),
+            SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(clip_x),
+                y: ScalarOrArray::new_scalar(clip_y),
+                width: Some(ScalarOrArray::new_scalar(clip_width)),
+                height: Some(ScalarOrArray::new_scalar(clip_height)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+                stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.45, 0.49, 0.54, 1.0])),
+                stroke_width: ScalarOrArray::new_scalar(1.0),
+                ..Default::default()
+            }
+            .into(),
+        ],
+    };
+
+    assert_scene_graph_visual_match_default(
+        &scene_graph,
+        BASELINE_CATEGORY,
+        "pattern_layer_operation_clipping",
+    )
+    .await;
 }
 
 #[tokio::test]
