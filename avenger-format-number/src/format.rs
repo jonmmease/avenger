@@ -10,7 +10,7 @@ use crate::{
     typesetting::{ExponentMarker, FormattedNumber, NumberTypesetting},
 };
 
-const SI_PREFIXES: [&str; 17] = [
+pub(crate) const SI_PREFIXES: [&str; 17] = [
     "y", "z", "a", "f", "p", "n", "\u{00b5}", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y",
 ];
 
@@ -201,7 +201,7 @@ fn validate_resolved_format(format: &ResolvedNumberFormat) -> Result<(), FormatE
     Ok(())
 }
 
-fn format_resolved_number(
+pub(crate) fn format_resolved_number(
     value: f64,
     format: &ResolvedNumberFormat,
     context: NumberFormatContext<'_>,
@@ -441,7 +441,10 @@ fn format_compact(
     Ok((text, prefix.to_string(), suffix.to_string()))
 }
 
-fn select_compact_tier<'a>(value: f64, tiers: &'a [CompactTier]) -> Option<&'a CompactTier> {
+pub(crate) fn select_compact_tier<'a>(
+    value: f64,
+    tiers: &'a [CompactTier],
+) -> Option<&'a CompactTier> {
     let exponent = value.abs().log10().floor() as i32;
     tiers
         .iter()
@@ -449,13 +452,53 @@ fn select_compact_tier<'a>(value: f64, tiers: &'a [CompactTier]) -> Option<&'a C
         .max_by_key(|tier| tier.exponent)
 }
 
-fn split_compact_pattern(pattern: &str) -> Result<(&str, &str), FormatError> {
+pub(crate) fn split_compact_pattern(pattern: &str) -> Result<(&str, &str), FormatError> {
     let Some((prefix, suffix)) = pattern.split_once("{0}") else {
         return Err(FormatError::InvalidLocaleData(format!(
             "compact pattern `{pattern}` must contain `{{0}}`"
         )));
     };
     Ok((prefix, suffix))
+}
+
+pub(crate) fn format_fixed_scaled_with_affixes(
+    value: f64,
+    scale_exponent: i32,
+    precision: usize,
+    unit_prefix: &str,
+    unit_suffix: &str,
+    format: &ResolvedNumberFormat,
+    context: NumberFormatContext<'_>,
+) -> Result<FormattedNumber, FormatError> {
+    if !value.is_finite() {
+        return format_resolved_number(value, format, context);
+    }
+
+    let scaled_value = value.abs() / 10_f64.powi(scale_exponent);
+    let mut raw_body = format_fixed(scaled_value, precision);
+    if format.trim {
+        raw_body = trim_number_text(&raw_body);
+    }
+    let body = localize_number_body(&raw_body, format, context.locale);
+
+    let mut prefix = unit_prefix.to_string();
+    if format.symbol == Some(Symbol::CurrencyCompat) {
+        prefix.push('$');
+    }
+
+    let is_negative = value.is_sign_negative() && !rounds_to_zero(&body, context.locale);
+    let text = apply_sign_and_padding(
+        is_negative,
+        &body,
+        &prefix,
+        unit_suffix,
+        format,
+        context.locale,
+    );
+    Ok(FormattedNumber::plain(substitute_digits(
+        &text,
+        context.locale,
+    )))
 }
 
 fn apply_padding_to_content(content: String, format: &ResolvedNumberFormat) -> String {
