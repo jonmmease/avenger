@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use avenger_format_number::{
-    CurrencyDisplay, DigitSpec, FormatType, NumberFormatContext, NumberFormatOverrides,
+    Align, CurrencyDisplay, DigitSpec, FormatType, NumberFormatContext, NumberFormatOverrides,
     NumberLocaleRegistry, NumberTypesetting, SignPolicy, Symbol, format_number,
 };
 
@@ -337,28 +337,59 @@ fn parse_numfmt_named_arg(
             }
         }
         "precision" => {
-            overrides.digit_spec = Some(DigitSpec::Precision(parse_numfmt_u8(
-                named.expr(),
-                params,
+            set_numfmt_digit_spec(
+                overrides,
+                DigitSpec::Precision(parse_numfmt_u8(
+                    named.expr(),
+                    params,
+                    position,
+                    "unsupported numfmt precision",
+                )?),
                 position,
-                "unsupported numfmt precision",
-            )?));
+            )?;
         }
         "fraction_digits" => {
-            overrides.digit_spec = Some(DigitSpec::Fraction(parse_numfmt_u8(
-                named.expr(),
-                params,
+            set_numfmt_digit_spec(
+                overrides,
+                DigitSpec::Fraction(parse_numfmt_u8(
+                    named.expr(),
+                    params,
+                    position,
+                    "unsupported numfmt fraction_digits",
+                )?),
                 position,
-                "unsupported numfmt fraction_digits",
-            )?));
+            )?;
         }
         "significant_digits" => {
-            overrides.digit_spec = Some(DigitSpec::Significant(parse_numfmt_u8(
+            set_numfmt_digit_spec(
+                overrides,
+                DigitSpec::Significant(parse_numfmt_u8(
+                    named.expr(),
+                    params,
+                    position,
+                    "unsupported numfmt significant_digits",
+                )?),
+                position,
+            )?;
+        }
+        "width" => {
+            overrides.width = Some(parse_numfmt_optional_usize(
                 named.expr(),
                 params,
                 position,
-                "unsupported numfmt significant_digits",
-            )?));
+                "unsupported numfmt width",
+            )?);
+        }
+        "fill" => {
+            overrides.fill = Some(parse_numfmt_optional_char(
+                named.expr(),
+                params,
+                position,
+                "unsupported numfmt fill",
+            )?);
+        }
+        "align" => {
+            overrides.align = Some(parse_numfmt_optional_align(named.expr(), params, position)?);
         }
         "group" => {
             overrides.group = Some(parse_numfmt_bool(named.expr(), params, position)?);
@@ -407,6 +438,21 @@ fn parse_numfmt_named_arg(
         }
         _ => return Err(unsupported(position, "unsupported numfmt option")),
     }
+    Ok(())
+}
+
+fn set_numfmt_digit_spec(
+    overrides: &mut NumberFormatOverrides,
+    digit_spec: DigitSpec,
+    position: usize,
+) -> Result<(), LabelError> {
+    if overrides.digit_spec.is_some() {
+        return Err(unsupported(
+            position,
+            "numfmt accepts only one digit-control option",
+        ));
+    }
+    overrides.digit_spec = Some(digit_spec);
     Ok(())
 }
 
@@ -491,6 +537,92 @@ fn parse_numfmt_u8(
         }
     };
     u8::try_from(value).map_err(|_| unsupported(position, message))
+}
+
+fn parse_numfmt_optional_usize(
+    expr: typst_ast::Expr<'_>,
+    params: &Scope,
+    position: usize,
+    message: &'static str,
+) -> Result<Option<usize>, LabelError> {
+    let value = if let Some(value) = param_value_for_ident(expr, params) {
+        match value {
+            Value::None => return Ok(None),
+            Value::Int(value) => *value,
+            _ => return Err(unsupported(position, message)),
+        }
+    } else {
+        match expr {
+            typst_ast::Expr::None(_) => return Ok(None),
+            typst_ast::Expr::Int(value) => value.get(),
+            _ => return Err(unsupported(position, message)),
+        }
+    };
+    usize::try_from(value)
+        .map(Some)
+        .map_err(|_| unsupported(position, message))
+}
+
+fn parse_numfmt_optional_char(
+    expr: typst_ast::Expr<'_>,
+    params: &Scope,
+    position: usize,
+    message: &'static str,
+) -> Result<Option<char>, LabelError> {
+    let value = parse_numfmt_optional_string(expr, params, position, message)?;
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let mut chars = value.chars();
+    let Some(ch) = chars.next() else {
+        return Err(unsupported(position, message));
+    };
+    if chars.next().is_some() {
+        return Err(unsupported(position, message));
+    }
+    Ok(Some(ch))
+}
+
+fn parse_numfmt_optional_align(
+    expr: typst_ast::Expr<'_>,
+    params: &Scope,
+    position: usize,
+) -> Result<Option<Align>, LabelError> {
+    let value = parse_numfmt_optional_string(expr, params, position, "unsupported numfmt align")?;
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let mut chars = value.chars();
+    let Some(ch) = chars.next() else {
+        return Err(unsupported(position, "unsupported numfmt align"));
+    };
+    if chars.next().is_some() {
+        return Err(unsupported(position, "unsupported numfmt align"));
+    }
+    let Some(align) = Align::from_char(ch) else {
+        return Err(unsupported(position, "unsupported numfmt align"));
+    };
+    Ok(Some(align))
+}
+
+fn parse_numfmt_optional_string(
+    expr: typst_ast::Expr<'_>,
+    params: &Scope,
+    position: usize,
+    message: &'static str,
+) -> Result<Option<String>, LabelError> {
+    if let Some(value) = param_value_for_ident(expr, params) {
+        return match value {
+            Value::None => Ok(None),
+            Value::Str(value) => Ok(Some(value.clone())),
+            _ => Err(unsupported(position, message)),
+        };
+    }
+    match expr {
+        typst_ast::Expr::None(_) => Ok(None),
+        typst_ast::Expr::Str(value) => Ok(Some(value.get().to_string())),
+        _ => Err(unsupported(position, message)),
+    }
 }
 
 fn param_value_for_ident<'a>(expr: typst_ast::Expr<'_>, params: &'a Scope) -> Option<&'a Value> {
@@ -1106,6 +1238,43 @@ mod tests {
 
         assert_eq!(line.nodes.len(), 1);
         assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "1.2"));
+    }
+
+    #[test]
+    fn parses_numfmt_width_fill_align_overrides() {
+        let params = scope([("value", Value::Float(42.0))]);
+        let line = parse_with_params(
+            "#numfmt(value, \".0f\", width: 5, fill: \".\", align: \"<\")",
+            &params,
+        );
+
+        assert_eq!(line.nodes.len(), 1);
+        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "42..."));
+    }
+
+    #[test]
+    fn parses_numfmt_width_none_override() {
+        let params = scope([("value", Value::Float(42.0))]);
+        let line = parse_with_params("#numfmt(value, \"08.0f\", width: none)", &params);
+
+        assert_eq!(line.nodes.len(), 1);
+        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "42"));
+    }
+
+    #[test]
+    fn rejects_duplicate_numfmt_digit_options() {
+        let params = scope([("value", Value::Float(1.234))]);
+        let err = parse_line_with_params(
+            "#numfmt(value, \".3f\", precision: 1, fraction_digits: 2)",
+            &params,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            err,
+            LabelError::UnsupportedSyntax { message, .. }
+                if message == "numfmt accepts only one digit-control option"
+        ));
     }
 
     #[test]

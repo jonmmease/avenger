@@ -8,7 +8,7 @@ use arrow::{
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
 use avenger_format_number::{
-    prepare_number_tick_format, CurrencyDisplay, DigitSpec, ExponentMarker, FormatType,
+    prepare_number_tick_format, Align, CurrencyDisplay, DigitSpec, ExponentMarker, FormatType,
     FormattedNumber, NumberFormatContext, NumberFormatOverrides, NumberLocaleRegistry,
     NumberTypesetting, PreparedNumberTickFormat, SignPolicy, Symbol,
 };
@@ -479,6 +479,51 @@ mod tests {
 
         assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
         assert_eq!(labels.text.as_vec(1, None), vec!["$1.2 times 10^(3)$"]);
+    }
+
+    #[test]
+    fn numfmt_tick_fragment_accepts_width_fill_align_overrides() {
+        let scale = LinearScale::configured((0.0, 100.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![42.0])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some(
+                    "#numfmt(value, \".0f\", width: 5, fill: \".\", align: \"<\")".to_string(),
+                ),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
+        assert_eq!(labels.text.as_vec(1, None), vec!["42..."]);
+    }
+
+    #[test]
+    fn numfmt_tick_fragment_rejects_duplicate_digit_options() {
+        let scale = LinearScale::configured((0.0, 100.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![42.0])) as ArrayRef;
+        let result = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some(
+                    "#numfmt(value, \".0f\", precision: 1, fraction_digits: 2)".to_string(),
+                ),
+                ..Default::default()
+            },
+        );
+        let Err(err) = result else {
+            panic!("duplicate digit options should error");
+        };
+
+        assert!(matches!(
+            err,
+            AvengerGuidesError::InvalidAxisLabelFormat(message)
+                if message == "axis numfmt accepts only one digit-control option"
+        ));
     }
 
     fn collect_text_marks(group: &SceneGroup) -> Vec<&SceneTextMark> {
@@ -979,18 +1024,33 @@ fn parse_numfmt_tick_overrides(raw: &str) -> Result<NumberFormatOverrides, Aveng
             }
             "precision" => {
                 let (digit_spec, after_value) = parse_axis_precision_arg(value)?;
-                overrides.digit_spec = Some(digit_spec);
+                set_axis_digit_spec(&mut overrides, digit_spec)?;
                 after_value
             }
             "fraction_digits" => {
                 let (fraction_digits, after_value) = parse_axis_u8_arg(value, "fraction_digits")?;
-                overrides.digit_spec = Some(DigitSpec::Fraction(fraction_digits));
+                set_axis_digit_spec(&mut overrides, DigitSpec::Fraction(fraction_digits))?;
                 after_value
             }
             "significant_digits" => {
                 let (significant_digits, after_value) =
                     parse_axis_u8_arg(value, "significant_digits")?;
-                overrides.digit_spec = Some(DigitSpec::Significant(significant_digits));
+                set_axis_digit_spec(&mut overrides, DigitSpec::Significant(significant_digits))?;
+                after_value
+            }
+            "width" => {
+                let (width, after_value) = parse_axis_optional_usize_arg(value, "width")?;
+                overrides.width = Some(width);
+                after_value
+            }
+            "fill" => {
+                let (fill, after_value) = parse_axis_optional_char_arg(value, "fill")?;
+                overrides.fill = Some(fill);
+                after_value
+            }
+            "align" => {
+                let (align, after_value) = parse_axis_optional_align_arg(value)?;
+                overrides.align = Some(align);
                 after_value
             }
             "group" => {
@@ -1037,6 +1097,19 @@ fn parse_numfmt_tick_overrides(raw: &str) -> Result<NumberFormatOverrides, Aveng
         .trim_start();
     }
     Ok(overrides)
+}
+
+fn set_axis_digit_spec(
+    overrides: &mut NumberFormatOverrides,
+    digit_spec: DigitSpec,
+) -> Result<(), AvengerGuidesError> {
+    if overrides.digit_spec.is_some() {
+        return Err(invalid_axis_label_format(
+            "axis numfmt accepts only one digit-control option",
+        ));
+    }
+    overrides.digit_spec = Some(digit_spec);
+    Ok(())
 }
 
 fn parse_identifier(input: &str) -> Option<(&str, &str)> {
@@ -1135,6 +1208,63 @@ fn parse_axis_symbol_arg(raw: &str) -> Result<(Option<Symbol>, &str), AvengerGui
     Ok((symbol, rest))
 }
 
+fn parse_axis_optional_usize_arg<'a>(
+    raw: &'a str,
+    option: &str,
+) -> Result<(Option<usize>, &'a str), AvengerGuidesError> {
+    if let Some(rest) = strip_identifier(raw, "none") {
+        return Ok((None, rest));
+    }
+    let (width, rest) = parse_axis_usize_arg(raw, option)?;
+    Ok((Some(width), rest))
+}
+
+fn parse_axis_optional_char_arg<'a>(
+    raw: &'a str,
+    option: &str,
+) -> Result<(Option<char>, &'a str), AvengerGuidesError> {
+    if let Some(rest) = strip_identifier(raw, "none") {
+        return Ok((None, rest));
+    }
+    let (value, rest) = parse_axis_string_arg(raw, option)?;
+    let mut chars = value.chars();
+    let Some(ch) = chars.next() else {
+        return Err(invalid_axis_label_format(format!(
+            "axis numfmt option `{option}` must be one character or none"
+        )));
+    };
+    if chars.next().is_some() {
+        return Err(invalid_axis_label_format(format!(
+            "axis numfmt option `{option}` must be one character or none"
+        )));
+    }
+    Ok((Some(ch), rest))
+}
+
+fn parse_axis_optional_align_arg(raw: &str) -> Result<(Option<Align>, &str), AvengerGuidesError> {
+    if let Some(rest) = strip_identifier(raw, "none") {
+        return Ok((None, rest));
+    }
+    let (value, rest) = parse_axis_string_arg(raw, "align")?;
+    let mut chars = value.chars();
+    let Some(ch) = chars.next() else {
+        return Err(invalid_axis_label_format(
+            "axis numfmt option `align` must be one of `<`, `>`, `^`, `=`, or none",
+        ));
+    };
+    if chars.next().is_some() {
+        return Err(invalid_axis_label_format(
+            "axis numfmt option `align` must be one of `<`, `>`, `^`, `=`, or none",
+        ));
+    }
+    let Some(align) = Align::from_char(ch) else {
+        return Err(invalid_axis_label_format(
+            "axis numfmt option `align` must be one of `<`, `>`, `^`, `=`, or none",
+        ));
+    };
+    Ok((Some(align), rest))
+}
+
 fn parse_axis_string_arg<'a>(
     raw: &'a str,
     option: &str,
@@ -1176,6 +1306,29 @@ fn parse_axis_u8_arg<'a>(raw: &'a str, option: &str) -> Result<(u8, &'a str), Av
     let value = raw[..end].parse::<u8>().map_err(|_| {
         invalid_axis_label_format(format!(
             "axis numfmt option `{option}` must be an integer from 0 to 255"
+        ))
+    })?;
+    Ok((value, &raw[end..]))
+}
+
+fn parse_axis_usize_arg<'a>(
+    raw: &'a str,
+    option: &str,
+) -> Result<(usize, &'a str), AvengerGuidesError> {
+    let end = raw
+        .char_indices()
+        .take_while(|(_, ch)| ch.is_ascii_digit())
+        .map(|(idx, ch)| idx + ch.len_utf8())
+        .last()
+        .unwrap_or(0);
+    if end == 0 {
+        return Err(invalid_axis_label_format(format!(
+            "axis numfmt option `{option}` must be a nonnegative integer"
+        )));
+    }
+    let value = raw[..end].parse::<usize>().map_err(|_| {
+        invalid_axis_label_format(format!(
+            "axis numfmt option `{option}` must be a nonnegative integer"
         ))
     })?;
     Ok((value, &raw[end..]))
